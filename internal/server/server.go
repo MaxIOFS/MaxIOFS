@@ -1,0 +1,233 @@
+package server
+
+import (
+	"context"
+	"embed"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/gorilla/handlers"
+	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/api"
+	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/config"
+	"github.com/maxiofs/maxiofs/internal/middleware"
+	"github.com/maxiofs/maxiofs/internal/metrics"
+	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/storage"
+	"github.com/sirupsen/logrus"
+)
+
+//go:embed web/dist/*
+var webAssets embed.FS
+
+// Server represents the MaxIOFS server
+type Server struct {
+	config         *config.Config
+	httpServer     *http.Server
+	consoleServer  *http.Server
+	storageBackend storage.Backend
+	bucketManager  bucket.Manager
+	objectManager  object.Manager
+	authManager    auth.Manager
+	metricsManager *metrics.Manager
+}
+
+// New creates a new MaxIOFS server
+func New(cfg *config.Config) (*Server, error) {
+	// Initialize storage backend
+	storageBackend, err := storage.NewBackend(cfg.Storage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create storage backend: %w", err)
+	}
+
+	// Initialize managers
+	bucketManager := bucket.NewManager(storageBackend)
+	objectManager := object.NewManager(storageBackend, cfg.Storage)
+	authManager := auth.NewManager(cfg.Auth)
+	metricsManager := metrics.NewManager(cfg.Metrics)
+
+	// Create HTTP servers
+	httpServer := &http.Server{
+		Addr:         cfg.Listen,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	consoleServer := &http.Server{
+		Addr:         cfg.ConsoleListen,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	server := &Server{
+		config:         cfg,
+		httpServer:     httpServer,
+		consoleServer:  consoleServer,
+		storageBackend: storageBackend,
+		bucketManager:  bucketManager,
+		objectManager:  objectManager,
+		authManager:    authManager,
+		metricsManager: metricsManager,
+	}
+
+	// Setup routes
+	if err := server.setupRoutes(); err != nil {
+		return nil, fmt.Errorf("failed to setup routes: %w", err)
+	}
+
+	return server, nil
+}
+
+// Start starts the MaxIOFS server
+func (s *Server) Start(ctx context.Context) error {
+	logrus.WithFields(logrus.Fields{
+		"api_address":     s.config.Listen,
+		"console_address": s.config.ConsoleListen,
+		"data_dir":        s.config.DataDir,
+	}).Info("Starting MaxIOFS servers")
+
+	// Start metrics collection
+	if s.config.Metrics.Enable {
+		s.metricsManager.Start(ctx)
+	}
+
+	// Start API server
+	go func() {
+		if err := s.startAPIServer(); err != nil && err != http.ErrServerClosed {
+			logrus.WithError(err).Error("API server error")
+		}
+	}()
+
+	// Start console server
+	go func() {
+		if err := s.startConsoleServer(); err != nil && err != http.ErrServerClosed {
+			logrus.WithError(err).Error("Console server error")
+		}
+	}()
+
+	// Wait for context cancellation
+	<-ctx.Done()
+
+	// Graceful shutdown
+	return s.shutdown()
+}
+
+func (s *Server) startAPIServer() error {
+	logrus.WithField("address", s.config.Listen).Info("Starting API server")
+
+	if s.config.EnableTLS {
+		return s.httpServer.ListenAndServeTLS(s.config.CertFile, s.config.KeyFile)
+	}
+	return s.httpServer.ListenAndServe()
+}
+
+func (s *Server) startConsoleServer() error {
+	logrus.WithField("address", s.config.ConsoleListen).Info("Starting console server")
+	return s.consoleServer.ListenAndServe()
+}
+
+func (s *Server) shutdown() error {
+	logrus.Info("Shutting down servers")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Shutdown API server
+	if err := s.httpServer.Shutdown(ctx); err != nil {
+		logrus.WithError(err).Error("Failed to shutdown API server")
+	}
+
+	// Shutdown console server
+	if err := s.consoleServer.Shutdown(ctx); err != nil {
+		logrus.WithError(err).Error("Failed to shutdown console server")
+	}
+
+	// Stop metrics
+	if s.metricsManager != nil {
+		s.metricsManager.Stop()
+	}
+
+	// Close storage backend
+	if err := s.storageBackend.Close(); err != nil {
+		logrus.WithError(err).Error("Failed to close storage backend")
+	}
+
+	return nil
+}
+
+func (s *Server) setupRoutes() error {
+	// Setup API routes (S3 compatible)
+	apiRouter := mux.NewRouter()
+	apiHandler := api.NewHandler(
+		s.bucketManager,
+		s.objectManager,
+		s.authManager,
+		s.metricsManager,
+	)
+
+	// Apply middleware
+	apiRouter.Use(middleware.CORS())
+	apiRouter.Use(middleware.Logging())
+	if s.config.Auth.EnableAuth {
+		apiRouter.Use(s.authManager.Middleware())
+	}
+	if s.config.Metrics.Enable {
+		apiRouter.Use(s.metricsManager.Middleware())
+	}
+
+	// Register API routes
+	apiHandler.RegisterRoutes(apiRouter)
+
+	// Setup CORS and other middleware
+	s.httpServer.Handler = handlers.RecoveryHandler()(apiRouter)
+
+	// Setup console routes (Web UI)
+	consoleRouter := mux.NewRouter()
+	s.setupConsoleRoutes(consoleRouter)
+	s.consoleServer.Handler = handlers.RecoveryHandler()(consoleRouter)
+
+	return nil
+}
+
+func (s *Server) setupConsoleRoutes(router *mux.Router) {
+	// Serve embedded web assets
+	webHandler := http.FileServer(http.FS(webAssets))
+
+	// API endpoints for the web console
+	apiRouter := router.PathPrefix("/api/v1").Subrouter()
+
+	// Console API handlers would go here
+	apiRouter.HandleFunc("/buckets", s.handleConsoleBuckets).Methods("GET")
+	apiRouter.HandleFunc("/objects/{bucket}", s.handleConsoleObjects).Methods("GET")
+	apiRouter.HandleFunc("/metrics", s.handleConsoleMetrics).Methods("GET")
+
+	// Serve static files and SPA
+	router.PathPrefix("/").Handler(webHandler)
+}
+
+// Console API handlers (simplified examples)
+func (s *Server) handleConsoleBuckets(w http.ResponseWriter, r *http.Request) {
+	// Implementation for listing buckets in web console
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"buckets": []}`))
+}
+
+func (s *Server) handleConsoleObjects(w http.ResponseWriter, r *http.Request) {
+	// Implementation for listing objects in web console
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"objects": []}`))
+}
+
+func (s *Server) handleConsoleMetrics(w http.ResponseWriter, r *http.Request) {
+	// Implementation for serving metrics to web console
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"metrics": {}}`))
+}
