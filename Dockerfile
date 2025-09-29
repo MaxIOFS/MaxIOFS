@@ -71,15 +71,15 @@ USER maxiofs
 VOLUME ["/data"]
 
 # Expose ports
-EXPOSE 9000 9001
+EXPOSE 8080 8081
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:9000/health || exit 1
+    CMD curl -f http://localhost:8080/health || exit 1
 
 # Default configuration
-ENV MAXIOFS_LISTEN=":9000"
-ENV MAXIOFS_CONSOLE_LISTEN=":9001"
+ENV MAXIOFS_LISTEN=":8080"
+ENV MAXIOFS_CONSOLE_LISTEN=":8081"
 ENV MAXIOFS_DATA_DIR="/data"
 ENV MAXIOFS_LOG_LEVEL="info"
 

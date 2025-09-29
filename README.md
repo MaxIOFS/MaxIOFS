@@ -1,18 +1,19 @@
-# MaxIOFS - High-Performance S3-Compatible Object Storage
+# MaxIOFS - Modern S3-Compatible Object Storage
 
-MaxIOFS is a high-performance, S3-compatible object storage system built in Go with an embedded Next.js web interface. It provides a single binary deployment similar to MinIO, with full object locking capabilities and complete AWS S3 API compatibility.
+MaxIOFS is a modern, high-performance S3-compatible object storage system built in Go with an embedded Next.js web interface. Designed from the ground up with a pluggable architecture, it provides enterprise-grade object storage with advanced monitoring, modern UI/UX, and complete AWS S3 API compatibility.
 
 ## 🚀 Features
 
-- **S3 API Compatibility**: Complete compatibility with AWS S3 API
-- **Object Locking**: Full support for WORM (Write Once Read Many) compliance
-- **Single Binary**: Self-contained executable with embedded web interface
-- **High Performance**: Built in Go for maximum speed and efficiency
-- **Web Management**: Modern Next.js-based admin interface
-- **Multi-Backend Storage**: Support for local filesystem, cloud storage, and distributed storage
-- **Encryption**: At-rest and in-transit encryption
-- **Compression**: Automatic data compression
-- **Metrics & Monitoring**: Built-in metrics and monitoring capabilities
+- **🔄 S3 API Compatibility**: Complete compatibility with AWS S3 API
+- **🔒 Object Locking**: Full support for WORM (Write Once Read Many) compliance
+- **📦 Single Binary**: Self-contained executable with embedded web interface
+- **⚡ High Performance**: Built in Go for maximum speed and efficiency
+- **🎨 Modern Web UI**: Next.js 14-based admin interface with Tailwind CSS
+- **🔌 Pluggable Backends**: Support for filesystem, S3, GCS, Azure Blob Storage
+- **🛡️ Enterprise Security**: At-rest and in-transit encryption with advanced auth
+- **📊 Advanced Monitoring**: Prometheus metrics with custom dashboards
+- **🔧 Developer Friendly**: CLI with Cobra, configuration with Viper
+- **🐳 Container Ready**: Optimized Docker images and Kubernetes support
 
 ## 📋 Architecture
 

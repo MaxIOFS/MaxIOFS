@@ -147,8 +147,8 @@ make build
 make dev
 
 # Verificar endpoints básicos
-curl http://localhost:9000/health
-curl http://localhost:9001
+curl http://localhost:8080/health
+curl http://localhost:8081
 ```
 
 ### **2. Implementar en orden:**
@@ -213,6 +213,7 @@ curl http://localhost:9001
 - ✅ **Error handling structures**
 - ✅ **Configuration management**
 - ✅ **Build and deployment setup**
+- ✅ **Legal differentiation** (puertos, credenciales, naming)
 
 ---
 

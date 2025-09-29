@@ -152,8 +152,8 @@ docker-run:
 	@echo "Running MaxIOFS in Docker..."
 	docker run -d \
 		--name maxiofs \
-		-p 9000:9000 \
-		-p 9001:9001 \
+		-p 8080:8080 \
+		-p 8081:8081 \
 		-v maxiofs-data:/data \
 		maxiofs:latest
 
