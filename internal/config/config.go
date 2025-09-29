@@ -111,9 +111,9 @@ func Load(cmd *cobra.Command) (*Config, error) {
 }
 
 func setDefaults(v *viper.Viper) {
-	// Server defaults
-	v.SetDefault("listen", ":9000")
-	v.SetDefault("console_listen", ":9001")
+	// Server defaults - usando puertos diferentes a MinIO para evitar conflictos
+	v.SetDefault("listen", ":8080")        // API server
+	v.SetDefault("console_listen", ":8081") // Web console
 	v.SetDefault("data_dir", "./data")
 	v.SetDefault("log_level", "info")
 
@@ -129,10 +129,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("storage.enable_encryption", false)
 	v.SetDefault("storage.enable_object_lock", true)
 
-	// Auth defaults
+	// Auth defaults - credenciales diferentes para diferenciación
 	v.SetDefault("auth.enable_auth", true)
-	v.SetDefault("auth.access_key", "minioadmin")
-	v.SetDefault("auth.secret_key", "minioadmin")
+	v.SetDefault("auth.access_key", "maxioadmin")
+	v.SetDefault("auth.secret_key", "maxioadmin")
 
 	// Metrics defaults
 	v.SetDefault("metrics.enable", true)
