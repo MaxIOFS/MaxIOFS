@@ -24,4 +24,16 @@ var (
 	ErrInvalidTag          = errors.New("invalid tag")
 	ErrTooManyTags         = errors.New("too many tags")
 	ErrAccessDenied        = errors.New("access denied")
+
+	// Object Lock errors
+	ErrObjectUnderLegalHold        = errors.New("object is under legal hold")
+	ErrObjectUnderCompliance       = errors.New("object is under compliance mode retention")
+	ErrObjectUnderGovernance       = errors.New("object is under governance mode retention")
+	ErrNoRetentionConfiguration    = errors.New("no retention configuration found")
+	ErrCannotShortenCompliance     = errors.New("cannot shorten compliance mode retention")
+	ErrCannotShortenGovernance     = errors.New("cannot shorten governance mode retention without bypass permission")
+	ErrInsufficientPermissions     = errors.New("insufficient permissions for object lock operation")
+	ErrInvalidRetentionMode        = errors.New("invalid retention mode")
+	ErrInvalidLegalHoldStatus      = errors.New("invalid legal hold status")
+	ErrRetentionDateInPast         = errors.New("retention date cannot be in the past")
 )
