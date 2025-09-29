@@ -76,3 +76,6 @@ tmp/
 runtime/
 logs/
 .claude/
+web/frontend/node_modules
+web/frontend/dist
+web/frontend/.next
