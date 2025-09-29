@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"embed"
 	"fmt"
 	"net/http"
 	"time"
@@ -20,8 +19,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-//go:embed web/dist/*
-var webAssets embed.FS
+// TODO: Re-enable embed in production build
+// //go:embed all:web/dist
+// var webAssets embed.FS
 
 // Server represents the MaxIOFS server
 type Server struct {
@@ -32,7 +32,7 @@ type Server struct {
 	bucketManager  bucket.Manager
 	objectManager  object.Manager
 	authManager    auth.Manager
-	metricsManager *metrics.Manager
+	metricsManager metrics.Manager
 }
 
 // New creates a new MaxIOFS server
@@ -195,8 +195,23 @@ func (s *Server) setupRoutes() error {
 }
 
 func (s *Server) setupConsoleRoutes(router *mux.Router) {
-	// Serve embedded web assets
-	webHandler := http.FileServer(http.FS(webAssets))
+	// TODO: Serve embedded web assets when embed is re-enabled
+	// webHandler := http.FileServer(http.FS(webAssets))
+
+	// Temporary: serve static placeholder
+	webHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`<!DOCTYPE html>
+<html>
+<head><title>MaxIOFS Console</title></head>
+<body>
+<h1>MaxIOFS Console</h1>
+<p>Web console will be available when frontend is built.</p>
+<p>API is available at :8080</p>
+</body>
+</html>`))
+	})
 
 	// API endpoints for the web console
 	apiRouter := router.PathPrefix("/api/v1").Subrouter()
