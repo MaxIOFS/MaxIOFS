@@ -35,8 +35,8 @@ make build
 ```bash
 docker run -d \
   --name maxiofs \
-  -p 9000:9000 \
-  -p 9001:9001 \
+  -p 8080:8080 \
+  -p 8081:8081 \
   -v maxiofs-data:/data \
   maxiofs/maxiofs:latest
 ```
@@ -50,8 +50,8 @@ services:
   maxiofs:
     image: maxiofs/maxiofs:latest
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "8080:8080"
+      - "8081:8081"
     volumes:
       - maxiofs-data:/data
     environment:
@@ -227,7 +227,7 @@ Enable WORM (Write Once Read Many) compliance:
 
 ```bash
 # Enable object lock on bucket creation
-aws --endpoint-url http://localhost:9000 s3api create-bucket \
+aws --endpoint-url http://localhost:8080 s3api create-bucket \
   --bucket locked-bucket \
   --object-lock-enabled-for-bucket
 ```
@@ -244,7 +244,7 @@ aws --endpoint-url http://localhost:9000 s3api create-bucket \
 MaxIOFS exposes Prometheus-compatible metrics at `/metrics`:
 
 ```bash
-curl http://localhost:9000/metrics
+curl http://localhost:8080/metrics
 ```
 
 ### Logging
@@ -259,7 +259,7 @@ Structured JSON logging with configurable levels:
 
 ### Common Issues
 
-1. **Port conflicts**: Ensure ports 9000 and 9001 are available
+1. **Port conflicts**: Ensure ports 8080 and 8081 are available
 2. **Permission errors**: Check file system permissions for data directory
 3. **Memory issues**: Monitor memory usage for large uploads
 

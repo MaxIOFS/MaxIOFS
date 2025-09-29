@@ -1,18 +1,7 @@
 package object
 
 import (
-	"errors"
 	"time"
-)
-
-// Common object errors
-var (
-	ErrObjectNotFound    = errors.New("object not found")
-	ErrObjectExists      = errors.New("object already exists")
-	ErrBucketNotFound    = errors.New("bucket not found")
-	ErrInvalidObjectName = errors.New("invalid object name")
-	ErrObjectLocked      = errors.New("object is locked")
-	ErrRetentionPeriod   = errors.New("object is in retention period")
 )
 
 // ObjectVersion represents a versioned object

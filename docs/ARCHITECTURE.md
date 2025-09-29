@@ -19,7 +19,7 @@ MaxIOFS is designed as a high-performance, S3-compatible object storage system w
 │                     HTTP Layer                                 │
 │  ┌─────────────────┐           ┌─────────────────┐            │
 │  │   API Server    │           │  Console Server │            │
-│  │   (Port 9000)   │           │   (Port 9001)   │            │
+│  │   (Port 8080)   │           │   (Port 8081)   │            │
 │  │                 │           │                 │            │
 │  │ S3 Compatible   │           │ Web Management  │            │
 │  │ REST API        │           │ Interface       │            │
@@ -65,13 +65,13 @@ MaxIOFS is designed as a high-performance, S3-compatible object storage system w
 
 ### 1. HTTP Layer
 
-#### API Server (Port 9000)
+#### API Server (Port 8080)
 - Implements complete S3 REST API
 - Handles all object and bucket operations
 - Supports all S3 authentication methods
 - Provides health and readiness endpoints
 
-#### Console Server (Port 9001)
+#### Console Server (Port 8081)
 - Serves embedded Next.js web interface
 - Provides management APIs for web console
 - Handles static asset serving
@@ -300,12 +300,12 @@ MaxIOFS implements S3-compatible Object Lock with:
 │                                     │
 │  ┌─────────────────────────────┐    │
 │  │        API Server           │    │
-│  │      (Port 9000)            │    │
+│  │      (Port 8080)            │    │
 │  └─────────────────────────────┘    │
 │                                     │
 │  ┌─────────────────────────────┐    │
 │  │      Console Server         │    │
-│  │      (Port 9001)            │    │
+│  │      (Port 8081)            │    │
 │  └─────────────────────────────┘    │
 │                                     │
 │  ┌─────────────────────────────┐    │
@@ -323,7 +323,7 @@ MaxIOFS implements S3-compatible Object Lock with:
 │  ┌─────────────────────────────┐    │
 │  │        MaxIOFS              │    │
 │  │                             │    │
-│  │  Ports: 9000, 9001          │    │
+│  │  Ports: 8080, 8081          │    │
 │  │  Volumes: /data             │    │
 │  └─────────────────────────────┘    │
 └─────────────────────────────────────┘
@@ -350,8 +350,8 @@ MaxIOFS implements S3-compatible Object Lock with:
 │                                     │
 │  ┌─────────────────────────────┐    │
 │  │        Service              │    │
-│  │  API: 9000                  │    │
-│  │  Console: 9001              │    │
+│  │  API: 8080                  │    │
+│  │  Console: 8081              │    │
 │  └─────────────────────────────┘    │
 └─────────────────────────────────────┘
 ```
@@ -367,8 +367,8 @@ MaxIOFS implements S3-compatible Object Lock with:
 ### Configuration Structure
 ```yaml
 server:
-  listen: ":9000"
-  console_listen: ":9001"
+  listen: ":8080"
+  console_listen: ":8081"
   data_dir: "./data"
   log_level: "info"
 
@@ -393,8 +393,8 @@ storage:
 auth:
   enabled: true
   jwt_secret: ""
-  access_key: "minioadmin"
-  secret_key: "minioadmin"
+  access_key: "maxioadmin"
+  secret_key: "maxioadmin"
   users_file: ""
 
 metrics:

@@ -41,7 +41,7 @@ type metricsManager struct {
 }
 
 // NewManager creates a new metrics manager
-func NewManager(config config.MetricsConfig) *Manager {
+func NewManager(config config.MetricsConfig) Manager {
 	manager := &metricsManager{
 		config:   config,
 		enabled:  config.Enable,
@@ -49,7 +49,7 @@ func NewManager(config config.MetricsConfig) *Manager {
 	}
 
 	// TODO: Initialize Prometheus metrics in Fase 2.2 - Metrics System
-	return &manager
+	return manager
 }
 
 // IncrementRequestCount increments the request counter

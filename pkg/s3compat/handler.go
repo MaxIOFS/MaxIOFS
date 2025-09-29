@@ -2,7 +2,7 @@ package s3compat
 
 import (
 	"encoding/xml"
-	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -254,7 +254,7 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
 
 	// Copy object data to response
-	if _, err := reader.WriteTo(w); err != nil {
+	if _, err := io.Copy(w, reader); err != nil {
 		logrus.WithError(err).Error("Failed to write object data")
 	}
 }

@@ -16,7 +16,7 @@ type Handler struct {
 	bucketManager  bucket.Manager
 	objectManager  object.Manager
 	authManager    auth.Manager
-	metricsManager *metrics.Manager
+	metricsManager metrics.Manager
 	s3Handler      *s3compat.Handler
 }
 
@@ -25,7 +25,7 @@ func NewHandler(
 	bucketManager bucket.Manager,
 	objectManager object.Manager,
 	authManager auth.Manager,
-	metricsManager *metrics.Manager,
+	metricsManager metrics.Manager,
 ) *Handler {
 	s3Handler := s3compat.NewHandler(bucketManager, objectManager)
 
