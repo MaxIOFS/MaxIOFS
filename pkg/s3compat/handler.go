@@ -394,38 +394,12 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	xml.NewEncoder(w).Encode(errorResponse)
 }
 
-// Additional method stubs - these would need full implementation
-func (h *Handler) GetBucketPolicy(w http.ResponseWriter, r *http.Request)     { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) PutBucketPolicy(w http.ResponseWriter, r *http.Request)     { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) DeleteBucketPolicy(w http.ResponseWriter, r *http.Request)  { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) GetBucketLifecycle(w http.ResponseWriter, r *http.Request)  { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) PutBucketLifecycle(w http.ResponseWriter, r *http.Request)  { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) DeleteBucketLifecycle(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) GetBucketCORS(w http.ResponseWriter, r *http.Request)       { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) PutBucketCORS(w http.ResponseWriter, r *http.Request)       { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) DeleteBucketCORS(w http.ResponseWriter, r *http.Request)    { w.WriteHeader(http.StatusNotImplemented) }
-
-// Object-specific operations that need implementation
+// Placeholder stubs for future implementation
 func (h *Handler) GetObjectVersions(w http.ResponseWriter, r *http.Request)    { w.WriteHeader(http.StatusNotImplemented) }
 func (h *Handler) DeleteObjectVersion(w http.ResponseWriter, r *http.Request)  { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) GetObjectRetention(w http.ResponseWriter, r *http.Request)   { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) PutObjectRetention(w http.ResponseWriter, r *http.Request)   { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) GetObjectLegalHold(w http.ResponseWriter, r *http.Request)   { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) PutObjectLegalHold(w http.ResponseWriter, r *http.Request)   { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) GetObjectACL(w http.ResponseWriter, r *http.Request)         { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) PutObjectACL(w http.ResponseWriter, r *http.Request)         { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) GetObjectTagging(w http.ResponseWriter, r *http.Request)     { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) PutObjectTagging(w http.ResponseWriter, r *http.Request)     { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) DeleteObjectTagging(w http.ResponseWriter, r *http.Request)  { w.WriteHeader(http.StatusNotImplemented) }
+func (h *Handler) PresignedOperation(w http.ResponseWriter, r *http.Request)   { w.WriteHeader(http.StatusNotImplemented) }
 
-// Multipart upload operations
-func (h *Handler) CreateMultipartUpload(w http.ResponseWriter, r *http.Request)   { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request)    { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request)             { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request)              { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) AbortMultipartUpload(w http.ResponseWriter, r *http.Request)    { w.WriteHeader(http.StatusNotImplemented) }
-
-// Copy and presigned operations
-func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request)        { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) PresignedOperation(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotImplemented) }
+// Note: The following operations are now implemented in separate files:
+// - bucket_ops.go: Bucket Policy, Lifecycle, CORS operations
+// - object_ops.go: Object Lock, Tagging, ACL, CopyObject operations
+// - multipart.go: Multipart Upload operations
