@@ -1,12 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Only use export mode in production
-  ...(process.env.NODE_ENV === 'production' && {
-    output: 'export',
-    trailingSlash: true,
-    distDir: '../dist',
-    assetPrefix: '',
-  }),
+  // Disable export mode to support dynamic routes during development
   images: {
     unoptimized: true
   },
