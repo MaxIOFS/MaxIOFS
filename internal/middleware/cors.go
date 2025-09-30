@@ -26,7 +26,7 @@ type CORSConfig struct {
 // DefaultCORSConfig returns the default CORS configuration for S3 compatibility
 func DefaultCORSConfig() *CORSConfig {
 	return &CORSConfig{
-		AllowedOrigins: []string{"*"},
+		AllowedOrigins: []string{"http://localhost:3000", "http://localhost:3001", "http://localhost:3002"},
 		AllowedMethods: []string{
 			"GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS",
 		},
@@ -57,7 +57,7 @@ func DefaultCORSConfig() *CORSConfig {
 			"Server",
 		},
 		MaxAge:           "3600",
-		AllowCredentials: false,
+		AllowCredentials: true,
 	}
 }
 

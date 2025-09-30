@@ -11,6 +11,9 @@ var (
 	ErrBucketAlreadyExists = errors.New("bucket already exists")
 	ErrBucketNotEmpty      = errors.New("bucket not empty")
 	ErrInvalidBucketName   = errors.New("invalid bucket name")
+	ErrPolicyNotFound      = errors.New("policy not found")
+	ErrLifecycleNotFound   = errors.New("lifecycle configuration not found")
+	ErrCORSNotFound        = errors.New("CORS configuration not found")
 )
 
 // Policy represents a bucket policy

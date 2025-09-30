@@ -406,6 +406,77 @@ export class APIClient {
     return response.data.data!;
   }
 
+  // System Configuration
+  static async getSystemConfig(): Promise<APIResponse<any>> {
+    const response = await apiClient.get<APIResponse<any>>('/system/config');
+    return response.data;
+  }
+
+  static async updateSystemConfig(config: any): Promise<APIResponse<any>> {
+    const response = await apiClient.put<APIResponse<any>>('/system/config', config);
+    return response.data;
+  }
+
+  static async testStorageConnection(): Promise<APIResponse<any>> {
+    const response = await apiClient.post<APIResponse<any>>('/system/test-storage', {});
+    return response.data;
+  }
+
+  // Metrics
+  static async getMetrics(): Promise<APIResponse<any>> {
+    const response = await apiClient.get<APIResponse<any>>('/metrics');
+    return response.data;
+  }
+
+  // Security
+  static async getSecurityStatus(): Promise<APIResponse<any>> {
+    const response = await apiClient.get<APIResponse<any>>('/security/status');
+    return response.data;
+  }
+
+  // Objects - Additional methods
+  static async getAllObjects(): Promise<APIResponse<any[]>> {
+    const response = await apiClient.get<APIResponse<any[]>>('/objects');
+    return response.data;
+  }
+
+  static getObjectUrl(bucket: string, key: string): string {
+    return `${s3Client.defaults.baseURL}/${bucket}/${key}`;
+  }
+
+  // User Permissions
+  static async getUserPermissions(userId: string): Promise<APIResponse<any[]>> {
+    const response = await apiClient.get<APIResponse<any[]>>(`/users/${userId}/permissions`);
+    return response.data;
+  }
+
+  static async updateUserPermissions(userId: string, permissions: any[]): Promise<APIResponse<any>> {
+    const response = await apiClient.put<APIResponse<any>>(`/users/${userId}/permissions`, { permissions });
+    return response.data;
+  }
+
+  // Access Keys
+  static async getUserAccessKeys(userId: string): Promise<APIResponse<any[]>> {
+    const response = await apiClient.get<APIResponse<any[]>>(`/users/${userId}/access-keys`);
+    return response.data;
+  }
+
+  static async createAccessKey(data: any): Promise<APIResponse<any>> {
+    const response = await apiClient.post<APIResponse<any>>('/access-keys', data);
+    return response.data;
+  }
+
+  static async deleteAccessKey(keyId: string): Promise<APIResponse<any>> {
+    const response = await apiClient.delete<APIResponse<any>>(`/access-keys/${keyId}`);
+    return response.data;
+  }
+
+  // Bucket Settings
+  static async updateBucketSettings(bucketName: string, settings: any): Promise<APIResponse<any>> {
+    const response = await apiClient.put<APIResponse<any>>(`/buckets/${bucketName}/settings`, settings);
+    return response.data;
+  }
+
   // Utility methods
   static isAuthenticated(): boolean {
     return tokenManager.isAuthenticated();
