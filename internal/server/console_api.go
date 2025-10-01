@@ -1,12 +1,16 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
@@ -37,11 +41,12 @@ type ObjectResponse struct {
 
 type UserResponse struct {
 	ID          string   `json:"id"`
-	DisplayName string   `json:"display_name"`
+	Username    string   `json:"username"`
+	DisplayName string   `json:"displayName"`
 	Email       string   `json:"email"`
 	Status      string   `json:"status"`
 	Roles       []string `json:"roles"`
-	CreatedAt   int64    `json:"created_at"`
+	CreatedAt   int64    `json:"createdAt"`
 }
 
 type MetricsResponse struct {
@@ -93,6 +98,11 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/users/{user}", s.handleUpdateUser).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/users/{user}", s.handleDeleteUser).Methods("DELETE", "OPTIONS")
 
+	// Access Key endpoints
+	router.HandleFunc("/users/{user}/access-keys", s.handleListAccessKeys).Methods("GET", "OPTIONS")
+	router.HandleFunc("/users/{user}/access-keys", s.handleCreateAccessKey).Methods("POST", "OPTIONS")
+	router.HandleFunc("/users/{user}/access-keys/{accessKey}", s.handleDeleteAccessKey).Methods("DELETE", "OPTIONS")
+
 	// Metrics endpoints
 	router.HandleFunc("/metrics", s.handleGetMetrics).Methods("GET", "OPTIONS")
 	router.HandleFunc("/metrics/system", s.handleGetSystemMetrics).Methods("GET", "OPTIONS")
@@ -129,6 +139,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"token": token,
 		"user": UserResponse{
 			ID:          user.ID,
+			Username:    user.Username,
 			DisplayName: user.DisplayName,
 			Email:       user.Email,
 			Status:      user.Status,
@@ -146,6 +157,7 @@ func (s *Server) handleGetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	// TODO: Extract user from token
 	s.writeJSON(w, UserResponse{
 		ID:          "default",
+		Username:    "default",
 		DisplayName: "Default User",
 		Email:       "admin@maxiofs.local",
 		Status:      "active",
@@ -403,6 +415,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	for i, u := range users {
 		response[i] = UserResponse{
 			ID:          u.ID,
+			Username:    u.ID,
 			DisplayName: u.DisplayName,
 			Email:       u.Email,
 			Status:      u.Status,
@@ -415,23 +428,169 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
-	// Implementation for creating users
-	s.writeError(w, "Not implemented", http.StatusNotImplemented)
+	var createRequest struct {
+		Username string   `json:"username"`
+		Email    string   `json:"email,omitempty"`
+		Password string   `json:"password"`
+		Roles    []string `json:"roles,omitempty"`
+		Status   string   `json:"status,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&createRequest); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if createRequest.Username == "" || createRequest.Password == "" {
+		s.writeError(w, "Username and password are required", http.StatusBadRequest)
+		return
+	}
+
+	// Set defaults
+	if createRequest.Status == "" {
+		createRequest.Status = "active"
+	}
+	if len(createRequest.Roles) == 0 {
+		createRequest.Roles = []string{"read"}
+	}
+
+	// Hash password
+	h := sha256.New()
+	h.Write([]byte(createRequest.Password))
+	hashedPassword := hex.EncodeToString(h.Sum(nil))
+
+	// Create user
+	user := &auth.User{
+		ID:          createRequest.Username,
+		Username:    createRequest.Username,
+		Password:    hashedPassword,
+		DisplayName: createRequest.Username,
+		Email:       createRequest.Email,
+		Status:      createRequest.Status,
+		Roles:       createRequest.Roles,
+		CreatedAt:   time.Now().Unix(),
+	}
+
+	if err := s.authManager.CreateUser(r.Context(), user); err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert to response format
+	userResponse := UserResponse{
+		ID:          user.ID,
+		Username:    user.Username,
+		DisplayName: user.DisplayName,
+		Email:       user.Email,
+		Roles:       user.Roles,
+		Status:      user.Status,
+		CreatedAt:   user.CreatedAt,
+	}
+
+	s.writeJSON(w, userResponse)
 }
 
 func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
-	// Implementation for getting user details
-	s.writeError(w, "Not implemented", http.StatusNotImplemented)
+	vars := mux.Vars(r)
+	userID := vars["user"]
+
+	user, err := s.authManager.GetUser(r.Context(), userID)
+	if err != nil {
+		if err == auth.ErrUserNotFound {
+			s.writeError(w, "User not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Convert to response format
+	userResponse := UserResponse{
+		ID:          user.ID,
+		Username:    user.ID,
+		DisplayName: user.DisplayName,
+		Email:       user.Email,
+		Roles:       user.Roles,
+		Status:      user.Status,
+		CreatedAt:   user.CreatedAt,
+	}
+
+	s.writeJSON(w, userResponse)
 }
 
 func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
-	// Implementation for updating users
-	s.writeError(w, "Not implemented", http.StatusNotImplemented)
+	vars := mux.Vars(r)
+	userID := vars["user"]
+
+	var updateRequest struct {
+		Email  *string  `json:"email,omitempty"`
+		Roles  []string `json:"roles,omitempty"`
+		Status string   `json:"status,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&updateRequest); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get existing user
+	user, err := s.authManager.GetUser(r.Context(), userID)
+	if err != nil {
+		if err == auth.ErrUserNotFound {
+			s.writeError(w, "User not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Update fields if provided
+	if updateRequest.Email != nil {
+		user.Email = *updateRequest.Email
+	}
+	if updateRequest.Roles != nil {
+		user.Roles = updateRequest.Roles
+	}
+	if updateRequest.Status != "" {
+		user.Status = updateRequest.Status
+	}
+
+	// Update user
+	if err := s.authManager.UpdateUser(r.Context(), user); err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert to response format
+	userResponse := UserResponse{
+		ID:          user.ID,
+		Username:    user.ID,
+		DisplayName: user.DisplayName,
+		Email:       user.Email,
+		Roles:       user.Roles,
+		Status:      user.Status,
+		CreatedAt:   user.CreatedAt,
+	}
+
+	s.writeJSON(w, userResponse)
 }
 
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
-	// Implementation for deleting users
-	s.writeError(w, "Not implemented", http.StatusNotImplemented)
+	vars := mux.Vars(r)
+	userID := vars["user"]
+
+	// Delete user
+	if err := s.authManager.DeleteUser(r.Context(), userID); err != nil {
+		if err == auth.ErrUserNotFound {
+			s.writeError(w, "User not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Metrics handlers
@@ -485,4 +644,85 @@ func (s *Server) writeError(w http.ResponseWriter, message string, statusCode in
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(APIResponse{Success: false, Error: message})
 	logrus.WithField("error", message).WithField("status", statusCode).Warn("API error")
+}
+
+// Access Key handlers
+func (s *Server) handleListAccessKeys(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userID := vars["user"]
+
+	accessKeys, err := s.authManager.ListAccessKeys(r.Context(), userID)
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert to response format (don't expose secret keys)
+	type AccessKeyResponse struct {
+		ID        string `json:"id"`
+		UserID    string `json:"userId"`
+		Status    string `json:"status"`
+		CreatedAt int64  `json:"createdAt"`
+		LastUsed  int64  `json:"lastUsed,omitempty"`
+	}
+
+	response := make([]AccessKeyResponse, len(accessKeys))
+	for i, key := range accessKeys {
+		response[i] = AccessKeyResponse{
+			ID:        key.AccessKeyID,
+			UserID:    key.UserID,
+			Status:    key.Status,
+			CreatedAt: key.CreatedAt,
+			LastUsed:  key.LastUsed,
+		}
+	}
+
+	s.writeJSON(w, response)
+}
+
+func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userID := vars["user"]
+
+	// Generate new access key
+	accessKey, err := s.authManager.GenerateAccessKey(r.Context(), userID)
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return complete key with secret (only shown once)
+	type CreateAccessKeyResponse struct {
+		ID        string `json:"id"`
+		Secret    string `json:"secret"`
+		UserID    string `json:"userId"`
+		Status    string `json:"status"`
+		CreatedAt int64  `json:"createdAt"`
+	}
+
+	response := CreateAccessKeyResponse{
+		ID:        accessKey.AccessKeyID,
+		Secret:    accessKey.SecretAccessKey,
+		UserID:    accessKey.UserID,
+		Status:    accessKey.Status,
+		CreatedAt: accessKey.CreatedAt,
+	}
+
+	s.writeJSON(w, response)
+}
+
+func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	accessKeyID := vars["accessKey"]
+
+	if err := s.authManager.RevokeAccessKey(r.Context(), accessKeyID); err != nil {
+		if err == auth.ErrUserNotFound {
+			s.writeError(w, "Access key not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	s.writeJSON(w, map[string]string{"message": "Access key deleted successfully"})
 }

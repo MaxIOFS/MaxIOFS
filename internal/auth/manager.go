@@ -3,8 +3,8 @@ package auth
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/sha256"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -58,8 +58,8 @@ type Manager interface {
 // User represents a user in the system
 type User struct {
 	ID          string            `json:"id"`
-	Username    string            `json:"username,omitempty"`    // For console login
-	Password    string            `json:"password,omitempty"`    // Hashed password for console login
+	Username    string            `json:"username,omitempty"` // For console login
+	Password    string            `json:"password,omitempty"` // Hashed password for console login
 	DisplayName string            `json:"display_name"`
 	Email       string            `json:"email,omitempty"`
 	Status      string            `json:"status"` // active, inactive, suspended
@@ -82,10 +82,10 @@ type AccessKey struct {
 
 // authManager implements the Manager interface
 type authManager struct {
-	config        config.AuthConfig
-	users         map[string]*User      // accessKey -> user mapping (for S3 API)
-	consoleUsers  map[string]*User      // username -> user mapping (for Console)
-	keys          map[string]*AccessKey // accessKey -> AccessKey mapping
+	config       config.AuthConfig
+	users        map[string]*User      // accessKey -> user mapping (for S3 API)
+	consoleUsers map[string]*User      // username -> user mapping (for Console)
+	keys         map[string]*AccessKey // accessKey -> AccessKey mapping
 }
 
 // NewManager creates a new authentication manager
@@ -375,11 +375,9 @@ func (am *authManager) CreateUser(ctx context.Context, user *User) error {
 		return fmt.Errorf("user ID is required")
 	}
 
-	// Check if user already exists
-	for _, existingUser := range am.users {
-		if existingUser.ID == user.ID {
-			return fmt.Errorf("user already exists")
-		}
+	// Check if user already exists in consoleUsers
+	if _, exists := am.consoleUsers[user.ID]; exists {
+		return fmt.Errorf("user already exists")
 	}
 
 	// Set timestamps
@@ -397,63 +395,66 @@ func (am *authManager) CreateUser(ctx context.Context, user *User) error {
 		user.Metadata = make(map[string]string)
 	}
 
-	// For MVP, store in memory with userID as key
-	// In production, users would be linked to access keys
-	am.users[user.ID] = user
+	// Store in consoleUsers map using ID as key
+	am.consoleUsers[user.ID] = user
 	return nil
 }
 
 func (am *authManager) UpdateUser(ctx context.Context, user *User) error {
-	// Find and update user
-	for accessKey, existingUser := range am.users {
-		if existingUser.ID == user.ID {
-			// Update fields
-			existingUser.DisplayName = user.DisplayName
-			existingUser.Email = user.Email
-			existingUser.Status = user.Status
-			existingUser.Roles = user.Roles
-			existingUser.Policies = user.Policies
-			existingUser.UpdatedAt = time.Now().Unix()
+	// Find and update user in consoleUsers
+	existingUser, exists := am.consoleUsers[user.ID]
+	if !exists {
+		return ErrUserNotFound
+	}
 
-			// Update metadata
-			if user.Metadata != nil {
-				if existingUser.Metadata == nil {
-					existingUser.Metadata = make(map[string]string)
-				}
-				for k, v := range user.Metadata {
-					existingUser.Metadata[k] = v
-				}
-			}
+	// Update fields
+	existingUser.DisplayName = user.DisplayName
+	existingUser.Email = user.Email
+	existingUser.Status = user.Status
+	existingUser.Roles = user.Roles
+	existingUser.Policies = user.Policies
+	existingUser.UpdatedAt = time.Now().Unix()
 
-			am.users[accessKey] = existingUser
-			return nil
+	// Update metadata
+	if user.Metadata != nil {
+		if existingUser.Metadata == nil {
+			existingUser.Metadata = make(map[string]string)
+		}
+		for k, v := range user.Metadata {
+			existingUser.Metadata[k] = v
 		}
 	}
 
-	return ErrUserNotFound
+	am.consoleUsers[user.ID] = existingUser
+	return nil
 }
 
 func (am *authManager) DeleteUser(ctx context.Context, userID string) error {
-	// Find and delete user and associated keys
-	for accessKey, user := range am.users {
-		if user.ID == userID {
-			// Don't allow deleting default user
-			if userID == "default" {
-				return fmt.Errorf("cannot delete default user")
-			}
+	// Check if user exists in consoleUsers
+	if _, exists := am.consoleUsers[userID]; !exists {
+		return ErrUserNotFound
+	}
 
-			// Delete user and access key
-			delete(am.users, accessKey)
-			delete(am.keys, accessKey)
-			return nil
+	// Don't allow deleting default user
+	if userID == "default" {
+		return fmt.Errorf("cannot delete default user")
+	}
+
+	// Delete user from consoleUsers
+	delete(am.consoleUsers, userID)
+
+	// Also delete all access keys associated with this user
+	for accessKeyID, key := range am.keys {
+		if key.UserID == userID {
+			delete(am.keys, accessKeyID)
 		}
 	}
 
-	return ErrUserNotFound
+	return nil
 }
 
-func (am *authManager) GetUser(ctx context.Context, accessKey string) (*User, error) {
-	if user, exists := am.users[accessKey]; exists {
+func (am *authManager) GetUser(ctx context.Context, userID string) (*User, error) {
+	if user, exists := am.consoleUsers[userID]; exists {
 		return user, nil
 	}
 	return nil, ErrUserNotFound
@@ -461,7 +462,7 @@ func (am *authManager) GetUser(ctx context.Context, accessKey string) (*User, er
 
 func (am *authManager) ListUsers(ctx context.Context) ([]User, error) {
 	var users []User
-	for _, user := range am.users {
+	for _, user := range am.consoleUsers {
 		users = append(users, *user)
 	}
 	return users, nil
@@ -469,16 +470,9 @@ func (am *authManager) ListUsers(ctx context.Context) ([]User, error) {
 
 // Access key management methods
 func (am *authManager) GenerateAccessKey(ctx context.Context, userID string) (*AccessKey, error) {
-	// Find user
-	var user *User
-	for _, u := range am.users {
-		if u.ID == userID {
-			user = u
-			break
-		}
-	}
-
-	if user == nil {
+	// Find user in consoleUsers
+	user, exists := am.consoleUsers[userID]
+	if !exists {
 		return nil, ErrUserNotFound
 	}
 
@@ -502,7 +496,7 @@ func (am *authManager) GenerateAccessKey(ctx context.Context, userID string) (*A
 		CreatedAt:       time.Now().Unix(),
 	}
 
-	// Store in memory
+	// Store in keys map and link to user
 	am.keys[accessKeyID] = accessKey
 	am.users[accessKeyID] = user
 

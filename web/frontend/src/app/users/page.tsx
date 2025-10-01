@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import { User, CreateUserRequest } from '@/types';
+import { User, CreateUserRequest, EditUserForm } from '@/types';
 import SweetAlert from '@/lib/sweetalert';
 
 export default function UsersPage() {
@@ -60,7 +60,7 @@ export default function UsersPage() {
   });
 
   const updateUserMutation = useMutation({
-    mutationFn: ({ userId, data }: { userId: string; data: Partial<User> }) =>
+    mutationFn: ({ userId, data }: { userId: string; data: EditUserForm }) =>
       APIClient.updateUser(userId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
@@ -84,7 +84,7 @@ export default function UsersPage() {
     },
   });
 
-  const filteredUsers = users?.data?.filter(user =>
+  const filteredUsers = users?.filter((user: User) =>
     user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.email?.toLowerCase().includes(searchTerm.toLowerCase())
   ) || [];
@@ -97,7 +97,7 @@ export default function UsersPage() {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    const user = users?.find((u: any) => u.id === userId);
+    const user = users?.find((u: User) => u.id === userId);
     
     try {
       const result = await SweetAlert.confirmDeleteUser(user?.username || 'usuario');
@@ -114,18 +114,27 @@ export default function UsersPage() {
 
   const handleToggleUserStatus = (userId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+    const user = users?.find((u: User) => u.id === userId);
+    if (!user) return;
+    
     updateUserMutation.mutate({
       userId,
-      data: { status: newStatus as 'active' | 'inactive' | 'suspended' }
+      data: { 
+        status: newStatus as 'active' | 'inactive' | 'suspended',
+        roles: user.roles,
+        email: user.email
+      }
     });
   };
 
   const updateNewUser = (field: keyof CreateUserRequest, value: any) => {
-    setNewUser(prev => ({ ...prev, [field]: value }));
+    setNewUser((prev: Partial<CreateUserRequest>) => ({ ...prev, [field]: value }));
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+  const formatDate = (dateValue: string | number) => {
+    // Si es un número, convertirlo de timestamp Unix (segundos) a milisegundos
+    const date = typeof dateValue === 'number' ? new Date(dateValue * 1000) : new Date(dateValue);
+    return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -205,7 +214,7 @@ export default function UsersPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {filteredUsers.filter(user => user.status === 'active').length}
+              {filteredUsers.filter((user: User) => user.status === 'active').length}
             </div>
           </CardContent>
         </Card>
@@ -217,7 +226,7 @@ export default function UsersPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {filteredUsers.filter(user => user.roles.includes('admin')).length}
+              {filteredUsers.filter((user: User) => user.roles.includes('admin')).length}
             </div>
           </CardContent>
         </Card>
@@ -229,7 +238,7 @@ export default function UsersPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {filteredUsers.filter(user => user.status !== 'active').length}
+              {filteredUsers.filter((user: User) => user.status !== 'active').length}
             </div>
           </CardContent>
         </Card>
@@ -284,7 +293,7 @@ export default function UsersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredUsers.map((user) => (
+                {filteredUsers.map((user: User) => (
                   <TableRow key={user.id}>
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
@@ -300,7 +309,7 @@ export default function UsersPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
-                        {user.roles.map((role) => (
+                        {user.roles.map((role: string) => (
                           <span
                             key={role}
                             className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getRoleColor(role)}`}
@@ -338,7 +347,7 @@ export default function UsersPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => window.location.href = `/users/${user.id}/settings`}
+                          onClick={() => window.location.href = `/users/${user.id}`}
                         >
                           <Settings className="h-4 w-4" />
                         </Button>
@@ -422,7 +431,7 @@ export default function UsersPage() {
                       if (e.target.checked) {
                         updateNewUser('roles', [...currentRoles, role]);
                       } else {
-                        updateNewUser('roles', currentRoles.filter(r => r !== role));
+                        updateNewUser('roles', currentRoles.filter((r: string) => r !== role));
                       }
                     }}
                     className="rounded border-gray-300"
