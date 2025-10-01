@@ -207,57 +207,387 @@ func (bm *bucketManager) GetBucketInfo(ctx context.Context, name string) (*Bucke
 	return bucket, nil
 }
 
-// Placeholder implementations for configuration methods
+// Configuration implementations - store as JSON metadata files
+
+// GetBucketPolicy retrieves the bucket policy
 func (bm *bucketManager) GetBucketPolicy(ctx context.Context, name string) (*Policy, error) {
-	panic("not implemented")
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrBucketNotFound
+	}
+
+	// Try to read policy file
+	policyPath := name + "/.maxiofs-policy"
+	exists, err = bm.storage.Exists(ctx, policyPath)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrPolicyNotFound
+	}
+
+	// Read and unmarshal policy
+	reader, _, err := bm.storage.Get(ctx, policyPath)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	var policy Policy
+	if err := json.NewDecoder(reader).Decode(&policy); err != nil {
+		return nil, fmt.Errorf("failed to decode policy: %w", err)
+	}
+
+	return &policy, nil
 }
 
 func (bm *bucketManager) SetBucketPolicy(ctx context.Context, name string, policy *Policy) error {
-	panic("not implemented")
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrBucketNotFound
+	}
+
+	if policy == nil {
+		// If policy is nil, delete it
+		return bm.DeleteBucketPolicy(ctx, name)
+	}
+
+	// Marshal policy to JSON
+	policyJSON, err := json.Marshal(policy)
+	if err != nil {
+		return fmt.Errorf("failed to marshal policy: %w", err)
+	}
+
+	// Write policy file
+	policyPath := name + "/.maxiofs-policy"
+	return bm.storage.Put(ctx, policyPath, strings.NewReader(string(policyJSON)), nil)
 }
 
 func (bm *bucketManager) DeleteBucketPolicy(ctx context.Context, name string) error {
-	panic("not implemented")
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrBucketNotFound
+	}
+
+	// Delete policy file if it exists
+	policyPath := name + "/.maxiofs-policy"
+	exists, err = bm.storage.Exists(ctx, policyPath)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return bm.storage.Delete(ctx, policyPath)
+	}
+
+	return nil
 }
 
+// GetVersioning retrieves the bucket versioning configuration
 func (bm *bucketManager) GetVersioning(ctx context.Context, name string) (*VersioningConfig, error) {
-	panic("not implemented")
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrBucketNotFound
+	}
+
+	// Try to read versioning file
+	versioningPath := name + "/.maxiofs-versioning"
+	exists, err = bm.storage.Exists(ctx, versioningPath)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		// Return default (disabled)
+		return &VersioningConfig{Status: "Suspended"}, nil
+	}
+
+	// Read and unmarshal versioning config
+	reader, _, err := bm.storage.Get(ctx, versioningPath)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	var config VersioningConfig
+	if err := json.NewDecoder(reader).Decode(&config); err != nil {
+		return nil, fmt.Errorf("failed to decode versioning config: %w", err)
+	}
+
+	return &config, nil
 }
 
 func (bm *bucketManager) SetVersioning(ctx context.Context, name string, config *VersioningConfig) error {
-	panic("not implemented")
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrBucketNotFound
+	}
+
+	if config == nil {
+		// If config is nil, set to suspended
+		config = &VersioningConfig{Status: "Suspended"}
+	}
+
+	// Marshal config to JSON
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal versioning config: %w", err)
+	}
+
+	// Write versioning file
+	versioningPath := name + "/.maxiofs-versioning"
+	return bm.storage.Put(ctx, versioningPath, strings.NewReader(string(configJSON)), nil)
 }
 
+// GetLifecycle retrieves the bucket lifecycle configuration
 func (bm *bucketManager) GetLifecycle(ctx context.Context, name string) (*LifecycleConfig, error) {
-	panic("not implemented")
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrBucketNotFound
+	}
+
+	// Try to read lifecycle file
+	lifecyclePath := name + "/.maxiofs-lifecycle"
+	exists, err = bm.storage.Exists(ctx, lifecyclePath)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrLifecycleNotFound
+	}
+
+	// Read and unmarshal lifecycle config
+	reader, _, err := bm.storage.Get(ctx, lifecyclePath)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	var config LifecycleConfig
+	if err := json.NewDecoder(reader).Decode(&config); err != nil {
+		return nil, fmt.Errorf("failed to decode lifecycle config: %w", err)
+	}
+
+	return &config, nil
 }
 
 func (bm *bucketManager) SetLifecycle(ctx context.Context, name string, config *LifecycleConfig) error {
-	panic("not implemented")
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrBucketNotFound
+	}
+
+	if config == nil {
+		// If config is nil, delete it
+		return bm.DeleteLifecycle(ctx, name)
+	}
+
+	// Marshal config to JSON
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal lifecycle config: %w", err)
+	}
+
+	// Write lifecycle file
+	lifecyclePath := name + "/.maxiofs-lifecycle"
+	return bm.storage.Put(ctx, lifecyclePath, strings.NewReader(string(configJSON)), nil)
 }
 
 func (bm *bucketManager) DeleteLifecycle(ctx context.Context, name string) error {
-	panic("not implemented")
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrBucketNotFound
+	}
+
+	// Delete lifecycle file if it exists
+	lifecyclePath := name + "/.maxiofs-lifecycle"
+	exists, err = bm.storage.Exists(ctx, lifecyclePath)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return bm.storage.Delete(ctx, lifecyclePath)
+	}
+
+	return nil
 }
 
+// GetCORS retrieves the bucket CORS configuration
 func (bm *bucketManager) GetCORS(ctx context.Context, name string) (*CORSConfig, error) {
-	panic("not implemented")
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrBucketNotFound
+	}
+
+	// Try to read CORS file
+	corsPath := name + "/.maxiofs-cors"
+	exists, err = bm.storage.Exists(ctx, corsPath)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrCORSNotFound
+	}
+
+	// Read and unmarshal CORS config
+	reader, _, err := bm.storage.Get(ctx, corsPath)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	var config CORSConfig
+	if err := json.NewDecoder(reader).Decode(&config); err != nil {
+		return nil, fmt.Errorf("failed to decode CORS config: %w", err)
+	}
+
+	return &config, nil
 }
 
 func (bm *bucketManager) SetCORS(ctx context.Context, name string, config *CORSConfig) error {
-	panic("not implemented")
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrBucketNotFound
+	}
+
+	if config == nil {
+		// If config is nil, delete it
+		return bm.DeleteCORS(ctx, name)
+	}
+
+	// Marshal config to JSON
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal CORS config: %w", err)
+	}
+
+	// Write CORS file
+	corsPath := name + "/.maxiofs-cors"
+	return bm.storage.Put(ctx, corsPath, strings.NewReader(string(configJSON)), nil)
 }
 
 func (bm *bucketManager) DeleteCORS(ctx context.Context, name string) error {
-	panic("not implemented")
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrBucketNotFound
+	}
+
+	// Delete CORS file if it exists
+	corsPath := name + "/.maxiofs-cors"
+	exists, err = bm.storage.Exists(ctx, corsPath)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return bm.storage.Delete(ctx, corsPath)
+	}
+
+	return nil
 }
 
+// GetObjectLockConfig retrieves the bucket object lock configuration
 func (bm *bucketManager) GetObjectLockConfig(ctx context.Context, name string) (*ObjectLockConfig, error) {
-	panic("not implemented")
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrBucketNotFound
+	}
+
+	// Try to read object lock file
+	lockPath := name + "/.maxiofs-objectlock"
+	exists, err = bm.storage.Exists(ctx, lockPath)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		// Return default (disabled)
+		return &ObjectLockConfig{ObjectLockEnabled: "Disabled"}, nil
+	}
+
+	// Read and unmarshal object lock config
+	reader, _, err := bm.storage.Get(ctx, lockPath)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	var config ObjectLockConfig
+	if err := json.NewDecoder(reader).Decode(&config); err != nil {
+		return nil, fmt.Errorf("failed to decode object lock config: %w", err)
+	}
+
+	return &config, nil
 }
 
 func (bm *bucketManager) SetObjectLockConfig(ctx context.Context, name string, config *ObjectLockConfig) error {
-	panic("not implemented")
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrBucketNotFound
+	}
+
+	if config == nil {
+		// If config is nil, set to disabled
+		config = &ObjectLockConfig{ObjectLockEnabled: "Disabled"}
+	}
+
+	// Marshal config to JSON
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal object lock config: %w", err)
+	}
+
+	// Write object lock file
+	lockPath := name + "/.maxiofs-objectlock"
+	return bm.storage.Put(ctx, lockPath, strings.NewReader(string(configJSON)), nil)
 }
 
 // IsReady checks if the bucket manager is ready

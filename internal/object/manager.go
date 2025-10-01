@@ -432,52 +432,177 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 	return om.saveObjectMetadata(ctx, object)
 }
 
-// Placeholder implementations for Object Lock operations
+// Object Lock operations implementations
+
 func (om *objectManager) GetObjectRetention(ctx context.Context, bucket, key string) (*RetentionConfig, error) {
-	panic("not implemented - Fase 2.1")
+	// Get object metadata
+	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+	if err != nil {
+		return nil, err
+	}
+
+	if obj.Retention == nil {
+		return nil, ErrNoRetentionConfiguration
+	}
+
+	return obj.Retention, nil
 }
 
 func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig) error {
-	panic("not implemented - Fase 2.1")
+	// Get object metadata
+	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+	if err != nil {
+		return err
+	}
+
+	// Check if object is locked and retention is being shortened
+	if obj.Retention != nil {
+		if config == nil || config.RetainUntilDate.Before(obj.Retention.RetainUntilDate) {
+			// Cannot shorten retention
+			if obj.Retention.Mode == "COMPLIANCE" {
+				return ErrCannotShortenCompliance
+			}
+			// For GOVERNANCE, would need bypass permission (not implemented yet)
+			return ErrCannotShortenGovernance
+		}
+	}
+
+	// Update retention
+	obj.Retention = config
+
+	// Save updated metadata
+	return om.saveObjectMetadata(ctx, obj)
 }
 
 func (om *objectManager) GetObjectLegalHold(ctx context.Context, bucket, key string) (*LegalHoldConfig, error) {
-	panic("not implemented - Fase 2.1")
+	// Get object metadata
+	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+	if err != nil {
+		return nil, err
+	}
+
+	if obj.LegalHold == nil {
+		// Return default (OFF)
+		return &LegalHoldConfig{Status: "OFF"}, nil
+	}
+
+	return obj.LegalHold, nil
 }
 
 func (om *objectManager) SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig) error {
-	panic("not implemented - Fase 2.1")
+	// Get object metadata
+	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+	if err != nil {
+		return err
+	}
+
+	// Update legal hold
+	obj.LegalHold = config
+
+	// Save updated metadata
+	return om.saveObjectMetadata(ctx, obj)
 }
 
-// Placeholder implementations for versioning operations
+// Versioning operations (Fase 7.2 - future)
 func (om *objectManager) GetObjectVersions(ctx context.Context, bucket, key string) ([]ObjectVersion, error) {
-	panic("not implemented - Fase 7.2")
+	// TODO: Implement versioning in Fase 7.2
+	return []ObjectVersion{}, nil
 }
 
 func (om *objectManager) DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error {
-	panic("not implemented - Fase 7.2")
+	// TODO: Implement versioning in Fase 7.2
+	return fmt.Errorf("versioning not yet implemented")
 }
 
-// Placeholder implementations for tagging operations
+// Tagging operations implementations
+
 func (om *objectManager) GetObjectTagging(ctx context.Context, bucket, key string) (*TagSet, error) {
-	panic("not implemented - Fase 4.1")
+	// Get object metadata
+	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+	if err != nil {
+		return nil, err
+	}
+
+	if obj.Tags == nil {
+		// Return empty tagset
+		return &TagSet{Tags: []Tag{}}, nil
+	}
+
+	return obj.Tags, nil
 }
 
 func (om *objectManager) SetObjectTagging(ctx context.Context, bucket, key string, tags *TagSet) error {
-	panic("not implemented - Fase 4.1")
+	// Get object metadata
+	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+	if err != nil {
+		return err
+	}
+
+	// Validate tags
+	if tags != nil && len(tags.Tags) > 10 {
+		return ErrTooManyTags
+	}
+
+	// Update tags
+	obj.Tags = tags
+
+	// Save updated metadata
+	return om.saveObjectMetadata(ctx, obj)
 }
 
 func (om *objectManager) DeleteObjectTagging(ctx context.Context, bucket, key string) error {
-	panic("not implemented - Fase 4.1")
+	// Get object metadata
+	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+	if err != nil {
+		return err
+	}
+
+	// Clear tags
+	obj.Tags = &TagSet{Tags: []Tag{}}
+
+	// Save updated metadata
+	return om.saveObjectMetadata(ctx, obj)
 }
 
-// Placeholder implementations for ACL operations
+// ACL operations implementations (basic placeholders)
+
 func (om *objectManager) GetObjectACL(ctx context.Context, bucket, key string) (*ACL, error) {
-	panic("not implemented - Fase 4.1")
+	// Get object metadata to ensure it exists
+	_, err := om.GetObjectMetadata(ctx, bucket, key)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return default ACL (owner has full control)
+	// TODO: Implement actual ACL storage and retrieval
+	return &ACL{
+		Owner: Owner{
+			ID:          "maxiofs",
+			DisplayName: "MaxIOFS",
+		},
+		Grants: []Grant{
+			{
+				Grantee: Grantee{
+					Type:        "CanonicalUser",
+					ID:          "maxiofs",
+					DisplayName: "MaxIOFS",
+				},
+				Permission: "FULL_CONTROL",
+			},
+		},
+	}, nil
 }
 
 func (om *objectManager) SetObjectACL(ctx context.Context, bucket, key string, acl *ACL) error {
-	panic("not implemented - Fase 4.1")
+	// Get object metadata to ensure it exists
+	_, err := om.GetObjectMetadata(ctx, bucket, key)
+	if err != nil {
+		return err
+	}
+
+	// TODO: Implement actual ACL storage
+	// For now, just validate that object exists (done above)
+	return nil
 }
 
 // CreateMultipartUpload creates a new multipart upload session
