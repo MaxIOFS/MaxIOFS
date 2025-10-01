@@ -328,9 +328,9 @@ func (am *authManager) CreateUser(ctx context.Context, user *User) error {
 		user.Metadata = make(map[string]string)
 	}
 
-	// For MVP, store in memory (in production, use persistent storage)
-	// We'll need an access key to store the user
-	// This is a simplified implementation
+	// For MVP, store in memory with userID as key
+	// In production, users would be linked to access keys
+	am.users[user.ID] = user
 	return nil
 }
 
@@ -711,7 +711,14 @@ func (am *authManager) createStringToSignV2(r *http.Request) string {
 	contentMD5 := r.Header.Get("Content-MD5")
 	contentType := r.Header.Get("Content-Type")
 	date := r.Header.Get("Date")
-	resource := r.URL.Path
+
+	resource := "/"
+	if r.URL != nil {
+		resource = r.URL.Path
+		if resource == "" {
+			resource = "/"
+		}
+	}
 
 	return fmt.Sprintf("%s\n%s\n%s\n%s\n%s",
 		method, contentMD5, contentType, date, resource)
