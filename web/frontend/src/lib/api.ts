@@ -26,17 +26,17 @@ import type {
 
 // API Configuration
 const API_CONFIG = {
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080',
-  s3URL: process.env.NEXT_PUBLIC_S3_URL || 'http://localhost:8080/s3',
+  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081/api/v1',
+  s3URL: process.env.NEXT_PUBLIC_S3_URL || 'http://localhost:8080',
   timeout: 30000,
-  withCredentials: true,
+  withCredentials: false, // Changed to false for development CORS
 };
 
 // Create axios instances
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_CONFIG.baseURL,
   timeout: API_CONFIG.timeout,
-  withCredentials: API_CONFIG.withCredentials,
+  withCredentials: false, // CORS support for development
   headers: {
     'Content-Type': 'application/json',
   },
@@ -45,7 +45,7 @@ const apiClient: AxiosInstance = axios.create({
 const s3Client: AxiosInstance = axios.create({
   baseURL: API_CONFIG.s3URL,
   timeout: API_CONFIG.timeout,
-  withCredentials: API_CONFIG.withCredentials,
+  withCredentials: false, // CORS support for development
 });
 
 // Token management
@@ -266,31 +266,30 @@ export class APIClient {
 
   // Buckets Management
   static async getBuckets(): Promise<Bucket[]> {
-    const response = await s3Client.get<ListBucketsResponse>('/');
-    return response.data.buckets || [];
+    const response = await apiClient.get<APIResponse<Bucket[]>>('/buckets');
+    return response.data.data || [];
   }
 
   static async getBucket(bucketName: string): Promise<Bucket> {
-    const response = await s3Client.get<Bucket>(`/${bucketName}`);
-    return response.data;
+    const response = await apiClient.get<APIResponse<Bucket>>(`/buckets/${bucketName}`);
+    return response.data.data!;
   }
 
   static async createBucket(bucketData: CreateBucketForm): Promise<Bucket> {
-    const response = await s3Client.put<Bucket>(`/${bucketData.name}`, {
-      CreateBucketConfiguration: {
-        LocationConstraint: bucketData.region,
-      },
+    const response = await apiClient.post<APIResponse<Bucket>>('/buckets', {
+      name: bucketData.name,
+      region: bucketData.region,
     });
-    return response.data;
+    return response.data.data!;
   }
 
   static async deleteBucket(bucketName: string): Promise<void> {
-    await s3Client.delete(`/${bucketName}`);
+    await apiClient.delete(`/buckets/${bucketName}`);
   }
 
   static async updateBucketConfig(bucketName: string, config: EditBucketForm): Promise<Bucket> {
-    const response = await s3Client.put<Bucket>(`/${bucketName}?configuration`, config);
-    return response.data;
+    const response = await apiClient.put<APIResponse<Bucket>>(`/buckets/${bucketName}`, config);
+    return response.data.data!;
   }
 
   // Objects Management
@@ -298,20 +297,18 @@ export class APIClient {
     const params = new URLSearchParams();
     if (request.prefix) params.append('prefix', request.prefix);
     if (request.delimiter) params.append('delimiter', request.delimiter);
-    if (request.maxKeys) params.append('max-keys', request.maxKeys.toString());
-    if (request.continuationToken) params.append('continuation-token', request.continuationToken);
-    if (request.startAfter) params.append('start-after', request.startAfter);
+    if (request.maxKeys) params.append('max_keys', request.maxKeys.toString());
+    if (request.continuationToken) params.append('marker', request.continuationToken);
 
-    const response = await s3Client.get<ListObjectsResponse>(
-      `/${request.bucket}?list-type=2&${params.toString()}`
+    const response = await apiClient.get<APIResponse<ListObjectsResponse>>(
+      `/buckets/${request.bucket}/objects?${params.toString()}`
     );
-    return response.data;
+    return response.data.data!;
   }
 
   static async getObject(bucket: string, key: string, versionId?: string): Promise<S3Object> {
-    const params = versionId ? `?versionId=${versionId}` : '';
-    const response = await s3Client.get<S3Object>(`/${bucket}/${key}${params}`);
-    return response.data;
+    const response = await apiClient.get<APIResponse<S3Object>>(`/buckets/${bucket}/objects/${key}`);
+    return response.data.data!;
   }
 
   static async uploadObject(request: UploadRequest): Promise<S3Object> {
@@ -340,16 +337,15 @@ export class APIClient {
       } : undefined,
     };
 
-    const response = await s3Client.put<S3Object>(
-      `/${request.bucket}/${request.key}`,
+    const response = await apiClient.put<APIResponse<S3Object>>(
+      `/buckets/${request.bucket}/objects/${request.key}`,
       formData,
       config
     );
-    return response.data;
+    return response.data.data!;
   }
 
   static async downloadObject(request: DownloadRequest): Promise<Blob> {
-    const params = request.versionId ? `?versionId=${request.versionId}` : '';
     const config = {
       responseType: 'blob' as const,
       headers: request.range ? { Range: request.range } : undefined,
@@ -365,15 +361,14 @@ export class APIClient {
     };
 
     const response = await s3Client.get<Blob>(
-      `/${request.bucket}/${request.key}${params}`,
+      `/${request.bucket}/${request.key}`,
       config
     );
     return response.data;
   }
 
   static async deleteObject(bucket: string, key: string, versionId?: string): Promise<void> {
-    const params = versionId ? `?versionId=${versionId}` : '';
-    await s3Client.delete(`/${bucket}/${key}${params}`);
+    await apiClient.delete(`/buckets/${bucket}/objects/${key}`);
   }
 
   static async copyObject(
@@ -392,7 +387,7 @@ export class APIClient {
 
   // Metrics
   static async getStorageMetrics(): Promise<StorageMetrics> {
-    const response = await apiClient.get<APIResponse<StorageMetrics>>('/metrics/storage');
+    const response = await apiClient.get<APIResponse<StorageMetrics>>('/metrics');
     return response.data.data!;
   }
 
@@ -402,7 +397,7 @@ export class APIClient {
   }
 
   static async getS3Metrics(): Promise<S3Metrics> {
-    const response = await apiClient.get<APIResponse<S3Metrics>>('/metrics/s3');
+    const response = await apiClient.get<APIResponse<S3Metrics>>('/metrics');
     return response.data.data!;
   }
 

@@ -525,6 +525,73 @@
   - [x] Memory allocations tracking: ~15KB/op writes, ~11KB/op reads
   - [x] Concurrent operations benchmarks con RunParallel
 
+### ✅ **5.5 Frontend-Backend Integration - COMPLETADO**
+#### Prioridad: ALTA
+- [x] **internal/server/console_api.go** - **COMPLETADO** (479 líneas)
+  - [x] REST API endpoints para Console frontend
+  - [x] Auth endpoints: /auth/login, /auth/logout, /auth/me
+  - [x] Bucket endpoints: GET/POST/DELETE /buckets
+  - [x] Object endpoints: GET/PUT/DELETE /buckets/{bucket}/objects
+  - [x] User endpoints: GET/POST/PUT/DELETE /users
+  - [x] Metrics endpoints: GET /metrics, /metrics/system
+  - [x] CORS middleware integrado
+  - [x] JSON response wrapping con APIResponse
+
+- [x] **internal/server/server.go** - **MODIFICADO**
+  - [x] setupConsoleAPIRoutes integrado en setupConsoleRoutes
+  - [x] Routing completo para API v1 (/api/v1/*)
+  - [x] Console server en puerto 8081
+  - [x] S3 API server en puerto 8080
+
+- [x] **web/frontend/src/lib/api.ts** - **ACTUALIZADO**
+  - [x] baseURL cambiado a http://localhost:8081/api/v1
+  - [x] withCredentials: false para CORS development
+  - [x] getBuckets() usa /buckets endpoint
+  - [x] createBucket() usa POST /buckets
+  - [x] getObjects() usa /buckets/{bucket}/objects
+  - [x] uploadObject() usa PUT /buckets/{bucket}/objects/{key}
+  - [x] deleteObject() usa DELETE /buckets/{bucket}/objects/{key}
+  - [x] Metrics endpoints actualizados a /metrics
+
+- [x] **web/frontend/.env.local** - **ACTUALIZADO**
+  - [x] NEXT_PUBLIC_API_URL=http://localhost:8081/api/v1
+  - [x] NEXT_PUBLIC_S3_URL=http://localhost:8080
+  - [x] NEXT_PUBLIC_CONSOLE_URL=http://localhost:8081
+  - [x] Development environment configurado
+
+- [x] **web/frontend/src/app/login/page.tsx** - **CREADO**
+  - [x] Login page con access_key/secret_key
+  - [x] Form validation y error handling
+  - [x] Loading states
+  - [x] Default credentials display
+  - [x] Router integration para redirect después de login
+
+### 📋 **5.6 Manual End-to-End Testing**
+#### Prioridad: ALTA
+- [ ] **Backend Testing**
+  - [ ] Iniciar backend server (puerto 8080 S3 API + 8081 Console)
+  - [ ] Verificar endpoints /api/v1/* responden correctamente
+  - [ ] Verificar CORS headers en responses
+  - [ ] Test login endpoint con credenciales default
+  - [ ] Test bucket creation via Console API
+  - [ ] Test object upload via Console API
+
+- [ ] **Frontend Testing**
+  - [ ] Iniciar frontend dev server (npm run dev)
+  - [ ] Verificar login page (/login) carga correctamente
+  - [ ] Test login con credenciales minioadmin/minioadmin
+  - [ ] Verificar redirect a dashboard después de login
+  - [ ] Test bucket list page carga datos del backend
+  - [ ] Test bucket creation desde UI
+  - [ ] Test object upload desde UI
+
+- [ ] **Integration Testing**
+  - [ ] End-to-end workflow: Login → Create Bucket → Upload Object → View Object → Delete Object → Delete Bucket
+  - [ ] Verificar estados de loading en UI
+  - [ ] Verificar error handling en UI
+  - [ ] Verificar CORS no bloquea requests
+  - [ ] Verificar auth token persiste en localStorage
+
 ---
 
 ## 🎯 **FASE 6: Production Readiness**

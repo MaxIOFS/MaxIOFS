@@ -216,33 +216,9 @@ func (s *Server) setupConsoleRoutes(router *mux.Router) {
 	// API endpoints for the web console
 	apiRouter := router.PathPrefix("/api/v1").Subrouter()
 
-	// Console API handlers would go here
-	apiRouter.HandleFunc("/buckets", s.handleConsoleBuckets).Methods("GET")
-	apiRouter.HandleFunc("/objects/{bucket}", s.handleConsoleObjects).Methods("GET")
-	apiRouter.HandleFunc("/metrics", s.handleConsoleMetrics).Methods("GET")
+	// Setup complete Console API routes
+	s.setupConsoleAPIRoutes(apiRouter)
 
 	// Serve static files and SPA
 	router.PathPrefix("/").Handler(webHandler)
-}
-
-// Console API handlers (simplified examples)
-func (s *Server) handleConsoleBuckets(w http.ResponseWriter, r *http.Request) {
-	// Implementation for listing buckets in web console
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"buckets": []}`))
-}
-
-func (s *Server) handleConsoleObjects(w http.ResponseWriter, r *http.Request) {
-	// Implementation for listing objects in web console
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"objects": []}`))
-}
-
-func (s *Server) handleConsoleMetrics(w http.ResponseWriter, r *http.Request) {
-	// Implementation for serving metrics to web console
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"metrics": {}}`))
 }
