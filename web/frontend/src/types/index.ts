@@ -10,10 +10,11 @@ export interface APIResponse<T = any> {
 export interface User {
   id: string;
   username: string;
+  displayName?: string;
   email?: string;
   roles: string[];
   status: 'active' | 'inactive' | 'suspended';
-  createdAt: string;
+  createdAt: number | string;
   lastLogin?: string;
   metadata?: Record<string, string>;
 }
@@ -50,6 +51,22 @@ export interface LoginResponse {
   user?: User;
   error?: string;
 }
+
+export interface CreateUserRequest {
+  username: string;
+  email?: string;
+  password: string;
+  roles?: string[];
+  status?: 'active' | 'inactive' | 'suspended';
+}
+
+export interface EditUserForm {
+  displayName?: string;
+  email?: string;
+  roles: string[];
+  status?: 'active' | 'inactive' | 'suspended';
+}
+
 
 // Bucket Types
 export interface Bucket {
@@ -380,12 +397,6 @@ export interface CreateUserForm {
   confirmPassword: string;
   roles: string[];
   generateAccessKey?: boolean;
-}
-
-export interface EditUserForm {
-  email?: string;
-  roles: string[];
-  status: 'active' | 'inactive' | 'suspended';
 }
 
 export interface CreateAccessKeyForm {

@@ -18,6 +18,7 @@ import type {
   CreateBucketForm,
   EditBucketForm,
   CreateUserForm,
+  CreateUserRequest,
   EditUserForm,
   APIError,
   AccessKey,
@@ -266,7 +267,7 @@ export class APIClient {
     return response.data.data!;
   }
 
-  static async createUser(userData: CreateUserForm): Promise<User> {
+  static async createUser(userData: CreateUserRequest): Promise<User> {
     const response = await apiClient.post<APIResponse<User>>('/users', userData);
     return response.data.data!;
   }
@@ -490,9 +491,9 @@ export class APIClient {
   }
 
   // Access Keys
-  static async getUserAccessKeys(userId: string): Promise<APIResponse<any[]>> {
-    const response = await apiClient.get<APIResponse<any[]>>(`/users/${userId}/access-keys`);
-    return response.data;
+  static async getUserAccessKeys(userId: string): Promise<AccessKey[]> {
+    const response = await apiClient.get<APIResponse<AccessKey[]>>(`/users/${userId}/access-keys`);
+    return response.data.data || [];
   }
 
   // Bucket Settings
