@@ -527,6 +527,66 @@
 
 ### ✅ **5.5 Frontend-Backend Integration - COMPLETADO**
 #### Prioridad: ALTA
+
+#### 🔐 **Arquitectura de Autenticación Dual - IMPLEMENTADA**
+
+**Separación de Conceptos (Opción B - Refactorización Completa):**
+
+MaxIOFS implementa dos sistemas de autenticación completamente separados:
+
+1. **Console Web Authentication (Username/Password):**
+   - **Propósito**: Acceso administrativo a la consola web
+   - **Credenciales**: username + password (hashed con SHA-256)
+   - **Almacenamiento**: `consoleUsers` map en AuthManager
+   - **Endpoints**: `/api/v1/auth/login` (Console API - puerto 8081)
+   - **Default User**:
+     - Username: `admin`
+     - Password: `admin`
+     - Roles: `["admin"]`
+   - **Token**: JWT con claim `access_key = username`
+   - **Uso**: Administración de buckets, objetos, usuarios, configuración del sistema
+
+2. **S3 API Authentication (Access Key/Secret Key):**
+   - **Propósito**: Acceso programático a la API S3
+   - **Credenciales**: access_key + secret_key (AWS Signature V4/V2)
+   - **Almacenamiento**: `users` map en AuthManager (key = access_key)
+   - **Endpoints**: Todo el S3 API (puerto 8080)
+   - **Default User**:
+     - Access Key: `maxioadmin`
+     - Secret Key: `maxioadmin`
+     - Roles: `["admin"]`
+   - **Autenticación**: AWS Signature V4, Bearer tokens, Query params
+   - **Uso**: SDK, CLI tools, programmatic access a buckets y objetos
+
+**Implementación Técnica:**
+
+- **internal/auth/manager.go**:
+  - `User` struct con campos `Username` y `Password` (opcional para console users)
+  - `consoleUsers map[string]*User` (username → user)
+  - `users map[string]*User` (access_key → user)
+  - `ValidateConsoleCredentials(username, password)` - Valida credenciales web
+  - `ValidateCredentials(accessKey, secretKey)` - Valida credenciales S3 API
+  - `GenerateJWT()` soporta ambos tipos de usuarios
+
+- **internal/server/console_api.go**:
+  - `handleLogin()` usa `ValidateConsoleCredentials()`
+  - Request body: `{"username": "...", "password": "..."}`
+  - Response: JWT token + user info
+
+- **web/frontend**:
+  - Login page usa campos `username`/`password` (no access_key/secret_key)
+  - Token guardado en cookie `auth_token` y localStorage
+  - Default credentials mostradas: admin/admin
+
+**Seguridad (Producción):**
+- ⚠️ SHA-256 simple es INSEGURO para passwords en producción
+- ⚠️ Usar bcrypt, argon2, o scrypt para producción
+- ⚠️ Implementar password policies (longitud mínima, complejidad)
+- ⚠️ Implementar rate limiting en login endpoint
+- ⚠️ Implementar account lockout después de intentos fallidos
+
+---
+
 - [x] **internal/server/console_api.go** - **COMPLETADO** (479 líneas)
   - [x] REST API endpoints para Console frontend
   - [x] Auth endpoints: /auth/login, /auth/logout, /auth/me
@@ -536,6 +596,16 @@
   - [x] Metrics endpoints: GET /metrics, /metrics/system
   - [x] CORS middleware integrado
   - [x] JSON response wrapping con APIResponse
+  - [x] **handleLogin refactorizado para username/password**
+
+- [x] **internal/auth/manager.go** - **REFACTORIZADO COMPLETAMENTE**
+  - [x] User struct con Username y Password opcionales
+  - [x] consoleUsers map para usuarios web (username → user)
+  - [x] users map para usuarios S3 API (access_key → user)
+  - [x] ValidateConsoleCredentials() implementado
+  - [x] hashPassword() helper con SHA-256
+  - [x] Default admin user creado (admin/admin)
+  - [x] GenerateJWT() soporta ambos tipos de usuarios
 
 - [x] **internal/server/server.go** - **MODIFICADO**
   - [x] setupConsoleAPIRoutes integrado en setupConsoleRoutes
@@ -546,6 +616,7 @@
 - [x] **web/frontend/src/lib/api.ts** - **ACTUALIZADO**
   - [x] baseURL cambiado a http://localhost:8081/api/v1
   - [x] withCredentials: false para CORS development
+  - [x] login() usa username/password en payload
   - [x] getBuckets() usa /buckets endpoint
   - [x] createBucket() usa POST /buckets
   - [x] getObjects() usa /buckets/{bucket}/objects
@@ -553,37 +624,86 @@
   - [x] deleteObject() usa DELETE /buckets/{bucket}/objects/{key}
   - [x] Metrics endpoints actualizados a /metrics
 
+- [x] **web/frontend/src/types/index.ts** - **ACTUALIZADO**
+  - [x] LoginRequest cambiado a username/password (eliminado accessKey/secretKey)
+
 - [x] **web/frontend/.env.local** - **ACTUALIZADO**
   - [x] NEXT_PUBLIC_API_URL=http://localhost:8081/api/v1
   - [x] NEXT_PUBLIC_S3_URL=http://localhost:8080
   - [x] NEXT_PUBLIC_CONSOLE_URL=http://localhost:8081
   - [x] Development environment configurado
 
-- [x] **web/frontend/src/app/login/page.tsx** - **CREADO**
-  - [x] Login page con access_key/secret_key
+- [x] **web/frontend/src/app/login/page.tsx** - **ACTUALIZADO**
+  - [x] Login page usa username/password fields
   - [x] Form validation y error handling
   - [x] Loading states
-  - [x] Default credentials display
+  - [x] Default credentials display: admin/admin
   - [x] Router integration para redirect después de login
+  - [x] ConditionalLayout para layout aislado (sin sidebar/header)
+
+- [x] **web/frontend/src/middleware.ts** - **CREADO**
+  - [x] Route protection middleware
+  - [x] Redirect a /login si no autenticado
+  - [x] Redirect a / si ya autenticado y visita /login
+  - [x] Cookie-based authentication check
+
+- [x] **web/frontend/src/components/layout/ConditionalLayout.tsx** - **CREADO**
+  - [x] Layout condicional basado en pathname
+  - [x] Login page sin sidebar ni header
+  - [x] Otras páginas con layout completo
 
 ### 📋 **5.6 Manual End-to-End Testing**
 #### Prioridad: ALTA
-- [ ] **Backend Testing**
-  - [ ] Iniciar backend server (puerto 8080 S3 API + 8081 Console)
-  - [ ] Verificar endpoints /api/v1/* responden correctamente
-  - [ ] Verificar CORS headers en responses
-  - [ ] Test login endpoint con credenciales default
-  - [ ] Test bucket creation via Console API
-  - [ ] Test object upload via Console API
+- [x] **Backend Testing**
+  - [x] Iniciar backend server (puerto 8080 S3 API + 8081 Console) ✅
+  - [x] Verificar endpoints /api/v1/* responden correctamente ✅
+  - [x] Verificar CORS headers en responses ✅
+    - Access-Control-Allow-Origin: *
+    - Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+    - Access-Control-Allow-Headers: Content-Type, Authorization
+  - [x] Test login endpoint con credenciales default ✅
+    - POST /api/v1/auth/login: {"access_key":"maxioadmin","secret_key":"maxioadmin"}
+    - Response: Token JWT + User info
+  - [x] Test bucket creation via Console API ✅
+    - POST /api/v1/buckets: {"name":"test-bucket"}
+    - Response: {"success":true,"data":{"name":"test-bucket"}}
+  - [x] Test object upload via Console API ✅
+    - PUT /api/v1/buckets/test-bucket/objects/test.txt
+    - Response: Object metadata con size=15, etag, etc.
 
-- [ ] **Frontend Testing**
-  - [ ] Iniciar frontend dev server (npm run dev)
-  - [ ] Verificar login page (/login) carga correctamente
-  - [ ] Test login con credenciales minioadmin/minioadmin
-  - [ ] Verificar redirect a dashboard después de login
-  - [ ] Test bucket list page carga datos del backend
-  - [ ] Test bucket creation desde UI
-  - [ ] Test object upload desde UI
+- [x] **Frontend Testing**
+  - [x] Iniciar frontend dev server (npm run dev) ✅
+    - Next.js 14.0.0 corriendo en http://localhost:3000
+    - Environment: .env.local cargado correctamente
+    - Ready in 5.6s
+  - [x] Verificar páginas cargan correctamente ✅
+    - GET / → 200 OK
+    - GET /login → 200 OK (login page)
+    - GET /buckets → 200 OK
+  - [x] Verificar compilación sin errores ✅
+    - ✓ Compiled /login/page in 16.1s (824 modules)
+    - ✓ Compiled /buckets/page in 451ms (834 modules)
+    - ✓ Compiled /src/middleware in 487ms (56 modules)
+  - [x] **Correcciones de Auth & UX** ✅
+    - [x] Implementado middleware de protección de rutas (src/middleware.ts)
+      - Rutas públicas: /login
+      - Rutas protegidas: todas las demás requieren token
+      - Redirect a /login si no autenticado
+      - Redirect a / si ya autenticado y visita /login
+    - [x] Creado layout especial para login (src/app/login/layout.tsx)
+      - Sin sidebar ni header
+      - Layout limpio solo con formulario
+    - [x] Actualizado flujo de autenticación
+      - Token guardado en cookie auth_token
+      - Manejo correcto de respuesta del backend APIResponse
+      - Logout limpia cookie y localStorage
+    - [x] Corregidas credenciales default
+      - minioadmin → maxioadmin en página de login
+  - [ ] Test login con credenciales maxioadmin/maxioadmin (manual browser test)
+  - [ ] Verificar redirect a dashboard después de login (manual browser test)
+  - [ ] Test bucket list page carga datos del backend (manual browser test)
+  - [ ] Test bucket creation desde UI (manual browser test)
+  - [ ] Test object upload desde UI (manual browser test)
 
 - [ ] **Integration Testing**
   - [ ] End-to-end workflow: Login → Create Bucket → Upload Object → View Object → Delete Object → Delete Bucket

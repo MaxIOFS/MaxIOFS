@@ -212,13 +212,13 @@ func (rpm *retentionPolicyManager) IsObjectEligibleForDeletion(ctx context.Conte
 // GetExpiringObjects returns objects whose retention is expiring before the specified time
 func (rpm *retentionPolicyManager) GetExpiringObjects(ctx context.Context, bucket string, beforeTime time.Time) ([]Object, error) {
 	// List all objects in the bucket
-	objects, _, err := rpm.objectManager.ListObjects(ctx, bucket, "", "", "", 1000)
+	result, err := rpm.objectManager.ListObjects(ctx, bucket, "", "", "", 1000)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list objects: %w", err)
 	}
 
 	var expiringObjects []Object
-	for _, obj := range objects {
+	for _, obj := range result.Objects {
 		if obj.Retention != nil {
 			if obj.Retention.RetainUntilDate.Before(beforeTime) &&
 			   obj.Retention.RetainUntilDate.After(time.Now()) {
@@ -233,7 +233,7 @@ func (rpm *retentionPolicyManager) GetExpiringObjects(ctx context.Context, bucke
 // CleanupExpiredRetentions removes retention from objects whose retention period has expired
 func (rpm *retentionPolicyManager) CleanupExpiredRetentions(ctx context.Context, bucket string) (int, error) {
 	// List all objects in the bucket
-	objects, _, err := rpm.objectManager.ListObjects(ctx, bucket, "", "", "", 1000)
+	result, err := rpm.objectManager.ListObjects(ctx, bucket, "", "", "", 1000)
 	if err != nil {
 		return 0, fmt.Errorf("failed to list objects: %w", err)
 	}
@@ -241,7 +241,7 @@ func (rpm *retentionPolicyManager) CleanupExpiredRetentions(ctx context.Context,
 	cleaned := 0
 	now := time.Now()
 
-	for _, obj := range objects {
+	for _, obj := range result.Objects {
 		if obj.Retention != nil && obj.Retention.RetainUntilDate.Before(now) {
 			// Retention has expired, remove it by setting it to nil
 			if err := rpm.objectManager.SetObjectRetention(ctx, obj.Bucket, obj.Key, nil); err != nil {
@@ -303,7 +303,7 @@ func (rpm *retentionPolicyManager) AuditRetentionAction(ctx context.Context, buc
 
 // GetRetentionSummary provides a summary of retention status for a bucket
 func (rpm *retentionPolicyManager) GetRetentionSummary(ctx context.Context, bucket string) (*RetentionSummary, error) {
-	objects, _, err := rpm.objectManager.ListObjects(ctx, bucket, "", "", "", 10000) // Large limit for summary
+	result, err := rpm.objectManager.ListObjects(ctx, bucket, "", "", "", 10000) // Large limit for summary
 	if err != nil {
 		return nil, fmt.Errorf("failed to list objects: %w", err)
 	}
@@ -315,7 +315,7 @@ func (rpm *retentionPolicyManager) GetRetentionSummary(ctx context.Context, buck
 
 	var earliestRetention, latestRetention time.Time
 
-	for _, obj := range objects {
+	for _, obj := range result.Objects {
 		summary.TotalObjects++
 
 		if obj.Retention != nil {
@@ -355,7 +355,7 @@ func (rpm *retentionPolicyManager) GetRetentionSummary(ctx context.Context, buck
 
 // GenerateComplianceReport generates a detailed compliance report
 func (rpm *retentionPolicyManager) GenerateComplianceReport(ctx context.Context, bucket string, startTime, endTime time.Time) (*ComplianceReport, error) {
-	objects, _, err := rpm.objectManager.ListObjects(ctx, bucket, "", "", "", 10000)
+	result, err := rpm.objectManager.ListObjects(ctx, bucket, "", "", "", 10000)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list objects: %w", err)
 	}
@@ -375,7 +375,7 @@ func (rpm *retentionPolicyManager) GenerateComplianceReport(ctx context.Context,
 
 	now := time.Now()
 
-	for _, obj := range objects {
+	for _, obj := range result.Objects {
 		complianceObj := ComplianceObject{
 			Key:              obj.Key,
 			LastModified:     obj.LastModified,

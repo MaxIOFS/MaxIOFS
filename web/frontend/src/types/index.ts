@@ -54,7 +54,8 @@ export interface LoginResponse {
 // Bucket Types
 export interface Bucket {
   name: string;
-  creationDate: string;
+  creation_date: string; // Backend uses snake_case
+  creationDate?: string; // Alias for compatibility
   region?: string;
   versioning?: VersioningConfig;
   cors?: CORSConfig;
@@ -63,8 +64,10 @@ export interface Bucket {
   policy?: BucketPolicy;
   encryption?: EncryptionConfig;
   metadata?: Record<string, string>;
-  objectCount?: number;
-  totalSize?: number;
+  object_count?: number; // Backend uses snake_case
+  objectCount?: number; // Alias for compatibility
+  size?: number; // Backend uses 'size'
+  totalSize?: number; // Alias for compatibility
 }
 
 export interface VersioningConfig {

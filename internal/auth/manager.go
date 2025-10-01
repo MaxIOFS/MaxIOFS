@@ -22,6 +22,7 @@ import (
 type Manager interface {
 	// Authentication
 	ValidateCredentials(ctx context.Context, accessKey, secretKey string) (*User, error)
+	ValidateConsoleCredentials(ctx context.Context, username, password string) (*User, error)
 	ValidateJWT(ctx context.Context, token string) (*User, error)
 	GenerateJWT(ctx context.Context, user *User) (string, error)
 
@@ -57,6 +58,8 @@ type Manager interface {
 // User represents a user in the system
 type User struct {
 	ID          string            `json:"id"`
+	Username    string            `json:"username,omitempty"`    // For console login
+	Password    string            `json:"password,omitempty"`    // Hashed password for console login
 	DisplayName string            `json:"display_name"`
 	Email       string            `json:"email,omitempty"`
 	Status      string            `json:"status"` // active, inactive, suspended
@@ -79,24 +82,26 @@ type AccessKey struct {
 
 // authManager implements the Manager interface
 type authManager struct {
-	config config.AuthConfig
-	users  map[string]*User      // accessKey -> user mapping
-	keys   map[string]*AccessKey // accessKey -> AccessKey mapping
+	config        config.AuthConfig
+	users         map[string]*User      // accessKey -> user mapping (for S3 API)
+	consoleUsers  map[string]*User      // username -> user mapping (for Console)
+	keys          map[string]*AccessKey // accessKey -> AccessKey mapping
 }
 
 // NewManager creates a new authentication manager
 func NewManager(config config.AuthConfig) Manager {
 	manager := &authManager{
-		config: config,
-		users:  make(map[string]*User),
-		keys:   make(map[string]*AccessKey),
+		config:       config,
+		users:        make(map[string]*User),
+		consoleUsers: make(map[string]*User),
+		keys:         make(map[string]*AccessKey),
 	}
 
-	// Add default user if configured
+	// Add default S3 access key if configured
 	if config.AccessKey != "" && config.SecretKey != "" {
 		defaultUser := &User{
 			ID:          "default",
-			DisplayName: "Default User",
+			DisplayName: "Default S3 User",
 			Status:      "active",
 			Roles:       []string{"admin"},
 			CreatedAt:   0,
@@ -114,6 +119,21 @@ func NewManager(config config.AuthConfig) Manager {
 		manager.users[config.AccessKey] = defaultUser
 		manager.keys[config.AccessKey] = defaultKey
 	}
+
+	// Add default console admin user
+	// Password: "admin" hashed with SHA256
+	adminUser := &User{
+		ID:          "admin",
+		Username:    "admin",
+		Password:    hashPassword("admin"), // Simple hash for demo
+		DisplayName: "Administrator",
+		Email:       "admin@maxiofs.local",
+		Status:      "active",
+		Roles:       []string{"admin"},
+		CreatedAt:   time.Now().Unix(),
+		UpdatedAt:   time.Now().Unix(),
+	}
+	manager.consoleUsers["admin"] = adminUser
 
 	return manager
 }
@@ -137,6 +157,47 @@ func (am *authManager) ValidateCredentials(ctx context.Context, accessKey, secre
 	}
 
 	return nil, ErrInvalidCredentials
+}
+
+// ValidateConsoleCredentials validates username/password for console login
+func (am *authManager) ValidateConsoleCredentials(ctx context.Context, username, password string) (*User, error) {
+	if !am.config.EnableAuth {
+		// Return default user when auth is disabled
+		return &User{
+			ID:          "anonymous",
+			Username:    "anonymous",
+			DisplayName: "Anonymous User",
+			Status:      "active",
+			Roles:       []string{"admin"},
+		}, nil
+	}
+
+	// Check console users
+	user, exists := am.consoleUsers[username]
+	if !exists {
+		return nil, ErrInvalidCredentials
+	}
+
+	// Verify password
+	hashedPassword := hashPassword(password)
+	if user.Password != hashedPassword {
+		return nil, ErrInvalidCredentials
+	}
+
+	// Check user status
+	if user.Status != "active" {
+		return nil, ErrUserInactive
+	}
+
+	return user, nil
+}
+
+// hashPassword creates a simple SHA256 hash of the password
+// Note: In production, use bcrypt or argon2
+func hashPassword(password string) string {
+	h := sha256.New()
+	h.Write([]byte(password))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // ValidateJWT validates a JWT token
@@ -168,17 +229,25 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 
 // GenerateJWT generates a JWT token for a user
 func (am *authManager) GenerateJWT(ctx context.Context, user *User) (string, error) {
-	// Find user's access key
+	// For console users, use username as AccessKey
+	// For S3 API users, find their actual access key
 	var accessKey string
-	for key, u := range am.users {
-		if u.ID == user.ID {
-			accessKey = key
-			break
-		}
-	}
 
-	if accessKey == "" {
-		return "", ErrUserNotFound
+	// Check if it's a console user
+	if user.Username != "" {
+		accessKey = user.Username
+	} else {
+		// Find user's S3 access key
+		for key, u := range am.users {
+			if u.ID == user.ID {
+				accessKey = key
+				break
+			}
+		}
+
+		if accessKey == "" {
+			return "", ErrUserNotFound
+		}
 	}
 
 	// Create claims

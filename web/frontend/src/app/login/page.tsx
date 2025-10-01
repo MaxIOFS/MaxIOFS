@@ -3,14 +3,15 @@
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import APIClient from '@/lib/api';
+import SweetAlert from '@/lib/sweetalert';
 
 export default function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
-    access_key: '',
-    secret_key: '',
+    username: '',
+    password: '',
   });
 
   const handleSubmit = async (e: FormEvent) => {
@@ -19,18 +20,35 @@ export default function LoginPage() {
     setError(null);
 
     try {
+      // Mostrar indicador de carga
+      SweetAlert.loading('Iniciando sesión...', 'Verificando credenciales');
+
       const response = await APIClient.login({
-        accessKey: formData.access_key,
-        secretKey: formData.secret_key,
+        username: formData.username,
+        password: formData.password,
       });
 
-      if (response.success) {
+      if (response.success && response.token) {
+        // Cerrar modal de carga
+        SweetAlert.close();
+
+        // Save token to cookie
+        document.cookie = `auth_token=${response.token}; path=/; max-age=86400; SameSite=Lax`;
+
+        // Mostrar mensaje de bienvenida
+        await SweetAlert.successLogin(formData.username);
+
         // Redirect to dashboard
         router.push('/');
+        router.refresh();
       } else {
+        SweetAlert.close();
+        await SweetAlert.error('Error de autenticación', response.error || 'Credenciales inválidas');
         setError(response.error || 'Login failed');
       }
     } catch (err: any) {
+      SweetAlert.close();
+      await SweetAlert.apiError(err);
       setError(err.message || 'Failed to login. Please check your credentials.');
     } finally {
       setLoading(false);
@@ -65,33 +83,33 @@ export default function LoginPage() {
 
           <div className="rounded-md shadow-sm -space-y-px">
             <div>
-              <label htmlFor="access_key" className="sr-only">
-                Access Key
+              <label htmlFor="username" className="sr-only">
+                Username
               </label>
               <input
-                id="access_key"
-                name="access_key"
+                id="username"
+                name="username"
                 type="text"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Access Key"
-                value={formData.access_key}
+                placeholder="Username"
+                value={formData.username}
                 onChange={handleChange}
                 disabled={loading}
               />
             </div>
             <div>
-              <label htmlFor="secret_key" className="sr-only">
-                Secret Key
+              <label htmlFor="password" className="sr-only">
+                Password
               </label>
               <input
-                id="secret_key"
-                name="secret_key"
+                id="password"
+                name="password"
                 type="password"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Secret Key"
-                value={formData.secret_key}
+                placeholder="Password"
+                value={formData.password}
                 onChange={handleChange}
                 disabled={loading}
               />
@@ -120,10 +138,10 @@ export default function LoginPage() {
         </form>
 
         <div className="text-center text-sm text-gray-600">
-          <p>Default credentials:</p>
+          <p>Default console credentials:</p>
           <p className="font-mono text-xs mt-1">
-            Access Key: minioadmin<br />
-            Secret Key: minioadmin
+            Username: admin<br />
+            Password: admin
           </p>
         </div>
       </div>

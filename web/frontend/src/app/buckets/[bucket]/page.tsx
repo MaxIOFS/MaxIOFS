@@ -15,22 +15,21 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/Table';
-import {
-  ArrowLeft,
-  Upload,
-  Download,
-  Search,
-  Settings,
-  Trash2,
-  File,
-  Folder,
-  Calendar,
-  HardDrive,
-  MoreHorizontal
-} from 'lucide-react';
+import { ArrowLeft as ArrowLeftIcon } from 'lucide-react';
+import { Upload as UploadIcon } from 'lucide-react';
+import { Download as DownloadIcon } from 'lucide-react';
+import { Search as SearchIcon } from 'lucide-react';
+import { Settings as SettingsIcon } from 'lucide-react';
+import { Trash2 as Trash2Icon } from 'lucide-react';
+import { File as FileIcon } from 'lucide-react';
+import { Folder as FolderIcon } from 'lucide-react';
+import { Calendar as CalendarIcon } from 'lucide-react';
+import { HardDrive as HardDriveIcon } from 'lucide-react';
+import { MoreHorizontal as MoreHorizontalIcon } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { S3Object, UploadRequest } from '@/types';
+import SweetAlert from '@/lib/sweetalert';
 
 export default function BucketDetailsPage() {
   const params = useParams();
@@ -38,6 +37,8 @@ export default function BucketDetailsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPrefix, setCurrentPrefix] = useState('');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const queryClient = useQueryClient();
 
@@ -46,63 +47,257 @@ export default function BucketDetailsPage() {
     queryFn: () => APIClient.getBucket(bucketName),
   });
 
-  const { data: objects, isLoading: objectsLoading } = useQuery({
+  const { data: objectsResponse, isLoading: objectsLoading } = useQuery({
     queryKey: ['objects', bucketName, currentPrefix],
-    queryFn: () => APIClient.getObjects(bucketName, { prefix: currentPrefix }),
+    queryFn: () => APIClient.getObjects({
+      bucket: bucketName,
+      prefix: currentPrefix,
+      delimiter: '/', // This groups objects by folder
+    }),
   });
 
   const uploadMutation = useMutation({
     mutationFn: (data: UploadRequest) => APIClient.uploadObject(data),
-    onSuccess: () => {
+    onSuccess: (response, variables) => {
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
       setIsUploadModalOpen(false);
       setSelectedFiles(null);
+      
+      // Mostrar notificación de éxito
+      const fileName = variables.key.split('/').pop() || variables.key;
+      SweetAlert.successUpload(fileName);
+    },
+    onError: (error: any) => {
+      SweetAlert.apiError(error);
+    },
+  });
+
+  const createFolderMutation = useMutation({
+    mutationFn: async (folderName: string) => {
+      const folderKey = currentPrefix
+        ? `${currentPrefix}${folderName}/`
+        : `${folderName}/`;
+
+      // Create an empty object with the folder name ending in /
+      // This is the standard S3 way to create folders
+      const emptyFile = new File([''], folderName, { type: 'application/octet-stream' });
+      
+      return APIClient.uploadObject({
+        bucket: bucketName,
+        key: folderKey,
+        file: emptyFile,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      setIsCreateFolderModalOpen(false);
+      setNewFolderName('');
+      SweetAlert.toast('success', `Carpeta "${newFolderName}" creada exitosamente`);
+    },
+    onError: (error: any) => {
+      SweetAlert.apiError(error);
     },
   });
 
   const deleteObjectMutation = useMutation({
-    mutationFn: ({ bucket, key }: { bucket: string; key: string }) =>
-      APIClient.deleteObject(bucket, key),
+    mutationFn: async ({ bucket, key }: { bucket: string; key: string }) => {
+      // Check if it's a folder (ends with /)
+      if (key.endsWith('/')) {
+        // Check if folder has objects 
+        const folderObjects = await APIClient.getObjects({
+          bucket,
+          prefix: key,
+        });
+
+        // Check if there are any actual files (not just the folder marker or system files)
+        const actualObjects = folderObjects?.objects?.filter(obj => {
+          // Exclude the folder marker itself
+          if (obj.key === key) return false;
+          
+          // Exclude MaxIOFS system files (.maxiofs-folder, .metadata files, etc.)
+          if (obj.key.includes('.maxiofs-')) return false;
+          
+          // Exclude other system/metadata files
+          if (obj.key.endsWith('.metadata')) return false;
+          
+          return true;
+        }) || [];
+
+        if (actualObjects.length > 0) {
+          throw new Error('Cannot delete folder: it contains objects. Delete all objects first.');
+        }
+      }
+
+      return APIClient.deleteObject(bucket, key);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      SweetAlert.toast('success', 'Objeto eliminado exitosamente');
+    },
+    onError: (error: any) => {
+      SweetAlert.apiError(error);
     },
   });
 
-  const filteredObjects = objects?.data?.filter(obj =>
-    obj.key.toLowerCase().includes(searchTerm.toLowerCase())
-  ) || [];
+  // Process objects and common prefixes (folders)
+  const objects = objectsResponse?.objects || [];
+  const commonPrefixes = objectsResponse?.commonPrefixes || [];
+
+  // Debug logging to see what we're receiving
+  console.log('DEBUG Frontend - objectsResponse:', objectsResponse);
+  console.log('DEBUG Frontend - objects:', objects);
+  console.log('DEBUG Frontend - commonPrefixes:', commonPrefixes);
+
+  // Combine folders and files
+  // Filter out objects that are folder markers (empty files ending with / and size 0)
+  // since they will already be in commonPrefixes
+  const filteredObjects = objects.filter(obj => {
+    // If it's a folder marker (ends with / and size is 0), skip it
+    if (obj.key.endsWith('/') && obj.size === 0) {
+      return false;
+    }
+    // Filter out MaxIOFS system files
+    if (obj.key.includes('.maxiofs-')) {
+      return false;
+    }
+    return true;
+  });
+
+  const allItems = [
+    ...commonPrefixes.map(prefix => ({
+      key: prefix,
+      isFolder: true,
+      size: 0,
+      lastModified: '',
+      etag: '',
+      storageClass: '',
+    })),
+    ...filteredObjects,
+  ];
+
+  const filteredItems = allItems.filter(item =>
+    item.key.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFiles || selectedFiles.length === 0) return;
 
-    for (let i = 0; i < selectedFiles.length; i++) {
-      const file = selectedFiles[i];
-      const key = currentPrefix ? `${currentPrefix}/${file.name}` : file.name;
+    try {
+      const totalFiles = selectedFiles.length;
+      
+      if (totalFiles === 1) {
+        // Para un solo archivo, mostrar progreso específico
+        const file = selectedFiles[0];
+        SweetAlert.loading('Subiendo archivo...', `Subiendo "${file.name}"`);
+      } else {
+        // Para múltiples archivos, mostrar progreso con barra
+        await SweetAlert.progress('Subiendo archivos...', `Subiendo ${totalFiles} archivos`);
+      }
 
-      await uploadMutation.mutateAsync({
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        // Fix double slash issue by properly handling currentPrefix
+        const key = currentPrefix 
+          ? `${currentPrefix.replace(/\/$/, '')}/${file.name}` 
+          : file.name;
+
+        console.log('DEBUG Upload - currentPrefix:', currentPrefix);
+        console.log('DEBUG Upload - file.name:', file.name);
+        console.log('DEBUG Upload - final key:', key);
+
+        // Actualizar progreso para múltiples archivos
+        if (totalFiles > 1) {
+          SweetAlert.updateProgress(((i + 1) / totalFiles) * 100);
+        }
+
+        await uploadMutation.mutateAsync({
+          bucket: bucketName,
+          key,
+          file,
+        });
+      }
+
+      SweetAlert.close();
+      
+      if (totalFiles === 1) {
+        SweetAlert.successUpload(selectedFiles[0].name);
+      } else {
+        SweetAlert.toast('success', `${totalFiles} archivos subidos exitosamente`);
+      }
+      
+    } catch (error) {
+      SweetAlert.close();
+      SweetAlert.apiError(error);
+    }
+  };
+
+  const handleCreateFolder = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newFolderName.trim()) {
+      createFolderMutation.mutate(newFolderName.trim());
+    }
+  };
+
+  const handleDeleteObject = async (key: string, isFolder: boolean) => {
+    const itemType = isFolder ? 'carpeta' : 'archivo';
+    
+    try {
+      const result = await SweetAlert.fire({
+        icon: 'warning',
+        title: `¿Eliminar ${itemType}?`,
+        html: isFolder 
+          ? `<p>Estás a punto de eliminar la carpeta <strong>"${key}"</strong></p>
+             <p class="text-orange-600 mt-2">Esto fallará si la carpeta contiene objetos</p>`
+          : `<p>Estás a punto de eliminar <strong>"${key}"</strong></p>
+             <p class="text-red-600 mt-2">Esta acción no se puede deshacer</p>`,
+        showCancelButton: true,
+        confirmButtonText: 'Sí, eliminar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#dc2626',
+      });
+
+      if (result.isConfirmed) {
+        SweetAlert.loading(`Eliminando ${itemType}...`, `Eliminando "${key}"`);
+        deleteObjectMutation.mutate({ bucket: bucketName, key });
+      }
+    } catch (error) {
+      SweetAlert.apiError(error);
+    }
+  };
+
+  const handleDownloadObject = async (key: string) => {
+    try {
+      // Mostrar indicador de descarga
+      SweetAlert.loading('Descargando archivo...', `Descargando "${key}"`);
+
+      const blob = await APIClient.downloadObject({
         bucket: bucketName,
         key,
-        file,
       });
-    }
-  };
 
-  const handleDeleteObject = (key: string) => {
-    if (confirm(`Are you sure you want to delete "${key}"? This action cannot be undone.`)) {
-      deleteObjectMutation.mutate({ bucket: bucketName, key });
-    }
-  };
+      // Cerrar indicador de carga
+      SweetAlert.close();
 
-  const handleDownloadObject = (key: string) => {
-    // Create download link
-    const downloadUrl = APIClient.getObjectUrl(bucketName, key);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = key.split('/').pop() || key;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = key.split('/').pop() || key;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      // Mostrar mensaje de éxito
+      SweetAlert.successDownload(key.split('/').pop() || key);
+    } catch (error: any) {
+      SweetAlert.close();
+      SweetAlert.apiError(error);
+    }
   };
 
   const navigateToFolder = (folderKey: string) => {
@@ -111,9 +306,10 @@ export default function BucketDetailsPage() {
   };
 
   const navigateUp = () => {
-    const parts = currentPrefix.split('/');
-    parts.pop();
-    setCurrentPrefix(parts.join('/'));
+    const parts = currentPrefix.split('/').filter(p => p);
+    parts.pop(); // Remove last folder
+    const newPrefix = parts.length > 0 ? parts.join('/') + '/' : '';
+    setCurrentPrefix(newPrefix);
   };
 
   const formatSize = (bytes: number) => {
@@ -139,8 +335,17 @@ export default function BucketDetailsPage() {
     });
   };
 
-  const isFolder = (obj: S3Object) => {
-    return obj.key.endsWith('/');
+  const isFolder = (item: any) => {
+    return item.isFolder || item.key.endsWith('/');
+  };
+
+  const getDisplayName = (item: any) => {
+    if (isFolder(item)) {
+      // Remove trailing slash and get last part
+      const parts = item.key.replace(/\/$/, '').split('/');
+      return parts[parts.length - 1];
+    }
+    return item.key.split('/').pop() || item.key;
   };
 
   if (bucketLoading) {
@@ -162,7 +367,7 @@ export default function BucketDetailsPage() {
             onClick={() => window.history.back()}
             className="gap-2"
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeftIcon className="h-4 w-4" />
             Back
           </Button>
           <div>
@@ -186,18 +391,26 @@ export default function BucketDetailsPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button
+            onClick={() => setIsCreateFolderModalOpen(true)}
+            variant="outline"
+            className="gap-2"
+          >
+            <FolderIcon className="h-4 w-4" />
+            New Folder
+          </Button>
+          <Button
             onClick={() => setIsUploadModalOpen(true)}
             className="gap-2"
           >
-            <Upload className="h-4 w-4" />
-            Upload
+            <UploadIcon className="h-4 w-4" />
+            Upload Files
           </Button>
           <Button
             variant="outline"
             onClick={() => window.location.href = `/buckets/${bucketName}/settings`}
             className="gap-2"
           >
-            <Settings className="h-4 w-4" />
+            <SettingsIcon className="h-4 w-4" />
             Settings
           </Button>
         </div>
@@ -208,35 +421,41 @@ export default function BucketDetailsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Objects</CardTitle>
-            <File className="h-4 w-4 text-muted-foreground" />
+            <FileIcon className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {bucket?.data?.objectCount?.toLocaleString() || '0'}
+              {(bucket?.object_count || 0).toLocaleString()}
             </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Files and folders
+            </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Size</CardTitle>
-            <HardDrive className="h-4 w-4 text-muted-foreground" />
+            <HardDriveIcon className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatSize(bucket?.data?.size || 0)}
+              {formatSize(bucket?.size || 0)}
             </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Storage used
+            </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Region</CardTitle>
-            <Settings className="h-4 w-4 text-muted-foreground" />
+            <SettingsIcon className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {bucket?.data?.region || 'us-east-1'}
+              {bucket?.region || 'us-east-1'}
             </div>
           </CardContent>
         </Card>
@@ -245,7 +464,7 @@ export default function BucketDetailsPage() {
       {/* Search */}
       <div className="flex items-center space-x-4">
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+          <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
           <Input
             placeholder="Search objects..."
             value={searchTerm}
@@ -259,7 +478,7 @@ export default function BucketDetailsPage() {
       <Card>
         <CardHeader>
           <CardTitle>
-            Objects ({filteredObjects.length})
+            Objects ({filteredItems.length})
             {currentPrefix && ` in ${currentPrefix}`}
           </CardTitle>
         </CardHeader>
@@ -268,21 +487,31 @@ export default function BucketDetailsPage() {
             <div className="flex items-center justify-center py-8">
               <Loading size="md" />
             </div>
-          ) : filteredObjects.length === 0 ? (
+          ) : filteredItems.length === 0 ? (
             <div className="text-center py-8">
-              <File className="mx-auto h-12 w-12 text-muted-foreground" />
+              <FileIcon className="mx-auto h-12 w-12 text-muted-foreground" />
               <h3 className="mt-4 text-lg font-semibold">No objects found</h3>
               <p className="text-muted-foreground">
-                {searchTerm ? 'Try adjusting your search terms' : 'Upload files to get started'}
+                {searchTerm ? 'Try adjusting your search terms' : 'Create folders or upload files to get started'}
               </p>
               {!searchTerm && (
-                <Button
-                  onClick={() => setIsUploadModalOpen(true)}
-                  className="mt-4 gap-2"
-                >
-                  <Upload className="h-4 w-4" />
-                  Upload Files
-                </Button>
+                <div className="flex gap-2 justify-center mt-4">
+                  <Button
+                    onClick={() => setIsCreateFolderModalOpen(true)}
+                    variant="outline"
+                    className="gap-2"
+                  >
+                    <FolderIcon className="h-4 w-4" />
+                    New Folder
+                  </Button>
+                  <Button
+                    onClick={() => setIsUploadModalOpen(true)}
+                    className="gap-2"
+                  >
+                    <UploadIcon className="h-4 w-4" />
+                    Upload Files
+                  </Button>
+                </div>
               )}
             </div>
           ) : (
@@ -292,64 +521,73 @@ export default function BucketDetailsPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Size</TableHead>
                   <TableHead>Modified</TableHead>
-                  <TableHead>Storage Class</TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredObjects.map((object) => (
-                  <TableRow key={object.key}>
+                {filteredItems.map((item) => (
+                  <TableRow key={item.key}>
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
-                        {isFolder(object) ? (
+                        {isFolder(item) ? (
                           <>
-                            <Folder className="h-4 w-4 text-blue-500" />
+                            <FolderIcon className="h-4 w-4 text-blue-500" />
                             <button
-                              onClick={() => navigateToFolder(object.key)}
+                              onClick={() => navigateToFolder(item.key)}
                               className="hover:underline text-blue-600"
                             >
-                              {object.key.split('/').slice(-2, -1)[0] || object.key}
+                              {getDisplayName(item)}
                             </button>
                           </>
                         ) : (
                           <>
-                            <File className="h-4 w-4 text-muted-foreground" />
-                            <span>{object.key.split('/').pop() || object.key}</span>
+                            <FileIcon className="h-4 w-4 text-muted-foreground" />
+                            <span>{getDisplayName(item)}</span>
                           </>
                         )}
                       </div>
                     </TableCell>
                     <TableCell>
-                      {isFolder(object) ? '-' : formatSize(object.size)}
+                      {isFolder(item) ? '-' : formatSize(item.size)}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <Calendar className="h-3 w-3" />
-                        {formatDate(object.lastModified)}
-                      </div>
+                      {item.lastModified ? (
+                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                          <CalendarIcon className="h-3 w-3" />
+                          {formatDate(item.lastModified)}
+                        </div>
+                      ) : (
+                        '-'
+                      )}
                     </TableCell>
-                    <TableCell>{object.storageClass || 'STANDARD'}</TableCell>
+                    <TableCell>
+                      {isFolder(item) ? (
+                        <span className="text-blue-600">Folder</span>
+                      ) : (
+                        item.storageClass || 'STANDARD'
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {!isFolder(object) && (
+                        {!isFolder(item) && (
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDownloadObject(object.key)}
+                            onClick={() => handleDownloadObject(item.key)}
+                            title="Download"
                           >
-                            <Download className="h-4 w-4" />
+                            <DownloadIcon className="h-4 w-4" />
                           </Button>
                         )}
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDeleteObject(object.key)}
+                          onClick={() => handleDeleteObject(item.key, isFolder(item))}
                           disabled={deleteObjectMutation.isPending}
+                          title="Delete"
                         >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm">
-                          <MoreHorizontal className="h-4 w-4" />
+                          <Trash2Icon className="h-4 w-4" />
                         </Button>
                       </div>
                     </TableCell>
@@ -413,6 +651,64 @@ export default function BucketDetailsPage() {
               disabled={uploadMutation.isPending || !selectedFiles || selectedFiles.length === 0}
             >
               {uploadMutation.isPending ? 'Uploading...' : 'Upload Files'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Create Folder Modal */}
+      <Modal
+        isOpen={isCreateFolderModalOpen}
+        onClose={() => setIsCreateFolderModalOpen(false)}
+        title="Create New Folder"
+      >
+        <form onSubmit={handleCreateFolder} className="space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-4">
+            <p className="text-sm text-blue-800">
+              <strong>💡 About S3 Folders:</strong> In S3, folders are <strong>virtual</strong> - they don't physically exist.
+              A folder is represented by adding "/" to object names (e.g., "photos/vacation.jpg").
+              This is the standard S3 behavior used by AWS and all S3-compatible systems.
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="folderName" className="block text-sm font-medium mb-2">
+              Folder Name *
+            </label>
+            <Input
+              id="folderName"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder="my-folder"
+              required
+              pattern="^[a-zA-Z0-9][a-zA-Z0-9\-_]{0,254}$"
+              title="Folder name must be alphanumeric, hyphens, and underscores only"
+            />
+            {currentPrefix ? (
+              <p className="text-xs text-muted-foreground mt-1">
+                📁 Full path: <code className="bg-gray-100 px-1 rounded">{currentPrefix}/{newFolderName}/</code>
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground mt-1">
+                📁 Full path: <code className="bg-gray-100 px-1 rounded">{newFolderName}/</code>
+              </p>
+            )}
+          </div>
+
+          <div className="flex justify-end space-x-2 pt-4 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsCreateFolderModalOpen(false)}
+              disabled={createFolderMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={createFolderMutation.isPending || !newFolderName.trim()}
+            >
+              {createFolderMutation.isPending ? 'Creating...' : 'Create Folder'}
             </Button>
           </div>
         </form>

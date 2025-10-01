@@ -14,16 +14,26 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/Table';
-import { Database, Plus, Search, Settings, Trash2, Calendar, HardDrive } from 'lucide-react';
+import { Database, Plus, Search, Settings, Trash2, Calendar, HardDrive, Lock, Shield } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import { Bucket, CreateBucketRequest } from '@/types';
+import { Bucket, CreateBucketForm } from '@/types';
+import SweetAlert from '@/lib/sweetalert';
 
 export default function BucketsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [newBucketName, setNewBucketName] = useState('');
-  const [newBucketRegion, setNewBucketRegion] = useState('us-east-1');
+  const [formData, setFormData] = useState<CreateBucketForm>({
+    name: '',
+    region: 'us-east-1',
+    versioning: false,
+    objectLock: false,
+    encryption: {
+      enabled: false,
+      algorithm: 'AES256',
+      keySource: 'server',
+    },
+  });
   const queryClient = useQueryClient();
 
   const { data: buckets, isLoading, error } = useQuery({
@@ -32,39 +42,64 @@ export default function BucketsPage() {
   });
 
   const createBucketMutation = useMutation({
-    mutationFn: (data: CreateBucketRequest) => APIClient.createBucket(data),
-    onSuccess: () => {
+    mutationFn: (data: CreateBucketForm) => APIClient.createBucket(data),
+    onSuccess: (response, variables) => {
       queryClient.invalidateQueries({ queryKey: ['buckets'] });
       setIsCreateModalOpen(false);
-      setNewBucketName('');
-      setNewBucketRegion('us-east-1');
+      setFormData({
+        name: '',
+        region: 'us-east-1',
+        versioning: false,
+        objectLock: false,
+        encryption: {
+          enabled: false,
+          algorithm: 'AES256',
+          keySource: 'server',
+        },
+      });
+      // Mostrar notificación de éxito
+      SweetAlert.successBucketCreated(variables.name);
+    },
+    onError: (error: any) => {
+      SweetAlert.apiError(error);
     },
   });
 
   const deleteBucketMutation = useMutation({
     mutationFn: (bucketName: string) => APIClient.deleteBucket(bucketName),
-    onSuccess: () => {
+    onSuccess: (response, bucketName) => {
       queryClient.invalidateQueries({ queryKey: ['buckets'] });
+      SweetAlert.successBucketDeleted(bucketName);
+    },
+    onError: (error: any) => {
+      SweetAlert.apiError(error);
     },
   });
 
-  const filteredBuckets = buckets?.data?.filter(bucket =>
+  const filteredBuckets = buckets?.filter(bucket =>
     bucket.name.toLowerCase().includes(searchTerm.toLowerCase())
   ) || [];
 
   const handleCreateBucket = (e: React.FormEvent) => {
     e.preventDefault();
-    if (newBucketName.trim()) {
-      createBucketMutation.mutate({
-        name: newBucketName.trim(),
-        region: newBucketRegion,
-      });
+    if (formData.name.trim()) {
+      createBucketMutation.mutate(formData);
     }
   };
 
-  const handleDeleteBucket = (bucketName: string) => {
-    if (confirm(`Are you sure you want to delete bucket "${bucketName}"? This action cannot be undone.`)) {
-      deleteBucketMutation.mutate(bucketName);
+  const handleDeleteBucket = async (bucketName: string) => {
+    try {
+      const result = await SweetAlert.confirmDeleteBucket(bucketName);
+      
+      if (result.isConfirmed) {
+        // Mostrar indicador de carga
+        SweetAlert.loading('Eliminando bucket...', `Eliminando "${bucketName}" y todos sus datos`);
+        
+        deleteBucketMutation.mutate(bucketName);
+      }
+    } catch (error) {
+      SweetAlert.close();
+      SweetAlert.apiError(error);
     }
   };
 
@@ -144,7 +179,7 @@ export default function BucketsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {filteredBuckets.reduce((sum, bucket) => sum + (bucket.objectCount || 0), 0)}
+              {filteredBuckets.reduce((sum, bucket) => sum + (bucket.object_count || bucket.objectCount || 0), 0).toLocaleString()}
             </div>
           </CardContent>
         </Card>
@@ -156,7 +191,7 @@ export default function BucketsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatSize(filteredBuckets.reduce((sum, bucket) => sum + (bucket.size || 0), 0))}
+              {formatSize(filteredBuckets.reduce((sum, bucket) => sum + (bucket.size || bucket.totalSize || 0), 0))}
             </div>
           </CardContent>
         </Card>
@@ -225,12 +260,12 @@ export default function BucketsPage() {
                       </div>
                     </TableCell>
                     <TableCell>{bucket.region || 'us-east-1'}</TableCell>
-                    <TableCell>{bucket.objectCount?.toLocaleString() || '0'}</TableCell>
-                    <TableCell>{formatSize(bucket.size || 0)}</TableCell>
+                    <TableCell>{(bucket.object_count || bucket.objectCount || 0).toLocaleString()}</TableCell>
+                    <TableCell>{formatSize(bucket.size || bucket.totalSize || 0)}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Calendar className="h-3 w-3" />
-                        {formatDate(bucket.createdAt)}
+                        {formatDate(bucket.creation_date || bucket.creationDate || '')}
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
@@ -267,14 +302,15 @@ export default function BucketsPage() {
         title="Create New Bucket"
       >
         <form onSubmit={handleCreateBucket} className="space-y-4">
+          {/* Bucket Name */}
           <div>
             <label htmlFor="bucketName" className="block text-sm font-medium mb-2">
-              Bucket Name
+              Bucket Name *
             </label>
             <Input
               id="bucketName"
-              value={newBucketName}
-              onChange={(e) => setNewBucketName(e.target.value)}
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder="my-bucket-name"
               required
               pattern="^[a-z0-9][a-z0-9\-]{1,61}[a-z0-9]$"
@@ -285,14 +321,15 @@ export default function BucketsPage() {
             </p>
           </div>
 
+          {/* Region */}
           <div>
             <label htmlFor="bucketRegion" className="block text-sm font-medium mb-2">
               Region
             </label>
             <select
               id="bucketRegion"
-              value={newBucketRegion}
-              onChange={(e) => setNewBucketRegion(e.target.value)}
+              value={formData.region}
+              onChange={(e) => setFormData({ ...formData, region: e.target.value })}
               className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="us-east-1">US East (N. Virginia)</option>
@@ -303,17 +340,101 @@ export default function BucketsPage() {
             </select>
           </div>
 
-          <div className="flex justify-end space-x-2 pt-4">
+          {/* Object Lock */}
+          <div className="border border-yellow-200 bg-yellow-50 rounded-md p-4">
+            <div className="flex items-start space-x-3">
+              <input
+                type="checkbox"
+                id="objectLock"
+                checked={formData.objectLock}
+                onChange={(e) => {
+                  const objectLock = e.target.checked;
+                  setFormData({
+                    ...formData,
+                    objectLock,
+                    // Object Lock requires versioning
+                    versioning: objectLock ? true : formData.versioning,
+                  });
+                }}
+                className="mt-1"
+              />
+              <div className="flex-1">
+                <label htmlFor="objectLock" className="text-sm font-medium flex items-center gap-2 cursor-pointer">
+                  <Lock className="h-4 w-4" />
+                  Enable Object Lock
+                </label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Permanently enable object lock to prevent objects from being deleted or overwritten.
+                  <strong className="text-yellow-700"> Cannot be disabled after bucket creation!</strong>
+                  <br />
+                  Object Lock requires versioning to be enabled.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Versioning */}
+          <div className="border border-gray-200 rounded-md p-4">
+            <div className="flex items-start space-x-3">
+              <input
+                type="checkbox"
+                id="versioning"
+                checked={formData.versioning || formData.objectLock}
+                onChange={(e) => setFormData({ ...formData, versioning: e.target.checked })}
+                disabled={formData.objectLock}
+                className="mt-1"
+              />
+              <div className="flex-1">
+                <label htmlFor="versioning" className="text-sm font-medium flex items-center gap-2 cursor-pointer">
+                  <Shield className="h-4 w-4" />
+                  Enable Versioning
+                </label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Keep multiple versions of objects in the same bucket. Can be enabled/disabled later.
+                  {formData.objectLock && (
+                    <span className="text-blue-600 font-medium"> (Required for Object Lock)</span>
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Encryption */}
+          <div className="border border-gray-200 rounded-md p-4">
+            <div className="flex items-start space-x-3">
+              <input
+                type="checkbox"
+                id="encryption"
+                checked={formData.encryption?.enabled}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  encryption: { ...formData.encryption!, enabled: e.target.checked }
+                })}
+                className="mt-1"
+              />
+              <div className="flex-1">
+                <label htmlFor="encryption" className="text-sm font-medium cursor-pointer">
+                  Enable Server-Side Encryption
+                </label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Automatically encrypt objects when stored (AES-256)
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end space-x-2 pt-4 border-t">
             <Button
               type="button"
               variant="outline"
               onClick={() => setIsCreateModalOpen(false)}
+              disabled={createBucketMutation.isPending}
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              disabled={createBucketMutation.isPending || !newBucketName.trim()}
+              disabled={createBucketMutation.isPending || !formData.name.trim()}
             >
               {createBucketMutation.isPending ? 'Creating...' : 'Create Bucket'}
             </Button>

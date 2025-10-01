@@ -49,13 +49,15 @@ type BucketInfo struct {
 }
 
 type ListBucketResult struct {
-	XMLName     xml.Name      `xml:"ListBucketResult"`
-	Name        string        `xml:"Name"`
-	Prefix      string        `xml:"Prefix"`
-	Marker      string        `xml:"Marker"`
-	MaxKeys     int           `xml:"MaxKeys"`
-	IsTruncated bool          `xml:"IsTruncated"`
-	Contents    []ObjectInfo  `xml:"Contents"`
+	XMLName        xml.Name       `xml:"ListBucketResult"`
+	Name           string         `xml:"Name"`
+	Prefix         string         `xml:"Prefix"`
+	Marker         string         `xml:"Marker"`
+	MaxKeys        int            `xml:"MaxKeys"`
+	Delimiter      string         `xml:"Delimiter,omitempty"`
+	IsTruncated    bool           `xml:"IsTruncated"`
+	NextMarker     string         `xml:"NextMarker,omitempty"`
+	Contents       []ObjectInfo   `xml:"Contents"`
 	CommonPrefixes []CommonPrefix `xml:"CommonPrefixes"`
 }
 
@@ -189,7 +191,7 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	objects, truncated, err := h.objectManager.ListObjects(r.Context(), bucketName, prefix, delimiter, marker, maxKeys)
+	listResult, err := h.objectManager.ListObjects(r.Context(), bucketName, prefix, delimiter, marker, maxKeys)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -199,16 +201,25 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := ListBucketResult{
-		Name:        bucketName,
-		Prefix:      prefix,
-		Marker:      marker,
-		MaxKeys:     maxKeys,
-		IsTruncated: truncated,
-		Contents:    make([]ObjectInfo, len(objects)),
+	// Convert common prefixes to S3 format
+	var commonPrefixes []CommonPrefix
+	for _, cp := range listResult.CommonPrefixes {
+		commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: cp.Prefix})
 	}
 
-	for i, obj := range objects {
+	result := ListBucketResult{
+		Name:           bucketName,
+		Prefix:         prefix,
+		Marker:         marker,
+		MaxKeys:        maxKeys,
+		Delimiter:      delimiter,
+		IsTruncated:    listResult.IsTruncated,
+		NextMarker:     listResult.NextMarker,
+		CommonPrefixes: commonPrefixes,
+		Contents:       make([]ObjectInfo, len(listResult.Objects)),
+	}
+
+	for i, obj := range listResult.Objects {
 		result.Contents[i] = ObjectInfo{
 			Key:          obj.Key,
 			LastModified: obj.LastModified,

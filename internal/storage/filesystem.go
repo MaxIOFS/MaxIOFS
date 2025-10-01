@@ -132,9 +132,18 @@ func (fs *FilesystemBackend) Delete(ctx context.Context, path string) error {
 		return ErrObjectNotFound
 	}
 
-	// Delete file
-	if err := os.Remove(fullPath); err != nil {
-		return NewErrorWithCause("DeleteFile", "Failed to delete file", err)
+	// Delete file or directory
+	// Check if it's a directory (ends with /)
+	if strings.HasSuffix(path, "/") {
+		// For directories, use RemoveAll to remove directory and all contents
+		if err := os.RemoveAll(fullPath); err != nil {
+			return NewErrorWithCause("DeleteDirectory", "Failed to delete directory", err)
+		}
+	} else {
+		// For files, use Remove
+		if err := os.Remove(fullPath); err != nil {
+			return NewErrorWithCause("DeleteFile", "Failed to delete file", err)
+		}
 	}
 
 	// Delete metadata
@@ -349,4 +358,34 @@ func (fs *FilesystemBackend) generateBasicMetadata(path string) (map[string]stri
 	}
 
 	return metadata, nil
+}
+
+// RemoveDirectory removes a directory and all its contents
+// This is a special method for the FilesystemBackend to support bucket deletion
+func (fs *FilesystemBackend) RemoveDirectory(path string) error {
+	if err := fs.validatePath(path); err != nil {
+		return err
+	}
+
+	fullPath := fs.getFullPath(path)
+
+	// Check if directory exists
+	info, err := os.Stat(fullPath)
+	if os.IsNotExist(err) {
+		return nil // Already deleted, nothing to do
+	}
+	if err != nil {
+		return NewErrorWithCause("StatDirectory", "Failed to stat directory", err)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("path is not a directory: %s", path)
+	}
+
+	// Remove directory and all contents
+	if err := os.RemoveAll(fullPath); err != nil {
+		return NewErrorWithCause("RemoveDirectory", "Failed to remove directory", err)
+	}
+
+	return nil
 }

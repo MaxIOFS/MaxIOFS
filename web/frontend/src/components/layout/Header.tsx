@@ -5,6 +5,7 @@ import { Bell, Search, Settings, User, LogOut, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useAuth } from '@/hooks/useAuth';
+import SweetAlert from '@/lib/sweetalert';
 
 export interface HeaderProps {
   onMenuToggle?: () => void;
@@ -24,8 +25,16 @@ export function Header({ onMenuToggle, showSearch = true }: HeaderProps) {
 
   const handleLogout = async () => {
     try {
-      await logout();
+      const result = await SweetAlert.confirmLogout();
+      
+      if (result.isConfirmed) {
+        SweetAlert.loading('Cerrando sesión...', 'Hasta pronto');
+        await logout();
+        SweetAlert.close();
+      }
     } catch (error) {
+      SweetAlert.close();
+      SweetAlert.error('Error al cerrar sesión', 'No se pudo cerrar la sesión correctamente');
       console.error('Logout failed:', error);
     }
   };
