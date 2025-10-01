@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import { DataTable, DataTableColumn } from '@/components/ui/DataTable';
+import SweetAlert from '@/lib/sweetalert';
 import {
   ArrowLeft,
   Key,
@@ -83,9 +84,25 @@ export default function UserDetailsPage() {
     }
   };
 
-  const handleDeleteAccessKey = (keyId: string, keyName: string) => {
-    if (confirm(`Are you sure you want to delete access key "${keyName}"? This action cannot be undone.`)) {
-      deleteAccessKeyMutation.mutate(keyId);
+  const handleDeleteAccessKey = async (keyId: string, keyName: string) => {
+    try {
+      const result = await SweetAlert.fire({
+        icon: 'warning',
+        title: '¿Eliminar access key?',
+        html: `<p>Estás a punto de eliminar la access key <strong>"${keyName}"</strong></p>
+               <p class="text-red-600 mt-2">Esta acción no se puede deshacer</p>`,
+        showCancelButton: true,
+        confirmButtonText: 'Sí, eliminar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#dc2626',
+      });
+
+      if (result.isConfirmed) {
+        SweetAlert.loading('Eliminando access key...', `Eliminando "${keyName}"`);
+        deleteAccessKeyMutation.mutate(keyId);
+      }
+    } catch (error) {
+      SweetAlert.apiError(error);
     }
   };
 

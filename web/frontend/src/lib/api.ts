@@ -23,6 +23,7 @@ import type {
   AccessKey,
   CreateAccessKeyForm,
 } from '@/types';
+import SweetAlert from '@/lib/sweetalert';
 
 // API Configuration
 const API_CONFIG = {
@@ -133,6 +134,7 @@ s3Client.interceptors.request.use(
 const handleResponse = (response: AxiosResponse): AxiosResponse => response;
 
 const handleError = async (error: AxiosError): Promise<never> => {
+  // Handle 401 errors specially (authentication)
   if (error.response?.status === 401) {
     // Try to refresh token
     const refreshToken = tokenManager.getRefreshToken();
@@ -153,6 +155,10 @@ const handleError = async (error: AxiosError): Promise<never> => {
       } catch (refreshError) {
         // Refresh failed, clear tokens and redirect to login
         tokenManager.clearTokens();
+        await SweetAlert.error(
+          'Sesión expirada',
+          'Tu sesión ha expirado. Serás redirigido al login.'
+        );
         if (typeof window !== 'undefined') {
           window.location.href = '/login';
         }
@@ -160,11 +166,18 @@ const handleError = async (error: AxiosError): Promise<never> => {
     } else {
       // No refresh token, clear tokens and redirect to login
       tokenManager.clearTokens();
+      await SweetAlert.error(
+        'Sesión expirada',
+        'Tu sesión ha expirado. Serás redirigido al login.'
+      );
       if (typeof window !== 'undefined') {
         window.location.href = '/login';
       }
     }
   }
+
+  // For non-auth errors, we'll let individual components handle them
+  // but we'll still format the error properly
 
   // Transform error to APIError format
   const apiError: APIError = {
@@ -185,13 +198,28 @@ s3Client.interceptors.response.use(handleResponse, handleError);
 export class APIClient {
   // Authentication
   static async login(credentials: LoginRequest): Promise<LoginResponse> {
-    const response = await apiClient.post<LoginResponse>('/auth/login', credentials);
+    // Backend expects username and password
+    const payload = {
+      username: credentials.username,
+      password: credentials.password,
+    };
 
-    if (response.data.success && response.data.token) {
-      tokenManager.setTokens(response.data.token, response.data.refreshToken);
+    const response = await apiClient.post<APIResponse<any>>('/auth/login', payload);
+
+    // Backend returns: {"success":true,"data":{"token":"...","user":{...}}}
+    const result: LoginResponse = {
+      success: response.data.success,
+      token: response.data.data?.token,
+      refreshToken: response.data.data?.refreshToken,
+      user: response.data.data?.user,
+      error: response.data.error,
+    };
+
+    if (result.success && result.token) {
+      tokenManager.setTokens(result.token, result.refreshToken);
     }
 
-    return response.data;
+    return result;
   }
 
   static async logout(): Promise<void> {
@@ -199,6 +227,10 @@ export class APIClient {
       await apiClient.post('/auth/logout');
     } finally {
       tokenManager.clearTokens();
+      // Clear auth cookie
+      if (typeof document !== 'undefined') {
+        document.cookie = 'auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      }
     }
   }
 
@@ -312,19 +344,19 @@ export class APIClient {
   }
 
   static async uploadObject(request: UploadRequest): Promise<S3Object> {
-    const formData = new FormData();
-    formData.append('file', request.file);
+    console.log('DEBUG Upload - bucket:', request.bucket);
+    console.log('DEBUG Upload - key:', request.key);
+    console.log('DEBUG Upload - file:', request.file);
 
-    if (request.metadata) {
-      Object.entries(request.metadata).forEach(([key, value]) => {
-        formData.append(`x-amz-meta-${key}`, value);
-      });
-    }
+    const uploadUrl = `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}`;
+    console.log('DEBUG Upload - URL:', uploadUrl);
+    console.log('DEBUG Upload - Full URL:', `${API_CONFIG.baseURL}${uploadUrl}`);
 
+    // Send file directly in body instead of FormData (S3-style upload)
     const config = {
       headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+        'Content-Type': request.file.type || 'application/octet-stream',
+      } as Record<string, string>,
       onUploadProgress: request.onProgress ? (progressEvent: any) => {
         const progress = {
           loaded: progressEvent.loaded,
@@ -337,9 +369,16 @@ export class APIClient {
       } : undefined,
     };
 
+    // Add metadata headers if provided
+    if (request.metadata) {
+      Object.entries(request.metadata).forEach(([key, value]) => {
+        config.headers[`x-amz-meta-${key}`] = value;
+      });
+    }
+
     const response = await apiClient.put<APIResponse<S3Object>>(
-      `/buckets/${request.bucket}/objects/${request.key}`,
-      formData,
+      uploadUrl,
+      request.file, // Send file directly instead of FormData
       config
     );
     return response.data.data!;
@@ -453,16 +492,6 @@ export class APIClient {
   // Access Keys
   static async getUserAccessKeys(userId: string): Promise<APIResponse<any[]>> {
     const response = await apiClient.get<APIResponse<any[]>>(`/users/${userId}/access-keys`);
-    return response.data;
-  }
-
-  static async createAccessKey(data: any): Promise<APIResponse<any>> {
-    const response = await apiClient.post<APIResponse<any>>('/access-keys', data);
-    return response.data;
-  }
-
-  static async deleteAccessKey(keyId: string): Promise<APIResponse<any>> {
-    const response = await apiClient.delete<APIResponse<any>>(`/access-keys/${keyId}`);
     return response.data;
   }
 

@@ -138,7 +138,20 @@ func (bm *bucketManager) DeleteBucket(ctx context.Context, name string) error {
 	}
 
 	// Delete bucket metadata
-	return bm.deleteBucketMetadata(ctx, name)
+	if err := bm.deleteBucketMetadata(ctx, name); err != nil {
+		return err
+	}
+
+	// If using filesystem backend, remove the physical directory
+	if fsBackend, ok := bm.storage.(interface{ RemoveDirectory(string) error }); ok {
+		if err := fsBackend.RemoveDirectory(name); err != nil {
+			// Log error but don't fail the operation since metadata is already deleted
+			// TODO: Add proper logging
+			_ = err
+		}
+	}
+
+	return nil
 }
 
 // ListBuckets lists all buckets

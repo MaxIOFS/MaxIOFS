@@ -30,6 +30,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { User, CreateUserRequest } from '@/types';
+import SweetAlert from '@/lib/sweetalert';
 
 export default function UsersPage() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -47,10 +48,14 @@ export default function UsersPage() {
 
   const createUserMutation = useMutation({
     mutationFn: (data: CreateUserRequest) => APIClient.createUser(data),
-    onSuccess: () => {
+    onSuccess: (response, variables) => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setIsCreateModalOpen(false);
       setNewUser({ roles: ['read'], status: 'active' });
+      SweetAlert.successUserCreated(variables.username);
+    },
+    onError: (error: any) => {
+      SweetAlert.apiError(error);
     },
   });
 
@@ -59,13 +64,23 @@ export default function UsersPage() {
       APIClient.updateUser(userId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      SweetAlert.toast('success', 'Usuario actualizado exitosamente');
+    },
+    onError: (error: any) => {
+      SweetAlert.apiError(error);
     },
   });
 
   const deleteUserMutation = useMutation({
     mutationFn: (userId: string) => APIClient.deleteUser(userId),
     onSuccess: () => {
+      SweetAlert.close();
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      SweetAlert.toast('success', 'Usuario eliminado exitosamente');
+    },
+    onError: (error: any) => {
+      SweetAlert.close();
+      SweetAlert.apiError(error);
     },
   });
 
@@ -81,10 +96,19 @@ export default function UsersPage() {
     }
   };
 
-  const handleDeleteUser = (userId: string) => {
-    const user = users?.data?.find(u => u.id === userId);
-    if (confirm(`Are you sure you want to delete user "${user?.username}"? This action cannot be undone.`)) {
-      deleteUserMutation.mutate(userId);
+  const handleDeleteUser = async (userId: string) => {
+    const user = users?.find((u: any) => u.id === userId);
+    
+    try {
+      const result = await SweetAlert.confirmDeleteUser(user?.username || 'usuario');
+      
+      if (result.isConfirmed) {
+        SweetAlert.loading('Eliminando usuario...', `Eliminando "${user?.username}"`);
+        deleteUserMutation.mutate(userId);
+      }
+    } catch (error) {
+      SweetAlert.close();
+      SweetAlert.apiError(error);
     }
   };
 

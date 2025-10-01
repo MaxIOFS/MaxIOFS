@@ -22,6 +22,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { User as UserType } from '@/types';
+import SweetAlert from '@/lib/sweetalert';
 
 export default function UserSettingsPage() {
   const params = useParams();

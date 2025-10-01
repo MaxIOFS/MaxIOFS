@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -103,8 +104,8 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 // Auth handlers
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var loginReq struct {
-		AccessKey string `json:"access_key"`
-		SecretKey string `json:"secret_key"`
+		Username string `json:"username"`
+		Password string `json:"password"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
@@ -112,7 +113,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.authManager.ValidateCredentials(r.Context(), loginReq.AccessKey, loginReq.SecretKey)
+	user, err := s.authManager.ValidateConsoleCredentials(r.Context(), loginReq.Username, loginReq.Password)
 	if err != nil {
 		s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
 		return
@@ -164,11 +165,12 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 	response := make([]BucketResponse, len(buckets))
 	for i, b := range buckets {
 		// Get object count and size for this bucket
-		objects, _, err := s.objectManager.ListObjects(r.Context(), b.Name, "", "", "", 10000)
-		objectCount := int64(len(objects))
+		result, err := s.objectManager.ListObjects(r.Context(), b.Name, "", "", "", 10000)
+		objectCount := int64(0)
 		var totalSize int64
 		if err == nil {
-			for _, obj := range objects {
+			objectCount = int64(len(result.Objects))
+			for _, obj := range result.Objects {
 				totalSize += obj.Size
 			}
 		}
@@ -221,11 +223,12 @@ func (s *Server) handleGetBucket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get object count and size
-	objects, _, err := s.objectManager.ListObjects(r.Context(), bucketName, "", "", "", 10000)
-	objectCount := int64(len(objects))
+	result, err := s.objectManager.ListObjects(r.Context(), bucketName, "", "", "", 10000)
+	objectCount := int64(0)
 	var totalSize int64
 	if err == nil {
-		for _, obj := range objects {
+		objectCount = int64(len(result.Objects))
+		for _, obj := range result.Objects {
 			totalSize += obj.Size
 		}
 	}
@@ -274,7 +277,7 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	objects, truncated, err := s.objectManager.ListObjects(r.Context(), bucketName, prefix, delimiter, marker, maxKeys)
+	result, err := s.objectManager.ListObjects(r.Context(), bucketName, prefix, delimiter, marker, maxKeys)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
@@ -284,9 +287,10 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := make([]ObjectResponse, len(objects))
-	for i, obj := range objects {
-		response[i] = ObjectResponse{
+	// Convert objects to response format
+	objectsResponse := make([]ObjectResponse, len(result.Objects))
+	for i, obj := range result.Objects {
+		objectsResponse[i] = ObjectResponse{
 			Key:          obj.Key,
 			Size:         obj.Size,
 			LastModified: obj.LastModified.Format("2006-01-02T15:04:05Z"),
@@ -296,9 +300,19 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Convert common prefixes to response format
+	commonPrefixesResponse := make([]string, len(result.CommonPrefixes))
+	for i, cp := range result.CommonPrefixes {
+		commonPrefixesResponse[i] = cp.Prefix
+	}
+
 	s.writeJSON(w, map[string]interface{}{
-		"objects":     response,
-		"is_truncated": truncated,
+		"objects":        objectsResponse,
+		"commonPrefixes": commonPrefixesResponse,
+		"isTruncated":    result.IsTruncated,
+		"nextMarker":     result.NextMarker,
+		"prefix":         result.Prefix,
+		"delimiter":      result.Delimiter,
 	})
 }
 
@@ -333,6 +347,11 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
+
+	// Debug logging
+	fmt.Printf("DEBUG Upload: bucket=%s, objectKey=%s\n", bucketName, objectKey)
+	fmt.Printf("DEBUG Upload: raw URL path=%s\n", r.URL.Path)
+	fmt.Printf("DEBUG Upload: method=%s\n", r.Method)
 
 	obj, err := s.objectManager.PutObject(r.Context(), bucketName, objectKey, r.Body, r.Header)
 	if err != nil {
@@ -422,10 +441,10 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 
 	var totalObjects, totalSize int64
 	for _, b := range buckets {
-		objects, _, err := s.objectManager.ListObjects(r.Context(), b.Name, "", "", "", 10000)
+		result, err := s.objectManager.ListObjects(r.Context(), b.Name, "", "", "", 10000)
 		if err == nil {
-			totalObjects += int64(len(objects))
-			for _, obj := range objects {
+			totalObjects += int64(len(result.Objects))
+			for _, obj := range result.Objects {
 				totalSize += obj.Size
 			}
 		}

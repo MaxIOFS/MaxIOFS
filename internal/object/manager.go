@@ -3,6 +3,8 @@ package object
 import (
 	"context"
 	"crypto/md5"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,8 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"crypto/rand"
-	"encoding/hex"
 
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/storage"
@@ -24,7 +24,7 @@ type Manager interface {
 	GetObject(ctx context.Context, bucket, key string) (*Object, io.ReadCloser, error)
 	PutObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (*Object, error)
 	DeleteObject(ctx context.Context, bucket, key string) error
-	ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) ([]Object, bool, error)
+	ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*ListObjectsResult, error)
 
 	// Metadata operations
 	GetObjectMetadata(ctx context.Context, bucket, key string) (*Object, error)
@@ -77,8 +77,8 @@ type Object struct {
 	VersionID    string            `json:"version_id,omitempty"`
 
 	// Object Lock
-	Retention  *RetentionConfig  `json:"retention,omitempty"`
-	LegalHold  *LegalHoldConfig  `json:"legal_hold,omitempty"`
+	Retention *RetentionConfig `json:"retention,omitempty"`
+	LegalHold *LegalHoldConfig `json:"legal_hold,omitempty"`
 
 	// Tagging
 	Tags *TagSet `json:"tags,omitempty"`
@@ -231,10 +231,13 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string) e
 }
 
 // ListObjects lists objects in a bucket
-func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) ([]Object, bool, error) {
+func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*ListObjectsResult, error) {
 	if maxKeys <= 0 {
 		maxKeys = 1000 // Default max keys
 	}
+
+	// Debug logging
+	fmt.Printf("DEBUG ListObjects: bucket=%s, prefix=%s, delimiter=%s\n", bucket, prefix, delimiter)
 
 	// List objects from storage
 	bucketPrefix := bucket + "/"
@@ -244,10 +247,14 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 
 	storageObjects, err := om.storage.List(ctx, bucketPrefix, true)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to list objects: %w", err)
+		return nil, fmt.Errorf("failed to list objects: %w", err)
 	}
 
+	fmt.Printf("DEBUG: Found %d storage objects\n", len(storageObjects))
+
 	var objects []Object
+	commonPrefixesMap := make(map[string]bool) // Use map to avoid duplicates
+
 	for _, storageObj := range storageObjects {
 		// Extract object key from path
 		if !strings.HasPrefix(storageObj.Path, bucket+"/") {
@@ -269,6 +276,11 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 			continue
 		}
 
+		// Skip bucket configuration files
+		if strings.HasPrefix(key, ".maxiofs-") {
+			continue
+		}
+
 		// Apply prefix filter
 		if prefix != "" && !strings.HasPrefix(key, prefix) {
 			continue
@@ -279,13 +291,18 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 			continue
 		}
 
-		// Handle delimiter (common prefixes)
+		// Handle delimiter (common prefixes / folders)
 		if delimiter != "" {
-			delimiterIndex := strings.Index(key[len(prefix):], delimiter)
+			// Find the delimiter after the prefix
+			remainingKey := key[len(prefix):]
+			delimiterIndex := strings.Index(remainingKey, delimiter)
+
 			if delimiterIndex >= 0 {
-				// This is a common prefix, skip for now
-				// TODO: Implement common prefixes handling
-				continue
+				// This object is inside a "folder"
+				// Extract the common prefix (folder name)
+				commonPrefix := prefix + remainingKey[:delimiterIndex+len(delimiter)]
+				commonPrefixesMap[commonPrefix] = true
+				continue // Don't include this object in the objects list
 			}
 		}
 
@@ -310,19 +327,67 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 		objects = append(objects, object)
 	}
 
+	// Convert commonPrefixesMap to slice
+	var commonPrefixes []CommonPrefix
+	for prefix := range commonPrefixesMap {
+		commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: prefix})
+	}
+
+	// Sort common prefixes
+	sort.Slice(commonPrefixes, func(i, j int) bool {
+		return commonPrefixes[i].Prefix < commonPrefixes[j].Prefix
+	})
+
 	// Sort objects by key
 	sort.Slice(objects, func(i, j int) bool {
 		return objects[i].Key < objects[j].Key
 	})
 
-	// Apply maxKeys limit
+	// Calculate total items (objects + prefixes) for truncation
+	totalItems := len(objects) + len(commonPrefixes)
 	isTruncated := false
-	if len(objects) > maxKeys {
-		objects = objects[:maxKeys]
+	nextMarker := ""
+
+	// Apply maxKeys limit
+	if totalItems > maxKeys {
 		isTruncated = true
+
+		// Prioritize showing common prefixes first, then objects
+		if len(commonPrefixes) > maxKeys {
+			commonPrefixes = commonPrefixes[:maxKeys]
+			objects = []Object{}
+			if len(commonPrefixes) > 0 {
+				nextMarker = commonPrefixes[len(commonPrefixes)-1].Prefix
+			}
+		} else {
+			remainingSlots := maxKeys - len(commonPrefixes)
+			if len(objects) > remainingSlots {
+				objects = objects[:remainingSlots]
+			}
+			if len(objects) > 0 {
+				nextMarker = objects[len(objects)-1].Key
+			}
+		}
 	}
 
-	return objects, isTruncated, nil
+	result := &ListObjectsResult{
+		Objects:        objects,
+		CommonPrefixes: commonPrefixes,
+		IsTruncated:    isTruncated,
+		NextMarker:     nextMarker,
+		MaxKeys:        maxKeys,
+		Prefix:         prefix,
+		Delimiter:      delimiter,
+		Marker:         marker,
+	}
+
+	// Debug logging
+	fmt.Printf("DEBUG: Returning %d objects and %d common prefixes\n", len(objects), len(commonPrefixes))
+	for _, cp := range commonPrefixes {
+		fmt.Printf("DEBUG: Common prefix: %s\n", cp.Prefix)
+	}
+
+	return result, nil
 }
 
 // GetObjectMetadata retrieves object metadata
@@ -667,7 +732,7 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 	// Store part data
 	partMetadata := map[string]string{
 		"upload-id":    uploadID,
-		"part-number": strconv.Itoa(partNumber),
+		"part-number":  strconv.Itoa(partNumber),
 		"content-type": "application/octet-stream",
 	}
 
@@ -982,9 +1047,9 @@ func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID str
 
 	// Create a combined metadata that references all parts
 	combinedMetadata := map[string]string{
-		"content-type": "application/octet-stream",
+		"content-type":        "application/octet-stream",
 		"multipart-upload-id": uploadID,
-		"parts-count": strconv.Itoa(len(parts)),
+		"parts-count":         strconv.Itoa(len(parts)),
 	}
 
 	// For now, we'll use the first part as the base and create a reference
