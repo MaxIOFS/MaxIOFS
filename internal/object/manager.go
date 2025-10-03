@@ -303,7 +303,7 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 		if strings.HasPrefix(key, ".maxiofs-") {
 			continue
 		}
-		
+
 		// Check if the filename (last segment) starts with .maxiofs-
 		lastSlashIndex := strings.LastIndex(key, "/")
 		if lastSlashIndex >= 0 {
