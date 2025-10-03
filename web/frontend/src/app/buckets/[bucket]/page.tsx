@@ -186,53 +186,80 @@ export default function BucketDetailsPage() {
     e.preventDefault();
     if (!selectedFiles || selectedFiles.length === 0) return;
 
-    try {
-      const totalFiles = selectedFiles.length;
-      
-      if (totalFiles === 1) {
-        // Para un solo archivo, mostrar progreso específico
-        const file = selectedFiles[0];
-        SweetAlert.loading('Subiendo archivo...', `Subiendo "${file.name}"`);
-      } else {
-        // Para múltiples archivos, mostrar progreso con barra
-        await SweetAlert.progress('Subiendo archivos...', `Subiendo ${totalFiles} archivos`);
-      }
+    const totalFiles = selectedFiles.length;
+    let successCount = 0;
+    const errors: string[] = [];
 
-      for (let i = 0; i < selectedFiles.length; i++) {
-        const file = selectedFiles[i];
-        // Fix double slash issue by properly handling currentPrefix
-        const key = currentPrefix 
-          ? `${currentPrefix.replace(/\/$/, '')}/${file.name}` 
-          : file.name;
+    // Show loading indicator
+    if (totalFiles === 1) {
+      SweetAlert.loading('Subiendo archivo...', `Subiendo "${selectedFiles[0].name}"`);
+    } else {
+      SweetAlert.loading('Subiendo archivos...', `0 de ${totalFiles} archivos`);
+    }
 
-        console.log('DEBUG Upload - currentPrefix:', currentPrefix);
-        console.log('DEBUG Upload - file.name:', file.name);
-        console.log('DEBUG Upload - final key:', key);
+    // Upload files sequentially
+    for (let i = 0; i < totalFiles; i++) {
+      const file = selectedFiles[i];
+      const key = currentPrefix
+        ? `${currentPrefix.replace(/\/$/, '')}/${file.name}`
+        : file.name;
 
-        // Actualizar progreso para múltiples archivos
+      try {
+        // Update progress message for multiple files
         if (totalFiles > 1) {
-          SweetAlert.updateProgress(((i + 1) / totalFiles) * 100);
+          SweetAlert.loading('Subiendo archivos...', `${i + 1} de ${totalFiles}: ${file.name}`);
         }
 
-        await uploadMutation.mutateAsync({
+        await APIClient.uploadObject({
           bucket: bucketName,
           key,
           file,
         });
-      }
 
-      SweetAlert.close();
-      
-      if (totalFiles === 1) {
+        successCount++;
+      } catch (fileError: any) {
+        const errorMsg = fileError?.response?.data?.error || fileError?.message || 'Error desconocido';
+        errors.push(`${file.name}: ${errorMsg}`);
+        console.error(`Error uploading ${file.name}:`, fileError);
+      }
+    }
+
+    SweetAlert.close();
+
+    // Show results
+    if (totalFiles === 1) {
+      if (successCount === 1) {
         SweetAlert.successUpload(selectedFiles[0].name);
       } else {
-        SweetAlert.toast('success', `${totalFiles} archivos subidos exitosamente`);
+        SweetAlert.apiError(new Error(errors[0] || 'Error al subir archivo'));
       }
-      
-    } catch (error) {
-      SweetAlert.close();
-      SweetAlert.apiError(error);
+    } else {
+      const failCount = totalFiles - successCount;
+      if (failCount === 0) {
+        SweetAlert.toast('success', `${totalFiles} archivos subidos exitosamente`);
+      } else if (successCount > 0) {
+        SweetAlert.fire({
+          icon: 'warning',
+          title: 'Upload parcialmente exitoso',
+          html: `<p>Subidos: <strong>${successCount}</strong> / ${totalFiles}</p><p>Fallidos: <strong>${failCount}</strong></p>`,
+        });
+      } else {
+        SweetAlert.fire({
+          icon: 'error',
+          title: 'Error al subir archivos',
+          text: 'Todos los archivos fallaron',
+        });
+      }
     }
+
+    // Refresh and close
+    if (successCount > 0) {
+      queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+    }
+
+    setIsUploadModalOpen(false);
+    setSelectedFiles(null);
   };
 
   const handleCreateFolder = (e: React.FormEvent) => {

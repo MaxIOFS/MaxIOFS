@@ -288,13 +288,13 @@ export class APIClient {
     return response.data.data || [];
   }
 
-  static async createAccessKey(keyData: CreateAccessKeyForm): Promise<AccessKey> {
-    const response = await apiClient.post<APIResponse<AccessKey>>('/access-keys', keyData);
+  static async createAccessKey(keyData: { userId: string }): Promise<AccessKey> {
+    const response = await apiClient.post<APIResponse<any>>(`/users/${keyData.userId}/access-keys`);
     return response.data.data!;
   }
 
-  static async deleteAccessKey(keyId: string): Promise<void> {
-    await apiClient.delete(`/access-keys/${keyId}`);
+  static async deleteAccessKey(userId: string, keyId: string): Promise<void> {
+    await apiClient.delete(`/users/${userId}/access-keys/${keyId}`);
   }
 
   // Buckets Management
@@ -308,11 +308,8 @@ export class APIClient {
     return response.data.data!;
   }
 
-  static async createBucket(bucketData: CreateBucketForm): Promise<Bucket> {
-    const response = await apiClient.post<APIResponse<Bucket>>('/buckets', {
-      name: bucketData.name,
-      region: bucketData.region,
-    });
+  static async createBucket(bucketData: any): Promise<Bucket> {
+    const response = await apiClient.post<APIResponse<Bucket>>('/buckets', bucketData);
     return response.data.data!;
   }
 
@@ -345,19 +342,20 @@ export class APIClient {
   }
 
   static async uploadObject(request: UploadRequest): Promise<S3Object> {
-    console.log('DEBUG Upload - bucket:', request.bucket);
-    console.log('DEBUG Upload - key:', request.key);
-    console.log('DEBUG Upload - file:', request.file);
-
     const uploadUrl = `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}`;
-    console.log('DEBUG Upload - URL:', uploadUrl);
-    console.log('DEBUG Upload - Full URL:', `${API_CONFIG.baseURL}${uploadUrl}`);
+
+    // Read file as arrayBuffer for reliable transfer
+    const fileBuffer = await request.file.arrayBuffer();
 
     // Send file directly in body instead of FormData (S3-style upload)
     const config = {
       headers: {
         'Content-Type': request.file.type || 'application/octet-stream',
+        'Content-Length': request.file.size.toString(),
       } as Record<string, string>,
+      timeout: 300000, // 5 minutes for large files
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
       onUploadProgress: request.onProgress ? (progressEvent: any) => {
         const progress = {
           loaded: progressEvent.loaded,
@@ -379,7 +377,7 @@ export class APIClient {
 
     const response = await apiClient.put<APIResponse<S3Object>>(
       uploadUrl,
-      request.file, // Send file directly instead of FormData
+      fileBuffer, // Send file as ArrayBuffer
       config
     );
     return response.data.data!;

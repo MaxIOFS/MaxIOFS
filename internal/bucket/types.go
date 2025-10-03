@@ -44,11 +44,11 @@ type LifecycleConfig struct {
 
 // LifecycleRule represents a single lifecycle rule
 type LifecycleRule struct {
-	ID                 string              `json:"ID"`
-	Status             string              `json:"Status"` // Enabled, Disabled
-	Filter             LifecycleFilter     `json:"Filter"`
-	Expiration         *LifecycleExpiration `json:"Expiration,omitempty"`
-	Transition         *LifecycleTransition `json:"Transition,omitempty"`
+	ID                             string                                   `json:"ID"`
+	Status                         string                                   `json:"Status"` // Enabled, Disabled
+	Filter                         LifecycleFilter                          `json:"Filter"`
+	Expiration                     *LifecycleExpiration                     `json:"Expiration,omitempty"`
+	Transition                     *LifecycleTransition                     `json:"Transition,omitempty"`
 	AbortIncompleteMultipartUpload *LifecycleAbortIncompleteMultipartUpload `json:"AbortIncompleteMultipartUpload,omitempty"`
 }
 
@@ -94,8 +94,8 @@ type CORSRule struct {
 
 // ObjectLockConfig represents bucket object lock configuration
 type ObjectLockConfig struct {
-	ObjectLockEnabled string                 `json:"ObjectLockEnabled"` // Enabled
-	Rule              *ObjectLockRule        `json:"Rule,omitempty"`
+	ObjectLockEnabled string          `json:"ObjectLockEnabled"` // Enabled
+	Rule              *ObjectLockRule `json:"Rule,omitempty"`
 }
 
 // ObjectLockRule represents object lock rule
@@ -105,7 +105,7 @@ type ObjectLockRule struct {
 
 // DefaultRetention represents default retention settings
 type DefaultRetention struct {
-	Mode  string `json:"Mode"`  // GOVERNANCE, COMPLIANCE
+	Mode  string `json:"Mode"` // GOVERNANCE, COMPLIANCE
 	Days  *int   `json:"Days,omitempty"`
 	Years *int   `json:"Years,omitempty"`
 }
@@ -125,10 +125,10 @@ type NotificationConfig struct {
 
 // TopicConfiguration represents SNS topic notification configuration
 type TopicConfiguration struct {
-	ID        string   `json:"Id,omitempty"`
-	TopicArn  string   `json:"Topic"`
-	Events    []string `json:"Events"`
-	Filter    *Filter  `json:"Filter,omitempty"`
+	ID       string   `json:"Id,omitempty"`
+	TopicArn string   `json:"Topic"`
+	Events   []string `json:"Events"`
+	Filter   *Filter  `json:"Filter,omitempty"`
 }
 
 // QueueConfiguration represents SQS queue notification configuration
@@ -141,10 +141,10 @@ type QueueConfiguration struct {
 
 // LambdaConfiguration represents Lambda function notification configuration
 type LambdaConfiguration struct {
-	ID              string   `json:"Id,omitempty"`
-	LambdaFunctionArn string `json:"CloudWatchConfiguration"`
-	Events          []string `json:"Events"`
-	Filter          *Filter  `json:"Filter,omitempty"`
+	ID                string   `json:"Id,omitempty"`
+	LambdaFunctionArn string   `json:"CloudWatchConfiguration"`
+	Events            []string `json:"Events"`
+	Filter            *Filter  `json:"Filter,omitempty"`
 }
 
 // Filter represents notification filter
@@ -159,6 +159,20 @@ type KeyFilter struct {
 
 // FilterRule represents a single filter rule
 type FilterRule struct {
-	Name  string `json:"Name"`  // prefix, suffix
+	Name  string `json:"Name"` // prefix, suffix
 	Value string `json:"Value"`
+}
+
+// EncryptionConfig represents bucket encryption configuration
+type EncryptionConfig struct {
+	Type     string `json:"type"` // AES256, aws:kms
+	KMSKeyID string `json:"kmsKeyId,omitempty"`
+}
+
+// PublicAccessBlock represents public access block configuration
+type PublicAccessBlock struct {
+	BlockPublicAcls       bool `json:"blockPublicAcls"`
+	IgnorePublicAcls      bool `json:"ignorePublicAcls"`
+	BlockPublicPolicy     bool `json:"blockPublicPolicy"`
+	RestrictPublicBuckets bool `json:"restrictPublicBuckets"`
 }

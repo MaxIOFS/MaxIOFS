@@ -12,8 +12,8 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/config"
-	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/metrics"
+	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
@@ -46,7 +46,7 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize managers
 	bucketManager := bucket.NewManager(storageBackend)
 	objectManager := object.NewManager(storageBackend, cfg.Storage)
-	authManager := auth.NewManager(cfg.Auth)
+	authManager := auth.NewManager(cfg.Auth, cfg.DataDir)
 	metricsManager := metrics.NewManager(cfg.Metrics)
 
 	// Create HTTP servers

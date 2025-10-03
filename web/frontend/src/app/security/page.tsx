@@ -22,44 +22,44 @@ import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 
 export default function SecurityPage() {
-  const { data: securityStatus, isLoading } = useQuery({
+  const { data: securityStatusData, isLoading } = useQuery({
     queryKey: ['securityStatus'],
     queryFn: APIClient.getSecurityStatus,
   });
 
-  // Mock security data for demonstration
-  const mockSecurityData = {
+  // Use real data from backend with fallback
+  const securityStatus = securityStatusData?.data || {
     encryption: {
-      enabled: true,
-      algorithm: 'AES-256-GCM',
-      keyRotation: true,
-      lastRotation: '2024-09-15T10:30:00Z'
+      enabled: false,
+      algorithm: 'N/A',
+      keyRotation: false,
+      lastRotation: new Date().toISOString()
     },
     objectLock: {
-      enabled: true,
-      bucketsWithLock: 8,
-      totalLockedObjects: 1247,
-      complianceMode: 156,
-      governanceMode: 1091
+      enabled: false,
+      bucketsWithLock: 0,
+      totalLockedObjects: 0,
+      complianceMode: 0,
+      governanceMode: 0
     },
     authentication: {
       requireAuth: true,
       mfaEnabled: false,
-      activeUsers: 8,
-      activeSessions: 12,
-      failedLogins24h: 3
+      activeUsers: 0,
+      activeSessions: 0,
+      failedLogins24h: 0
     },
     policies: {
-      totalPolicies: 15,
-      bucketPolicies: 12,
-      userPolicies: 8,
-      lastUpdate: '2024-09-28T14:20:00Z'
+      totalPolicies: 0,
+      bucketPolicies: 0,
+      userPolicies: 0,
+      lastUpdate: new Date().toISOString()
     },
     audit: {
-      enabled: true,
-      logRetention: 90, // days
-      totalEvents: 45632,
-      eventsToday: 234
+      enabled: false,
+      logRetention: 90,
+      totalEvents: 0,
+      eventsToday: 0
     }
   };
 
@@ -81,7 +81,7 @@ export default function SecurityPage() {
     );
   }
 
-  const displayData = securityStatus?.data || mockSecurityData;
+  const displayData = securityStatus;
 
   return (
     <div className="space-y-6">
@@ -99,6 +99,7 @@ export default function SecurityPage() {
         </Button>
       </div>
 
+
       {/* Security Status */}
       <div>
         <h2 className="text-xl font-semibold mb-4">Security Status</h2>
@@ -106,16 +107,18 @@ export default function SecurityPage() {
           <Card className="border-green-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Encryption</CardTitle>
-              {displayData.encryption.enabled ? (
+              {displayData?.encryption?.enabled ? (
                 <CheckCircle className="h-4 w-4 text-green-600" />
               ) : (
                 <AlertTriangle className="h-4 w-4 text-red-600" />
               )}
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">Enabled</div>
+              <div className="text-2xl font-bold text-green-600">
+                {displayData?.encryption?.enabled ? 'Enabled' : 'Disabled'}
+              </div>
               <p className="text-xs text-muted-foreground">
-                {displayData.encryption.algorithm}
+                {displayData?.encryption?.algorithm || 'N/A'}
               </p>
             </CardContent>
           </Card>
@@ -123,16 +126,18 @@ export default function SecurityPage() {
           <Card className="border-blue-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Object Lock</CardTitle>
-              {displayData.objectLock.enabled ? (
+              {displayData?.objectLock?.enabled ? (
                 <CheckCircle className="h-4 w-4 text-blue-600" />
               ) : (
                 <AlertTriangle className="h-4 w-4 text-red-600" />
               )}
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600">Active</div>
+              <div className="text-2xl font-bold text-blue-600">
+                {displayData?.objectLock?.enabled ? 'Active' : 'Inactive'}
+              </div>
               <p className="text-xs text-muted-foreground">
-                {displayData.objectLock.bucketsWithLock} buckets protected
+                {displayData?.objectLock?.bucketsWithLock || 0} buckets protected
               </p>
             </CardContent>
           </Card>
@@ -140,16 +145,18 @@ export default function SecurityPage() {
           <Card className="border-purple-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Authentication</CardTitle>
-              {displayData.authentication.requireAuth ? (
+              {displayData?.authentication?.requireAuth ? (
                 <CheckCircle className="h-4 w-4 text-purple-600" />
               ) : (
                 <AlertTriangle className="h-4 w-4 text-red-600" />
               )}
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-purple-600">Required</div>
+              <div className="text-2xl font-bold text-purple-600">
+                {displayData?.authentication?.requireAuth ? 'Required' : 'Optional'}
+              </div>
               <p className="text-xs text-muted-foreground">
-                {displayData.authentication.activeUsers} active users
+                {displayData?.authentication?.activeUsers || 0} active users
               </p>
             </CardContent>
           </Card>
@@ -157,16 +164,18 @@ export default function SecurityPage() {
           <Card className="border-orange-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Audit Logging</CardTitle>
-              {displayData.audit.enabled ? (
+              {displayData?.audit?.enabled ? (
                 <CheckCircle className="h-4 w-4 text-orange-600" />
               ) : (
                 <AlertTriangle className="h-4 w-4 text-red-600" />
               )}
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-orange-600">Enabled</div>
+              <div className="text-2xl font-bold text-orange-600">
+                {displayData?.audit?.enabled ? 'Enabled' : 'Disabled'}
+              </div>
               <p className="text-xs text-muted-foreground">
-                {displayData.audit.eventsToday} events today
+                {displayData?.audit?.eventsToday || 0} events today
               </p>
             </CardContent>
           </Card>
@@ -194,19 +203,19 @@ export default function SecurityPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Algorithm</span>
-                <span className="text-sm">{displayData.encryption.algorithm}</span>
+                <span className="text-sm">{displayData?.encryption?.algorithm || 'N/A'}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Key Rotation</span>
                 <span className="flex items-center gap-2 text-green-600">
                   <CheckCircle className="h-4 w-4" />
-                  Enabled
+                  {displayData?.encryption?.keyRotation ? 'Enabled' : 'Disabled'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Last Rotation</span>
                 <span className="text-sm text-muted-foreground">
-                  {formatDate(displayData.encryption.lastRotation)}
+                  {displayData?.encryption?.lastRotation ? formatDate(displayData.encryption.lastRotation) : 'N/A'}
                 </span>
               </div>
               <Button className="w-full gap-2">
@@ -226,19 +235,19 @@ export default function SecurityPage() {
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Protected Buckets</span>
-                <span className="text-sm font-bold">{displayData.objectLock.bucketsWithLock}</span>
+                <span className="text-sm font-bold">{displayData?.objectLock?.bucketsWithLock || 0}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Locked Objects</span>
-                <span className="text-sm font-bold">{displayData.objectLock.totalLockedObjects.toLocaleString()}</span>
+                <span className="text-sm font-bold">{(displayData?.objectLock?.totalLockedObjects || 0).toLocaleString()}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Compliance Mode</span>
-                <span className="text-sm text-red-600 font-medium">{displayData.objectLock.complianceMode}</span>
+                <span className="text-sm text-red-600 font-medium">{displayData?.objectLock?.complianceMode || 0}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Governance Mode</span>
-                <span className="text-sm text-blue-600 font-medium">{displayData.objectLock.governanceMode}</span>
+                <span className="text-sm text-blue-600 font-medium">{displayData?.objectLock?.governanceMode || 0}</span>
               </div>
               <Button className="w-full gap-2">
                 <Lock className="h-4 w-4" />
@@ -263,15 +272,15 @@ export default function SecurityPage() {
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Active Users</span>
-                <span className="text-sm font-bold">{displayData.authentication.activeUsers}</span>
+                <span className="text-sm font-bold">{displayData?.authentication?.activeUsers || 0}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Active Sessions</span>
-                <span className="text-sm font-bold">{displayData.authentication.activeSessions}</span>
+                <span className="text-sm font-bold">{displayData?.authentication?.activeSessions || 0}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Failed Logins (24h)</span>
-                <span className="text-sm text-orange-600 font-medium">{displayData.authentication.failedLogins24h}</span>
+                <span className="text-sm text-orange-600 font-medium">{displayData?.authentication?.failedLogins24h || 0}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">MFA Status</span>
@@ -293,20 +302,20 @@ export default function SecurityPage() {
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Total Policies</span>
-                <span className="text-sm font-bold">{displayData.policies.totalPolicies}</span>
+                <span className="text-sm font-bold">{displayData?.policies?.totalPolicies || 0}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Bucket Policies</span>
-                <span className="text-sm font-bold">{displayData.policies.bucketPolicies}</span>
+                <span className="text-sm font-bold">{displayData?.policies?.bucketPolicies || 0}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">User Policies</span>
-                <span className="text-sm font-bold">{displayData.policies.userPolicies}</span>
+                <span className="text-sm font-bold">{displayData?.policies?.userPolicies || 0}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Last Update</span>
                 <span className="text-sm text-muted-foreground">
-                  {formatDate(displayData.policies.lastUpdate)}
+                  {displayData?.policies?.lastUpdate ? formatDate(displayData.policies.lastUpdate) : 'N/A'}
                 </span>
               </div>
             </CardContent>
@@ -322,22 +331,22 @@ export default function SecurityPage() {
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Status</span>
-                <span className="flex items-center gap-2 text-green-600">
-                  <CheckCircle className="h-4 w-4" />
-                  Active
+                <span className={`flex items-center gap-2 ${displayData?.audit?.enabled ? 'text-green-600' : 'text-red-600'}`}>
+                  {displayData?.audit?.enabled ? <CheckCircle className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+                  {displayData?.audit?.enabled ? 'Active' : 'Inactive'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Retention</span>
-                <span className="text-sm font-bold">{displayData.audit.logRetention} days</span>
+                <span className="text-sm font-bold">{displayData?.audit?.logRetention || 0} days</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Total Events</span>
-                <span className="text-sm font-bold">{displayData.audit.totalEvents.toLocaleString()}</span>
+                <span className="text-sm font-bold">{(displayData?.audit?.totalEvents || 0).toLocaleString()}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Events Today</span>
-                <span className="text-sm text-blue-600 font-medium">{displayData.audit.eventsToday}</span>
+                <span className="text-sm text-blue-600 font-medium">{displayData?.audit?.eventsToday || 0}</span>
               </div>
             </CardContent>
           </Card>

@@ -13,9 +13,11 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/config"
+	"github.com/sirupsen/logrus"
 )
 
 // Manager defines the interface for authentication and authorization
@@ -86,21 +88,65 @@ type authManager struct {
 	users        map[string]*User      // accessKey -> user mapping (for S3 API)
 	consoleUsers map[string]*User      // username -> user mapping (for Console)
 	keys         map[string]*AccessKey // accessKey -> AccessKey mapping
+	persistence  *PersistenceManager   // Persistence layer
+	mu           sync.RWMutex          // Protect concurrent access
 }
 
 // NewManager creates a new authentication manager
-func NewManager(config config.AuthConfig) Manager {
+func NewManager(cfg config.AuthConfig, dataDir string) Manager {
 	manager := &authManager{
-		config:       config,
+		config:       cfg,
 		users:        make(map[string]*User),
 		consoleUsers: make(map[string]*User),
 		keys:         make(map[string]*AccessKey),
 	}
 
+	// Initialize persistence
+	persistence, err := NewPersistenceManager(dataDir)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to initialize persistence manager")
+	} else {
+		manager.persistence = persistence
+
+		// Load existing users and keys from disk
+		data, err := persistence.LoadUsers()
+		if err != nil {
+			logrus.WithError(err).Error("Failed to load users from disk")
+		} else {
+			// Restore console users
+			manager.consoleUsers = data.Users
+
+			// Restore access keys and rebuild users map (accessKey -> user)
+			manager.keys = data.AccessKeys
+			for accessKeyID, key := range data.AccessKeys {
+				if user, exists := manager.consoleUsers[key.UserID]; exists {
+					manager.users[accessKeyID] = user
+					logrus.WithFields(logrus.Fields{
+						"access_key_id": accessKeyID,
+						"user_id":       key.UserID,
+						"user_name":     user.DisplayName,
+					}).Debug("Restored access key mapping")
+				} else {
+					logrus.WithFields(logrus.Fields{
+						"access_key_id": accessKeyID,
+						"user_id":       key.UserID,
+					}).Warn("Access key references non-existent user")
+				}
+			}
+
+			logrus.WithFields(logrus.Fields{
+				"console_users":    len(manager.consoleUsers),
+				"access_keys":      len(manager.keys),
+				"s3_user_mappings": len(manager.users),
+			}).Info("Restored users and access keys from disk")
+		}
+	}
+
 	// Add default S3 access key if configured
-	if config.AccessKey != "" && config.SecretKey != "" {
+	if cfg.AccessKey != "" && cfg.SecretKey != "" {
 		defaultUser := &User{
 			ID:          "default",
+			Username:    "default",
 			DisplayName: "Default S3 User",
 			Status:      "active",
 			Roles:       []string{"admin"},
@@ -109,15 +155,19 @@ func NewManager(config config.AuthConfig) Manager {
 		}
 
 		defaultKey := &AccessKey{
-			AccessKeyID:     config.AccessKey,
-			SecretAccessKey: config.SecretKey,
+			AccessKeyID:     cfg.AccessKey,
+			SecretAccessKey: cfg.SecretKey,
 			UserID:          "default",
 			Status:          "active",
 			CreatedAt:       0,
 		}
 
-		manager.users[config.AccessKey] = defaultUser
-		manager.keys[config.AccessKey] = defaultKey
+		// Add to all maps
+		manager.consoleUsers["default"] = defaultUser
+		manager.users[cfg.AccessKey] = defaultUser
+		manager.keys[cfg.AccessKey] = defaultKey
+
+		logrus.WithField("access_key", cfg.AccessKey).Info("Added default S3 credentials")
 	}
 
 	// Add default console admin user
@@ -270,15 +320,23 @@ func (am *authManager) GenerateJWT(ctx context.Context, user *User) (string, err
 
 // ValidateS3Signature validates S3 request signature (auto-detect version)
 func (am *authManager) ValidateS3Signature(ctx context.Context, r *http.Request) (*User, error) {
-	// TODO: Implement in Fase 1.4 - Authentication Manager
 	// Auto-detect signature version and delegate to appropriate method
-	if r.Header.Get("Authorization") != "" {
-		if r.Header.Get("X-Amz-Algorithm") != "" {
-			return am.ValidateS3SignatureV4(ctx, r)
-		}
-		return am.ValidateS3SignatureV2(ctx, r)
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return nil, ErrMissingSignature
 	}
-	return nil, ErrMissingSignature
+
+	logrus.WithField("auth_header", authHeader).Info("ValidateS3Signature called")
+
+	// Check if it's SigV4 (from Authorization header or query param)
+	if strings.HasPrefix(authHeader, "AWS4-HMAC-SHA256") || r.Header.Get("X-Amz-Algorithm") == "AWS4-HMAC-SHA256" {
+		logrus.Info("Delegating to ValidateS3SignatureV4")
+		return am.ValidateS3SignatureV4(ctx, r)
+	}
+
+	// Otherwise assume SigV2
+	logrus.Info("Delegating to ValidateS3SignatureV2")
+	return am.ValidateS3SignatureV2(ctx, r)
 }
 
 // ValidateS3SignatureV4 validates AWS Signature Version 4
@@ -291,17 +349,31 @@ func (am *authManager) ValidateS3SignatureV4(ctx context.Context, r *http.Reques
 	// Parse Authorization header
 	sig, err := am.parseS3SignatureV4(auth, r)
 	if err != nil {
+		logrus.WithError(err).Error("Failed to parse SigV4 header")
 		return nil, err
 	}
 
-	// Get user by access key
-	accessKey, exists := am.keys[sig.AccessKey]
-	if !exists {
+	// Get user by access key with read lock
+	am.mu.RLock()
+	accessKey, keyExists := am.keys[sig.AccessKey]
+	user, userExists := am.users[sig.AccessKey]
+	am.mu.RUnlock()
+
+	logrus.WithFields(logrus.Fields{
+		"access_key":  sig.AccessKey,
+		"key_exists":  keyExists,
+		"user_exists": userExists,
+		"keys_count":  len(am.keys),
+		"users_count": len(am.users),
+	}).Info("Looking up access key")
+
+	if !keyExists {
+		logrus.WithField("access_key", sig.AccessKey).Warn("Access key not found in keys map")
 		return nil, ErrInvalidCredentials
 	}
 
-	user := am.users[sig.AccessKey]
-	if user == nil {
+	if !userExists {
+		logrus.WithField("access_key", sig.AccessKey).Warn("User not found in users map")
 		return nil, ErrUserNotFound
 	}
 
@@ -396,7 +468,17 @@ func (am *authManager) CreateUser(ctx context.Context, user *User) error {
 	}
 
 	// Store in consoleUsers map using ID as key
+	am.mu.Lock()
 	am.consoleUsers[user.ID] = user
+	am.mu.Unlock()
+
+	// Persist to disk
+	if am.persistence != nil {
+		if err := am.persistence.SaveUsers(am.consoleUsers, am.keys); err != nil {
+			logrus.WithError(err).Error("Failed to persist user data")
+		}
+	}
+
 	return nil
 }
 
@@ -497,8 +579,17 @@ func (am *authManager) GenerateAccessKey(ctx context.Context, userID string) (*A
 	}
 
 	// Store in keys map and link to user
+	am.mu.Lock()
 	am.keys[accessKeyID] = accessKey
 	am.users[accessKeyID] = user
+	am.mu.Unlock()
+
+	// Persist to disk
+	if am.persistence != nil {
+		if err := am.persistence.SaveUsers(am.consoleUsers, am.keys); err != nil {
+			logrus.WithError(err).Error("Failed to persist access key")
+		}
+	}
 
 	return accessKey, nil
 }
@@ -545,6 +636,12 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 			// Try to validate request
 			user, err := am.ValidateS3Signature(r.Context(), r)
 			if err != nil {
+				logrus.WithFields(logrus.Fields{
+					"method": r.Method,
+					"path":   r.URL.Path,
+					"error":  err.Error(),
+					"auth":   r.Header.Get("Authorization"),
+				}).Warn("Authentication failed")
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -623,14 +720,18 @@ func (am *authManager) createBasicToken(claims JWTClaims) (string, error) {
 // parseS3SignatureV4 parses AWS Signature Version 4
 func (am *authManager) parseS3SignatureV4(authHeader string, r *http.Request) (*S3SignatureV4, error) {
 	// Parse Authorization header: AWS4-HMAC-SHA256 Credential=..., SignedHeaders=..., Signature=...
+	logrus.WithField("auth_header", authHeader).Debug("Starting parseS3SignatureV4")
+
 	if !strings.HasPrefix(authHeader, "AWS4-HMAC-SHA256") {
+		logrus.Error("Authorization header does not start with AWS4-HMAC-SHA256")
 		return nil, ErrInvalidSignature
 	}
 
-	parts := strings.Split(authHeader, " ")
-	if len(parts) != 2 {
-		return nil, ErrInvalidSignature
-	}
+	// Remove the "AWS4-HMAC-SHA256 " prefix
+	authHeader = strings.TrimPrefix(authHeader, "AWS4-HMAC-SHA256 ")
+	authHeader = strings.TrimSpace(authHeader)
+
+	logrus.WithField("params_string", authHeader).Debug("Extracted parameters string")
 
 	sig := &S3SignatureV4{
 		Algorithm: "AWS4-HMAC-SHA256",
@@ -640,20 +741,35 @@ func (am *authManager) parseS3SignatureV4(authHeader string, r *http.Request) (*
 	}
 
 	// Parse credential, signed headers, and signature
-	params := strings.Split(parts[1], ", ")
+	// Split by ", " to get each parameter
+	params := strings.Split(authHeader, ", ")
+	logrus.WithField("params_count", len(params)).Debug("Split parameters")
+
 	for _, param := range params {
 		kv := strings.SplitN(param, "=", 2)
 		if len(kv) != 2 {
+			logrus.WithField("param", param).Warn("Skipping invalid parameter")
 			continue
 		}
 
 		switch kv[0] {
 		case "Credential":
 			sig.Credential = kv[1]
-			// Extract access key from credential
+			// Extract access key and date from credential
+			// Format: AccessKey/Date/Region/Service/aws4_request
 			credParts := strings.Split(kv[1], "/")
-			if len(credParts) > 0 {
+			if len(credParts) >= 2 {
 				sig.AccessKey = credParts[0]
+				// Extract date from credential (YYYYMMDD format)
+				if len(credParts[1]) >= 8 {
+					sig.Date = credParts[1] // This should be YYYYMMDD
+				}
+			}
+			if len(credParts) >= 3 {
+				sig.Region = credParts[2]
+			}
+			if len(credParts) >= 4 {
+				sig.Service = credParts[3]
 			}
 		case "SignedHeaders":
 			sig.SignedHeaders = kv[1]
@@ -661,6 +777,23 @@ func (am *authManager) parseS3SignatureV4(authHeader string, r *http.Request) (*
 			sig.Signature = kv[1]
 		}
 	}
+
+	// If Date wasn't set from credential, try X-Amz-Date header
+	if sig.Date == "" || len(sig.Date) < 8 {
+		amzDate := r.Header.Get("X-Amz-Date")
+		if len(amzDate) >= 8 {
+			sig.Date = amzDate[:8] // Extract YYYYMMDD
+		}
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"access_key":     sig.AccessKey,
+		"date":           sig.Date,
+		"region":         sig.Region,
+		"service":        sig.Service,
+		"signed_headers": sig.SignedHeaders,
+		"credential":     sig.Credential,
+	}).Info("Parsed SigV4 signature")
 
 	return sig, nil
 }
@@ -685,20 +818,38 @@ func (am *authManager) parseS3SignatureV2(authHeader string, r *http.Request) (*
 
 // verifyS3SignatureV4 verifies AWS Signature Version 4
 func (am *authManager) verifyS3SignatureV4(r *http.Request, sig *S3SignatureV4, secretKey string) bool {
-	// Simplified signature verification for MVP
-	// In production, implement full AWS SigV4 algorithm
+	// AWS SigV4 signature verification
+	// Reference: https://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
 
 	// Create canonical request
 	canonicalRequest := am.createCanonicalRequest(r, sig.SignedHeaders)
+	canonicalRequestHash := fmt.Sprintf("%x", sha256.Sum256([]byte(canonicalRequest)))
 
 	// Create string to sign
-	stringToSign := fmt.Sprintf("AWS4-HMAC-SHA256\n%s\n%s\n%s",
+	// Format: Algorithm + "\n" + RequestDateTime + "\n" + CredentialScope + "\n" + HashedCanonicalRequest
+	stringToSign := fmt.Sprintf("AWS4-HMAC-SHA256\n%s\n%s/%s/%s/aws4_request\n%s",
+		r.Header.Get("X-Amz-Date"),
 		sig.Date,
-		sig.Credential,
-		fmt.Sprintf("%x", sha256.Sum256([]byte(canonicalRequest))))
+		sig.Region,
+		sig.Service,
+		canonicalRequestHash)
 
 	// Calculate signature
-	calculatedSig := am.calculateSignatureV4(stringToSign, secretKey, sig.Date)
+	calculatedSig := am.calculateSignatureV4(stringToSign, secretKey, sig.Date, sig.Region, sig.Service)
+
+	// Debug logging
+	logrus.WithFields(logrus.Fields{
+		"received_signature":     sig.Signature,
+		"calculated_signature":   calculatedSig,
+		"access_key":             sig.AccessKey,
+		"signed_headers":         sig.SignedHeaders,
+		"date":                   sig.Date,
+		"region":                 sig.Region,
+		"service":                sig.Service,
+		"x_amz_date":             r.Header.Get("X-Amz-Date"),
+		"canonical_request_hash": canonicalRequestHash,
+		"match":                  calculatedSig == sig.Signature,
+	}).Info("SigV4 verification details")
 
 	return calculatedSig == sig.Signature
 }
@@ -718,18 +869,24 @@ func (am *authManager) verifyS3SignatureV2(r *http.Request, sig *S3SignatureV2, 
 
 // createCanonicalRequest creates canonical request for SigV4
 func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders string) string {
-	// Simplified canonical request creation
+	// AWS SigV4 Canonical Request format:
+	// HTTPMethod + "\n" +
+	// CanonicalURI + "\n" +
+	// CanonicalQueryString + "\n" +
+	// CanonicalHeaders + "\n" +
+	// SignedHeaders + "\n" +
+	// HashedPayload
+
 	method := r.Method
 	uri := r.URL.Path
 	if uri == "" {
 		uri = "/"
 	}
 
-	// Query string
-	queryString := r.URL.RawQuery
-	if queryString != "" {
-		// Sort query parameters
-		values, _ := url.ParseQuery(queryString)
+	// Canonical Query String - sorted by key
+	queryString := ""
+	if r.URL.RawQuery != "" {
+		values, _ := url.ParseQuery(r.URL.RawQuery)
 		var keys []string
 		for k := range values {
 			keys = append(keys, k)
@@ -738,33 +895,61 @@ func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders str
 
 		var pairs []string
 		for _, k := range keys {
-			for _, v := range values[k] {
-				pairs = append(pairs, fmt.Sprintf("%s=%s", k, v))
+			vals := values[k]
+			sort.Strings(vals)
+			for _, v := range vals {
+				pairs = append(pairs, url.QueryEscape(k)+"="+url.QueryEscape(v))
 			}
 		}
 		queryString = strings.Join(pairs, "&")
 	}
 
-	// Canonical headers (simplified)
-	headers := r.Header
+	// Canonical Headers - must be lowercase and sorted
 	canonicalHeaders := ""
 	if signedHeaders != "" {
 		headerNames := strings.Split(signedHeaders, ";")
 		for _, name := range headerNames {
-			if value := headers.Get(name); value != "" {
-				canonicalHeaders += fmt.Sprintf("%s:%s\n", strings.ToLower(name), value)
+			headerName := strings.ToLower(strings.TrimSpace(name))
+
+			var value string
+			// Special handling for 'host' header
+			if headerName == "host" {
+				value = r.Host
+			} else {
+				value = r.Header.Get(headerName)
+			}
+
+			if value != "" {
+				// Trim and normalize whitespace
+				value = strings.TrimSpace(value)
+				canonicalHeaders += headerName + ":" + value + "\n"
 			}
 		}
 	}
 
-	// Payload hash (simplified)
-	payloadHash := "UNSIGNED-PAYLOAD"
-	if hash := r.Header.Get("X-Amz-Content-Sha256"); hash != "" {
-		payloadHash = hash
+	// Payload hash
+	payloadHash := r.Header.Get("X-Amz-Content-Sha256")
+	if payloadHash == "" {
+		payloadHash = "UNSIGNED-PAYLOAD"
 	}
 
-	return fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s",
-		method, uri, queryString, canonicalHeaders, signedHeaders, payloadHash)
+	canonicalRequest := method + "\n" +
+		uri + "\n" +
+		queryString + "\n" +
+		canonicalHeaders + "\n" +
+		signedHeaders + "\n" +
+		payloadHash
+
+	logrus.WithFields(logrus.Fields{
+		"method":            method,
+		"uri":               uri,
+		"query":             queryString,
+		"canonical_headers": strings.ReplaceAll(canonicalHeaders, "\n", "\\n"),
+		"signed_headers":    signedHeaders,
+		"payload_hash":      payloadHash,
+	}).Info("Canonical request components")
+
+	return canonicalRequest
 }
 
 // createStringToSignV2 creates string to sign for SigV2
@@ -788,9 +973,37 @@ func (am *authManager) createStringToSignV2(r *http.Request) string {
 }
 
 // calculateSignatureV4 calculates AWS SigV4 signature
-func (am *authManager) calculateSignatureV4(stringToSign, secretKey, date string) string {
-	// Simplified signature calculation (not full AWS algorithm)
-	hash := hmac.New(sha256.New, []byte("AWS4"+secretKey))
-	hash.Write([]byte(stringToSign))
-	return hex.EncodeToString(hash.Sum(nil))
+func (am *authManager) calculateSignatureV4(stringToSign, secretKey, date, region, service string) string {
+	// AWS SigV4 signing key derivation
+	// Reference: https://docs.aws.amazon.com/general/latest/gr/signature-v4-examples.html
+
+	// Extract date in YYYYMMDD format
+	dateStamp := date
+	if len(date) > 8 {
+		dateStamp = date[:8]
+	}
+
+	// Step 1: DateKey = HMAC-SHA256("AWS4" + Secret, Date)
+	dateKey := hmacSHA256([]byte("AWS4"+secretKey), []byte(dateStamp))
+
+	// Step 2: DateRegionKey = HMAC-SHA256(DateKey, Region)
+	dateRegionKey := hmacSHA256(dateKey, []byte(region))
+
+	// Step 3: DateRegionServiceKey = HMAC-SHA256(DateRegionKey, Service)
+	dateRegionServiceKey := hmacSHA256(dateRegionKey, []byte(service))
+
+	// Step 4: SigningKey = HMAC-SHA256(DateRegionServiceKey, "aws4_request")
+	signingKey := hmacSHA256(dateRegionServiceKey, []byte("aws4_request"))
+
+	// Step 5: Signature = HMAC-SHA256(SigningKey, StringToSign)
+	signature := hmacSHA256(signingKey, []byte(stringToSign))
+
+	return hex.EncodeToString(signature)
+}
+
+// hmacSHA256 helper function
+func hmacSHA256(key, data []byte) []byte {
+	hash := hmac.New(sha256.New, key)
+	hash.Write(data)
+	return hash.Sum(nil)
 }

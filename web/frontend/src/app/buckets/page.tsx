@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -21,6 +22,7 @@ import { Bucket, CreateBucketForm } from '@/types';
 import SweetAlert from '@/lib/sweetalert';
 
 export default function BucketsPage() {
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [formData, setFormData] = useState<CreateBucketForm>({
@@ -154,7 +156,7 @@ export default function BucketsPage() {
             Manage your S3 buckets and their configurations
           </p>
         </div>
-        <Button onClick={() => setIsCreateModalOpen(true)} className="gap-2">
+        <Button onClick={() => router.push('/buckets/create')} className="gap-2">
           <Plus className="h-4 w-4" />
           Create Bucket
         </Button>
