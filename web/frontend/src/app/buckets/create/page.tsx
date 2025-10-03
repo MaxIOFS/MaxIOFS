@@ -49,8 +49,8 @@ interface BucketCreationConfig {
   
   // Lifecycle
   lifecycleEnabled: boolean;
-  transitionToIA: number; // días hasta IA
-  transitionToGlacier: number; // días hasta Glacier
+  transitionToIA: number; // days until IA
+  transitionToGlacier: number; // days until Glacier
   expirationDays: number;
   
   // Advanced
@@ -145,7 +145,7 @@ export default function CreateBucketPage() {
       return APIClient.createBucket(payload);
     },
     onSuccess: () => {
-      SweetAlert.toast('success', `Bucket "${config.name}" creado exitosamente`);
+      SweetAlert.toast('success', `Bucket "${config.name}" created successfully`);
       router.push('/buckets');
     },
     onError: (error) => {
@@ -158,52 +158,52 @@ export default function CreateBucketPage() {
     
     // Validations
     if (!config.name) {
-      SweetAlert.toast('error', 'El nombre del bucket es requerido');
+      SweetAlert.toast('error', 'Bucket name is required');
       return;
     }
-    
+
     if (!/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/.test(config.name)) {
-      SweetAlert.toast('error', 'Nombre de bucket inválido. Debe contener solo minúsculas, números, puntos y guiones');
+      SweetAlert.toast('error', 'Invalid bucket name. Must contain only lowercase letters, numbers, dots and hyphens');
       return;
     }
-    
+
     if (config.objectLockEnabled && !config.versioningEnabled) {
-      SweetAlert.toast('error', 'Object Lock requiere que el versionado esté habilitado');
+      SweetAlert.toast('error', 'Object Lock requires versioning to be enabled');
       return;
     }
-    
+
     if (config.objectLockEnabled && !config.retentionMode) {
-      SweetAlert.toast('error', 'Debe seleccionar un modo de retención para Object Lock');
+      SweetAlert.toast('error', 'You must select a retention mode for Object Lock');
       return;
     }
-    
+
     if (config.objectLockEnabled && config.retentionDays === 0 && config.retentionYears === 0) {
-      SweetAlert.toast('error', 'Debe especificar al menos días o años de retención');
+      SweetAlert.toast('error', 'You must specify at least days or years of retention');
       return;
     }
 
     const result = await SweetAlert.fire({
       icon: 'question',
-      title: '¿Crear bucket?',
+      title: 'Create bucket?',
       html: `
         <div class="text-left space-y-2">
-          <p><strong>Nombre:</strong> ${config.name}</p>
-          <p><strong>Región:</strong> ${config.region}</p>
+          <p><strong>Name:</strong> ${config.name}</p>
+          <p><strong>Region:</strong> ${config.region}</p>
           ${config.objectLockEnabled ? `
             <p class="text-yellow-600"><strong>⚠️ Object Lock:</strong> ${config.retentionMode}</p>
-            <p class="text-sm text-red-600">Este bucket será INMUTABLE y no se podrá eliminar hasta que expire la retención</p>
+            <p class="text-sm text-red-600">This bucket will be IMMUTABLE and cannot be deleted until retention expires</p>
           ` : ''}
-          ${config.versioningEnabled ? '<p><strong>✓</strong> Versionado habilitado</p>' : ''}
-          ${config.encryptionEnabled ? '<p><strong>✓</strong> Encriptación habilitada</p>' : ''}
+          ${config.versioningEnabled ? '<p><strong>✓</strong> Versioning enabled</p>' : ''}
+          ${config.encryptionEnabled ? '<p><strong>✓</strong> Encryption enabled</p>' : ''}
         </div>
       `,
       showCancelButton: true,
-      confirmButtonText: 'Crear Bucket',
-      cancelButtonText: 'Cancelar',
+      confirmButtonText: 'Create Bucket',
+      cancelButtonText: 'Cancel',
     });
 
     if (result.isConfirmed) {
-      SweetAlert.loading('Creando bucket...', `Configurando "${config.name}"`);
+      SweetAlert.loading('Creating bucket...', `Configuring "${config.name}"`);
       createBucketMutation.mutate();
     }
   };
@@ -237,8 +237,8 @@ export default function CreateBucketPage() {
     { id: 'general', label: 'General', icon: Database },
     { id: 'objectlock', label: 'Object Lock & WORM', icon: Lock },
     { id: 'lifecycle', label: 'Lifecycle', icon: Clock },
-    { id: 'encryption', label: 'Encriptación', icon: Shield },
-    { id: 'access', label: 'Control de Acceso', icon: Settings },
+    { id: 'encryption', label: 'Encryption', icon: Shield },
+    { id: 'access', label: 'Access Control', icon: Settings },
   ];
 
   return (
@@ -253,12 +253,12 @@ export default function CreateBucketPage() {
             className="gap-2"
           >
             <ArrowLeft className="h-4 w-4" />
-            Volver
+            Back
           </Button>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Crear Nuevo Bucket</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Create New Bucket</h1>
             <p className="text-muted-foreground">
-              Configura todas las opciones avanzadas para tu nuevo bucket S3
+              Configure all advanced options for your new S3 bucket
             </p>
           </div>
         </div>
@@ -299,27 +299,27 @@ export default function CreateBucketPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Database className="h-5 w-5" />
-                  Configuración General
+                  General Configuration
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium mb-2">
-                    Nombre del Bucket <span className="text-red-500">*</span>
+                    Bucket Name <span className="text-red-500">*</span>
                   </label>
                   <Input
                     value={config.name}
                     onChange={(e) => updateConfig('name', e.target.value.toLowerCase())}
-                    placeholder="mi-bucket-s3"
+                    placeholder="my-s3-bucket"
                     required
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    Solo minúsculas, números, puntos (.) y guiones (-). Debe ser único globalmente.
+                    Only lowercase letters, numbers, dots (.) and hyphens (-). Must be globally unique.
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-2">Región</label>
+                  <label className="block text-sm font-medium mb-2">Region</label>
                   <select
                     value={config.region}
                     onChange={(e) => updateConfig('region', e.target.value)}
@@ -341,11 +341,11 @@ export default function CreateBucketPage() {
                     className="rounded border-gray-300"
                   />
                   <label htmlFor="versioning" className="text-sm font-medium">
-                    Habilitar Versionado de Objetos
+                    Enable Object Versioning
                   </label>
                 </div>
                 <p className="text-xs text-muted-foreground ml-6">
-                  Mantiene múltiples versiones de cada objeto. Requerido para Object Lock.
+                  Keeps multiple versions of each object. Required for Object Lock.
                 </p>
 
                 <div>
@@ -354,13 +354,13 @@ export default function CreateBucketPage() {
                     {config.tags.map((tag, index) => (
                       <div key={index} className="flex gap-2">
                         <Input
-                          placeholder="Clave"
+                          placeholder="Key"
                           value={tag.key}
                           onChange={(e) => updateTag(index, 'key', e.target.value)}
                           className="flex-1"
                         />
                         <Input
-                          placeholder="Valor"
+                          placeholder="Value"
                           value={tag.value}
                           onChange={(e) => updateTag(index, 'value', e.target.value)}
                           className="flex-1"
@@ -380,7 +380,7 @@ export default function CreateBucketPage() {
                       onClick={addTag}
                       className="w-full"
                     >
-                      + Agregar Tag
+                      + Add Tag
                     </Button>
                   </div>
                 </div>
@@ -402,12 +402,12 @@ export default function CreateBucketPage() {
                   <div className="flex gap-2">
                     <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0" />
                     <div className="text-sm text-yellow-800">
-                      <p className="font-semibold mb-1">⚠️ Importante: Object Lock es PERMANENTE</p>
+                      <p className="font-semibold mb-1">⚠️ Important: Object Lock is PERMANENT</p>
                       <ul className="list-disc list-inside space-y-1">
-                        <li>Una vez habilitado, NO SE PUEDE DESHABILITAR</li>
-                        <li>Los objetos no se pueden eliminar hasta que expire su período de retención</li>
-                        <li>COMPLIANCE mode: Ni siquiera el root user puede eliminar objetos</li>
-                        <li>GOVERNANCE mode: Solo usuarios con permisos especiales pueden bypass</li>
+                        <li>Once enabled, it CANNOT BE DISABLED</li>
+                        <li>Objects cannot be deleted until their retention period expires</li>
+                        <li>COMPLIANCE mode: Not even the root user can delete objects</li>
+                        <li>GOVERNANCE mode: Only users with special permissions can bypass</li>
                       </ul>
                     </div>
                   </div>
@@ -427,7 +427,7 @@ export default function CreateBucketPage() {
                     className="rounded border-gray-300"
                   />
                   <label htmlFor="objectLock" className="text-sm font-medium">
-                    Habilitar Object Lock (WORM)
+                    Enable Object Lock (WORM)
                   </label>
                 </div>
 
@@ -435,7 +435,7 @@ export default function CreateBucketPage() {
                   <>
                     <div>
                       <label className="block text-sm font-medium mb-2">
-                        Modo de Retención <span className="text-red-500">*</span>
+                        Retention Mode <span className="text-red-500">*</span>
                       </label>
                       <div className="space-y-3">
                         <label className="flex items-start space-x-3 p-3 border rounded-md cursor-pointer hover:bg-gray-50">
@@ -448,10 +448,10 @@ export default function CreateBucketPage() {
                             className="mt-1"
                           />
                           <div>
-                            <div className="font-medium text-sm">COMPLIANCE (Cumplimiento Normativo)</div>
+                            <div className="font-medium text-sm">COMPLIANCE (Regulatory Compliance)</div>
                             <div className="text-xs text-muted-foreground mt-1">
-                              <strong>Máxima protección.</strong> Nadie puede eliminar o modificar objetos, ni siquiera el root user.
-                              Ideal para requisitos legales y regulatorios (SEC, FINRA, HIPAA).
+                              <strong>Maximum protection.</strong> No one can delete or modify objects, not even the root user.
+                              Ideal for legal and regulatory requirements (SEC, FINRA, HIPAA).
                             </div>
                           </div>
                         </label>
@@ -466,10 +466,10 @@ export default function CreateBucketPage() {
                             className="mt-1"
                           />
                           <div>
-                            <div className="font-medium text-sm">GOVERNANCE (Gobernanza)</div>
+                            <div className="font-medium text-sm">GOVERNANCE</div>
                             <div className="text-xs text-muted-foreground mt-1">
-                              <strong>Protección flexible.</strong> Usuarios con permisos especiales pueden bypass la retención.
-                              Útil para testing y escenarios donde se necesita flexibilidad.
+                              <strong>Flexible protection.</strong> Users with special permissions can bypass retention.
+                              Useful for testing and scenarios where flexibility is needed.
                             </div>
                           </div>
                         </label>
@@ -478,7 +478,7 @@ export default function CreateBucketPage() {
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium mb-2">Días de Retención</label>
+                        <label className="block text-sm font-medium mb-2">Retention Days</label>
                         <Input
                           type="number"
                           min="0"
@@ -488,7 +488,7 @@ export default function CreateBucketPage() {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium mb-2">Años de Retención</label>
+                        <label className="block text-sm font-medium mb-2">Retention Years</label>
                         <Input
                           type="number"
                           min="0"
@@ -499,13 +499,13 @@ export default function CreateBucketPage() {
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Especifica al menos uno. Los objetos no se pueden eliminar durante este período.
+                      Specify at least one. Objects cannot be deleted during this period.
                     </p>
 
                     {config.retentionMode === 'COMPLIANCE' && (
                       <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-800">
-                        <strong>⚠️ Modo COMPLIANCE seleccionado:</strong> Este bucket será INMUTABLE.
-                        Los objetos no se podrán eliminar bajo ninguna circunstancia hasta que expire la retención.
+                        <strong>⚠️ COMPLIANCE mode selected:</strong> This bucket will be IMMUTABLE.
+                        Objects cannot be deleted under any circumstances until retention expires.
                       </div>
                     )}
                   </>
@@ -520,7 +520,7 @@ export default function CreateBucketPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Clock className="h-5 w-5" />
-                  Políticas de Ciclo de Vida
+                  Lifecycle Policies
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -533,7 +533,7 @@ export default function CreateBucketPage() {
                     className="rounded border-gray-300"
                   />
                   <label htmlFor="lifecycle" className="text-sm font-medium">
-                    Habilitar Reglas de Ciclo de Vida
+                    Enable Lifecycle Rules
                   </label>
                 </div>
 
@@ -541,7 +541,7 @@ export default function CreateBucketPage() {
                   <>
                     <div>
                       <label className="block text-sm font-medium mb-2">
-                        Transición a Standard-IA (días)
+                        Transition to Standard-IA (days)
                       </label>
                       <Input
                         type="number"
@@ -551,13 +551,13 @@ export default function CreateBucketPage() {
                         placeholder="30"
                       />
                       <p className="text-xs text-muted-foreground mt-1">
-                        Objetos se mueven a almacenamiento de acceso infrecuente después de N días
+                        Objects move to infrequent access storage after N days
                       </p>
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium mb-2">
-                        Transición a Glacier (días)
+                        Transition to Glacier (days)
                       </label>
                       <Input
                         type="number"
@@ -567,13 +567,13 @@ export default function CreateBucketPage() {
                         placeholder="90"
                       />
                       <p className="text-xs text-muted-foreground mt-1">
-                        Objetos se archivan en Glacier después de N días (almacenamiento económico)
+                        Objects are archived to Glacier after N days (economical storage)
                       </p>
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium mb-2">
-                        Expiración (días)
+                        Expiration (days)
                       </label>
                       <Input
                         type="number"
@@ -583,7 +583,7 @@ export default function CreateBucketPage() {
                         placeholder="365"
                       />
                       <p className="text-xs text-muted-foreground mt-1">
-                        Objetos se eliminan permanentemente después de N días (0 = no expirar)
+                        Objects are permanently deleted after N days (0 = no expiration)
                       </p>
                     </div>
                   </>
@@ -598,7 +598,7 @@ export default function CreateBucketPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Shield className="h-5 w-5" />
-                  Encriptación
+                  Encryption
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -611,14 +611,14 @@ export default function CreateBucketPage() {
                     className="rounded border-gray-300"
                   />
                   <label htmlFor="encryption" className="text-sm font-medium">
-                    Habilitar Encriptación por Defecto
+                    Enable Default Encryption
                   </label>
                 </div>
 
                 {config.encryptionEnabled && (
                   <>
                     <div>
-                      <label className="block text-sm font-medium mb-2">Tipo de Encriptación</label>
+                      <label className="block text-sm font-medium mb-2">Encryption Type</label>
                       <div className="space-y-2">
                         <label className="flex items-center space-x-2">
                           <input
@@ -629,7 +629,7 @@ export default function CreateBucketPage() {
                             onChange={(e) => updateConfig('encryptionType', e.target.value)}
                           />
                           <span className="text-sm">
-                            <strong>SSE-S3 (AES-256)</strong> - Encriptación administrada por S3
+                            <strong>SSE-S3 (AES-256)</strong> - S3-managed encryption
                           </span>
                         </label>
                         <label className="flex items-center space-x-2">
@@ -641,7 +641,7 @@ export default function CreateBucketPage() {
                             onChange={(e) => updateConfig('encryptionType', e.target.value)}
                           />
                           <span className="text-sm">
-                            <strong>SSE-KMS</strong> - Encriptación con AWS Key Management Service
+                            <strong>SSE-KMS</strong> - Encryption with AWS Key Management Service
                           </span>
                         </label>
                       </div>
@@ -669,13 +669,13 @@ export default function CreateBucketPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Settings className="h-5 w-5" />
-                  Control de Acceso Público
+                  Public Access Control
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-blue-800">
                   <Info className="h-4 w-4 inline mr-2" />
-                  Se recomienda bloquear todo el acceso público a menos que específicamente necesites compartir datos.
+                  It is recommended to block all public access unless you specifically need to share data.
                 </div>
 
                 <div className="space-y-3">
@@ -686,7 +686,7 @@ export default function CreateBucketPage() {
                       onChange={(e) => updateConfig('blockPublicAcls', e.target.checked)}
                       className="rounded border-gray-300"
                     />
-                    <span className="text-sm">Bloquear ACLs públicas</span>
+                    <span className="text-sm">Block public ACLs</span>
                   </label>
 
                   <label className="flex items-center space-x-2">
@@ -696,7 +696,7 @@ export default function CreateBucketPage() {
                       onChange={(e) => updateConfig('ignorePublicAcls', e.target.checked)}
                       className="rounded border-gray-300"
                     />
-                    <span className="text-sm">Ignorar ACLs públicas existentes</span>
+                    <span className="text-sm">Ignore existing public ACLs</span>
                   </label>
 
                   <label className="flex items-center space-x-2">
@@ -706,7 +706,7 @@ export default function CreateBucketPage() {
                       onChange={(e) => updateConfig('blockPublicPolicy', e.target.checked)}
                       className="rounded border-gray-300"
                     />
-                    <span className="text-sm">Bloquear políticas de bucket públicas</span>
+                    <span className="text-sm">Block public bucket policies</span>
                   </label>
 
                   <label className="flex items-center space-x-2">
@@ -716,13 +716,13 @@ export default function CreateBucketPage() {
                       onChange={(e) => updateConfig('restrictPublicBuckets', e.target.checked)}
                       className="rounded border-gray-300"
                     />
-                    <span className="text-sm">Restringir buckets públicos</span>
+                    <span className="text-sm">Restrict public buckets</span>
                   </label>
                 </div>
 
                 <div className="border-t pt-4 mt-4">
-                  <h3 className="font-medium mb-3">Opciones Avanzadas</h3>
-                  
+                  <h3 className="font-medium mb-3">Advanced Options</h3>
+
                   <div className="space-y-3">
                     <label className="flex items-center space-x-2">
                       <input
@@ -734,7 +734,7 @@ export default function CreateBucketPage() {
                       <div>
                         <div className="text-sm font-medium">Requester Pays</div>
                         <div className="text-xs text-muted-foreground">
-                          El solicitante paga las transferencias de datos
+                          Requester pays for data transfers
                         </div>
                       </div>
                     </label>
@@ -749,7 +749,7 @@ export default function CreateBucketPage() {
                       <div>
                         <div className="text-sm font-medium">Transfer Acceleration</div>
                         <div className="text-xs text-muted-foreground">
-                          Acelera transferencias usando CloudFront
+                          Accelerate transfers using CloudFront
                         </div>
                       </div>
                     </label>
@@ -767,7 +767,7 @@ export default function CreateBucketPage() {
             variant="outline"
             onClick={() => router.push('/buckets')}
           >
-            Cancelar
+            Cancel
           </Button>
           <Button
             type="submit"
@@ -777,12 +777,12 @@ export default function CreateBucketPage() {
             {createBucketMutation.isPending ? (
               <>
                 <Loading size="sm" />
-                Creando...
+                Creating...
               </>
             ) : (
               <>
                 <CheckCircle2 className="h-4 w-4" />
-                Crear Bucket
+                Create Bucket
               </>
             )}
           </Button>

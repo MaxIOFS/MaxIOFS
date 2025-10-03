@@ -20,8 +20,8 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      // Mostrar indicador de carga
-      SweetAlert.loading('Iniciando sesión...', 'Verificando credenciales');
+      // Show loading indicator
+      SweetAlert.loading('Signing in...', 'Verifying credentials');
 
       const response = await APIClient.login({
         username: formData.username,
@@ -29,13 +29,13 @@ export default function LoginPage() {
       });
 
       if (response.success && response.token) {
-        // Cerrar modal de carga
+        // Close loading modal
         SweetAlert.close();
 
         // Save token to cookie
         document.cookie = `auth_token=${response.token}; path=/; max-age=86400; SameSite=Lax`;
 
-        // Mostrar mensaje de bienvenida
+        // Show welcome message
         await SweetAlert.successLogin(formData.username);
 
         // Redirect to dashboard
@@ -43,7 +43,7 @@ export default function LoginPage() {
         router.refresh();
       } else {
         SweetAlert.close();
-        await SweetAlert.error('Error de autenticación', response.error || 'Credenciales inválidas');
+        await SweetAlert.error('Authentication error', response.error || 'Invalid credentials');
         setError(response.error || 'Login failed');
       }
     } catch (err: any) {
@@ -63,18 +63,28 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow-md">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            MaxIOFS Console
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+      <div className="max-w-md w-full space-y-4 p-8 bg-white rounded-xl shadow-lg">
+        <div className="text-center">
+          {/* Logo */}
+          <div className="flex justify-center mb-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img 
+              src="/assets/img/logo.png" 
+              alt="MaxIOFS Logo" 
+              className="h-auto object-contain"
+              style={{ width: '22rem', maxHeight: '200px' }}
+            />
+          </div>
+          <h2 className="text-3xl font-extrabold text-gray-900">
+            Web Console
           </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
+          <p className="mt-2 text-sm text-gray-600">
             Sign in to access your object storage
           </p>
         </div>
 
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+        <form className="mt-6 space-y-6" onSubmit={handleSubmit}>
           {error && (
             <div className="rounded-md bg-red-50 p-4">
               <div className="text-sm text-red-800">{error}</div>
@@ -137,12 +147,16 @@ export default function LoginPage() {
           </div>
         </form>
 
-        <div className="text-center text-sm text-gray-600">
-          <p>Default console credentials:</p>
-          <p className="font-mono text-xs mt-1">
-            Username: admin<br />
-            Password: admin
-          </p>
+        {/* Footer with copyright */}
+        <div className="mt-6 pt-4 border-t border-gray-200">
+          <div className="text-center">
+            <p className="text-xs text-gray-500">
+              © {new Date().getFullYear()} MaxIOFS. All rights reserved.
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              High-Performance Object Storage Solution
+            </p>
+          </div>
         </div>
       </div>
     </div>

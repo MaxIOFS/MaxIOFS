@@ -40,7 +40,18 @@ export default function BucketsPage() {
 
   const { data: buckets, isLoading, error } = useQuery({
     queryKey: ['buckets'],
-    queryFn: APIClient.getBuckets,
+    queryFn: async () => {
+      const data = await APIClient.getBuckets();
+      console.log('🔍 DEBUG: Buckets data received:', data);
+      data?.forEach(bucket => {
+        console.log(`  Bucket: ${bucket.name}`, {
+          hasObjectLock: !!bucket.objectLock,
+          objectLock: bucket.objectLock,
+          objectLockEnabled: bucket.objectLock?.objectLockEnabled
+        });
+      });
+      return data;
+    },
   });
 
   const createBucketMutation = useMutation({
@@ -94,8 +105,8 @@ export default function BucketsPage() {
       const result = await SweetAlert.confirmDeleteBucket(bucketName);
       
       if (result.isConfirmed) {
-        // Mostrar indicador de carga
-        SweetAlert.loading('Eliminando bucket...', `Eliminando "${bucketName}" y todos sus datos`);
+        // Show loading indicator
+        SweetAlert.loading('Deleting bucket...', `Deleting "${bucketName}" and all its data`);
         
         deleteBucketMutation.mutate(bucketName);
       }
@@ -259,6 +270,12 @@ export default function BucketsPage() {
                         >
                           {bucket.name}
                         </a>
+                        {bucket.objectLock?.objectLockEnabled && (
+                          <div className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-medium" title="Object Lock enabled">
+                            <Lock className="h-3 w-3" />
+                            <span>WORM</span>
+                          </div>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>{bucket.region || 'us-east-1'}</TableCell>

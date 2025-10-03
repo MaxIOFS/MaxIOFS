@@ -2,12 +2,12 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 // Public routes that don't require authentication
-const publicRoutes = ['/login'];
+const publicRoutes = ['/login', '/assets'];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Check if the route is public
+  // Check if the route is public (login page or static assets)
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
 
   // Get auth token from localStorage (we'll check via cookie or header)

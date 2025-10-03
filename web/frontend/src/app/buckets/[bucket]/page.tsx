@@ -26,6 +26,9 @@ import { Folder as FolderIcon } from 'lucide-react';
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { HardDrive as HardDriveIcon } from 'lucide-react';
 import { MoreHorizontal as MoreHorizontalIcon } from 'lucide-react';
+import { Lock as LockIcon } from 'lucide-react';
+import { Shield as ShieldIcon } from 'lucide-react';
+import { Clock as ClockIcon } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { S3Object, UploadRequest } from '@/types';
@@ -40,11 +43,19 @@ export default function BucketDetailsPage() {
   const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
+  const [selectedObjects, setSelectedObjects] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
 
   const { data: bucket, isLoading: bucketLoading } = useQuery({
     queryKey: ['bucket', bucketName],
-    queryFn: () => APIClient.getBucket(bucketName),
+    queryFn: async () => {
+      const data = await APIClient.getBucket(bucketName);
+      console.log('🔍 DEBUG: Bucket data received:', data);
+      console.log('  Has ObjectLock:', !!data.objectLock);
+      console.log('  ObjectLock:', data.objectLock);
+      console.log('  ObjectLockEnabled:', data.objectLock?.objectLockEnabled);
+      return data;
+    },
   });
 
   const { data: objectsResponse, isLoading: objectsLoading } = useQuery({
@@ -64,7 +75,7 @@ export default function BucketDetailsPage() {
       setIsUploadModalOpen(false);
       setSelectedFiles(null);
       
-      // Mostrar notificación de éxito
+      // Show success notification
       const fileName = variables.key.split('/').pop() || variables.key;
       SweetAlert.successUpload(fileName);
     },
@@ -94,7 +105,7 @@ export default function BucketDetailsPage() {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
       setIsCreateFolderModalOpen(false);
       setNewFolderName('');
-      SweetAlert.toast('success', `Carpeta "${newFolderName}" creada exitosamente`);
+      SweetAlert.toast('success', `Folder "${newFolderName}" created successfully`);
     },
     onError: (error: any) => {
       SweetAlert.apiError(error);
@@ -135,9 +146,13 @@ export default function BucketDetailsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
-      SweetAlert.toast('success', 'Objeto eliminado exitosamente');
+      SweetAlert.toast('success', 'Object deleted successfully');
     },
     onError: (error: any) => {
+      console.log('DEBUG Delete Error - Full error object:', error);
+      console.log('DEBUG Delete Error - error.response:', error?.response);
+      console.log('DEBUG Delete Error - error.response.data:', error?.response?.data);
+      console.log('DEBUG Delete Error - error.message:', error?.message);
       SweetAlert.apiError(error);
     },
   });
@@ -192,9 +207,9 @@ export default function BucketDetailsPage() {
 
     // Show loading indicator
     if (totalFiles === 1) {
-      SweetAlert.loading('Subiendo archivo...', `Subiendo "${selectedFiles[0].name}"`);
+      SweetAlert.loading('Uploading file...', `Uploading "${selectedFiles[0].name}"`);
     } else {
-      SweetAlert.loading('Subiendo archivos...', `0 de ${totalFiles} archivos`);
+      SweetAlert.loading('Uploading files...', `0 of ${totalFiles} files`);
     }
 
     // Upload files sequentially
@@ -207,7 +222,7 @@ export default function BucketDetailsPage() {
       try {
         // Update progress message for multiple files
         if (totalFiles > 1) {
-          SweetAlert.loading('Subiendo archivos...', `${i + 1} de ${totalFiles}: ${file.name}`);
+          SweetAlert.loading('Uploading files...', `${i + 1} of ${totalFiles}: ${file.name}`);
         }
 
         await APIClient.uploadObject({
@@ -218,7 +233,7 @@ export default function BucketDetailsPage() {
 
         successCount++;
       } catch (fileError: any) {
-        const errorMsg = fileError?.response?.data?.error || fileError?.message || 'Error desconocido';
+        const errorMsg = fileError?.response?.data?.error || fileError?.message || 'Unknown error';
         errors.push(`${file.name}: ${errorMsg}`);
         console.error(`Error uploading ${file.name}:`, fileError);
       }
@@ -231,23 +246,23 @@ export default function BucketDetailsPage() {
       if (successCount === 1) {
         SweetAlert.successUpload(selectedFiles[0].name);
       } else {
-        SweetAlert.apiError(new Error(errors[0] || 'Error al subir archivo'));
+        SweetAlert.apiError(new Error(errors[0] || 'Error uploading file'));
       }
     } else {
       const failCount = totalFiles - successCount;
       if (failCount === 0) {
-        SweetAlert.toast('success', `${totalFiles} archivos subidos exitosamente`);
+        SweetAlert.toast('success', `${totalFiles} files uploaded successfully`);
       } else if (successCount > 0) {
         SweetAlert.fire({
           icon: 'warning',
-          title: 'Upload parcialmente exitoso',
-          html: `<p>Subidos: <strong>${successCount}</strong> / ${totalFiles}</p><p>Fallidos: <strong>${failCount}</strong></p>`,
+          title: 'Partially successful upload',
+          html: `<p>Uploaded: <strong>${successCount}</strong> / ${totalFiles}</p><p>Failed: <strong>${failCount}</strong></p>`,
         });
       } else {
         SweetAlert.fire({
           icon: 'error',
-          title: 'Error al subir archivos',
-          text: 'Todos los archivos fallaron',
+          title: 'Error uploading files',
+          text: 'All files failed',
         });
       }
     }
@@ -270,25 +285,25 @@ export default function BucketDetailsPage() {
   };
 
   const handleDeleteObject = async (key: string, isFolder: boolean) => {
-    const itemType = isFolder ? 'carpeta' : 'archivo';
-    
+    const itemType = isFolder ? 'folder' : 'file';
+
     try {
       const result = await SweetAlert.fire({
         icon: 'warning',
-        title: `¿Eliminar ${itemType}?`,
-        html: isFolder 
-          ? `<p>Estás a punto de eliminar la carpeta <strong>"${key}"</strong></p>
-             <p class="text-orange-600 mt-2">Esto fallará si la carpeta contiene objetos</p>`
-          : `<p>Estás a punto de eliminar <strong>"${key}"</strong></p>
-             <p class="text-red-600 mt-2">Esta acción no se puede deshacer</p>`,
+        title: `Delete ${itemType}?`,
+        html: isFolder
+          ? `<p>You are about to delete the folder <strong>"${key}"</strong></p>
+             <p class="text-orange-600 mt-2">This will fail if folder contains objects</p>`
+          : `<p>You are about to delete <strong>"${key}"</strong></p>
+             <p class="text-red-600 mt-2">This action cannot be undone</p>`,
         showCancelButton: true,
-        confirmButtonText: 'Sí, eliminar',
-        cancelButtonText: 'Cancelar',
+        confirmButtonText: 'Yes, delete',
+        cancelButtonText: 'Cancel',
         confirmButtonColor: '#dc2626',
       });
 
       if (result.isConfirmed) {
-        SweetAlert.loading(`Eliminando ${itemType}...`, `Eliminando "${key}"`);
+        SweetAlert.loading(`Deleting ${itemType}...`, `Deleting "${key}"`);
         deleteObjectMutation.mutate({ bucket: bucketName, key });
       }
     } catch (error) {
@@ -298,15 +313,15 @@ export default function BucketDetailsPage() {
 
   const handleDownloadObject = async (key: string) => {
     try {
-      // Mostrar indicador de descarga
-      SweetAlert.loading('Descargando archivo...', `Descargando "${key}"`);
+      // Show download indicator
+      SweetAlert.loading('Downloading file...', `Downloading "${key}"`);
 
       const blob = await APIClient.downloadObject({
         bucket: bucketName,
         key,
       });
 
-      // Cerrar indicador de carga
+      // Close loading indicator
       SweetAlert.close();
 
       // Create download link
@@ -319,7 +334,7 @@ export default function BucketDetailsPage() {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
-      // Mostrar mensaje de éxito
+      // Show success message
       SweetAlert.successDownload(key.split('/').pop() || key);
     } catch (error: any) {
       SweetAlert.close();
@@ -337,6 +352,114 @@ export default function BucketDetailsPage() {
     parts.pop(); // Remove last folder
     const newPrefix = parts.length > 0 ? parts.join('/') + '/' : '';
     setCurrentPrefix(newPrefix);
+    // Clear selections when navigating
+    setSelectedObjects(new Set());
+  };
+
+  // Bulk selection handlers
+  const toggleObjectSelection = (key: string) => {
+    const newSelection = new Set(selectedObjects);
+    if (newSelection.has(key)) {
+      newSelection.delete(key);
+    } else {
+      newSelection.add(key);
+    }
+    setSelectedObjects(newSelection);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedObjects.size === filteredObjects.length) {
+      // Deselect all
+      setSelectedObjects(new Set());
+    } else {
+      // Select all
+      const allKeys = new Set(filteredObjects.map(obj => obj.key));
+      setSelectedObjects(allKeys);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedObjects.size === 0) return;
+
+    const objectNames = Array.from(selectedObjects).join(', ');
+    const result = await SweetAlert.fire({
+      icon: 'warning',
+      title: `Delete ${selectedObjects.size} objects?`,
+      html: `<p>You are about to delete <strong>${selectedObjects.size}</strong> objects</p>
+             <p class="text-red-600 mt-2">This action cannot be undone</p>
+             <p class="text-sm text-gray-600 mt-2">Some objects may be protected by Object Lock</p>`,
+      showCancelButton: true,
+      confirmButtonText: 'Yes, delete',
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: '#dc2626',
+    });
+
+    if (!result.isConfirmed) return;
+
+    // Show progress (don't await - it returns void)
+    SweetAlert.progress(
+      'Deleting objects...',
+      `Processing ${selectedObjects.size} objects`
+    );
+
+    const selectedArray = Array.from(selectedObjects);
+    let successCount = 0;
+    let failCount = 0;
+    const errors: { key: string; error: string }[] = [];
+
+    for (let i = 0; i < selectedArray.length; i++) {
+      const key = selectedArray[i];
+      const progress = ((i + 1) / selectedArray.length) * 100;
+      SweetAlert.updateProgress(progress);
+
+      try {
+        await APIClient.deleteObject(bucketName, key);
+        successCount++;
+      } catch (error: any) {
+        failCount++;
+        const errorMsg = error?.details?.Error || error?.message || 'Unknown error';
+        errors.push({ key, error: errorMsg });
+      }
+    }
+
+    SweetAlert.close();
+
+    // Show results
+    if (failCount === 0) {
+      SweetAlert.toast('success', `${successCount} objects deleted successfully`);
+    } else if (successCount > 0) {
+      const errorList = errors.map(e => `<li><strong>${e.key}</strong>: ${e.error}</li>`).join('');
+      SweetAlert.fire({
+        icon: 'warning',
+        title: 'Partially successful deletion',
+        html: `<p>Deleted: <strong>${successCount}</strong> / ${selectedArray.length}</p>
+               <p>Failed: <strong>${failCount}</strong></p>
+               <div class="mt-4 text-left max-h-64 overflow-y-auto">
+                 <p class="font-semibold mb-2">Errors:</p>
+                 <ul class="text-sm">${errorList}</ul>
+               </div>`,
+        width: '600px',
+      });
+    } else {
+      const errorList = errors.map(e => `<li><strong>${e.key}</strong>: ${e.error}</li>`).join('');
+      SweetAlert.fire({
+        icon: 'error',
+        title: 'Error deleting objects',
+        html: `<p>All objects failed</p>
+               <div class="mt-4 text-left max-h-64 overflow-y-auto">
+                 <p class="font-semibold mb-2">Errors:</p>
+                 <ul class="text-sm">${errorList}</ul>
+               </div>`,
+        width: '600px',
+      });
+    }
+
+    // Refresh and clear selections
+    if (successCount > 0) {
+      queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+    }
+    setSelectedObjects(new Set());
   };
 
   const formatSize = (bytes: number) => {
@@ -360,6 +483,38 @@ export default function BucketDetailsPage() {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const formatRetentionExpiration = (retainUntilDate?: string) => {
+    if (!retainUntilDate) return null;
+    
+    const now = new Date();
+    const expirationDate = new Date(retainUntilDate);
+    const diffMs = expirationDate.getTime() - now.getTime();
+    
+    if (diffMs < 0) {
+      return { text: 'Expired', color: 'text-green-600', expired: true };
+    }
+    
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    
+    let text = '';
+    if (diffDays > 0) {
+      text = `${diffDays}d ${diffHours}h`;
+    } else if (diffHours > 0) {
+      text = `${diffHours}h ${diffMinutes}m`;
+    } else {
+      text = `${diffMinutes}m`;
+    }
+    
+    return {
+      text: `Expires in ${text}`,
+      color: 'text-yellow-600',
+      expired: false,
+      fullDate: formatDate(retainUntilDate)
+    };
   };
 
   const isFolder = (item: any) => {
@@ -488,6 +643,57 @@ export default function BucketDetailsPage() {
         </Card>
       </div>
 
+      {/* Object Lock Banner */}
+      {bucket?.objectLock?.objectLockEnabled && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0">
+                <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                  <LockIcon className="h-5 w-5 text-blue-600" />
+                </div>
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="text-lg font-semibold text-blue-900">Object Lock Enabled (WORM)</h3>
+                  {bucket.objectLock.rule?.defaultRetention && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                      <ShieldIcon className="h-3 w-3" />
+                      {bucket.objectLock.rule.defaultRetention.mode}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-blue-800">
+                  This bucket has WORM (Write Once Read Many) protection enabled. Objects are immutable and cannot be deleted until their retention expires.
+                </p>
+                {bucket.objectLock.rule?.defaultRetention && (
+                  <div className="mt-3 flex items-center gap-4 text-sm">
+                    <div className="flex items-center gap-2 text-blue-700">
+                      <ClockIcon className="h-4 w-4" />
+                      <span className="font-medium">Default retention:</span>
+                      <span>
+                        {bucket.objectLock.rule.defaultRetention.days
+                          ? `${bucket.objectLock.rule.defaultRetention.days} day${bucket.objectLock.rule.defaultRetention.days !== 1 ? 's' : ''}`
+                          : bucket.objectLock.rule.defaultRetention.years
+                          ? `${bucket.objectLock.rule.defaultRetention.years} year${bucket.objectLock.rule.defaultRetention.years !== 1 ? 's' : ''}`
+                          : 'Not specified'
+                        }
+                      </span>
+                    </div>
+                    <div className="text-blue-600 text-xs">
+                      {bucket.objectLock.rule.defaultRetention.mode === 'COMPLIANCE'
+                        ? '⚠️ COMPLIANCE: Cannot be deleted under any circumstances'
+                        : '⚠️ GOVERNANCE: Requires special permissions to delete'
+                      }
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Search */}
       <div className="flex items-center space-x-4">
         <div className="relative flex-1 max-w-sm">
@@ -504,10 +710,28 @@ export default function BucketDetailsPage() {
       {/* Objects Table */}
       <Card>
         <CardHeader>
-          <CardTitle>
-            Objects ({filteredItems.length})
-            {currentPrefix && ` in ${currentPrefix}`}
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>
+              Objects ({filteredItems.length})
+              {currentPrefix && ` in ${currentPrefix}`}
+            </CardTitle>
+            {selectedObjects.size > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  {selectedObjects.size} selected
+                </span>
+                <Button
+                  onClick={handleBulkDelete}
+                  variant="destructive"
+                  size="sm"
+                  className="gap-2"
+                >
+                  <Trash2Icon className="h-4 w-4" />
+                  Delete selected
+                </Button>
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {objectsLoading ? (
@@ -545,16 +769,36 @@ export default function BucketDetailsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-12">
+                    <input
+                      type="checkbox"
+                      checked={selectedObjects.size === filteredItems.length && filteredItems.length > 0}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Size</TableHead>
                   <TableHead>Modified</TableHead>
                   <TableHead>Type</TableHead>
+                  {bucket?.objectLock?.objectLockEnabled && (
+                    <TableHead>Retention</TableHead>
+                  )}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredItems.map((item) => (
                   <TableRow key={item.key}>
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        checked={selectedObjects.has(item.key)}
+                        onChange={() => toggleObjectSelection(item.key)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                    </TableCell>
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         {isFolder(item) ? (
@@ -595,6 +839,39 @@ export default function BucketDetailsPage() {
                         item.storageClass || 'STANDARD'
                       )}
                     </TableCell>
+                    {bucket?.objectLock?.objectLockEnabled && (
+                      <TableCell>
+                        {(() => {
+                          console.log('🔍 Retention check for:', item.key, {
+                            isFolder: isFolder(item),
+                            hasRetention: 'retention' in item,
+                            retention: 'retention' in item ? (item as any).retention : undefined,
+                            item: item
+                          });
+                          
+                          if (isFolder(item)) {
+                            return <span className="text-gray-400">-</span>;
+                          }
+                          
+                          if ('retention' in item && item.retention) {
+                            const retentionInfo = formatRetentionExpiration(item.retention.retainUntilDate);
+                            console.log('  Retention info calculated:', retentionInfo);
+                            return retentionInfo ? (
+                              <div className="flex items-center gap-1" title={retentionInfo.fullDate}>
+                                <LockIcon className={`h-3 w-3 ${retentionInfo.color}`} />
+                                <span className={`text-xs font-medium ${retentionInfo.color}`}>
+                                  {retentionInfo.text}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            );
+                          }
+                          
+                          return <span className="text-gray-400">No retention</span>;
+                        })()}
+                      </TableCell>
+                    )}
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
                         {!isFolder(item) && (

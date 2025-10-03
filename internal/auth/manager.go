@@ -142,34 +142,6 @@ func NewManager(cfg config.AuthConfig, dataDir string) Manager {
 		}
 	}
 
-	// Add default S3 access key if configured
-	if cfg.AccessKey != "" && cfg.SecretKey != "" {
-		defaultUser := &User{
-			ID:          "default",
-			Username:    "default",
-			DisplayName: "Default S3 User",
-			Status:      "active",
-			Roles:       []string{"admin"},
-			CreatedAt:   0,
-			UpdatedAt:   0,
-		}
-
-		defaultKey := &AccessKey{
-			AccessKeyID:     cfg.AccessKey,
-			SecretAccessKey: cfg.SecretKey,
-			UserID:          "default",
-			Status:          "active",
-			CreatedAt:       0,
-		}
-
-		// Add to all maps
-		manager.consoleUsers["default"] = defaultUser
-		manager.users[cfg.AccessKey] = defaultUser
-		manager.keys[cfg.AccessKey] = defaultKey
-
-		logrus.WithField("access_key", cfg.AccessKey).Info("Added default S3 credentials")
-	}
-
 	// Add default console admin user
 	// Password: "admin" hashed with SHA256
 	adminUser := &User{
@@ -517,9 +489,9 @@ func (am *authManager) DeleteUser(ctx context.Context, userID string) error {
 		return ErrUserNotFound
 	}
 
-	// Don't allow deleting default user
-	if userID == "default" {
-		return fmt.Errorf("cannot delete default user")
+	// Don't allow deleting admin user (last resort account)
+	if userID == "admin" {
+		return fmt.Errorf("cannot delete admin user")
 	}
 
 	// Delete user from consoleUsers
@@ -867,6 +839,34 @@ func (am *authManager) verifyS3SignatureV2(r *http.Request, sig *S3SignatureV2, 
 	return calculatedSig == sig.Signature
 }
 
+// uriEncode encodes a URI path according to AWS SigV4 requirements (RFC 3986)
+// It encodes all characters except: A-Z, a-z, 0-9, hyphen (-), underscore (_), period (.), tilde (~), and forward slash (/)
+func uriEncode(path string) string {
+	if path == "" {
+		return "/"
+	}
+
+	// AWS SigV4 requires double encoding for some scenarios, but for the canonical URI
+	// we use single encoding with specific rules:
+	// - Encode all characters except: A-Z a-z 0-9 - _ . ~ /
+	// - Space should be encoded as %20 (not +)
+	// - Forward slashes / are NOT encoded
+
+	var encoded strings.Builder
+	for i := 0; i < len(path); i++ {
+		c := path[i]
+		// Check if character should not be encoded
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+			c == '-' || c == '_' || c == '.' || c == '~' || c == '/' {
+			encoded.WriteByte(c)
+		} else {
+			// Encode the character as %XX
+			encoded.WriteString(fmt.Sprintf("%%%02X", c))
+		}
+	}
+	return encoded.String()
+}
+
 // createCanonicalRequest creates canonical request for SigV4
 func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders string) string {
 	// AWS SigV4 Canonical Request format:
@@ -878,10 +878,15 @@ func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders str
 	// HashedPayload
 
 	method := r.Method
-	uri := r.URL.Path
+
+	// Use the already-encoded path from the request
+	// AWS SigV4 expects the URI to be encoded according to RFC 3986
+	uri := r.URL.EscapedPath()
 	if uri == "" {
 		uri = "/"
 	}
+	// Ensure proper encoding for SigV4
+	uri = uriEncode(r.URL.Path)
 
 	// Canonical Query String - sorted by key
 	queryString := ""

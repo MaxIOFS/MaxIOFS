@@ -33,8 +33,8 @@ type Part struct {
 
 // RetentionConfig represents object retention configuration for Object Lock
 type RetentionConfig struct {
-	Mode            string    `json:"mode"`             // GOVERNANCE, COMPLIANCE
-	RetainUntilDate time.Time `json:"retain_until_date"`
+	Mode            string    `json:"mode"` // GOVERNANCE, COMPLIANCE
+	RetainUntilDate time.Time `json:"retainUntilDate"`
 }
 
 // LegalHoldConfig represents legal hold configuration for Object Lock
@@ -73,7 +73,7 @@ type Grant struct {
 
 // Grantee represents the recipient of an ACL grant
 type Grantee struct {
-	Type         string `json:"type"`          // CanonicalUser, AmazonCustomerByEmail, Group
+	Type         string `json:"type"` // CanonicalUser, AmazonCustomerByEmail, Group
 	ID           string `json:"id,omitempty"`
 	DisplayName  string `json:"display_name,omitempty"`
 	EmailAddress string `json:"email_address,omitempty"`
@@ -87,7 +87,7 @@ type ObjectLockLegalHold struct {
 
 // ObjectLockRetention represents the retention configuration for Object Lock
 type ObjectLockRetention struct {
-	Mode            string    `json:"Mode"`            // GOVERNANCE, COMPLIANCE
+	Mode            string    `json:"Mode"` // GOVERNANCE, COMPLIANCE
 	RetainUntilDate time.Time `json:"RetainUntilDate"`
 }
 
@@ -139,23 +139,23 @@ type ListMultipartUploadsResult struct {
 
 // ListPartsResult represents the result of listing parts for a multipart upload
 type ListPartsResult struct {
-	Parts               []Part  `json:"parts"`
-	IsTruncated         bool    `json:"is_truncated"`
-	NextPartNumberMarker int     `json:"next_part_number_marker,omitempty"`
-	MaxParts            int     `json:"max_parts"`
-	PartNumberMarker    int     `json:"part_number_marker"`
-	StorageClass        string  `json:"storage_class"`
-	Initiator           Owner   `json:"initiator"`
-	Owner               Owner   `json:"owner"`
+	Parts                []Part `json:"parts"`
+	IsTruncated          bool   `json:"is_truncated"`
+	NextPartNumberMarker int    `json:"next_part_number_marker,omitempty"`
+	MaxParts             int    `json:"max_parts"`
+	PartNumberMarker     int    `json:"part_number_marker"`
+	StorageClass         string `json:"storage_class"`
+	Initiator            Owner  `json:"initiator"`
+	Owner                Owner  `json:"owner"`
 }
 
 // ObjectAttributes represents object attributes for GetObjectAttributes
 type ObjectAttributes struct {
-	ETag         string    `json:"etag,omitempty"`
-	Checksum     *Checksum `json:"checksum,omitempty"`
+	ETag         string       `json:"etag,omitempty"`
+	Checksum     *Checksum    `json:"checksum,omitempty"`
 	ObjectParts  *ObjectParts `json:"object_parts,omitempty"`
-	StorageClass string    `json:"storage_class,omitempty"`
-	ObjectSize   int64     `json:"object_size,omitempty"`
+	StorageClass string       `json:"storage_class,omitempty"`
+	ObjectSize   int64        `json:"object_size,omitempty"`
 }
 
 // Checksum represents object checksums
@@ -168,31 +168,31 @@ type Checksum struct {
 
 // ObjectParts represents information about object parts
 type ObjectParts struct {
-	TotalPartsCount     int    `json:"total_parts_count,omitempty"`
-	PartNumberMarker    int    `json:"part_number_marker,omitempty"`
-	NextPartNumberMarker int   `json:"next_part_number_marker,omitempty"`
-	MaxParts            int    `json:"max_parts,omitempty"`
-	IsTruncated         bool   `json:"is_truncated,omitempty"`
-	Parts               []PartInfo `json:"parts,omitempty"`
+	TotalPartsCount      int        `json:"total_parts_count,omitempty"`
+	PartNumberMarker     int        `json:"part_number_marker,omitempty"`
+	NextPartNumberMarker int        `json:"next_part_number_marker,omitempty"`
+	MaxParts             int        `json:"max_parts,omitempty"`
+	IsTruncated          bool       `json:"is_truncated,omitempty"`
+	Parts                []PartInfo `json:"parts,omitempty"`
 }
 
 // PartInfo represents information about a single part
 type PartInfo struct {
-	PartNumber   int       `json:"part_number"`
-	Size         int64     `json:"size"`
-	Checksum     *Checksum `json:"checksum,omitempty"`
+	PartNumber int       `json:"part_number"`
+	Size       int64     `json:"size"`
+	Checksum   *Checksum `json:"checksum,omitempty"`
 }
 
 // Storage class constants
 const (
-	StorageClassStandard        = "STANDARD"
-	StorageClassReducedRedundancy = "REDUCED_REDUNDANCY"
-	StorageClassStandardIA      = "STANDARD_IA"
-	StorageClassOnezoneIA       = "ONEZONE_IA"
+	StorageClassStandard           = "STANDARD"
+	StorageClassReducedRedundancy  = "REDUCED_REDUNDANCY"
+	StorageClassStandardIA         = "STANDARD_IA"
+	StorageClassOnezoneIA          = "ONEZONE_IA"
 	StorageClassIntelligentTiering = "INTELLIGENT_TIERING"
-	StorageClassGlacier         = "GLACIER"
-	StorageClassDeepArchive     = "DEEP_ARCHIVE"
-	StorageClassGlacierIR       = "GLACIER_IR"
+	StorageClassGlacier            = "GLACIER"
+	StorageClassDeepArchive        = "DEEP_ARCHIVE"
+	StorageClassGlacierIR          = "GLACIER_IR"
 )
 
 // Object Lock constants
@@ -215,9 +215,9 @@ const (
 
 // Grantee type constants
 const (
-	GranteeTypeCanonicalUser        = "CanonicalUser"
+	GranteeTypeCanonicalUser         = "CanonicalUser"
 	GranteeTypeAmazonCustomerByEmail = "AmazonCustomerByEmail"
-	GranteeTypeGroup                = "Group"
+	GranteeTypeGroup                 = "Group"
 )
 
 // Pre-defined ACL groups

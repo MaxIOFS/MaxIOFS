@@ -94,20 +94,20 @@ type CORSRule struct {
 
 // ObjectLockConfig represents bucket object lock configuration
 type ObjectLockConfig struct {
-	ObjectLockEnabled string          `json:"ObjectLockEnabled"` // Enabled
-	Rule              *ObjectLockRule `json:"Rule,omitempty"`
+	ObjectLockEnabled bool            `json:"objectLockEnabled"`
+	Rule              *ObjectLockRule `json:"rule,omitempty"`
 }
 
 // ObjectLockRule represents object lock rule
 type ObjectLockRule struct {
-	DefaultRetention *DefaultRetention `json:"DefaultRetention,omitempty"`
+	DefaultRetention *DefaultRetention `json:"defaultRetention,omitempty"`
 }
 
 // DefaultRetention represents default retention settings
 type DefaultRetention struct {
-	Mode  string `json:"Mode"` // GOVERNANCE, COMPLIANCE
-	Days  *int   `json:"Days,omitempty"`
-	Years *int   `json:"Years,omitempty"`
+	Mode  string `json:"mode"` // GOVERNANCE, COMPLIANCE
+	Days  *int   `json:"days,omitempty"`
+	Years *int   `json:"years,omitempty"`
 }
 
 // Tag represents a key-value tag
