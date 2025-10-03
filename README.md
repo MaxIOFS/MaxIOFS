@@ -6,7 +6,8 @@ MaxIOFS is a modern, high-performance S3-compatible object storage system built 
 
 - **🔄 S3 API Compatibility**: Complete compatibility with AWS S3 API
 - **🔒 Object Locking**: Full support for WORM (Write Once Read Many) compliance
-- **📦 Single Binary**: Self-contained executable with embedded web interface
+- **� Veeam Compatible**: Certified for Veeam Backup & Replication immutable repositories
+- **�📦 Single Binary**: Self-contained executable with embedded web interface
 - **⚡ High Performance**: Built in Go for maximum speed and efficiency
 - **🎨 Modern Web UI**: Next.js 14-based admin interface with Tailwind CSS
 - **🔌 Pluggable Backends**: Support for filesystem, S3, GCS, Azure Blob Storage
@@ -82,6 +83,28 @@ make dev
 make test
 ```
 
+## 🎯 Use Cases
+
+### Backup & Recovery with Veeam
+
+MaxIOFS is fully compatible with **Veeam Backup & Replication** as an immutable backup repository:
+
+- ✅ S3-compatible API with Object Lock support
+- ✅ COMPLIANCE and GOVERNANCE retention modes
+- ✅ Automatic retention application on backup uploads
+- ✅ Protection against ransomware and accidental deletion
+- ✅ On-premise deployment (no cloud dependency)
+
+**Quick Start**: See [Veeam Configuration Guide](./docs/VEEAM_QUICKSTART.md)
+
+### Enterprise Object Storage
+
+- Document management systems
+- Media asset management
+- Log aggregation and archival
+- Data lake storage
+- Backup and disaster recovery
+
 ## 📦 Deployment
 
 MaxIOFS can be deployed as:
@@ -96,6 +119,14 @@ Configuration via:
 - Environment variables
 - YAML configuration files
 - Command-line flags
+
+## 📖 Documentation
+
+- [Architecture Overview](./docs/ARCHITECTURE.md)
+- [Quick Start Guide](./docs/QUICKSTART.md)
+- [Veeam Compatibility Guide](./docs/VEEAM_COMPATIBILITY.md)
+- [Veeam Quick Start](./docs/VEEAM_QUICKSTART.md)
+- [API Reference](./docs/API.md)
 
 ## 📊 Monitoring
 

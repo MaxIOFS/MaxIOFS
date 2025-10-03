@@ -1,6 +1,6 @@
 import Swal, { SweetAlertOptions, SweetAlertResult } from 'sweetalert2';
 
-// Configuración por defecto para todos los modales
+// Default configuration for all modals
 const defaultConfig: SweetAlertOptions = {
   customClass: {
     popup: 'rounded-lg shadow-xl',
@@ -15,7 +15,7 @@ const defaultConfig: SweetAlertOptions = {
   allowEscapeKey: true,
 };
 
-// Wrapper principal para SweetAlert2 con configuración personalizada
+// Main wrapper for SweetAlert2 with custom configuration
 class SweetAlert {
   private static mergeConfig(options: SweetAlertOptions): SweetAlertOptions {
     const merged = { ...defaultConfig };
@@ -38,12 +38,12 @@ class SweetAlert {
     return merged;
   }
 
-  // Mostrar un modal genérico
+  // Show a generic modal
   static async fire(options: SweetAlertOptions): Promise<SweetAlertResult> {
     return Swal.fire(this.mergeConfig(options));
   }
 
-  // Mostrar mensaje de éxito
+  // Show success message
   static async success(title: string, text?: string, options?: SweetAlertOptions): Promise<SweetAlertResult> {
     return this.fire({
       icon: 'success',
@@ -57,70 +57,70 @@ class SweetAlert {
     });
   }
 
-  // Mostrar mensaje de error
+  // Show error message
   static async error(title: string, text?: string, options?: SweetAlertOptions): Promise<SweetAlertResult> {
     return this.fire({
       icon: 'error',
       title,
       text,
       showConfirmButton: true,
-      confirmButtonText: 'Entendido',
+      confirmButtonText: 'Understood',
       ...options,
     });
   }
 
-  // Mostrar mensaje de advertencia
+  // Show warning message
   static async warning(title: string, text?: string, options?: SweetAlertOptions): Promise<SweetAlertResult> {
     return this.fire({
       icon: 'warning',
       title,
       text,
       showConfirmButton: true,
-      confirmButtonText: 'Entendido',
+      confirmButtonText: 'Understood',
       ...options,
     });
   }
 
-  // Mostrar mensaje informativo
+  // Show info message
   static async info(title: string, text?: string, options?: SweetAlertOptions): Promise<SweetAlertResult> {
     return this.fire({
       icon: 'info',
       title,
       text,
       showConfirmButton: true,
-      confirmButtonText: 'Entendido',
+      confirmButtonText: 'Understood',
       ...options,
     });
   }
 
-  // Confirmar una acción destructiva
+  // Confirm a destructive action
   static async confirmDelete(
     itemName: string,
-    itemType: string = 'elemento',
+    itemType: string = 'item',
     options?: SweetAlertOptions
   ): Promise<SweetAlertResult> {
     return this.fire({
       icon: 'warning',
-      title: `¿Eliminar ${itemType}?`,
+      title: `Delete ${itemType}?`,
       html: `
-        <p>Estás a punto de eliminar <strong>"${itemName}"</strong></p>
-        <p class="text-red-600 mt-2">Esta acción no se puede deshacer</p>
+        <p>You are about to delete <strong>"${itemName}"</strong></p>
+        <p class="text-red-600 mt-2">This action cannot be undone</p>
       `,
       showCancelButton: true,
-      confirmButtonText: 'Sí, eliminar',
-      cancelButtonText: 'Cancelar',
+      confirmButtonText: 'Yes, delete',
+      cancelButtonText: 'Cancel',
       confirmButtonColor: '#dc2626',
       reverseButtons: true,
       ...options,
     });
   }
 
-  // Confirmar una acción con entrada de texto
+  // Confirm an action with text input
   static async confirmWithInput(
     title: string,
     text: string,
     expectedInput: string,
-    inputPlaceholder: string = 'Escribe aquí...',
+    inputPlaceholder: string = 'Type here...',
     options?: SweetAlertOptions
   ): Promise<SweetAlertResult> {
     return this.fire({
@@ -128,17 +128,17 @@ class SweetAlert {
       title,
       html: `
         <p>${text}</p>
-        <p class="text-sm text-gray-600 mt-2">Para confirmar, escribe: <strong>${expectedInput}</strong></p>
+        <p class="text-sm text-gray-600 mt-2">To confirm, type: <strong>${expectedInput}</strong></p>
       `,
       input: 'text',
       inputPlaceholder,
       showCancelButton: true,
-      confirmButtonText: 'Confirmar',
-      cancelButtonText: 'Cancelar',
+      confirmButtonText: 'Confirm',
+      cancelButtonText: 'Cancel',
       confirmButtonColor: '#dc2626',
       preConfirm: (value) => {
         if (value !== expectedInput) {
-          Swal.showValidationMessage(`Debes escribir exactamente: ${expectedInput}`);
+          Swal.showValidationMessage(`You must type exactly: ${expectedInput}`);
           return false;
         }
         return value;
@@ -147,8 +147,8 @@ class SweetAlert {
     });
   }
 
-  // Mostrar estado de carga
-  static async loading(title: string = 'Cargando...', text?: string): Promise<void> {
+  // Show loading state
+  static async loading(title: string = 'Loading...', text?: string): Promise<void> {
     Swal.fire({
       title,
       text,
@@ -161,12 +161,12 @@ class SweetAlert {
     });
   }
 
-  // Cerrar cualquier modal abierto
+  // Close any open modal
   static close(): void {
     Swal.close();
   }
 
-  // Mostrar toast (notificación ligera)
+  // Show toast (light notification)
   static async toast(
     icon: 'success' | 'error' | 'warning' | 'info' | 'question',
     title: string,
@@ -188,7 +188,7 @@ class SweetAlert {
     });
   }
 
-  // Mostrar progreso con barra
+  // Show progress with bar
   static async progress(title: string, text?: string): Promise<void> {
     await Swal.fire({
       title,
@@ -205,7 +205,7 @@ class SweetAlert {
     });
   }
 
-  // Actualizar barra de progreso
+  // Update progress bar
   static updateProgress(percentage: number): void {
     const progressBar = document.getElementById('progress-bar');
     if (progressBar) {
@@ -213,97 +213,127 @@ class SweetAlert {
     }
   }
 
-  // Helpers específicos para la aplicación MaxIOFS
+  // Helpers specific to MaxIOFS application
 
-  // Confirmación específica para eliminar bucket
+  // Specific confirmation for bucket deletion
   static async confirmDeleteBucket(bucketName: string): Promise<SweetAlertResult> {
     return this.confirmWithInput(
-      '⚠️ Eliminar Bucket',
-      `Estás a punto de eliminar permanentemente el bucket "${bucketName}" y todos sus datos.`,
+      '⚠️ Delete Bucket',
+      `You are about to permanently delete bucket "${bucketName}" and all its data.`,
       bucketName,
-      'Nombre del bucket'
+      'Bucket name'
     );
   }
 
-  // Confirmación para eliminar objeto
+  // Confirmation for object deletion
   static async confirmDeleteObject(objectName: string): Promise<SweetAlertResult> {
-    return this.confirmDelete(objectName, 'objeto');
+    return this.confirmDelete(objectName, 'object');
   }
 
-  // Confirmación para eliminar usuario
+  // Confirmation for user deletion
   static async confirmDeleteUser(username: string): Promise<SweetAlertResult> {
-    return this.confirmDelete(username, 'usuario');
+    return this.confirmDelete(username, 'user');
   }
 
-  // Notificación de éxito para operaciones comunes
+  // Success notifications for common operations
   static async successUpload(fileName: string): Promise<SweetAlertResult> {
-    return this.toast('success', `Archivo "${fileName}" subido exitosamente`);
+    return this.toast('success', `File "${fileName}" uploaded successfully`);
   }
 
   static async successDownload(fileName: string): Promise<SweetAlertResult> {
-    return this.toast('success', `Archivo "${fileName}" descargado exitosamente`);
+    return this.toast('success', `File "${fileName}" downloaded successfully`);
   }
 
   static async successBucketCreated(bucketName: string): Promise<SweetAlertResult> {
-    return this.toast('success', `Bucket "${bucketName}" creado exitosamente`);
+    return this.toast('success', `Bucket "${bucketName}" created successfully`);
   }
 
   static async successBucketDeleted(bucketName: string): Promise<SweetAlertResult> {
-    return this.toast('success', `Bucket "${bucketName}" eliminado exitosamente`);
+    return this.toast('success', `Bucket "${bucketName}" deleted successfully`);
   }
 
   static async successUserCreated(username: string): Promise<SweetAlertResult> {
-    return this.toast('success', `Usuario "${username}" creado exitosamente`);
+    return this.toast('success', `User "${username}" created successfully`);
   }
 
-  // Manejo de errores comunes de API
+  // Handling common API errors
   static async apiError(error: any): Promise<SweetAlertResult> {
-    let title = 'Error en la operación';
-    let text = 'Ha ocurrido un error inesperado';
+    console.log('SweetAlert.apiError - Received error:', error);
+    console.log('SweetAlert.apiError - error.details:', error?.details);
+    
+    let title = 'Operation error';
+    let text = 'An unexpected error has occurred';
 
-    if (error?.response?.data?.error) {
+    // Try different properties where the error message might be
+    if (error?.details?.error) {
+      text = error.details.error;
+      console.log('SweetAlert.apiError - Using error.details.error:', text);
+    } else if (error?.details?.Error) {
+      text = error.details.Error;
+      console.log('SweetAlert.apiError - Using error.details.Error:', text);
+    } else if (error?.response?.data?.error) {
       text = error.response.data.error;
+      console.log('SweetAlert.apiError - Using error.response.data.error:', text);
+    } else if (error?.response?.data?.Error) {
+      // Try with capital E (APIResponse struct uses capital E)
+      text = error.response.data.Error;
+      console.log('SweetAlert.apiError - Using error.response.data.Error:', text);
     } else if (error?.message) {
       text = error.message;
+      console.log('SweetAlert.apiError - Using error.message:', text);
     } else if (typeof error === 'string') {
       text = error;
+      console.log('SweetAlert.apiError - Using error as string:', text);
     }
 
-    // Personalizar mensajes para errores comunes
+    console.log('SweetAlert.apiError - Final text:', text);
+
+    // Customize messages for common errors
     if (text.includes('404')) {
-      title = 'Recurso no encontrado';
-      text = 'El recurso solicitado no existe o ha sido eliminado';
+      title = 'Resource not found';
+      text = 'The requested resource does not exist or has been deleted';
     } else if (text.includes('401') || text.includes('unauthorized')) {
-      title = 'No autorizado';
-      text = 'Tu sesión ha expirado. Por favor, inicia sesión nuevamente';
-    } else if (text.includes('403') || text.includes('forbidden')) {
-      title = 'Acceso denegado';
-      text = 'No tienes permisos para realizar esta operación';
+      title = 'Unauthorized';
+      text = 'Your session has expired. Please sign in again';
+    } else if (text.includes('403') || text.includes('forbidden') || text.includes('Forbidden')) {
+      title = 'Access denied';
+      console.log('SweetAlert.apiError - Detected 403/forbidden, checking for retention keywords');
+      // Check if it's an Object Lock retention error - keep the detailed message
+      if (text.includes('retention') || text.includes('COMPLIANCE') || text.includes('GOVERNANCE') || text.includes('protected by')) {
+        console.log('SweetAlert.apiError - Retention error detected, keeping detailed message');
+        // Keep the specific error message from backend
+        // Don't override with generic message
+      } else {
+        console.log('SweetAlert.apiError - Generic 403, using default message');
+        text = 'You do not have permission to perform this operation';
+      }
     } else if (text.includes('500')) {
-      title = 'Error del servidor';
-      text = 'Ha ocurrido un error interno del servidor. Inténtalo más tarde';
+      title = 'Server error';
+      text = 'An internal server error has occurred. Please try again later';
     } else if (text.includes('network') || text.includes('Network')) {
-      title = 'Error de conexión';
-      text = 'No se pudo conectar con el servidor. Verifica tu conexión a internet';
+      title = 'Connection error';
+      text = 'Could not connect to the server. Check your internet connection';
     }
+
+    console.log('SweetAlert.apiError - Final title:', title, 'Final text:', text);
 
     return this.error(title, text);
   }
 
-  // Mostrar confirmación de login exitoso
+  // Show successful login confirmation
   static async successLogin(username: string): Promise<SweetAlertResult> {
-    return this.toast('success', `¡Bienvenido, ${username}!`);
+    return this.toast('success', `Welcome, ${username}!`);
   }
 
-  // Confirmación de logout
+  // Logout confirmation
   static async confirmLogout(): Promise<SweetAlertResult> {
     return this.fire({
       icon: 'question',
-      title: '¿Cerrar sesión?',
-      text: '¿Estás seguro de que quieres cerrar tu sesión?',
+      title: 'Sign out?',
+      text: 'Are you sure you want to sign out?',
       showCancelButton: true,
-      confirmButtonText: 'Sí, cerrar sesión',
-      cancelButtonText: 'Cancelar',
+      confirmButtonText: 'Yes, sign out',
+      cancelButtonText: 'Cancel',
     });
   }
 }

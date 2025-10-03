@@ -189,10 +189,23 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		StorageClass: StorageClassStandard,
 	}
 
+	// Apply default Object Lock retention if bucket has it configured
+	if err := om.applyDefaultRetention(ctx, object); err != nil {
+		fmt.Printf("WARNING: Failed to apply default retention: %v\n", err)
+	} else {
+		if object.Retention != nil {
+			fmt.Printf("INFO: Applied Object Lock retention - Mode: %s, RetainUntil: %v\n",
+				object.Retention.Mode, object.Retention.RetainUntilDate)
+		} else {
+			fmt.Printf("INFO: No default retention applied for bucket %s\n", bucket)
+		}
+	}
+
 	// Save object metadata
 	if err := om.saveObjectMetadata(ctx, object); err != nil {
-		// Log error but don't fail the operation
-		// Object is still stored in storage backend
+		fmt.Printf("ERROR: Failed to save object metadata: %v\n", err)
+	} else {
+		fmt.Printf("INFO: Saved object metadata for %s/%s\n", bucket, object.Key)
 	}
 
 	return object, nil
@@ -222,22 +235,32 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string) e
 	}
 
 	// Check Object Lock - Retention
+	fmt.Printf("DEBUG: Checking Object Lock retention for %s/%s\n", bucket, key)
 	retention, err := om.GetObjectRetention(ctx, bucket, key)
-	if err == nil && retention != nil {
+	if err != nil {
+		fmt.Printf("DEBUG: GetObjectRetention error: %v\n", err)
+	} else if retention != nil {
+		fmt.Printf("DEBUG: Found retention - Mode: %s, RetainUntil: %v, Now: %v\n",
+			retention.Mode, retention.RetainUntilDate, time.Now())
 		// Check if retention is still active
 		if time.Now().Before(retention.RetainUntilDate) {
+			fmt.Printf("INFO: Object is under retention protection until %v\n", retention.RetainUntilDate)
 			// COMPLIANCE mode cannot be bypassed
 			if retention.Mode == RetentionModeCompliance {
-				return ErrObjectUnderCompliance
+				fmt.Printf("ERROR: Cannot delete - Object under COMPLIANCE mode\n")
+				return NewComplianceRetentionError(retention.RetainUntilDate)
 			}
 			// GOVERNANCE mode requires bypass permission (handled at API layer)
 			if retention.Mode == RetentionModeGovernance {
-				return ErrObjectUnderGovernance
+				fmt.Printf("ERROR: Cannot delete - Object under GOVERNANCE mode\n")
+				return NewGovernanceRetentionError(retention.RetainUntilDate)
 			}
+		} else {
+			fmt.Printf("DEBUG: Retention period has expired\n")
 		}
-	}
-
-	// Delete object from storage
+	} else {
+		fmt.Printf("DEBUG: No retention configuration found for object\n")
+	} // Delete object from storage
 	if err := om.storage.Delete(ctx, objectPath); err != nil {
 		if err == storage.ErrObjectNotFound {
 			return ErrObjectNotFound
@@ -354,6 +377,7 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 			object.ContentType = objectMeta.ContentType
 			object.Metadata = objectMeta.Metadata
 			object.StorageClass = objectMeta.StorageClass
+			object.Retention = objectMeta.Retention // Load retention from metadata
 		}
 
 		objects = append(objects, object)
@@ -1002,6 +1026,136 @@ func (om *objectManager) loadObjectMetadata(ctx context.Context, bucket, key str
 	}
 
 	return &object, nil
+}
+
+// loadBucketMetadata loads bucket metadata to check Object Lock configuration
+func (om *objectManager) loadBucketMetadata(ctx context.Context, bucketName string) (map[string]interface{}, error) {
+	// Use the same path as bucketManager: .maxiofs/buckets/{bucket}.json
+	metadataPath := fmt.Sprintf(".maxiofs/buckets/%s.json", bucketName)
+
+	fmt.Printf("DEBUG: Loading bucket metadata from: %s\n", metadataPath)
+
+	reader, _, err := om.storage.Get(ctx, metadataPath)
+	if err != nil {
+		if err == storage.ErrObjectNotFound {
+			return nil, fmt.Errorf("bucket metadata not found")
+		}
+		return nil, fmt.Errorf("failed to load bucket metadata: %w", err)
+	}
+	defer reader.Close()
+
+	var metadata map[string]interface{}
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read bucket metadata: %w", err)
+	}
+
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		return nil, fmt.Errorf("failed to decode bucket metadata: %w", err)
+	}
+
+	// Migrate legacy object_lock format (PascalCase) to new format (camelCase)
+	if objectLock, ok := metadata["object_lock"].(map[string]interface{}); ok {
+		// Check if using old format with "ObjectLockEnabled" string
+		if enabled, ok := objectLock["ObjectLockEnabled"].(string); ok {
+			objectLock["objectLockEnabled"] = (enabled == "Enabled")
+			delete(objectLock, "ObjectLockEnabled")
+		}
+		// Migrate Rule -> rule
+		if rule, ok := objectLock["Rule"].(map[string]interface{}); ok {
+			objectLock["rule"] = rule
+			delete(objectLock, "Rule")
+
+			// Migrate DefaultRetention -> defaultRetention
+			if defaultRetention, ok := rule["DefaultRetention"].(map[string]interface{}); ok {
+				rule["defaultRetention"] = defaultRetention
+				delete(rule, "DefaultRetention")
+
+				// Migrate Mode, Days, Years to lowercase
+				if mode, ok := defaultRetention["Mode"].(string); ok {
+					defaultRetention["mode"] = mode
+					delete(defaultRetention, "Mode")
+				}
+				if days, ok := defaultRetention["Days"]; ok {
+					defaultRetention["days"] = days
+					delete(defaultRetention, "Days")
+				}
+				if years, ok := defaultRetention["Years"]; ok {
+					defaultRetention["years"] = years
+					delete(defaultRetention, "Years")
+				}
+			}
+		}
+	}
+
+	fmt.Printf("DEBUG: Successfully loaded bucket metadata\n")
+
+	return metadata, nil
+}
+
+// applyDefaultRetention applies bucket's default Object Lock retention to a new object
+func (om *objectManager) applyDefaultRetention(ctx context.Context, object *Object) error {
+	fmt.Printf("DEBUG: applyDefaultRetention called for bucket: %s, key: %s\n", object.Bucket, object.Key)
+
+	// Load bucket metadata to check for Object Lock configuration
+	bucketMeta, err := om.loadBucketMetadata(ctx, object.Bucket)
+	if err != nil {
+		fmt.Printf("DEBUG: Could not load bucket metadata: %v\n", err)
+		// Bucket metadata not found or no Object Lock - not an error
+		return nil
+	}
+	fmt.Printf("DEBUG: Loaded bucket metadata, checking for Object Lock config\n")
+
+	// Check if Object Lock is enabled
+	objectLockConfig, ok := bucketMeta["object_lock"].(map[string]interface{})
+	if !ok || objectLockConfig == nil {
+		fmt.Printf("DEBUG: No object_lock configuration found in bucket metadata\n")
+		return nil
+	}
+	fmt.Printf("DEBUG: Found object_lock config: %+v\n", objectLockConfig)
+
+	enabled, _ := objectLockConfig["objectLockEnabled"].(bool)
+	fmt.Printf("DEBUG: ObjectLockEnabled value: %v\n", enabled)
+	if !enabled {
+		fmt.Printf("DEBUG: Object Lock not enabled for bucket\n")
+		return nil
+	}
+
+	// Check for default retention rule
+	rule, ok := objectLockConfig["rule"].(map[string]interface{})
+	if !ok || rule == nil {
+		return nil
+	}
+
+	defaultRetention, ok := rule["defaultRetention"].(map[string]interface{})
+	if !ok || defaultRetention == nil {
+		return nil
+	}
+
+	// Extract retention mode and duration
+	mode, _ := defaultRetention["mode"].(string)
+	if mode == "" {
+		return nil
+	}
+
+	// Calculate retain until date
+	var retainUntil time.Time
+	if days, ok := defaultRetention["days"].(float64); ok && days > 0 {
+		retainUntil = time.Now().AddDate(0, 0, int(days))
+	} else if years, ok := defaultRetention["years"].(float64); ok && years > 0 {
+		retainUntil = time.Now().AddDate(int(years), 0, 0)
+	} else {
+		// No valid retention period
+		return nil
+	}
+
+	// Apply retention to object
+	object.Retention = &RetentionConfig{
+		Mode:            mode,
+		RetainUntilDate: retainUntil,
+	}
+
+	return nil
 }
 
 // Multipart upload helper methods

@@ -18,7 +18,7 @@ var (
 
 	// Invalid patterns
 	invalidConsecutiveDashes = regexp.MustCompile(`--`)
-	ipAddressPattern        = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}$`)
+	ipAddressPattern         = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}$`)
 )
 
 // ValidateBucketName validates bucket name according to S3 rules
@@ -126,7 +126,7 @@ func ValidateObjectLockConfig(config *ObjectLockConfig) error {
 		return nil
 	}
 
-	if config.ObjectLockEnabled != "Enabled" {
+	if !config.ObjectLockEnabled {
 		return fmt.Errorf("object lock enabled must be 'Enabled'")
 	}
 

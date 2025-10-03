@@ -21,6 +21,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { S3Object } from '@/types';
+import SweetAlert from '@/lib/sweetalert';
 
 export default function ObjectsPage() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -120,14 +121,31 @@ export default function ObjectsPage() {
     });
   };
 
-  const handleDownload = (bucketName: string, objectKey: string) => {
-    const downloadUrl = APIClient.getObjectUrl(bucketName, objectKey);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = objectKey.split('/').pop() || objectKey;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleDownload = async (bucketName: string, objectKey: string) => {
+    try {
+      SweetAlert.loading('Downloading...', 'Preparing your file');
+      
+      const blob = await APIClient.downloadObject({
+        bucket: bucketName,
+        key: objectKey,
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = objectKey.split('/').pop() || objectKey;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      SweetAlert.close();
+      await SweetAlert.success('Download Complete', `${objectKey} has been downloaded successfully`);
+    } catch (error: any) {
+      SweetAlert.close();
+      await SweetAlert.apiError(error);
+    }
   };
 
   const isFolder = (obj: S3Object) => {

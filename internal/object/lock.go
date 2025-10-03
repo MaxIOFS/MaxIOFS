@@ -193,13 +193,13 @@ func (ol *objectLock) CanDeleteObject(ctx context.Context, bucket, key string, u
 	if err == nil && retention != nil && ol.isRetentionActiveInternal(retention) {
 		// COMPLIANCE mode cannot be bypassed
 		if retention.Mode == RetentionModeCompliance {
-			return ErrObjectUnderCompliance
+			return NewComplianceRetentionError(retention.RetainUntilDate)
 		}
 
 		// GOVERNANCE mode can be bypassed with proper permissions
 		if retention.Mode == RetentionModeGovernance {
 			if err := ol.checkBypassGovernancePermission(user); err != nil {
-				return ErrObjectUnderGovernance
+				return NewGovernanceRetentionError(retention.RetainUntilDate)
 			}
 		}
 	}

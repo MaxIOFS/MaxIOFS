@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -583,7 +584,7 @@ func (bm *bucketManager) GetObjectLockConfig(ctx context.Context, name string) (
 	}
 	if !exists {
 		// Return default (disabled)
-		return &ObjectLockConfig{ObjectLockEnabled: "Disabled"}, nil
+		return &ObjectLockConfig{ObjectLockEnabled: false}, nil
 	}
 
 	// Read and unmarshal object lock config
@@ -613,7 +614,7 @@ func (bm *bucketManager) SetObjectLockConfig(ctx context.Context, name string, c
 
 	if config == nil {
 		// If config is nil, set to disabled
-		config = &ObjectLockConfig{ObjectLockEnabled: "Disabled"}
+		config = &ObjectLockConfig{ObjectLockEnabled: false}
 	}
 
 	// Marshal config to JSON
@@ -690,8 +691,59 @@ func (bm *bucketManager) loadBucketMetadata(ctx context.Context, name string) (*
 	}
 	defer reader.Close()
 
+	// First decode to map to handle legacy format
+	var rawData map[string]interface{}
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read bucket metadata: %w", err)
+	}
+
+	if err := json.Unmarshal(data, &rawData); err != nil {
+		return nil, fmt.Errorf("failed to decode bucket metadata: %w", err)
+	}
+
+	// Migrate legacy object_lock format (PascalCase) to new format (camelCase)
+	if objectLock, ok := rawData["object_lock"].(map[string]interface{}); ok {
+		// Check if using old format with "ObjectLockEnabled" string
+		if enabled, ok := objectLock["ObjectLockEnabled"].(string); ok {
+			objectLock["objectLockEnabled"] = (enabled == "Enabled")
+			delete(objectLock, "ObjectLockEnabled")
+		}
+		// Migrate Rule -> rule
+		if rule, ok := objectLock["Rule"].(map[string]interface{}); ok {
+			objectLock["rule"] = rule
+			delete(objectLock, "Rule")
+
+			// Migrate DefaultRetention -> defaultRetention
+			if defaultRetention, ok := rule["DefaultRetention"].(map[string]interface{}); ok {
+				rule["defaultRetention"] = defaultRetention
+				delete(rule, "DefaultRetention")
+
+				// Migrate Mode, Days, Years to lowercase
+				if mode, ok := defaultRetention["Mode"].(string); ok {
+					defaultRetention["mode"] = mode
+					delete(defaultRetention, "Mode")
+				}
+				if days, ok := defaultRetention["Days"]; ok {
+					defaultRetention["days"] = days
+					delete(defaultRetention, "Days")
+				}
+				if years, ok := defaultRetention["Years"]; ok {
+					defaultRetention["years"] = years
+					delete(defaultRetention, "Years")
+				}
+			}
+		}
+	}
+
+	// Now decode to struct with migrated data
+	migratedData, err := json.Marshal(rawData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal migrated data: %w", err)
+	}
+
 	var bucket Bucket
-	if err := json.NewDecoder(reader).Decode(&bucket); err != nil {
+	if err := json.Unmarshal(migratedData, &bucket); err != nil {
 		return nil, fmt.Errorf("failed to decode bucket metadata: %w", err)
 	}
 

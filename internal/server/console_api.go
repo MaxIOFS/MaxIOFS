@@ -4,7 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
+	"log"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -23,19 +27,27 @@ type APIResponse struct {
 }
 
 type BucketResponse struct {
-	Name         string `json:"name"`
-	CreationDate string `json:"creation_date"`
-	ObjectCount  int64  `json:"object_count"`
-	Size         int64  `json:"size"`
+	Name              string                    `json:"name"`
+	CreationDate      string                    `json:"creation_date"`
+	Region            string                    `json:"region,omitempty"`
+	ObjectCount       int64                     `json:"object_count"`
+	Size              int64                     `json:"size"`
+	Versioning        *bucket.VersioningConfig  `json:"versioning,omitempty"`
+	ObjectLock        *bucket.ObjectLockConfig  `json:"objectLock,omitempty"`
+	Encryption        *bucket.EncryptionConfig  `json:"encryption,omitempty"`
+	PublicAccessBlock *bucket.PublicAccessBlock `json:"publicAccessBlock,omitempty"`
+	Tags              map[string]string         `json:"tags,omitempty"`
+	Metadata          map[string]string         `json:"metadata,omitempty"`
 }
 
 type ObjectResponse struct {
-	Key          string            `json:"key"`
-	Size         int64             `json:"size"`
-	LastModified string            `json:"last_modified"`
-	ETag         string            `json:"etag"`
-	ContentType  string            `json:"content_type"`
-	Metadata     map[string]string `json:"metadata,omitempty"`
+	Key          string                  `json:"key"`
+	Size         int64                   `json:"size"`
+	LastModified string                  `json:"last_modified"`
+	ETag         string                  `json:"etag"`
+	ContentType  string                  `json:"content_type"`
+	Metadata     map[string]string       `json:"metadata,omitempty"`
+	Retention    *object.RetentionConfig `json:"retention,omitempty"`
 }
 
 type UserResponse struct {
@@ -190,10 +202,17 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 		}
 
 		response[i] = BucketResponse{
-			Name:         b.Name,
-			CreationDate: b.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			ObjectCount:  objectCount,
-			Size:         totalSize,
+			Name:              b.Name,
+			CreationDate:      b.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			Region:            b.Region,
+			ObjectCount:       objectCount,
+			Size:              totalSize,
+			Versioning:        b.Versioning,
+			ObjectLock:        b.ObjectLock,
+			Encryption:        b.Encryption,
+			PublicAccessBlock: b.PublicAccessBlock,
+			Tags:              b.Tags,
+			Metadata:          b.Metadata,
 		}
 	}
 
@@ -275,7 +294,7 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		days := req.ObjectLock.Days
 		years := req.ObjectLock.Years
 		bucketInfo.ObjectLock = &bucket.ObjectLockConfig{
-			ObjectLockEnabled: "Enabled",
+			ObjectLockEnabled: true,
 			Rule: &bucket.ObjectLockRule{
 				DefaultRetention: &bucket.DefaultRetention{
 					Mode:  req.ObjectLock.Mode,
@@ -346,10 +365,17 @@ func (s *Server) handleGetBucket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := BucketResponse{
-		Name:         bucketInfo.Name,
-		CreationDate: bucketInfo.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		ObjectCount:  objectCount,
-		Size:         totalSize,
+		Name:              bucketInfo.Name,
+		CreationDate:      bucketInfo.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		Region:            bucketInfo.Region,
+		ObjectCount:       objectCount,
+		Size:              totalSize,
+		Versioning:        bucketInfo.Versioning,
+		ObjectLock:        bucketInfo.ObjectLock,
+		Encryption:        bucketInfo.Encryption,
+		PublicAccessBlock: bucketInfo.PublicAccessBlock,
+		Tags:              bucketInfo.Tags,
+		Metadata:          bucketInfo.Metadata,
 	}
 
 	s.writeJSON(w, response)
@@ -409,6 +435,7 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 			ETag:         obj.ETag,
 			ContentType:  obj.ContentType,
 			Metadata:     obj.Metadata,
+			Retention:    obj.Retention,
 		}
 	}
 
@@ -433,7 +460,37 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
-	metadata, err := s.objectManager.GetObjectMetadata(r.Context(), bucketName, objectKey)
+	// Check if client wants metadata only (Accept: application/json) or the actual file
+	acceptHeader := r.Header.Get("Accept")
+	wantsJSON := acceptHeader == "application/json"
+
+	// If client wants JSON metadata only, return metadata
+	if wantsJSON {
+		metadata, err := s.objectManager.GetObjectMetadata(r.Context(), bucketName, objectKey)
+		if err != nil {
+			if err == object.ErrObjectNotFound {
+				s.writeError(w, "Object not found", http.StatusNotFound)
+			} else {
+				s.writeError(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
+
+		response := ObjectResponse{
+			Key:          metadata.Key,
+			Size:         metadata.Size,
+			LastModified: metadata.LastModified.Format("2006-01-02T15:04:05Z"),
+			ETag:         metadata.ETag,
+			ContentType:  metadata.ContentType,
+			Metadata:     metadata.Metadata,
+		}
+
+		s.writeJSON(w, response)
+		return
+	}
+
+	// Otherwise, return the actual file content
+	obj, reader, err := s.objectManager.GetObject(r.Context(), bucketName, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			s.writeError(w, "Object not found", http.StatusNotFound)
@@ -442,17 +499,19 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	defer reader.Close()
 
-	response := ObjectResponse{
-		Key:          metadata.Key,
-		Size:         metadata.Size,
-		LastModified: metadata.LastModified.Format("2006-01-02T15:04:05Z"),
-		ETag:         metadata.ETag,
-		ContentType:  metadata.ContentType,
-		Metadata:     metadata.Metadata,
+	// Set appropriate headers for file download
+	w.Header().Set("Content-Type", obj.ContentType)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(objectKey)))
+	w.Header().Set("ETag", obj.ETag)
+	w.Header().Set("Last-Modified", obj.LastModified.Format(http.TimeFormat))
+
+	// Copy the object content to response
+	if _, err := io.Copy(w, reader); err != nil {
+		log.Printf("Error streaming object content: %v", err)
 	}
-
-	s.writeJSON(w, response)
 }
 
 func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
@@ -472,7 +531,7 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 
 	// Check if bucket has Object Lock enabled and apply default retention
 	lockConfig, err := s.bucketManager.GetObjectLockConfig(r.Context(), bucketName)
-	if err == nil && lockConfig != nil && lockConfig.ObjectLockEnabled == "Enabled" {
+	if err == nil && lockConfig != nil && lockConfig.ObjectLockEnabled {
 		// Apply default retention if configured
 		if lockConfig.Rule != nil && lockConfig.Rule.DefaultRetention != nil {
 			retention := &object.RetentionConfig{
@@ -513,9 +572,22 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 	if err := s.objectManager.DeleteObject(r.Context(), bucketName, objectKey); err != nil {
 		if err == object.ErrObjectNotFound {
 			s.writeError(w, "Object not found", http.StatusNotFound)
-		} else {
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
+
+		// Check if it's a retention error with detailed information
+		if retErr, ok := err.(*object.RetentionError); ok {
+			s.writeError(w, retErr.Error(), http.StatusForbidden)
+			return
+		}
+
+		// Check for other Object Lock errors
+		if err == object.ErrObjectUnderLegalHold {
+			s.writeError(w, "Object is under legal hold and cannot be deleted", http.StatusForbidden)
+			return
+		}
+
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 

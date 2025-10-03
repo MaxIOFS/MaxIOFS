@@ -28,13 +28,13 @@ export function Header({ onMenuToggle, showSearch = true }: HeaderProps) {
       const result = await SweetAlert.confirmLogout();
       
       if (result.isConfirmed) {
-        SweetAlert.loading('Cerrando sesión...', 'Hasta pronto');
+        SweetAlert.loading('Signing out...', 'See you soon');
         await logout();
         SweetAlert.close();
       }
     } catch (error) {
       SweetAlert.close();
-      SweetAlert.error('Error al cerrar sesión', 'No se pudo cerrar la sesión correctamente');
+      SweetAlert.error('Error signing out', 'Could not sign out properly');
       console.error('Logout failed:', error);
     }
   };
@@ -53,6 +53,17 @@ export function Header({ onMenuToggle, showSearch = true }: HeaderProps) {
           >
             <Menu className="h-5 w-5" />
           </Button>
+
+          {/* Logo visible en mobile cuando sidebar está cerrado */}
+          <div className="flex items-center space-x-2 lg:hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img 
+              src="/assets/img/icon.png" 
+              alt="MaxIOFS" 
+              className="w-7 h-7 rounded"
+            />
+            <span className="text-sm font-semibold text-gray-900">MaxIOFS</span>
+          </div>
 
           {/* Search */}
           {showSearch && (

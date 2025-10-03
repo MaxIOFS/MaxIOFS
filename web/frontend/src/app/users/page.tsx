@@ -64,7 +64,7 @@ export default function UsersPage() {
       APIClient.updateUser(userId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
-      SweetAlert.toast('success', 'Usuario actualizado exitosamente');
+      SweetAlert.toast('success', 'User updated successfully');
     },
     onError: (error: any) => {
       SweetAlert.apiError(error);
@@ -76,7 +76,7 @@ export default function UsersPage() {
     onSuccess: () => {
       SweetAlert.close();
       queryClient.invalidateQueries({ queryKey: ['users'] });
-      SweetAlert.toast('success', 'Usuario eliminado exitosamente');
+      SweetAlert.toast('success', 'User deleted successfully');
     },
     onError: (error: any) => {
       SweetAlert.close();
@@ -100,10 +100,10 @@ export default function UsersPage() {
     const user = users?.find((u: User) => u.id === userId);
     
     try {
-      const result = await SweetAlert.confirmDeleteUser(user?.username || 'usuario');
+      const result = await SweetAlert.confirmDeleteUser(user?.username || 'user');
       
       if (result.isConfirmed) {
-        SweetAlert.loading('Eliminando usuario...', `Eliminando "${user?.username}"`);
+        SweetAlert.loading('Deleting user...', `Deleting "${user?.username}"`);
         deleteUserMutation.mutate(userId);
       }
     } catch (error) {

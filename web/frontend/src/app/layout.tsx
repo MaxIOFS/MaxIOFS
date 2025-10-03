@@ -10,6 +10,10 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'MaxIOFS Console',
   description: 'High-Performance S3-Compatible Object Storage Management Console',
+  icons: {
+    icon: '/assets/img/icon.png',
+    apple: '/assets/img/icon.png',
+  },
 }
 
 export default function RootLayout({

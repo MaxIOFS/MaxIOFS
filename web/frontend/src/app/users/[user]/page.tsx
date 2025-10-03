@@ -61,7 +61,7 @@ export default function UserDetailsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user', userId] });
       setIsEditUserModalOpen(false);
-      SweetAlert.toast('success', 'Usuario actualizado exitosamente');
+      SweetAlert.toast('success', 'User updated successfully');
     },
     onError: (error) => {
       SweetAlert.apiError(error);
@@ -86,7 +86,7 @@ export default function UserDetailsPage() {
       setCreatedKey(transformedKey);
       setIsCreateKeyModalOpen(false);
       setNewKeyName('');
-      SweetAlert.toast('success', 'Access key creada exitosamente');
+      SweetAlert.toast('success', 'Access key created successfully');
     },
     onError: (error) => {
       SweetAlert.apiError(error);
@@ -98,7 +98,7 @@ export default function UserDetailsPage() {
     mutationFn: (keyId: string) => APIClient.deleteAccessKey(userId, keyId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accessKeys', userId] });
-      SweetAlert.toast('success', 'Access key eliminada exitosamente');
+      SweetAlert.toast('success', 'Access key deleted successfully');
     },
     onError: (error) => {
       SweetAlert.apiError(error);
@@ -131,17 +131,17 @@ export default function UserDetailsPage() {
     try {
       const result = await SweetAlert.fire({
         icon: 'warning',
-        title: '¿Eliminar access key?',
-        html: `<p>Estás a punto de eliminar la access key <strong>"${keyDescription}"</strong></p>
-               <p class="text-red-600 mt-2">Esta acción no se puede deshacer</p>`,
+        title: 'Delete access key?',
+        html: `<p>You are about to delete the access key <strong>"${keyDescription}"</strong></p>
+               <p class="text-red-600 mt-2">This action cannot be undone</p>`,
         showCancelButton: true,
-        confirmButtonText: 'Sí, eliminar',
-        cancelButtonText: 'Cancelar',
+        confirmButtonText: 'Yes, delete',
+        cancelButtonText: 'Cancel',
         confirmButtonColor: '#dc2626',
       });
 
       if (result.isConfirmed) {
-        SweetAlert.loading('Eliminando access key...', `Eliminando "${keyDescription}"`);
+        SweetAlert.loading('Deleting access key...', `Deleting "${keyDescription}"`);
         deleteAccessKeyMutation.mutate(keyId);
       }
     } catch (error) {
@@ -159,9 +159,9 @@ export default function UserDetailsPage() {
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      SweetAlert.toast('success', 'Copiado al portapapeles');
+      SweetAlert.toast('success', 'Copied to clipboard');
     } catch (err) {
-      SweetAlert.toast('error', 'Error al copiar');
+      SweetAlert.toast('error', 'Error copying');
     }
   };
 
@@ -179,7 +179,7 @@ export default function UserDetailsPage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('es-ES', {
+    return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -199,8 +199,8 @@ export default function UserDetailsPage() {
   if (!user) {
     return (
       <div className="text-center py-8">
-        <h3 className="text-lg font-semibold">Usuario no encontrado</h3>
-        <p className="text-muted-foreground">El usuario solicitado no existe.</p>
+        <h3 className="text-lg font-semibold">User not found</h3>
+        <p className="text-muted-foreground">The requested user does not exist.</p>
       </div>
     );
   }
@@ -217,12 +217,12 @@ export default function UserDetailsPage() {
             className="gap-2"
           >
             <ArrowLeft className="h-4 w-4" />
-            Volver
+            Back
           </Button>
           <div>
             <h1 className="text-3xl font-bold tracking-tight">{user.username}</h1>
             <p className="text-muted-foreground">
-              Detalles y configuración del usuario
+              User details and configuration
             </p>
           </div>
         </div>
@@ -233,14 +233,14 @@ export default function UserDetailsPage() {
             className="gap-2"
           >
             <Edit className="h-4 w-4" />
-            Editar Usuario
+            Edit User
           </Button>
           <Button
             onClick={() => setIsCreateKeyModalOpen(true)}
             className="gap-2"
           >
             <Plus className="h-4 w-4" />
-            Nueva Access Key
+            New Access Key
           </Button>
         </div>
       </div>
@@ -250,7 +250,7 @@ export default function UserDetailsPage() {
         {/* Status Card */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Estado</CardTitle>
+            <CardTitle className="text-sm font-medium">Status</CardTitle>
             <UserIcon className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -270,7 +270,7 @@ export default function UserDetailsPage() {
             <Mail className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-sm">{user.email || 'No proporcionado'}</div>
+            <div className="text-sm">{user.email || 'Not provided'}</div>
           </CardContent>
         </Card>
 
@@ -292,7 +292,7 @@ export default function UserDetailsPage() {
                   </span>
                 ))
               ) : (
-                <span className="text-xs text-muted-foreground">Sin roles asignados</span>
+                <span className="text-xs text-muted-foreground">No roles assigned</span>
               )}
             </div>
           </CardContent>
@@ -315,16 +315,16 @@ export default function UserDetailsPage() {
           ) : !accessKeys || accessKeys.length === 0 ? (
             <div className="text-center py-8">
               <Key className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-semibold">No hay access keys</h3>
+              <h3 className="mt-4 text-lg font-semibold">No access keys</h3>
               <p className="text-muted-foreground">
-                Crea una access key para permitir acceso programático
+                Create an access key to allow programmatic access
               </p>
               <Button
                 onClick={() => setIsCreateKeyModalOpen(true)}
                 className="mt-4 gap-2"
               >
                 <Plus className="h-4 w-4" />
-                Crear Access Key
+                Create Access Key
               </Button>
             </div>
           ) : (
@@ -395,7 +395,7 @@ export default function UserDetailsPage() {
                     )}
                     
                     <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Creado:</span>
+                      <span className="text-muted-foreground">Created:</span>
                       <span>{formatDate(key.createdAt)}</span>
                     </div>
                   </div>
@@ -410,7 +410,7 @@ export default function UserDetailsPage() {
       <Modal
         isOpen={isEditUserModalOpen}
         onClose={() => setIsEditUserModalOpen(false)}
-        title="Editar Usuario"
+        title="Edit User"
       >
         <form onSubmit={handleEditUser} className="space-y-4">
           <div>
@@ -422,13 +422,13 @@ export default function UserDetailsPage() {
               type="email"
               value={editForm.email}
               onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
-              placeholder="usuario@ejemplo.com"
+              placeholder="user@example.com"
             />
           </div>
 
           <div>
             <label htmlFor="status" className="block text-sm font-medium mb-2">
-              Estado
+              Status
             </label>
             <select
               id="status"
@@ -436,15 +436,15 @@ export default function UserDetailsPage() {
               onChange={(e) => setEditForm(prev => ({ ...prev, status: e.target.value as any }))}
               className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              <option value="active">Activo</option>
-              <option value="inactive">Inactivo</option>
-              <option value="suspended">Suspendido</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="suspended">Suspended</option>
             </select>
           </div>
 
           <div>
             <label htmlFor="roles" className="block text-sm font-medium mb-2">
-              Roles (separados por comas)
+              Roles (comma separated)
             </label>
             <Input
               id="roles"
@@ -463,13 +463,13 @@ export default function UserDetailsPage() {
               variant="outline"
               onClick={() => setIsEditUserModalOpen(false)}
             >
-              Cancelar
+              Cancel
             </Button>
             <Button
               type="submit"
               disabled={updateUserMutation.isPending}
             >
-              {updateUserMutation.isPending ? 'Guardando...' : 'Guardar Cambios'}
+              {updateUserMutation.isPending ? 'Saving...' : 'Save Changes'}
             </Button>
           </div>
         </form>
@@ -479,19 +479,19 @@ export default function UserDetailsPage() {
       <Modal
         isOpen={isCreateKeyModalOpen}
         onClose={() => setIsCreateKeyModalOpen(false)}
-        title="Crear Nueva Access Key"
+        title="Create New Access Key"
       >
         <form onSubmit={handleCreateAccessKey} className="space-y-4">
           <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
             <p className="text-sm text-blue-800">
-              <strong>ℹ️ Información:</strong> Se generará automáticamente un par de access key y secret key para este usuario.
+              <strong>ℹ️ Information:</strong> An access key and secret key pair will be automatically generated for this user.
             </p>
           </div>
 
           <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
             <p className="text-sm text-yellow-800">
-              <strong>⚠️ Importante:</strong> La secret key solo se mostrará una vez después de la creación.
-              Asegúrate de copiarla y guardarla en un lugar seguro.
+              <strong>⚠️ Important:</strong> The secret key will only be displayed once after creation.
+              Make sure to copy and store it in a safe place.
             </p>
           </div>
 
@@ -501,13 +501,13 @@ export default function UserDetailsPage() {
               variant="outline"
               onClick={() => setIsCreateKeyModalOpen(false)}
             >
-              Cancelar
+              Cancel
             </Button>
             <Button
               type="submit"
               disabled={createAccessKeyMutation.isPending}
             >
-              {createAccessKeyMutation.isPending ? 'Creando...' : 'Crear Access Key'}
+              {createAccessKeyMutation.isPending ? 'Creating...' : 'Create Access Key'}
             </Button>
           </div>
         </form>
@@ -518,12 +518,12 @@ export default function UserDetailsPage() {
         <Modal
           isOpen={!!createdKey}
           onClose={() => setCreatedKey(null)}
-          title="Access Key Creada"
+          title="Access Key Created"
         >
           <div className="space-y-4">
             <div className="bg-green-50 border border-green-200 rounded-md p-3">
               <p className="text-sm text-green-800">
-                <strong>✅ Access Key creada exitosamente!</strong>
+                <strong>✅ Access Key created successfully!</strong>
               </p>
             </div>
 
@@ -565,14 +565,14 @@ export default function UserDetailsPage() {
 
             <div className="bg-red-50 border border-red-200 rounded-md p-3">
               <p className="text-sm text-red-800">
-                <strong>⚠️ Importante:</strong> Esta es la única vez que se mostrará la secret key.
-                Cópiala y guárdala en un lugar seguro antes de cerrar esta ventana.
+                <strong>⚠️ Important:</strong> This is the only time the secret key will be displayed.
+                Copy and store it in a safe place before closing this window.
               </p>
             </div>
 
             <div className="flex justify-end">
               <Button onClick={() => setCreatedKey(null)}>
-                Entendido
+                Got it
               </Button>
             </div>
           </div>

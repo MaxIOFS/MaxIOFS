@@ -138,15 +138,18 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       >
         {/* Logo */}
         <div className="flex items-center h-16 px-6 border-b border-gray-200">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <HardDrive className="h-5 w-5 text-white" />
-            </div>
+          <Link href="/" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img 
+              src="/assets/img/icon.png" 
+              alt="MaxIOFS Icon" 
+              className="w-8 h-8 rounded-lg"
+            />
             <div>
               <h1 className="text-lg font-semibold text-gray-900">MaxIOFS</h1>
               <p className="text-xs text-gray-500">Object Storage</p>
             </div>
-          </div>
+          </Link>
         </div>
 
         {/* Navigation */}
@@ -186,7 +189,7 @@ interface NavItemProps {
 function NavItem({ item, pathname, isActiveRoute, level = 0 }: NavItemProps) {
   const hasChildren = item.children && item.children.length > 0;
   const isActive = isActiveRoute(item.href, !hasChildren);
-  const isExpanded = hasChildren && item.children.some(child => isActiveRoute(child.href));
+  const isExpanded = hasChildren && item.children?.some(child => isActiveRoute(child.href));
 
   return (
     <div>

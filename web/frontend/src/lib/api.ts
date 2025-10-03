@@ -157,8 +157,8 @@ const handleError = async (error: AxiosError): Promise<never> => {
         // Refresh failed, clear tokens and redirect to login
         tokenManager.clearTokens();
         await SweetAlert.error(
-          'Sesión expirada',
-          'Tu sesión ha expirado. Serás redirigido al login.'
+          'Session expired',
+          'Your session has expired. You will be redirected to login.'
         );
         if (typeof window !== 'undefined') {
           window.location.href = '/login';
@@ -168,8 +168,8 @@ const handleError = async (error: AxiosError): Promise<never> => {
       // No refresh token, clear tokens and redirect to login
       tokenManager.clearTokens();
       await SweetAlert.error(
-        'Sesión expirada',
-        'Tu sesión ha expirado. Serás redirigido al login.'
+        'Session expired',
+        'Your session has expired. You will be redirected to login.'
       );
       if (typeof window !== 'undefined') {
         window.location.href = '/login';
@@ -386,7 +386,11 @@ export class APIClient {
   static async downloadObject(request: DownloadRequest): Promise<Blob> {
     const config = {
       responseType: 'blob' as const,
-      headers: request.range ? { Range: request.range } : undefined,
+      headers: {
+        ...(request.range ? { Range: request.range } : {}),
+        // Don't send Accept: application/json for downloads
+        'Accept': '*/*',
+      },
       onDownloadProgress: request.onProgress ? (progressEvent: any) => {
         const progress = {
           loaded: progressEvent.loaded,
@@ -398,8 +402,9 @@ export class APIClient {
       } : undefined,
     };
 
-    const response = await s3Client.get<Blob>(
-      `/${request.bucket}/${request.key}`,
+    // Use API client with authentication instead of direct S3 client
+    const response = await apiClient.get<Blob>(
+      `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}`,
       config
     );
     return response.data;

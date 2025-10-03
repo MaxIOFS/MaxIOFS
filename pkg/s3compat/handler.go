@@ -264,6 +264,16 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", obj.ETag)
 	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
 
+	// Agregar headers de Object Lock si existen (Veeam compatibility)
+	if obj.Retention != nil {
+		w.Header().Set("x-amz-object-lock-mode", obj.Retention.Mode)
+		w.Header().Set("x-amz-object-lock-retain-until-date", obj.Retention.RetainUntilDate.UTC().Format(time.RFC3339))
+	}
+
+	if obj.LegalHold != nil && obj.LegalHold.Status == "ON" {
+		w.Header().Set("x-amz-object-lock-legal-hold", "ON")
+	}
+
 	// Copy object data to response
 	if _, err := io.Copy(w, reader); err != nil {
 		logrus.WithError(err).Error("Failed to write object data")
@@ -280,6 +290,11 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: PutObject")
 
+	// Leer headers de Object Lock si están presentes (para Veeam)
+	lockMode := r.Header.Get("x-amz-object-lock-mode")
+	retainUntilDateStr := r.Header.Get("x-amz-object-lock-retain-until-date")
+	legalHoldStatus := r.Header.Get("x-amz-object-lock-legal-hold")
+
 	obj, err := h.objectManager.PutObject(r.Context(), bucketName, objectKey, r.Body, r.Header)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
@@ -288,6 +303,42 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
+	}
+
+	// Aplicar retención si se especificó en headers (Veeam compatibility)
+	if lockMode != "" && retainUntilDateStr != "" {
+		retainUntilDate, parseErr := time.Parse(time.RFC3339, retainUntilDateStr)
+		if parseErr == nil {
+			retention := &object.RetentionConfig{
+				Mode:            lockMode,
+				RetainUntilDate: retainUntilDate,
+			}
+			if setErr := h.objectManager.SetObjectRetention(r.Context(), bucketName, objectKey, retention); setErr != nil {
+				logrus.WithError(setErr).Warn("Failed to set retention from headers")
+			} else {
+				logrus.WithFields(logrus.Fields{
+					"bucket": bucketName,
+					"object": objectKey,
+					"mode":   lockMode,
+					"until":  retainUntilDate,
+				}).Info("Applied Object Lock retention from headers")
+			}
+		} else {
+			logrus.WithError(parseErr).Warn("Failed to parse retain-until-date header")
+		}
+	}
+
+	// Aplicar legal hold si se especificó (Veeam compatibility)
+	if legalHoldStatus == "ON" {
+		legalHold := &object.LegalHoldConfig{Status: "ON"}
+		if setErr := h.objectManager.SetObjectLegalHold(r.Context(), bucketName, objectKey, legalHold); setErr != nil {
+			logrus.WithError(setErr).Warn("Failed to set legal hold from headers")
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"object": objectKey,
+			}).Info("Applied legal hold from headers")
+		}
 	}
 
 	w.Header().Set("ETag", obj.ETag)
@@ -309,6 +360,19 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
 		}
+
+		// Check if it's a retention error with detailed information
+		if retErr, ok := err.(*object.RetentionError); ok {
+			h.writeError(w, "AccessDenied", retErr.Error(), objectKey, r)
+			return
+		}
+
+		// Check for other Object Lock errors
+		if err == object.ErrObjectUnderLegalHold {
+			h.writeError(w, "AccessDenied", "Object is under legal hold and cannot be deleted", objectKey, r)
+			return
+		}
+
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
@@ -340,6 +404,17 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.FormatInt(obj.Size, 10))
 	w.Header().Set("ETag", obj.ETag)
 	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
+
+	// Agregar headers de Object Lock si existen (Veeam compatibility)
+	if obj.Retention != nil {
+		w.Header().Set("x-amz-object-lock-mode", obj.Retention.Mode)
+		w.Header().Set("x-amz-object-lock-retain-until-date", obj.Retention.RetainUntilDate.UTC().Format(time.RFC3339))
+	}
+
+	if obj.LegalHold != nil && obj.LegalHold.Status == "ON" {
+		w.Header().Set("x-amz-object-lock-legal-hold", "ON")
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -358,7 +433,59 @@ func (h *Handler) PutBucketVersioning(w http.ResponseWriter, r *http.Request) {
 
 // Additional placeholder methods for object lock, policies, etc.
 func (h *Handler) GetObjectLockConfiguration(w http.ResponseWriter, r *http.Request) {
-	h.writeXMLResponse(w, http.StatusOK, `<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>`)
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
+	}).Debug("S3 API: GetObjectLockConfiguration")
+
+	// Obtener bucket metadata
+	bkt, err := h.bucketManager.GetBucketInfo(r.Context(), bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	// Verificar si tiene Object Lock habilitado
+	if bkt.ObjectLock == nil || !bkt.ObjectLock.ObjectLockEnabled {
+		h.writeError(w, "ObjectLockConfigurationNotFoundError",
+			"Object Lock configuration does not exist for this bucket", bucketName, r)
+		return
+	}
+
+	// Construir respuesta XML con configuración real
+	config := ObjectLockConfiguration{
+		ObjectLockEnabled: "Enabled",
+	}
+
+	// Agregar regla de retención por defecto si existe
+	if bkt.ObjectLock.Rule != nil && bkt.ObjectLock.Rule.DefaultRetention != nil {
+		config.Rule = &ObjectLockRule{
+			DefaultRetention: &DefaultRetention{
+				Mode: bkt.ObjectLock.Rule.DefaultRetention.Mode,
+			},
+		}
+
+		if bkt.ObjectLock.Rule.DefaultRetention.Days != nil {
+			config.Rule.DefaultRetention.Days = *bkt.ObjectLock.Rule.DefaultRetention.Days
+		}
+		if bkt.ObjectLock.Rule.DefaultRetention.Years != nil {
+			config.Rule.DefaultRetention.Years = *bkt.ObjectLock.Rule.DefaultRetention.Years
+		}
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket":  bucketName,
+		"enabled": config.ObjectLockEnabled,
+		"hasRule": config.Rule != nil,
+	}).Info("Returning Object Lock configuration")
+
+	h.writeXMLResponse(w, http.StatusOK, config)
 }
 
 func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -406,9 +533,15 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 }
 
 // Placeholder stubs for future implementation
-func (h *Handler) GetObjectVersions(w http.ResponseWriter, r *http.Request)    { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) DeleteObjectVersion(w http.ResponseWriter, r *http.Request)  { w.WriteHeader(http.StatusNotImplemented) }
-func (h *Handler) PresignedOperation(w http.ResponseWriter, r *http.Request)   { w.WriteHeader(http.StatusNotImplemented) }
+func (h *Handler) GetObjectVersions(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+func (h *Handler) DeleteObjectVersion(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+func (h *Handler) PresignedOperation(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // Note: The following operations are now implemented in separate files:
 // - bucket_ops.go: Bucket Policy, Lifecycle, CORS operations
