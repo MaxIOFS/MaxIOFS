@@ -19,42 +19,57 @@ import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 
 export default function MetricsPage() {
-  const { data: metrics, isLoading } = useQuery({
-    queryKey: ['metrics'],
-    queryFn: APIClient.getMetrics,
+  // Fetch storage metrics from backend
+  const { data: storageMetricsData, isLoading: storageLoading } = useQuery({
+    queryKey: ['storageMetrics'],
+    queryFn: APIClient.getStorageMetrics,
   });
 
-  // Mock metrics data for demonstration
-  const mockMetrics = {
+  // Fetch system metrics from backend
+  const { data: systemMetricsData, isLoading: systemLoading } = useQuery({
+    queryKey: ['systemMetrics'],
+    queryFn: APIClient.getSystemMetrics,
+  });
+
+  const isLoading = storageLoading || systemLoading;
+
+  // Parse backend metrics
+  const storageMetrics = storageMetricsData || {};
+  const systemMetrics = systemMetricsData || {};
+
+  // Build display metrics from backend data
+  const displayMetrics = {
     system: {
-      uptime: '15 days, 8 hours',
-      cpu: 12.5,
-      memory: 68.2,
-      disk: 45.7,
-      network: 89.3
+      uptime: systemMetrics.uptime || 'N/A',
+      cpu: (systemMetrics.cpu_usage || 0) * 100,
+      memory: (systemMetrics.memory_usage || 0) * 100,
+      disk: (systemMetrics.disk_usage || 0) * 100,
+      network: 0
     },
     storage: {
-      totalSize: 256 * 1024 * 1024 * 1024, // 256 GB
-      usedSize: 178 * 1024 * 1024 * 1024, // 178 GB
-      objects: 1584,
-      buckets: 12,
-      averageObjectSize: 162 * 1024 // 162 KB
+      totalSize: (storageMetrics.total_buckets || 0) * 100 * 1024 * 1024, // Estimate
+      usedSize: storageMetrics.total_size || 0,
+      objects: storageMetrics.total_objects || 0,
+      buckets: storageMetrics.total_buckets || 0,
+      averageObjectSize: storageMetrics.total_objects > 0
+        ? (storageMetrics.total_size || 0) / storageMetrics.total_objects
+        : 0
     },
     requests: {
-      today: 15420,
-      thisWeek: 89234,
-      thisMonth: 456789,
-      getRequests: 12340,
-      putRequests: 2876,
-      deleteRequests: 204
+      today: 0, // TODO: Implement request metrics
+      thisWeek: 0,
+      thisMonth: 0,
+      getRequests: 0,
+      putRequests: 0,
+      deleteRequests: 0
     },
     performance: {
-      avgResponseTime: 45, // ms
-      p95ResponseTime: 120, // ms
-      p99ResponseTime: 250, // ms
-      requestsPerSecond: 23.4,
-      errorRate: 0.02, // 0.02%
-      successRate: 99.98
+      avgResponseTime: 0, // TODO: Implement performance metrics
+      p95ResponseTime: 0,
+      p99ResponseTime: 0,
+      requestsPerSecond: 0,
+      errorRate: 0,
+      successRate: 100
     }
   };
 
@@ -82,8 +97,6 @@ export default function MetricsPage() {
       </div>
     );
   }
-
-  const displayMetrics = metrics?.data || mockMetrics;
 
   return (
     <div className="space-y-6">
@@ -160,9 +173,8 @@ export default function MetricsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-lg font-bold">{displayMetrics.system.uptime}</div>
-              <p className="text-xs text-green-600 flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" />
-                99.9% availability
+              <p className="text-xs text-muted-foreground">
+                System uptime
               </p>
             </CardContent>
           </Card>
@@ -179,9 +191,9 @@ export default function MetricsPage() {
               <HardDrive className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatBytes(displayMetrics.storage.totalSize)}</div>
+              <div className="text-2xl font-bold">{formatBytes(displayMetrics.storage.usedSize)}</div>
               <p className="text-xs text-muted-foreground">
-                {formatBytes(displayMetrics.storage.usedSize)} used
+                Storage in use
               </p>
             </CardContent>
           </Card>
@@ -193,9 +205,8 @@ export default function MetricsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatNumber(displayMetrics.storage.objects)}</div>
-              <p className="text-xs text-green-600 flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" />
-                +12% this month
+              <p className="text-xs text-muted-foreground">
+                Stored objects
               </p>
             </CardContent>
           </Card>
@@ -207,9 +218,8 @@ export default function MetricsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{displayMetrics.storage.buckets}</div>
-              <p className="text-xs text-blue-600 flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" />
-                +2 this month
+              <p className="text-xs text-muted-foreground">
+                Total buckets
               </p>
             </CardContent>
           </Card>
@@ -221,9 +231,8 @@ export default function MetricsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatBytes(displayMetrics.storage.averageObjectSize)}</div>
-              <p className="text-xs text-red-600 flex items-center gap-1">
-                <TrendingDown className="h-3 w-3" />
-                -3% this month
+              <p className="text-xs text-muted-foreground">
+                Per object
               </p>
             </CardContent>
           </Card>
@@ -233,45 +242,48 @@ export default function MetricsPage() {
       {/* Request Metrics */}
       <div>
         <h2 className="text-xl font-semibold mb-4">Request Statistics</h2>
+        <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-4">
+          <p className="text-sm text-yellow-800">
+            <strong>⚠️ Note:</strong> Request metrics are not yet implemented in the backend.
+            These counters will show data once the metrics collection system is activated.
+          </p>
+        </div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          <Card>
+          <Card className="opacity-60">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Requests Today</CardTitle>
               <Globe className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatNumber(displayMetrics.requests.today)}</div>
-              <p className="text-xs text-green-600 flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" />
-                +8% from yesterday
+              <p className="text-xs text-muted-foreground">
+                Not available
               </p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="opacity-60">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">This Week</CardTitle>
               <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatNumber(displayMetrics.requests.thisWeek)}</div>
-              <p className="text-xs text-green-600 flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" />
-                +15% from last week
+              <p className="text-xs text-muted-foreground">
+                Not available
               </p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="opacity-60">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">This Month</CardTitle>
               <Activity className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatNumber(displayMetrics.requests.thisMonth)}</div>
-              <p className="text-xs text-green-600 flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" />
-                +22% from last month
+              <p className="text-xs text-muted-foreground">
+                Not available
               </p>
             </CardContent>
           </Card>
@@ -281,56 +293,59 @@ export default function MetricsPage() {
       {/* Performance Metrics */}
       <div>
         <h2 className="text-xl font-semibold mb-4">Performance</h2>
+        <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-4">
+          <p className="text-sm text-yellow-800">
+            <strong>⚠️ Note:</strong> Performance metrics are not yet implemented in the backend.
+            Response time and throughput data will be available once monitoring is enabled.
+          </p>
+        </div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
+          <Card className="opacity-60">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Avg Response Time</CardTitle>
               <Zap className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{displayMetrics.performance.avgResponseTime}ms</div>
-              <p className="text-xs text-green-600 flex items-center gap-1">
-                <TrendingDown className="h-3 w-3" />
-                -5ms from last hour
+              <p className="text-xs text-muted-foreground">
+                Not available
               </p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="opacity-60">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Requests/sec</CardTitle>
               <Activity className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{displayMetrics.performance.requestsPerSecond}</div>
-              <p className="text-xs text-blue-600 flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" />
-                Peak: 45.2/sec
+              <p className="text-xs text-muted-foreground">
+                Not available
               </p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="opacity-60">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{displayMetrics.performance.successRate}%</div>
-              <p className="text-xs text-green-600">Excellent performance</p>
+              <p className="text-xs text-muted-foreground">Not available</p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="opacity-60">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Error Rate</CardTitle>
               <TrendingDown className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{displayMetrics.performance.errorRate}%</div>
-              <p className="text-xs text-green-600 flex items-center gap-1">
-                <TrendingDown className="h-3 w-3" />
-                Within SLA
+              <p className="text-xs text-muted-foreground">
+                Not available
               </p>
             </CardContent>
           </Card>

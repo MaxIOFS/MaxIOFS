@@ -18,6 +18,7 @@ type Manager interface {
 	ListBuckets(ctx context.Context) ([]Bucket, error)
 	BucketExists(ctx context.Context, name string) (bool, error)
 	GetBucketInfo(ctx context.Context, name string) (*Bucket, error)
+	UpdateBucket(ctx context.Context, name string, bucket *Bucket) error
 
 	// Configuration operations
 	GetBucketPolicy(ctx context.Context, name string) (*Policy, error)
@@ -48,15 +49,18 @@ type Manager interface {
 
 // Bucket represents a storage bucket
 type Bucket struct {
-	Name         string            `json:"name"`
-	CreatedAt    time.Time         `json:"created_at"`
-	Region       string            `json:"region"`
-	Versioning   *VersioningConfig `json:"versioning,omitempty"`
-	ObjectLock   *ObjectLockConfig `json:"object_lock,omitempty"`
-	Policy       *Policy           `json:"policy,omitempty"`
-	Lifecycle    *LifecycleConfig  `json:"lifecycle,omitempty"`
-	CORS         *CORSConfig       `json:"cors,omitempty"`
-	Metadata     map[string]string `json:"metadata,omitempty"`
+	Name              string             `json:"name"`
+	CreatedAt         time.Time          `json:"created_at"`
+	Region            string             `json:"region"`
+	Versioning        *VersioningConfig  `json:"versioning,omitempty"`
+	ObjectLock        *ObjectLockConfig  `json:"object_lock,omitempty"`
+	Policy            *Policy            `json:"policy,omitempty"`
+	Lifecycle         *LifecycleConfig   `json:"lifecycle,omitempty"`
+	CORS              *CORSConfig        `json:"cors,omitempty"`
+	Encryption        *EncryptionConfig  `json:"encryption,omitempty"`
+	PublicAccessBlock *PublicAccessBlock `json:"public_access_block,omitempty"`
+	Tags              map[string]string  `json:"tags,omitempty"`
+	Metadata          map[string]string  `json:"metadata,omitempty"`
 }
 
 // bucketManager implements the Manager interface
@@ -106,6 +110,26 @@ func (bm *bucketManager) CreateBucket(ctx context.Context, name string) error {
 		strings.NewReader(""), map[string]string{
 			"bucket-created": bucket.CreatedAt.Format(time.RFC3339),
 		})
+}
+
+// UpdateBucket updates an existing bucket's metadata
+func (bm *bucketManager) UpdateBucket(ctx context.Context, name string, bucket *Bucket) error {
+	// Check if bucket exists
+	exists, err := bm.bucketExists(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrBucketNotFound
+	}
+
+	// Validate bucket name matches
+	if bucket.Name != name {
+		return fmt.Errorf("bucket name mismatch")
+	}
+
+	// Save updated metadata
+	return bm.saveBucketMetadata(ctx, bucket)
 }
 
 // DeleteBucket deletes a bucket

@@ -215,6 +215,28 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string) e
 		return ErrObjectNotFound
 	}
 
+	// Check Object Lock - Legal Hold
+	legalHold, err := om.GetObjectLegalHold(ctx, bucket, key)
+	if err == nil && legalHold != nil && legalHold.Status == LegalHoldStatusOn {
+		return ErrObjectUnderLegalHold
+	}
+
+	// Check Object Lock - Retention
+	retention, err := om.GetObjectRetention(ctx, bucket, key)
+	if err == nil && retention != nil {
+		// Check if retention is still active
+		if time.Now().Before(retention.RetainUntilDate) {
+			// COMPLIANCE mode cannot be bypassed
+			if retention.Mode == RetentionModeCompliance {
+				return ErrObjectUnderCompliance
+			}
+			// GOVERNANCE mode requires bypass permission (handled at API layer)
+			if retention.Mode == RetentionModeGovernance {
+				return ErrObjectUnderGovernance
+			}
+		}
+	}
+
 	// Delete object from storage
 	if err := om.storage.Delete(ctx, objectPath); err != nil {
 		if err == storage.ErrObjectNotFound {
@@ -276,9 +298,19 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 			continue
 		}
 
-		// Skip bucket configuration files
+		// Skip bucket configuration files and internal marker files
+		// Check both if the key starts with .maxiofs- OR if the filename (last part) starts with .maxiofs-
 		if strings.HasPrefix(key, ".maxiofs-") {
 			continue
+		}
+		
+		// Check if the filename (last segment) starts with .maxiofs-
+		lastSlashIndex := strings.LastIndex(key, "/")
+		if lastSlashIndex >= 0 {
+			filename := key[lastSlashIndex+1:]
+			if strings.HasPrefix(filename, ".maxiofs-") {
+				continue
+			}
 		}
 
 		// Apply prefix filter

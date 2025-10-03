@@ -31,14 +31,71 @@ export default function ObjectsPage() {
     queryFn: APIClient.getBuckets,
   });
 
-  const { data: objects, isLoading } = useQuery({
-    queryKey: ['allObjects', selectedBucket],
-    queryFn: () => selectedBucket ? APIClient.getObjects(selectedBucket) : APIClient.getAllObjects(),
+  // Fetch all objects from all buckets
+  const { data: allObjectsData, isLoading: objectsLoading } = useQuery({
+    queryKey: ['allBucketsObjects', selectedBucket],
+    queryFn: async () => {
+      if (!buckets || buckets.length === 0) return [];
+
+      const targetBuckets = selectedBucket ? [selectedBucket] : buckets.map(b => b.name);
+      const allObjects: Array<S3Object & { bucket: string }> = [];
+
+      for (const bucketName of targetBuckets) {
+        try {
+          const result = await APIClient.getObjects({
+            bucket: bucketName,
+            maxKeys: 1000,
+            delimiter: '/', // Request folder structure
+          });
+
+          // Filter out internal MaxIOFS files (any file/folder containing .maxiofs)
+          const objectsWithBucket = (result.objects || [])
+            .filter(obj => {
+              const key = obj.key || '';
+              // Filter out any key that contains .maxiofs (including paths like "folder/.maxiofs-policy")
+              return !key.includes('.maxiofs');
+            })
+            .map(obj => ({
+              ...obj,
+              bucket: bucketName,
+            }));
+
+          // Convert commonPrefixes to folder objects
+          const folderObjects = (result.commonPrefixes || [])
+            .filter(prefix => !prefix.includes('.maxiofs'))
+            .map(prefix => ({
+              key: prefix,
+              size: 0,
+              lastModified: new Date().toISOString(),
+              last_modified: new Date().toISOString(),
+              etag: '',
+              storageClass: 'STANDARD',
+              bucket: bucketName,
+            }));
+
+          allObjects.push(...objectsWithBucket, ...folderObjects);
+        } catch (error) {
+          console.error(`Error fetching objects from bucket ${bucketName}:`, error);
+        }
+      }
+
+      return allObjects;
+    },
+    enabled: !!buckets && buckets.length > 0,
   });
 
-  const filteredObjects = objects?.data?.filter(obj =>
-    obj.key.toLowerCase().includes(searchTerm.toLowerCase())
-  ) || [];
+  const isLoading = objectsLoading;
+  const allObjects = allObjectsData || [];
+
+  // Calculate stats
+  const totalObjects = allObjects.length;
+  const totalSize = allObjects.reduce((sum, obj) => sum + (obj.size || 0), 0);
+  const folders = allObjects.filter(obj => obj.key?.endsWith('/')).length;
+  const avgSize = totalObjects > 0 ? totalSize / totalObjects : 0;
+
+  const filteredObjects = allObjects.filter(obj =>
+    obj.key?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   const formatSize = (bytes: number) => {
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -74,7 +131,7 @@ export default function ObjectsPage() {
   };
 
   const isFolder = (obj: S3Object) => {
-    return obj.key.endsWith('/');
+    return obj.key?.endsWith('/') || false;
   };
 
   const objectColumns: DataTableColumn<S3Object & { bucket: string }>[] = [
@@ -101,7 +158,7 @@ export default function ObjectsPage() {
       header: 'Size',
       sortable: true,
       render: (obj) => (
-        <span>{isFolder(obj) ? '-' : formatSize(obj.size)}</span>
+        <span>{isFolder(obj) ? '-' : formatSize(obj.size || 0)}</span>
       ),
     },
     {
@@ -111,7 +168,7 @@ export default function ObjectsPage() {
       render: (obj) => (
         <div className="flex items-center gap-1 text-sm text-muted-foreground">
           <Calendar className="h-3 w-3" />
-          {formatDate(obj.lastModified)}
+          {formatDate(obj.lastModified || obj.last_modified || new Date().toISOString())}
         </div>
       ),
     },
@@ -125,16 +182,6 @@ export default function ObjectsPage() {
       ),
     },
   ];
-
-  // Mock data for demonstration
-  const mockObjects = [
-    { key: 'documents/report.pdf', bucket: 'company-docs', size: 2456789, lastModified: new Date().toISOString(), storageClass: 'STANDARD' },
-    { key: 'images/logo.png', bucket: 'assets', size: 45678, lastModified: new Date().toISOString(), storageClass: 'STANDARD' },
-    { key: 'backups/', bucket: 'data-backup', size: 0, lastModified: new Date().toISOString(), storageClass: 'STANDARD' },
-    { key: 'videos/intro.mp4', bucket: 'media', size: 156789012, lastModified: new Date().toISOString(), storageClass: 'IA' },
-  ];
-
-  const displayObjects = filteredObjects.length > 0 ? filteredObjects : mockObjects;
 
   return (
     <div className="space-y-6">
@@ -160,8 +207,8 @@ export default function ObjectsPage() {
             <File className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">1,584</div>
-            <p className="text-xs text-muted-foreground">+12% from last month</p>
+            <div className="text-2xl font-bold">{totalObjects.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground">Across {buckets?.length || 0} buckets</p>
           </CardContent>
         </Card>
 
@@ -171,8 +218,8 @@ export default function ObjectsPage() {
             <HardDrive className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">256 GB</div>
-            <p className="text-xs text-muted-foreground">+8% from last month</p>
+            <div className="text-2xl font-bold">{formatSize(totalSize)}</div>
+            <p className="text-xs text-muted-foreground">Total storage used</p>
           </CardContent>
         </Card>
 
@@ -182,8 +229,8 @@ export default function ObjectsPage() {
             <Folder className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">142</div>
-            <p className="text-xs text-muted-foreground">+5 new this week</p>
+            <div className="text-2xl font-bold">{folders}</div>
+            <p className="text-xs text-muted-foreground">Directory objects</p>
           </CardContent>
         </Card>
 
@@ -193,8 +240,8 @@ export default function ObjectsPage() {
             <FolderOpen className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">162 KB</div>
-            <p className="text-xs text-muted-foreground">-3% from last month</p>
+            <div className="text-2xl font-bold">{formatSize(avgSize)}</div>
+            <p className="text-xs text-muted-foreground">Per object</p>
           </CardContent>
         </Card>
       </div>
@@ -230,10 +277,10 @@ export default function ObjectsPage() {
 
       {/* Objects Table */}
       <DataTable
-        data={displayObjects}
+        data={filteredObjects}
         columns={objectColumns}
         isLoading={isLoading}
-        title={`Objects (${displayObjects.length})`}
+        title={`Objects (${filteredObjects.length})`}
         emptyMessage="No objects found"
         emptyIcon={<File className="h-12 w-12 text-muted-foreground" />}
         emptyAction={

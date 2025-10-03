@@ -70,11 +70,20 @@ export default function UserDetailsPage() {
 
   // Create access key mutation
   const createAccessKeyMutation = useMutation({
-    mutationFn: (data: { userId: string; permissions: string[]; description?: string }) => 
-      APIClient.createAccessKey(data),
+    mutationFn: () => APIClient.createAccessKey({ userId }),
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['accessKeys', userId] });
-      setCreatedKey(response);
+      // Transform backend response to match expected format
+      const transformedKey: AccessKey = {
+        id: response.id || response.access_key_id || response.accessKey,
+        accessKey: response.id || response.access_key_id || response.accessKey,
+        secretKey: response.secret || response.secret_access_key || response.secretKey,
+        userId: response.userId || response.user_id,
+        status: response.status || 'active',
+        permissions: [],
+        createdAt: response.createdAt || response.created_at || new Date().toISOString(),
+      };
+      setCreatedKey(transformedKey);
       setIsCreateKeyModalOpen(false);
       setNewKeyName('');
       SweetAlert.toast('success', 'Access key creada exitosamente');
@@ -86,7 +95,7 @@ export default function UserDetailsPage() {
 
   // Delete access key mutation
   const deleteAccessKeyMutation = useMutation({
-    mutationFn: (keyId: string) => APIClient.deleteAccessKey(keyId),
+    mutationFn: (keyId: string) => APIClient.deleteAccessKey(userId, keyId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accessKeys', userId] });
       SweetAlert.toast('success', 'Access key eliminada exitosamente');
@@ -115,13 +124,7 @@ export default function UserDetailsPage() {
 
   const handleCreateAccessKey = (e: React.FormEvent) => {
     e.preventDefault();
-    if (newKeyName.trim()) {
-      createAccessKeyMutation.mutate({
-        userId,
-        permissions: ['s3:*'], // Default permissions
-        description: newKeyName.trim(),
-      });
-    }
+    createAccessKeyMutation.mutate();
   };
 
   const handleDeleteAccessKey = async (keyId: string, keyDescription: string) => {
@@ -479,21 +482,14 @@ export default function UserDetailsPage() {
         title="Crear Nueva Access Key"
       >
         <form onSubmit={handleCreateAccessKey} className="space-y-4">
-          <div>
-            <label htmlFor="keyName" className="block text-sm font-medium mb-2">
-              Descripción de la Access Key
-            </label>
-            <Input
-              id="keyName"
-              value={newKeyName}
-              onChange={(e) => setNewKeyName(e.target.value)}
-              placeholder="Ej: CLI Access, App Integration, etc."
-              required
-            />
-          </div>
-
           <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
             <p className="text-sm text-blue-800">
+              <strong>ℹ️ Información:</strong> Se generará automáticamente un par de access key y secret key para este usuario.
+            </p>
+          </div>
+
+          <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+            <p className="text-sm text-yellow-800">
               <strong>⚠️ Importante:</strong> La secret key solo se mostrará una vez después de la creación.
               Asegúrate de copiarla y guardarla en un lugar seguro.
             </p>
@@ -509,7 +505,7 @@ export default function UserDetailsPage() {
             </Button>
             <Button
               type="submit"
-              disabled={createAccessKeyMutation.isPending || !newKeyName.trim()}
+              disabled={createAccessKeyMutation.isPending}
             >
               {createAccessKeyMutation.isPending ? 'Creando...' : 'Crear Access Key'}
             </Button>
