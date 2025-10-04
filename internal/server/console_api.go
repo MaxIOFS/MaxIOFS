@@ -123,6 +123,20 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Security endpoints
 	router.HandleFunc("/security/status", s.handleGetSecurityStatus).Methods("GET", "OPTIONS")
 
+	// Tenant endpoints
+	router.HandleFunc("/tenants", s.handleListTenants).Methods("GET", "OPTIONS")
+	router.HandleFunc("/tenants", s.handleCreateTenant).Methods("POST", "OPTIONS")
+	router.HandleFunc("/tenants/{tenant}", s.handleGetTenant).Methods("GET", "OPTIONS")
+	router.HandleFunc("/tenants/{tenant}", s.handleUpdateTenant).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/tenants/{tenant}", s.handleDeleteTenant).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/tenants/{tenant}/users", s.handleListTenantUsers).Methods("GET", "OPTIONS")
+
+	// Bucket permissions endpoints
+	router.HandleFunc("/buckets/{bucket}/permissions", s.handleListBucketPermissions).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/permissions", s.handleGrantBucketPermission).Methods("POST", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/permissions/{permission}", s.handleRevokeBucketPermission).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/owner", s.handleUpdateBucketOwner).Methods("PUT", "OPTIONS")
+
 	// Health check
 	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET", "OPTIONS")
 }
@@ -190,8 +204,19 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := make([]BucketResponse, len(buckets))
-	for i, b := range buckets {
+	// TODO: Get user from JWT token in Authorization header and apply permission filtering
+	// For now, use default admin user (no filtering - admin sees all buckets)
+	// userID := "admin"
+	// userRoles := []string{"admin"}
+	// filteredBuckets, err := bucket.FilterBucketsByPermissions(r.Context(), buckets, userID, userRoles, s.authManager)
+	// if err != nil {
+	//	s.writeError(w, err.Error(), http.StatusInternalServerError)
+	//	return
+	// }
+	filteredBuckets := buckets
+
+	response := make([]BucketResponse, len(filteredBuckets))
+	for i, b := range filteredBuckets {
 		// Get object count and size for this bucket
 		result, err := s.objectManager.ListObjects(r.Context(), b.Name, "", "", "", 10000)
 		objectCount := int64(0)
@@ -225,6 +250,9 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name       string                   `json:"name"`
 		Region     string                   `json:"region,omitempty"`
+		OwnerID    string                   `json:"ownerId,omitempty"`
+		OwnerType  string                   `json:"ownerType,omitempty"` // "user" or "tenant"
+		IsPublic   bool                     `json:"isPublic,omitempty"`
 		Versioning *bucket.VersioningConfig `json:"versioning,omitempty"`
 		ObjectLock *struct {
 			Enabled bool   `json:"enabled"`
@@ -285,6 +313,15 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Bucket created but failed to retrieve info: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Aplicar ownership
+	if req.OwnerID != "" {
+		bucketInfo.OwnerID = req.OwnerID
+	}
+	if req.OwnerType != "" {
+		bucketInfo.OwnerType = req.OwnerType
+	}
+	bucketInfo.IsPublic = req.IsPublic
 
 	// Aplicar versionado
 	if req.Versioning != nil {
@@ -1114,4 +1151,314 @@ func (s *Server) handleGetSecurityStatus(w http.ResponseWriter, r *http.Request)
 	}
 
 	s.writeJSON(w, response)
+}
+
+// Tenant handlers
+func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
+	tenants, err := s.authManager.ListTenants(r.Context())
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, tenants)
+}
+
+func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name                string            `json:"name"`
+		DisplayName         string            `json:"displayName"`
+		Description         string            `json:"description"`
+		MaxAccessKeys       int64             `json:"maxAccessKeys,omitempty"`
+		MaxStorageBytes     int64             `json:"maxStorageBytes,omitempty"`
+		MaxBuckets          int64             `json:"maxBuckets,omitempty"`
+		Metadata            map[string]string `json:"metadata,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" {
+		s.writeError(w, "Tenant name is required", http.StatusBadRequest)
+		return
+	}
+
+	tenant := &auth.Tenant{
+		ID:                  auth.GenerateTenantID(),
+		Name:                req.Name,
+		DisplayName:         req.DisplayName,
+		Description:         req.Description,
+		Status:              "active",
+		MaxAccessKeys:       req.MaxAccessKeys,
+		MaxStorageBytes:     req.MaxStorageBytes,
+		MaxBuckets:          req.MaxBuckets,
+		Metadata:            req.Metadata,
+		CreatedAt:           time.Now().Unix(),
+		UpdatedAt:           time.Now().Unix(),
+	}
+
+	if err := s.authManager.CreateTenant(r.Context(), tenant); err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, tenant)
+}
+
+func (s *Server) handleGetTenant(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	tenantID := vars["tenant"]
+
+	tenant, err := s.authManager.GetTenant(r.Context(), tenantID)
+	if err != nil {
+		if err == auth.ErrUserNotFound {
+			s.writeError(w, "Tenant not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	s.writeJSON(w, tenant)
+}
+
+func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	tenantID := vars["tenant"]
+
+	var req struct {
+		DisplayName         *string            `json:"displayName,omitempty"`
+		Description         *string            `json:"description,omitempty"`
+		Status              *string            `json:"status,omitempty"`
+		MaxAccessKeys       *int64             `json:"maxAccessKeys,omitempty"`
+		MaxStorageBytes     *int64             `json:"maxStorageBytes,omitempty"`
+		MaxBuckets          *int64             `json:"maxBuckets,omitempty"`
+		CurrentStorageBytes *int64             `json:"currentStorageBytes,omitempty"`
+		CurrentBuckets      *int64             `json:"currentBuckets,omitempty"`
+		Metadata            map[string]string  `json:"metadata,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	tenant, err := s.authManager.GetTenant(r.Context(), tenantID)
+	if err != nil {
+		if err == auth.ErrUserNotFound {
+			s.writeError(w, "Tenant not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Update fields if provided
+	if req.DisplayName != nil {
+		tenant.DisplayName = *req.DisplayName
+	}
+	if req.Description != nil {
+		tenant.Description = *req.Description
+	}
+	if req.Status != nil {
+		tenant.Status = *req.Status
+	}
+	if req.MaxAccessKeys != nil {
+		tenant.MaxAccessKeys = *req.MaxAccessKeys
+	}
+	if req.MaxStorageBytes != nil {
+		tenant.MaxStorageBytes = *req.MaxStorageBytes
+	}
+	if req.MaxBuckets != nil {
+		tenant.MaxBuckets = *req.MaxBuckets
+	}
+	if req.CurrentStorageBytes != nil {
+		tenant.CurrentStorageBytes = *req.CurrentStorageBytes
+	}
+	if req.CurrentBuckets != nil {
+		tenant.CurrentBuckets = *req.CurrentBuckets
+	}
+	if req.Metadata != nil {
+		tenant.Metadata = req.Metadata
+	}
+
+	tenant.UpdatedAt = time.Now().Unix()
+
+	if err := s.authManager.UpdateTenant(r.Context(), tenant); err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, tenant)
+}
+
+func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	tenantID := vars["tenant"]
+
+	if err := s.authManager.DeleteTenant(r.Context(), tenantID); err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleListTenantUsers(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	tenantID := vars["tenant"]
+
+	users, err := s.authManager.ListTenantUsers(r.Context(), tenantID)
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert to response format
+	response := make([]UserResponse, len(users))
+	for i, u := range users {
+		response[i] = UserResponse{
+			ID:          u.ID,
+			Username:    u.Username,
+			DisplayName: u.DisplayName,
+			Email:       u.Email,
+			Status:      u.Status,
+			Roles:       u.Roles,
+			CreatedAt:   u.CreatedAt,
+		}
+	}
+
+	s.writeJSON(w, response)
+}
+
+// Bucket permission handlers
+func (s *Server) handleListBucketPermissions(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	permissions, err := s.authManager.ListBucketPermissions(r.Context(), bucketName)
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, permissions)
+}
+
+func (s *Server) handleGrantBucketPermission(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	var req struct {
+		UserID          string `json:"userId,omitempty"`
+		TenantID        string `json:"tenantId,omitempty"`
+		PermissionLevel string `json:"permissionLevel"`
+		GrantedBy       string `json:"grantedBy"`
+		ExpiresAt       int64  `json:"expiresAt,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate input
+	if req.UserID == "" && req.TenantID == "" {
+		s.writeError(w, "Either userId or tenantId must be specified", http.StatusBadRequest)
+		return
+	}
+
+	if req.PermissionLevel == "" {
+		s.writeError(w, "Permission level is required", http.StatusBadRequest)
+		return
+	}
+
+	if req.GrantedBy == "" {
+		s.writeError(w, "GrantedBy is required", http.StatusBadRequest)
+		return
+	}
+
+	err := s.authManager.GrantBucketAccess(r.Context(), bucketName, req.UserID, req.TenantID, req.PermissionLevel, req.GrantedBy, req.ExpiresAt)
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]string{"message": "Permission granted successfully"})
+}
+
+func (s *Server) handleRevokeBucketPermission(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	// Extract userID or tenantID from query params
+	userID := r.URL.Query().Get("userId")
+	tenantID := r.URL.Query().Get("tenantId")
+
+	if userID == "" && tenantID == "" {
+		s.writeError(w, "Either userId or tenantId query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	err := s.authManager.RevokeBucketAccess(r.Context(), bucketName, userID, tenantID)
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleUpdateBucketOwner(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	var req struct {
+		OwnerID   string `json:"ownerId"`
+		OwnerType string `json:"ownerType"` // "user" or "tenant"
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.OwnerID == "" || req.OwnerType == "" {
+		s.writeError(w, "ownerId and ownerType are required", http.StatusBadRequest)
+		return
+	}
+
+	if req.OwnerType != "user" && req.OwnerType != "tenant" {
+		s.writeError(w, "ownerType must be 'user' or 'tenant'", http.StatusBadRequest)
+		return
+	}
+
+	// Get bucket info
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Update owner
+	bucketInfo.OwnerID = req.OwnerID
+	bucketInfo.OwnerType = req.OwnerType
+
+	// Save changes
+	if err := s.bucketManager.UpdateBucket(r.Context(), bucketName, bucketInfo); err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"bucketName": bucketName,
+		"ownerId":    req.OwnerID,
+		"ownerType":  req.OwnerType,
+	})
 }
