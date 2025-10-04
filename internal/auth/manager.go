@@ -64,11 +64,41 @@ type User struct {
 	DisplayName string            `json:"display_name"`
 	Email       string            `json:"email,omitempty"`
 	Status      string            `json:"status"` // active, inactive, suspended
+	TenantID    string            `json:"tenant_id,omitempty"` // NEW: Tenant assignment
 	Roles       []string          `json:"roles"`
 	Policies    []string          `json:"policies"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
 	CreatedAt   int64             `json:"created_at"`
 	UpdatedAt   int64             `json:"updated_at"`
+}
+
+// Tenant represents an organizational unit for multi-tenancy
+type Tenant struct {
+	ID                  string            `json:"id"`
+	Name                string            `json:"name"`
+	DisplayName         string            `json:"display_name"`
+	Description         string            `json:"description"`
+	Status              string            `json:"status"` // active, inactive
+	MaxAccessKeys       int64             `json:"max_access_keys"`
+	MaxStorageBytes     int64             `json:"max_storage_bytes"`
+	CurrentStorageBytes int64             `json:"current_storage_bytes"`
+	MaxBuckets          int64             `json:"max_buckets"`
+	CurrentBuckets      int64             `json:"current_buckets"`
+	Metadata            map[string]string `json:"metadata,omitempty"`
+	CreatedAt           int64             `json:"created_at"`
+	UpdatedAt           int64             `json:"updated_at"`
+}
+
+// BucketPermission represents access permissions for a bucket
+type BucketPermission struct {
+	ID              string `json:"id"`
+	BucketName      string `json:"bucket_name"`
+	UserID          string `json:"user_id,omitempty"`
+	TenantID        string `json:"tenant_id,omitempty"`
+	PermissionLevel string `json:"permission_level"` // read, write, admin
+	GrantedBy       string `json:"granted_by"`
+	GrantedAt       int64  `json:"granted_at"`
+	ExpiresAt       int64  `json:"expires_at,omitempty"`
 }
 
 // AccessKey represents an access key pair

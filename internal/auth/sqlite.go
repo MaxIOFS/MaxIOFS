@@ -48,6 +48,23 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 // initSchema creates the database schema
 func (s *SQLiteStore) initSchema() error {
 	schema := `
+	-- Tenants table
+	CREATE TABLE IF NOT EXISTS tenants (
+		id TEXT PRIMARY KEY,
+		name TEXT UNIQUE NOT NULL,
+		display_name TEXT,
+		description TEXT,
+		status TEXT DEFAULT 'active',
+		max_access_keys INTEGER DEFAULT 10,
+		max_storage_bytes INTEGER DEFAULT 107374182400,
+		current_storage_bytes INTEGER DEFAULT 0,
+		max_buckets INTEGER DEFAULT 100,
+		current_buckets INTEGER DEFAULT 0,
+		metadata TEXT,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);
+
 	-- Users table (console users)
 	CREATE TABLE IF NOT EXISTS users (
 		id TEXT PRIMARY KEY,
@@ -56,11 +73,13 @@ func (s *SQLiteStore) initSchema() error {
 		display_name TEXT,
 		email TEXT,
 		status TEXT DEFAULT 'active',
+		tenant_id TEXT,
 		roles TEXT,
 		policies TEXT,
 		metadata TEXT,
 		created_at INTEGER NOT NULL,
-		updated_at INTEGER NOT NULL
+		updated_at INTEGER NOT NULL,
+		FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
 	);
 
 	-- Access keys table (S3 API keys)
@@ -74,11 +93,33 @@ func (s *SQLiteStore) initSchema() error {
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
 
+	-- Bucket permissions table
+	CREATE TABLE IF NOT EXISTS bucket_permissions (
+		id TEXT PRIMARY KEY,
+		bucket_name TEXT NOT NULL,
+		user_id TEXT,
+		tenant_id TEXT,
+		permission_level TEXT NOT NULL,
+		granted_by TEXT NOT NULL,
+		granted_at INTEGER NOT NULL,
+		expires_at INTEGER,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+		UNIQUE(bucket_name, user_id),
+		UNIQUE(bucket_name, tenant_id)
+	);
+
 	-- Indexes for performance
+	CREATE INDEX IF NOT EXISTS idx_tenants_name ON tenants(name);
+	CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants(status);
 	CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 	CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+	CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
 	CREATE INDEX IF NOT EXISTS idx_access_keys_user_id ON access_keys(user_id);
 	CREATE INDEX IF NOT EXISTS idx_access_keys_status ON access_keys(status);
+	CREATE INDEX IF NOT EXISTS idx_bucket_permissions_bucket ON bucket_permissions(bucket_name);
+	CREATE INDEX IF NOT EXISTS idx_bucket_permissions_user ON bucket_permissions(user_id);
+	CREATE INDEX IF NOT EXISTS idx_bucket_permissions_tenant ON bucket_permissions(tenant_id);
 	`
 
 	_, err := s.db.Exec(schema)
@@ -120,10 +161,10 @@ func (s *SQLiteStore) CreateUser(user *User) error {
 	defer tx.Rollback()
 
 	_, err = tx.Exec(`
-		INSERT INTO users (id, username, password_hash, display_name, email, status, roles, policies, metadata, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO users (id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, user.ID, user.Username, hashedPassword, user.DisplayName, user.Email, user.Status,
-		string(rolesJSON), string(policiesJSON), string(metadataJSON), user.CreatedAt, user.UpdatedAt)
+		nullString(user.TenantID), string(rolesJSON), string(policiesJSON), string(metadataJSON), user.CreatedAt, user.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
@@ -132,19 +173,32 @@ func (s *SQLiteStore) CreateUser(user *User) error {
 	return tx.Commit()
 }
 
+// nullString returns sql.NullString for optional string fields
+func nullString(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 // GetUserByUsername retrieves a user by username
 func (s *SQLiteStore) GetUserByUsername(username string) (*User, error) {
 	var user User
 	var rolesJSON, policiesJSON, metadataJSON string
+	var tenantID sql.NullString
 
 	err := s.db.QueryRow(`
-		SELECT id, username, password_hash, display_name, email, status, roles, policies, metadata, created_at, updated_at
+		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at
 		FROM users
 		WHERE username = ? AND status != 'deleted'
 	`, username).Scan(
 		&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
-		&rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
+		&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 	)
+
+	if tenantID.Valid {
+		user.TenantID = tenantID.String
+	}
 
 	if err == sql.ErrNoRows {
 		return nil, ErrUserNotFound
@@ -165,15 +219,20 @@ func (s *SQLiteStore) GetUserByUsername(username string) (*User, error) {
 func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
 	var user User
 	var rolesJSON, policiesJSON, metadataJSON string
+	var tenantID sql.NullString
 
 	err := s.db.QueryRow(`
-		SELECT id, username, password_hash, display_name, email, status, roles, policies, metadata, created_at, updated_at
+		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at
 		FROM users
 		WHERE id = ? AND status != 'deleted'
 	`, userID).Scan(
 		&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
-		&rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
+		&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 	)
+
+	if tenantID.Valid {
+		user.TenantID = tenantID.String
+	}
 
 	if err == sql.ErrNoRows {
 		return nil, ErrUserNotFound
@@ -205,9 +264,9 @@ func (s *SQLiteStore) UpdateUser(user *User) error {
 
 	_, err = tx.Exec(`
 		UPDATE users
-		SET display_name = ?, email = ?, status = ?, roles = ?, policies = ?, metadata = ?, password_hash = ?, updated_at = ?
+		SET display_name = ?, email = ?, status = ?, tenant_id = ?, roles = ?, policies = ?, metadata = ?, password_hash = ?, updated_at = ?
 		WHERE id = ?
-	`, user.DisplayName, user.Email, user.Status, string(rolesJSON), string(policiesJSON), string(metadataJSON), user.Password, user.UpdatedAt, user.ID)
+	`, user.DisplayName, user.Email, user.Status, nullString(user.TenantID), string(rolesJSON), string(policiesJSON), string(metadataJSON), user.Password, user.UpdatedAt, user.ID)
 
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
@@ -242,7 +301,7 @@ func (s *SQLiteStore) DeleteUser(userID string) error {
 // ListUsers returns all active users
 func (s *SQLiteStore) ListUsers() ([]*User, error) {
 	rows, err := s.db.Query(`
-		SELECT id, username, password_hash, display_name, email, status, roles, policies, metadata, created_at, updated_at
+		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at
 		FROM users
 		WHERE status != 'deleted'
 		ORDER BY created_at DESC
@@ -256,13 +315,18 @@ func (s *SQLiteStore) ListUsers() ([]*User, error) {
 	for rows.Next() {
 		var user User
 		var rolesJSON, policiesJSON, metadataJSON string
+		var tenantID sql.NullString
 
 		err := rows.Scan(
 			&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
-			&rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
+			&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
+		}
+
+		if tenantID.Valid {
+			user.TenantID = tenantID.String
 		}
 
 		// Deserialize JSON fields

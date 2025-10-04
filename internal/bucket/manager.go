@@ -51,6 +51,9 @@ type Manager interface {
 // Bucket represents a storage bucket
 type Bucket struct {
 	Name              string             `json:"name"`
+	OwnerID           string             `json:"owner_id"`           // NEW: Owner user/tenant ID
+	OwnerType         string             `json:"owner_type"`         // NEW: "user" or "tenant"
+	IsPublic          bool               `json:"is_public"`          // NEW: Public access flag
 	CreatedAt         time.Time          `json:"created_at"`
 	Region            string             `json:"region"`
 	Versioning        *VersioningConfig  `json:"versioning,omitempty"`
