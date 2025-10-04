@@ -64,6 +64,66 @@ export interface EditUserForm {
   email?: string;
   roles: string[];
   status?: 'active' | 'inactive' | 'suspended';
+  tenantId?: string;
+}
+
+// Tenant Types
+export interface Tenant {
+  id: string;
+  name: string;
+  displayName: string;
+  description?: string;
+  status: 'active' | 'inactive' | 'deleted';
+  maxAccessKeys: number;
+  maxStorageBytes: number;
+  currentStorageBytes: number;
+  maxBuckets: number;
+  currentBuckets: number;
+  metadata?: Record<string, string>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CreateTenantRequest {
+  name: string;
+  displayName: string;
+  description?: string;
+  maxAccessKeys?: number;
+  maxStorageBytes?: number;
+  maxBuckets?: number;
+  metadata?: Record<string, string>;
+}
+
+export interface UpdateTenantRequest {
+  displayName?: string;
+  description?: string;
+  status?: 'active' | 'inactive';
+  maxAccessKeys?: number;
+  maxStorageBytes?: number;
+  maxBuckets?: number;
+  currentStorageBytes?: number;
+  currentBuckets?: number;
+  metadata?: Record<string, string>;
+}
+
+// Bucket Permission Types
+export interface BucketPermission {
+  id: string;
+  bucketName: string;
+  userId?: string;
+  tenantId?: string;
+  permissionLevel: 'read' | 'write' | 'admin';
+  grantedBy: string;
+  grantedAt: number;
+  expiresAt?: number;
+}
+
+export interface GrantPermissionRequest {
+  userId?: string;
+  tenantId?: string;
+  permissionLevel: 'read' | 'write' | 'admin';
+  grantedBy: string;
+  expiresAt?: number;
 }
 
 
