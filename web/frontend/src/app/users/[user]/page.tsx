@@ -22,8 +22,18 @@ import {
   Trash2,
   Eye,
   EyeOff,
-  Copy
+  Copy,
+  Download,
+  Calendar
 } from 'lucide-react';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/Table';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { User as UserType, AccessKey, EditUserForm } from '@/types';
@@ -41,6 +51,12 @@ export default function UserDetailsPage() {
   const [newKeyName, setNewKeyName] = useState('');
   const [showSecretKeys, setShowSecretKeys] = useState<Record<string, boolean>>({});
   const [createdKey, setCreatedKey] = useState<AccessKey | null>(null);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
   const queryClient = useQueryClient();
 
   // Fetch user data
@@ -99,6 +115,20 @@ export default function UserDetailsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accessKeys', userId] });
       SweetAlert.toast('success', 'Access key deleted successfully');
+    },
+    onError: (error) => {
+      SweetAlert.apiError(error);
+    },
+  });
+
+  // Change password mutation
+  const changePasswordMutation = useMutation({
+    mutationFn: (data: { currentPassword: string; newPassword: string }) =>
+      APIClient.changePassword(userId, data.currentPassword, data.newPassword),
+    onSuccess: () => {
+      setIsChangePasswordOpen(false);
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      SweetAlert.toast('success', 'Password changed successfully');
     },
     onError: (error) => {
       SweetAlert.apiError(error);
@@ -165,6 +195,42 @@ export default function UserDetailsPage() {
     }
   };
 
+  const downloadAsCSV = (key: AccessKey) => {
+    const csvContent = `Access Key ID,Secret Access Key,Status,Created At\n${key.accessKey},${key.secretKey || 'N/A'},${key.status},${formatDate(key.createdAt)}`;
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `access-key-${key.accessKey}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    SweetAlert.toast('success', 'CSV downloaded successfully');
+  };
+
+  const handleChangePassword = () => {
+    if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+      SweetAlert.toast('error', 'All password fields are required');
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      SweetAlert.toast('error', 'New passwords do not match');
+      return;
+    }
+
+    if (passwordForm.newPassword.length < 6) {
+      SweetAlert.toast('error', 'Password must be at least 6 characters');
+      return;
+    }
+
+    changePasswordMutation.mutate({
+      currentPassword: passwordForm.currentPassword,
+      newPassword: passwordForm.newPassword,
+    });
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active':
@@ -227,6 +293,14 @@ export default function UserDetailsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            onClick={() => setIsChangePasswordOpen(true)}
+            variant="outline"
+            className="gap-2"
+          >
+            <Key className="h-4 w-4" />
+            Change Password
+          </Button>
           <Button
             onClick={() => setIsEditUserModalOpen(true)}
             variant="outline"
@@ -299,6 +373,63 @@ export default function UserDetailsPage() {
         </Card>
       </div>
 
+      {/* Password Management - Modal */}
+      <Modal
+        isOpen={isChangePasswordOpen}
+        onClose={() => {
+          setIsChangePasswordOpen(false);
+          setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+        }}
+        title="Change Password"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium mb-2 block">Current Password</label>
+            <Input
+              type="password"
+              placeholder="Enter current password"
+              value={passwordForm.currentPassword}
+              onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-2 block">New Password</label>
+            <Input
+              type="password"
+              placeholder="Enter new password (min 6 characters)"
+              value={passwordForm.newPassword}
+              onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-2 block">Confirm New Password</label>
+            <Input
+              type="password"
+              placeholder="Confirm new password"
+              value={passwordForm.confirmPassword}
+              onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+            />
+          </div>
+          <div className="flex gap-2 justify-end mt-6">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsChangePasswordOpen(false);
+                setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleChangePassword}
+              disabled={changePasswordMutation.isPending}
+            >
+              {changePasswordMutation.isPending ? 'Changing...' : 'Change Password'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Access Keys */}
       <Card>
         <CardHeader>
@@ -328,80 +459,61 @@ export default function UserDetailsPage() {
               </Button>
             </div>
           ) : (
-            <div className="space-y-4">
-              {accessKeys.map((key) => (
-                <div key={key.id} className="border rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <span className="font-medium">{key.id}</span>
-                      <span className={`ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        key.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {key.status}
-                      </span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeleteAccessKey(key.id, key.id)}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Access Key:</span>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Access Key ID</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {accessKeys.map((key) => (
+                  <TableRow key={key.id}>
+                    <TableCell>
                       <div className="flex items-center gap-2">
-                        <code className="bg-gray-100 px-2 py-1 rounded text-xs">
-                          {key.accessKey}
-                        </code>
+                        <Key className="h-4 w-4 text-muted-foreground" />
+                        <code className="text-sm bg-gray-100 px-2 py-1 rounded">{key.id}</code>
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => copyToClipboard(key.accessKey)}
+                          onClick={() => copyToClipboard(key.id)}
+                          title="Copy Access Key"
                         >
                           <Copy className="h-3 w-3" />
                         </Button>
                       </div>
-                    </div>
-                    
-                    {key.secretKey && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Secret Key:</span>
-                        <div className="flex items-center gap-2">
-                          <code className="bg-gray-100 px-2 py-1 rounded text-xs">
-                            {showSecretKeys[key.id] ? key.secretKey : '••••••••••••••••'}
-                          </code>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => toggleSecretVisibility(key.id)}
-                          >
-                            {showSecretKeys[key.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                          </Button>
-                          {showSecretKeys[key.id] && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => copyToClipboard(key.secretKey!)}
-                            >
-                              <Copy className="h-3 w-3" />
-                            </Button>
-                          )}
-                        </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                        key.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {key.status}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                        <Calendar className="h-3 w-3" />
+                        {formatDate(key.createdAt)}
                       </div>
-                    )}
-                    
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Created:</span>
-                      <span>{formatDate(key.createdAt)}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteAccessKey(key.id, key.id)}
+                          title="Delete access key"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>
@@ -538,6 +650,7 @@ export default function UserDetailsPage() {
                     variant="ghost"
                     size="sm"
                     onClick={() => copyToClipboard(createdKey.accessKey)}
+                    title="Copy to clipboard"
                   >
                     <Copy className="h-4 w-4" />
                   </Button>
@@ -555,6 +668,7 @@ export default function UserDetailsPage() {
                       variant="ghost"
                       size="sm"
                       onClick={() => copyToClipboard(createdKey.secretKey!)}
+                      title="Copy to clipboard"
                     >
                       <Copy className="h-4 w-4" />
                     </Button>
@@ -570,7 +684,15 @@ export default function UserDetailsPage() {
               </p>
             </div>
 
-            <div className="flex justify-end">
+            <div className="flex justify-between items-center">
+              <Button
+                variant="outline"
+                onClick={() => downloadAsCSV(createdKey)}
+                className="gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Download CSV
+              </Button>
               <Button onClick={() => setCreatedKey(null)}>
                 Got it
               </Button>

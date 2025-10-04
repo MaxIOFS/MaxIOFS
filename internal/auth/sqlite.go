@@ -1,0 +1,437 @@
+package auth
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	_ "modernc.org/sqlite"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/bcrypt"
+)
+
+// SQLiteStore implements authentication storage using SQLite
+type SQLiteStore struct {
+	db *sql.DB
+}
+
+// NewSQLiteStore creates a new SQLite-based auth store
+func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
+	// Ensure auth directory exists
+	authDir := filepath.Join(dataDir, "auth")
+	if err := ensureDir(authDir); err != nil {
+		return nil, fmt.Errorf("failed to create auth directory: %w", err)
+	}
+
+	dbPath := filepath.Join(authDir, "auth.db")
+
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	store := &SQLiteStore{db: db}
+
+	// Initialize schema
+	if err := store.initSchema(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to initialize schema: %w", err)
+	}
+
+	logrus.WithField("db_path", dbPath).Info("SQLite auth store initialized")
+	return store, nil
+}
+
+// initSchema creates the database schema
+func (s *SQLiteStore) initSchema() error {
+	schema := `
+	-- Users table (console users)
+	CREATE TABLE IF NOT EXISTS users (
+		id TEXT PRIMARY KEY,
+		username TEXT UNIQUE NOT NULL,
+		password_hash TEXT NOT NULL,
+		display_name TEXT,
+		email TEXT,
+		status TEXT DEFAULT 'active',
+		roles TEXT,
+		policies TEXT,
+		metadata TEXT,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);
+
+	-- Access keys table (S3 API keys)
+	CREATE TABLE IF NOT EXISTS access_keys (
+		access_key_id TEXT PRIMARY KEY,
+		secret_access_key TEXT NOT NULL,
+		user_id TEXT NOT NULL,
+		status TEXT DEFAULT 'active',
+		created_at INTEGER NOT NULL,
+		last_used INTEGER,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
+	-- Indexes for performance
+	CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+	CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+	CREATE INDEX IF NOT EXISTS idx_access_keys_user_id ON access_keys(user_id);
+	CREATE INDEX IF NOT EXISTS idx_access_keys_status ON access_keys(status);
+	`
+
+	_, err := s.db.Exec(schema)
+	return err
+}
+
+// HashPassword hashes a password using bcrypt
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
+}
+
+// VerifyPassword verifies a password against a bcrypt hash
+func VerifyPassword(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
+}
+
+// CreateUser creates a new user
+func (s *SQLiteStore) CreateUser(user *User) error {
+	// Hash password with bcrypt
+	hashedPassword, err := HashPassword(user.Password)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// Serialize JSON fields
+	rolesJSON, _ := json.Marshal(user.Roles)
+	policiesJSON, _ := json.Marshal(user.Policies)
+	metadataJSON, _ := json.Marshal(user.Metadata)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		INSERT INTO users (id, username, password_hash, display_name, email, status, roles, policies, metadata, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, user.ID, user.Username, hashedPassword, user.DisplayName, user.Email, user.Status,
+		string(rolesJSON), string(policiesJSON), string(metadataJSON), user.CreatedAt, user.UpdatedAt)
+
+	if err != nil {
+		return fmt.Errorf("failed to create user: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// GetUserByUsername retrieves a user by username
+func (s *SQLiteStore) GetUserByUsername(username string) (*User, error) {
+	var user User
+	var rolesJSON, policiesJSON, metadataJSON string
+
+	err := s.db.QueryRow(`
+		SELECT id, username, password_hash, display_name, email, status, roles, policies, metadata, created_at, updated_at
+		FROM users
+		WHERE username = ? AND status != 'deleted'
+	`, username).Scan(
+		&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
+		&rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Deserialize JSON fields
+	json.Unmarshal([]byte(rolesJSON), &user.Roles)
+	json.Unmarshal([]byte(policiesJSON), &user.Policies)
+	json.Unmarshal([]byte(metadataJSON), &user.Metadata)
+
+	return &user, nil
+}
+
+// GetUserByID retrieves a user by ID
+func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
+	var user User
+	var rolesJSON, policiesJSON, metadataJSON string
+
+	err := s.db.QueryRow(`
+		SELECT id, username, password_hash, display_name, email, status, roles, policies, metadata, created_at, updated_at
+		FROM users
+		WHERE id = ? AND status != 'deleted'
+	`, userID).Scan(
+		&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
+		&rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Deserialize JSON fields
+	json.Unmarshal([]byte(rolesJSON), &user.Roles)
+	json.Unmarshal([]byte(policiesJSON), &user.Policies)
+	json.Unmarshal([]byte(metadataJSON), &user.Metadata)
+
+	return &user, nil
+}
+
+// UpdateUser updates an existing user
+func (s *SQLiteStore) UpdateUser(user *User) error {
+	// Serialize JSON fields
+	rolesJSON, _ := json.Marshal(user.Roles)
+	policiesJSON, _ := json.Marshal(user.Policies)
+	metadataJSON, _ := json.Marshal(user.Metadata)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		UPDATE users
+		SET display_name = ?, email = ?, status = ?, roles = ?, policies = ?, metadata = ?, password_hash = ?, updated_at = ?
+		WHERE id = ?
+	`, user.DisplayName, user.Email, user.Status, string(rolesJSON), string(policiesJSON), string(metadataJSON), user.Password, user.UpdatedAt, user.ID)
+
+	if err != nil {
+		return fmt.Errorf("failed to update user: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// DeleteUser soft deletes a user (sets status to 'deleted')
+func (s *SQLiteStore) DeleteUser(userID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Soft delete user
+	_, err = tx.Exec(`UPDATE users SET status = 'deleted', updated_at = ? WHERE id = ?`, time.Now().Unix(), userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+
+	// Soft delete all associated access keys
+	_, err = tx.Exec(`UPDATE access_keys SET status = 'deleted' WHERE user_id = ?`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user access keys: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// ListUsers returns all active users
+func (s *SQLiteStore) ListUsers() ([]*User, error) {
+	rows, err := s.db.Query(`
+		SELECT id, username, password_hash, display_name, email, status, roles, policies, metadata, created_at, updated_at
+		FROM users
+		WHERE status != 'deleted'
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []*User
+	for rows.Next() {
+		var user User
+		var rolesJSON, policiesJSON, metadataJSON string
+
+		err := rows.Scan(
+			&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
+			&rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Deserialize JSON fields
+		json.Unmarshal([]byte(rolesJSON), &user.Roles)
+		json.Unmarshal([]byte(policiesJSON), &user.Policies)
+		json.Unmarshal([]byte(metadataJSON), &user.Metadata)
+
+		users = append(users, &user)
+	}
+
+	return users, nil
+}
+
+// CreateAccessKey creates a new access key
+func (s *SQLiteStore) CreateAccessKey(key *AccessKey) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		INSERT INTO access_keys (access_key_id, secret_access_key, user_id, status, created_at, last_used)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, key.AccessKeyID, key.SecretAccessKey, key.UserID, key.Status, key.CreatedAt, key.LastUsed)
+
+	if err != nil {
+		return fmt.Errorf("failed to create access key: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// GetAccessKey retrieves an access key by ID
+func (s *SQLiteStore) GetAccessKey(accessKeyID string) (*AccessKey, error) {
+	var key AccessKey
+	var lastUsed sql.NullInt64
+
+	err := s.db.QueryRow(`
+		SELECT access_key_id, secret_access_key, user_id, status, created_at, last_used
+		FROM access_keys
+		WHERE access_key_id = ? AND status != 'deleted'
+	`, accessKeyID).Scan(
+		&key.AccessKeyID, &key.SecretAccessKey, &key.UserID, &key.Status, &key.CreatedAt, &lastUsed,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("access key not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if lastUsed.Valid {
+		key.LastUsed = lastUsed.Int64
+	}
+
+	return &key, nil
+}
+
+// UpdateAccessKeyLastUsed updates the last used timestamp
+func (s *SQLiteStore) UpdateAccessKeyLastUsed(accessKeyID string, timestamp int64) error {
+	_, err := s.db.Exec(`
+		UPDATE access_keys
+		SET last_used = ?
+		WHERE access_key_id = ?
+	`, timestamp, accessKeyID)
+
+	return err
+}
+
+// DeleteAccessKey soft deletes an access key (sets status to 'deleted')
+func (s *SQLiteStore) DeleteAccessKey(accessKeyID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`UPDATE access_keys SET status = 'deleted' WHERE access_key_id = ?`, accessKeyID)
+	if err != nil {
+		return fmt.Errorf("failed to delete access key: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// ListAccessKeysByUser returns all active access keys for a user
+func (s *SQLiteStore) ListAccessKeysByUser(userID string) ([]*AccessKey, error) {
+	rows, err := s.db.Query(`
+		SELECT access_key_id, secret_access_key, user_id, status, created_at, last_used
+		FROM access_keys
+		WHERE user_id = ? AND status != 'deleted'
+		ORDER BY created_at DESC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []*AccessKey
+	for rows.Next() {
+		var key AccessKey
+		var lastUsed sql.NullInt64
+
+		err := rows.Scan(
+			&key.AccessKeyID, &key.SecretAccessKey, &key.UserID, &key.Status, &key.CreatedAt, &lastUsed,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if lastUsed.Valid {
+			key.LastUsed = lastUsed.Int64
+		}
+
+		keys = append(keys, &key)
+	}
+
+	return keys, nil
+}
+
+// ListAllAccessKeys returns all active access keys
+func (s *SQLiteStore) ListAllAccessKeys() ([]*AccessKey, error) {
+	rows, err := s.db.Query(`
+		SELECT access_key_id, secret_access_key, user_id, status, created_at, last_used
+		FROM access_keys
+		WHERE status != 'deleted'
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []*AccessKey
+	for rows.Next() {
+		var key AccessKey
+		var lastUsed sql.NullInt64
+
+		err := rows.Scan(
+			&key.AccessKeyID, &key.SecretAccessKey, &key.UserID, &key.Status, &key.CreatedAt, &lastUsed,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if lastUsed.Valid {
+			key.LastUsed = lastUsed.Int64
+		}
+
+		keys = append(keys, &key)
+	}
+
+	return keys, nil
+}
+
+// Close closes the database connection
+func (s *SQLiteStore) Close() error {
+	return s.db.Close()
+}
+
+// ensureDir creates a directory if it doesn't exist
+func ensureDir(dir string) error {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return err
+		}
+		logrus.WithField("dir", dir).Debug("Created directory")
+	}
+	return nil
+}

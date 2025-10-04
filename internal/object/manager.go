@@ -235,32 +235,26 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string) e
 	}
 
 	// Check Object Lock - Retention
-	fmt.Printf("DEBUG: Checking Object Lock retention for %s/%s\n", bucket, key)
+	// Checking Object Lock retention
 	retention, err := om.GetObjectRetention(ctx, bucket, key)
 	if err != nil {
-		fmt.Printf("DEBUG: GetObjectRetention error: %v\n", err)
+		// GetObjectRetention error - object might not have retention
 	} else if retention != nil {
-		fmt.Printf("DEBUG: Found retention - Mode: %s, RetainUntil: %v, Now: %v\n",
-			retention.Mode, retention.RetainUntilDate, time.Now())
+		// Found retention configuration
 		// Check if retention is still active
 		if time.Now().Before(retention.RetainUntilDate) {
-			fmt.Printf("INFO: Object is under retention protection until %v\n", retention.RetainUntilDate)
 			// COMPLIANCE mode cannot be bypassed
 			if retention.Mode == RetentionModeCompliance {
-				fmt.Printf("ERROR: Cannot delete - Object under COMPLIANCE mode\n")
 				return NewComplianceRetentionError(retention.RetainUntilDate)
 			}
 			// GOVERNANCE mode requires bypass permission (handled at API layer)
 			if retention.Mode == RetentionModeGovernance {
-				fmt.Printf("ERROR: Cannot delete - Object under GOVERNANCE mode\n")
 				return NewGovernanceRetentionError(retention.RetainUntilDate)
 			}
-		} else {
-			fmt.Printf("DEBUG: Retention period has expired\n")
 		}
-	} else {
-		fmt.Printf("DEBUG: No retention configuration found for object\n")
-	} // Delete object from storage
+	}
+
+	// Delete object from storage
 	if err := om.storage.Delete(ctx, objectPath); err != nil {
 		if err == storage.ErrObjectNotFound {
 			return ErrObjectNotFound
@@ -281,9 +275,6 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 		maxKeys = 1000 // Default max keys
 	}
 
-	// Debug logging
-	fmt.Printf("DEBUG ListObjects: bucket=%s, prefix=%s, delimiter=%s\n", bucket, prefix, delimiter)
-
 	// List objects from storage
 	bucketPrefix := bucket + "/"
 	if prefix != "" {
@@ -294,8 +285,6 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 	if err != nil {
 		return nil, fmt.Errorf("failed to list objects: %w", err)
 	}
-
-	fmt.Printf("DEBUG: Found %d storage objects\n", len(storageObjects))
 
 	var objects []Object
 	commonPrefixesMap := make(map[string]bool) // Use map to avoid duplicates
@@ -435,12 +424,6 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 		Prefix:         prefix,
 		Delimiter:      delimiter,
 		Marker:         marker,
-	}
-
-	// Debug logging
-	fmt.Printf("DEBUG: Returning %d objects and %d common prefixes\n", len(objects), len(commonPrefixes))
-	for _, cp := range commonPrefixes {
-		fmt.Printf("DEBUG: Common prefix: %s\n", cp.Prefix)
 	}
 
 	return result, nil
@@ -1033,8 +1016,6 @@ func (om *objectManager) loadBucketMetadata(ctx context.Context, bucketName stri
 	// Use the same path as bucketManager: .maxiofs/buckets/{bucket}.json
 	metadataPath := fmt.Sprintf(".maxiofs/buckets/%s.json", bucketName)
 
-	fmt.Printf("DEBUG: Loading bucket metadata from: %s\n", metadataPath)
-
 	reader, _, err := om.storage.Get(ctx, metadataPath)
 	if err != nil {
 		if err == storage.ErrObjectNotFound {
@@ -1088,36 +1069,26 @@ func (om *objectManager) loadBucketMetadata(ctx context.Context, bucketName stri
 		}
 	}
 
-	fmt.Printf("DEBUG: Successfully loaded bucket metadata\n")
-
 	return metadata, nil
 }
 
 // applyDefaultRetention applies bucket's default Object Lock retention to a new object
 func (om *objectManager) applyDefaultRetention(ctx context.Context, object *Object) error {
-	fmt.Printf("DEBUG: applyDefaultRetention called for bucket: %s, key: %s\n", object.Bucket, object.Key)
-
 	// Load bucket metadata to check for Object Lock configuration
 	bucketMeta, err := om.loadBucketMetadata(ctx, object.Bucket)
 	if err != nil {
-		fmt.Printf("DEBUG: Could not load bucket metadata: %v\n", err)
 		// Bucket metadata not found or no Object Lock - not an error
 		return nil
 	}
-	fmt.Printf("DEBUG: Loaded bucket metadata, checking for Object Lock config\n")
 
 	// Check if Object Lock is enabled
 	objectLockConfig, ok := bucketMeta["object_lock"].(map[string]interface{})
 	if !ok || objectLockConfig == nil {
-		fmt.Printf("DEBUG: No object_lock configuration found in bucket metadata\n")
 		return nil
 	}
-	fmt.Printf("DEBUG: Found object_lock config: %+v\n", objectLockConfig)
 
 	enabled, _ := objectLockConfig["objectLockEnabled"].(bool)
-	fmt.Printf("DEBUG: ObjectLockEnabled value: %v\n", enabled)
 	if !enabled {
-		fmt.Printf("DEBUG: Object Lock not enabled for bucket\n")
 		return nil
 	}
 

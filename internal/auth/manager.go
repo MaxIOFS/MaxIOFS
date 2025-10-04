@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/config"
@@ -84,85 +83,52 @@ type AccessKey struct {
 
 // authManager implements the Manager interface
 type authManager struct {
-	config       config.AuthConfig
-	users        map[string]*User      // accessKey -> user mapping (for S3 API)
-	consoleUsers map[string]*User      // username -> user mapping (for Console)
-	keys         map[string]*AccessKey // accessKey -> AccessKey mapping
-	persistence  *PersistenceManager   // Persistence layer
-	mu           sync.RWMutex          // Protect concurrent access
+	config config.AuthConfig
+	store  *SQLiteStore
 }
 
-// NewManager creates a new authentication manager
+// NewManager creates a new authentication manager with SQLite backend
 func NewManager(cfg config.AuthConfig, dataDir string) Manager {
-	manager := &authManager{
-		config:       cfg,
-		users:        make(map[string]*User),
-		consoleUsers: make(map[string]*User),
-		keys:         make(map[string]*AccessKey),
+	// Initialize SQLite store
+	store, err := NewSQLiteStore(dataDir)
+	if err != nil {
+		logrus.WithError(err).Fatal("Failed to initialize SQLite auth store")
 	}
 
-	// Initialize persistence
-	persistence, err := NewPersistenceManager(dataDir)
+	manager := &authManager{
+		config: cfg,
+		store:  store,
+	}
+
+	// Create default admin user if not exists (ONLY admin, no default keys)
+	_, err = store.GetUserByUsername("admin")
 	if err != nil {
-		logrus.WithError(err).Error("Failed to initialize persistence manager")
-	} else {
-		manager.persistence = persistence
+		// Admin doesn't exist, create it
+		now := time.Now().Unix()
+		adminUser := &User{
+			ID:          "admin",
+			Username:    "admin",
+			Password:    "admin", // Will be hashed by SQLiteStore.CreateUser
+			DisplayName: "Administrator",
+			Email:       "admin@maxiofs.local",
+			Status:      UserStatusActive,
+			Roles:       []string{"admin"},
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
 
-		// Load existing users and keys from disk
-		data, err := persistence.LoadUsers()
-		if err != nil {
-			logrus.WithError(err).Error("Failed to load users from disk")
+		if err := store.CreateUser(adminUser); err != nil {
+			logrus.WithError(err).Error("Failed to create default admin user")
 		} else {
-			// Restore console users
-			manager.consoleUsers = data.Users
-
-			// Restore access keys and rebuild users map (accessKey -> user)
-			manager.keys = data.AccessKeys
-			for accessKeyID, key := range data.AccessKeys {
-				if user, exists := manager.consoleUsers[key.UserID]; exists {
-					manager.users[accessKeyID] = user
-					logrus.WithFields(logrus.Fields{
-						"access_key_id": accessKeyID,
-						"user_id":       key.UserID,
-						"user_name":     user.DisplayName,
-					}).Debug("Restored access key mapping")
-				} else {
-					logrus.WithFields(logrus.Fields{
-						"access_key_id": accessKeyID,
-						"user_id":       key.UserID,
-					}).Warn("Access key references non-existent user")
-				}
-			}
-
-			logrus.WithFields(logrus.Fields{
-				"console_users":    len(manager.consoleUsers),
-				"access_keys":      len(manager.keys),
-				"s3_user_mappings": len(manager.users),
-			}).Info("Restored users and access keys from disk")
+			logrus.Info("Created default admin user (username: admin, password: admin)")
 		}
 	}
-
-	// Add default console admin user
-	// Password: "admin" hashed with SHA256
-	adminUser := &User{
-		ID:          "admin",
-		Username:    "admin",
-		Password:    hashPassword("admin"), // Simple hash for demo
-		DisplayName: "Administrator",
-		Email:       "admin@maxiofs.local",
-		Status:      "active",
-		Roles:       []string{"admin"},
-		CreatedAt:   time.Now().Unix(),
-		UpdatedAt:   time.Now().Unix(),
-	}
-	manager.consoleUsers["admin"] = adminUser
 
 	return manager
 }
 
-// ValidateCredentials validates access/secret key credentials
+// ValidateCredentials validates access/secret key credentials (S3 API)
 func (am *authManager) ValidateCredentials(ctx context.Context, accessKey, secretKey string) (*User, error) {
-	// TODO: Implement in Fase 1.4 - Authentication Manager
 	if !am.config.EnableAuth {
 		// Return default user when auth is disabled
 		return &User{
@@ -173,12 +139,37 @@ func (am *authManager) ValidateCredentials(ctx context.Context, accessKey, secre
 		}, nil
 	}
 
-	// Check default credentials
-	if accessKey == am.config.AccessKey && secretKey == am.config.SecretKey {
-		return am.users[accessKey], nil
+	// Get access key from database
+	key, err := am.store.GetAccessKey(accessKey)
+	if err != nil {
+		return nil, ErrInvalidCredentials
 	}
 
-	return nil, ErrInvalidCredentials
+	// Validate secret key
+	if key.SecretAccessKey != secretKey {
+		return nil, ErrInvalidCredentials
+	}
+
+	// Check key status
+	if key.Status != AccessKeyStatusActive {
+		return nil, ErrInvalidCredentials
+	}
+
+	// Get user associated with this key
+	user, err := am.store.GetUserByID(key.UserID)
+	if err != nil {
+		return nil, ErrUserNotFound
+	}
+
+	// Check user status
+	if user.Status != UserStatusActive {
+		return nil, ErrInvalidCredentials
+	}
+
+	// Update last used timestamp
+	am.store.UpdateAccessKeyLastUsed(accessKey, time.Now().Unix())
+
+	return user, nil
 }
 
 // ValidateConsoleCredentials validates username/password for console login
@@ -194,20 +185,19 @@ func (am *authManager) ValidateConsoleCredentials(ctx context.Context, username,
 		}, nil
 	}
 
-	// Check console users
-	user, exists := am.consoleUsers[username]
-	if !exists {
+	// Get user by username from database
+	user, err := am.store.GetUserByUsername(username)
+	if err != nil {
 		return nil, ErrInvalidCredentials
 	}
 
-	// Verify password
-	hashedPassword := hashPassword(password)
-	if user.Password != hashedPassword {
+	// Validate password with bcrypt
+	if !VerifyPassword(password, user.Password) {
 		return nil, ErrInvalidCredentials
 	}
 
 	// Check user status
-	if user.Status != "active" {
+	if user.Status != UserStatusActive {
 		return nil, ErrUserInactive
 	}
 
@@ -240,8 +230,8 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 		return nil, ErrTokenExpired
 	}
 
-	// Get user by access key
-	user, err := am.GetUser(ctx, claims.AccessKey)
+	// Get user by username (AccessKey in claims is username for console users)
+	user, err := am.store.GetUserByUsername(claims.AccessKey)
 	if err != nil {
 		return nil, err
 	}
@@ -251,25 +241,11 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 
 // GenerateJWT generates a JWT token for a user
 func (am *authManager) GenerateJWT(ctx context.Context, user *User) (string, error) {
-	// For console users, use username as AccessKey
-	// For S3 API users, find their actual access key
-	var accessKey string
-
-	// Check if it's a console user
-	if user.Username != "" {
-		accessKey = user.Username
-	} else {
-		// Find user's S3 access key
-		for key, u := range am.users {
-			if u.ID == user.ID {
-				accessKey = key
-				break
-			}
-		}
-
-		if accessKey == "" {
-			return "", ErrUserNotFound
-		}
+	// For console users, always use username as AccessKey
+	accessKey := user.Username
+	if accessKey == "" {
+		// If no username, this shouldn't happen for console users
+		return "", fmt.Errorf("user has no username")
 	}
 
 	// Create claims
@@ -325,27 +301,17 @@ func (am *authManager) ValidateS3SignatureV4(ctx context.Context, r *http.Reques
 		return nil, err
 	}
 
-	// Get user by access key with read lock
-	am.mu.RLock()
-	accessKey, keyExists := am.keys[sig.AccessKey]
-	user, userExists := am.users[sig.AccessKey]
-	am.mu.RUnlock()
-
-	logrus.WithFields(logrus.Fields{
-		"access_key":  sig.AccessKey,
-		"key_exists":  keyExists,
-		"user_exists": userExists,
-		"keys_count":  len(am.keys),
-		"users_count": len(am.users),
-	}).Info("Looking up access key")
-
-	if !keyExists {
-		logrus.WithField("access_key", sig.AccessKey).Warn("Access key not found in keys map")
+	// Get access key from database
+	accessKey, err := am.store.GetAccessKey(sig.AccessKey)
+	if err != nil {
+		logrus.WithField("access_key", sig.AccessKey).Warn("Access key not found")
 		return nil, ErrInvalidCredentials
 	}
 
-	if !userExists {
-		logrus.WithField("access_key", sig.AccessKey).Warn("User not found in users map")
+	// Get user associated with this key
+	user, err := am.store.GetUserByID(accessKey.UserID)
+	if err != nil {
+		logrus.WithField("user_id", accessKey.UserID).Warn("User not found for access key")
 		return nil, ErrUserNotFound
 	}
 
@@ -353,6 +319,9 @@ func (am *authManager) ValidateS3SignatureV4(ctx context.Context, r *http.Reques
 	if !am.verifyS3SignatureV4(r, sig, accessKey.SecretAccessKey) {
 		return nil, ErrInvalidSignature
 	}
+
+	// Update last used
+	am.store.UpdateAccessKeyLastUsed(accessKey.AccessKeyID, time.Now().Unix())
 
 	return user, nil
 }
@@ -370,14 +339,15 @@ func (am *authManager) ValidateS3SignatureV2(ctx context.Context, r *http.Reques
 		return nil, err
 	}
 
-	// Get user by access key
-	accessKey, exists := am.keys[sig.AccessKey]
-	if !exists {
+	// Get access key from database
+	accessKey, err := am.store.GetAccessKey(sig.AccessKey)
+	if err != nil {
 		return nil, ErrInvalidCredentials
 	}
 
-	user := am.users[sig.AccessKey]
-	if user == nil {
+	// Get user associated with this key
+	user, err := am.store.GetUserByID(accessKey.UserID)
+	if err != nil {
 		return nil, ErrUserNotFound
 	}
 
@@ -385,6 +355,9 @@ func (am *authManager) ValidateS3SignatureV2(ctx context.Context, r *http.Reques
 	if !am.verifyS3SignatureV2(r, sig, accessKey.SecretAccessKey) {
 		return nil, ErrInvalidSignature
 	}
+
+	// Update last used
+	am.store.UpdateAccessKeyLastUsed(accessKey.AccessKeyID, time.Now().Unix())
 
 	return user, nil
 }
@@ -415,13 +388,8 @@ func (am *authManager) CheckObjectPermission(ctx context.Context, user *User, bu
 
 // User management methods
 func (am *authManager) CreateUser(ctx context.Context, user *User) error {
-	if user.ID == "" {
-		return fmt.Errorf("user ID is required")
-	}
-
-	// Check if user already exists in consoleUsers
-	if _, exists := am.consoleUsers[user.ID]; exists {
-		return fmt.Errorf("user already exists")
+	if user.Username == "" {
+		return fmt.Errorf("username is required")
 	}
 
 	// Set timestamps
@@ -439,94 +407,51 @@ func (am *authManager) CreateUser(ctx context.Context, user *User) error {
 		user.Metadata = make(map[string]string)
 	}
 
-	// Store in consoleUsers map using ID as key
-	am.mu.Lock()
-	am.consoleUsers[user.ID] = user
-	am.mu.Unlock()
-
-	// Persist to disk
-	if am.persistence != nil {
-		if err := am.persistence.SaveUsers(am.consoleUsers, am.keys); err != nil {
-			logrus.WithError(err).Error("Failed to persist user data")
-		}
-	}
-
-	return nil
+	// Create user in database (password will be hashed by SQLiteStore)
+	return am.store.CreateUser(user)
 }
 
 func (am *authManager) UpdateUser(ctx context.Context, user *User) error {
-	// Find and update user in consoleUsers
-	existingUser, exists := am.consoleUsers[user.ID]
-	if !exists {
-		return ErrUserNotFound
-	}
+	// Update timestamp
+	user.UpdatedAt = time.Now().Unix()
 
-	// Update fields
-	existingUser.DisplayName = user.DisplayName
-	existingUser.Email = user.Email
-	existingUser.Status = user.Status
-	existingUser.Roles = user.Roles
-	existingUser.Policies = user.Policies
-	existingUser.UpdatedAt = time.Now().Unix()
-
-	// Update metadata
-	if user.Metadata != nil {
-		if existingUser.Metadata == nil {
-			existingUser.Metadata = make(map[string]string)
-		}
-		for k, v := range user.Metadata {
-			existingUser.Metadata[k] = v
-		}
-	}
-
-	am.consoleUsers[user.ID] = existingUser
-	return nil
+	// Update user in database
+	return am.store.UpdateUser(user)
 }
 
 func (am *authManager) DeleteUser(ctx context.Context, userID string) error {
-	// Check if user exists in consoleUsers
-	if _, exists := am.consoleUsers[userID]; !exists {
-		return ErrUserNotFound
-	}
-
 	// Don't allow deleting admin user (last resort account)
 	if userID == "admin" {
 		return fmt.Errorf("cannot delete admin user")
 	}
 
-	// Delete user from consoleUsers
-	delete(am.consoleUsers, userID)
-
-	// Also delete all access keys associated with this user
-	for accessKeyID, key := range am.keys {
-		if key.UserID == userID {
-			delete(am.keys, accessKeyID)
-		}
-	}
-
-	return nil
+	// Soft delete user in database (also soft deletes associated access keys)
+	return am.store.DeleteUser(userID)
 }
 
 func (am *authManager) GetUser(ctx context.Context, userID string) (*User, error) {
-	if user, exists := am.consoleUsers[userID]; exists {
-		return user, nil
-	}
-	return nil, ErrUserNotFound
+	return am.store.GetUserByID(userID)
 }
 
 func (am *authManager) ListUsers(ctx context.Context) ([]User, error) {
-	var users []User
-	for _, user := range am.consoleUsers {
-		users = append(users, *user)
+	usersPtrs, err := am.store.ListUsers()
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert []*User to []User
+	users := make([]User, len(usersPtrs))
+	for i, u := range usersPtrs {
+		users[i] = *u
 	}
 	return users, nil
 }
 
 // Access key management methods
 func (am *authManager) GenerateAccessKey(ctx context.Context, userID string) (*AccessKey, error) {
-	// Find user in consoleUsers
-	user, exists := am.consoleUsers[userID]
-	if !exists {
+	// Verify user exists
+	_, err := am.store.GetUserByID(userID)
+	if err != nil {
 		return nil, ErrUserNotFound
 	}
 
@@ -550,46 +475,29 @@ func (am *authManager) GenerateAccessKey(ctx context.Context, userID string) (*A
 		CreatedAt:       time.Now().Unix(),
 	}
 
-	// Store in keys map and link to user
-	am.mu.Lock()
-	am.keys[accessKeyID] = accessKey
-	am.users[accessKeyID] = user
-	am.mu.Unlock()
-
-	// Persist to disk
-	if am.persistence != nil {
-		if err := am.persistence.SaveUsers(am.consoleUsers, am.keys); err != nil {
-			logrus.WithError(err).Error("Failed to persist access key")
-		}
+	// Store in database
+	if err := am.store.CreateAccessKey(accessKey); err != nil {
+		return nil, err
 	}
 
 	return accessKey, nil
 }
 
 func (am *authManager) RevokeAccessKey(ctx context.Context, accessKey string) error {
-	key, exists := am.keys[accessKey]
-	if !exists {
-		return fmt.Errorf("access key not found")
-	}
-
-	// Don't allow revoking default key
-	if accessKey == am.config.AccessKey {
-		return fmt.Errorf("cannot revoke default access key")
-	}
-
-	// Set status to inactive instead of deleting
-	key.Status = AccessKeyStatusInactive
-	am.keys[accessKey] = key
-
-	return nil
+	// Soft delete (set status to 'deleted')
+	return am.store.DeleteAccessKey(accessKey)
 }
 
 func (am *authManager) ListAccessKeys(ctx context.Context, userID string) ([]AccessKey, error) {
-	var keys []AccessKey
-	for _, key := range am.keys {
-		if key.UserID == userID {
-			keys = append(keys, *key)
-		}
+	keysPtrs, err := am.store.ListAccessKeysByUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert []*AccessKey to []AccessKey
+	keys := make([]AccessKey, len(keysPtrs))
+	for i, k := range keysPtrs {
+		keys[i] = *k
 	}
 	return keys, nil
 }
