@@ -46,6 +46,12 @@ export default function UsersPage() {
     queryFn: APIClient.getUsers,
   });
 
+  // Fetch access keys for all users
+  const { data: allAccessKeys } = useQuery({
+    queryKey: ['accessKeys'],
+    queryFn: () => APIClient.getAccessKeys(),
+  });
+
   const createUserMutation = useMutation({
     mutationFn: (data: CreateUserRequest) => APIClient.createUser(data),
     onSuccess: (response, variables) => {
@@ -150,6 +156,11 @@ export default function UsersPage() {
       case 'read': return 'bg-green-100 text-green-800';
       default: return 'bg-gray-100 text-gray-800';
     }
+  };
+
+  const getUserAccessKeysCount = (userId: string) => {
+    if (!allAccessKeys) return 0;
+    return allAccessKeys.filter((key: any) => key.userId === userId).length;
   };
 
   const getStatusColor = (status: string) => {
@@ -288,6 +299,7 @@ export default function UsersPage() {
                   <TableHead>Email</TableHead>
                   <TableHead>Roles</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Access Keys</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -323,6 +335,14 @@ export default function UsersPage() {
                       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(user.status)}`}>
                         {user.status}
                       </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Key className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-sm">
+                          {getUserAccessKeysCount(user.id)}
+                        </span>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 text-sm text-muted-foreground">

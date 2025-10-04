@@ -1,8 +1,6 @@
 package server
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -110,9 +108,13 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/users/{user}", s.handleDeleteUser).Methods("DELETE", "OPTIONS")
 
 	// Access Key endpoints
+	router.HandleFunc("/access-keys", s.handleListAllAccessKeys).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{user}/access-keys", s.handleListAccessKeys).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{user}/access-keys", s.handleCreateAccessKey).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/{user}/access-keys/{accessKey}", s.handleDeleteAccessKey).Methods("DELETE", "OPTIONS")
+
+	// Password management
+	router.HandleFunc("/users/{user}/password", s.handleChangePassword).Methods("PUT", "OPTIONS")
 
 	// Metrics endpoints
 	router.HandleFunc("/metrics", s.handleGetMetrics).Methods("GET", "OPTIONS")
@@ -646,16 +648,11 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		createRequest.Roles = []string{"read"}
 	}
 
-	// Hash password
-	h := sha256.New()
-	h.Write([]byte(createRequest.Password))
-	hashedPassword := hex.EncodeToString(h.Sum(nil))
-
-	// Create user
+	// Create user (password will be hashed by CreateUser)
 	user := &auth.User{
 		ID:          createRequest.Username,
 		Username:    createRequest.Username,
-		Password:    hashedPassword,
+		Password:    createRequest.Password, // Will be hashed with bcrypt by SQLiteStore
 		DisplayName: createRequest.Username,
 		Email:       createRequest.Email,
 		Status:      createRequest.Status,
@@ -838,6 +835,48 @@ func (s *Server) writeError(w http.ResponseWriter, message string, statusCode in
 }
 
 // Access Key handlers
+func (s *Server) handleListAllAccessKeys(w http.ResponseWriter, r *http.Request) {
+	// List all users first
+	users, err := s.authManager.ListUsers(r.Context())
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert to response format (don't expose secret keys)
+	type AccessKeyResponse struct {
+		ID        string `json:"id"`
+		UserID    string `json:"userId"`
+		Status    string `json:"status"`
+		CreatedAt int64  `json:"createdAt"`
+		LastUsed  int64  `json:"lastUsed,omitempty"`
+	}
+
+	var allAccessKeys []AccessKeyResponse
+
+	// Collect all access keys from all users
+	for _, user := range users {
+		accessKeys, err := s.authManager.ListAccessKeys(r.Context(), user.ID)
+		if err != nil {
+			// Log error but continue with other users
+			log.Printf("Error listing access keys for user %s: %v", user.ID, err)
+			continue
+		}
+
+		for _, key := range accessKeys {
+			allAccessKeys = append(allAccessKeys, AccessKeyResponse{
+				ID:        key.AccessKeyID,
+				UserID:    key.UserID,
+				Status:    key.Status,
+				CreatedAt: key.CreatedAt,
+				LastUsed:  key.LastUsed,
+			})
+		}
+	}
+
+	s.writeJSON(w, allAccessKeys)
+}
+
 func (s *Server) handleListAccessKeys(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userID := vars["user"]
@@ -916,6 +955,69 @@ func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, map[string]string{"message": "Access key deleted successfully"})
+}
+
+// Password management handler
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userID := vars["user"]
+
+	var changeRequest struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&changeRequest); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if changeRequest.CurrentPassword == "" || changeRequest.NewPassword == "" {
+		s.writeError(w, "Current password and new password are required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate new password strength
+	if len(changeRequest.NewPassword) < 6 {
+		s.writeError(w, "New password must be at least 6 characters", http.StatusBadRequest)
+		return
+	}
+
+	// Get existing user
+	user, err := s.authManager.GetUser(r.Context(), userID)
+	if err != nil {
+		if err == auth.ErrUserNotFound {
+			s.writeError(w, "User not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Verify current password
+	if !auth.VerifyPassword(changeRequest.CurrentPassword, user.Password) {
+		s.writeError(w, "Current password is incorrect", http.StatusUnauthorized)
+		return
+	}
+
+	// Hash new password
+	hashedPassword, err := auth.HashPassword(changeRequest.NewPassword)
+	if err != nil {
+		s.writeError(w, "Failed to hash new password", http.StatusInternalServerError)
+		return
+	}
+
+	// Update password
+	user.Password = hashedPassword
+	user.UpdatedAt = time.Now().Unix()
+
+	if err := s.authManager.UpdateUser(r.Context(), user); err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]string{"message": "Password changed successfully"})
 }
 
 // Security handlers

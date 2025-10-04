@@ -124,12 +124,12 @@ export default function ObjectsPage() {
   const handleDownload = async (bucketName: string, objectKey: string) => {
     try {
       SweetAlert.loading('Downloading...', 'Preparing your file');
-      
+
       const blob = await APIClient.downloadObject({
         bucket: bucketName,
         key: objectKey,
       });
-      
+
       // Create download link
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -139,9 +139,35 @@ export default function ObjectsPage() {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
-      
+
       SweetAlert.close();
       await SweetAlert.success('Download Complete', `${objectKey} has been downloaded successfully`);
+    } catch (error: any) {
+      SweetAlert.close();
+      await SweetAlert.apiError(error);
+    }
+  };
+
+  const handleDelete = async (bucketName: string, objectKey: string) => {
+    try {
+      const result = await SweetAlert.confirm(
+        'Delete Object',
+        `Are you sure you want to delete "${objectKey}"? This action cannot be undone.`,
+        'Delete',
+        'Cancel'
+      );
+
+      if (result.isConfirmed) {
+        SweetAlert.loading('Deleting...', `Deleting "${objectKey}"`);
+
+        await APIClient.deleteObject(bucketName, objectKey);
+
+        SweetAlert.close();
+        await SweetAlert.success('Object Deleted', `${objectKey} has been deleted successfully`);
+
+        // Refresh the objects list
+        window.location.reload();
+      }
     } catch (error: any) {
       SweetAlert.close();
       await SweetAlert.apiError(error);
@@ -321,7 +347,7 @@ export default function ObjectsPage() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => console.log('Delete', obj.key)}
+              onClick={() => handleDelete(obj.bucket, obj.key)}
             >
               <Trash2 className="h-4 w-4" />
             </Button>

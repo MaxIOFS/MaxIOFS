@@ -281,6 +281,13 @@ export class APIClient {
     await apiClient.delete(`/users/${userId}`);
   }
 
+  static async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+    await apiClient.put(`/users/${userId}/password`, {
+      currentPassword,
+      newPassword,
+    });
+  }
+
   // Access Keys Management
   static async getAccessKeys(userId?: string): Promise<AccessKey[]> {
     const url = userId ? `/users/${userId}/access-keys` : '/access-keys';
