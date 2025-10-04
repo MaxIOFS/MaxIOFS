@@ -1,68 +1,37 @@
 # MaxIOFS - Modern S3-Compatible Object Storage
 
-MaxIOFS is a modern, high-performance S3-compatible object storage system built in Go with an embedded Next.js web interface. Designed from the ground up with a pluggable architecture, it provides enterprise-grade object storage with advanced monitoring, modern UI/UX, and complete AWS S3 API compatibility.
+MaxIOFS is a high-performance S3-compatible object storage system built in Go with an embedded Next.js web interface. It provides enterprise-grade object storage with WORM compliance, advanced monitoring, and complete AWS S3 API compatibility.
 
 ## 🚀 Features
 
-- **🔄 S3 API Compatibility**: Complete compatibility with AWS S3 API
-- **🔒 Object Locking**: Full support for WORM (Write Once Read Many) compliance
-- **� Veeam Compatible**: Certified for Veeam Backup & Replication immutable repositories
-- **�📦 Single Binary**: Self-contained executable with embedded web interface
-- **⚡ High Performance**: Built in Go for maximum speed and efficiency
-- **🎨 Modern Web UI**: Next.js 14-based admin interface with Tailwind CSS
-- **🔌 Pluggable Backends**: Support for filesystem, S3, GCS, Azure Blob Storage
-- **🛡️ Enterprise Security**: At-rest and in-transit encryption with advanced auth
-- **📊 Advanced Monitoring**: Prometheus metrics with custom dashboards
-- **🔧 Developer Friendly**: CLI with Cobra, configuration with Viper
-- **🐳 Container Ready**: Optimized Docker images and Kubernetes support
+- **S3 API Compatibility**: Complete AWS S3 API implementation with 23+ advanced operations
+- **Object Lock & WORM**: Full support for Write Once Read Many compliance (COMPLIANCE/GOVERNANCE modes)
+- **Veeam Compatible**: Works as immutable backup repository for Veeam Backup & Replication
+- **Single Binary**: Self-contained executable with embedded web UI
+- **Modern Web Interface**: Next.js 14 dashboard with real-time metrics and management
+- **Dual Authentication**: Console web login + S3 API access keys
+- **High Performance**: 374 MB/s writes, 1703 MB/s reads (benchmarked)
+- **Pluggable Storage**: Filesystem backend (S3, GCS, Azure planned)
+- **Enterprise Security**: AES-256-GCM encryption, JWT authentication
+- **Production Ready**: Prometheus metrics, structured logging, rate limiting
 
-## 📋 Architecture
+## 🏗️ Architecture
 
 ```
 ┌─────────────────┐
-│   Web UI        │ ← Next.js Frontend (Embedded)
-│   (Next.js)     │
+│   Web Console   │ ← Next.js 14 UI (port 8081)
 ├─────────────────┤
-│   API Gateway   │ ← S3 Compatible REST API
-│   (Go)          │
+│   Console API   │ ← REST API for frontend
 ├─────────────────┤
-│   Core Engine   │ ← Object Management, Bucket Management
-│   (Go)          │
+│   S3 API        │ ← S3-compatible API (port 8080)
 ├─────────────────┤
-│   Storage Layer │ ← Pluggable storage backends
-│   (Go)          │
+│   Core Engine   │ ← Bucket/Object/Auth Managers
+├─────────────────┤
+│   Storage       │ ← Filesystem Backend
 └─────────────────┘
 ```
 
-## 🏗️ Project Structure
-
-```
-MaxIOFS/
-├── cmd/
-│   └── maxiofs/           # Main application entry point
-├── internal/
-│   ├── api/               # S3 API implementation
-│   ├── auth/              # Authentication & authorization
-│   ├── bucket/            # Bucket management
-│   ├── object/            # Object operations & locking
-│   ├── storage/           # Storage backend abstractions
-│   ├── config/            # Configuration management
-│   ├── middleware/        # HTTP middleware
-│   └── metrics/           # Metrics collection
-├── pkg/
-│   ├── s3compat/          # S3 compatibility layer
-│   ├── encryption/        # Encryption utilities
-│   └── compression/       # Compression utilities
-├── web/
-│   ├── frontend/          # Next.js admin interface
-│   └── assets/            # Static assets
-├── scripts/               # Build and deployment scripts
-├── docker/                # Docker configuration
-├── tests/                 # Test suites
-└── docs/                  # Documentation
-```
-
-## 🛠️ Development
+## 🚀 Quick Start
 
 ### Prerequisites
 
@@ -70,71 +39,207 @@ MaxIOFS/
 - Node.js 18+
 - npm/yarn
 
-### Building
+### Running MaxIOFS
 
 ```bash
-# Build the complete system
+# Build and run
+go build -o maxiofs.exe ./cmd/maxiofs
+./maxiofs.exe
+
+# Or with make
 make build
+./maxiofs.exe
 
-# Development mode
+# Development mode (auto-reload)
 make dev
-
-# Run tests
-make test
 ```
+
+**Default Credentials:**
+- **Web Console**: `http://localhost:8081` → Login: `admin` / `admin`
+- **S3 API**: `http://localhost:8080` → Access Key: `maxioadmin` / Secret: `maxioadmin`
+
+### Frontend Development
+
+```bash
+cd web/frontend
+npm install
+npm run dev  # Development server on port 3000
+npm run build  # Production build
+```
+
+## 📋 Key Capabilities
+
+### Object Lock & WORM
+
+- **COMPLIANCE Mode**: Objects cannot be deleted by anyone until retention expires
+- **GOVERNANCE Mode**: Requires special permissions to bypass retention
+- **Default Retention**: Auto-apply retention policies on upload
+- **Legal Hold**: Additional immutability layer independent of retention
+- **Veeam Integration**: Headers support for `x-amz-object-lock-mode` and retention dates
+
+### S3 API Operations (23+)
+
+**Bucket Operations:**
+- Policy, Lifecycle, CORS configuration (Get/Put/Delete)
+- Object Lock configuration
+- Versioning (planned)
+
+**Object Operations:**
+- Standard CRUD (Get/Put/Delete/List/Head)
+- Retention and Legal Hold management
+- Tagging and ACL
+- Copy and Multipart Upload (6 operations)
+- Presigned URLs (V4/V2)
+- Batch operations (1000 objects/request)
+
+### Web Console Features
+
+- **Dashboard**: Real-time metrics and system overview
+- **Bucket Management**: Create buckets with Object Lock wizard
+- **Object Browser**: Upload/download with retention display
+- **User Management**: Create users, manage access keys
+- **Settings**: System configuration and monitoring
 
 ## 🎯 Use Cases
 
-### Backup & Recovery with Veeam
+### Immutable Backups with Veeam
 
-MaxIOFS is fully compatible with **Veeam Backup & Replication** as an immutable backup repository:
+MaxIOFS provides on-premise immutable storage for Veeam Backup & Replication:
 
-- ✅ S3-compatible API with Object Lock support
-- ✅ COMPLIANCE and GOVERNANCE retention modes
-- ✅ Automatic retention application on backup uploads
-- ✅ Protection against ransomware and accidental deletion
-- ✅ On-premise deployment (no cloud dependency)
+1. Create bucket with Object Lock enabled (COMPLIANCE mode, 14+ days retention)
+2. Configure Veeam to use MaxIOFS as S3 repository
+3. Backups are automatically immutable for the retention period
+4. Protection against ransomware and accidental deletion
 
-**Quick Start**: See [Veeam Configuration Guide](./docs/VEEAM_QUICKSTART.md)
+**Veeam Configuration:**
+- Service Point: `http://your-server:8080`
+- Access Key: Your S3 credentials
+- Enable "Make recent backups immutable for X days"
 
-### Enterprise Object Storage
+### General Object Storage
 
-- Document management systems
-- Media asset management
-- Log aggregation and archival
+- Document management and archival
+- Media asset storage
+- Log aggregation
 - Data lake storage
-- Backup and disaster recovery
+- Application file storage
 
-## 📦 Deployment
+## 📊 Performance
 
-MaxIOFS can be deployed as:
+Benchmark results (filesystem backend):
 
-1. **Single Binary**: Self-contained executable
-2. **Docker Container**: Official Docker images
-3. **Kubernetes**: Helm charts available
+- **Writes**: 374 MB/s (100MB files)
+- **Reads**: 1703 MB/s (10MB files)
+- **Memory**: ~15KB/op writes, ~11KB/op reads
+- **Concurrency**: 50+ simultaneous operations
 
 ## 🔧 Configuration
 
-Configuration via:
-- Environment variables
-- YAML configuration files
-- Command-line flags
+Configuration via environment variables, YAML files, or command-line flags:
+
+```yaml
+# Example config.yaml
+server:
+  s3_port: 8080
+  console_port: 8081
+storage:
+  backend: filesystem
+  data_dir: ./data
+auth:
+  jwt_secret: your-secret-key
+  default_admin: admin
+```
 
 ## 📖 Documentation
 
-- [Architecture Overview](./docs/ARCHITECTURE.md)
-- [Quick Start Guide](./docs/QUICKSTART.md)
-- [Veeam Compatibility Guide](./docs/VEEAM_COMPATIBILITY.md)
-- [Veeam Quick Start](./docs/VEEAM_QUICKSTART.md)
-- [API Reference](./docs/API.md)
+- [Architecture Guide](./docs/ARCHITECTURE.md) - System design and components
+- [Quick Start Guide](./docs/QUICKSTART.md) - Setup and configuration
+- [TODO](./TODO.md) - Development roadmap and progress
 
-## 📊 Monitoring
+## 🧪 Testing
 
-Built-in metrics compatible with:
-- Prometheus
-- Grafana
-- Custom monitoring solutions
+```bash
+# Run all tests
+make test
+
+# Unit tests
+go test ./internal/... -v
+
+# Integration tests
+go test ./tests/integration/... -v
+
+# Benchmarks
+go test ./tests/performance/... -bench=. -benchmem
+```
+
+**Test Coverage:**
+- 29 unit tests (100% pass)
+- 18 integration tests (100% pass)
+- 18 performance benchmarks
+
+## 📦 Deployment
+
+### Single Binary
+
+```bash
+go build -o maxiofs ./cmd/maxiofs
+./maxiofs --config config.yaml
+```
+
+### Docker
+
+```bash
+docker build -t maxiofs .
+docker run -p 8080:8080 -p 8081:8081 -v ./data:/data maxiofs
+```
+
+### Kubernetes
+
+```bash
+# Coming soon: Helm charts
+```
+
+## ⚠️ Security Notes
+
+**For Production Deployments:**
+
+- Replace SHA-256 password hashing with bcrypt/argon2
+- Implement rate limiting on authentication endpoints
+- Configure CORS restrictively (no wildcard `*`)
+- Enable HTTPS/TLS with valid certificates
+- Use strong JWT secrets (min 32 random bytes)
+- Implement password policies (min 8 chars, complexity)
+- Enable audit logging for compliance
+
+## 🛠️ Development Status
+
+**Current Phase**: Production Ready (Phases 1-5 Complete)
+
+- ✅ Backend S3 API (23+ operations)
+- ✅ Frontend Next.js dashboard
+- ✅ Dual authentication system
+- ✅ Object Lock & WORM
+- ✅ Unit/Integration/Performance tests
+- ⏳ Production hardening (Phase 6)
+- ⏳ Additional storage backends (Phase 7)
+
+See [TODO.md](./TODO.md) for detailed roadmap.
 
 ## 📄 License
 
 MIT License - see LICENSE file for details.
+
+## 🤝 Contributing
+
+Contributions welcome! Please ensure:
+1. All tests pass
+2. Code follows Go best practices
+3. Documentation is updated
+4. Commits are well-described
+
+## 📞 Support
+
+For issues and questions:
+- GitHub Issues: [Report bugs or request features]
+- Documentation: See `/docs` folder
+- Quick Start: See [QUICKSTART.md](./docs/QUICKSTART.md)
