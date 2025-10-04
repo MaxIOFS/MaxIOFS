@@ -16,6 +16,7 @@ export interface User {
   status: 'active' | 'inactive' | 'suspended';
   createdAt: number | string;
   lastLogin?: string;
+  tenantId?: string;
   metadata?: Record<string, string>;
 }
 
@@ -57,6 +58,7 @@ export interface CreateUserRequest {
   password: string;
   roles?: string[];
   status?: 'active' | 'inactive' | 'suspended';
+  tenantId?: string;
 }
 
 export interface EditUserForm {
