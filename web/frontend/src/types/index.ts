@@ -28,7 +28,6 @@ export interface AccessKey {
   permissions: string[];
   createdAt: string;
   lastUsed?: string;
-  expiresAt?: string;
 }
 
 export interface AuthToken {
@@ -402,7 +401,6 @@ export interface CreateUserForm {
 export interface CreateAccessKeyForm {
   userId: string;
   permissions: string[];
-  expiresAt?: string;
   description?: string;
 }
 

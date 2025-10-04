@@ -12,9 +12,6 @@ import {
   Trash2,
   Calendar,
   User,
-  Shield,
-  CheckCircle,
-  XCircle,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -95,14 +92,6 @@ export default function AccessKeysPage() {
     return user?.username || 'Unknown User';
   };
 
-  const getStatusIcon = (status: string) => {
-    return status === 'active' ? (
-      <CheckCircle className="h-4 w-4 text-green-500" />
-    ) : (
-      <XCircle className="h-4 w-4 text-red-500" />
-    );
-  };
-
   const accessKeyColumns: DataTableColumn<AccessKey>[] = [
     {
       key: 'id',
@@ -123,19 +112,6 @@ export default function AccessKeysPage() {
         <div className="flex items-center gap-2">
           <User className="h-4 w-4 text-muted-foreground" />
           <span>{getUserName(key.userId)}</span>
-        </div>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      sortable: true,
-      render: (key) => (
-        <div className="flex items-center gap-2">
-          {getStatusIcon(key.status)}
-          <span className={`capitalize ${key.status === 'active' ? 'text-green-700' : 'text-red-700'}`}>
-            {key.status}
-          </span>
         </div>
       ),
     },
@@ -177,10 +153,6 @@ export default function AccessKeysPage() {
     );
   }
 
-  const totalKeys = filteredKeys.length;
-  const activeKeys = filteredKeys.filter((k: AccessKey) => k.status === 'active').length;
-  const inactiveKeys = filteredKeys.filter((k: AccessKey) => k.status !== 'active').length;
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -191,42 +163,6 @@ export default function AccessKeysPage() {
             Manage S3 API access keys for all users
           </p>
         </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Keys</CardTitle>
-            <Key className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalKeys}</div>
-            <p className="text-xs text-muted-foreground">Across all users</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Keys</CardTitle>
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{activeKeys}</div>
-            <p className="text-xs text-muted-foreground">Ready to use</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Inactive Keys</CardTitle>
-            <XCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{inactiveKeys}</div>
-            <p className="text-xs text-muted-foreground">Disabled or expired</p>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Search */}
