@@ -23,6 +23,11 @@ import type {
   APIError,
   AccessKey,
   CreateAccessKeyForm,
+  Tenant,
+  CreateTenantRequest,
+  UpdateTenantRequest,
+  BucketPermission,
+  GrantPermissionRequest,
 } from '@/types';
 import SweetAlert from '@/lib/sweetalert';
 
@@ -510,6 +515,57 @@ export class APIClient {
   static async updateBucketSettings(bucketName: string, settings: any): Promise<APIResponse<any>> {
     const response = await apiClient.put<APIResponse<any>>(`/buckets/${bucketName}/settings`, settings);
     return response.data;
+  }
+
+  // Tenant Management
+  static async getTenants(): Promise<Tenant[]> {
+    const response = await apiClient.get<APIResponse<Tenant[]>>('/tenants');
+    return response.data.data || [];
+  }
+
+  static async getTenant(tenantId: string): Promise<Tenant> {
+    const response = await apiClient.get<APIResponse<Tenant>>(`/tenants/${tenantId}`);
+    return response.data.data!;
+  }
+
+  static async createTenant(data: CreateTenantRequest): Promise<Tenant> {
+    const response = await apiClient.post<APIResponse<Tenant>>('/tenants', data);
+    return response.data.data!;
+  }
+
+  static async updateTenant(tenantId: string, data: UpdateTenantRequest): Promise<Tenant> {
+    const response = await apiClient.put<APIResponse<Tenant>>(`/tenants/${tenantId}`, data);
+    return response.data.data!;
+  }
+
+  static async deleteTenant(tenantId: string): Promise<void> {
+    await apiClient.delete(`/tenants/${tenantId}`);
+  }
+
+  static async getTenantUsers(tenantId: string): Promise<User[]> {
+    const response = await apiClient.get<APIResponse<User[]>>(`/tenants/${tenantId}/users`);
+    return response.data.data || [];
+  }
+
+  // Bucket Permissions
+  static async getBucketPermissions(bucketName: string): Promise<BucketPermission[]> {
+    const response = await apiClient.get<APIResponse<BucketPermission[]>>(`/buckets/${bucketName}/permissions`);
+    return response.data.data || [];
+  }
+
+  static async grantBucketPermission(bucketName: string, data: GrantPermissionRequest): Promise<void> {
+    await apiClient.post(`/buckets/${bucketName}/permissions`, data);
+  }
+
+  static async revokeBucketPermission(bucketName: string, permissionId: string, userId?: string, tenantId?: string): Promise<void> {
+    const params = new URLSearchParams();
+    if (userId) params.append('userId', userId);
+    if (tenantId) params.append('tenantId', tenantId);
+    await apiClient.delete(`/buckets/${bucketName}/permissions/${permissionId}?${params.toString()}`);
+  }
+
+  static async updateBucketOwner(bucketName: string, ownerId: string, ownerType: 'user' | 'tenant'): Promise<void> {
+    await apiClient.put(`/buckets/${bucketName}/owner`, { ownerId, ownerType });
   }
 
   // Utility methods

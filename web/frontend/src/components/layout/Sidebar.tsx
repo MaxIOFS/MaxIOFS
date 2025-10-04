@@ -14,6 +14,7 @@ import {
   HardDrive,
   Activity,
   Shield,
+  Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -55,6 +56,11 @@ const navigation: NavItem[] = [
         name: 'Users',
         href: '/users',
         icon: Users,
+      },
+      {
+        name: 'Tenants',
+        href: '/tenants',
+        icon: Building2,
       },
       {
         name: 'Access Keys',
