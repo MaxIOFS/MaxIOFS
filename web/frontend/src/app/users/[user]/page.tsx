@@ -47,6 +47,7 @@ export default function UserDetailsPage() {
     email: '',
     roles: [],
     status: 'active',
+    tenantId: undefined,
   });
   const [newKeyName, setNewKeyName] = useState('');
   const [showSecretKeys, setShowSecretKeys] = useState<Record<string, boolean>>({});
@@ -69,6 +70,12 @@ export default function UserDetailsPage() {
   const { data: accessKeys, isLoading: keysLoading } = useQuery({
     queryKey: ['accessKeys', userId],
     queryFn: () => APIClient.getUserAccessKeys(userId),
+  });
+
+  // Fetch tenants for assignment
+  const { data: tenants } = useQuery({
+    queryKey: ['tenants'],
+    queryFn: APIClient.getTenants,
   });
 
   // Update user mutation
@@ -142,6 +149,7 @@ export default function UserDetailsPage() {
         email: user.email || '',
         roles: user.roles || [],
         status: user.status,
+        tenantId: user.tenantId || undefined,
       });
     }
   }, [user]);
@@ -536,6 +544,28 @@ export default function UserDetailsPage() {
               onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
               placeholder="user@example.com"
             />
+          </div>
+
+          <div>
+            <label htmlFor="tenant" className="block text-sm font-medium mb-2">
+              Tenant (Optional)
+            </label>
+            <select
+              id="tenant"
+              value={editForm.tenantId || ''}
+              onChange={(e) => setEditForm(prev => ({ ...prev, tenantId: e.target.value || undefined }))}
+              className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">No Tenant (Global User)</option>
+              {tenants?.map((tenant) => (
+                <option key={tenant.id} value={tenant.id}>
+                  {tenant.displayName} ({tenant.name})
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Global users can access all buckets. Tenant users are limited to their tenant's buckets.
+            </p>
           </div>
 
           <div>

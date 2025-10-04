@@ -25,7 +25,8 @@ import {
   Shield,
   Calendar,
   Mail,
-  Key
+  Key,
+  Building2
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -50,6 +51,12 @@ export default function UsersPage() {
   const { data: allAccessKeys } = useQuery({
     queryKey: ['accessKeys'],
     queryFn: () => APIClient.getAccessKeys(),
+  });
+
+  // Fetch tenants for assignment
+  const { data: tenants } = useQuery({
+    queryKey: ['tenants'],
+    queryFn: APIClient.getTenants,
   });
 
   const createUserMutation = useMutation({
@@ -297,6 +304,7 @@ export default function UsersPage() {
                 <TableRow>
                   <TableHead>Username</TableHead>
                   <TableHead>Email</TableHead>
+                  <TableHead>Tenant</TableHead>
                   <TableHead>Roles</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Access Keys</TableHead>
@@ -317,6 +325,20 @@ export default function UsersPage() {
                       <div className="flex items-center gap-1">
                         {user.email && <Mail className="h-3 w-3 text-muted-foreground" />}
                         {user.email || '-'}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        {user.tenantId ? (
+                          <>
+                            <Building2 className="h-3 w-3 text-muted-foreground" />
+                            <span className="text-sm">
+                              {tenants?.find(t => t.id === user.tenantId)?.displayName || user.tenantId}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-sm text-muted-foreground italic">Global</span>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -438,6 +460,27 @@ export default function UsersPage() {
 
           <div>
             <label className="block text-sm font-medium mb-2">
+              Tenant (Optional)
+            </label>
+            <select
+              value={newUser.tenantId || ''}
+              onChange={(e) => updateNewUser('tenantId', e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+            >
+              <option value="">No Tenant (Global User)</option>
+              {tenants?.map((tenant) => (
+                <option key={tenant.id} value={tenant.id}>
+                  {tenant.displayName} ({tenant.name})
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Global users can access all buckets. Tenant users are limited to their tenant's buckets.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">
               Roles
             </label>
             <div className="space-y-2">
@@ -456,7 +499,7 @@ export default function UsersPage() {
                     }}
                     className="rounded border-gray-300"
                   />
-                  <span className="text-sm">{role}</span>
+                  <span className="text-sm capitalize">{role}</span>
                 </label>
               ))}
             </div>

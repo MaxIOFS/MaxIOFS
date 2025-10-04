@@ -213,32 +213,45 @@ export default function TenantsPage() {
                   <TableCell>
                     <div className="space-y-1">
                       <div className="text-sm">
-                        {formatBytes(tenant.currentStorageBytes)} / {formatBytes(tenant.maxStorageBytes)}
+                        {formatBytes(tenant.currentStorageBytes || 0)} / {formatBytes(tenant.maxStorageBytes)}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {formatBytes(tenant.maxStorageBytes - (tenant.currentStorageBytes || 0))} free
                       </div>
                       <div className="w-32 bg-gray-200 rounded-full h-2">
                         <div
                           className={`h-2 rounded-full ${
-                            getUsagePercentage(tenant.currentStorageBytes, tenant.maxStorageBytes) > 90
+                            getUsagePercentage(tenant.currentStorageBytes || 0, tenant.maxStorageBytes) > 90
                               ? 'bg-red-500'
-                              : getUsagePercentage(tenant.currentStorageBytes, tenant.maxStorageBytes) > 75
+                              : getUsagePercentage(tenant.currentStorageBytes || 0, tenant.maxStorageBytes) > 75
                               ? 'bg-yellow-500'
                               : 'bg-blue-500'
                           }`}
                           style={{
-                            width: `${Math.min(getUsagePercentage(tenant.currentStorageBytes, tenant.maxStorageBytes), 100)}%`,
+                            width: `${Math.min(getUsagePercentage(tenant.currentStorageBytes || 0, tenant.maxStorageBytes), 100)}%`,
                           }}
                         />
                       </div>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-sm">
-                      {tenant.currentBuckets} / {tenant.maxBuckets}
+                    <div>
+                      <div className="text-sm font-medium">
+                        {tenant.currentBuckets || 0} / {tenant.maxBuckets}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {tenant.maxBuckets - (tenant.currentBuckets || 0)} available
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-sm">
-                      Max: {tenant.maxAccessKeys}
+                    <div>
+                      <div className="text-sm font-medium">
+                        Limit: {tenant.maxAccessKeys}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        per tenant
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell>
