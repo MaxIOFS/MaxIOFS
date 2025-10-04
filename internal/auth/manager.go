@@ -49,6 +49,22 @@ type Manager interface {
 	RevokeAccessKey(ctx context.Context, accessKey string) error
 	ListAccessKeys(ctx context.Context, userID string) ([]AccessKey, error)
 
+	// Tenant management
+	CreateTenant(ctx context.Context, tenant *Tenant) error
+	GetTenant(ctx context.Context, tenantID string) (*Tenant, error)
+	GetTenantByName(ctx context.Context, name string) (*Tenant, error)
+	ListTenants(ctx context.Context) ([]*Tenant, error)
+	UpdateTenant(ctx context.Context, tenant *Tenant) error
+	DeleteTenant(ctx context.Context, tenantID string) error
+	ListTenantUsers(ctx context.Context, tenantID string) ([]*User, error)
+
+	// Bucket permission management
+	GrantBucketAccess(ctx context.Context, bucketName, userID, tenantID, permissionLevel, grantedBy string, expiresAt int64) error
+	RevokeBucketAccess(ctx context.Context, bucketName, userID, tenantID string) error
+	CheckBucketAccess(ctx context.Context, bucketName, userID string) (bool, string, error)
+	ListBucketPermissions(ctx context.Context, bucketName string) ([]*BucketPermission, error)
+	ListUserBucketPermissions(ctx context.Context, userID string) ([]*BucketPermission, error)
+
 	// HTTP Middleware
 	Middleware() func(http.Handler) http.Handler
 
@@ -567,6 +583,56 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 func (am *authManager) IsReady() bool {
 	// TODO: Implement readiness check
 	return true
+}
+
+// Tenant management methods
+func (am *authManager) CreateTenant(ctx context.Context, tenant *Tenant) error {
+	return am.store.CreateTenant(tenant)
+}
+
+func (am *authManager) GetTenant(ctx context.Context, tenantID string) (*Tenant, error) {
+	return am.store.GetTenant(tenantID)
+}
+
+func (am *authManager) GetTenantByName(ctx context.Context, name string) (*Tenant, error) {
+	return am.store.GetTenantByName(name)
+}
+
+func (am *authManager) ListTenants(ctx context.Context) ([]*Tenant, error) {
+	return am.store.ListTenants()
+}
+
+func (am *authManager) UpdateTenant(ctx context.Context, tenant *Tenant) error {
+	return am.store.UpdateTenant(tenant)
+}
+
+func (am *authManager) DeleteTenant(ctx context.Context, tenantID string) error {
+	return am.store.DeleteTenant(tenantID)
+}
+
+func (am *authManager) ListTenantUsers(ctx context.Context, tenantID string) ([]*User, error) {
+	return am.store.ListTenantUsers(tenantID)
+}
+
+// Bucket permission management methods
+func (am *authManager) GrantBucketAccess(ctx context.Context, bucketName, userID, tenantID, permissionLevel, grantedBy string, expiresAt int64) error {
+	return am.store.GrantBucketAccess(bucketName, userID, tenantID, permissionLevel, grantedBy, expiresAt)
+}
+
+func (am *authManager) RevokeBucketAccess(ctx context.Context, bucketName, userID, tenantID string) error {
+	return am.store.RevokeBucketAccess(bucketName, userID, tenantID)
+}
+
+func (am *authManager) CheckBucketAccess(ctx context.Context, bucketName, userID string) (bool, string, error) {
+	return am.store.CheckBucketAccess(bucketName, userID)
+}
+
+func (am *authManager) ListBucketPermissions(ctx context.Context, bucketName string) ([]*BucketPermission, error) {
+	return am.store.ListBucketPermissions(bucketName)
+}
+
+func (am *authManager) ListUserBucketPermissions(ctx context.Context, userID string) ([]*BucketPermission, error) {
+	return am.store.ListUserBucketPermissions(userID)
 }
 
 // Helper methods
