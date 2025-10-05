@@ -32,8 +32,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { User, CreateUserRequest, EditUserForm } from '@/types';
 import SweetAlert from '@/lib/sweetalert';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 export default function UsersPage() {
+  const { isGlobalAdmin, user: currentUser } = useCurrentUser();
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newUser, setNewUser] = useState<Partial<CreateUserRequest>>({
@@ -105,7 +107,12 @@ export default function UsersPage() {
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (newUser.username && newUser.password) {
-      createUserMutation.mutate(newUser as CreateUserRequest);
+      // Clean up empty string values - convert to undefined
+      const userData: CreateUserRequest = {
+        ...newUser as CreateUserRequest,
+        tenantId: newUser.tenantId && newUser.tenantId !== '' ? newUser.tenantId : undefined,
+      };
+      createUserMutation.mutate(userData);
     }
   };
 
@@ -458,26 +465,41 @@ export default function UsersPage() {
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-2">
-              Tenant (Optional)
-            </label>
-            <select
-              value={newUser.tenantId || ''}
-              onChange={(e) => updateNewUser('tenantId', e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-            >
-              <option value="">No Tenant (Global User)</option>
-              {tenants?.map((tenant) => (
-                <option key={tenant.id} value={tenant.id}>
-                  {tenant.displayName} ({tenant.name})
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-gray-500 mt-1">
-              Global users can access all buckets. Tenant users are limited to their tenant's buckets.
-            </p>
-          </div>
+          {/* Tenant selector - only for global admins */}
+          {isGlobalAdmin ? (
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Tenant (Optional)
+              </label>
+              <select
+                value={newUser.tenantId || ''}
+                onChange={(e) => updateNewUser('tenantId', e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2"
+              >
+                <option value="">No Tenant (Global User)</option>
+                {tenants?.map((tenant) => (
+                  <option key={tenant.id} value={tenant.id}>
+                    {tenant.displayName} ({tenant.name})
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Global users can access all buckets. Tenant users are limited to their tenant's buckets.
+              </p>
+            </div>
+          ) : currentUser?.tenantId && (
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Tenant
+              </label>
+              <div className="w-full border border-gray-200 bg-gray-50 rounded-md px-3 py-2 text-gray-700">
+                {tenants?.find(t => t.id === currentUser.tenantId)?.displayName || 'Your Tenant'}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Tenant admins can only create users within their own tenant.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium mb-2">

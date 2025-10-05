@@ -93,6 +93,12 @@ class TokenManager {
       if (refreshToken) {
         localStorage.setItem('refresh_token', refreshToken);
       }
+
+      // Also set in cookies for middleware
+      document.cookie = `auth_token=${token}; path=/; max-age=${7 * 24 * 60 * 60}`; // 7 days
+      if (refreshToken) {
+        document.cookie = `refresh_token=${refreshToken}; path=/; max-age=${7 * 24 * 60 * 60}`;
+      }
     }
   }
 
@@ -103,6 +109,10 @@ class TokenManager {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('auth_token');
       localStorage.removeItem('refresh_token');
+
+      // Also clear cookies
+      document.cookie = 'auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      document.cookie = 'refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
     }
   }
 
@@ -116,9 +126,14 @@ const tokenManager = TokenManager.getInstance();
 // Request interceptors
 apiClient.interceptors.request.use(
   (config) => {
-    const token = tokenManager.getToken();
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    // Don't add Authorization header to login/register requests
+    const isAuthRequest = config.url?.includes('/auth/login') || config.url?.includes('/auth/register');
+
+    if (!isAuthRequest) {
+      const token = tokenManager.getToken();
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
     }
     return config;
   },
@@ -139,47 +154,31 @@ s3Client.interceptors.request.use(
 // Response interceptors
 const handleResponse = (response: AxiosResponse): AxiosResponse => response;
 
+// Track if we're already redirecting to prevent loops
+let isRedirectingToLogin = false;
+
 const handleError = async (error: AxiosError): Promise<never> => {
-  // Handle 401 errors specially (authentication)
+  // Handle 401 errors - session expired or invalid token
   if (error.response?.status === 401) {
-    // Try to refresh token
-    const refreshToken = tokenManager.getRefreshToken();
-    if (refreshToken) {
-      try {
-        const response = await apiClient.post('/auth/refresh', {
-          refreshToken,
-        });
+    // Don't clear tokens if this is a login request (user might have wrong password)
+    const isLoginRequest = error.config?.url?.includes('/auth/login');
 
-        const { token, refreshToken: newRefreshToken } = response.data;
-        tokenManager.setTokens(token, newRefreshToken);
-
-        // Retry the original request
-        if (error.config) {
-          error.config.headers.Authorization = `Bearer ${token}`;
-          return axios.request(error.config);
-        }
-      } catch (refreshError) {
-        // Refresh failed, clear tokens and redirect to login
-        tokenManager.clearTokens();
-        await SweetAlert.error(
-          'Session expired',
-          'Your session has expired. You will be redirected to login.'
-        );
-        if (typeof window !== 'undefined') {
-          window.location.href = '/login';
-        }
-      }
-    } else {
-      // No refresh token, clear tokens and redirect to login
+    if (!isLoginRequest) {
+      // IMPORTANT: Clear tokens IMMEDIATELY to prevent retry loops
       tokenManager.clearTokens();
-      await SweetAlert.error(
-        'Session expired',
-        'Your session has expired. You will be redirected to login.'
-      );
-      if (typeof window !== 'undefined') {
-        window.location.href = '/login';
+
+      // Prevent multiple redirects
+      if (!isRedirectingToLogin && typeof window !== 'undefined') {
+        isRedirectingToLogin = true;
+
+        // Use setTimeout to ensure the redirect happens after current call stack
+        setTimeout(() => {
+          window.location.replace('/login');
+        }, 100);
       }
     }
+
+    return Promise.reject(error);
   }
 
   // For non-auth errors, we'll let individual components handle them
@@ -204,28 +203,30 @@ s3Client.interceptors.response.use(handleResponse, handleError);
 export class APIClient {
   // Authentication
   static async login(credentials: LoginRequest): Promise<LoginResponse> {
-    // Backend expects username and password
-    const payload = {
-      username: credentials.username,
-      password: credentials.password,
-    };
+    try {
+      const payload = {
+        username: credentials.username,
+        password: credentials.password,
+      };
 
-    const response = await apiClient.post<APIResponse<any>>('/auth/login', payload);
+      const response = await apiClient.post<APIResponse<any>>('/auth/login', payload);
 
-    // Backend returns: {"success":true,"data":{"token":"...","user":{...}}}
-    const result: LoginResponse = {
-      success: response.data.success,
-      token: response.data.data?.token,
-      refreshToken: response.data.data?.refreshToken,
-      user: response.data.data?.user,
-      error: response.data.error,
-    };
+      const result: LoginResponse = {
+        success: response.data.success,
+        token: response.data.data?.token,
+        refreshToken: response.data.data?.refreshToken,
+        user: response.data.data?.user,
+        error: response.data.error,
+      };
 
-    if (result.success && result.token) {
-      tokenManager.setTokens(result.token, result.refreshToken);
+      if (result.success && result.token) {
+        tokenManager.setTokens(result.token, result.refreshToken);
+      }
+
+      return result;
+    } catch (error) {
+      throw error;
     }
-
-    return result;
   }
 
   static async logout(): Promise<void> {
@@ -520,7 +521,38 @@ export class APIClient {
   // Tenant Management
   static async getTenants(): Promise<Tenant[]> {
     const response = await apiClient.get<APIResponse<Tenant[]>>('/tenants');
-    return response.data.data || [];
+
+    // Handle double-wrapped response: response.data.data might be { success: true, data: [...] }
+    let tenants: any;
+    if (response.data.data && typeof response.data.data === 'object' && 'data' in response.data.data) {
+      // Double wrapped: { success: true, data: { success: true, data: [...] } }
+      tenants = response.data.data.data;
+    } else if (Array.isArray(response.data.data)) {
+      // Correct format: { success: true, data: [...] }
+      tenants = response.data.data;
+    } else {
+      // Fallback
+      tenants = response.data || [];
+    }
+
+    // Transform snake_case to camelCase
+    const transformedTenants = Array.isArray(tenants) ? tenants.map((tenant: any) => ({
+      id: tenant.id,
+      name: tenant.name,
+      displayName: tenant.display_name,
+      description: tenant.description,
+      status: tenant.status,
+      maxAccessKeys: tenant.max_access_keys,
+      maxStorageBytes: tenant.max_storage_bytes,
+      currentStorageBytes: tenant.current_storage_bytes || 0,
+      maxBuckets: tenant.max_buckets,
+      currentBuckets: tenant.current_buckets || 0,
+      currentAccessKeys: tenant.current_access_keys || 0,
+      createdAt: tenant.created_at,
+      updatedAt: tenant.updated_at,
+    })) : [];
+
+    return transformedTenants;
   }
 
   static async getTenant(tenantId: string): Promise<Tenant> {
@@ -557,11 +589,11 @@ export class APIClient {
     await apiClient.post(`/buckets/${bucketName}/permissions`, data);
   }
 
-  static async revokeBucketPermission(bucketName: string, permissionId: string, userId?: string, tenantId?: string): Promise<void> {
+  static async revokeBucketPermission(bucketName: string, userId?: string, tenantId?: string): Promise<void> {
     const params = new URLSearchParams();
     if (userId) params.append('userId', userId);
     if (tenantId) params.append('tenantId', tenantId);
-    await apiClient.delete(`/buckets/${bucketName}/permissions/${permissionId}?${params.toString()}`);
+    await apiClient.delete(`/buckets/${bucketName}/permissions/revoke?${params.toString()}`);
   }
 
   static async updateBucketOwner(bucketName: string, ownerId: string, ownerType: 'user' | 'tenant'): Promise<void> {

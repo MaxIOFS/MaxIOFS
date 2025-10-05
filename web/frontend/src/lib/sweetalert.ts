@@ -258,35 +258,23 @@ class SweetAlert {
 
   // Handling common API errors
   static async apiError(error: any): Promise<SweetAlertResult> {
-    console.log('SweetAlert.apiError - Received error:', error);
-    console.log('SweetAlert.apiError - error.details:', error?.details);
-    
     let title = 'Operation error';
     let text = 'An unexpected error has occurred';
 
     // Try different properties where the error message might be
     if (error?.details?.error) {
       text = error.details.error;
-      console.log('SweetAlert.apiError - Using error.details.error:', text);
     } else if (error?.details?.Error) {
       text = error.details.Error;
-      console.log('SweetAlert.apiError - Using error.details.Error:', text);
     } else if (error?.response?.data?.error) {
       text = error.response.data.error;
-      console.log('SweetAlert.apiError - Using error.response.data.error:', text);
     } else if (error?.response?.data?.Error) {
-      // Try with capital E (APIResponse struct uses capital E)
       text = error.response.data.Error;
-      console.log('SweetAlert.apiError - Using error.response.data.Error:', text);
     } else if (error?.message) {
       text = error.message;
-      console.log('SweetAlert.apiError - Using error.message:', text);
     } else if (typeof error === 'string') {
       text = error;
-      console.log('SweetAlert.apiError - Using error as string:', text);
     }
-
-    console.log('SweetAlert.apiError - Final text:', text);
 
     // Customize messages for common errors
     if (text.includes('404')) {
@@ -297,14 +285,8 @@ class SweetAlert {
       text = 'Your session has expired. Please sign in again';
     } else if (text.includes('403') || text.includes('forbidden') || text.includes('Forbidden')) {
       title = 'Access denied';
-      console.log('SweetAlert.apiError - Detected 403/forbidden, checking for retention keywords');
       // Check if it's an Object Lock retention error - keep the detailed message
-      if (text.includes('retention') || text.includes('COMPLIANCE') || text.includes('GOVERNANCE') || text.includes('protected by')) {
-        console.log('SweetAlert.apiError - Retention error detected, keeping detailed message');
-        // Keep the specific error message from backend
-        // Don't override with generic message
-      } else {
-        console.log('SweetAlert.apiError - Generic 403, using default message');
+      if (!text.includes('retention') && !text.includes('COMPLIANCE') && !text.includes('GOVERNANCE') && !text.includes('protected by')) {
         text = 'You do not have permission to perform this operation';
       }
     } else if (text.includes('500')) {
@@ -314,8 +296,6 @@ class SweetAlert {
       title = 'Connection error';
       text = 'Could not connect to the server. Check your internet connection';
     }
-
-    console.log('SweetAlert.apiError - Final title:', title, 'Final text:', text);
 
     return this.error(title, text);
   }

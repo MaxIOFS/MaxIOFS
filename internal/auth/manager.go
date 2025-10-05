@@ -57,6 +57,8 @@ type Manager interface {
 	UpdateTenant(ctx context.Context, tenant *Tenant) error
 	DeleteTenant(ctx context.Context, tenantID string) error
 	ListTenantUsers(ctx context.Context, tenantID string) ([]*User, error)
+	IncrementTenantBucketCount(ctx context.Context, tenantID string) error
+	DecrementTenantBucketCount(ctx context.Context, tenantID string) error
 
 	// Bucket permission management
 	GrantBucketAccess(ctx context.Context, bucketName, userID, tenantID, permissionLevel, grantedBy string, expiresAt int64) error
@@ -96,10 +98,11 @@ type Tenant struct {
 	Description         string            `json:"description"`
 	Status              string            `json:"status"` // active, inactive
 	MaxAccessKeys       int64             `json:"max_access_keys"`
+	CurrentAccessKeys   int64             `json:"current_access_keys"` // Calculated in real-time
 	MaxStorageBytes     int64             `json:"max_storage_bytes"`
-	CurrentStorageBytes int64             `json:"current_storage_bytes"`
+	CurrentStorageBytes int64             `json:"current_storage_bytes"` // Calculated in real-time
 	MaxBuckets          int64             `json:"max_buckets"`
-	CurrentBuckets      int64             `json:"current_buckets"`
+	CurrentBuckets      int64             `json:"current_buckets"` // Incremented/decremented on create/delete
 	Metadata            map[string]string `json:"metadata,omitempty"`
 	CreatedAt           int64             `json:"created_at"`
 	UpdatedAt           int64             `json:"updated_at"`
@@ -298,6 +301,7 @@ func (am *authManager) GenerateJWT(ctx context.Context, user *User) (string, err
 	now := time.Now()
 	claims := JWTClaims{
 		UserID:    user.ID,
+		TenantID:  user.TenantID,
 		AccessKey: accessKey,
 		Roles:     user.Roles,
 		ExpiresAt: now.Add(24 * time.Hour).Unix(), // 24 hour expiry
@@ -559,6 +563,21 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 				return
 			}
 
+			// Public routes that don't require authentication
+			publicRoutes := []string{
+				"/auth/login",
+				"/auth/register",
+				"/health",
+			}
+
+			// Check if this is a public route
+			for _, route := range publicRoutes {
+				if strings.Contains(r.URL.Path, route) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
 			// Try to validate request
 			user, err := am.ValidateS3Signature(r.Context(), r)
 			if err != nil {
@@ -612,6 +631,14 @@ func (am *authManager) DeleteTenant(ctx context.Context, tenantID string) error 
 
 func (am *authManager) ListTenantUsers(ctx context.Context, tenantID string) ([]*User, error) {
 	return am.store.ListTenantUsers(tenantID)
+}
+
+func (am *authManager) IncrementTenantBucketCount(ctx context.Context, tenantID string) error {
+	return am.store.IncrementTenantBucketCount(tenantID)
+}
+
+func (am *authManager) DecrementTenantBucketCount(ctx context.Context, tenantID string) error {
+	return am.store.DecrementTenantBucketCount(tenantID)
 }
 
 // Bucket permission management methods
@@ -1015,4 +1042,42 @@ func hmacSHA256(key, data []byte) []byte {
 	hash := hmac.New(sha256.New, key)
 	hash.Write(data)
 	return hash.Sum(nil)
+}
+
+// GetUserFromContext extracts the authenticated user from the request context
+func GetUserFromContext(ctx context.Context) (*User, bool) {
+	user, ok := ctx.Value("user").(*User)
+	return user, ok
+}
+
+// GetUserIDFromContext extracts the user ID from the request context
+func GetUserIDFromContext(ctx context.Context) string {
+	user, ok := GetUserFromContext(ctx)
+	if !ok || user == nil {
+		return ""
+	}
+	return user.ID
+}
+
+// GetTenantIDFromContext extracts the tenant ID from the request context
+func GetTenantIDFromContext(ctx context.Context) string {
+	user, ok := GetUserFromContext(ctx)
+	if !ok || user == nil {
+		return ""
+	}
+	return user.TenantID
+}
+
+// IsAdminUser checks if the user in context has admin role
+func IsAdminUser(ctx context.Context) bool {
+	user, ok := GetUserFromContext(ctx)
+	if !ok || user == nil {
+		return false
+	}
+	for _, role := range user.Roles {
+		if role == "admin" {
+			return true
+		}
+	}
+	return false
 }

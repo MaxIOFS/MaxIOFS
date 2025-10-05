@@ -33,6 +33,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { S3Object, UploadRequest } from '@/types';
 import SweetAlert from '@/lib/sweetalert';
+import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 
 export default function BucketDetailsPage() {
   const params = useParams();
@@ -41,6 +42,7 @@ export default function BucketDetailsPage() {
   const [currentPrefix, setCurrentPrefix] = useState('');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
+  const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [selectedObjects, setSelectedObjects] = useState<Set<string>>(new Set());
@@ -48,14 +50,7 @@ export default function BucketDetailsPage() {
 
   const { data: bucket, isLoading: bucketLoading } = useQuery({
     queryKey: ['bucket', bucketName],
-    queryFn: async () => {
-      const data = await APIClient.getBucket(bucketName);
-      console.log('🔍 DEBUG: Bucket data received:', data);
-      console.log('  Has ObjectLock:', !!data.objectLock);
-      console.log('  ObjectLock:', data.objectLock);
-      console.log('  ObjectLockEnabled:', data.objectLock?.objectLockEnabled);
-      return data;
-    },
+    queryFn: () => APIClient.getBucket(bucketName),
   });
 
   const { data: objectsResponse, isLoading: objectsLoading } = useQuery({
@@ -149,10 +144,6 @@ export default function BucketDetailsPage() {
       SweetAlert.toast('success', 'Object deleted successfully');
     },
     onError: (error: any) => {
-      console.log('DEBUG Delete Error - Full error object:', error);
-      console.log('DEBUG Delete Error - error.response:', error?.response);
-      console.log('DEBUG Delete Error - error.response.data:', error?.response?.data);
-      console.log('DEBUG Delete Error - error.message:', error?.message);
       SweetAlert.apiError(error);
     },
   });
@@ -160,11 +151,6 @@ export default function BucketDetailsPage() {
   // Process objects and common prefixes (folders)
   const objects = objectsResponse?.objects || [];
   const commonPrefixes = objectsResponse?.commonPrefixes || [];
-
-  // Debug logging to see what we're receiving
-  console.log('DEBUG Frontend - objectsResponse:', objectsResponse);
-  console.log('DEBUG Frontend - objects:', objects);
-  console.log('DEBUG Frontend - commonPrefixes:', commonPrefixes);
 
   // Combine folders and files
   // Filter out objects that are folder markers (empty files ending with / and size 0)
@@ -235,7 +221,6 @@ export default function BucketDetailsPage() {
       } catch (fileError: any) {
         const errorMsg = fileError?.response?.data?.error || fileError?.message || 'Unknown error';
         errors.push(`${file.name}: ${errorMsg}`);
-        console.error(`Error uploading ${file.name}:`, fileError);
       }
     }
 
@@ -573,6 +558,14 @@ export default function BucketDetailsPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button
+            onClick={() => setIsPermissionsModalOpen(true)}
+            variant="outline"
+            className="gap-2"
+          >
+            <ShieldIcon className="h-4 w-4" />
+            Permissions
+          </Button>
+          <Button
             onClick={() => setIsCreateFolderModalOpen(true)}
             variant="outline"
             className="gap-2"
@@ -842,20 +835,12 @@ export default function BucketDetailsPage() {
                     {bucket?.objectLock?.objectLockEnabled && (
                       <TableCell>
                         {(() => {
-                          console.log('🔍 Retention check for:', item.key, {
-                            isFolder: isFolder(item),
-                            hasRetention: 'retention' in item,
-                            retention: 'retention' in item ? (item as any).retention : undefined,
-                            item: item
-                          });
-                          
                           if (isFolder(item)) {
                             return <span className="text-gray-400">-</span>;
                           }
-                          
+
                           if ('retention' in item && item.retention) {
                             const retentionInfo = formatRetentionExpiration(item.retention.retainUntilDate);
-                            console.log('  Retention info calculated:', retentionInfo);
                             return retentionInfo ? (
                               <div className="flex items-center gap-1" title={retentionInfo.fullDate}>
                                 <LockIcon className={`h-3 w-3 ${retentionInfo.color}`} />
@@ -1017,6 +1002,13 @@ export default function BucketDetailsPage() {
           </div>
         </form>
       </Modal>
+
+      {/* Permissions Modal */}
+      <BucketPermissionsModal
+        isOpen={isPermissionsModalOpen}
+        onClose={() => setIsPermissionsModalOpen(false)}
+        bucketName={bucketName}
+      />
     </div>
   );
 }

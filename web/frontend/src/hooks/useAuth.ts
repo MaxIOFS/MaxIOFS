@@ -45,21 +45,44 @@ export function useAuthProvider(): AuthContextType {
   // Initialize auth state
   useEffect(() => {
     const initializeAuth = async () => {
+      // Don't try to authenticate on login page
+      if (typeof window !== 'undefined' && window.location.pathname === '/login') {
+        setUser(null);
+        setIsLoading(false);
+        return;
+      }
+
       try {
         if (APIClient.isAuthenticated()) {
           const currentUser = await APIClient.getCurrentUser();
           setUser(currentUser);
+          setIsLoading(false);
+        } else {
+          setUser(null);
+          setIsLoading(false);
         }
-      } catch (err) {
-        console.error('Failed to initialize auth:', err);
-        APIClient.clearAuth();
-      } finally {
-        setIsLoading(false);
+      } catch (err: any) {
+        // If we get a 401, the token is invalid
+        if (err?.response?.status === 401) {
+          APIClient.clearAuth();
+          setUser(null);
+          setIsLoading(false);
+          // Redirect to login if not already on login page
+          if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+            setTimeout(() => {
+              window.location.href = '/login';
+            }, 0);
+          }
+        } else {
+          APIClient.clearAuth();
+          setUser(null);
+          setIsLoading(false);
+        }
       }
     };
 
     initializeAuth();
-  }, []);
+  }, [router]);
 
   // Login function
   const login = useCallback(async (credentials: LoginRequest) => {
@@ -71,7 +94,10 @@ export function useAuthProvider(): AuthContextType {
 
       if (response.success && response.user) {
         setUser(response.user);
-        router.push('/dashboard');
+        // Use hard redirect to ensure auth state is properly initialized
+        if (typeof window !== 'undefined') {
+          window.location.href = '/';
+        }
       } else {
         throw new Error(response.error || 'Login failed');
       }
@@ -93,8 +119,6 @@ export function useAuthProvider(): AuthContextType {
     try {
       setIsLoading(true);
       await APIClient.logout();
-    } catch (err) {
-      console.error('Logout error:', err);
     } finally {
       setUser(null);
       setError(null);
@@ -114,7 +138,6 @@ export function useAuthProvider(): AuthContextType {
         setUser(null);
       }
     } catch (err) {
-      console.error('Failed to refresh auth:', err);
       setUser(null);
       APIClient.clearAuth();
     } finally {

@@ -32,15 +32,11 @@ export default function LoginPage() {
         // Close loading modal
         SweetAlert.close();
 
-        // Save token to cookie
-        document.cookie = `auth_token=${response.token}; path=/; max-age=86400; SameSite=Lax`;
+        // Show welcome message (don't await - let it show while redirecting)
+        SweetAlert.successLogin(formData.username);
 
-        // Show welcome message
-        await SweetAlert.successLogin(formData.username);
-
-        // Redirect to dashboard
-        router.push('/');
-        router.refresh();
+        // Redirect to dashboard using hard redirect to ensure auth state is initialized
+        window.location.href = '/';
       } else {
         SweetAlert.close();
         await SweetAlert.error('Authentication error', response.error || 'Invalid credentials');

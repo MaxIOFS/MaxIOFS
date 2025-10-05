@@ -31,8 +31,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Tenant, CreateTenantRequest, UpdateTenantRequest } from '@/types';
 import SweetAlert from '@/lib/sweetalert';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 export default function TenantsPage() {
+  const { isGlobalAdmin } = useCurrentUser();
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -89,10 +91,12 @@ export default function TenantsPage() {
     },
   });
 
-  const filteredTenants = tenants?.filter((tenant: Tenant) =>
-    tenant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    tenant.displayName?.toLowerCase().includes(searchTerm.toLowerCase())
-  ) || [];
+  const filteredTenants = Array.isArray(tenants)
+    ? tenants.filter((tenant: Tenant) =>
+        tenant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        tenant.displayName?.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : [];
 
   const handleCreateTenant = (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,10 +148,12 @@ export default function TenantsPage() {
           <h1 className="text-3xl font-bold">Tenants</h1>
           <p className="text-gray-500 mt-1">Manage organizational tenants and quotas</p>
         </div>
-        <Button onClick={() => setIsCreateModalOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Create Tenant
-        </Button>
+        {isGlobalAdmin && (
+          <Button onClick={() => setIsCreateModalOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Create Tenant
+          </Button>
+        )}
       </div>
 
       {/* Search */}
@@ -247,10 +253,10 @@ export default function TenantsPage() {
                   <TableCell>
                     <div>
                       <div className="text-sm font-medium">
-                        Limit: {tenant.maxAccessKeys}
+                        {tenant.currentAccessKeys || 0} / {tenant.maxAccessKeys}
                       </div>
                       <div className="text-xs text-gray-500">
-                        per tenant
+                        {tenant.maxAccessKeys - (tenant.currentAccessKeys || 0)} available
                       </div>
                     </div>
                   </TableCell>
@@ -260,25 +266,27 @@ export default function TenantsPage() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedTenant(tenant);
-                          setIsEditModalOpen(true);
-                        }}
-                      >
-                        <Settings className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDelete(tenant)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
+                    {isGlobalAdmin && (
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedTenant(tenant);
+                            setIsEditModalOpen(true);
+                          }}
+                        >
+                          <Settings className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDelete(tenant)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

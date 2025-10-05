@@ -18,10 +18,15 @@ export function QueryProvider({ children }: QueryProviderProps) {
             staleTime: 60 * 1000, // 1 minute
             refetchOnWindowFocus: false,
             retry: (failureCount, error: any) => {
-              // Don't retry on 4xx errors except 401 (handled by auth interceptor)
+              // Don't retry on 401 (auth errors - let interceptor handle it)
+              if (error?.response?.status === 401) {
+                return false;
+              }
+              // Don't retry on other 4xx errors
               if (error?.response?.status >= 400 && error?.response?.status < 500) {
                 return false;
               }
+              // Retry up to 3 times for 5xx errors
               return failureCount < 3;
             },
           },

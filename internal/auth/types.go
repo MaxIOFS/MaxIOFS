@@ -74,6 +74,7 @@ type S3SignatureV2 struct {
 // JWTClaims represents JWT token claims
 type JWTClaims struct {
 	UserID      string   `json:"user_id"`
+	TenantID    string   `json:"tenant_id,omitempty"`
 	AccessKey   string   `json:"access_key"`
 	Roles       []string `json:"roles"`
 	Permissions []string `json:"permissions"`
@@ -88,6 +89,7 @@ type JWTClaims struct {
 // AuthContext represents authentication context in request
 type AuthContext struct {
 	User        *User
+	TenantID    string
 	AccessKey   string
 	Method      string // jwt, signature_v4, signature_v2
 	Permissions []Permission
