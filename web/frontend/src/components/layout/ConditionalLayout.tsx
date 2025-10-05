@@ -1,17 +1,15 @@
 'use client';
 
-import { usePathname, useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { Sidebar } from './Sidebar';
-import { Header } from './Header';
+import { AppLayout } from './AppLayout';
 import { Loading } from '@/components/ui/Loading';
 
 export function ConditionalLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { isAuthenticated, isLoading } = useAuth();
 
-  // Public routes that don't need sidebar and header
+  // Public routes that don't need layout
   const isPublicRoute = pathname === '/login';
 
   // Show loading while checking authentication
@@ -38,16 +36,6 @@ export function ConditionalLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Render with sidebar and header for authenticated routes
-  return (
-    <div className="flex h-screen bg-gray-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Header />
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
-          {children}
-        </main>
-      </div>
-    </div>
-  );
+  // Render with app layout (sidebar + top bar) for authenticated routes
+  return <AppLayout>{children}</AppLayout>;
 }

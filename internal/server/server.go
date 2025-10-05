@@ -35,6 +35,7 @@ type Server struct {
 	authManager    auth.Manager
 	metricsManager metrics.Manager
 	shareManager   share.Manager
+	systemMetrics  *metrics.SystemMetricsTracker
 }
 
 // New creates a new MaxIOFS server
@@ -50,6 +51,9 @@ func New(cfg *config.Config) (*Server, error) {
 	objectManager := object.NewManager(storageBackend, cfg.Storage)
 	authManager := auth.NewManager(cfg.Auth, cfg.DataDir)
 	metricsManager := metrics.NewManager(cfg.Metrics)
+
+	// Initialize system metrics
+	systemMetrics := metrics.NewSystemMetrics(cfg.DataDir)
 
 	// Initialize share manager with same database as auth
 	shareManager, err := share.NewManagerWithDB(cfg.DataDir)
@@ -82,6 +86,7 @@ func New(cfg *config.Config) (*Server, error) {
 		authManager:    authManager,
 		metricsManager: metricsManager,
 		shareManager:   shareManager,
+		systemMetrics:  systemMetrics,
 	}
 
 	// Setup routes

@@ -37,13 +37,26 @@ export default function MetricsPage() {
   const storageMetrics = storageMetricsData || {};
   const systemMetrics = systemMetricsData || {};
 
+  // Helper to format uptime from seconds
+  const formatUptime = (seconds: number) => {
+    if (!seconds) return 'N/A';
+
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+
+    if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
+  };
+
   // Build display metrics from backend data
   const displayMetrics = {
     system: {
-      uptime: systemMetrics.uptime || 'N/A',
-      cpu: (systemMetrics.cpu_usage || 0) * 100,
-      memory: (systemMetrics.memory_usage || 0) * 100,
-      disk: (systemMetrics.disk_usage || 0) * 100,
+      uptime: formatUptime(systemMetrics.uptime_seconds || 0),
+      cpu: systemMetrics.cpu_percent || 0,
+      memory: systemMetrics.memory?.used_percent || 0,
+      disk: systemMetrics.disk?.used_percent || 0,
       network: 0
     },
     storage: {
@@ -56,20 +69,16 @@ export default function MetricsPage() {
         : 0
     },
     requests: {
-      today: 0, // TODO: Implement request metrics
-      thisWeek: 0,
-      thisMonth: 0,
-      getRequests: 0,
-      putRequests: 0,
-      deleteRequests: 0
+      totalRequests: systemMetrics.requests?.total_requests || 0,
+      totalErrors: systemMetrics.requests?.total_errors || 0,
+      avgLatency: systemMetrics.requests?.average_latency_ms || 0,
+      requestsPerSec: systemMetrics.requests?.requests_per_sec || 0
     },
     performance: {
-      avgResponseTime: 0, // TODO: Implement performance metrics
-      p95ResponseTime: 0,
-      p99ResponseTime: 0,
-      requestsPerSecond: 0,
-      errorRate: 0,
-      successRate: 100
+      uptime: systemMetrics.performance?.uptime_seconds || 0,
+      goRoutines: systemMetrics.performance?.goroutines || 0,
+      heapAllocMB: systemMetrics.performance?.heap_alloc_mb || 0,
+      gcRuns: systemMetrics.performance?.gc_runs || 0
     }
   };
 
@@ -242,48 +251,55 @@ export default function MetricsPage() {
       {/* Request Metrics */}
       <div>
         <h2 className="text-xl font-semibold mb-4">Request Statistics</h2>
-        <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-4">
-          <p className="text-sm text-yellow-800">
-            <strong>⚠️ Note:</strong> Request metrics are not yet implemented in the backend.
-            These counters will show data once the metrics collection system is activated.
-          </p>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          <Card className="opacity-60">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Requests Today</CardTitle>
+              <CardTitle className="text-sm font-medium">Total Requests</CardTitle>
               <Globe className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatNumber(displayMetrics.requests.today)}</div>
+              <div className="text-2xl font-bold">{formatNumber(displayMetrics.requests.totalRequests)}</div>
               <p className="text-xs text-muted-foreground">
-                Not available
+                Since startup
               </p>
             </CardContent>
           </Card>
 
-          <Card className="opacity-60">
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">This Week</CardTitle>
+              <CardTitle className="text-sm font-medium">Total Errors</CardTitle>
               <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatNumber(displayMetrics.requests.thisWeek)}</div>
+              <div className="text-2xl font-bold">{formatNumber(displayMetrics.requests.totalErrors)}</div>
               <p className="text-xs text-muted-foreground">
-                Not available
+                Failed requests
               </p>
             </CardContent>
           </Card>
 
-          <Card className="opacity-60">
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">This Month</CardTitle>
+              <CardTitle className="text-sm font-medium">Avg Latency</CardTitle>
+              <Zap className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{displayMetrics.requests.avgLatency.toFixed(1)}ms</div>
+              <p className="text-xs text-muted-foreground">
+                Average response time
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Requests/sec</CardTitle>
               <Activity className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatNumber(displayMetrics.requests.thisMonth)}</div>
+              <div className="text-2xl font-bold">{displayMetrics.requests.requestsPerSec.toFixed(2)}</div>
               <p className="text-xs text-muted-foreground">
-                Not available
+                Current throughput
               </p>
             </CardContent>
           </Card>
@@ -292,60 +308,58 @@ export default function MetricsPage() {
 
       {/* Performance Metrics */}
       <div>
-        <h2 className="text-xl font-semibold mb-4">Performance</h2>
-        <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-4">
-          <p className="text-sm text-yellow-800">
-            <strong>⚠️ Note:</strong> Performance metrics are not yet implemented in the backend.
-            Response time and throughput data will be available once monitoring is enabled.
-          </p>
-        </div>
+        <h2 className="text-xl font-semibold mb-4">Runtime Performance</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card className="opacity-60">
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg Response Time</CardTitle>
-              <Zap className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{displayMetrics.performance.avgResponseTime}ms</div>
-              <p className="text-xs text-muted-foreground">
-                Not available
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="opacity-60">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Requests/sec</CardTitle>
+              <CardTitle className="text-sm font-medium">Goroutines</CardTitle>
               <Activity className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{displayMetrics.performance.requestsPerSecond}</div>
+              <div className="text-2xl font-bold">{formatNumber(displayMetrics.performance.goRoutines)}</div>
               <p className="text-xs text-muted-foreground">
-                Not available
+                Active goroutines
               </p>
             </CardContent>
           </Card>
 
-          <Card className="opacity-60">
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Heap Memory</CardTitle>
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{displayMetrics.performance.successRate}%</div>
-              <p className="text-xs text-muted-foreground">Not available</p>
+              <div className="text-2xl font-bold">{displayMetrics.performance.heapAllocMB.toFixed(1)} MB</div>
+              <p className="text-xs text-muted-foreground">
+                Allocated heap
+              </p>
             </CardContent>
           </Card>
 
-          <Card className="opacity-60">
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Error Rate</CardTitle>
+              <CardTitle className="text-sm font-medium">GC Runs</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatNumber(displayMetrics.performance.gcRuns)}</div>
+              <p className="text-xs text-muted-foreground">Garbage collections</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
               <TrendingDown className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{displayMetrics.performance.errorRate}%</div>
+              <div className="text-2xl font-bold">
+                {displayMetrics.requests.totalRequests > 0
+                  ? (((displayMetrics.requests.totalRequests - displayMetrics.requests.totalErrors) / displayMetrics.requests.totalRequests) * 100).toFixed(1)
+                  : 100}%
+              </div>
               <p className="text-xs text-muted-foreground">
-                Not available
+                Request success rate
               </p>
             </CardContent>
           </Card>
