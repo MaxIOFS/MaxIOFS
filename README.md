@@ -7,6 +7,7 @@ MaxIOFS is a high-performance S3-compatible object storage system built in Go wi
 - **S3 API Compatibility**: Complete AWS S3 API implementation with 23+ advanced operations
 - **Multi-Tenancy**: Full tenant isolation with quotas, permissions, and resource tracking
 - **Object Lock & WORM**: Full support for Write Once Read Many compliance (COMPLIANCE/GOVERNANCE modes)
+- **Object Sharing**: Clean, revocable share URLs with database-backed validation ✨ NEW
 - **Veeam Compatible**: Works as immutable backup repository for Veeam Backup & Replication
 - **Single Binary**: Self-contained executable with embedded web UI
 - **Modern Web Interface**: Next.js 14 dashboard with real-time metrics and management
@@ -53,6 +54,8 @@ MaxIOFS is a high-performance S3-compatible object storage system built in Go wi
 - **Ownership Display**: Clear tenant/user ownership in all lists
 - **Smart UI Restrictions**: Role-based feature visibility
 - **Production Security**: All sensitive logs removed
+- **Object Sharing**: One-click share/unshare with clean URL generation ✨ NEW
+- **Clean UI**: Removed non-functional search, notifications, and settings ✨ NEW
 
 ### Authentication Improvements
 - **Dual Token Storage**: localStorage + cookies for seamless auth
@@ -68,18 +71,29 @@ MaxIOFS is a high-performance S3-compatible object storage system built in Go wi
 - Node.js 18+
 - npm/yarn
 
+### Building MaxIOFS
+
+```bash
+# Windows - Build with version info
+build.bat
+
+# Linux/Mac - Build with Makefile
+make build-server VERSION=v1.1.0
+
+# Or manually with go build (no version info)
+go build -o maxiofs.exe ./cmd/maxiofs
+```
+
 ### Running MaxIOFS
 
 ```bash
-# Build and run
-go build -o maxiofs.exe ./cmd/maxiofs
-./maxiofs.exe
+# Run the binary
+./maxiofs.exe --data-dir ./data --log-level debug
 
-# Or with make
-make build
-./maxiofs.exe
+# Check version
+./maxiofs.exe --version
 
-# Development mode (auto-reload)
+# Development mode with Makefile
 make dev
 ```
 
@@ -136,6 +150,7 @@ npm run build  # Production build
 - **Tenant Management**: Create tenants, set quotas, monitor usage ✨ NEW
 - **Bucket Management**: Create buckets with Object Lock wizard + tenant ownership ✨ NEW
 - **Object Browser**: Upload/download with retention display
+- **Object Sharing**: Share objects with clean URLs, revoke shares anytime ✨ NEW
 - **User Management**: Create users, assign to tenants, manage access keys ✨ NEW
 - **Settings**: System configuration and monitoring
 - **Role-Based UI**: Smart hiding of features based on user permissions ✨ NEW
@@ -179,6 +194,7 @@ MaxIOFS provides on-premise immutable storage for Veeam Backup & Replication:
 - Log aggregation (multi-tenant logging)
 - Data lake storage
 - Application file storage with quota enforcement
+- **Public file sharing**: Share documents via clean URLs without authentication ✨ NEW
 
 ## 📊 Performance
 
@@ -295,6 +311,10 @@ docker run -p 8080:8080 -p 8081:8081 -v ./data:/data maxiofs
 - Production-ready frontend (all debug logs removed)
 - Enhanced authentication flow with cookies
 - UI restrictions based on user permissions
+- **Object sharing system with clean URLs** ✨ NEW
+- **Revocable share links with database validation** ✨ NEW
+- **S3-compatible XML error responses** ✨ NEW
+- **Clean UI (removed clutter)** ✨ NEW
 
 See [TODO.md](./TODO.md) for detailed roadmap.
 

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -26,8 +27,16 @@ func NewHandler(
 	objectManager object.Manager,
 	authManager auth.Manager,
 	metricsManager metrics.Manager,
+	shareManager interface {
+		GetShareByObject(ctx context.Context, bucketName, objectKey string) (interface{}, error)
+	},
 ) *Handler {
 	s3Handler := s3compat.NewHandler(bucketManager, objectManager)
+
+	// Configure share manager for presigned URL validation
+	if shareManager != nil {
+		s3Handler.SetShareManager(shareManager)
+	}
 
 	return &Handler{
 		bucketManager:  bucketManager,

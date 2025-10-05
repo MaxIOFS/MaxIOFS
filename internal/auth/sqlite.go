@@ -275,6 +275,27 @@ func (s *SQLiteStore) UpdateUser(user *User) error {
 	return tx.Commit()
 }
 
+// UpdateUserPassword updates only the password hash for a user
+func (s *SQLiteStore) UpdateUserPassword(userID, passwordHash string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		UPDATE users
+		SET password_hash = ?, updated_at = ?
+		WHERE id = ?
+	`, passwordHash, time.Now().Unix(), userID)
+
+	if err != nil {
+		return fmt.Errorf("failed to update user password: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 // DeleteUser soft deletes a user (sets status to 'deleted')
 func (s *SQLiteStore) DeleteUser(userID string) error {
 	tx, err := s.db.Begin()

@@ -59,12 +59,16 @@ export default function AccessKeysPage() {
     const user = users?.find((u: any) => u.id === key.userId);
 
     try {
-      const result = await SweetAlert.confirm(
-        'Delete Access Key',
-        `Are you sure you want to delete access key "${key.id}" for user "${user?.username || 'unknown'}"? This action cannot be undone.`,
-        'Delete',
-        'Cancel'
-      );
+      const result = await SweetAlert.fire({
+        icon: 'warning',
+        title: 'Delete Access Key',
+        html: `<p>Are you sure you want to delete access key <strong>"${key.id}"</strong> for user <strong>"${user?.username || 'unknown'}"</strong>?</p>
+               <p class="text-red-600 mt-2">This action cannot be undone</p>`,
+        showCancelButton: true,
+        confirmButtonText: 'Yes, delete',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#dc2626',
+      });
 
       if (result.isConfirmed) {
         SweetAlert.loading('Deleting access key...', `Deleting "${key.id}"`);

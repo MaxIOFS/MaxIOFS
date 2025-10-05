@@ -104,7 +104,7 @@ export default function UserDetailsPage() {
         userId: response.userId || response.user_id,
         status: response.status || 'active',
         permissions: [],
-        createdAt: response.createdAt || response.created_at || new Date().toISOString(),
+        createdAt: response.createdAt || response.created_at || Date.now() / 1000,
       };
       setCreatedKey(transformedKey);
       setIsCreateKeyModalOpen(false);
@@ -252,8 +252,10 @@ export default function UserDetailsPage() {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+  const formatDate = (date: string | number) => {
+    // If it's a number (Unix timestamp in seconds), convert to milliseconds
+    const timestamp = typeof date === 'number' ? date * 1000 : new Date(date).getTime();
+    return new Date(timestamp).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

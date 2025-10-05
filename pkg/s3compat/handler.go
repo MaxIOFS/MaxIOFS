@@ -1,10 +1,12 @@
 package s3compat
 
 import (
+	"context"
 	"encoding/xml"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -18,6 +20,9 @@ import (
 type Handler struct {
 	bucketManager bucket.Manager
 	objectManager object.Manager
+	shareManager  interface {
+		GetShareByObject(ctx context.Context, bucketName, objectKey string) (interface{}, error)
+	}
 }
 
 // NewHandler creates a new S3 compatibility handler
@@ -25,7 +30,15 @@ func NewHandler(bucketManager bucket.Manager, objectManager object.Manager) *Han
 	return &Handler{
 		bucketManager: bucketManager,
 		objectManager: objectManager,
+		shareManager:  nil, // Optional, will be set via SetShareManager
 	}
+}
+
+// SetShareManager sets the share manager for validating presigned URLs
+func (h *Handler) SetShareManager(sm interface {
+	GetShareByObject(ctx context.Context, bucketName, objectKey string) (interface{}, error)
+}) {
+	h.shareManager = sm
 }
 
 // S3 XML response structures
@@ -86,6 +99,19 @@ type Error struct {
 // Service operations
 func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	logrus.Debug("S3 API: ListBuckets")
+
+	// Check if this is a browser request (redirect to web console)
+	userAgent := r.Header.Get("User-Agent")
+	accept := r.Header.Get("Accept")
+
+	// Redirect browsers to web console (port 8081)
+	if (strings.Contains(userAgent, "Mozilla") || strings.Contains(accept, "text/html")) &&
+	   !strings.Contains(userAgent, "aws-") &&
+	   !strings.Contains(userAgent, "Boto") &&
+	   !strings.Contains(userAgent, "MinIO") {
+		http.Redirect(w, r, "http://"+r.Host+":8081", http.StatusTemporaryRedirect)
+		return
+	}
 
 	buckets, err := h.bucketManager.ListBuckets(r.Context())
 	if err != nil {
@@ -279,6 +305,26 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		"bucket": bucketName,
 		"object": objectKey,
 	}).Debug("S3 API: GetObject")
+
+	// Check if user is authenticated
+	_, userExists := auth.GetUserFromContext(r.Context())
+
+	// If NOT authenticated, check if object has an active share
+	if !userExists && h.shareManager != nil {
+		_, err := h.shareManager.GetShareByObject(r.Context(), bucketName, objectKey)
+		if err != nil {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"object": objectKey,
+			}).Warn("Unauthenticated access denied - no active share found")
+			h.writeError(w, "AccessDenied", "Access denied. Object is not shared.", objectKey, r)
+			return
+		}
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucketName,
+			"object": objectKey,
+		}).Info("Shared object access - bypassing authentication")
+	}
 
 	obj, reader, err := h.objectManager.GetObject(r.Context(), bucketName, objectKey)
 	if err != nil {
@@ -545,12 +591,36 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 
 	statusCode := http.StatusInternalServerError
 	switch code {
-	case "NoSuchBucket", "NoSuchKey":
+	// 400 Bad Request
+	case "InvalidArgument", "InvalidBucketName", "InvalidRequest", "MalformedXML":
+		statusCode = http.StatusBadRequest
+	// 401 Unauthorized
+	case "Unauthorized", "InvalidAccessKeyId", "SignatureDoesNotMatch":
+		statusCode = http.StatusUnauthorized
+	// 403 Forbidden
+	case "AccessDenied", "AccountProblem", "AllAccessDisabled":
+		statusCode = http.StatusForbidden
+	// 404 Not Found
+	case "NoSuchBucket", "NoSuchKey", "NoSuchUpload":
 		statusCode = http.StatusNotFound
-	case "BucketAlreadyExists":
+	// 409 Conflict
+	case "BucketAlreadyExists", "BucketNotEmpty", "OperationAborted":
 		statusCode = http.StatusConflict
-	case "BucketNotEmpty":
-		statusCode = http.StatusConflict
+	// 412 Precondition Failed
+	case "PreconditionFailed":
+		statusCode = http.StatusPreconditionFailed
+	// 416 Range Not Satisfiable
+	case "InvalidRange":
+		statusCode = http.StatusRequestedRangeNotSatisfiable
+	// 500 Internal Server Error (default)
+	case "InternalError":
+		statusCode = http.StatusInternalServerError
+	// 501 Not Implemented
+	case "NotImplemented":
+		statusCode = http.StatusNotImplemented
+	// 503 Service Unavailable
+	case "ServiceUnavailable", "SlowDown":
+		statusCode = http.StatusServiceUnavailable
 	}
 
 	w.WriteHeader(statusCode)

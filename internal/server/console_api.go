@@ -132,6 +132,11 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}", s.handleGetBucket).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}", s.handleDeleteBucket).Methods("DELETE", "OPTIONS")
 
+	// Share endpoints (MUST be registered BEFORE generic object endpoints to avoid route conflicts)
+	router.HandleFunc("/buckets/{bucket}/shares", s.handleListBucketShares).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/share", s.handleShareObject).Methods("POST", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/share", s.handleDeleteShare).Methods("DELETE", "OPTIONS")
+
 	// Object endpoints
 	router.HandleFunc("/buckets/{bucket}/objects", s.handleListObjects).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}", s.handleGetObject).Methods("GET", "OPTIONS")
@@ -707,6 +712,35 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
+	// Get bucket to check tenant
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Check tenant storage quota before upload
+	if bucketInfo.OwnerType == "tenant" && bucketInfo.OwnerID != "" {
+		tenant, err := s.authManager.GetTenant(r.Context(), bucketInfo.OwnerID)
+		if err != nil {
+			s.writeError(w, "Failed to retrieve tenant information", http.StatusInternalServerError)
+			return
+		}
+
+		// Get Content-Length to check if upload would exceed quota
+		contentLength := r.ContentLength
+		if contentLength > 0 {
+			if tenant.CurrentStorageBytes+contentLength > tenant.MaxStorageBytes {
+				s.writeError(w, fmt.Sprintf("Tenant storage quota exceeded (%d/%d bytes). Cannot upload object.", tenant.CurrentStorageBytes, tenant.MaxStorageBytes), http.StatusForbidden)
+				return
+			}
+		}
+	}
+
 	obj, err := s.objectManager.PutObject(r.Context(), bucketName, objectKey, r.Body, r.Header)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
@@ -750,6 +784,102 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, response)
+}
+
+func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey := vars["object"]
+
+	// Get user from context
+	user, ok := auth.GetUserFromContext(r.Context())
+	if !ok {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if object already has an active share
+	existingShare, err := s.shareManager.GetShareByObject(r.Context(), bucketName, objectKey)
+	if err == nil && existingShare != nil {
+		// Return existing share
+		logrus.WithFields(logrus.Fields{
+			"bucket":  bucketName,
+			"object":  objectKey,
+			"shareID": existingShare.ID,
+		}).Info("Found existing share for object")
+
+		// Generate clean S3 URL (no auth required when shared)
+		// Extract host from request and combine with S3 API port
+		host := strings.Split(r.Host, ":")[0] // Get hostname without port
+		s3URL := fmt.Sprintf("http://%s%s/%s/%s", host, s.config.Listen, bucketName, objectKey)
+
+		s.writeJSON(w, map[string]interface{}{
+			"id":        existingShare.ID,
+			"url":       s3URL,
+			"expiresAt": existingShare.ExpiresAt,
+			"createdAt": existingShare.CreatedAt.Format(time.RFC3339),
+			"isExpired": false,
+			"existing":  true,
+		})
+		return
+	} else if err != nil {
+		// Log error if it's not "not found"
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucketName,
+			"object": objectKey,
+			"error":  err.Error(),
+		}).Debug("No existing share found or error occurred")
+	}
+
+	// Parse request body for expiration time
+	var req struct {
+		ExpiresIn *int64 `json:"expiresIn"` // seconds, null = never expires
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// Default to 1 hour if no body provided
+		defaultExpiry := int64(3600)
+		req.ExpiresIn = &defaultExpiry
+	}
+
+	// Get user's first access key
+	accessKeys, err := s.authManager.ListAccessKeys(r.Context(), user.ID)
+	if err != nil || len(accessKeys) == 0 {
+		s.writeError(w, "No access keys found for user. Create an access key first.", http.StatusBadRequest)
+		return
+	}
+
+	accessKey := accessKeys[0]
+
+	// Create persistent share
+	share, err := s.shareManager.CreateShare(
+		r.Context(),
+		bucketName,
+		objectKey,
+		accessKey.AccessKeyID,
+		accessKey.SecretAccessKey,
+		user.ID,
+		req.ExpiresIn,
+	)
+	if err != nil {
+		s.writeError(w, fmt.Sprintf("Failed to create share: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Generate clean S3 URL (no auth required when shared)
+	// Extract host from request and combine with S3 API port
+	host := strings.Split(r.Host, ":")[0] // Get hostname without port
+	s3URL := fmt.Sprintf("http://%s%s/%s/%s", host, s.config.Listen, bucketName, objectKey)
+
+	// Return share response
+	s.writeJSON(w, map[string]interface{}{
+		"id":        share.ID,
+		"url":       s3URL,
+		"expiresAt": share.ExpiresAt,
+		"createdAt": share.CreatedAt.Format(time.RFC3339),
+		"isExpired": false,
+		"existing":  false,
+	})
 }
 
 func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
@@ -1217,6 +1347,27 @@ func (s *Server) handleListAccessKeys(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userID := vars["user"]
+
+	// Get user to check tenant
+	user, err := s.authManager.GetUser(r.Context(), userID)
+	if err != nil {
+		s.writeError(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	// Check tenant access keys quota before creation
+	if user.TenantID != "" {
+		tenant, err := s.authManager.GetTenant(r.Context(), user.TenantID)
+		if err != nil {
+			s.writeError(w, "Failed to retrieve tenant information", http.StatusInternalServerError)
+			return
+		}
+
+		if tenant.CurrentAccessKeys >= tenant.MaxAccessKeys {
+			s.writeError(w, fmt.Sprintf("Tenant access keys quota exceeded (%d/%d). Cannot create more access keys.", tenant.CurrentAccessKeys, tenant.MaxAccessKeys), http.StatusForbidden)
+			return
+		}
+	}
 
 	// Generate new access key
 	accessKey, err := s.authManager.GenerateAccessKey(r.Context(), userID)
@@ -1867,5 +2018,81 @@ func (s *Server) handleUpdateBucketOwner(w http.ResponseWriter, r *http.Request)
 		"bucketName": bucketName,
 		"ownerId":    req.OwnerID,
 		"ownerType":  req.OwnerType,
+	})
+}
+
+// handleListBucketShares lists all active shares for a bucket
+func (s *Server) handleListBucketShares(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	shares, err := s.shareManager.ListBucketShares(r.Context(), bucketName)
+	if err != nil {
+		s.writeError(w, fmt.Sprintf("Failed to list shares: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Create a map of object_key -> share for quick lookup
+	shareMap := make(map[string]interface{})
+	for _, share := range shares {
+		shareMap[share.ObjectKey] = map[string]interface{}{
+			"id":        share.ID,
+			"expiresAt": share.ExpiresAt,
+			"createdAt": share.CreatedAt.Format(time.RFC3339),
+		}
+	}
+
+	s.writeJSON(w, shareMap)
+}
+
+// handleDeleteShare deletes a share for an object
+func (s *Server) handleDeleteShare(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey := vars["object"]
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
+		"object": objectKey,
+		"method": r.Method,
+	}).Info("Delete share request received")
+
+	// Get the share first to get its ID
+	share, err := s.shareManager.GetShareByObject(r.Context(), bucketName, objectKey)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucketName,
+			"object": objectKey,
+			"error":  err.Error(),
+		}).Warn("Share not found for deletion")
+		s.writeError(w, "Share not found", http.StatusNotFound)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"shareID": share.ID,
+		"bucket":  bucketName,
+		"object":  objectKey,
+	}).Info("Found share, deleting...")
+
+	// Delete the share
+	if err := s.shareManager.DeleteShare(r.Context(), share.ID); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"shareID": share.ID,
+			"error":   err.Error(),
+		}).Error("Failed to delete share")
+		s.writeError(w, fmt.Sprintf("Failed to delete share: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"shareID": share.ID,
+		"bucket":  bucketName,
+		"object":  objectKey,
+	}).Info("Share deleted successfully")
+
+	s.writeJSON(w, map[string]interface{}{
+		"success": true,
+		"message": "Share deleted successfully",
 	})
 }

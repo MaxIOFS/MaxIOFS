@@ -427,6 +427,23 @@ export class APIClient {
     await apiClient.delete(`/buckets/${bucket}/objects/${key}`);
   }
 
+  static async shareObject(bucket: string, key: string, expiresIn: number | null = 3600): Promise<{ id: string; url: string; expiresAt?: string; createdAt: string; isExpired: boolean; existing: boolean }> {
+    const response = await apiClient.post<APIResponse<{ id: string; url: string; expiresAt?: string; createdAt: string; isExpired: boolean; existing: boolean }>>(
+      `/buckets/${bucket}/objects/${encodeURIComponent(key)}/share`,
+      { expiresIn }
+    );
+    return response.data.data!;
+  }
+
+  static async getBucketShares(bucket: string): Promise<Record<string, any>> {
+    const response = await apiClient.get<APIResponse<Record<string, any>>>(`/buckets/${bucket}/shares`);
+    return response.data.data || {};
+  }
+
+  static async deleteShare(bucket: string, key: string): Promise<void> {
+    await apiClient.delete(`/buckets/${bucket}/objects/${encodeURIComponent(key)}/share`);
+  }
+
   static async copyObject(
     sourceBucket: string,
     sourceKey: string,

@@ -46,6 +46,15 @@ built in Go with an embedded Next.js web interface.`,
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
+	// Check if data-dir is provided
+	dataDir, _ := cmd.Flags().GetString("data-dir")
+	if dataDir == "" {
+		fmt.Println("Error: --data-dir is required")
+		fmt.Println()
+		cmd.Help()
+		return fmt.Errorf("data directory not specified")
+	}
+
 	// Load configuration
 	cfg, err := config.Load(cmd)
 	if err != nil {
