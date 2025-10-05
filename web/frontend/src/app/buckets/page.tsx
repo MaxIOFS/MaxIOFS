@@ -15,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/Table';
-import { Database, Plus, Search, Settings, Trash2, Calendar, HardDrive, Lock, Shield } from 'lucide-react';
+import { Database, Plus, Search, Settings, Trash2, Calendar, HardDrive, Lock, Shield, Building2, Users } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Bucket, CreateBucketForm } from '@/types';
@@ -40,18 +40,18 @@ export default function BucketsPage() {
 
   const { data: buckets, isLoading, error } = useQuery({
     queryKey: ['buckets'],
-    queryFn: async () => {
-      const data = await APIClient.getBuckets();
-      console.log('🔍 DEBUG: Buckets data received:', data);
-      data?.forEach(bucket => {
-        console.log(`  Bucket: ${bucket.name}`, {
-          hasObjectLock: !!bucket.objectLock,
-          objectLock: bucket.objectLock,
-          objectLockEnabled: bucket.objectLock?.objectLockEnabled
-        });
-      });
-      return data;
-    },
+    queryFn: APIClient.getBuckets,
+  });
+
+  // Fetch users and tenants for ownership display
+  const { data: users } = useQuery({
+    queryKey: ['users'],
+    queryFn: APIClient.getUsers,
+  });
+
+  const { data: tenants } = useQuery({
+    queryKey: ['tenants'],
+    queryFn: APIClient.getTenants,
   });
 
   const createBucketMutation = useMutation({
@@ -137,6 +137,27 @@ export default function BucketsPage() {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const getOwnerDisplay = (bucket: Bucket) => {
+    const ownerId = bucket.owner_id || bucket.ownerId;
+    const ownerType = bucket.owner_type || bucket.ownerType;
+
+    if (!ownerId || !ownerType) {
+      return { type: 'global', name: 'Global', icon: Shield };
+    }
+
+    if (ownerType === 'user') {
+      const user = users?.find(u => u.id === ownerId);
+      return { type: 'user', name: user?.username || ownerId, icon: Users };
+    }
+
+    if (ownerType === 'tenant') {
+      const tenant = tenants?.find(t => t.id === ownerId);
+      return { type: 'tenant', name: tenant?.displayName || ownerId, icon: Building2 };
+    }
+
+    return { type: 'unknown', name: 'Unknown', icon: Shield };
   };
 
   if (isLoading) {
@@ -252,6 +273,7 @@ export default function BucketsPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Region</TableHead>
+                  <TableHead>Owner</TableHead>
                   <TableHead>Objects</TableHead>
                   <TableHead>Size</TableHead>
                   <TableHead>Created</TableHead>
@@ -279,6 +301,22 @@ export default function BucketsPage() {
                       </div>
                     </TableCell>
                     <TableCell>{bucket.region || 'us-east-1'}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        {(() => {
+                          const owner = getOwnerDisplay(bucket);
+                          const Icon = owner.icon;
+                          return (
+                            <>
+                              <Icon className="h-4 w-4 text-muted-foreground" />
+                              <span className={owner.type === 'global' ? 'text-sm text-muted-foreground italic' : 'text-sm'}>
+                                {owner.name}
+                              </span>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </TableCell>
                     <TableCell>{(bucket.object_count || bucket.objectCount || 0).toLocaleString()}</TableCell>
                     <TableCell>{formatSize(bucket.size || bucket.totalSize || 0)}</TableCell>
                     <TableCell>

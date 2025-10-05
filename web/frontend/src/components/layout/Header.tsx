@@ -20,7 +20,6 @@ export function Header({ onMenuToggle, showSearch = true }: HeaderProps) {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     // TODO: Implement search functionality
-    console.log('Search:', searchQuery);
   };
 
   const handleLogout = async () => {
@@ -35,7 +34,6 @@ export function Header({ onMenuToggle, showSearch = true }: HeaderProps) {
     } catch (error) {
       SweetAlert.close();
       SweetAlert.error('Error signing out', 'Could not sign out properly');
-      console.error('Logout failed:', error);
     }
   };
 

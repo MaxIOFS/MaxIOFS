@@ -300,3 +300,48 @@ func GenerateTenantID() string {
 	rand.Read(b)
 	return "tenant-" + hex.EncodeToString(b)
 }
+
+// IncrementTenantBucketCount increments the current bucket count for a tenant
+func (s *SQLiteStore) IncrementTenantBucketCount(tenantID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		UPDATE tenants
+		SET current_buckets = current_buckets + 1, updated_at = ?
+		WHERE id = ?
+	`, time.Now().Unix(), tenantID)
+
+	if err != nil {
+		return fmt.Errorf("failed to increment bucket count: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// DecrementTenantBucketCount decrements the current bucket count for a tenant
+func (s *SQLiteStore) DecrementTenantBucketCount(tenantID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		UPDATE tenants
+		SET current_buckets = CASE
+			WHEN current_buckets > 0 THEN current_buckets - 1
+			ELSE 0
+		END, updated_at = ?
+		WHERE id = ?
+	`, time.Now().Unix(), tenantID)
+
+	if err != nil {
+		return fmt.Errorf("failed to decrement bucket count: %w", err)
+	}
+
+	return tx.Commit()
+}

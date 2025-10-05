@@ -76,7 +76,7 @@ export default function ObjectsPage() {
 
           allObjects.push(...objectsWithBucket, ...folderObjects);
         } catch (error) {
-          console.error(`Error fetching objects from bucket ${bucketName}:`, error);
+          // Silently skip buckets with errors
         }
       }
 

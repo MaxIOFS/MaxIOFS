@@ -77,6 +77,7 @@ export interface Tenant {
   description?: string;
   status: 'active' | 'inactive' | 'deleted';
   maxAccessKeys: number;
+  currentAccessKeys: number;
   maxStorageBytes: number;
   currentStorageBytes: number;
   maxBuckets: number;
@@ -135,6 +136,12 @@ export interface Bucket {
   creation_date: string; // Backend uses snake_case
   creationDate?: string; // Alias for compatibility
   region?: string;
+  owner_id?: string; // Backend uses snake_case
+  ownerId?: string; // Alias for compatibility
+  owner_type?: string; // Backend uses snake_case
+  ownerType?: string; // Alias for compatibility
+  is_public?: boolean; // Backend uses snake_case
+  isPublic?: boolean; // Alias for compatibility
   versioning?: VersioningConfig;
   cors?: CORSConfig;
   lifecycle?: LifecycleConfig;

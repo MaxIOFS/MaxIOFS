@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
@@ -92,17 +93,49 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Filter buckets by tenant ownership
+	user, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		h.writeError(w, "AccessDenied", "User not authenticated", "", r)
+		return
+	}
+
+	// Global admin = admin WITHOUT tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+
+	var filteredBuckets []bucket.Bucket
+
+	if isGlobalAdmin {
+		// ONLY global admins see all buckets
+		filteredBuckets = buckets
+	} else if user.TenantID != "" {
+		// Tenant users (including tenant admins) see only their tenant's buckets
+		for _, b := range buckets {
+			if (b.OwnerType == "tenant" && b.OwnerID == user.TenantID) ||
+				(b.OwnerType == "user" && b.OwnerID == user.ID) {
+				filteredBuckets = append(filteredBuckets, b)
+			}
+		}
+	} else {
+		// Non-admin users without tenant: see only their buckets
+		for _, b := range buckets {
+			if b.OwnerType == "user" && b.OwnerID == user.ID {
+				filteredBuckets = append(filteredBuckets, b)
+			}
+		}
+	}
+
 	result := ListAllMyBucketsResult{
 		Owner: Owner{
-			ID:          "maxiofs",
-			DisplayName: "MaxIOFS",
+			ID:          user.ID,
+			DisplayName: user.DisplayName,
 		},
 		Buckets: Buckets{
-			Bucket: make([]BucketInfo, len(buckets)),
+			Bucket: make([]BucketInfo, len(filteredBuckets)),
 		},
 	}
 
-	for i, bucket := range buckets {
+	for i, bucket := range filteredBuckets {
 		result.Buckets.Bucket[i] = BucketInfo{
 			Name:         bucket.Name,
 			CreationDate: bucket.CreatedAt,

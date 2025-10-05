@@ -18,14 +18,20 @@ import {
   Info,
   CheckCircle2
 } from 'lucide-react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 interface BucketCreationConfig {
   // General
   name: string;
   region: string;
-  
+
+  // Ownership
+  ownerId: string;
+  ownerType: 'user' | 'tenant' | '';
+  isPublic: boolean;
+
   // Versioning
   versioningEnabled: boolean;
   
@@ -63,10 +69,15 @@ interface BucketCreationConfig {
 
 export default function CreateBucketPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const { isGlobalAdmin } = useCurrentUser();
   const [activeTab, setActiveTab] = useState<'general' | 'objectlock' | 'lifecycle' | 'encryption' | 'access'>('general');
   const [config, setConfig] = useState<BucketCreationConfig>({
     name: '',
     region: 'us-east-1',
+    ownerId: '',
+    ownerType: '',
+    isPublic: false,
     versioningEnabled: false,
     objectLockEnabled: false,
     retentionMode: '',
@@ -89,12 +100,26 @@ export default function CreateBucketPage() {
     tags: [],
   });
 
+  // Fetch users and tenants for ownership selection
+  const { data: users } = useQuery({
+    queryKey: ['users'],
+    queryFn: APIClient.getUsers,
+  });
+
+  const { data: tenants } = useQuery({
+    queryKey: ['tenants'],
+    queryFn: APIClient.getTenants,
+  });
+
   const createBucketMutation = useMutation({
     mutationFn: async () => {
       // Construct the creation payload
       const payload: any = {
         name: config.name,
         region: config.region,
+        ownerId: config.ownerId || undefined,
+        ownerType: config.ownerType || undefined,
+        isPublic: config.isPublic,
         versioning: config.versioningEnabled ? { status: 'Enabled' } : undefined,
         encryption: config.encryptionEnabled ? {
           type: config.encryptionType,
@@ -145,6 +170,8 @@ export default function CreateBucketPage() {
       return APIClient.createBucket(payload);
     },
     onSuccess: () => {
+      // Invalidate buckets cache so the list refreshes when we navigate back
+      queryClient.invalidateQueries({ queryKey: ['buckets'] });
       SweetAlert.toast('success', `Bucket "${config.name}" created successfully`);
       router.push('/buckets');
     },
@@ -331,6 +358,86 @@ export default function CreateBucketPage() {
                     <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
                   </select>
                 </div>
+
+                {/* Ownership Section - Only visible to global admins */}
+                {isGlobalAdmin && (
+                  <div className="border-t pt-4 mt-4">
+                    <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                      <Shield className="h-4 w-4" />
+                      Ownership & Access Control
+                    </h3>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Owner Type (Optional)</label>
+                        <select
+                          value={config.ownerType}
+                          onChange={(e) => {
+                            updateConfig('ownerType', e.target.value);
+                            updateConfig('ownerId', ''); // Reset owner ID when type changes
+                          }}
+                          className="w-full px-3 py-2 border border-input bg-background rounded-md"
+                        >
+                          <option value="">No specific owner (Global)</option>
+                          <option value="user">User</option>
+                          <option value="tenant">Tenant</option>
+                        </select>
+                      </div>
+
+                      {config.ownerType === 'user' && (
+                        <div>
+                          <label className="block text-sm font-medium mb-2">Owner User</label>
+                          <select
+                            value={config.ownerId}
+                            onChange={(e) => updateConfig('ownerId', e.target.value)}
+                            className="w-full px-3 py-2 border border-input bg-background rounded-md"
+                          >
+                            <option value="">Select a user</option>
+                            {users?.map((user) => (
+                              <option key={user.id} value={user.id}>
+                                {user.username} ({user.email || 'no email'})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {config.ownerType === 'tenant' && (
+                        <div>
+                          <label className="block text-sm font-medium mb-2">Owner Tenant</label>
+                          <select
+                            value={config.ownerId}
+                            onChange={(e) => updateConfig('ownerId', e.target.value)}
+                            className="w-full px-3 py-2 border border-input bg-background rounded-md"
+                          >
+                            <option value="">Select a tenant</option>
+                            {tenants?.map((tenant) => (
+                              <option key={tenant.id} value={tenant.id}>
+                                {tenant.displayName} ({tenant.name})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="isPublic"
+                          checked={config.isPublic}
+                          onChange={(e) => updateConfig('isPublic', e.target.checked)}
+                          className="rounded border-gray-300"
+                        />
+                        <label htmlFor="isPublic" className="text-sm font-medium">
+                          Make bucket public
+                        </label>
+                      </div>
+                      <p className="text-xs text-muted-foreground ml-6">
+                        Public buckets allow anonymous access. Not recommended for sensitive data.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center space-x-2">
                   <input

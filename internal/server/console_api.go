@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -28,6 +30,9 @@ type BucketResponse struct {
 	Name              string                    `json:"name"`
 	CreationDate      string                    `json:"creation_date"`
 	Region            string                    `json:"region,omitempty"`
+	OwnerID           string                    `json:"owner_id,omitempty"`
+	OwnerType         string                    `json:"owner_type,omitempty"`
+	IsPublic          bool                      `json:"is_public,omitempty"`
 	ObjectCount       int64                     `json:"object_count"`
 	Size              int64                     `json:"size"`
 	Versioning        *bucket.VersioningConfig  `json:"versioning,omitempty"`
@@ -55,6 +60,7 @@ type UserResponse struct {
 	Email       string   `json:"email"`
 	Status      string   `json:"status"`
 	Roles       []string `json:"roles"`
+	TenantID    string   `json:"tenantId,omitempty"`
 	CreatedAt   int64    `json:"createdAt"`
 }
 
@@ -80,6 +86,38 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 			}
 
 			next.ServeHTTP(w, r)
+		})
+	})
+
+	// Authentication middleware - validates JWT and adds user to context
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip authentication for login endpoint
+			if strings.Contains(r.URL.Path, "/auth/login") || r.Method == "OPTIONS" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Extract JWT token from Authorization header
+			authHeader := r.Header.Get("Authorization")
+			if !strings.HasPrefix(authHeader, "Bearer ") {
+				s.writeError(w, "Missing or invalid Authorization header", http.StatusUnauthorized)
+				return
+			}
+
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+
+			// Validate JWT token
+			user, err := s.authManager.ValidateJWT(r.Context(), token)
+			if err != nil {
+				logrus.WithError(err).Warn("JWT validation failed")
+				s.writeError(w, "Invalid or expired token", http.StatusUnauthorized)
+				return
+			}
+
+			// Add user to context
+			ctx := context.WithValue(r.Context(), "user", user)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	})
 
@@ -174,6 +212,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			Email:       user.Email,
 			Status:      user.Status,
 			Roles:       user.Roles,
+			TenantID:    user.TenantID,
 			CreatedAt:   user.CreatedAt,
 		},
 	})
@@ -184,15 +223,21 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetCurrentUser(w http.ResponseWriter, r *http.Request) {
-	// TODO: Extract user from token
+	user, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
 	s.writeJSON(w, UserResponse{
-		ID:          "default",
-		Username:    "default",
-		DisplayName: "Default User",
-		Email:       "admin@maxiofs.local",
-		Status:      "active",
-		Roles:       []string{"admin"},
-		CreatedAt:   0,
+		ID:          user.ID,
+		Username:    user.Username,
+		DisplayName: user.DisplayName,
+		Email:       user.Email,
+		Status:      user.Status,
+		Roles:       user.Roles,
+		TenantID:    user.TenantID,
+		CreatedAt:   user.CreatedAt,
 	})
 }
 
@@ -204,16 +249,48 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Get user from JWT token in Authorization header and apply permission filtering
-	// For now, use default admin user (no filtering - admin sees all buckets)
-	// userID := "admin"
-	// userRoles := []string{"admin"}
-	// filteredBuckets, err := bucket.FilterBucketsByPermissions(r.Context(), buckets, userID, userRoles, s.authManager)
-	// if err != nil {
-	//	s.writeError(w, err.Error(), http.StatusInternalServerError)
-	//	return
-	// }
-	filteredBuckets := buckets
+	// Get user from context and apply permission filtering
+	user, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		// No user context, return empty list
+		s.writeJSON(w, []BucketResponse{})
+		return
+	}
+
+	// Global admin = admin role WITHOUT tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+
+	var filteredBuckets []bucket.Bucket
+
+	if isGlobalAdmin {
+		// ONLY global admins see all buckets
+		filteredBuckets = buckets
+	} else if user.TenantID != "" {
+		// Tenant users (including tenant admins) see only their tenant's buckets
+		for _, b := range buckets {
+			if (b.OwnerType == "tenant" && b.OwnerID == user.TenantID) ||
+				(b.OwnerType == "user" && b.OwnerID == user.ID) {
+				filteredBuckets = append(filteredBuckets, b)
+			}
+		}
+	} else {
+		// Non-admin users without tenant: use permission filtering
+		bucketPointers := make([]*bucket.Bucket, len(buckets))
+		for i := range buckets {
+			bucketPointers[i] = &buckets[i]
+		}
+
+		filteredPointers, err := bucket.FilterBucketsByPermissions(r.Context(), bucketPointers, user.ID, user.Roles, s.authManager)
+		if err != nil {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		filteredBuckets = make([]bucket.Bucket, len(filteredPointers))
+		for i, bp := range filteredPointers {
+			filteredBuckets[i] = *bp
+		}
+	}
 
 	response := make([]BucketResponse, len(filteredBuckets))
 	for i, b := range filteredBuckets {
@@ -232,6 +309,9 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 			Name:              b.Name,
 			CreationDate:      b.CreatedAt.Format("2006-01-02T15:04:05Z"),
 			Region:            b.Region,
+			OwnerID:           b.OwnerID,
+			OwnerType:         b.OwnerType,
+			IsPublic:          b.IsPublic,
 			ObjectCount:       objectCount,
 			Size:              totalSize,
 			Versioning:        b.Versioning,
@@ -277,6 +357,33 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get current user for ownership and quota validation
+	user, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	// Determine the tenant ID for quota checking
+	var targetTenantID string
+	if user.TenantID != "" {
+		targetTenantID = user.TenantID
+	}
+
+	// Check tenant bucket quota before creation
+	if targetTenantID != "" {
+		tenant, err := s.authManager.GetTenant(r.Context(), targetTenantID)
+		if err != nil {
+			s.writeError(w, "Failed to retrieve tenant information", http.StatusInternalServerError)
+			return
+		}
+
+		if tenant.CurrentBuckets >= tenant.MaxBuckets {
+			s.writeError(w, fmt.Sprintf("Tenant bucket quota exceeded (%d/%d). Cannot create more buckets.", tenant.CurrentBuckets, tenant.MaxBuckets), http.StatusForbidden)
+			return
+		}
+	}
+
 	// Validar Object Lock - requiere versionado
 	if req.ObjectLock != nil && req.ObjectLock.Enabled {
 		if req.Versioning == nil || req.Versioning.Status != "Enabled" {
@@ -314,14 +421,29 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Aplicar ownership
-	if req.OwnerID != "" {
-		bucketInfo.OwnerID = req.OwnerID
+	// Aplicar ownership - determinar basado en el usuario autenticado
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+
+	// Tenant users (including tenant admins) ALWAYS get buckets assigned to their tenant
+	if user.TenantID != "" {
+		bucketInfo.OwnerID = user.TenantID
+		bucketInfo.OwnerType = "tenant"
+		bucketInfo.IsPublic = false // Los buckets de tenant no pueden ser públicos
+	} else if isGlobalAdmin {
+		// ONLY global admins can specify custom ownership
+		if req.OwnerID != "" {
+			bucketInfo.OwnerID = req.OwnerID
+		}
+		if req.OwnerType != "" {
+			bucketInfo.OwnerType = req.OwnerType
+		}
+		bucketInfo.IsPublic = req.IsPublic
+	} else {
+		// Usuario global sin tenant - bucket global
+		bucketInfo.OwnerID = ""
+		bucketInfo.OwnerType = ""
+		bucketInfo.IsPublic = req.IsPublic
 	}
-	if req.OwnerType != "" {
-		bucketInfo.OwnerType = req.OwnerType
-	}
-	bucketInfo.IsPublic = req.IsPublic
 
 	// Aplicar versionado
 	if req.Versioning != nil {
@@ -375,6 +497,14 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Incrementar el contador de buckets del tenant si tiene owner de tipo tenant
+	if bucketInfo.OwnerType == "tenant" && bucketInfo.OwnerID != "" {
+		if err := s.authManager.IncrementTenantBucketCount(r.Context(), bucketInfo.OwnerID); err != nil {
+			// Log error but don't fail the request
+			logrus.WithError(err).WithField("tenantID", bucketInfo.OwnerID).Error("Failed to increment tenant bucket count")
+		}
+	}
+
 	s.writeJSON(w, map[string]string{"name": req.Name})
 }
 
@@ -424,6 +554,17 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
+	// Obtener información del bucket antes de eliminarlo para actualizar contadores
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
 	if err := s.bucketManager.DeleteBucket(r.Context(), bucketName); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
@@ -433,6 +574,14 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
+	}
+
+	// Decrementar el contador de buckets del tenant si tiene owner de tipo tenant
+	if bucketInfo.OwnerType == "tenant" && bucketInfo.OwnerID != "" {
+		if err := s.authManager.DecrementTenantBucketCount(r.Context(), bucketInfo.OwnerID); err != nil {
+			// Log error but don't fail the request
+			logrus.WithError(err).WithField("tenantID", bucketInfo.OwnerID).Error("Failed to decrement tenant bucket count")
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -635,14 +784,44 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 
 // User handlers
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
 	users, err := s.authManager.ListUsers(r.Context())
 	if err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	response := make([]UserResponse, len(users))
-	for i, u := range users {
+	// Filter users by tenant for non-admin users
+	isAdmin := auth.IsAdminUser(r.Context())
+	var filteredUsers []auth.User
+
+	if isAdmin && currentUser.TenantID == "" {
+		// Global admin sees all users
+		filteredUsers = users
+	} else if currentUser.TenantID != "" {
+		// Tenant admin sees only users from their tenant
+		for _, u := range users {
+			if u.TenantID == currentUser.TenantID {
+				filteredUsers = append(filteredUsers, u)
+			}
+		}
+	} else {
+		// Non-admin users without tenant see only themselves
+		for _, u := range users {
+			if u.ID == currentUser.ID {
+				filteredUsers = append(filteredUsers, u)
+				break
+			}
+		}
+	}
+
+	response := make([]UserResponse, len(filteredUsers))
+	for i, u := range filteredUsers {
 		response[i] = UserResponse{
 			ID:          u.ID,
 			Username:    u.ID,
@@ -650,6 +829,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 			Email:       u.Email,
 			Status:      u.Status,
 			Roles:       u.Roles,
+			TenantID:    u.TenantID,
 			CreatedAt:   u.CreatedAt,
 		}
 	}
@@ -664,6 +844,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Password string   `json:"password"`
 		Roles    []string `json:"roles,omitempty"`
 		Status   string   `json:"status,omitempty"`
+		TenantID string   `json:"tenantId,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&createRequest); err != nil {
@@ -675,6 +856,25 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if createRequest.Username == "" || createRequest.Password == "" {
 		s.writeError(w, "Username and password are required", http.StatusBadRequest)
 		return
+	}
+
+	// Get current user for tenant validation
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
+
+	// Tenant admins can only create users in their own tenant
+	if !isGlobalAdmin && currentUser.TenantID != "" {
+		if createRequest.TenantID != "" && createRequest.TenantID != currentUser.TenantID {
+			s.writeError(w, "Tenant admins can only create users in their own tenant", http.StatusForbidden)
+			return
+		}
+		// Force tenant assignment
+		createRequest.TenantID = currentUser.TenantID
 	}
 
 	// Set defaults
@@ -694,6 +894,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Email:       createRequest.Email,
 		Status:      createRequest.Status,
 		Roles:       createRequest.Roles,
+		TenantID:    createRequest.TenantID,
 		CreatedAt:   time.Now().Unix(),
 	}
 
@@ -710,6 +911,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Email:       user.Email,
 		Roles:       user.Roles,
 		Status:      user.Status,
+		TenantID:    user.TenantID,
 		CreatedAt:   user.CreatedAt,
 	}
 
@@ -738,6 +940,7 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		Email:       user.Email,
 		Roles:       user.Roles,
 		Status:      user.Status,
+		TenantID:    user.TenantID,
 		CreatedAt:   user.CreatedAt,
 	}
 
@@ -749,9 +952,10 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	userID := vars["user"]
 
 	var updateRequest struct {
-		Email  *string  `json:"email,omitempty"`
-		Roles  []string `json:"roles,omitempty"`
-		Status string   `json:"status,omitempty"`
+		Email    *string  `json:"email,omitempty"`
+		Roles    []string `json:"roles,omitempty"`
+		Status   string   `json:"status,omitempty"`
+		TenantID *string  `json:"tenantId,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&updateRequest); err != nil {
@@ -780,6 +984,9 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if updateRequest.Status != "" {
 		user.Status = updateRequest.Status
 	}
+	if updateRequest.TenantID != nil {
+		user.TenantID = *updateRequest.TenantID
+	}
 
 	// Update user
 	if err := s.authManager.UpdateUser(r.Context(), user); err != nil {
@@ -795,6 +1002,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		Email:       user.Email,
 		Roles:       user.Roles,
 		Status:      user.Status,
+		TenantID:    user.TenantID,
 		CreatedAt:   user.CreatedAt,
 	}
 
@@ -820,11 +1028,41 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 
 // Metrics handlers
 func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
 	buckets, _ := s.bucketManager.ListBuckets(r.Context())
-	totalBuckets := int64(len(buckets))
+
+	// Filter buckets by tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
+	var filteredBuckets []bucket.Bucket
+
+	if isGlobalAdmin {
+		filteredBuckets = buckets
+	} else if currentUser.TenantID != "" {
+		// Tenant users only see metrics from their tenant buckets
+		for _, b := range buckets {
+			if (b.OwnerType == "tenant" && b.OwnerID == currentUser.TenantID) ||
+				(b.OwnerType == "user" && b.OwnerID == currentUser.ID) {
+				filteredBuckets = append(filteredBuckets, b)
+			}
+		}
+	} else {
+		// Non-admin users see only their own buckets
+		for _, b := range buckets {
+			if b.OwnerType == "user" && b.OwnerID == currentUser.ID {
+				filteredBuckets = append(filteredBuckets, b)
+			}
+		}
+	}
+
+	totalBuckets := int64(len(filteredBuckets))
 
 	var totalObjects, totalSize int64
-	for _, b := range buckets {
+	for _, b := range filteredBuckets {
 		result, err := s.objectManager.ListObjects(r.Context(), b.Name, "", "", "", 10000)
 		if err == nil {
 			totalObjects += int64(len(result.Objects))
@@ -873,11 +1111,40 @@ func (s *Server) writeError(w http.ResponseWriter, message string, statusCode in
 
 // Access Key handlers
 func (s *Server) handleListAllAccessKeys(w http.ResponseWriter, r *http.Request) {
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
 	// List all users first
 	users, err := s.authManager.ListUsers(r.Context())
 	if err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Filter users by tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
+	var filteredUsers []auth.User
+
+	if isGlobalAdmin {
+		filteredUsers = users
+	} else if currentUser.TenantID != "" {
+		// Tenant admin sees only keys from their tenant users
+		for _, u := range users {
+			if u.TenantID == currentUser.TenantID {
+				filteredUsers = append(filteredUsers, u)
+			}
+		}
+	} else {
+		// Non-admin sees only their own keys
+		for _, u := range users {
+			if u.ID == currentUser.ID {
+				filteredUsers = append(filteredUsers, u)
+				break
+			}
+		}
 	}
 
 	// Convert to response format (don't expose secret keys)
@@ -891,8 +1158,8 @@ func (s *Server) handleListAllAccessKeys(w http.ResponseWriter, r *http.Request)
 
 	var allAccessKeys []AccessKeyResponse
 
-	// Collect all access keys from all users
-	for _, user := range users {
+	// Collect all access keys from filtered users
+	for _, user := range filteredUsers {
 		accessKeys, err := s.authManager.ListAccessKeys(r.Context(), user.ID)
 		if err != nil {
 			// Log error but continue with other users
@@ -1155,16 +1422,129 @@ func (s *Server) handleGetSecurityStatus(w http.ResponseWriter, r *http.Request)
 
 // Tenant handlers
 func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	// DEBUG: Log current user info
+	log.Printf("[DEBUG] handleListTenants called - user_id=%s username=%s tenant_id=%s roles=%v",
+		currentUser.ID, currentUser.Username, currentUser.TenantID, currentUser.Roles)
+
 	tenants, err := s.authManager.ListTenants(r.Context())
 	if err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	s.writeJSON(w, tenants)
+	// DEBUG: Log tenants found
+	log.Printf("[DEBUG] Tenants retrieved - count=%d", len(tenants))
+
+	// Enrich tenants with real-time usage statistics
+	for i := range tenants {
+		// Calculate current storage bytes from tenant's buckets
+		buckets, err := s.bucketManager.ListBuckets(r.Context())
+		if err == nil {
+			var totalStorage int64
+			var bucketCount int64
+			for _, b := range buckets {
+				if b.OwnerType == "tenant" && b.OwnerID == tenants[i].ID {
+					bucketCount++
+					// Get object count and size for this bucket
+					result, err := s.objectManager.ListObjects(r.Context(), b.Name, "", "", "", 10000)
+					if err == nil {
+						for _, obj := range result.Objects {
+							totalStorage += obj.Size
+						}
+					}
+				}
+			}
+			tenants[i].CurrentStorageBytes = totalStorage
+			tenants[i].CurrentBuckets = bucketCount
+		}
+
+		// Calculate current access keys from tenant's users
+		users, err := s.authManager.ListUsers(r.Context())
+		if err == nil {
+			var totalKeys int64
+			for _, user := range users {
+				if user.TenantID == tenants[i].ID {
+					keys, err := s.authManager.ListAccessKeys(r.Context(), user.ID)
+					if err == nil {
+						totalKeys += int64(len(keys))
+					}
+				}
+			}
+			tenants[i].CurrentAccessKeys = totalKeys
+		}
+	}
+
+	// Filter tenants based on user role
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
+
+	// DEBUG: Log filtering info
+	log.Printf("[DEBUG] Filtering tenants - is_global_admin=%v current_user_tenant_id=%s total_tenants=%d",
+		isGlobalAdmin, currentUser.TenantID, len(tenants))
+
+	// Initialize as empty slice instead of nil to ensure JSON returns [] not null
+	filteredTenants := make([]*auth.Tenant, 0)
+
+	if isGlobalAdmin {
+		// Global admins see all tenants
+		filteredTenants = tenants
+		log.Printf("[DEBUG] Global admin: returning all tenants - count=%d", len(filteredTenants))
+	} else if currentUser.TenantID != "" {
+		// Tenant users only see their own tenant
+		for _, t := range tenants {
+			log.Printf("[DEBUG] Checking tenant - tenant_id=%s tenant_name=%s user_tenant_id=%s match=%v",
+				t.ID, t.Name, currentUser.TenantID, t.ID == currentUser.TenantID)
+			if t.ID == currentUser.TenantID {
+				filteredTenants = []*auth.Tenant{t}
+				log.Printf("[DEBUG] Tenant user: found matching tenant - tenant_name=%s", t.Name)
+				break
+			}
+		}
+		if len(filteredTenants) == 0 {
+			tenantIds := make([]string, len(tenants))
+			for i, t := range tenants {
+				tenantIds[i] = t.ID
+			}
+			log.Printf("[DEBUG] Tenant user: no matching tenant found - user_tenant_id=%s available_tenant_ids=%v",
+				currentUser.TenantID, tenantIds)
+		}
+	} else {
+		log.Printf("[DEBUG] Regular user without tenant: no tenants shown")
+	}
+
+	// Return in APIResponse format
+	response := APIResponse{
+		Success: true,
+		Data:    filteredTenants,
+	}
+	log.Printf("[DEBUG] Sending response - success=%v filtered_count=%d", response.Success, len(filteredTenants))
+	if len(filteredTenants) > 0 {
+		log.Printf("[DEBUG] First tenant in response - id=%s name=%s displayName=%s currentBuckets=%d currentAccessKeys=%d currentStorageBytes=%d",
+			filteredTenants[0].ID, filteredTenants[0].Name, filteredTenants[0].DisplayName,
+			filteredTenants[0].CurrentBuckets, filteredTenants[0].CurrentAccessKeys, filteredTenants[0].CurrentStorageBytes)
+	}
+	s.writeJSON(w, response)
 }
 
 func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
+	// Only global admins can create tenants
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
+	if !isGlobalAdmin {
+		s.writeError(w, "Only global administrators can create tenants", http.StatusForbidden)
+		return
+	}
+
 	var req struct {
 		Name                string            `json:"name"`
 		DisplayName         string            `json:"displayName"`
@@ -1225,6 +1605,19 @@ func (s *Server) handleGetTenant(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
+	// Only global admins can update tenants
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
+	if !isGlobalAdmin {
+		s.writeError(w, "Only global administrators can update tenants", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	tenantID := vars["tenant"]
 
@@ -1295,6 +1688,19 @@ func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
+	// Only global admins can delete tenants
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
+	if !isGlobalAdmin {
+		s.writeError(w, "Only global administrators can delete tenants", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	tenantID := vars["tenant"]
 
@@ -1326,6 +1732,7 @@ func (s *Server) handleListTenantUsers(w http.ResponseWriter, r *http.Request) {
 			Email:       u.Email,
 			Status:      u.Status,
 			Roles:       u.Roles,
+			TenantID:    u.TenantID,
 			CreatedAt:   u.CreatedAt,
 		}
 	}
