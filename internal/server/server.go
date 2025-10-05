@@ -15,6 +15,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/metrics"
 	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/share"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 )
@@ -33,6 +34,7 @@ type Server struct {
 	objectManager  object.Manager
 	authManager    auth.Manager
 	metricsManager metrics.Manager
+	shareManager   share.Manager
 }
 
 // New creates a new MaxIOFS server
@@ -48,6 +50,12 @@ func New(cfg *config.Config) (*Server, error) {
 	objectManager := object.NewManager(storageBackend, cfg.Storage)
 	authManager := auth.NewManager(cfg.Auth, cfg.DataDir)
 	metricsManager := metrics.NewManager(cfg.Metrics)
+
+	// Initialize share manager with same database as auth
+	shareManager, err := share.NewManagerWithDB(cfg.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create share manager: %w", err)
+	}
 
 	// Create HTTP servers
 	httpServer := &http.Server{
@@ -73,6 +81,7 @@ func New(cfg *config.Config) (*Server, error) {
 		objectManager:  objectManager,
 		authManager:    authManager,
 		metricsManager: metricsManager,
+		shareManager:   shareManager,
 	}
 
 	// Setup routes
@@ -160,14 +169,28 @@ func (s *Server) shutdown() error {
 	return nil
 }
 
+// shareManagerAdapter adapts share.Manager to the interface expected by api.NewHandler
+type shareManagerAdapter struct {
+	mgr share.Manager
+}
+
+func (sma *shareManagerAdapter) GetShareByObject(ctx context.Context, bucketName, objectKey string) (interface{}, error) {
+	return sma.mgr.GetShareByObject(ctx, bucketName, objectKey)
+}
+
 func (s *Server) setupRoutes() error {
 	// Setup API routes (S3 compatible)
 	apiRouter := mux.NewRouter()
+
+	// Create a wrapper for shareManager to match the interface expected by api.NewHandler
+	shareManagerWrapper := &shareManagerAdapter{mgr: s.shareManager}
+
 	apiHandler := api.NewHandler(
 		s.bucketManager,
 		s.objectManager,
 		s.authManager,
 		s.metricsManager,
+		shareManagerWrapper,
 	)
 
 	// Apply middleware

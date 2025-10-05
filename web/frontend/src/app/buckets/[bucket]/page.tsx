@@ -29,6 +29,7 @@ import { MoreHorizontal as MoreHorizontalIcon } from 'lucide-react';
 import { Lock as LockIcon } from 'lucide-react';
 import { Shield as ShieldIcon } from 'lucide-react';
 import { Clock as ClockIcon } from 'lucide-react';
+import { Share2 as Share2Icon } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { S3Object, UploadRequest } from '@/types';
@@ -60,6 +61,11 @@ export default function BucketDetailsPage() {
       prefix: currentPrefix,
       delimiter: '/', // This groups objects by folder
     }),
+  });
+
+  const { data: sharesMap = {}, isLoading: sharesLoading } = useQuery({
+    queryKey: ['shares', bucketName],
+    queryFn: () => APIClient.getBucketShares(bucketName),
   });
 
   const uploadMutation = useMutation({
@@ -111,7 +117,7 @@ export default function BucketDetailsPage() {
     mutationFn: async ({ bucket, key }: { bucket: string; key: string }) => {
       // Check if it's a folder (ends with /)
       if (key.endsWith('/')) {
-        // Check if folder has objects 
+        // Check if folder has objects
         const folderObjects = await APIClient.getObjects({
           bucket,
           prefix: key,
@@ -121,13 +127,13 @@ export default function BucketDetailsPage() {
         const actualObjects = folderObjects?.objects?.filter(obj => {
           // Exclude the folder marker itself
           if (obj.key === key) return false;
-          
+
           // Exclude MaxIOFS system files (.maxiofs-folder, .metadata files, etc.)
           if (obj.key.includes('.maxiofs-')) return false;
-          
+
           // Exclude other system/metadata files
           if (obj.key.endsWith('.metadata')) return false;
-          
+
           return true;
         }) || [];
 
@@ -142,6 +148,17 @@ export default function BucketDetailsPage() {
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
       SweetAlert.toast('success', 'Object deleted successfully');
+    },
+    onError: (error: any) => {
+      SweetAlert.apiError(error);
+    },
+  });
+
+  const deleteShareMutation = useMutation({
+    mutationFn: ({ bucket, key }: { bucket: string; key: string }) => APIClient.deleteShare(bucket, key),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['shares', bucketName] });
+      SweetAlert.toast('success', 'Share deleted successfully');
     },
     onError: (error: any) => {
       SweetAlert.apiError(error);
@@ -321,6 +338,182 @@ export default function BucketDetailsPage() {
 
       // Show success message
       SweetAlert.successDownload(key.split('/').pop() || key);
+    } catch (error: any) {
+      SweetAlert.close();
+      SweetAlert.apiError(error);
+    }
+  };
+
+  const handleShareObject = async (key: string) => {
+    try {
+      // Check if object is already shared
+      const existingShare = sharesMap[key];
+
+      if (existingShare) {
+        // Object is already shared - show copy/unshare options
+        const shareData = await APIClient.shareObject(bucketName, key, null);
+
+        let expirationInfo = '';
+        if (shareData.expiresAt) {
+          const expiresAt = new Date(shareData.expiresAt).toLocaleString();
+          const expiresInMs = new Date(shareData.expiresAt).getTime() - Date.now();
+          const expiresInDays = Math.floor(expiresInMs / (1000 * 60 * 60 * 24));
+          const expiresInHours = Math.floor(expiresInMs / (1000 * 60 * 60));
+
+          const expirationText = expiresInDays > 0
+            ? `${expiresInDays} day${expiresInDays > 1 ? 's' : ''}`
+            : `${expiresInHours} hour${expiresInHours > 1 ? 's' : ''}`;
+
+          expirationInfo = `<p><strong>Expires:</strong> ${expiresAt} (in ${expirationText})</p>`;
+        } else {
+          expirationInfo = `<p><strong>Expiration:</strong> Never (permanent link)</p>`;
+        }
+
+        const result = await SweetAlert.fire({
+          icon: 'info',
+          title: 'Object Already Shared',
+          html: `
+            <div class="text-left space-y-4">
+              <p class="text-gray-700">This object is already shared. You can:</p>
+              <div>
+                <p class="text-sm font-medium mb-2">Share this link:</p>
+                <div class="bg-gray-50 p-3 rounded border border-gray-200">
+                  <code class="text-xs break-all">${shareData.url}</code>
+                </div>
+              </div>
+              <div class="text-sm text-gray-600">
+                ${expirationInfo}
+                <p><strong>Created:</strong> ${new Date(shareData.createdAt).toLocaleString()}</p>
+              </div>
+            </div>
+          `,
+          showCancelButton: true,
+          showDenyButton: true,
+          confirmButtonText: 'Copy Link',
+          denyButtonText: 'Unshare',
+          cancelButtonText: 'Close',
+          width: '650px',
+        });
+
+        if (result.isConfirmed) {
+          navigator.clipboard.writeText(shareData.url);
+          SweetAlert.toast('success', 'Link copied to clipboard');
+        } else if (result.isDenied) {
+          // Unshare the object
+          const confirmDelete = await SweetAlert.fire({
+            icon: 'warning',
+            title: 'Unshare Object?',
+            text: 'This will delete the share link. The file itself will not be deleted.',
+            showCancelButton: true,
+            confirmButtonText: 'Yes, unshare',
+            cancelButtonText: 'Cancel',
+            confirmButtonColor: '#dc2626',
+          });
+
+          if (confirmDelete.isConfirmed) {
+            deleteShareMutation.mutate({ bucket: bucketName, key });
+          }
+        }
+        return;
+      }
+
+      // Object is not shared yet - show create dialog
+      const result = await SweetAlert.fire({
+        icon: 'info',
+        title: 'Share Object',
+        html: `
+          <p class="mb-4">Generate a shareable link for <strong>"${key.split('/').pop()}"</strong></p>
+          <div class="text-left">
+            <label for="expiresIn" class="block text-sm font-medium mb-2">Link expires in:</label>
+            <select id="expiresIn" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+              <option value="0">Never (permanent link)</option>
+              <option value="3600">1 hour</option>
+              <option value="21600">6 hours</option>
+              <option value="43200">12 hours</option>
+              <option value="86400" selected>24 hours</option>
+              <option value="604800">7 days</option>
+            </select>
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Generate Link',
+        cancelButtonText: 'Cancel',
+        preConfirm: () => {
+          const select = document.getElementById('expiresIn') as HTMLSelectElement;
+          const value = parseInt(select.value);
+          return value === 0 ? null : value;
+        }
+      });
+
+      if (!result.isConfirmed) return;
+
+      const expiresIn = result.value as number | null;
+
+      // Show loading indicator
+      SweetAlert.loading('Generating shareable link...', `Creating link for "${key}"`);
+
+      const shareData = await APIClient.shareObject(bucketName, key, expiresIn);
+
+      // Refresh shares list
+      queryClient.invalidateQueries({ queryKey: ['shares', bucketName] });
+
+      // Close loading indicator
+      SweetAlert.close();
+
+      // Prepare expiration info
+      let expirationInfo = '';
+      let statusBadge = '';
+
+      if (shareData.expiresAt) {
+        const expiresAt = new Date(shareData.expiresAt).toLocaleString();
+        const expiresInMs = new Date(shareData.expiresAt).getTime() - Date.now();
+        const expiresInDays = Math.floor(expiresInMs / (1000 * 60 * 60 * 24));
+        const expiresInHours = Math.floor(expiresInMs / (1000 * 60 * 60));
+
+        const expirationText = expiresInDays > 0
+          ? `${expiresInDays} day${expiresInDays > 1 ? 's' : ''}`
+          : `${expiresInHours} hour${expiresInHours > 1 ? 's' : ''}`;
+
+        expirationInfo = `<p><strong>Expires:</strong> ${expiresAt} (in ${expirationText})</p>`;
+        statusBadge = '<span class="inline-block px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">⏰ Temporary</span>';
+      } else {
+        expirationInfo = `<p><strong>Expiration:</strong> Never (permanent link)</p>`;
+        statusBadge = '<span class="inline-block px-2 py-1 bg-green-100 text-green-800 text-xs rounded">∞ Permanent</span>';
+      }
+
+      await SweetAlert.fire({
+        icon: 'success',
+        title: 'Shareable Link Created',
+        html: `
+          <div class="text-left space-y-4">
+            <div class="flex items-center gap-2 mb-2">
+              ${statusBadge}
+            </div>
+            <div>
+              <p class="text-sm font-medium mb-2">Share this link:</p>
+              <div class="bg-gray-50 p-3 rounded border border-gray-200">
+                <code class="text-xs break-all">${shareData.url}</code>
+              </div>
+            </div>
+            <div class="text-sm text-gray-600">
+              ${expirationInfo}
+              <p><strong>Created:</strong> ${new Date(shareData.createdAt).toLocaleString()}</p>
+            </div>
+            <div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
+              <strong>ℹ️ Note:</strong> Anyone with this link can download the file${shareData.expiresAt ? ' until it expires' : ' (no expiration)'}.
+            </div>
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Copy Link',
+        cancelButtonText: 'Close',
+        width: '650px',
+      }).then((copyResult) => {
+        if (copyResult.isConfirmed) {
+          navigator.clipboard.writeText(shareData.url);
+          SweetAlert.toast('success', 'Link copied to clipboard');
+        }
+      });
     } catch (error: any) {
       SweetAlert.close();
       SweetAlert.apiError(error);
@@ -808,6 +1001,12 @@ export default function BucketDetailsPage() {
                           <>
                             <FileIcon className="h-4 w-4 text-muted-foreground" />
                             <span>{getDisplayName(item)}</span>
+                            {sharesMap[item.key] && (
+                              <Share2Icon
+                                className="h-4 w-4 text-green-600"
+                                title="This object is shared"
+                              />
+                            )}
                           </>
                         )}
                       </div>
@@ -860,14 +1059,25 @@ export default function BucketDetailsPage() {
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
                         {!isFolder(item) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDownloadObject(item.key)}
-                            title="Download"
-                          >
-                            <DownloadIcon className="h-4 w-4" />
-                          </Button>
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDownloadObject(item.key)}
+                              title="Download"
+                            >
+                              <DownloadIcon className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleShareObject(item.key)}
+                              title={sharesMap[item.key] ? "View/Copy share link" : "Share"}
+                              className={sharesMap[item.key] ? "text-green-600 hover:text-green-700" : ""}
+                            >
+                              <Share2Icon className="h-4 w-4" />
+                            </Button>
+                          </>
                         )}
                         <Button
                           variant="ghost"

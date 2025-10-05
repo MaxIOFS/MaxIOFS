@@ -52,6 +52,7 @@ func setupTestServer(t *testing.T) *TestServer {
 
 	// Setup S3 handler
 	handler := s3compat.NewHandler(bucketMgr, objectMgr)
+	// Note: shareManager not set in tests, presigned URL share validation will be skipped
 
 	// Create router
 	router := mux.NewRouter()

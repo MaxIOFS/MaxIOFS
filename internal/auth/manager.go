@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -240,9 +241,27 @@ func (am *authManager) ValidateConsoleCredentials(ctx context.Context, username,
 		return nil, ErrInvalidCredentials
 	}
 
-	// Validate password with bcrypt
+	// Try bcrypt verification first
 	if !VerifyPassword(password, user.Password) {
-		return nil, ErrInvalidCredentials
+		// If bcrypt fails, try legacy SHA256 hash (for migration)
+		sha256Hash := hashPasswordSHA256(password)
+		if user.Password != sha256Hash {
+			return nil, ErrInvalidCredentials
+		}
+
+		// Password is still SHA256 - migrate to bcrypt
+		newHash, hashErr := HashPassword(password)
+		if hashErr != nil {
+			logrus.WithError(hashErr).Error("Failed to migrate password to bcrypt")
+		} else {
+			// Update user's password to bcrypt hash
+			updateErr := am.store.UpdateUserPassword(user.ID, newHash)
+			if updateErr != nil {
+				logrus.WithError(updateErr).Error("Failed to update password hash in database")
+			} else {
+				logrus.WithField("user_id", user.ID).Info("Successfully migrated user password to bcrypt")
+			}
+		}
 	}
 
 	// Check user status
@@ -253,9 +272,8 @@ func (am *authManager) ValidateConsoleCredentials(ctx context.Context, username,
 	return user, nil
 }
 
-// hashPassword creates a simple SHA256 hash of the password
-// Note: In production, use bcrypt or argon2
-func hashPassword(password string) string {
+// hashPasswordSHA256 creates a SHA256 hash (legacy - for migration only)
+func hashPasswordSHA256(password string) string {
 	h := sha256.New()
 	h.Write([]byte(password))
 	return hex.EncodeToString(h.Sum(nil))
@@ -578,16 +596,45 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 				}
 			}
 
-			// Try to validate request
-			user, err := am.ValidateS3Signature(r.Context(), r)
-			if err != nil {
+			// Check if this is a presigned URL request (bypass auth middleware)
+			query := r.URL.Query()
+			isPresigned := query.Get("X-Amz-Algorithm") != "" || query.Get("AWSAccessKeyId") != ""
+			if isPresigned {
+				// Presigned URLs are validated in the S3 handler itself
 				logrus.WithFields(logrus.Fields{
 					"method": r.Method,
 					"path":   r.URL.Path,
-					"error":  err.Error(),
-					"auth":   r.Header.Get("Authorization"),
-				}).Warn("Authentication failed")
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				}).Debug("Presigned URL request - bypassing auth middleware")
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Check if request has authentication headers
+			hasAuth := r.Header.Get("Authorization") != ""
+
+			// Try to validate request
+			user, err := am.ValidateS3Signature(r.Context(), r)
+			if err != nil {
+				// If there WAS an auth header but it's invalid, return error
+				if hasAuth {
+					logrus.WithFields(logrus.Fields{
+						"method": r.Method,
+						"path":   r.URL.Path,
+						"error":  err.Error(),
+						"auth":   r.Header.Get("Authorization"),
+					}).Warn("Authentication failed")
+
+					// Return S3-compatible XML error for 4xx errors
+					writeS3Error(w, r, "InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records.", http.StatusUnauthorized)
+					return
+				}
+
+				// If there was NO auth header, let the request pass (handler will check for shares)
+				logrus.WithFields(logrus.Fields{
+					"method": r.Method,
+					"path":   r.URL.Path,
+				}).Debug("No authentication provided - passing to handler")
+				next.ServeHTTP(w, r)
 				return
 			}
 
@@ -1080,4 +1127,27 @@ func IsAdminUser(ctx context.Context) bool {
 		}
 	}
 	return false
+}
+
+// writeS3Error writes an S3-compatible XML error response
+func writeS3Error(w http.ResponseWriter, r *http.Request, code, message string, statusCode int) {
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(statusCode)
+
+	type S3Error struct {
+		XMLName   xml.Name `xml:"Error"`
+		Code      string   `xml:"Code"`
+		Message   string   `xml:"Message"`
+		Resource  string   `xml:"Resource,omitempty"`
+		RequestId string   `xml:"RequestId,omitempty"`
+	}
+
+	errorResponse := S3Error{
+		Code:      code,
+		Message:   message,
+		Resource:  r.URL.Path,
+		RequestId: r.Header.Get("X-Request-ID"),
+	}
+
+	xml.NewEncoder(w).Encode(errorResponse)
 }
