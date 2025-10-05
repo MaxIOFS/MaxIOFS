@@ -77,6 +77,9 @@ func (s *SQLiteStore) initSchema() error {
 		roles TEXT,
 		policies TEXT,
 		metadata TEXT,
+		failed_login_attempts INTEGER DEFAULT 0,
+		locked_until INTEGER DEFAULT 0,
+		last_failed_login INTEGER DEFAULT 0,
 		created_at INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL,
 		FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
@@ -123,7 +126,57 @@ func (s *SQLiteStore) initSchema() error {
 	`
 
 	_, err := s.db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Run migrations for existing databases
+	return s.runMigrations()
+}
+
+// runMigrations applies database migrations for existing tables
+func (s *SQLiteStore) runMigrations() error {
+	// Migration 1: Add account lockout columns to users table
+	migrations := []string{
+		`ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN locked_until INTEGER DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN last_failed_login INTEGER DEFAULT 0`,
+	}
+
+	for _, migration := range migrations {
+		// Try to run migration - ignore errors if column already exists
+		_, err := s.db.Exec(migration)
+		if err != nil && !isDuplicateColumnError(err) {
+			return fmt.Errorf("migration failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// isDuplicateColumnError checks if error is due to duplicate column
+func isDuplicateColumnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := err.Error()
+	return contains(errMsg, "duplicate column") || contains(errMsg, "already exists")
+}
+
+// contains checks if a string contains a substring (case-insensitive)
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) &&
+		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
+		findSubstring(s, substr)))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // HashPassword hashes a password using bcrypt
@@ -503,6 +556,60 @@ func (s *SQLiteStore) ListAllAccessKeys() ([]*AccessKey, error) {
 	}
 
 	return keys, nil
+}
+
+// IncrementFailedLoginAttempts increments failed login attempts for a user
+func (s *SQLiteStore) IncrementFailedLoginAttempts(userID string) error {
+	_, err := s.db.Exec(`
+		UPDATE users
+		SET failed_login_attempts = failed_login_attempts + 1,
+		    last_failed_login = ?
+		WHERE id = ?
+	`, time.Now().Unix(), userID)
+	return err
+}
+
+// LockAccount locks a user account for specified duration (in seconds)
+func (s *SQLiteStore) LockAccount(userID string, durationSeconds int64) error {
+	lockUntil := time.Now().Add(time.Duration(durationSeconds) * time.Second).Unix()
+	_, err := s.db.Exec(`
+		UPDATE users
+		SET locked_until = ?,
+		    last_failed_login = ?
+		WHERE id = ?
+	`, lockUntil, time.Now().Unix(), userID)
+	return err
+}
+
+// UnlockAccount unlocks a user account and resets failed login attempts
+func (s *SQLiteStore) UnlockAccount(userID string) error {
+	_, err := s.db.Exec(`
+		UPDATE users
+		SET failed_login_attempts = 0,
+		    locked_until = 0
+		WHERE id = ?
+	`, userID)
+	return err
+}
+
+// ResetFailedLoginAttempts resets failed login attempts to 0
+func (s *SQLiteStore) ResetFailedLoginAttempts(userID string) error {
+	_, err := s.db.Exec(`
+		UPDATE users
+		SET failed_login_attempts = 0
+		WHERE id = ?
+	`, userID)
+	return err
+}
+
+// GetAccountLockStatus retrieves account lock information
+func (s *SQLiteStore) GetAccountLockStatus(userID string) (failedAttempts int, lockedUntil int64, err error) {
+	err = s.db.QueryRow(`
+		SELECT failed_login_attempts, locked_until
+		FROM users
+		WHERE id = ?
+	`, userID).Scan(&failedAttempts, &lockedUntil)
+	return
 }
 
 // Close closes the database connection

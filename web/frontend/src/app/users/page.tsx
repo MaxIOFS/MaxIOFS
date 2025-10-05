@@ -26,7 +26,9 @@ import {
   Calendar,
   Mail,
   Key,
-  Building2
+  Building2,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -99,6 +101,18 @@ export default function UsersPage() {
     },
   });
 
+  const unlockUserMutation = useMutation({
+    mutationFn: (userId: string) => APIClient.unlockUser(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['locked-users'] });
+      SweetAlert.toast('success', 'User unlocked successfully');
+    },
+    onError: (error: any) => {
+      SweetAlert.apiError(error);
+    },
+  });
+
   const filteredUsers = users?.filter((user: User) =>
     user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.email?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -136,15 +150,44 @@ export default function UsersPage() {
     const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
     const user = users?.find((u: User) => u.id === userId);
     if (!user) return;
-    
+
     updateUserMutation.mutate({
       userId,
-      data: { 
+      data: {
         status: newStatus as 'active' | 'inactive' | 'suspended',
         roles: user.roles,
         email: user.email
       }
     });
+  };
+
+  const handleUnlockUser = async (userId: string) => {
+    const user = users?.find((u: User) => u.id === userId);
+    if (!user) return;
+
+    try {
+      const result = await SweetAlert.fire({
+        title: 'Unlock Account',
+        text: `Are you sure you want to unlock "${user.username}"?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, unlock',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#3b82f6',
+      });
+
+      if (result.isConfirmed) {
+        unlockUserMutation.mutate(userId);
+      }
+    } catch (error) {
+      SweetAlert.apiError(error);
+    }
+  };
+
+  const isUserLocked = (user: User): boolean => {
+    if (!(user as any).lockedUntil) return false;
+    const now = Math.floor(Date.now() / 1000);
+    return (user as any).lockedUntil > now;
   };
 
   const updateNewUser = (field: keyof CreateUserRequest, value: any) => {
@@ -326,6 +369,12 @@ export default function UsersPage() {
                       <div className="flex items-center gap-2">
                         <Users className="h-4 w-4 text-muted-foreground" />
                         {user.username}
+                        {isUserLocked(user) && (
+                          <span className="flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                            <Lock className="h-3 w-3" />
+                            Locked
+                          </span>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -381,6 +430,18 @@ export default function UsersPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {isUserLocked(user) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleUnlockUser(user.id)}
+                            disabled={unlockUserMutation.isPending}
+                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            title="Unlock account"
+                          >
+                            <Unlock className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"

@@ -294,6 +294,10 @@ export class APIClient {
     });
   }
 
+  static async unlockUser(userId: string): Promise<void> {
+    await apiClient.post(`/users/${userId}/unlock`);
+  }
+
   // Access Keys Management
   static async getAccessKeys(userId?: string): Promise<AccessKey[]> {
     const url = userId ? `/users/${userId}/access-keys` : '/access-keys';

@@ -1,10 +1,14 @@
 @echo off
 REM MaxIOFS Build Script for Windows
-REM This script builds MaxIOFS with proper version information
+REM This script builds MaxIOFS with proper version and commit information
 
+REM --- VERSION MANUAL ---
 SET VERSION=v1.1.0
-SET COMMIT=ec1cecb
 
+REM --- GET COMMIT FROM GIT ---
+FOR /F %%i IN ('git rev-parse --short HEAD') DO SET COMMIT=%%i
+
+REM --- GET BUILD DATE (robusto, formato ISO 8601) ---
 FOR /F "tokens=1 delims=." %%A IN ('wmic os get localdatetime ^| find "."') DO SET ldt=%%A
 SET BUILD_DATE=%ldt:~0,4%-%ldt:~4,2%-%ldt:~6,2%T%ldt:~8,2%:%ldt:~10,2%:%ldt:~12,2%Z
 
@@ -13,8 +17,10 @@ echo Commit: %COMMIT%
 echo Build Date: %BUILD_DATE%
 echo.
 
+REM --- BUILD COMMAND ---
 go build -ldflags "-X main.version=%VERSION% -X main.commit=%COMMIT% -X main.date=%BUILD_DATE%" -o maxiofs.exe ./cmd/maxiofs
 
+REM --- CHECK BUILD RESULT ---
 if %errorlevel% equ 0 (
     echo.
     echo Build successful!

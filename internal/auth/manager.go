@@ -71,6 +71,14 @@ type Manager interface {
 	// HTTP Middleware
 	Middleware() func(http.Handler) http.Handler
 
+	// Account lockout management
+	CheckRateLimit(ip string) bool
+	IsAccountLocked(ctx context.Context, userID string) (bool, int64, error)
+	LockAccount(ctx context.Context, userID string) error
+	UnlockAccount(ctx context.Context, adminUserID, targetUserID string) error
+	RecordFailedLogin(ctx context.Context, userID, ip string) error
+	RecordSuccessfulLogin(ctx context.Context, userID string) error
+
 	// Health check
 	IsReady() bool
 }
@@ -133,8 +141,9 @@ type AccessKey struct {
 
 // authManager implements the Manager interface
 type authManager struct {
-	config config.AuthConfig
-	store  *SQLiteStore
+	config      config.AuthConfig
+	store       *SQLiteStore
+	rateLimiter *LoginRateLimiter
 }
 
 // NewManager creates a new authentication manager with SQLite backend
@@ -145,9 +154,13 @@ func NewManager(cfg config.AuthConfig, dataDir string) Manager {
 		logrus.WithError(err).Fatal("Failed to initialize SQLite auth store")
 	}
 
+	// Create rate limiter: max 5 attempts per 60 seconds (1 minute)
+	rateLimiter := NewLoginRateLimiter(5, 60)
+
 	manager := &authManager{
-		config: cfg,
-		store:  store,
+		config:      cfg,
+		store:       store,
+		rateLimiter: rateLimiter,
 	}
 
 	// Create default admin user if not exists (ONLY admin, no default keys)
@@ -1150,4 +1163,163 @@ func writeS3Error(w http.ResponseWriter, r *http.Request, code, message string, 
 	}
 
 	xml.NewEncoder(w).Encode(errorResponse)
+}
+
+// CheckRateLimit checks if login is allowed from given IP address
+func (am *authManager) CheckRateLimit(ip string) bool {
+	return am.rateLimiter.AllowLogin(ip)
+}
+
+// IsAccountLocked checks if an account is currently locked
+// Returns: (isLocked, lockedUntilTimestamp, error)
+func (am *authManager) IsAccountLocked(ctx context.Context, userID string) (bool, int64, error) {
+	failedAttempts, lockedUntil, err := am.store.GetAccountLockStatus(userID)
+	if err != nil {
+		return false, 0, err
+	}
+
+	now := time.Now().Unix()
+
+	// Check if account is locked
+	if lockedUntil > 0 && now < lockedUntil {
+		return true, lockedUntil, nil
+	}
+
+	// Auto-unlock if lock period has expired
+	if lockedUntil > 0 && now >= lockedUntil {
+		am.store.UnlockAccount(userID)
+		logrus.WithFields(logrus.Fields{
+			"user_id": userID,
+		}).Info("Account auto-unlocked after lock period expired")
+		return false, 0, nil
+	}
+
+	// Check if account should be locked due to failed attempts
+	if failedAttempts >= 5 {
+		// Lock for 15 minutes
+		lockDuration := int64(15 * 60) // 15 minutes in seconds
+		err := am.store.LockAccount(userID, lockDuration)
+		if err != nil {
+			return false, 0, err
+		}
+
+		newLockedUntil := now + lockDuration
+		logrus.WithFields(logrus.Fields{
+			"user_id":       userID,
+			"attempts":      failedAttempts,
+			"locked_until":  time.Unix(newLockedUntil, 0).Format(time.RFC3339),
+		}).Warn("Account locked due to failed login attempts")
+
+		return true, newLockedUntil, nil
+	}
+
+	return false, 0, nil
+}
+
+// LockAccount manually locks a user account (for 15 minutes)
+func (am *authManager) LockAccount(ctx context.Context, userID string) error {
+	lockDuration := int64(15 * 60) // 15 minutes in seconds
+	err := am.store.LockAccount(userID, lockDuration)
+	if err != nil {
+		return err
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id": userID,
+		"duration_minutes": 15,
+	}).Info("Account manually locked")
+
+	return nil
+}
+
+// UnlockAccount unlocks a user account
+// Can only be done by Global Admin or Tenant Admin (for users in same tenant)
+func (am *authManager) UnlockAccount(ctx context.Context, adminUserID, targetUserID string) error {
+	// Get admin user
+	admin, err := am.store.GetUserByID(adminUserID)
+	if err != nil {
+		return fmt.Errorf("admin user not found: %w", err)
+	}
+
+	// Get target user
+	target, err := am.store.GetUserByID(targetUserID)
+	if err != nil {
+		return fmt.Errorf("target user not found: %w", err)
+	}
+
+	// Check permissions
+	isGlobalAdmin := admin.TenantID == "" && containsRole(admin.Roles, "admin")
+	isTenantAdmin := admin.TenantID != "" && admin.TenantID == target.TenantID && containsRole(admin.Roles, "admin")
+
+	if !isGlobalAdmin && !isTenantAdmin {
+		return fmt.Errorf("insufficient permissions to unlock account")
+	}
+
+	// Unlock account
+	err = am.store.UnlockAccount(targetUserID)
+	if err != nil {
+		return err
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"admin_user_id":  adminUserID,
+		"target_user_id": targetUserID,
+		"is_global_admin": isGlobalAdmin,
+	}).Info("Account unlocked by admin")
+
+	return nil
+}
+
+// RecordFailedLogin records a failed login attempt
+func (am *authManager) RecordFailedLogin(ctx context.Context, userID, ip string) error {
+	// Record in rate limiter
+	if ip != "" {
+		am.rateLimiter.RecordFailedAttempt(ip)
+	}
+
+	// Increment failed attempts in database
+	err := am.store.IncrementFailedLoginAttempts(userID)
+	if err != nil {
+		return err
+	}
+
+	// Get current attempt count
+	failedAttempts, lockedUntil, err := am.store.GetAccountLockStatus(userID)
+	if err != nil {
+		return err
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":         userID,
+		"ip":              ip,
+		"failed_attempts": failedAttempts,
+		"locked_until":    lockedUntil,
+	}).Warn("Failed login attempt recorded")
+
+	return nil
+}
+
+// RecordSuccessfulLogin records a successful login and resets failed attempts
+func (am *authManager) RecordSuccessfulLogin(ctx context.Context, userID string) error {
+	// Reset failed attempts
+	err := am.store.ResetFailedLoginAttempts(userID)
+	if err != nil {
+		return err
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id": userID,
+	}).Info("Successful login - failed attempts reset")
+
+	return nil
+}
+
+// containsRole checks if a role exists in a slice of roles
+func containsRole(roles []string, role string) bool {
+	for _, r := range roles {
+		if r == role {
+			return true
+		}
+	}
+	return false
 }

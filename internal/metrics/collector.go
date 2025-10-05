@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/disk"
+	"github.com/shirou/gopsutil/v3/mem"
 )
 
 // Collector handles collection of system and custom metrics
@@ -108,13 +111,17 @@ type collector struct {
 	interval   time.Duration
 	lastCPU    time.Duration
 	lastTime   time.Time
+	startTime  time.Time
+	dataDir    string
 }
 
 // NewCollector creates a new metrics collector
-func NewCollector() Collector {
+func NewCollector(dataDir string) Collector {
 	return &collector{
-		stopChan: make(chan struct{}),
-		lastTime: time.Now(),
+		stopChan:  make(chan struct{}),
+		lastTime:  time.Now(),
+		startTime: time.Now(),
+		dataDir:   dataDir,
 	}
 }
 
@@ -123,13 +130,13 @@ func (c *collector) CollectSystemMetrics() (*SystemMetrics, error) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
-	// Get basic system metrics
-	// Note: For a complete implementation, you'd use system calls or libraries
-	// like gopsutil for more accurate system metrics
+	// Get actual system memory info
+	memInfo, _ := mem.VirtualMemory()
+
 	metrics := &SystemMetrics{
 		CPUUsagePercent:    c.getCPUUsage(),
 		MemoryUsagePercent: c.getMemoryUsage(&m),
-		MemoryUsedBytes:    int64(m.Sys),
+		MemoryUsedBytes:    int64(memInfo.Used),
 		MemoryTotalBytes:   c.getTotalMemory(),
 		DiskUsagePercent:   c.getDiskUsage(),
 		DiskUsedBytes:      c.getDiskUsed(),
@@ -298,43 +305,57 @@ func (c *collector) collectAndReport(ctx context.Context, manager Manager) {
 // system-specific calls or libraries like gopsutil for accurate metrics
 
 func (c *collector) getCPUUsage() float64 {
-	// Simplified CPU usage calculation
-	// In production, this would use system calls or gopsutil
-	return 0.0 // Placeholder
+	// Get CPU usage percentage
+	percentages, err := cpu.Percent(time.Second, false)
+	if err != nil || len(percentages) == 0 {
+		return 0.0
+	}
+	return percentages[0]
 }
 
 func (c *collector) getMemoryUsage(m *runtime.MemStats) float64 {
-	// Calculate memory usage percentage
-	total := c.getTotalMemory()
-	if total == 0 {
+	// Get actual system memory usage
+	memInfo, err := mem.VirtualMemory()
+	if err != nil {
 		return 0.0
 	}
-	used := int64(m.Sys)
-	return float64(used) / float64(total) * 100.0
+	return memInfo.UsedPercent
 }
 
 func (c *collector) getTotalMemory() int64 {
 	// Get total system memory
-	// In production, this would use system calls or gopsutil
-	return 8 * 1024 * 1024 * 1024 // 8GB placeholder
+	memInfo, err := mem.VirtualMemory()
+	if err != nil {
+		return 0
+	}
+	return int64(memInfo.Total)
 }
 
 func (c *collector) getDiskUsage() float64 {
-	// Get disk usage percentage
-	// In production, this would use system calls or gopsutil
-	return 50.0 // Placeholder
+	// Get disk usage percentage for data directory
+	diskInfo, err := disk.Usage(c.dataDir)
+	if err != nil {
+		return 0.0
+	}
+	return diskInfo.UsedPercent
 }
 
 func (c *collector) getDiskUsed() int64 {
-	// Get used disk space
-	// In production, this would use system calls or gopsutil
-	return 100 * 1024 * 1024 * 1024 // 100GB placeholder
+	// Get used disk space for data directory
+	diskInfo, err := disk.Usage(c.dataDir)
+	if err != nil {
+		return 0
+	}
+	return int64(diskInfo.Used)
 }
 
 func (c *collector) getDiskTotal() int64 {
-	// Get total disk space
-	// In production, this would use system calls or gopsutil
-	return 200 * 1024 * 1024 * 1024 // 200GB placeholder
+	// Get total disk space for data directory
+	diskInfo, err := disk.Usage(c.dataDir)
+	if err != nil {
+		return 0
+	}
+	return int64(diskInfo.Total)
 }
 
 func (c *collector) getOpenFileDescriptors() int64 {
@@ -391,7 +412,7 @@ func (pc *prometheusCollector) Describe(ch chan<- *prometheus.Desc) {
 
 // Collect implements prometheus.Collector
 func (pc *prometheusCollector) Collect(ch chan<- prometheus.Metric) {
-	collector := NewCollector()
+	collector := NewCollector("")
 
 	// Collect system metrics
 	sysMetrics, err := collector.CollectSystemMetrics()

@@ -71,8 +71,39 @@ type MetricsResponse struct {
 	SystemStats  map[string]float64 `json:"system_stats"`
 }
 
+// metricsResponseWriter wraps http.ResponseWriter to capture status code
+type metricsResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (w *metricsResponseWriter) WriteHeader(statusCode int) {
+	w.statusCode = statusCode
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
 // setupConsoleAPIRoutes registers all console API routes
 func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
+	// Metrics tracking middleware
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+
+			// Wrap response writer to capture status code
+			wrapped := &metricsResponseWriter{
+				ResponseWriter: w,
+				statusCode:     200,
+			}
+
+			next.ServeHTTP(wrapped, r)
+
+			// Record request metrics
+			latencyMs := uint64(time.Since(start).Milliseconds())
+			isError := wrapped.statusCode >= 400
+			s.systemMetrics.RecordRequest(latencyMs, isError)
+		})
+	})
+
 	// Apply CORS middleware for API
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -159,6 +190,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Password management
 	router.HandleFunc("/users/{user}/password", s.handleChangePassword).Methods("PUT", "OPTIONS")
 
+	// Account lockout management
+	router.HandleFunc("/users/{user}/unlock", s.handleUnlockAccount).Methods("POST", "OPTIONS")
+
 	// Metrics endpoints
 	router.HandleFunc("/metrics", s.handleGetMetrics).Methods("GET", "OPTIONS")
 	router.HandleFunc("/metrics/system", s.handleGetSystemMetrics).Methods("GET", "OPTIONS")
@@ -196,17 +230,75 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get client IP address
+	clientIP := getClientIP(r)
+
+	// Step 1: Check IP-based rate limiting (5 attempts per minute)
+	if !s.authManager.CheckRateLimit(clientIP) {
+		logrus.WithFields(logrus.Fields{
+			"ip":       clientIP,
+			"username": loginReq.Username,
+		}).Warn("Login rate limit exceeded")
+		s.writeError(w, "Too many login attempts. Please try again later.", http.StatusTooManyRequests)
+		return
+	}
+
+	// Step 2: Validate credentials to get user (needed to check account lock)
 	user, err := s.authManager.ValidateConsoleCredentials(r.Context(), loginReq.Username, loginReq.Password)
 	if err != nil {
+		// Try to get user by username to record failed attempt
+		// We need to do this even if credentials are invalid
+		userByName, userErr := s.authManager.GetUser(r.Context(), loginReq.Username)
+		if userErr == nil && userByName != nil {
+			// Record failed login attempt
+			s.authManager.RecordFailedLogin(r.Context(), userByName.ID, clientIP)
+		}
+
 		s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
+	// Step 3: Check if account is locked
+	isLocked, lockedUntil, err := s.authManager.IsAccountLocked(r.Context(), user.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to check account lock status")
+		s.writeError(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if isLocked {
+		remainingTime := time.Until(time.Unix(lockedUntil, 0))
+		logrus.WithFields(logrus.Fields{
+			"user_id":        user.ID,
+			"username":       user.Username,
+			"locked_until":   time.Unix(lockedUntil, 0).Format(time.RFC3339),
+			"remaining_time": remainingTime.String(),
+		}).Warn("Login attempt on locked account")
+
+		s.writeJSON(w, map[string]interface{}{
+			"error":        "Account is locked due to multiple failed login attempts",
+			"locked_until": lockedUntil,
+			"locked":       true,
+		})
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	// Step 4: Record successful login and reset failed attempts
+	s.authManager.RecordSuccessfulLogin(r.Context(), user.ID)
+
+	// Step 5: Generate JWT token
 	token, err := s.authManager.GenerateJWT(r.Context(), user)
 	if err != nil {
 		s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
 		return
 	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":  user.ID,
+		"username": user.Username,
+		"ip":       clientIP,
+	}).Info("Successful login")
 
 	s.writeJSON(w, map[string]interface{}{
 		"token": token,
@@ -221,6 +313,31 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			CreatedAt:   user.CreatedAt,
 		},
 	})
+}
+
+// getClientIP extracts the client IP address from the request
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header first (for proxies)
+	forwarded := r.Header.Get("X-Forwarded-For")
+	if forwarded != "" {
+		// X-Forwarded-For can contain multiple IPs, use the first one
+		ips := strings.Split(forwarded, ",")
+		return strings.TrimSpace(ips[0])
+	}
+
+	// Check X-Real-IP header
+	realIP := r.Header.Get("X-Real-IP")
+	if realIP != "" {
+		return realIP
+	}
+
+	// Fall back to RemoteAddr
+	ip := r.RemoteAddr
+	// Remove port if present
+	if idx := strings.LastIndex(ip, ":"); idx != -1 {
+		ip = ip[:idx]
+	}
+	return ip
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -1156,6 +1273,37 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Account lockout handlers
+func (s *Server) handleUnlockAccount(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	targetUserID := vars["user"]
+
+	// Get current user from context
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	// Unlock account (permissions are checked in authManager)
+	err := s.authManager.UnlockAccount(r.Context(), currentUser.ID, targetUserID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			s.writeError(w, err.Error(), http.StatusNotFound)
+		} else if strings.Contains(err.Error(), "insufficient permissions") {
+			s.writeError(w, err.Error(), http.StatusForbidden)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"success": true,
+		"message": "Account unlocked successfully",
+	})
+}
+
 // Metrics handlers
 func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 	currentUser, userExists := auth.GetUserFromContext(r.Context())
@@ -1164,30 +1312,15 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	buckets, _ := s.bucketManager.ListBuckets(r.Context())
-
-	// Filter buckets by tenant
+	// Only Global Admins can access full metrics
 	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
-	var filteredBuckets []bucket.Bucket
-
-	if isGlobalAdmin {
-		filteredBuckets = buckets
-	} else if currentUser.TenantID != "" {
-		// Tenant users only see metrics from their tenant buckets
-		for _, b := range buckets {
-			if (b.OwnerType == "tenant" && b.OwnerID == currentUser.TenantID) ||
-				(b.OwnerType == "user" && b.OwnerID == currentUser.ID) {
-				filteredBuckets = append(filteredBuckets, b)
-			}
-		}
-	} else {
-		// Non-admin users see only their own buckets
-		for _, b := range buckets {
-			if b.OwnerType == "user" && b.OwnerID == currentUser.ID {
-				filteredBuckets = append(filteredBuckets, b)
-			}
-		}
+	if !isGlobalAdmin {
+		s.writeError(w, "Forbidden: Only Global Admins can access metrics", http.StatusForbidden)
+		return
 	}
+
+	buckets, _ := s.bucketManager.ListBuckets(r.Context())
+	filteredBuckets := buckets
 
 	totalBuckets := int64(len(filteredBuckets))
 
@@ -1213,12 +1346,36 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetSystemMetrics(w http.ResponseWriter, r *http.Request) {
-	// TODO: Integrate with metrics manager
-	s.writeJSON(w, map[string]interface{}{
-		"cpu_usage":    0.0,
-		"memory_usage": 0.0,
-		"disk_usage":   0.0,
-	})
+	// Only Global Admins can access system metrics
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
+	if !isGlobalAdmin {
+		s.writeError(w, "Forbidden: Only Global Admins can access system metrics", http.StatusForbidden)
+		return
+	}
+
+	// Get system metrics
+	cpuUsage, _ := s.systemMetrics.GetCPUUsage()
+	memStats, _ := s.systemMetrics.GetMemoryUsage()
+	diskStats, _ := s.systemMetrics.GetDiskUsage()
+	requestStats := s.systemMetrics.GetRequestStats()
+	perfStats := s.systemMetrics.GetPerformanceStats()
+
+	response := map[string]interface{}{
+		"uptime_seconds":  s.systemMetrics.GetUptime(),
+		"cpu_percent":     cpuUsage,
+		"memory":          memStats,
+		"disk":            diskStats,
+		"requests":        requestStats,
+		"performance":     perfStats,
+	}
+
+	s.writeJSON(w, response)
 }
 
 func (s *Server) handleAPIHealth(w http.ResponseWriter, r *http.Request) {
