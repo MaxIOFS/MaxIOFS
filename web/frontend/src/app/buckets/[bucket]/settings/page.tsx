@@ -1,81 +1,79 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useParams } from 'next/navigation';
+import React from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import {
   ArrowLeft,
   Shield,
-  Users,
-  Globe,
+  Lock,
   Key,
-  Archive,
+  Database,
   AlertTriangle,
-  Save,
-  Trash2
+  Trash2,
+  Info,
+  Clock,
+  Tag
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import { BucketPolicy, BucketSettings } from '@/types';
+import SweetAlert from '@/lib/sweetalert';
 
 export default function BucketSettingsPage() {
   const params = useParams();
+  const router = useRouter();
   const bucketName = params.bucket as string;
   const queryClient = useQueryClient();
 
-  const [isEditing, setIsEditing] = useState(false);
-  const [settings, setSettings] = useState<Partial<BucketSettings>>({});
-
-  const { data: bucket, isLoading } = useQuery({
+  const { data: bucketData, isLoading } = useQuery({
     queryKey: ['bucket', bucketName],
     queryFn: () => APIClient.getBucket(bucketName),
-    onSuccess: (data) => {
-      if (data?.data?.settings) {
-        setSettings(data.data.settings);
-      }
-    },
-  });
-
-  const updateSettingsMutation = useMutation({
-    mutationFn: (data: Partial<BucketSettings>) =>
-      APIClient.updateBucketSettings(bucketName, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
-      setIsEditing(false);
-    },
   });
 
   const deleteBucketMutation = useMutation({
     mutationFn: () => APIClient.deleteBucket(bucketName),
     onSuccess: () => {
-      window.location.href = '/buckets';
+      SweetAlert.toast('success', `Bucket "${bucketName}" deleted successfully`);
+      router.push('/buckets');
+    },
+    onError: (error) => {
+      SweetAlert.apiError(error);
     },
   });
 
-  const handleSaveSettings = () => {
-    updateSettingsMutation.mutate(settings);
-  };
+  const handleDeleteBucket = async () => {
+    const result = await SweetAlert.fire({
+      icon: 'warning',
+      title: 'Delete Bucket?',
+      html: `
+        <div class="text-left space-y-2">
+          <p>Are you sure you want to delete bucket <strong>${bucketName}</strong>?</p>
+          <p class="text-sm text-red-600">⚠️ This action cannot be undone and will delete all objects in the bucket.</p>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'Yes, delete it',
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: '#dc2626',
+    });
 
-  const handleDeleteBucket = () => {
-    if (confirm(`Are you sure you want to delete bucket "${bucketName}"? This action cannot be undone and will delete all objects in the bucket.`)) {
+    if (result.isConfirmed) {
+      SweetAlert.loading('Deleting bucket...', `Removing "${bucketName}"`);
       deleteBucketMutation.mutate();
     }
-  };
-
-  const updateSetting = (key: keyof BucketSettings, value: any) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
   };
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loading size="lg" />
+        <Loading size="lg" text="Loading bucket settings..." />
       </div>
     );
   }
+
+  const bucket = bucketData;
 
   return (
     <div className="space-y-6">
@@ -85,198 +83,154 @@ export default function BucketSettingsPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => window.history.back()}
+            onClick={() => router.push(`/buckets/${bucketName}`)}
             className="gap-2"
           >
             <ArrowLeft className="h-4 w-4" />
             Back
           </Button>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-            <p className="text-muted-foreground">Configure {bucketName} bucket settings</p>
+            <h1 className="text-3xl font-bold tracking-tight">Bucket Settings</h1>
+            <p className="text-muted-foreground">{bucketName}</p>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {isEditing ? (
-            <>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setIsEditing(false);
-                  if (bucket?.data?.settings) {
-                    setSettings(bucket.data.settings);
-                  }
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSaveSettings}
-                disabled={updateSettingsMutation.isPending}
-                className="gap-2"
-              >
-                <Save className="h-4 w-4" />
-                {updateSettingsMutation.isPending ? 'Saving...' : 'Save Changes'}
-              </Button>
-            </>
-          ) : (
-            <Button onClick={() => setIsEditing(true)}>
-              Edit Settings
-            </Button>
-          )}
         </div>
       </div>
 
-      {/* General Settings */}
+      {/* General Information */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5" />
-            General Settings
+            <Database className="h-5 w-5" />
+            General Information
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-2">Bucket Name</label>
-              <Input value={bucketName} disabled />
+              <label className="block text-sm font-medium text-muted-foreground mb-1">Bucket Name</label>
+              <p className="text-sm font-mono bg-gray-50 p-2 rounded">{bucket?.name}</p>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">Region</label>
-              <Input
-                value={settings.region || bucket?.data?.region || 'us-east-1'}
-                onChange={(e) => updateSetting('region', e.target.value)}
-                disabled={!isEditing}
-              />
+              <label className="block text-sm font-medium text-muted-foreground mb-1">Region</label>
+              <p className="text-sm bg-gray-50 p-2 rounded">{bucket?.region || 'us-east-1'}</p>
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-2">Description</label>
-            <Input
-              value={settings.description || ''}
-              onChange={(e) => updateSetting('description', e.target.value)}
-              placeholder="Optional bucket description"
-              disabled={!isEditing}
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-1">Created</label>
+              <p className="text-sm bg-gray-50 p-2 rounded">{bucket?.creation_date ? new Date(bucket.creation_date).toLocaleString() : 'N/A'}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-1">Owner</label>
+              <p className="text-sm bg-gray-50 p-2 rounded">
+                {bucket?.owner_type ? `${bucket.owner_type}: ${bucket.owner_id}` : 'Global'}
+              </p>
+            </div>
           </div>
 
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="public-read"
-              checked={settings.publicRead || false}
-              onChange={(e) => updateSetting('publicRead', e.target.checked)}
-              disabled={!isEditing}
-              className="rounded border-gray-300"
-            />
-            <label htmlFor="public-read" className="text-sm font-medium">
-              Enable public read access
-            </label>
-          </div>
+          {bucket?.is_public && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 flex items-start gap-2">
+              <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-yellow-800">
+                <strong>Public Bucket:</strong> This bucket is publicly accessible
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Access Control */}
+      {/* Versioning */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5" />
-            Access Control
+            <Clock className="h-5 w-5" />
+            Versioning
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="block-public-access"
-              checked={settings.blockPublicAccess !== false}
-              onChange={(e) => updateSetting('blockPublicAccess', !e.target.checked)}
-              disabled={!isEditing}
-              className="rounded border-gray-300"
-            />
-            <label htmlFor="block-public-access" className="text-sm font-medium">
-              Block all public access
-            </label>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="versioning"
-              checked={settings.versioning || false}
-              onChange={(e) => updateSetting('versioning', e.target.checked)}
-              disabled={!isEditing}
-              className="rounded border-gray-300"
-            />
-            <label htmlFor="versioning" className="text-sm font-medium">
-              Enable versioning
-            </label>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">CORS Configuration</label>
-            <textarea
-              value={settings.corsConfiguration || ''}
-              onChange={(e) => updateSetting('corsConfiguration', e.target.value)}
-              placeholder="Enter CORS configuration in JSON format"
-              disabled={!isEditing}
-              rows={4}
-              className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-            />
-          </div>
+        <CardContent>
+          {bucket?.versioning?.Status === 'Enabled' ? (
+            <div className="bg-green-50 border border-green-200 rounded-md p-3 flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-green-500"></div>
+              <span className="text-sm text-green-800">Versioning is <strong>Enabled</strong></span>
+            </div>
+          ) : (
+            <div className="bg-gray-50 border border-gray-200 rounded-md p-3 flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-gray-400"></div>
+              <span className="text-sm text-gray-600">Versioning is <strong>Disabled</strong></span>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground mt-2">
+            Object versioning cannot be changed after bucket creation.
+          </p>
         </CardContent>
       </Card>
 
-      {/* Lifecycle Management */}
+      {/* Object Lock & WORM */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Archive className="h-5 w-5" />
-            Lifecycle Management
+            <Lock className="h-5 w-5" />
+            Object Lock & WORM
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="lifecycle-enabled"
-              checked={settings.lifecycleEnabled || false}
-              onChange={(e) => updateSetting('lifecycleEnabled', e.target.checked)}
-              disabled={!isEditing}
-              className="rounded border-gray-300"
-            />
-            <label htmlFor="lifecycle-enabled" className="text-sm font-medium">
-              Enable lifecycle management
-            </label>
-          </div>
+        <CardContent>
+          {bucket?.objectLock?.objectLockEnabled ? (
+            <div className="space-y-3">
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Lock className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm font-semibold text-blue-800">Object Lock Enabled</span>
+                </div>
 
-          {settings.lifecycleEnabled && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Transition to IA after (days)
-                </label>
-                <Input
-                  type="number"
-                  value={settings.transitionToIA || 30}
-                  onChange={(e) => updateSetting('transitionToIA', parseInt(e.target.value))}
-                  disabled={!isEditing}
-                  min="1"
-                />
+                {bucket.objectLock.rule?.defaultRetention && (
+                  <div className="mt-3 space-y-2 text-sm text-blue-800">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-blue-600 mb-1">Retention Mode</label>
+                        <p className="font-mono bg-white p-2 rounded border border-blue-200">
+                          {bucket.objectLock.rule.defaultRetention.mode}
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-blue-600 mb-1">Retention Period</label>
+                        <p className="font-mono bg-white p-2 rounded border border-blue-200">
+                          {bucket.objectLock.rule.defaultRetention.days ?
+                            `${bucket.objectLock.rule.defaultRetention.days} days` :
+                            bucket.objectLock.rule.defaultRetention.years ?
+                            `${bucket.objectLock.rule.defaultRetention.years} years` :
+                            'Not set'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {bucket.objectLock.rule.defaultRetention.mode === 'COMPLIANCE' && (
+                      <div className="bg-red-50 border border-red-200 rounded-md p-2 mt-3">
+                        <p className="text-xs text-red-700">
+                          <strong>⚠️ COMPLIANCE Mode:</strong> Objects cannot be deleted or modified by anyone until retention expires.
+                        </p>
+                      </div>
+                    )}
+
+                    {bucket.objectLock.rule.defaultRetention.mode === 'GOVERNANCE' && (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-md p-2 mt-3">
+                        <p className="text-xs text-yellow-700">
+                          <strong>GOVERNANCE Mode:</strong> Users with special permissions can bypass retention.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Delete after (days)
-                </label>
-                <Input
-                  type="number"
-                  value={settings.deleteAfter || 365}
-                  onChange={(e) => updateSetting('deleteAfter', parseInt(e.target.value))}
-                  disabled={!isEditing}
-                  min="1"
-                />
-              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Object Lock settings cannot be changed after bucket creation.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-gray-50 border border-gray-200 rounded-md p-3 flex items-center gap-2">
+              <Info className="h-4 w-4 text-gray-500" />
+              <span className="text-sm text-gray-600">Object Lock is not enabled for this bucket</span>
             </div>
           )}
         </CardContent>
@@ -290,85 +244,101 @@ export default function BucketSettingsPage() {
             Encryption
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-2">Server-side encryption</label>
-            <select
-              value={settings.encryption || 'none'}
-              onChange={(e) => updateSetting('encryption', e.target.value)}
-              disabled={!isEditing}
-              className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-            >
-              <option value="none">No encryption</option>
-              <option value="AES256">AES-256</option>
-              <option value="aws:kms">AWS KMS</option>
-            </select>
-          </div>
-
-          {settings.encryption === 'aws:kms' && (
-            <div>
-              <label className="block text-sm font-medium mb-2">KMS Key ID</label>
-              <Input
-                value={settings.kmsKeyId || ''}
-                onChange={(e) => updateSetting('kmsKeyId', e.target.value)}
-                placeholder="Enter KMS Key ID"
-                disabled={!isEditing}
-              />
+        <CardContent>
+          {bucket?.encryption ? (
+            <div className="bg-green-50 border border-green-200 rounded-md p-3">
+              <div className="flex items-center gap-2">
+                <Shield className="h-4 w-4 text-green-600" />
+                <span className="text-sm text-green-800">
+                  <strong>Server-side encryption:</strong> {bucket.encryption.type}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2 ml-6">
+                All objects are encrypted at rest using {bucket.encryption.type === 'AES256' ? 'AES-256-GCM' : bucket.encryption.type}
+              </p>
+            </div>
+          ) : (
+            <div className="bg-gray-50 border border-gray-200 rounded-md p-3 flex items-center gap-2">
+              <Info className="h-4 w-4 text-gray-500" />
+              <span className="text-sm text-gray-600">Server-side encryption is not enabled</span>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Monitoring */}
+      {/* Public Access Control */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            Monitoring & Logging
+            <Shield className="h-5 w-5" />
+            Public Access Control
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="access-logging"
-              checked={settings.accessLogging || false}
-              onChange={(e) => updateSetting('accessLogging', e.target.checked)}
-              disabled={!isEditing}
-              className="rounded border-gray-300"
-            />
-            <label htmlFor="access-logging" className="text-sm font-medium">
-              Enable access logging
-            </label>
-          </div>
+        <CardContent>
+          {bucket?.publicAccessBlock ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div className={`p-2 rounded-md border ${bucket.publicAccessBlock.blockPublicAcls ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                  <p className="text-xs font-medium">Block Public ACLs</p>
+                  <p className={`text-sm font-semibold ${bucket.publicAccessBlock.blockPublicAcls ? 'text-green-700' : 'text-red-700'}`}>
+                    {bucket.publicAccessBlock.blockPublicAcls ? '✓ Enabled' : '✗ Disabled'}
+                  </p>
+                </div>
 
-          {settings.accessLogging && (
-            <div>
-              <label className="block text-sm font-medium mb-2">Log destination bucket</label>
-              <Input
-                value={settings.logDestinationBucket || ''}
-                onChange={(e) => updateSetting('logDestinationBucket', e.target.value)}
-                placeholder="logs-bucket-name"
-                disabled={!isEditing}
-              />
+                <div className={`p-2 rounded-md border ${bucket.publicAccessBlock.ignorePublicAcls ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                  <p className="text-xs font-medium">Ignore Public ACLs</p>
+                  <p className={`text-sm font-semibold ${bucket.publicAccessBlock.ignorePublicAcls ? 'text-green-700' : 'text-red-700'}`}>
+                    {bucket.publicAccessBlock.ignorePublicAcls ? '✓ Enabled' : '✗ Disabled'}
+                  </p>
+                </div>
+
+                <div className={`p-2 rounded-md border ${bucket.publicAccessBlock.blockPublicPolicy ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                  <p className="text-xs font-medium">Block Public Policy</p>
+                  <p className={`text-sm font-semibold ${bucket.publicAccessBlock.blockPublicPolicy ? 'text-green-700' : 'text-red-700'}`}>
+                    {bucket.publicAccessBlock.blockPublicPolicy ? '✓ Enabled' : '✗ Disabled'}
+                  </p>
+                </div>
+
+                <div className={`p-2 rounded-md border ${bucket.publicAccessBlock.restrictPublicBuckets ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                  <p className="text-xs font-medium">Restrict Public Buckets</p>
+                  <p className={`text-sm font-semibold ${bucket.publicAccessBlock.restrictPublicBuckets ? 'text-green-700' : 'text-red-700'}`}>
+                    {bucket.publicAccessBlock.restrictPublicBuckets ? '✓ Enabled' : '✗ Disabled'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-red-50 border border-red-200 rounded-md p-3 flex items-start gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-red-800">
+                <strong>Warning:</strong> No public access controls are configured for this bucket
+              </div>
             </div>
           )}
-
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="notifications"
-              checked={settings.notifications || false}
-              onChange={(e) => updateSetting('notifications', e.target.checked)}
-              disabled={!isEditing}
-              className="rounded border-gray-300"
-            />
-            <label htmlFor="notifications" className="text-sm font-medium">
-              Enable event notifications
-            </label>
-          </div>
         </CardContent>
       </Card>
+
+      {/* Tags */}
+      {bucket?.tags && Object.keys(bucket.tags).length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Tag className="h-5 w-5" />
+              Tags
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {Object.entries(bucket.tags).map(([key, value]) => (
+                <div key={key} className="flex items-center gap-2 bg-gray-50 p-2 rounded">
+                  <span className="text-xs font-medium text-gray-600">{key}:</span>
+                  <span className="text-xs font-mono bg-white px-2 py-1 rounded border">{value}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Danger Zone */}
       <Card className="border-red-200">
@@ -379,12 +349,17 @@ export default function BucketSettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-between p-4 border border-red-200 rounded-md">
+          <div className="flex items-center justify-between p-4 border border-red-200 rounded-md bg-red-50">
             <div>
               <h3 className="font-semibold text-red-600">Delete Bucket</h3>
               <p className="text-sm text-muted-foreground">
                 Permanently delete this bucket and all its contents. This action cannot be undone.
               </p>
+              {bucket?.objectLock?.objectLockEnabled && (
+                <p className="text-sm text-red-600 mt-1">
+                  ⚠️ This bucket has Object Lock enabled. Objects under retention cannot be deleted.
+                </p>
+              )}
             </div>
             <Button
               variant="destructive"

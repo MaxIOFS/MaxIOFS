@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -38,6 +38,7 @@ import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 
 export default function BucketDetailsPage() {
   const params = useParams();
+  const router = useRouter();
   const bucketName = params.bucket as string;
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPrefix, setCurrentPrefix] = useState('');
@@ -724,7 +725,7 @@ export default function BucketDetailsPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => window.history.back()}
+            onClick={() => router.push('/buckets')}
             className="gap-2"
           >
             <ArrowLeftIcon className="h-4 w-4" />

@@ -9,9 +9,11 @@ import { formatBytes } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { useRouter } from 'next/navigation';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 export default function Dashboard() {
   const router = useRouter();
+  const { isGlobalAdmin } = useCurrentUser();
 
   // Fetch real metrics from backend
   const { data: metrics, isLoading: metricsLoading } = useQuery({
@@ -28,6 +30,15 @@ export default function Dashboard() {
   const { data: usersResponse, isLoading: usersLoading } = useQuery({
     queryKey: ['users'],
     queryFn: APIClient.getUsers,
+  });
+
+  const { data: healthStatus } = useQuery({
+    queryKey: ['health'],
+    queryFn: async () => {
+      const response = await fetch('http://localhost:8080/health');
+      return response.json();
+    },
+    refetchInterval: 30000, // Check every 30 seconds
   });
 
   const isLoading = metricsLoading || bucketsLoading || usersLoading;
@@ -123,26 +134,30 @@ export default function Dashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">System Status</CardTitle>
+            <CardTitle className="text-sm font-medium">System Health</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">Online</div>
+            <div className={`text-2xl font-bold ${healthStatus?.status === 'healthy' ? 'text-green-600' : 'text-red-600'}`}>
+              {healthStatus?.status === 'healthy' ? 'Healthy' : 'Offline'}
+            </div>
             <p className="text-xs text-muted-foreground">
-              All services operational
+              {healthStatus?.status === 'healthy' ? 'S3 API operational' : 'Service unavailable'}
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">API Version</CardTitle>
+            <CardTitle className="text-sm font-medium">Encrypted Buckets</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">S3 Compatible</div>
+            <div className="text-2xl font-bold">
+              {buckets.filter(b => b.encryption).length}
+            </div>
             <p className="text-xs text-muted-foreground">
-              Full S3 API support
+              Out of {totalBuckets} total buckets
             </p>
           </CardContent>
         </Card>
@@ -168,10 +183,12 @@ export default function Dashboard() {
                 <Users className="h-4 w-4 mr-2" />
                 Manage Users
               </Button>
-              <Button className="w-full justify-start" variant="outline" onClick={() => router.push('/metrics')}>
-                <Activity className="h-4 w-4 mr-2" />
-                View Metrics
-              </Button>
+              {isGlobalAdmin && (
+                <Button className="w-full justify-start" variant="outline" onClick={() => router.push('/metrics')}>
+                  <Activity className="h-4 w-4 mr-2" />
+                  View Metrics
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
