@@ -478,31 +478,9 @@ export class APIClient {
     return response.data.data!;
   }
 
-  // System Configuration
-  static async getSystemConfig(): Promise<APIResponse<any>> {
-    const response = await apiClient.get<APIResponse<any>>('/system/config');
-    return response.data;
-  }
-
-  static async updateSystemConfig(config: any): Promise<APIResponse<any>> {
-    const response = await apiClient.put<APIResponse<any>>('/system/config', config);
-    return response.data;
-  }
-
-  static async testStorageConnection(): Promise<APIResponse<any>> {
-    const response = await apiClient.post<APIResponse<any>>('/system/test-storage', {});
-    return response.data;
-  }
-
   // Metrics
   static async getMetrics(): Promise<APIResponse<any>> {
     const response = await apiClient.get<APIResponse<any>>('/metrics');
-    return response.data;
-  }
-
-  // Security
-  static async getSecurityStatus(): Promise<APIResponse<any>> {
-    const response = await apiClient.get<APIResponse<any>>('/security/status');
     return response.data;
   }
 

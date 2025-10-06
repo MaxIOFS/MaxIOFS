@@ -231,10 +231,19 @@ tenancy:
 
 ## 📖 Documentation
 
-- [Architecture Guide](./docs/ARCHITECTURE.md) - System design and components
-- [Quick Start Guide](./docs/QUICKSTART.md) - Setup and configuration
-- [TODO](./TODO.md) - Development roadmap and progress
-- [Multi-Tenancy Guide](./docs/MULTI_TENANCY.md) - Tenant architecture (coming soon)
+**[📚 Complete Documentation Index](./docs/INDEX.md)**
+
+### Quick Links
+- **[Quick Start](./docs/QUICKSTART.md)** - Get running in 5 minutes
+- **[API Reference](./docs/API.md)** - Complete S3 + Console API docs
+- **[Deployment Guide](./docs/DEPLOYMENT.md)** - Production deployment
+- **[Configuration](./docs/CONFIGURATION.md)** - All config options
+- **[Security Guide](./docs/SECURITY.md)** - Security & hardening
+- **[Multi-Tenancy](./docs/MULTI_TENANCY.md)** - Tenant management
+- **[Architecture](./docs/ARCHITECTURE.md)** - System design
+- **[Build Guide](./docs/BUILD.md)** - Build instructions
+
+See [docs/INDEX.md](./docs/INDEX.md) for complete documentation index.
 
 ## 🧪 Testing
 
@@ -282,18 +291,24 @@ docker run -p 8080:8080 -p 8081:8081 -v ./data:/data maxiofs
 
 ## ⚠️ Security Notes
 
-**For Production Deployments:**
+**Production-Ready Security:**
 
-- ✅ **Authentication**: JWT + cookies implemented (production-ready)
-- ✅ **Logging**: All sensitive console logs removed
-- ✅ **Token Security**: Dual storage with secure handling
-- ⚠️ **Password Hashing**: Replace SHA-256 with bcrypt/argon2
-- ⚠️ **Rate Limiting**: Implement on authentication endpoints
-- ⚠️ **CORS**: Configure restrictively (no wildcard `*`)
-- ⚠️ **HTTPS/TLS**: Enable with valid certificates
-- ⚠️ **JWT Secrets**: Use strong secrets (min 32 random bytes)
-- ⚠️ **Password Policies**: Enforce min 8 chars, complexity
-- ⚠️ **Audit Logging**: Enable for compliance
+- ✅ **Password Hashing**: Bcrypt with automatic migration from SHA-256
+- ✅ **Rate Limiting**: IP-based rate limiting (5 attempts/min)
+- ✅ **Account Lockout**: Auto-lockout after 5 failed attempts (15 min)
+- ✅ **Authentication**: JWT + cookies (dual storage)
+- ✅ **Logging**: All sensitive logs removed
+- ✅ **Multi-Tenancy**: Complete isolation with quotas
+- ✅ **Audit Logging**: Full audit trail for compliance
+
+**Production Checklist:**
+- [ ] Change default credentials
+- [ ] Generate strong JWT secret (32+ bytes)
+- [ ] Enable HTTPS/TLS (use reverse proxy)
+- [ ] Configure restrictive CORS
+- [ ] Review [Security Guide](./docs/SECURITY.md)
+
+See [docs/SECURITY.md](./docs/SECURITY.md) for complete security documentation.
 
 ## 🛠️ Development Status
 

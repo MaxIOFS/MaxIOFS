@@ -22,6 +22,8 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useLockedUsers } from '@/hooks/useLockedUsers';
 import SweetAlert from '@/lib/sweetalert';
+import { useQuery } from '@tanstack/react-query';
+import APIClient from '@/lib/api';
 
 interface NavItem {
   name: string;
@@ -89,6 +91,28 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Check if user is Global Admin (no tenantId)
+  const isGlobalAdmin = !user?.tenantId;
+
+  // Get tenant name if user belongs to a tenant
+  const { data: tenant } = useQuery({
+    queryKey: ['tenant', user?.tenantId],
+    queryFn: () => APIClient.getTenant(user!.tenantId!),
+    enabled: !!user?.tenantId,
+  });
+
+  // Backend returns display_name (snake_case) but TypeScript expects displayName (camelCase)
+  const tenantDisplayName = (tenant as any)?.display_name || tenant?.displayName || tenant?.name || user?.tenantId;
+
+  // Filter navigation based on user role
+  const filteredNavigation = navigation.filter(item => {
+    // Hide Metrics, Security, and Settings for non-Global Admins
+    if ((item.name === 'Metrics' || item.name === 'Security' || item.name === 'Settings') && !isGlobalAdmin) {
+      return false;
+    }
+    return true;
+  });
+
   const handleLogout = async () => {
     try {
       const result = await SweetAlert.confirmLogout();
@@ -144,7 +168,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Navigation */}
         <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
-          {navigation.map((item) => {
+          {filteredNavigation.map((item) => {
             const isActive = isActiveRoute(item.href, !item.children);
             const isExpanded = item.children && item.children.some(child => isActiveRoute(child.href));
 
@@ -353,15 +377,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       <div className="py-1">
                         {/* User info */}
                         <div className="px-4 py-3 border-b border-gray-100">
-                          <p className="text-sm font-medium text-gray-900">
+                          <p className="text-sm font-medium text-gray-900 truncate">
                             {user?.username || 'Unknown User'}
                           </p>
-                          <p className="text-xs text-gray-500 mt-1">
+                          <p className="text-xs text-gray-500 mt-1 truncate">
                             {user?.email || 'No email'}
                           </p>
                           {user?.tenantId && (
-                            <p className="text-xs text-blue-600 mt-1">
-                              Tenant ID: {user.tenantId}
+                            <p className="text-xs text-blue-600 mt-1 truncate">
+                              {tenantDisplayName}
                             </p>
                           )}
                         </div>

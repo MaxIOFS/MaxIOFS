@@ -32,9 +32,13 @@ build: build-web build-server
 .PHONY: build-web
 build-web:
 	@echo "Building web frontend..."
+	@echo "Cleaning previous build..."
+	rm -rf $(WEB_DIR)/.next
+	@echo "Installing dependencies..."
 	cd $(WEB_DIR) && npm ci
-	cd $(WEB_DIR) && npm run build
-	@echo "Web frontend built successfully"
+	@echo "Building Next.js standalone..."
+	cd $(WEB_DIR) && NODE_ENV=production npm run build
+	@echo "Web frontend built successfully (standalone in $(WEB_DIR)/.next/standalone)"
 
 # Build the Go server
 .PHONY: build-server
@@ -109,6 +113,7 @@ clean:
 	$(GOCLEAN)
 	rm -rf $(BUILD_DIR)
 	rm -rf $(DIST_DIR)
+	rm -rf $(WEB_DIR)/.next
 	rm -f coverage.out
 
 # Download Go dependencies
