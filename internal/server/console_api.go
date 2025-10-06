@@ -1306,19 +1306,8 @@ func (s *Server) handleUnlockAccount(w http.ResponseWriter, r *http.Request) {
 
 // Metrics handlers
 func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
-	currentUser, userExists := auth.GetUserFromContext(r.Context())
-	if !userExists {
-		s.writeError(w, "User not found in context", http.StatusUnauthorized)
-		return
-	}
-
-	// Only Global Admins can access full metrics
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
-	if !isGlobalAdmin {
-		s.writeError(w, "Forbidden: Only Global Admins can access metrics", http.StatusForbidden)
-		return
-	}
-
+	// This endpoint is accessible to any authenticated user
+	// Users will see metrics filtered by their permissions
 	buckets, _ := s.bucketManager.ListBuckets(r.Context())
 	filteredBuckets := buckets
 

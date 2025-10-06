@@ -133,7 +133,7 @@ export default function MetricsPage() {
               <Activity className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{displayMetrics.system.cpu}%</div>
+              <div className="text-2xl font-bold">{displayMetrics.system.cpu.toFixed(2)}%</div>
               <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
                 <div
                   className="bg-blue-600 h-2 rounded-full transition-all duration-300"
@@ -149,7 +149,10 @@ export default function MetricsPage() {
               <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{displayMetrics.system.memory}%</div>
+              <div className="text-2xl font-bold">{displayMetrics.system.memory.toFixed(2)}%</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {formatBytes(systemMetrics.memory?.used_bytes || 0)} / {formatBytes(systemMetrics.memory?.total_bytes || 0)}
+              </p>
               <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
                 <div
                   className="bg-green-600 h-2 rounded-full transition-all duration-300"
@@ -165,7 +168,10 @@ export default function MetricsPage() {
               <HardDrive className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{displayMetrics.system.disk}%</div>
+              <div className="text-2xl font-bold">{displayMetrics.system.disk.toFixed(2)}%</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {formatBytes(systemMetrics.disk?.used_bytes || 0)} / {formatBytes(systemMetrics.disk?.total_bytes || 0)}
+              </p>
               <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
                 <div
                   className="bg-yellow-600 h-2 rounded-full transition-all duration-300"
@@ -355,8 +361,8 @@ export default function MetricsPage() {
             <CardContent>
               <div className="text-2xl font-bold">
                 {displayMetrics.requests.totalRequests > 0
-                  ? (((displayMetrics.requests.totalRequests - displayMetrics.requests.totalErrors) / displayMetrics.requests.totalRequests) * 100).toFixed(1)
-                  : 100}%
+                  ? (((displayMetrics.requests.totalRequests - displayMetrics.requests.totalErrors) / displayMetrics.requests.totalRequests) * 100).toFixed(2)
+                  : (100).toFixed(2)}%
               </div>
               <p className="text-xs text-muted-foreground">
                 Request success rate
