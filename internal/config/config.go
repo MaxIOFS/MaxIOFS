@@ -17,6 +17,10 @@ type Config struct {
 	DataDir       string `mapstructure:"data_dir"`
 	LogLevel      string `mapstructure:"log_level"`
 
+	// Public URLs (for redirects, presigned URLs, etc.)
+	PublicAPIURL     string `mapstructure:"public_api_url"`     // e.g., https://s3.example.com or http://localhost:8080
+	PublicConsoleURL string `mapstructure:"public_console_url"` // e.g., https://console.example.com or http://localhost:8081
+
 	// TLS configuration
 	EnableTLS bool   `mapstructure:"enable_tls"`
 	CertFile  string `mapstructure:"cert_file"`
@@ -116,6 +120,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("console_listen", ":8081") // Web console
 	v.SetDefault("data_dir", "./data")
 	v.SetDefault("log_level", "info")
+
+	// Public URL defaults (will be auto-detected from request if not set)
+	v.SetDefault("public_api_url", "http://localhost:8080")
+	v.SetDefault("public_console_url", "http://localhost:8081")
 
 	// TLS defaults
 	v.SetDefault("enable_tls", false)

@@ -196,6 +196,8 @@ func (s *Server) setupRoutes() error {
 		s.authManager,
 		s.metricsManager,
 		shareManagerWrapper,
+		s.config.PublicAPIURL,
+		s.config.PublicConsoleURL,
 	)
 
 	// Apply middleware
@@ -258,8 +260,8 @@ func (s *Server) setupPlaceholderHandler(router *mux.Router) {
 	</div>
 	<p><strong>API Endpoints:</strong></p>
 	<ul>
-		<li>S3 API: <a href="http://localhost:8080">http://localhost:8080</a></li>
-		<li>Console API: <a href="http://localhost:8081/api/v1">http://localhost:8081/api/v1</a></li>
+		<li>S3 API: <a href="` + s.config.PublicAPIURL + `">` + s.config.PublicAPIURL + `</a></li>
+		<li>Console API: <a href="` + s.config.PublicConsoleURL + `/api/v1">` + s.config.PublicConsoleURL + `/api/v1</a></li>
 	</ul>
 	<p><strong>For development with hot reload:</strong></p>
 	<p><code>cd web/frontend && npm run dev</code> (opens port 3000)</p>

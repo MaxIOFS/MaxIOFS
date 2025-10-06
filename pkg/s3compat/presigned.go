@@ -72,9 +72,13 @@ func (h *Handler) generatePresignedURLV4(config PresignedURLConfig) (string, err
 	queryParams.Set("X-Amz-Expires", strconv.FormatInt(expiresInSeconds, 10))
 	queryParams.Set("X-Amz-SignedHeaders", "host")
 
+	// Extract host from public API URL (remove protocol)
+	host := strings.TrimPrefix(h.publicAPIURL, "http://")
+	host = strings.TrimPrefix(host, "https://")
+
 	// Create canonical request
 	canonicalQueryString := queryParams.Encode()
-	canonicalHeaders := fmt.Sprintf("host:localhost:8080\n") // TODO: Use actual host
+	canonicalHeaders := fmt.Sprintf("host:%s\n", host)
 	signedHeaders := "host"
 	payloadHash := "UNSIGNED-PAYLOAD"
 
@@ -101,7 +105,7 @@ func (h *Handler) generatePresignedURLV4(config PresignedURLConfig) (string, err
 
 	// Build final URL
 	queryParams.Set("X-Amz-Signature", signature)
-	finalURL := fmt.Sprintf("http://localhost:8080%s?%s", path, queryParams.Encode())
+	finalURL := fmt.Sprintf("%s%s?%s", h.publicAPIURL, path, queryParams.Encode())
 
 	logrus.Debugf("Generated presigned URL valid until %s", expiresAt.Format(time.RFC3339))
 
@@ -127,7 +131,7 @@ func (h *Handler) generatePresignedURLV2(config PresignedURLConfig) (string, err
 	queryParams.Set("Signature", signature)
 
 	// Build final URL
-	finalURL := fmt.Sprintf("http://localhost:8080%s?%s", path, queryParams.Encode())
+	finalURL := fmt.Sprintf("%s%s?%s", h.publicAPIURL, path, queryParams.Encode())
 
 	return finalURL, nil
 }

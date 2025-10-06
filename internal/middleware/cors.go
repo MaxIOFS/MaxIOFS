@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -25,8 +26,14 @@ type CORSConfig struct {
 
 // DefaultCORSConfig returns the default CORS configuration for S3 compatibility
 func DefaultCORSConfig() *CORSConfig {
+	// Get allowed origins from environment variable or use defaults
+	allowedOrigins := []string{"http://localhost:3000", "http://localhost:3001", "http://localhost:3002"}
+	if envOrigins := os.Getenv("MAXIOFS_ALLOWED_ORIGINS"); envOrigins != "" {
+		allowedOrigins = strings.Split(envOrigins, ",")
+	}
+
 	return &CORSConfig{
-		AllowedOrigins: []string{"http://localhost:3000", "http://localhost:3001", "http://localhost:3002"},
+		AllowedOrigins: allowedOrigins,
 		AllowedMethods: []string{
 			"GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS",
 		},

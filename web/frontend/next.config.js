@@ -21,10 +21,11 @@ const nextConfig = {
   // API rewrite to backend (development only)
   async rewrites() {
     if (process.env.NODE_ENV === 'development') {
+      const apiURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081/api/v1';
       return [
         {
           source: '/api/v1/:path*',
-          destination: 'http://localhost:8081/api/v1/:path*',
+          destination: `${apiURL}/:path*`,
         },
       ]
     }
