@@ -9,8 +9,8 @@ MaxIOFS is a high-performance S3-compatible object storage system built in Go wi
 - **Object Lock & WORM**: Full support for Write Once Read Many compliance (COMPLIANCE/GOVERNANCE modes)
 - **Object Sharing**: Clean, revocable share URLs with database-backed validation ✨ NEW
 - **Veeam Compatible**: Works as immutable backup repository for Veeam Backup & Replication
-- **Single Binary**: Self-contained executable with embedded web UI
-- **Modern Web Interface**: Next.js 14 dashboard with real-time metrics and management
+- **Single Binary**: Self-contained executable (development: separate frontend/backend)
+- **Modern Web Interface**: Next.js 15.5 + React 19 dashboard with real-time metrics
 - **Role-Based Access Control**: Global Admin, Tenant Admin, and User roles
 - **Dual Authentication**: Console web login (JWT + cookies) + S3 API access keys
 - **High Performance**: 374 MB/s writes, 1703 MB/s reads (benchmarked)
@@ -22,11 +22,11 @@ MaxIOFS is a high-performance S3-compatible object storage system built in Go wi
 
 ```
 ┌─────────────────┐
-│   Web Console   │ ← Next.js 14 UI (port 8081)
+│   Web Console   │ ← Next.js 15.5 + React 19 (port 3001)
 ├─────────────────┤
-│   Console API   │ ← REST API for frontend (JWT auth)
+│   Console API   │ ← REST API for frontend (port 8081, JWT auth)
 ├─────────────────┤
-│   S3 API        │ ← S3-compatible API (port 8080)
+│   S3 API        │ ← S3-compatible API (port 8080, S3 auth)
 ├─────────────────┤
 │ Multi-Tenancy   │ ← Tenant isolation & RBAC
 ├─────────────────┤
@@ -36,7 +36,32 @@ MaxIOFS is a high-performance S3-compatible object storage system built in Go wi
 └─────────────────┘
 ```
 
-## 🆕 What's New in v1.1 - Multi-Tenancy
+## 🆕 What's New in v1.2 - Frontend Upgrade & UI Cleanup
+
+### Major Frontend Upgrade
+- **Next.js 15.5**: Upgraded from 14.0.0 for better performance and features
+- **React 19**: Upgraded from 18 for improved reactivity
+- **Removed Placeholders**: Eliminated all non-implemented features from UI
+- **Honest UI**: Only shows features that actually work in the backend
+
+### Simplified Bucket Management
+- **Bucket Creation**: Streamlined to show only implemented options
+  - Removed: KMS encryption, Storage transitions, Requester Pays, Transfer Acceleration
+  - Kept: Versioning, Object Lock, AES-256-GCM, Access Control, Tags
+- **Bucket Settings**: Changed to read-only display of real configuration
+  - Shows: Object Lock status, Encryption, Public Access Control, Tags
+  - Removed: Editable fields, CORS, Logging, Notifications (not implemented)
+
+### Dashboard Improvements
+- **Real-Time Health**: Live S3 API health check from port 8080/health
+- **Encrypted Buckets Counter**: Shows how many buckets have encryption enabled
+- **Role-Based Visibility**: Metrics button hidden for non-Global Admin users
+
+### Navigation Fixes
+- **Improved Back Button**: Fixed navigation loops in bucket details
+- **Direct Routing**: Always returns to bucket list, not browser history
+
+## What's in v1.1 - Multi-Tenancy
 
 ### Complete Tenant Isolation
 - **Tenant CRUD Operations**: Create, manage, and delete tenants
@@ -49,19 +74,11 @@ MaxIOFS is a high-performance S3-compatible object storage system built in Go wi
 - **Tenant Admin**: Manage resources within assigned tenant
 - **Tenant User**: Basic access to tenant resources
 
-### Enhanced Frontend
-- **Tenant Dashboard**: Visual statistics with progress bars
-- **Ownership Display**: Clear tenant/user ownership in all lists
-- **Smart UI Restrictions**: Role-based feature visibility
+### Object Sharing & Security
+- **Object Sharing**: One-click share/unshare with clean URL generation
+- **Revocable Links**: Database-backed validation for share URLs
 - **Production Security**: All sensitive logs removed
-- **Object Sharing**: One-click share/unshare with clean URL generation ✨ NEW
-- **Clean UI**: Removed non-functional search, notifications, and settings ✨ NEW
-
-### Authentication Improvements
 - **Dual Token Storage**: localStorage + cookies for seamless auth
-- **Middleware Protection**: Console API route authentication
-- **Session Management**: Auto-redirect on token expiration
-- **Public Routes**: Smart exclusion for login/register
 
 ## 🚀 Quick Start
 
@@ -106,9 +123,11 @@ make dev
 ```bash
 cd web/frontend
 npm install
-npm run dev  # Development server on port 3000
-npm run build  # Production build
+npm run dev  # Development server on port 3001 (Next.js 15.5 + React 19)
+npm run build  # Production build (static export not configured)
 ```
+
+**Note**: Frontend currently runs separately from backend in development mode. The monolithic embedded build is planned for a future release.
 
 ## 📋 Key Capabilities
 

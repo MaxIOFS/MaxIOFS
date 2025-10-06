@@ -34,35 +34,28 @@ interface BucketCreationConfig {
 
   // Versioning
   versioningEnabled: boolean;
-  
+
   // Object Lock & WORM
   objectLockEnabled: boolean;
   retentionMode: 'GOVERNANCE' | 'COMPLIANCE' | '';
   retentionDays: number;
   retentionYears: number;
-  
+
   // Encryption
   encryptionEnabled: boolean;
-  encryptionType: 'AES256' | 'aws:kms';
-  kmsKeyId: string;
-  
+  encryptionType: 'AES256';
+
   // Access Control
   blockPublicAccess: boolean;
   blockPublicAcls: boolean;
   ignorePublicAcls: boolean;
   blockPublicPolicy: boolean;
   restrictPublicBuckets: boolean;
-  
+
   // Lifecycle
   lifecycleEnabled: boolean;
-  transitionToIA: number; // days until IA
-  transitionToGlacier: number; // days until Glacier
   expirationDays: number;
-  
-  // Advanced
-  requesterPays: boolean;
-  transferAcceleration: boolean;
-  
+
   // Tags
   tags: Array<{ key: string; value: string }>;
 }
@@ -85,18 +78,13 @@ export default function CreateBucketPage() {
     retentionYears: 0,
     encryptionEnabled: true,
     encryptionType: 'AES256',
-    kmsKeyId: '',
     blockPublicAccess: true,
     blockPublicAcls: true,
     ignorePublicAcls: true,
     blockPublicPolicy: true,
     restrictPublicBuckets: true,
     lifecycleEnabled: false,
-    transitionToIA: 30,
-    transitionToGlacier: 90,
     expirationDays: 365,
-    requesterPays: false,
-    transferAcceleration: false,
     tags: [],
   });
 
@@ -123,7 +111,6 @@ export default function CreateBucketPage() {
         versioning: config.versioningEnabled ? { status: 'Enabled' } : undefined,
         encryption: config.encryptionEnabled ? {
           type: config.encryptionType,
-          kmsKeyId: config.encryptionType === 'aws:kms' ? config.kmsKeyId : undefined,
         } : undefined,
         objectLock: config.objectLockEnabled ? {
           enabled: true,
@@ -137,32 +124,14 @@ export default function CreateBucketPage() {
           blockPublicPolicy: config.blockPublicPolicy,
           restrictPublicBuckets: config.restrictPublicBuckets,
         },
-        lifecycle: config.lifecycleEnabled ? {
-          rules: [
-            ...(config.transitionToIA > 0 ? [{
-              id: 'transition-to-ia',
-              status: 'Enabled',
-              transition: {
-                days: config.transitionToIA,
-                storageClass: 'STANDARD_IA',
-              },
-            }] : []),
-            ...(config.transitionToGlacier > 0 ? [{
-              id: 'transition-to-glacier',
-              status: 'Enabled',
-              transition: {
-                days: config.transitionToGlacier,
-                storageClass: 'GLACIER',
-              },
-            }] : []),
-            ...(config.expirationDays > 0 ? [{
-              id: 'expiration',
-              status: 'Enabled',
-              expiration: {
-                days: config.expirationDays,
-              },
-            }] : []),
-          ],
+        lifecycle: config.lifecycleEnabled && config.expirationDays > 0 ? {
+          rules: [{
+            id: 'expiration',
+            status: 'Enabled',
+            expiration: {
+              days: config.expirationDays,
+            },
+          }],
         } : undefined,
         tags: config.tags.length > 0 ? config.tags : undefined,
       };
@@ -645,55 +614,21 @@ export default function CreateBucketPage() {
                 </div>
 
                 {config.lifecycleEnabled && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium mb-2">
-                        Transition to Standard-IA (days)
-                      </label>
-                      <Input
-                        type="number"
-                        min="0"
-                        value={config.transitionToIA}
-                        onChange={(e) => updateConfig('transitionToIA', parseInt(e.target.value) || 0)}
-                        placeholder="30"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Objects move to infrequent access storage after N days
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium mb-2">
-                        Transition to Glacier (days)
-                      </label>
-                      <Input
-                        type="number"
-                        min="0"
-                        value={config.transitionToGlacier}
-                        onChange={(e) => updateConfig('transitionToGlacier', parseInt(e.target.value) || 0)}
-                        placeholder="90"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Objects are archived to Glacier after N days (economical storage)
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium mb-2">
-                        Expiration (days)
-                      </label>
-                      <Input
-                        type="number"
-                        min="0"
-                        value={config.expirationDays}
-                        onChange={(e) => updateConfig('expirationDays', parseInt(e.target.value) || 0)}
-                        placeholder="365"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Objects are permanently deleted after N days (0 = no expiration)
-                      </p>
-                    </div>
-                  </>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      Object Expiration (days)
+                    </label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={config.expirationDays}
+                      onChange={(e) => updateConfig('expirationDays', parseInt(e.target.value) || 0)}
+                      placeholder="365"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Objects are permanently deleted after N days (0 = no expiration)
+                    </p>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -723,48 +658,11 @@ export default function CreateBucketPage() {
                 </div>
 
                 {config.encryptionEnabled && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Encryption Type</label>
-                      <div className="space-y-2">
-                        <label className="flex items-center space-x-2">
-                          <input
-                            type="radio"
-                            name="encryptionType"
-                            value="AES256"
-                            checked={config.encryptionType === 'AES256'}
-                            onChange={(e) => updateConfig('encryptionType', e.target.value)}
-                          />
-                          <span className="text-sm">
-                            <strong>SSE-S3 (AES-256)</strong> - S3-managed encryption
-                          </span>
-                        </label>
-                        <label className="flex items-center space-x-2">
-                          <input
-                            type="radio"
-                            name="encryptionType"
-                            value="aws:kms"
-                            checked={config.encryptionType === 'aws:kms'}
-                            onChange={(e) => updateConfig('encryptionType', e.target.value)}
-                          />
-                          <span className="text-sm">
-                            <strong>SSE-KMS</strong> - Encryption with AWS Key Management Service
-                          </span>
-                        </label>
-                      </div>
-                    </div>
-
-                    {config.encryptionType === 'aws:kms' && (
-                      <div>
-                        <label className="block text-sm font-medium mb-2">KMS Key ID</label>
-                        <Input
-                          value={config.kmsKeyId}
-                          onChange={(e) => updateConfig('kmsKeyId', e.target.value)}
-                          placeholder="arn:aws:kms:region:account:key/key-id"
-                        />
-                      </div>
-                    )}
-                  </>
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                    <p className="text-sm text-blue-800">
+                      <strong>AES-256 Encryption</strong> - All objects will be encrypted at rest using AES-256-GCM
+                    </p>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -827,41 +725,6 @@ export default function CreateBucketPage() {
                   </label>
                 </div>
 
-                <div className="border-t pt-4 mt-4">
-                  <h3 className="font-medium mb-3">Advanced Options</h3>
-
-                  <div className="space-y-3">
-                    <label className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        checked={config.requesterPays}
-                        onChange={(e) => updateConfig('requesterPays', e.target.checked)}
-                        className="rounded border-gray-300"
-                      />
-                      <div>
-                        <div className="text-sm font-medium">Requester Pays</div>
-                        <div className="text-xs text-muted-foreground">
-                          Requester pays for data transfers
-                        </div>
-                      </div>
-                    </label>
-
-                    <label className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        checked={config.transferAcceleration}
-                        onChange={(e) => updateConfig('transferAcceleration', e.target.checked)}
-                        className="rounded border-gray-300"
-                      />
-                      <div>
-                        <div className="text-sm font-medium">Transfer Acceleration</div>
-                        <div className="text-xs text-muted-foreground">
-                          Accelerate transfers using CloudFront
-                        </div>
-                      </div>
-                    </label>
-                  </div>
-                </div>
               </CardContent>
             </Card>
           )}

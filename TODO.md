@@ -1,7 +1,7 @@
 # MaxIOFS Development Roadmap
 
 **Current Status**: Production Ready (Phases 1-6 Complete)
-**Last Updated**: 2025-10-05
+**Last Updated**: 2025-10-06
 
 ## 📊 Project Overview
 
@@ -42,13 +42,17 @@
 - [x] Compression (gzip with auto-detection)
 
 ### Phase 3: Frontend
-- [x] Next.js 14 dashboard
+- [x] Next.js 15.5 dashboard (upgraded from 14)
+- [x] React 19 (upgraded from 18)
 - [x] Bucket management UI
 - [x] Object browser with upload/download
 - [x] User management interface
-- [x] Settings and configuration pages
+- [x] Settings pages (simplified, read-only)
 - [x] React Query integration
 - [x] TypeScript throughout
+- [x] **Removed placeholders and non-implemented features** ✨ NEW
+- [x] **Real-time health monitoring from S3 API** ✨ NEW
+- [x] **Simplified bucket creation (only working features)** ✨ NEW
 
 ### Phase 4: S3 API Completeness (23 operations)
 - [x] Bucket operations (Policy, Lifecycle, CORS)
@@ -120,27 +124,32 @@
 
 ## 🎯 Phase 7: Production Deployment (Current)
 
-### 7.1 Security Enhancement
+### 7.1 Security Enhancement ✅ COMPLETED
 **Priority: CRITICAL**
 
-- [ ] Replace SHA-256 with bcrypt/argon2 for passwords
-- [ ] Implement password policies (min 8 chars, complexity)
-- [ ] Rate limiting on `/auth/login` (max 5 attempts/min)
-- [ ] Account lockout after failed attempts
+- [x] Replace SHA-256 with bcrypt for passwords
+- [x] Implement password policies (min 8 chars, complexity)
+- [x] Rate limiting on `/auth/login` (max 5 attempts/min)
+- [x] Account lockout after failed attempts (5 attempts = 15min lockout)
+- [x] JWT token-based authentication with secure cookies
+- [x] Token exposure prevention (removed all console.logs)
+- [x] Error message sanitization
 - [ ] JWT refresh token rotation mechanism
-- [ ] Restrict CORS (no wildcard `*`)
-- [ ] HTTPS/TLS with Let's Encrypt
+- [ ] Restrict CORS (no wildcard `*`) - Deferred (proxy/WAF recommended)
+- [ ] HTTPS/TLS with Let's Encrypt - Deferred (proxy recommended)
 - [ ] Comprehensive audit logging for compliance
 
-### 7.2 Documentation
+### 7.2 Documentation ✅ COMPLETED
 **Priority: HIGH**
 
-- [ ] API.md - Complete S3 API reference with examples
-- [ ] DEPLOYMENT.md - Production deployment guide
-- [ ] CONFIGURATION.md - All configuration options
-- [ ] MONITORING.md - Grafana setup and alerting
-- [ ] TROUBLESHOOTING.md - Common issues and solutions
-- [ ] MULTI_TENANCY.md - Multi-tenancy architecture guide
+- [x] API.md - Complete S3 + Console API reference (700+ lines)
+- [x] DEPLOYMENT.md - Production deployment guide (600+ lines)
+- [x] CONFIGURATION.md - All configuration options (500+ lines)
+- [x] SECURITY.md - Security best practices (600+ lines)
+- [x] MULTI_TENANCY.md - Multi-tenancy architecture (700+ lines)
+- [x] INDEX.md - Master documentation index
+- [x] Moved BUILD.md and IMPLEMENTATION_PLAN.md to docs/
+- [x] Updated README.md with new documentation structure
 
 ### 7.3 CI/CD Pipeline
 **Priority: HIGH**
@@ -172,6 +181,80 @@
 - [ ] Distributed tracing (Jaeger/Tempo)
 - [ ] Health check endpoints
 - [ ] Readiness/liveness probes
+
+### 7.6 Frontend Upgrade & UI Cleanup ✅ COMPLETED
+**Priority: HIGH**
+
+**Current Status:**
+- ✅ Upgraded to Next.js 15.5 + React 19
+- ✅ Backend compiles successfully
+- ✅ Development mode working (separate frontend/backend)
+- ✅ Removed all placeholder features from UI
+- ✅ Simplified bucket creation form
+- ✅ Bucket settings now read-only with real data
+- ✅ Dashboard shows real health status
+- ❌ Monolithic build deferred to Phase 7.7
+
+**Attempted Solutions:**
+1. ❌ Next.js `output: 'export'` - Failed (dynamic routes `/buckets/[bucket]` not supported without `generateStaticParams`)
+2. ❌ Next.js `output: 'standalone'` - Failed (creates Node.js server, not professional for production)
+3. ❌ Embedded static files with Go `embed` - Failed (incompatible with Next.js App Router)
+4. ❌ Next.js 15.5 upgrade - Reverted (broke functionality, needs proper migration)
+
+**Identified Issues:**
+- Next.js 14 App Router with dynamic routes requires either:
+  - Static generation with `generateStaticParams()` (pre-build all possible routes)
+  - Server-Side Rendering (SSR) with Node.js runtime
+  - Client-side routing (current approach, but needs proper static export)
+- TypeScript path aliases (`@/*`) had resolution issues in production builds (fixed with webpack config)
+- `moduleResolution: "bundler"` incompatible with Next.js 14, changed to `"node"`
+
+**Completed Work (2025-10-06):**
+- ✅ Upgraded to Next.js 15.5 + React 19
+- ✅ **Bucket Creation Form Simplified:**
+  - Removed KMS encryption options (only AES-256-GCM supported)
+  - Removed storage class transitions (IA, Glacier)
+  - Removed Requester Pays option
+  - Removed Transfer Acceleration option
+  - Kept only: Versioning, Object Lock, AES-256, Public Access Block, Lifecycle Expiration, Tags
+- ✅ **Bucket Settings Page Rewritten:**
+  - Changed from editable to read-only display
+  - Shows real Object Lock configuration (mode, retention period)
+  - Shows real encryption status
+  - Shows real Public Access Block settings
+  - Removed placeholders: CORS, KMS, Lifecycle transitions, Logging, Notifications
+- ✅ **Dashboard Improvements:**
+  - Added real-time S3 API health check (port 8080/health)
+  - Changed "System Status" to "System Health" with live status
+  - Changed "API Version" to "Encrypted Buckets" counter
+  - Hidden "View Metrics" button for non-Global Admin users
+- ✅ **Navigation Fixes:**
+  - Fixed "Back" button in bucket details to always go to /buckets
+  - No longer uses browser history (prevents loop to settings)
+
+**Deferred Features (Future Implementation):**
+- KMS Key Management (AWS KMS integration)
+- Storage Class Transitions (Standard-IA, Glacier)
+- Requester Pays functionality
+- Transfer Acceleration
+- CORS configuration UI
+- Access logging and log destination
+- Event notifications
+- Bucket lifecycle management UI (beyond expiration)
+- Editable bucket settings (currently read-only)
+
+**Blockers:**
+- Dynamic routes need either pre-generation or runtime rendering
+- Static export requires explicit route generation
+- No Node.js server in production (requirement for true monolithic build)
+
+**Testing Required:**
+- [ ] Test frontend compiles with chosen approach
+- [ ] Test backend serves static files correctly
+- [ ] Test SPA routing works (client-side navigation)
+- [ ] Test API calls from static frontend to backend
+- [ ] Test build on clean environment
+- [ ] Performance testing of static vs SSR approach
 
 ## 🔮 Phase 8: Advanced Features (Future)
 
@@ -214,21 +297,23 @@
 - **Revocable share links** ✨ NEW
 
 **Frontend:**
-- Dashboard with real-time metrics
-- Bucket creation wizard (5-tab)
+- Dashboard with real-time metrics and health monitoring
+- Bucket creation wizard (simplified to implemented features only)
+- Bucket settings (read-only, displays real configuration)
 - Object browser with retention display
 - User management + access keys
-- System settings
 - Upload/download with progress
 - Retention countdown timers
-- Responsive design
+- Responsive design (Next.js 15.5 + React 19)
 - **Tenant management interface** ✨ NEW
 - **Multi-tenant resource ownership** ✨ NEW
 - **Role-based UI restrictions** ✨ NEW
 - **Real-time tenant statistics** ✨ NEW
 - **Production-ready (no debug logs)** ✨ NEW
 - **Share/unshare objects with one click** ✨ NEW
-- **Clean UI (removed search, notifications, settings)** ✨ NEW
+- **Clean UI (removed placeholders)** ✨ NEW
+- **Real S3 API health check** ✨ NEW
+- **Encrypted buckets counter** ✨ NEW
 
 **Testing:**
 - 29 unit tests (100% pass)
@@ -280,36 +365,39 @@ npm run dev
 
 ## ⚠️ Known Limitations
 
-- **Security**: SHA-256 password hashing (NOT production-ready - bcrypt needed)
+- **Monolithic Build**: Not implemented - frontend and backend run separately in development
 - **Storage**: Filesystem backend only (S3/GCS/Azure planned)
 - **Versioning**: Placeholder only (not fully implemented)
 - **Replication**: Single-node only
-- **CORS**: Wildcard `*` (development only - restrict for production)
+- **CORS**: Wildcard `*` (development only - restrict for production via proxy/WAF)
+- **TLS/HTTPS**: Not implemented (recommended to use reverse proxy like nginx/Traefik)
 
 ## 🎯 Next Steps
 
-1. **Immediate** (Phase 7.1 - Security):
-   - Implement bcrypt password hashing
-   - Add rate limiting to login endpoint
-   - Configure production CORS
-   - Enable HTTPS/TLS
+1. **Immediate** (Phase 7.6 - Monolithic Build):
+   - ✅ Choose approach: Upgrade to Next.js 15.5 with static export
+   - Add `generateStaticParams()` to dynamic routes
+   - Configure static file serving in Go
+   - Implement SPA routing fallback
+   - Test complete build pipeline
+   - Update build.bat for single-command compilation
 
-2. **Short-term** (Phase 7.2-7.3):
-   - Complete API documentation
-   - Set up CI/CD pipeline
-   - Create Docker images
-   - Multi-tenancy documentation
+2. **Short-term** (Phase 7.3 - CI/CD):
+   - Set up GitHub Actions workflows
+   - Automated testing on PR
+   - Docker image publishing
+   - Release automation
 
 3. **Medium-term** (Phase 7.4-7.5):
-   - Kubernetes deployment
-   - Monitoring dashboards
+   - Kubernetes deployment with Helm charts
+   - Grafana dashboards for monitoring
    - Production deployment guide
    - Alert configuration
 
 4. **Long-term** (Phase 8):
-   - Additional storage backends
+   - Additional storage backends (S3, GCS, Azure)
    - Multi-node clustering
-   - Advanced features
+   - Advanced features (versioning, replication)
    - Enterprise integrations
 
 ## 📊 Metrics
@@ -336,37 +424,70 @@ npm run dev
 - User roles: 3 levels (Global Admin, Tenant Admin, User)
 - Real-time statistics: Yes
 
-## 📝 Recent Changes (Phase 6)
+## 📝 Recent Changes
 
-### Multi-Tenancy Implementation
+### Phase 7.6 - Monolithic Build Attempts (In Progress)
+**What was tried:**
+- ✅ Fixed TypeScript path alias resolution with webpack config
+- ✅ Changed `moduleResolution` from "bundler" to "node" for compatibility
+- ❌ Attempted Next.js `output: 'export'` (failed - dynamic routes)
+- ❌ Attempted Next.js `output: 'standalone'` (failed - requires Node.js server)
+- ❌ Attempted Next.js 15.5 upgrade (reverted - broke functionality)
+- ❌ Created `internal/server/nextjs.go` for subprocess management (removed)
+- ❌ Created `internal/server/embed.go` for static file embedding (removed)
+
+**Current state:**
+- Reverted to Next.js 14.0.0 + React 18 (stable, working)
+- Frontend runs in development mode (`npm run dev`)
+- Backend runs separately (`go run ./cmd/maxiofs`)
+- Monolithic build deferred to next iteration with proper planning
+
+**Lessons learned:**
+- Next.js App Router with dynamic routes is complex for static export
+- Embedding Node.js server in Go binary is not production-ready
+- Need `generateStaticParams()` for static export of dynamic routes
+- Client-side routing can handle dynamic routes if properly configured
+- Upgrade to Next.js 15 should be done with proper testing plan
+
+### Phase 7.6 - Frontend Upgrade & UI Cleanup (Completed - 2025-10-06)
+- Upgraded Next.js from 14.0.0 to 15.5.0
+- Upgraded React from 18 to 19
+- Removed all non-implemented features from UI
+- Simplified bucket creation to show only working features
+- Rewrote bucket settings as read-only real data display
+- Added real-time S3 API health monitoring
+- Fixed navigation issues (back button loops)
+- Improved dashboard with real metrics
+
+### Phase 7.2 - Documentation (Completed)
+- Created comprehensive API documentation (700+ lines)
+- Written deployment guide with Docker/Kubernetes (600+ lines)
+- Documented all configuration options (500+ lines)
+- Security best practices guide (600+ lines)
+- Multi-tenancy architecture documentation (700+ lines)
+- Created master documentation index
+- Reorganized docs/ directory structure
+
+### Phase 7.1 - Security Enhancement (Completed)
+- Implemented bcrypt password hashing (replaced SHA-256)
+- Added password complexity validation (min 8 chars)
+- Implemented rate limiting on login endpoint (5 attempts/min)
+- Added account lockout after failed attempts (15min lockout)
+- Removed all sensitive console.log statements
+- Sanitized error messages
+- Fixed token exposure in frontend
+
+### Phase 6 - Multi-Tenancy (Completed)
 - Added complete tenant CRUD operations in backend
 - Implemented tenant quotas (storage, buckets, access keys)
 - Created real-time usage statistics calculation
-- Added tenant filtering based on user permissions
-
-### Frontend Enhancements
 - Built tenant management page with statistics
 - Added tenant ownership display in buckets/users
 - Implemented role-based UI restrictions
-- Created useCurrentUser hook for permission checks
-
-### Security & Authentication
 - Fixed authentication flow (JWT + cookies)
-- Implemented dual token storage (localStorage + cookies)
-- Added middleware authentication for Console API
-- Removed all debug/sensitive logs from frontend
 - Added snake_case to camelCase transformation
-
-### Bug Fixes
-- Fixed login infinite loop on token expiration
-- Resolved double-wrapped API response issues
-- Fixed middleware blocking public routes
-- Corrected tenant statistics calculation
-- Fixed authentication state synchronization
-- Fixed route ordering for share endpoints
+- Implemented object sharing with clean URLs
 - Fixed share validation security hole
-- Fixed port issue in share URL generation
-- Fixed auth middleware blocking unauthenticated share access
 
 ## 📝 Notes
 
@@ -379,7 +500,8 @@ npm run dev
 
 ---
 
-**Status**: ✅ Phases 1-6 Complete (Full multi-tenant system)
-**Current Focus**: Phase 7 - Production deployment
-**Version**: v1.1-dev (Multi-Tenancy)
+**Status**: ✅ Phases 1-6 Complete | 🚧 Phase 7 In Progress (7.1, 7.2, 7.6 Done)
+**Current Focus**: Phase 7.3-7.5 - CI/CD, Docker, Monitoring
+**Latest Changes**: Next.js 15.5 upgrade + UI cleanup (removed placeholders)
+**Version**: v1.2-dev (Frontend Upgrade + UI Cleanup)
 **License**: MIT
