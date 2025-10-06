@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -23,6 +22,7 @@ type Handler struct {
 	shareManager  interface {
 		GetShareByObject(ctx context.Context, bucketName, objectKey string) (interface{}, error)
 	}
+	publicAPIURL string
 }
 
 // NewHandler creates a new S3 compatibility handler
@@ -39,6 +39,11 @@ func (h *Handler) SetShareManager(sm interface {
 	GetShareByObject(ctx context.Context, bucketName, objectKey string) (interface{}, error)
 }) {
 	h.shareManager = sm
+}
+
+// SetPublicAPIURL sets the public API URL for presigned URL generation
+func (h *Handler) SetPublicAPIURL(url string) {
+	h.publicAPIURL = url
 }
 
 // S3 XML response structures
@@ -99,19 +104,6 @@ type Error struct {
 // Service operations
 func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	logrus.Debug("S3 API: ListBuckets")
-
-	// Check if this is a browser request (redirect to web console)
-	userAgent := r.Header.Get("User-Agent")
-	accept := r.Header.Get("Accept")
-
-	// Redirect browsers to web console (port 8081)
-	if (strings.Contains(userAgent, "Mozilla") || strings.Contains(accept, "text/html")) &&
-	   !strings.Contains(userAgent, "aws-") &&
-	   !strings.Contains(userAgent, "Boto") &&
-	   !strings.Contains(userAgent, "MinIO") {
-		http.Redirect(w, r, "http://"+r.Host+":8081", http.StatusTemporaryRedirect)
-		return
-	}
 
 	buckets, err := h.bucketManager.ListBuckets(r.Context())
 	if err != nil {

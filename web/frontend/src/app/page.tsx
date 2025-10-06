@@ -35,7 +35,8 @@ export default function Dashboard() {
   const { data: healthStatus } = useQuery({
     queryKey: ['health'],
     queryFn: async () => {
-      const response = await fetch('http://localhost:8080/health');
+      const s3URL = process.env.NEXT_PUBLIC_S3_URL || 'http://localhost:8080';
+      const response = await fetch(`${s3URL}/health`);
       return response.json();
     },
     refetchInterval: 30000, // Check every 30 seconds

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
@@ -14,11 +15,13 @@ import (
 
 // Handler handles S3 API requests
 type Handler struct {
-	bucketManager  bucket.Manager
-	objectManager  object.Manager
-	authManager    auth.Manager
-	metricsManager metrics.Manager
-	s3Handler      *s3compat.Handler
+	bucketManager    bucket.Manager
+	objectManager    object.Manager
+	authManager      auth.Manager
+	metricsManager   metrics.Manager
+	s3Handler        *s3compat.Handler
+	publicAPIURL     string
+	publicConsoleURL string
 }
 
 // NewHandler creates a new API handler
@@ -30,6 +33,8 @@ func NewHandler(
 	shareManager interface {
 		GetShareByObject(ctx context.Context, bucketName, objectKey string) (interface{}, error)
 	},
+	publicAPIURL string,
+	publicConsoleURL string,
 ) *Handler {
 	s3Handler := s3compat.NewHandler(bucketManager, objectManager)
 
@@ -38,12 +43,17 @@ func NewHandler(
 		s3Handler.SetShareManager(shareManager)
 	}
 
+	// Configure public URLs for presigned URL generation
+	s3Handler.SetPublicAPIURL(publicAPIURL)
+
 	return &Handler{
-		bucketManager:  bucketManager,
-		objectManager:  objectManager,
-		authManager:    authManager,
-		metricsManager: metricsManager,
-		s3Handler:      s3Handler,
+		bucketManager:    bucketManager,
+		objectManager:    objectManager,
+		authManager:      authManager,
+		metricsManager:   metricsManager,
+		s3Handler:        s3Handler,
+		publicAPIURL:     publicAPIURL,
+		publicConsoleURL: publicConsoleURL,
 	}
 }
 
@@ -56,8 +66,8 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	// S3 API endpoints
 	s3Router := router.PathPrefix("/").Subrouter()
 
-	// Service operations
-	s3Router.HandleFunc("/", h.s3Handler.ListBuckets).Methods("GET")
+	// Service operations - root handler with browser detection
+	s3Router.HandleFunc("/", h.handleRoot).Methods("GET")
 
 	// Bucket operations
 	bucketRouter := s3Router.PathPrefix("/{bucket}").Subrouter()
@@ -149,4 +159,25 @@ func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status": "ready", "service": "maxiofs"}`))
+}
+
+// handleRoot handles requests to the root path with browser detection
+func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
+	userAgent := strings.ToLower(r.Header.Get("User-Agent"))
+
+	// Detect if request is from a web browser
+	isBrowser := strings.Contains(userAgent, "mozilla") ||
+		strings.Contains(userAgent, "chrome") ||
+		strings.Contains(userAgent, "safari") ||
+		strings.Contains(userAgent, "firefox") ||
+		strings.Contains(userAgent, "edge")
+
+	// If it's a browser, redirect to the web console
+	if isBrowser {
+		http.Redirect(w, r, h.publicConsoleURL, http.StatusTemporaryRedirect)
+		return
+	}
+
+	// Otherwise, handle as S3 API (ListBuckets)
+	h.s3Handler.ListBuckets(w, r)
 }
