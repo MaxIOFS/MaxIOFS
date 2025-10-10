@@ -176,10 +176,7 @@ export default function Dashboard() {
                 <Database className="h-4 w-4 mr-2" />
                 Create New Bucket
               </Button>
-              <Button className="w-full justify-start" variant="outline" onClick={() => router.push('/buckets')}>
-                <FolderOpen className="h-4 w-4 mr-2" />
-                Browse Objects
-              </Button>
+              {/* Browse Objects button removed - access objects through individual buckets */}
               <Button className="w-full justify-start" variant="outline" onClick={() => router.push('/users')}>
                 <Users className="h-4 w-4 mr-2" />
                 Manage Users

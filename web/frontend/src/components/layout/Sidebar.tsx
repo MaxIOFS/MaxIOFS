@@ -42,11 +42,7 @@ const navigation: NavItem[] = [
     href: '/buckets',
     icon: Database,
   },
-  {
-    name: 'Objects',
-    href: '/objects',
-    icon: FolderOpen,
-  },
+  // Objects page removed - access objects through individual buckets
   {
     name: 'Users & Access',
     href: '/users',

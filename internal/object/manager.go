@@ -16,6 +16,7 @@ import (
 
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/storage"
+	"github.com/sirupsen/logrus"
 )
 
 // Manager defines the interface for object management
@@ -165,14 +166,18 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 
 	// Store object in storage backend
 	if err := om.storage.Put(ctx, objectPath, data, metadata); err != nil {
+		fmt.Printf("ERROR: Failed to store object at path %s: %v\n", objectPath, err)
 		return nil, fmt.Errorf("failed to store object: %w", err)
 	}
+	fmt.Printf("INFO: Successfully stored object at path %s\n", objectPath)
 
 	// Get object metadata from storage to get size and etag
 	storageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
 	if err != nil {
+		fmt.Printf("ERROR: Failed to get metadata for path %s: %v\n", objectPath, err)
 		return nil, fmt.Errorf("failed to get object metadata: %w", err)
 	}
+	fmt.Printf("INFO: Retrieved metadata for path %s\n", objectPath)
 
 	// Create object info
 	size, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
@@ -264,7 +269,18 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string) e
 
 	// Delete object metadata
 	metadataPath := om.getObjectMetadataPath(bucket, key)
-	om.storage.Delete(ctx, metadataPath) // Ignore errors for metadata deletion
+	err = om.storage.Delete(ctx, metadataPath)
+	if err != nil && err != storage.ErrObjectNotFound {
+		// Log the error but don't fail the operation since the object itself was deleted
+		logrus.WithFields(logrus.Fields{
+			"bucket":        bucket,
+			"key":           key,
+			"metadata_path": metadataPath,
+			"error":         err.Error(),
+		}).Error("⚠️ Failed to delete object metadata - orphaned metadata file may remain")
+		// We don't return the error to avoid breaking the delete operation,
+		// but we log it so operators can monitor and clean up orphaned metadata
+	}
 
 	return nil
 }

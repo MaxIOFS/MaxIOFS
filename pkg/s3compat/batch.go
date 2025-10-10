@@ -15,8 +15,8 @@ import (
 
 // DeleteObjectsRequest represents the XML structure for batch delete requests
 type DeleteObjectsRequest struct {
-	XMLName xml.Name      `xml:"Delete"`
-	Quiet   bool          `xml:"Quiet"`
+	XMLName xml.Name         `xml:"Delete"`
+	Quiet   bool             `xml:"Quiet"`
 	Objects []ObjectToDelete `xml:"Object"`
 }
 
@@ -51,8 +51,8 @@ type DeleteError struct {
 
 // CopyObjectsRequest represents a batch copy operation request
 type CopyObjectsRequest struct {
-	Sources      []CopySource `json:"sources"`
-	Destinations []string     `json:"destinations"`
+	Sources      []CopySource      `json:"sources"`
+	Destinations []string          `json:"destinations"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
 }
 
@@ -118,54 +118,80 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Process deletions
+	// Process deletions in parallel for better performance
 	result := DeleteObjectsResult{
 		Deleted: []DeletedObject{},
 		Errors:  []DeleteError{},
 	}
 
 	ctx := r.Context()
+
+	// Use worker pool for parallel processing
+	type deleteResult struct {
+		obj     ObjectToDelete
+		err     error
+		success bool
+	}
+
+	resultChan := make(chan deleteResult, len(deleteRequest.Objects))
+	semaphore := make(chan struct{}, 50) // Max 50 concurrent deletes
+
 	for _, obj := range deleteRequest.Objects {
 		if obj.Key == "" {
-			result.Errors = append(result.Errors, DeleteError{
-				Key:     obj.Key,
-				Code:    "InvalidKey",
-				Message: "Object key cannot be empty",
-			})
-			continue
-		}
-
-		// Attempt to delete the object
-		err := h.objectManager.DeleteObject(ctx, bucketName, obj.Key)
-		if err != nil {
-			// Log error but continue with other objects
-			if err == object.ErrObjectNotFound {
-				// S3 returns success even if object doesn't exist
-				if !deleteRequest.Quiet {
-					result.Deleted = append(result.Deleted, DeletedObject{
-						Key:       obj.Key,
-						VersionId: obj.VersionId,
-					})
-				}
-			} else {
-				result.Errors = append(result.Errors, DeleteError{
-					Key:       obj.Key,
-					Code:      "InternalError",
-					Message:   err.Error(),
-					VersionId: obj.VersionId,
-				})
+			resultChan <- deleteResult{
+				obj: obj,
+				err: fmt.Errorf("Object key cannot be empty"),
 			}
 			continue
 		}
 
-		// Success - add to deleted list if not quiet mode
-		if !deleteRequest.Quiet {
-			result.Deleted = append(result.Deleted, DeletedObject{
-				Key:       obj.Key,
-				VersionId: obj.VersionId,
-			})
+		go func(obj ObjectToDelete) {
+			semaphore <- struct{}{}        // Acquire
+			defer func() { <-semaphore }() // Release
+
+			err := h.objectManager.DeleteObject(ctx, bucketName, obj.Key)
+			resultChan <- deleteResult{
+				obj:     obj,
+				err:     err,
+				success: err == nil || err == object.ErrObjectNotFound,
+			}
+		}(obj)
+	}
+
+	// Collect results
+	for i := 0; i < len(deleteRequest.Objects); i++ {
+		res := <-resultChan
+
+		if res.err != nil {
+			// Log error but continue with other objects
+			if res.err == object.ErrObjectNotFound {
+				// S3 returns success even if object doesn't exist
+				if !deleteRequest.Quiet {
+					result.Deleted = append(result.Deleted, DeletedObject{
+						Key:       res.obj.Key,
+						VersionId: res.obj.VersionId,
+					})
+				}
+			} else {
+				result.Errors = append(result.Errors, DeleteError{
+					Key:       res.obj.Key,
+					Code:      "InternalError",
+					Message:   res.err.Error(),
+					VersionId: res.obj.VersionId,
+				})
+			}
+		} else {
+			// Success - add to deleted list if not quiet mode
+			if !deleteRequest.Quiet {
+				result.Deleted = append(result.Deleted, DeletedObject{
+					Key:       res.obj.Key,
+					VersionId: res.obj.VersionId,
+				})
+			}
 		}
 	}
+
+	close(resultChan)
 
 	// Return XML response
 	w.Header().Set("Content-Type", "application/xml")

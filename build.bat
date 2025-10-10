@@ -23,6 +23,7 @@ REM --- STEP 1: BUILD FRONTEND ---
 echo [1/2] Building frontend...
 cd web\frontend
 if exist .next rmdir /s /q .next
+if exist out rmdir /s /q out
 set NODE_ENV=production
 call npm install --silent
 call npm run build
@@ -31,8 +32,15 @@ if %errorlevel% neq 0 (
     cd ..\..
     exit /b 1
 )
+REM Verify out directory was created
+if not exist out (
+    echo Error: Static export directory 'out' was not created!
+    cd ..\..
+    exit /b 1
+)
 cd ..\..
 echo Frontend built successfully!
+echo Static export created in web\frontend\out\
 echo.
 
 REM --- STEP 2: BUILD BACKEND ---

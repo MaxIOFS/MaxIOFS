@@ -329,6 +329,34 @@ docker run -p 8080:8080 -p 8081:8081 -v ./data:/data maxiofs
 
 See [docs/SECURITY.md](./docs/SECURITY.md) for complete security documentation.
 
+## ⚙️ Known Limitations
+
+### Web Interface Scalability
+- **Object Listing**: Limited to first 10,000 objects per bucket for performance
+  - For buckets with >10,000 objects, the count will show as `10,000+`
+  - Use S3 API clients (aws-cli, s3cmd, MinIO client) for managing large buckets
+  - Individual bucket views support pagination with prefix filtering
+- **Backup Repositories**: Not recommended to browse Veeam backup buckets through web UI
+  - Veeam creates thousands of small objects (metadata, blocks)
+  - Use Veeam's native interface for backup management
+  - S3 API performance is unaffected - only web UI has limits
+
+### Veeam Integration
+- **Multi-Bucket Auto-Provisioning**: Currently enabled by default
+  - After creating a repository, disable manually with PowerShell:
+    ```powershell
+    $repo = Get-VBRBackupRepository -Name "YourRepoName"
+    $repo.Options.MultiBucketOptions.IsEnabled = $false
+    Set-VBRBackupRepository -Repository $repo
+    ```
+  - Working to identify the automatic detection mechanism MinIO uses
+
+### Future Improvements
+- Real object counting without loading all into memory
+- Database-backed object metadata for instant queries
+- Streaming pagination for large buckets
+- Background indexing for search functionality
+
 ## 🛠️ Development Status
 
 **Current Phase**: Phase 6 Complete - Multi-Tenancy & Security ✅

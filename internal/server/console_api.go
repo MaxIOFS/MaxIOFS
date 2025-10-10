@@ -27,20 +27,21 @@ type APIResponse struct {
 }
 
 type BucketResponse struct {
-	Name              string                    `json:"name"`
-	CreationDate      string                    `json:"creation_date"`
-	Region            string                    `json:"region,omitempty"`
-	OwnerID           string                    `json:"owner_id,omitempty"`
-	OwnerType         string                    `json:"owner_type,omitempty"`
-	IsPublic          bool                      `json:"is_public,omitempty"`
-	ObjectCount       int64                     `json:"object_count"`
-	Size              int64                     `json:"size"`
-	Versioning        *bucket.VersioningConfig  `json:"versioning,omitempty"`
-	ObjectLock        *bucket.ObjectLockConfig  `json:"objectLock,omitempty"`
-	Encryption        *bucket.EncryptionConfig  `json:"encryption,omitempty"`
-	PublicAccessBlock *bucket.PublicAccessBlock `json:"publicAccessBlock,omitempty"`
-	Tags              map[string]string         `json:"tags,omitempty"`
-	Metadata          map[string]string         `json:"metadata,omitempty"`
+	Name                string                    `json:"name"`
+	CreationDate        string                    `json:"creation_date"`
+	Region              string                    `json:"region,omitempty"`
+	OwnerID             string                    `json:"owner_id,omitempty"`
+	OwnerType           string                    `json:"owner_type,omitempty"`
+	IsPublic            bool                      `json:"is_public,omitempty"`
+	ObjectCount         int64                     `json:"object_count"`
+	ObjectCountIsApprox bool                      `json:"object_count_is_approx,omitempty"` // True if count is truncated
+	Size                int64                     `json:"size"`
+	Versioning          *bucket.VersioningConfig  `json:"versioning,omitempty"`
+	ObjectLock          *bucket.ObjectLockConfig  `json:"objectLock,omitempty"`
+	Encryption          *bucket.EncryptionConfig  `json:"encryption,omitempty"`
+	PublicAccessBlock   *bucket.PublicAccessBlock `json:"publicAccessBlock,omitempty"`
+	Tags                map[string]string         `json:"tags,omitempty"`
+	Metadata            map[string]string         `json:"metadata,omitempty"`
 }
 
 type ObjectResponse struct {
@@ -211,7 +212,8 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Bucket permissions endpoints
 	router.HandleFunc("/buckets/{bucket}/permissions", s.handleListBucketPermissions).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/permissions", s.handleGrantBucketPermission).Methods("POST", "OPTIONS")
-	router.HandleFunc("/buckets/{bucket}/permissions/{permission}", s.handleRevokeBucketPermission).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/permissions/revoke", s.handleRevokeBucketPermission).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/permissions/{permission}", s.handleRevokeBucketPermission).Methods("DELETE", "OPTIONS") // Legacy endpoint
 	router.HandleFunc("/buckets/{bucket}/owner", s.handleUpdateBucketOwner).Methods("PUT", "OPTIONS")
 
 	// Health check
@@ -417,31 +419,39 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 	response := make([]BucketResponse, len(filteredBuckets))
 	for i, b := range filteredBuckets {
 		// Get object count and size for this bucket
+		// NOTE: Limited to first 10,000 objects for performance
 		result, err := s.objectManager.ListObjects(r.Context(), b.Name, "", "", "", 10000)
 		objectCount := int64(0)
+		objectCountIsApprox := false
 		var totalSize int64
 		if err == nil {
 			objectCount = int64(len(result.Objects))
+			// If truncated, we have more than 10,000 objects
+			if result.IsTruncated {
+				objectCount = 10000 // Show 10,000+ in the UI
+				objectCountIsApprox = true
+			}
 			for _, obj := range result.Objects {
 				totalSize += obj.Size
 			}
 		}
 
 		response[i] = BucketResponse{
-			Name:              b.Name,
-			CreationDate:      b.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			Region:            b.Region,
-			OwnerID:           b.OwnerID,
-			OwnerType:         b.OwnerType,
-			IsPublic:          b.IsPublic,
-			ObjectCount:       objectCount,
-			Size:              totalSize,
-			Versioning:        b.Versioning,
-			ObjectLock:        b.ObjectLock,
-			Encryption:        b.Encryption,
-			PublicAccessBlock: b.PublicAccessBlock,
-			Tags:              b.Tags,
-			Metadata:          b.Metadata,
+			Name:                b.Name,
+			CreationDate:        b.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			Region:              b.Region,
+			OwnerID:             b.OwnerID,
+			OwnerType:           b.OwnerType,
+			IsPublic:            b.IsPublic,
+			ObjectCount:         objectCount,
+			ObjectCountIsApprox: objectCountIsApprox,
+			Size:                totalSize,
+			Versioning:          b.Versioning,
+			ObjectLock:          b.ObjectLock,
+			Encryption:          b.Encryption,
+			PublicAccessBlock:   b.PublicAccessBlock,
+			Tags:                b.Tags,
+			Metadata:            b.Metadata,
 		}
 	}
 
@@ -1356,12 +1366,12 @@ func (s *Server) handleGetSystemMetrics(w http.ResponseWriter, r *http.Request) 
 	perfStats := s.systemMetrics.GetPerformanceStats()
 
 	response := map[string]interface{}{
-		"uptime_seconds":  s.systemMetrics.GetUptime(),
-		"cpu_percent":     cpuUsage,
-		"memory":          memStats,
-		"disk":            diskStats,
-		"requests":        requestStats,
-		"performance":     perfStats,
+		"uptime_seconds": s.systemMetrics.GetUptime(),
+		"cpu_percent":    cpuUsage,
+		"memory":         memStats,
+		"disk":           diskStats,
+		"requests":       requestStats,
+		"performance":    perfStats,
 	}
 
 	s.writeJSON(w, response)
@@ -1843,13 +1853,13 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name                string            `json:"name"`
-		DisplayName         string            `json:"displayName"`
-		Description         string            `json:"description"`
-		MaxAccessKeys       int64             `json:"maxAccessKeys,omitempty"`
-		MaxStorageBytes     int64             `json:"maxStorageBytes,omitempty"`
-		MaxBuckets          int64             `json:"maxBuckets,omitempty"`
-		Metadata            map[string]string `json:"metadata,omitempty"`
+		Name            string            `json:"name"`
+		DisplayName     string            `json:"displayName"`
+		Description     string            `json:"description"`
+		MaxAccessKeys   int64             `json:"maxAccessKeys,omitempty"`
+		MaxStorageBytes int64             `json:"maxStorageBytes,omitempty"`
+		MaxBuckets      int64             `json:"maxBuckets,omitempty"`
+		Metadata        map[string]string `json:"metadata,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1863,17 +1873,17 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tenant := &auth.Tenant{
-		ID:                  auth.GenerateTenantID(),
-		Name:                req.Name,
-		DisplayName:         req.DisplayName,
-		Description:         req.Description,
-		Status:              "active",
-		MaxAccessKeys:       req.MaxAccessKeys,
-		MaxStorageBytes:     req.MaxStorageBytes,
-		MaxBuckets:          req.MaxBuckets,
-		Metadata:            req.Metadata,
-		CreatedAt:           time.Now().Unix(),
-		UpdatedAt:           time.Now().Unix(),
+		ID:              auth.GenerateTenantID(),
+		Name:            req.Name,
+		DisplayName:     req.DisplayName,
+		Description:     req.Description,
+		Status:          "active",
+		MaxAccessKeys:   req.MaxAccessKeys,
+		MaxStorageBytes: req.MaxStorageBytes,
+		MaxBuckets:      req.MaxBuckets,
+		Metadata:        req.Metadata,
+		CreatedAt:       time.Now().Unix(),
+		UpdatedAt:       time.Now().Unix(),
 	}
 
 	if err := s.authManager.CreateTenant(r.Context(), tenant); err != nil {
@@ -1919,15 +1929,15 @@ func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
 	tenantID := vars["tenant"]
 
 	var req struct {
-		DisplayName         *string            `json:"displayName,omitempty"`
-		Description         *string            `json:"description,omitempty"`
-		Status              *string            `json:"status,omitempty"`
-		MaxAccessKeys       *int64             `json:"maxAccessKeys,omitempty"`
-		MaxStorageBytes     *int64             `json:"maxStorageBytes,omitempty"`
-		MaxBuckets          *int64             `json:"maxBuckets,omitempty"`
-		CurrentStorageBytes *int64             `json:"currentStorageBytes,omitempty"`
-		CurrentBuckets      *int64             `json:"currentBuckets,omitempty"`
-		Metadata            map[string]string  `json:"metadata,omitempty"`
+		DisplayName         *string           `json:"displayName,omitempty"`
+		Description         *string           `json:"description,omitempty"`
+		Status              *string           `json:"status,omitempty"`
+		MaxAccessKeys       *int64            `json:"maxAccessKeys,omitempty"`
+		MaxStorageBytes     *int64            `json:"maxStorageBytes,omitempty"`
+		MaxBuckets          *int64            `json:"maxBuckets,omitempty"`
+		CurrentStorageBytes *int64            `json:"currentStorageBytes,omitempty"`
+		CurrentBuckets      *int64            `json:"currentBuckets,omitempty"`
+		Metadata            map[string]string `json:"metadata,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

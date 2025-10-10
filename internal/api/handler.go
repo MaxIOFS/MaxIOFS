@@ -35,8 +35,12 @@ func NewHandler(
 	},
 	publicAPIURL string,
 	publicConsoleURL string,
+	dataDir string,
 ) *Handler {
 	s3Handler := s3compat.NewHandler(bucketManager, objectManager)
+
+	// Configure auth manager for permission checking
+	s3Handler.SetAuthManager(authManager)
 
 	// Configure share manager for presigned URL validation
 	if shareManager != nil {
@@ -45,6 +49,9 @@ func NewHandler(
 
 	// Configure public URLs for presigned URL generation
 	s3Handler.SetPublicAPIURL(publicAPIURL)
+
+	// Configure dataDir for SOSAPI capacity calculations
+	s3Handler.SetDataDir(dataDir)
 
 	return &Handler{
 		bucketManager:    bucketManager,

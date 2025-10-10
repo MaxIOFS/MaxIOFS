@@ -2,10 +2,13 @@ package s3compat
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/xml"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -15,14 +18,61 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// generateRequestID generates a SHORT request ID (like MinIO does)
+// MinIO uses 16 character hex strings, not 32
+func generateRequestID() string {
+	b := make([]byte, 8) // 8 bytes = 16 hex chars
+	rand.Read(b)
+	return strings.ToUpper(hex.EncodeToString(b))
+}
+
+// generateAmzId2 generates a LONG hash for x-amz-id-2 (like MinIO does)
+// MinIO uses 64 character hex strings
+func generateAmzId2() string {
+	b := make([]byte, 32) // 32 bytes = 64 hex chars
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// addMinIOHeaders adds MinIO-compatible headers to all S3 responses
+// This is critical for Veeam to recognize the server as MinIO
+func addMinIOHeaders(w http.ResponseWriter) {
+	// x-amz-request-id: SHORT request ID (16 chars like MinIO)
+	w.Header().Set("X-Amz-Request-Id", generateRequestID())
+
+	// x-amz-id-2: LONG host ID hash (64 chars like MinIO)
+	w.Header().Set("X-Amz-Id-2", generateAmzId2())
+
+	// Server header identifying as MinIO
+	w.Header().Set("Server", "MinIO")
+
+	// Accept ranges for partial content
+	w.Header().Set("Accept-Ranges", "bytes")
+
+	// Security headers (exactly like MinIO)
+	w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Xss-Protection", "1; mode=block")
+
+	// Vary headers for caching
+	w.Header().Set("Vary", "Origin")
+	w.Header().Add("Vary", "Accept-Encoding")
+
+	// CRITICAL: Rate limit headers - may disable auto-provisioning
+	w.Header().Set("X-Ratelimit-Limit", "18299")
+	w.Header().Set("X-Ratelimit-Remaining", "18299")
+}
+
 // Handler implements S3-compatible API handlers
 type Handler struct {
 	bucketManager bucket.Manager
 	objectManager object.Manager
+	authManager   auth.Manager
 	shareManager  interface {
 		GetShareByObject(ctx context.Context, bucketName, objectKey string) (interface{}, error)
 	}
 	publicAPIURL string
+	dataDir      string // For calculating disk capacity in SOSAPI
 }
 
 // NewHandler creates a new S3 compatibility handler
@@ -32,6 +82,11 @@ func NewHandler(bucketManager bucket.Manager, objectManager object.Manager) *Han
 		objectManager: objectManager,
 		shareManager:  nil, // Optional, will be set via SetShareManager
 	}
+}
+
+// SetAuthManager sets the auth manager for permission checking
+func (h *Handler) SetAuthManager(am auth.Manager) {
+	h.authManager = am
 }
 
 // SetShareManager sets the share manager for validating presigned URLs
@@ -46,9 +101,14 @@ func (h *Handler) SetPublicAPIURL(url string) {
 	h.publicAPIURL = url
 }
 
+// SetDataDir sets the data directory for disk capacity calculations
+func (h *Handler) SetDataDir(dataDir string) {
+	h.dataDir = dataDir
+}
+
 // S3 XML response structures
 type ListAllMyBucketsResult struct {
-	XMLName xml.Name `xml:"ListAllMyBucketsResult"`
+	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListAllMyBucketsResult"`
 	Owner   Owner    `xml:"Owner"`
 	Buckets Buckets  `xml:"Buckets"`
 }
@@ -99,10 +159,27 @@ type Error struct {
 	Message   string   `xml:"Message"`
 	Resource  string   `xml:"Resource"`
 	RequestId string   `xml:"RequestId"`
+	HostId    string   `xml:"HostId"` // MinIO includes this field
 }
 
 // Service operations
 func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
+	// Add MinIO headers FIRST
+	addMinIOHeaders(w)
+
+	// Detect Veeam and log extensively
+	userAgent := r.Header.Get("User-Agent")
+	if isVeeamClient(userAgent) {
+		// Log ALL response headers that we're sending
+		logrus.WithFields(logrus.Fields{
+			"user_agent":       userAgent,
+			"method":           r.Method,
+			"uri":              r.RequestURI,
+			"request_headers":  r.Header,
+			"response_headers": w.Header(),
+		}).Warn("VEEAM ListBuckets - RESPONSE HEADERS - Compare with MinIO")
+	}
+
 	logrus.Debug("S3 API: ListBuckets")
 
 	buckets, err := h.bucketManager.ListBuckets(r.Context())
@@ -114,7 +191,7 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	// Filter buckets by tenant ownership
 	user, userExists := auth.GetUserFromContext(r.Context())
 	if !userExists {
-		h.writeError(w, "AccessDenied", "User not authenticated", "", r)
+		h.writeError(w, "AccessDenied", "Access Denied.", "", r)
 		return
 	}
 
@@ -127,17 +204,31 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 		// ONLY global admins see all buckets
 		filteredBuckets = buckets
 	} else if user.TenantID != "" {
-		// Tenant users (including tenant admins) see only their tenant's buckets
+		// Tenant users (including tenant admins) see their tenant's buckets + buckets where they have permissions
 		for _, b := range buckets {
+			// Include if bucket belongs to tenant or user owns it
 			if (b.OwnerType == "tenant" && b.OwnerID == user.TenantID) ||
 				(b.OwnerType == "user" && b.OwnerID == user.ID) {
+				filteredBuckets = append(filteredBuckets, b)
+				continue
+			}
+
+			// Include if user has permissions in bucket policy
+			if h.userHasBucketPermission(r.Context(), b.Name, user.ID) {
 				filteredBuckets = append(filteredBuckets, b)
 			}
 		}
 	} else {
-		// Non-admin users without tenant: see only their buckets
+		// Non-admin users without tenant: see their buckets + buckets where they have permissions
 		for _, b := range buckets {
+			// Include if user owns the bucket
 			if b.OwnerType == "user" && b.OwnerID == user.ID {
+				filteredBuckets = append(filteredBuckets, b)
+				continue
+			}
+
+			// Include if user has permissions in bucket policy
+			if h.userHasBucketPermission(r.Context(), b.Name, user.ID) {
 				filteredBuckets = append(filteredBuckets, b)
 			}
 		}
@@ -163,12 +254,78 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	h.writeXMLResponse(w, http.StatusOK, result)
 }
 
+// userHasBucketPermission checks if user has explicit permissions (ACLs or Policy)
+func (h *Handler) userHasBucketPermission(ctx context.Context, bucketName, userID string) bool {
+	// Check bucket permissions table (frontend ACLs)
+	if h.authManager != nil {
+		hasAccess, _, err := h.authManager.CheckBucketAccess(ctx, bucketName, userID)
+		if err == nil && hasAccess {
+			return true
+		}
+	}
+
+	// Also check bucket policy (S3 style)
+	// TODO: Implement bucket policy checking if needed
+	return false
+}
+
 // Bucket operations
 func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	logrus.WithField("bucket", bucketName).Debug("S3 API: CreateBucket")
+	// Add MinIO-compatible headers (CRITICAL for Veeam recognition)
+	addMinIOHeaders(w)
+
+	// Detect if request is from Veeam client
+	// Detect if request is from Veeam client
+	userAgent := r.Header.Get("User-Agent")
+	isVeeam := isVeeamClient(userAgent)
+
+	// CRITICAL: Block Veeam test bucket creation with MethodNotAllowed
+	// This tells Veeam that bucket creation is NOT supported, disabling auto-provisioning
+	if isVeeam && (strings.HasPrefix(bucketName, "veeamtest-") || strings.HasPrefix(bucketName, "veeam-test-bucket")) {
+		// Build XML response body
+		errorBody := `<?xml version="1.0" encoding="UTF-8"?>
+<Error>
+  <Code>MethodNotAllowed</Code>
+  <Message>Bucket creation not supported</Message>
+  <Resource>/` + bucketName + `</Resource>
+  <RequestId>veeam-disable-autoprov</RequestId>
+</Error>`
+
+		// Set all headers before writing status
+		w.Header().Set("Content-Type", "application/xml")
+		w.Header().Set("Content-Length", strconv.Itoa(len(errorBody)))
+		w.Header().Set("x-amz-request-id", "veeam-disable-autoprov")
+		w.Header().Set("x-amz-id-2", "localserver")
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
+		w.Header().Set("Connection", "close")
+		w.Header().Set("Server", "S3Compatible")
+
+		// Write status code
+		w.WriteHeader(http.StatusMethodNotAllowed)
+
+		// Write body
+		w.Write([]byte(errorBody))
+
+		logrus.WithFields(logrus.Fields{
+			"bucket":     bucketName,
+			"user_agent": userAgent,
+		}).Warn("Blocked Veeam test bucket — returned 405 with headers to disable auto-provisioning")
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket":     bucketName,
+		"user_agent": userAgent,
+		"is_veeam":   isVeeam,
+	}).Debug("S3 API: CreateBucket")
+	if isVeeam {
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucketName,
+		}).Info("Veeam normal bucket creation - allowing")
+	}
 
 	if err := h.bucketManager.CreateBucket(r.Context(), bucketName); err != nil {
 		if err == bucket.ErrBucketAlreadyExists {
@@ -207,6 +364,21 @@ func (h *Handler) DeleteBucket(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+
+	// Add MinIO-compatible headers (CRITICAL for Veeam recognition)
+	addMinIOHeaders(w)
+
+	// Detect Veeam and log ALL response headers
+	userAgent := r.Header.Get("User-Agent")
+	if isVeeamClient(userAgent) {
+		logrus.WithFields(logrus.Fields{
+			"bucket":           bucketName,
+			"user_agent":       userAgent,
+			"method":           r.Method,
+			"uri":              r.RequestURI,
+			"response_headers": w.Header(),
+		}).Warn("VEEAM HeadBucket - RESPONSE HEADERS - Compare with MinIO")
+	}
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: HeadBucket")
 
@@ -293,6 +465,9 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
+	// Add MinIO-compatible headers (CRITICAL for Veeam recognition)
+	addMinIOHeaders(w)
+
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
 		"object": objectKey,
@@ -300,6 +475,34 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 
 	// Check if user is authenticated
 	_, userExists := auth.GetUserFromContext(r.Context())
+
+	// Check if this is a VEEAM SOSAPI virtual object (after authentication check)
+	if isVeeamSOSAPIObject(objectKey) {
+		// SOSAPI requires authentication - Veeam sends credentials
+		if !userExists {
+			h.writeError(w, "AccessDenied", "Authentication required", objectKey, r)
+			return
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucketName,
+			"object": objectKey,
+		}).Info("Serving VEEAM SOSAPI virtual object (authenticated)")
+
+		data, contentType, err := h.getSOSAPIVirtualObject(objectKey)
+		if err != nil {
+			h.writeError(w, "InternalError", err.Error(), objectKey, r)
+			return
+		}
+
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		w.Header().Set("ETag", `"sosapi-virtual-object"`)
+		w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
+		return
+	}
 
 	// If NOT authenticated, check if object has an active share
 	if !userExists && h.shareManager != nil {
@@ -368,6 +571,11 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 
 	obj, err := h.objectManager.PutObject(r.Context(), bucketName, objectKey, r.Body, r.Header)
 	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"bucket": bucketName,
+			"object": objectKey,
+		}).Error("PutObject failed")
+
 		if err == object.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
@@ -432,6 +640,12 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// S3 spec: DELETE on non-existent object should return success (idempotent)
+		if err == object.ErrObjectNotFound {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
 		// Check if it's a retention error with detailed information
 		if retErr, ok := err.(*object.RetentionError); ok {
 			h.writeError(w, "AccessDenied", retErr.Error(), objectKey, r)
@@ -460,6 +674,27 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		"bucket": bucketName,
 		"object": objectKey,
 	}).Debug("S3 API: HeadObject")
+
+	// Check if this is a VEEAM SOSAPI virtual object
+	if isVeeamSOSAPIObject(objectKey) {
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucketName,
+			"object": objectKey,
+		}).Info("HeadObject for VEEAM SOSAPI virtual object")
+
+		data, contentType, err := h.getSOSAPIVirtualObject(objectKey)
+		if err != nil {
+			h.writeError(w, "InternalError", err.Error(), objectKey, r)
+			return
+		}
+
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		w.Header().Set("ETag", `"sosapi-virtual-object"`)
+		w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 
 	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketName, objectKey)
 	if err != nil {
@@ -491,6 +726,22 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 
 // Placeholder implementations for other S3 operations
 func (h *Handler) GetBucketLocation(w http.ResponseWriter, r *http.Request) {
+	// Add MinIO-compatible headers (CRITICAL for Veeam recognition)
+	addMinIOHeaders(w)
+
+	// Detect Veeam and log
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	userAgent := r.Header.Get("User-Agent")
+	if isVeeamClient(userAgent) {
+		logrus.WithFields(logrus.Fields{
+			"bucket":     bucketName,
+			"user_agent": userAgent,
+			"method":     r.Method,
+			"uri":        r.RequestURI,
+		}).Warn("VEEAM GetBucketLocation - DETECTION PHASE - May determine auto-provisioning")
+	}
+
 	h.writeXMLResponse(w, http.StatusOK, `<LocationConstraint>us-east-1</LocationConstraint>`)
 }
 
@@ -595,6 +846,9 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	// 404 Not Found
 	case "NoSuchBucket", "NoSuchKey", "NoSuchUpload":
 		statusCode = http.StatusNotFound
+	// 405 Method Not Allowed
+	case "MethodNotAllowed":
+		statusCode = http.StatusMethodNotAllowed
 	// 409 Conflict
 	case "BucketAlreadyExists", "BucketNotEmpty", "OperationAborted":
 		statusCode = http.StatusConflict
@@ -615,13 +869,25 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 		statusCode = http.StatusServiceUnavailable
 	}
 
+	// Generate IDs for both headers and XML body BEFORE WriteHeader
+	requestID := generateRequestID()
+	hostID := generateAmzId2()
+
+	// Set headers BEFORE WriteHeader
+	w.Header().Set("X-Amz-Request-Id", requestID)
+	w.Header().Set("X-Amz-Id-2", hostID)
+
 	w.WriteHeader(statusCode)
+
+	// Write XML declaration (like MinIO does)
+	w.Write([]byte(xml.Header))
 
 	errorResponse := Error{
 		Code:      code,
 		Message:   message,
 		Resource:  resource,
-		RequestId: r.Header.Get("X-Request-ID"),
+		RequestId: requestID, // Use the generated ID
+		HostId:    hostID,    // Use the generated ID
 	}
 
 	xml.NewEncoder(w).Encode(errorResponse)
