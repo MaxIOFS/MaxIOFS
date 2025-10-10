@@ -18,20 +18,6 @@ const nextConfig = {
   // Disable trailing slashes
   trailingSlash: false,
 
-  // API rewrite to backend (development only)
-  async rewrites() {
-    if (process.env.NODE_ENV === 'development') {
-      const apiURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081/api/v1';
-      return [
-        {
-          source: '/api/v1/:path*',
-          destination: `${apiURL}/:path*`,
-        },
-      ]
-    }
-    return []
-  },
-
   // Webpack configuration for path aliases
   webpack: (config) => {
     config.resolve.alias = {

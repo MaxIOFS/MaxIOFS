@@ -53,18 +53,18 @@ export function BucketPermissionsModal({
     enabled: isOpen,
   });
 
-  // Fetch users for dropdown
+  // Fetch users for dropdown and name resolution
   const { data: users } = useQuery({
     queryKey: ['users'],
     queryFn: APIClient.getUsers,
-    enabled: isAddPermissionOpen,
+    enabled: isOpen, // Load when modal opens, not just when adding
   });
 
-  // Fetch tenants for dropdown
+  // Fetch tenants for dropdown and name resolution
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
     queryFn: APIClient.getTenants,
-    enabled: isAddPermissionOpen,
+    enabled: isOpen, // Load when modal opens, not just when adding
   });
 
   // Grant permission mutation
@@ -120,14 +120,22 @@ export function BucketPermissionsModal({
   };
 
   const handleRevokePermission = (permission: BucketPermission) => {
+    const targetName = permission.userId
+      ? getUserName(permission.userId)
+      : permission.tenantId
+        ? getTenantName(permission.tenantId)
+        : 'Unknown';
+
+    const targetType = permission.userId ? 'user' : 'tenant';
+
+    console.log('Revoking permission:', { userId: permission.userId, tenantId: permission.tenantId, permission });
+
     SweetAlert.confirm(
       'Revoke Permission?',
-      `Are you sure you want to revoke ${permission.permissionLevel} access for ${
-        permission.userId || permission.tenantId
-      }?`,
+      `Are you sure you want to revoke ${permission.permissionLevel} access for ${targetType} "${targetName}"?`,
       () => revokePermissionMutation.mutate({
-        userId: permission.userId,
-        tenantId: permission.tenantId,
+        userId: permission.userId || undefined,
+        tenantId: permission.tenantId || undefined,
       })
     );
   };
@@ -146,6 +154,7 @@ export function BucketPermissionsModal({
   };
 
   const formatDate = (timestamp: number) => {
+    if (!timestamp) return 'N/A';
     return new Date(timestamp * 1000).toLocaleString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -153,6 +162,16 @@ export function BucketPermissionsModal({
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const getUserName = (userId: string) => {
+    const user = users?.find(u => u.id === userId);
+    return user ? `${user.username}` : userId;
+  };
+
+  const getTenantName = (tenantId: string) => {
+    const tenant = tenants?.find(t => t.id === tenantId);
+    return tenant ? tenant.displayName : tenantId;
   };
 
   return (
@@ -219,15 +238,17 @@ export function BucketPermissionsModal({
                         {permission.userId ? (
                           <>
                             <Users className="h-4 w-4 text-gray-500" />
-                            <span className="font-medium">{permission.userId}</span>
+                            <span className="font-medium">{getUserName(permission.userId)}</span>
                             <span className="text-xs text-gray-500">(User)</span>
                           </>
-                        ) : (
+                        ) : permission.tenantId ? (
                           <>
                             <Building2 className="h-4 w-4 text-gray-500" />
-                            <span className="font-medium">{permission.tenantId}</span>
+                            <span className="font-medium">{getTenantName(permission.tenantId)}</span>
                             <span className="text-xs text-gray-500">(Tenant)</span>
                           </>
+                        ) : (
+                          <span className="text-xs text-gray-400">Unknown</span>
                         )}
                       </div>
                     </TableCell>
@@ -241,7 +262,7 @@ export function BucketPermissionsModal({
                       </span>
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm text-gray-600">{permission.grantedBy}</span>
+                      <span className="text-sm text-gray-600">{getUserName(permission.grantedBy)}</span>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 text-sm text-gray-600">

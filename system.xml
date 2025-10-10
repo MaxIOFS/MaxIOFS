@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SystemInfo>
+  <ProtocolVersion>1.0</ProtocolVersion>
+  <ModelName>MaxIOFS v1.0</ModelName>
+  <ProtocolCapabilities>
+    <CapacityInfo>true</CapacityInfo>
+    <UploadSessions>false</UploadSessions>
+    <IAMSTS>false</IAMSTS>
+  </ProtocolCapabilities>
+  <SystemRecommendations>
+    <S3ConcurrentTaskLimit>64</S3ConcurrentTaskLimit>
+    <S3MultiObjectDelete>1000</S3MultiObjectDelete>
+    <StorageCurrentTasksLimit>64</StorageCurrentTasksLimit>
+    <KbBlockSize>4096</KbBlockSize>
+  </SystemRecommendations>
+</SystemInfo>

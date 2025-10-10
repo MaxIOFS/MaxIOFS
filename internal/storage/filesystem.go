@@ -42,11 +42,59 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 
 	fullPath := fs.getFullPath(path)
 
+	// Special handling for directory markers (objects ending with /)
+	if strings.HasSuffix(path, "/") {
+		fmt.Printf("INFO: Creating directory marker for: %s\n", path)
+
+		// Convert any files in the path to directories
+		parts := strings.Split(strings.TrimSuffix(fullPath, string(filepath.Separator)), string(filepath.Separator))
+		currentPath := ""
+		for i, part := range parts {
+			if i == 0 && filepath.IsAbs(fullPath) {
+				currentPath = part + string(filepath.Separator)
+				continue
+			}
+			if currentPath != "" {
+				currentPath = filepath.Join(currentPath, part)
+			} else {
+				currentPath = part
+			}
+
+			// Check if this path exists as a file
+			info, err := os.Stat(currentPath)
+			if err == nil && !info.IsDir() {
+				// It's a file, remove it so we can create a directory
+				fmt.Printf("INFO: Converting file to directory: %s\n", currentPath)
+				os.Remove(currentPath)
+				// Also remove metadata
+				metaPath := currentPath + ".metadata"
+				os.Remove(metaPath)
+			}
+		}
+
+		// Now create the directory
+		if err := os.MkdirAll(fullPath, 0755); err != nil {
+			return NewErrorWithCause("CreateDirectory", "Failed to create directory marker", err)
+		}
+		// Save metadata for the directory
+		if metadata == nil {
+			metadata = make(map[string]string)
+		}
+		metadata["size"] = "0"
+		metadata["etag"] = "d41d8cd98f00b204e9800998ecf8427e" // MD5 of empty string
+		metadata["last_modified"] = fmt.Sprintf("%d", time.Now().Unix())
+		metadata["content-type"] = "application/x-directory"
+		return fs.saveMetadata(path, metadata)
+	}
+
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(fullPath)
+	fmt.Printf("DEBUG: Attempting to create directory: %s (fullPath: %s, rootPath: %s)\n", dir, fullPath, fs.rootPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
+		fmt.Printf("ERROR: MkdirAll failed for %s: %v\n", dir, err)
 		return NewErrorWithCause("CreateDirectory", "Failed to create directory", err)
 	}
+	fmt.Printf("DEBUG: Directory created successfully: %s\n", dir)
 
 	// Create temporary file
 	tempFile, err := os.CreateTemp(dir, ".tmp_")

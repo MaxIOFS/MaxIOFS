@@ -34,11 +34,16 @@ build-web:
 	@echo "Building web frontend..."
 	@echo "Cleaning previous build..."
 	rm -rf $(WEB_DIR)/.next
+	rm -rf $(WEB_DIR)/out
 	@echo "Installing dependencies..."
 	cd $(WEB_DIR) && npm ci
-	@echo "Building Next.js standalone..."
+	@echo "Building Next.js static export..."
 	cd $(WEB_DIR) && NODE_ENV=production npm run build
-	@echo "Web frontend built successfully (standalone in $(WEB_DIR)/.next/standalone)"
+	@if [ ! -d "$(WEB_DIR)/out" ]; then \
+		echo "Error: Static export directory 'out' was not created!"; \
+		exit 1; \
+	fi
+	@echo "Web frontend built successfully (static export in $(WEB_DIR)/out)"
 
 # Build the Go server
 .PHONY: build-server
@@ -114,6 +119,7 @@ clean:
 	rm -rf $(BUILD_DIR)
 	rm -rf $(DIST_DIR)
 	rm -rf $(WEB_DIR)/.next
+	rm -rf $(WEB_DIR)/out
 	rm -f coverage.out
 
 # Download Go dependencies

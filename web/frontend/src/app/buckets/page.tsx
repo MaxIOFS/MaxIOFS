@@ -4,7 +4,6 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Modal } from '@/components/ui/Modal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import {
@@ -18,24 +17,12 @@ import {
 import { Database, Plus, Search, Settings, Trash2, Calendar, HardDrive, Lock, Shield, Building2, Users } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import { Bucket, CreateBucketForm } from '@/types';
+import { Bucket } from '@/types';
 import SweetAlert from '@/lib/sweetalert';
 
 export default function BucketsPage() {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [formData, setFormData] = useState<CreateBucketForm>({
-    name: '',
-    region: 'us-east-1',
-    versioning: false,
-    objectLock: false,
-    encryption: {
-      enabled: false,
-      algorithm: 'AES256',
-      keySource: 'server',
-    },
-  });
   const queryClient = useQueryClient();
 
   const { data: buckets, isLoading, error } = useQuery({
@@ -54,30 +41,6 @@ export default function BucketsPage() {
     queryFn: APIClient.getTenants,
   });
 
-  const createBucketMutation = useMutation({
-    mutationFn: (data: CreateBucketForm) => APIClient.createBucket(data),
-    onSuccess: (response, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['buckets'] });
-      setIsCreateModalOpen(false);
-      setFormData({
-        name: '',
-        region: 'us-east-1',
-        versioning: false,
-        objectLock: false,
-        encryption: {
-          enabled: false,
-          algorithm: 'AES256',
-          keySource: 'server',
-        },
-      });
-      // Mostrar notificación de éxito
-      SweetAlert.successBucketCreated(variables.name);
-    },
-    onError: (error: any) => {
-      SweetAlert.apiError(error);
-    },
-  });
-
   const deleteBucketMutation = useMutation({
     mutationFn: (bucketName: string) => APIClient.deleteBucket(bucketName),
     onSuccess: (response, bucketName) => {
@@ -92,13 +55,6 @@ export default function BucketsPage() {
   const filteredBuckets = buckets?.filter(bucket =>
     bucket.name.toLowerCase().includes(searchTerm.toLowerCase())
   ) || [];
-
-  const handleCreateBucket = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (formData.name.trim()) {
-      createBucketMutation.mutate(formData);
-    }
-  };
 
   const handleDeleteBucket = async (bucketName: string) => {
     try {
@@ -259,7 +215,7 @@ export default function BucketsPage() {
               </p>
               {!searchTerm && (
                 <Button
-                  onClick={() => setIsCreateModalOpen(true)}
+                  onClick={() => router.push('/buckets/create')}
                   className="mt-4 gap-2"
                 >
                   <Plus className="h-4 w-4" />
@@ -351,153 +307,6 @@ export default function BucketsPage() {
           )}
         </CardContent>
       </Card>
-
-      {/* Create Bucket Modal */}
-      <Modal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        title="Create New Bucket"
-      >
-        <form onSubmit={handleCreateBucket} className="space-y-4">
-          {/* Bucket Name */}
-          <div>
-            <label htmlFor="bucketName" className="block text-sm font-medium mb-2">
-              Bucket Name *
-            </label>
-            <Input
-              id="bucketName"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="my-bucket-name"
-              required
-              pattern="^[a-z0-9][a-z0-9\-]{1,61}[a-z0-9]$"
-              title="Bucket name must be 3-63 characters, lowercase letters, numbers, and hyphens only"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              3-63 characters, lowercase letters, numbers, and hyphens only
-            </p>
-          </div>
-
-          {/* Region */}
-          <div>
-            <label htmlFor="bucketRegion" className="block text-sm font-medium mb-2">
-              Region
-            </label>
-            <select
-              id="bucketRegion"
-              value={formData.region}
-              onChange={(e) => setFormData({ ...formData, region: e.target.value })}
-              className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="us-east-1">US East (N. Virginia)</option>
-              <option value="us-west-2">US West (Oregon)</option>
-              <option value="eu-west-1">Europe (Ireland)</option>
-              <option value="eu-central-1">Europe (Frankfurt)</option>
-              <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
-            </select>
-          </div>
-
-          {/* Object Lock */}
-          <div className="border border-yellow-200 bg-yellow-50 rounded-md p-4">
-            <div className="flex items-start space-x-3">
-              <input
-                type="checkbox"
-                id="objectLock"
-                checked={formData.objectLock}
-                onChange={(e) => {
-                  const objectLock = e.target.checked;
-                  setFormData({
-                    ...formData,
-                    objectLock,
-                    // Object Lock requires versioning
-                    versioning: objectLock ? true : formData.versioning,
-                  });
-                }}
-                className="mt-1"
-              />
-              <div className="flex-1">
-                <label htmlFor="objectLock" className="text-sm font-medium flex items-center gap-2 cursor-pointer">
-                  <Lock className="h-4 w-4" />
-                  Enable Object Lock
-                </label>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Permanently enable object lock to prevent objects from being deleted or overwritten.
-                  <strong className="text-yellow-700"> Cannot be disabled after bucket creation!</strong>
-                  <br />
-                  Object Lock requires versioning to be enabled.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Versioning */}
-          <div className="border border-gray-200 rounded-md p-4">
-            <div className="flex items-start space-x-3">
-              <input
-                type="checkbox"
-                id="versioning"
-                checked={formData.versioning || formData.objectLock}
-                onChange={(e) => setFormData({ ...formData, versioning: e.target.checked })}
-                disabled={formData.objectLock}
-                className="mt-1"
-              />
-              <div className="flex-1">
-                <label htmlFor="versioning" className="text-sm font-medium flex items-center gap-2 cursor-pointer">
-                  <Shield className="h-4 w-4" />
-                  Enable Versioning
-                </label>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Keep multiple versions of objects in the same bucket. Can be enabled/disabled later.
-                  {formData.objectLock && (
-                    <span className="text-blue-600 font-medium"> (Required for Object Lock)</span>
-                  )}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Encryption */}
-          <div className="border border-gray-200 rounded-md p-4">
-            <div className="flex items-start space-x-3">
-              <input
-                type="checkbox"
-                id="encryption"
-                checked={formData.encryption?.enabled}
-                onChange={(e) => setFormData({
-                  ...formData,
-                  encryption: { ...formData.encryption!, enabled: e.target.checked }
-                })}
-                className="mt-1"
-              />
-              <div className="flex-1">
-                <label htmlFor="encryption" className="text-sm font-medium cursor-pointer">
-                  Enable Server-Side Encryption
-                </label>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Automatically encrypt objects when stored (AES-256)
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex justify-end space-x-2 pt-4 border-t">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsCreateModalOpen(false)}
-              disabled={createBucketMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={createBucketMutation.isPending || !formData.name.trim()}
-            >
-              {createBucketMutation.isPending ? 'Creating...' : 'Create Bucket'}
-            </Button>
-          </div>
-        </form>
-      </Modal>
     </div>
   );
 }

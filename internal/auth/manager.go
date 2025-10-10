@@ -120,13 +120,13 @@ type Tenant struct {
 // BucketPermission represents access permissions for a bucket
 type BucketPermission struct {
 	ID              string `json:"id"`
-	BucketName      string `json:"bucket_name"`
-	UserID          string `json:"user_id,omitempty"`
-	TenantID        string `json:"tenant_id,omitempty"`
-	PermissionLevel string `json:"permission_level"` // read, write, admin
-	GrantedBy       string `json:"granted_by"`
-	GrantedAt       int64  `json:"granted_at"`
-	ExpiresAt       int64  `json:"expires_at,omitempty"`
+	BucketName      string `json:"bucketName"`
+	UserID          string `json:"userId,omitempty"`
+	TenantID        string `json:"tenantId,omitempty"`
+	PermissionLevel string `json:"permissionLevel"` // read, write, admin
+	GrantedBy       string `json:"grantedBy"`
+	GrantedAt       int64  `json:"grantedAt"`
+	ExpiresAt       int64  `json:"expiresAt,omitempty"`
 }
 
 // AccessKey represents an access key pair
@@ -804,11 +804,12 @@ func (am *authManager) parseS3SignatureV4(authHeader string, r *http.Request) (*
 	}
 
 	// Parse credential, signed headers, and signature
-	// Split by ", " to get each parameter
-	params := strings.Split(authHeader, ", ")
+	// Split by "," to get each parameter (some clients don't add space after comma)
+	params := strings.Split(authHeader, ",")
 	logrus.WithField("params_count", len(params)).Debug("Split parameters")
 
 	for _, param := range params {
+		param = strings.TrimSpace(param) // Remove leading/trailing spaces
 		kv := strings.SplitN(param, "=", 2)
 		if len(kv) != 2 {
 			logrus.WithField("param", param).Warn("Skipping invalid parameter")

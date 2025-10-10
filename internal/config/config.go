@@ -179,9 +179,17 @@ func validate(cfg *Config) error {
 		cfg.Storage.Root = filepath.Join(cfg.DataDir, "objects")
 	}
 
-	if err := os.MkdirAll(cfg.Storage.Root, 0755); err != nil {
-		return fmt.Errorf("failed to create storage root: %w", err)
+	// Make storage root absolute
+	absRoot, err := filepath.Abs(cfg.Storage.Root)
+	if err == nil {
+		cfg.Storage.Root = absRoot
 	}
+
+	fmt.Printf("INFO: Creating storage root: %s\n", cfg.Storage.Root)
+	if err := os.MkdirAll(cfg.Storage.Root, 0755); err != nil {
+		return fmt.Errorf("failed to create storage root %s: %w", cfg.Storage.Root, err)
+	}
+	fmt.Printf("INFO: Storage root created successfully: %s\n", cfg.Storage.Root)
 
 	// Validate TLS configuration
 	if cfg.EnableTLS {

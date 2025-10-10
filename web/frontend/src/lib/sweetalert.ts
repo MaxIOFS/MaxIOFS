@@ -93,6 +93,31 @@ class SweetAlert {
     });
   }
 
+  // Generic confirmation dialog
+  static async confirm(
+    title: string,
+    text: string,
+    onConfirm?: () => void,
+    options?: SweetAlertOptions
+  ): Promise<SweetAlertResult> {
+    const result = await this.fire({
+      icon: 'warning',
+      title,
+      text,
+      showCancelButton: true,
+      confirmButtonText: 'Yes, confirm',
+      cancelButtonText: 'Cancel',
+      reverseButtons: true,
+      ...options,
+    });
+
+    if (result.isConfirmed && onConfirm) {
+      onConfirm();
+    }
+
+    return result;
+  }
+
   // Confirm a destructive action
   static async confirmDelete(
     itemName: string,

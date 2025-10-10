@@ -20,10 +20,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// TODO: Re-enable embed in production build
-// //go:embed all:web/dist
-// var webAssets embed.FS
-
 // Server represents the MaxIOFS server
 type Server struct {
 	config         *config.Config
@@ -198,9 +194,12 @@ func (s *Server) setupRoutes() error {
 		shareManagerWrapper,
 		s.config.PublicAPIURL,
 		s.config.PublicConsoleURL,
+		s.config.DataDir,
 	)
 
 	// Apply middleware
+	// VERBOSE LOGGING - logs EVERY request with full details
+	apiRouter.Use(middleware.VerboseLogging())
 	apiRouter.Use(middleware.CORS())
 	apiRouter.Use(middleware.Logging())
 	if s.config.Auth.EnableAuth {
@@ -229,9 +228,16 @@ func (s *Server) setupConsoleRoutes(router *mux.Router) {
 	apiRouter := router.PathPrefix("/api/v1").Subrouter()
 	s.setupConsoleAPIRoutes(apiRouter)
 
-	// For now, serve placeholder - frontend should be run separately in development
-	s.setupPlaceholderHandler(router)
-	logrus.Info("Web console API available at /api/v1. Run frontend separately with 'npm run dev' in web/frontend")
+	// Try to serve embedded frontend, fallback to placeholder if not available
+	frontendHandler, err := s.setupEmbeddedFrontend(router)
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to setup embedded frontend, using placeholder")
+		s.setupPlaceholderHandler(router)
+		return
+	}
+
+	// Serve embedded frontend for all non-API routes
+	router.PathPrefix("/").Handler(frontendHandler)
 }
 
 func (s *Server) setupPlaceholderHandler(router *mux.Router) {
