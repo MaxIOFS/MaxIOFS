@@ -1,7 +1,5 @@
-'use client';
-
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useRouter } from 'next/router';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -39,8 +37,9 @@ import { APIClient } from '@/lib/api';
 import { User as UserType, AccessKey, EditUserForm } from '@/types';
 
 export default function UserDetailsPage() {
-  const params = useParams();
-  const userId = params.user as string;
+  const router = useRouter();
+  const { user } = router.query;
+  const userId = user as string;
   const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
   const [isCreateKeyModalOpen, setIsCreateKeyModalOpen] = useState(false);
   const [editForm, setEditForm] = useState<EditUserForm>({
@@ -61,7 +60,7 @@ export default function UserDetailsPage() {
   const queryClient = useQueryClient();
 
   // Fetch user data
-  const { data: user, isLoading: userLoading } = useQuery({
+  const { data: userData, isLoading: userLoading } = useQuery({
     queryKey: ['user', userId],
     queryFn: () => APIClient.getUser(userId),
   });
@@ -144,15 +143,15 @@ export default function UserDetailsPage() {
 
   // Initialize edit form when user data is loaded
   useEffect(() => {
-    if (user) {
+    if (userData) {
       setEditForm({
-        email: user.email || '',
-        roles: user.roles || [],
-        status: user.status,
-        tenantId: user.tenantId || undefined,
+        email: userData.email || '',
+        roles: userData.roles || [],
+        status: userData.status,
+        tenantId: userData.tenantId || undefined,
       });
     }
-  }, [user]);
+  }, [userData]);
 
   // Handlers
   const handleEditUser = (e: React.FormEvent) => {
@@ -272,7 +271,7 @@ export default function UserDetailsPage() {
     );
   }
 
-  if (!user) {
+  if (!userData) {
     return (
       <div className="text-center py-8">
         <h3 className="text-lg font-semibold">User not found</h3>
@@ -296,7 +295,7 @@ export default function UserDetailsPage() {
             Back
           </Button>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">{user.username}</h1>
+            <h1 className="text-3xl font-bold tracking-tight">{userData.username}</h1>
             <p className="text-muted-foreground">
               User details and configuration
             </p>
@@ -339,9 +338,9 @@ export default function UserDetailsPage() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(user.status)}`}>
-                {user.status === 'active' ? <CheckCircle className="h-3 w-3 mr-1" /> : <XCircle className="h-3 w-3 mr-1" />}
-                {user.status}
+              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(userData.status)}`}>
+                {userData.status === 'active' ? <CheckCircle className="h-3 w-3 mr-1" /> : <XCircle className="h-3 w-3 mr-1" />}
+                {userData.status}
               </span>
             </div>
           </CardContent>
@@ -354,7 +353,7 @@ export default function UserDetailsPage() {
             <Mail className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-sm">{user.email || 'Not provided'}</div>
+            <div className="text-sm">{userData.email || 'Not provided'}</div>
           </CardContent>
         </Card>
 
@@ -366,8 +365,8 @@ export default function UserDetailsPage() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-1">
-              {user.roles && user.roles.length > 0 ? (
-                user.roles.map((role: string) => (
+              {userData.roles && userData.roles.length > 0 ? (
+                userData.roles.map((role: string) => (
                   <span
                     key={role}
                     className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800"
@@ -593,9 +592,9 @@ export default function UserDetailsPage() {
             <Input
               id="roles"
               value={editForm.roles.join(', ')}
-              onChange={(e) => setEditForm(prev => ({ 
-                ...prev, 
-                roles: e.target.value.split(',').map(r => r.trim()).filter(r => r) 
+              onChange={(e) => setEditForm(prev => ({
+                ...prev,
+                roles: e.target.value.split(',').map(r => r.trim()).filter(r => r)
               }))}
               placeholder="admin, user, guest"
             />

@@ -1,7 +1,5 @@
-'use client';
-
 import React from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/router';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
@@ -18,11 +16,11 @@ import { useQuery } from '@tanstack/react-query';
 import { bucketsApi } from '@/lib/api';
 
 export default function BucketSettingsPage() {
-  const params = useParams();
   const router = useRouter();
-  const bucketName = params.bucket as string;
+  const { bucket } = router.query;
+  const bucketName = bucket as string;
 
-  const { data: bucket, isLoading } = useQuery({
+  const { data: bucketData, isLoading } = useQuery({
     queryKey: ['bucket', bucketName],
     queryFn: () => bucketsApi.getBucket(bucketName),
   });
@@ -64,11 +62,11 @@ export default function BucketSettingsPage() {
                 <div>
                   <p className="font-medium">Version Control</p>
                   <p className="text-sm text-gray-500">
-                    {bucket?.versioning ? 'Enabled' : 'Disabled'}
+                    {bucketData?.versioning ? 'Enabled' : 'Disabled'}
                   </p>
                 </div>
                 <Button variant="outline">
-                  {bucket?.versioning ? 'Suspend' : 'Enable'}
+                  {bucketData?.versioning ? 'Suspend' : 'Enable'}
                 </Button>
               </div>
             </div>
@@ -89,26 +87,26 @@ export default function BucketSettingsPage() {
                 <div>
                   <p className="font-medium">Object Lock Status</p>
                   <p className="text-sm text-gray-500">
-                    {bucket?.object_lock ? 'Enabled' : 'Disabled'}
+                    {bucketData?.object_lock ? 'Enabled' : 'Disabled'}
                   </p>
                 </div>
-                {bucket?.object_lock && (
+                {bucketData?.object_lock && (
                   <Button variant="outline">Configure</Button>
                 )}
               </div>
-              {bucket?.object_lock && (
+              {bucketData?.object_lock && (
                 <div className="rounded-lg border p-4 space-y-2">
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Mode:</span>
                     <span className="text-sm font-medium">
-                      {bucket.retention_mode || 'Not Set'}
+                      {bucketData.retention_mode || 'Not Set'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Retention:</span>
                     <span className="text-sm font-medium">
-                      {bucket.retention_days
-                        ? `${bucket.retention_days} days`
+                      {bucketData.retention_days
+                        ? `${bucketData.retention_days} days`
                         : 'Not Set'}
                     </span>
                   </div>
@@ -132,11 +130,11 @@ export default function BucketSettingsPage() {
                 <div>
                   <p className="font-medium">Access Policy</p>
                   <p className="text-sm text-gray-500">
-                    {bucket?.policy ? 'Custom Policy' : 'No Policy Set'}
+                    {bucketData?.policy ? 'Custom Policy' : 'No Policy Set'}
                   </p>
                 </div>
                 <Button variant="outline">
-                  {bucket?.policy ? 'Edit Policy' : 'Add Policy'}
+                  {bucketData?.policy ? 'Edit Policy' : 'Add Policy'}
                 </Button>
               </div>
             </div>
@@ -157,8 +155,8 @@ export default function BucketSettingsPage() {
                 <div>
                   <p className="font-medium">Bucket Tags</p>
                   <p className="text-sm text-gray-500">
-                    {bucket?.tags && Object.keys(bucket.tags).length > 0
-                      ? `${Object.keys(bucket.tags).length} tags`
+                    {bucketData?.tags && Object.keys(bucketData.tags).length > 0
+                      ? `${Object.keys(bucketData.tags).length} tags`
                       : 'No tags'}
                   </p>
                 </div>
@@ -182,11 +180,11 @@ export default function BucketSettingsPage() {
                 <div>
                   <p className="font-medium">Cross-Origin Resource Sharing</p>
                   <p className="text-sm text-gray-500">
-                    {bucket?.cors ? 'Configured' : 'Not Configured'}
+                    {bucketData?.cors ? 'Configured' : 'Not Configured'}
                   </p>
                 </div>
                 <Button variant="outline">
-                  {bucket?.cors ? 'Edit CORS' : 'Add CORS'}
+                  {bucketData?.cors ? 'Edit CORS' : 'Add CORS'}
                 </Button>
               </div>
             </div>
@@ -207,11 +205,11 @@ export default function BucketSettingsPage() {
                 <div>
                   <p className="font-medium">Object Lifecycle Management</p>
                   <p className="text-sm text-gray-500">
-                    {bucket?.lifecycle ? 'Active Rules' : 'No Rules'}
+                    {bucketData?.lifecycle ? 'Active Rules' : 'No Rules'}
                   </p>
                 </div>
                 <Button variant="outline">
-                  {bucket?.lifecycle ? 'Manage Rules' : 'Add Rule'}
+                  {bucketData?.lifecycle ? 'Manage Rules' : 'Add Rule'}
                 </Button>
               </div>
             </div>

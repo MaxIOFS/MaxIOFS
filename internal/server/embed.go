@@ -1,24 +1,18 @@
 package server
 
 import (
-	// "embed" // Temporarily disabled
-	"fmt"
 	"io/fs"
 	"net/http"
 	"path"
 	"strings"
 
+	"github.com/maxiofs/maxiofs/web"
 	"github.com/sirupsen/logrus"
 )
 
-// Embed the frontend static files
-// TODO: Temporarily disabled until frontend migration is complete
-// //go:embed all:../../web/frontend/.next
-// var frontendAssets embed.FS
-
 // getFrontendFS returns the embedded filesystem with the correct root
 func getFrontendFS() (fs.FS, error) {
-	return nil, fmt.Errorf("frontend embed disabled during migration")
+	return web.GetFrontendFS()
 }
 
 // spaHandler implements the http.Handler interface for serving a SPA
