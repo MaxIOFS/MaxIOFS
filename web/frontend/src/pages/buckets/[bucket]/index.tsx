@@ -1,7 +1,5 @@
-'use client';
-
 import React, { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/router';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -37,9 +35,9 @@ import SweetAlert from '@/lib/sweetalert';
 import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 
 export default function BucketDetailsPage() {
-  const params = useParams();
   const router = useRouter();
-  const bucketName = params.bucket as string;
+  const { bucket } = router.query;
+  const bucketName = bucket as string;
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPrefix, setCurrentPrefix] = useState('');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -50,7 +48,7 @@ export default function BucketDetailsPage() {
   const [selectedObjects, setSelectedObjects] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
 
-  const { data: bucket, isLoading: bucketLoading } = useQuery({
+  const { data: bucketData, isLoading: bucketLoading } = useQuery({
     queryKey: ['bucket', bucketName],
     queryFn: () => APIClient.getBucket(bucketName),
   });
@@ -76,7 +74,7 @@ export default function BucketDetailsPage() {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
       setIsUploadModalOpen(false);
       setSelectedFiles(null);
-      
+
       // Show success notification
       const fileName = variables.key.split('/').pop() || variables.key;
       SweetAlert.successUpload(fileName);
@@ -95,7 +93,7 @@ export default function BucketDetailsPage() {
       // Create an empty object with the folder name ending in /
       // This is the standard S3 way to create folders
       const emptyFile = new File([''], folderName, { type: 'application/octet-stream' });
-      
+
       return APIClient.uploadObject({
         bucket: bucketName,
         key: folderKey,
@@ -666,19 +664,19 @@ export default function BucketDetailsPage() {
 
   const formatRetentionExpiration = (retainUntilDate?: string) => {
     if (!retainUntilDate) return null;
-    
+
     const now = new Date();
     const expirationDate = new Date(retainUntilDate);
     const diffMs = expirationDate.getTime() - now.getTime();
-    
+
     if (diffMs < 0) {
       return { text: 'Expired', color: 'text-green-600', expired: true };
     }
-    
+
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
     const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    
+
     let text = '';
     if (diffDays > 0) {
       text = `${diffDays}d ${diffHours}h`;
@@ -687,7 +685,7 @@ export default function BucketDetailsPage() {
     } else {
       text = `${diffMinutes}m`;
     }
-    
+
     return {
       text: `Expires in ${text}`,
       color: 'text-yellow-600',
@@ -794,7 +792,7 @@ export default function BucketDetailsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {(bucket?.object_count || 0).toLocaleString()}
+              {(bucketData?.object_count || 0).toLocaleString()}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               Files and folders
@@ -809,7 +807,7 @@ export default function BucketDetailsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatSize(bucket?.size || 0)}
+              {formatSize(bucketData?.size || 0)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               Storage used
@@ -824,14 +822,14 @@ export default function BucketDetailsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {bucket?.region || 'us-east-1'}
+              {bucketData?.region || 'us-east-1'}
             </div>
           </CardContent>
         </Card>
       </div>
 
       {/* Object Lock Banner */}
-      {bucket?.objectLock?.objectLockEnabled && (
+      {bucketData?.objectLock?.objectLockEnabled && (
         <Card className="border-blue-200 bg-blue-50">
           <CardContent className="pt-6">
             <div className="flex items-start gap-4">
@@ -843,32 +841,32 @@ export default function BucketDetailsPage() {
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-2">
                   <h3 className="text-lg font-semibold text-blue-900">Object Lock Enabled (WORM)</h3>
-                  {bucket.objectLock.rule?.defaultRetention && (
+                  {bucketData.objectLock.rule?.defaultRetention && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                       <ShieldIcon className="h-3 w-3" />
-                      {bucket.objectLock.rule.defaultRetention.mode}
+                      {bucketData.objectLock.rule.defaultRetention.mode}
                     </span>
                   )}
                 </div>
                 <p className="text-sm text-blue-800">
                   This bucket has WORM (Write Once Read Many) protection enabled. Objects are immutable and cannot be deleted until their retention expires.
                 </p>
-                {bucket.objectLock.rule?.defaultRetention && (
+                {bucketData.objectLock.rule?.defaultRetention && (
                   <div className="mt-3 flex items-center gap-4 text-sm">
                     <div className="flex items-center gap-2 text-blue-700">
                       <ClockIcon className="h-4 w-4" />
                       <span className="font-medium">Default retention:</span>
                       <span>
-                        {bucket.objectLock.rule.defaultRetention.days
-                          ? `${bucket.objectLock.rule.defaultRetention.days} day${bucket.objectLock.rule.defaultRetention.days !== 1 ? 's' : ''}`
-                          : bucket.objectLock.rule.defaultRetention.years
-                          ? `${bucket.objectLock.rule.defaultRetention.years} year${bucket.objectLock.rule.defaultRetention.years !== 1 ? 's' : ''}`
+                        {bucketData.objectLock.rule.defaultRetention.days
+                          ? `${bucketData.objectLock.rule.defaultRetention.days} day${bucketData.objectLock.rule.defaultRetention.days !== 1 ? 's' : ''}`
+                          : bucketData.objectLock.rule.defaultRetention.years
+                          ? `${bucketData.objectLock.rule.defaultRetention.years} year${bucketData.objectLock.rule.defaultRetention.years !== 1 ? 's' : ''}`
                           : 'Not specified'
                         }
                       </span>
                     </div>
                     <div className="text-blue-600 text-xs">
-                      {bucket.objectLock.rule.defaultRetention.mode === 'COMPLIANCE'
+                      {bucketData.objectLock.rule.defaultRetention.mode === 'COMPLIANCE'
                         ? '⚠️ COMPLIANCE: Cannot be deleted under any circumstances'
                         : '⚠️ GOVERNANCE: Requires special permissions to delete'
                       }
@@ -968,7 +966,7 @@ export default function BucketDetailsPage() {
                   <TableHead>Size</TableHead>
                   <TableHead>Modified</TableHead>
                   <TableHead>Type</TableHead>
-                  {bucket?.objectLock?.objectLockEnabled && (
+                  {bucketData?.objectLock?.objectLockEnabled && (
                     <TableHead>Retention</TableHead>
                   )}
                   <TableHead className="text-right">Actions</TableHead>
@@ -1032,7 +1030,7 @@ export default function BucketDetailsPage() {
                         item.storageClass || 'STANDARD'
                       )}
                     </TableCell>
-                    {bucket?.objectLock?.objectLockEnabled && (
+                    {bucketData?.objectLock?.objectLockEnabled && (
                       <TableCell>
                         {(() => {
                           if (isFolder(item)) {
@@ -1052,7 +1050,7 @@ export default function BucketDetailsPage() {
                               <span className="text-gray-400">-</span>
                             );
                           }
-                          
+
                           return <span className="text-gray-400">No retention</span>;
                         })()}
                       </TableCell>

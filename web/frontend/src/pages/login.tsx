@@ -1,7 +1,5 @@
-'use client';
-
 import { useState, FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from 'next/router';
 import APIClient from '@/lib/api';
 import SweetAlert from '@/lib/sweetalert';
 
@@ -65,9 +63,9 @@ export default function LoginPage() {
           {/* Logo */}
           <div className="flex justify-center mb-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img 
-              src="/assets/img/logo.png" 
-              alt="MaxIOFS Logo" 
+            <img
+              src="/assets/img/logo.png"
+              alt="MaxIOFS Logo"
               className="h-auto object-contain"
               style={{ width: '22rem', maxHeight: '200px' }}
             />

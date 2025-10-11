@@ -2,6 +2,9 @@
 const path = require('path')
 
 const nextConfig = {
+  // Static export for Pages Router
+  output: 'export',
+
   // Disable image optimization
   images: {
     unoptimized: true

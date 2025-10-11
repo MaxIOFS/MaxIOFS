@@ -1,5 +1,3 @@
-'use client';
-
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -8,7 +6,7 @@ import { Database, FolderOpen, Users, Activity, HardDrive, TrendingUp } from 'lu
 import { formatBytes } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import { useRouter } from 'next/navigation';
+import { useRouter } from 'next/router';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 export default function Dashboard() {

@@ -1,5 +1,3 @@
-'use client';
-
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -132,10 +130,10 @@ export default function UsersPage() {
 
   const handleDeleteUser = async (userId: string) => {
     const user = users?.find((u: User) => u.id === userId);
-    
+
     try {
       const result = await SweetAlert.confirmDeleteUser(user?.username || 'user');
-      
+
       if (result.isConfirmed) {
         SweetAlert.loading('Deleting user...', `Deleting "${user?.username}"`);
         deleteUserMutation.mutate(userId);

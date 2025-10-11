@@ -1,12 +1,10 @@
-'use client';
-
 import React from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/router';
 
 export default function UserSettingsPage() {
-  const params = useParams();
   const router = useRouter();
-  const userId = params.user as string;
+  const { user } = router.query;
+  const userId = user as string;
 
   React.useEffect(() => {
     router.push(`/users/${userId}`);

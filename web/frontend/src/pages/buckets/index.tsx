@@ -1,7 +1,5 @@
-'use client';
-
 import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from 'next/router';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -59,11 +57,11 @@ export default function BucketsPage() {
   const handleDeleteBucket = async (bucketName: string) => {
     try {
       const result = await SweetAlert.confirmDeleteBucket(bucketName);
-      
+
       if (result.isConfirmed) {
         // Show loading indicator
         SweetAlert.loading('Deleting bucket...', `Deleting "${bucketName}" and all its data`);
-        
+
         deleteBucketMutation.mutate(bucketName);
       }
     } catch (error) {
