@@ -130,7 +130,7 @@ func setDefaults(v *viper.Viper) {
 
 	// Storage defaults
 	v.SetDefault("storage.backend", "filesystem")
-	v.SetDefault("storage.root", "./data/objects")
+	v.SetDefault("storage.root", "") // Empty by default, will be set based on data_dir
 	v.SetDefault("storage.enable_compression", false)
 	v.SetDefault("storage.compression_level", 6)
 	v.SetDefault("storage.compression_type", "gzip")
@@ -174,14 +174,17 @@ func validate(cfg *Config) error {
 	}
 
 	// Setup storage root
-	if cfg.Storage.Root == "" {
+	// If storage.root is empty or is the old default, build it from data_dir
+	if cfg.Storage.Root == "" || cfg.Storage.Root == "./data/objects" {
 		cfg.Storage.Root = filepath.Join(cfg.DataDir, "objects")
 	}
 
-	// Make storage root absolute
-	absRoot, err := filepath.Abs(cfg.Storage.Root)
-	if err == nil {
-		cfg.Storage.Root = absRoot
+	// Make storage root absolute if it's not already
+	if !filepath.IsAbs(cfg.Storage.Root) {
+		absRoot, err := filepath.Abs(cfg.Storage.Root)
+		if err == nil {
+			cfg.Storage.Root = absRoot
+		}
 	}
 
 	fmt.Printf("INFO: Creating storage root: %s\n", cfg.Storage.Root)
