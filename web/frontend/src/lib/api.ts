@@ -32,9 +32,13 @@ import type {
 import SweetAlert from '@/lib/sweetalert';
 
 // API Configuration
+// For monolithic deployment: Use relative URLs so frontend works with both HTTP and HTTPS
+// The frontend is served from the same server as the API (port 8081)
 const API_CONFIG = {
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081/api/v1',
-  s3URL: process.env.NEXT_PUBLIC_S3_URL || 'http://localhost:8080',
+  baseURL: '/api/v1', // Relative URL - works with both HTTP and HTTPS
+  s3URL: typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:8080` // S3 API on port 8080
+    : 'http://localhost:8080', // Fallback for SSR/SSG
   timeout: 30000,
   withCredentials: false, // Changed to false for development CORS
 };
