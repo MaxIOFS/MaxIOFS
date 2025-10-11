@@ -1,15 +1,48 @@
 # MaxIOFS Makefile
+# Cross-platform build system (Windows/Linux/macOS)
+# 
+# Windows Requirements: PowerShell, Go, Node.js, npm, git
+# Linux/macOS Requirements: bash, Go, Node.js, npm, git, make
+#
+# Usage:
+#   make build              - Build everything (frontend + backend)
+#   make build-server       - Build only the backend
+#   make VERSION=v1.0.0     - Build with specific version
+#   make help               - Show all available targets
+
+# Detect OS
+ifeq ($(OS),Windows_NT)
+	DETECTED_OS := Windows
+	BINARY_EXT := .exe
+	RM := cmd /c "rmdir /s /q"
+	MKDIR := cmd /c "if not exist"
+	MKDIR_CMD := mkdir
+	SHELL := cmd.exe
+	.SHELLFLAGS := /c
+	# For Windows, we need to get commit and date differently
+	COMMIT := $(shell git rev-parse --short HEAD 2>nul || echo unknown)
+	BUILD_DATE := $(shell powershell -Command "Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ'")
+else
+	DETECTED_OS := $(shell uname -s)
+	BINARY_EXT :=
+	RM := rm -rf
+	MKDIR := mkdir -p
+	MKDIR_CMD :=
+	COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+	BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+endif
 
 # Build variables
-BINARY_NAME=maxiofs
+BINARY_NAME=maxiofs$(BINARY_EXT)
 VERSION?=dev
-COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-BUILD_DATE?=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+COMMIT?=$(COMMIT)
+BUILD_DATE?=$(BUILD_DATE)
 LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_DATE)"
+BUILD_FLAGS=-buildvcs=false
 
 # Go variables
 GOCMD=go
-GOBUILD=$(GOCMD) build
+GOBUILD=$(GOCMD) build $(BUILD_FLAGS)
 GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
@@ -31,27 +64,69 @@ build: build-web build-server
 # Build the web frontend
 .PHONY: build-web
 build-web:
-	@echo "Building web frontend..."
-	@echo "Cleaning previous build..."
-	rm -rf $(WEB_DIR)/.next
-	rm -rf $(WEB_DIR)/out
-	@echo "Installing dependencies..."
-	cd $(WEB_DIR) && npm ci
-	@echo "Building Next.js static export..."
-	cd $(WEB_DIR) && NODE_ENV=production npm run build
+	@echo Building web frontend...
+	@echo Cleaning previous build...
+ifeq ($(DETECTED_OS),Windows)
+	@if exist "$(WEB_DIR)\.next" rmdir /s /q "$(WEB_DIR)\.next"
+	@if exist "$(WEB_DIR)\out" rmdir /s /q "$(WEB_DIR)\out"
+	@echo Installing dependencies...
+	@cd $(WEB_DIR) && npm ci
+	@echo Building Next.js static export...
+	@cd $(WEB_DIR) && set NODE_ENV=production && npm run build
+	@if not exist "$(WEB_DIR)\out" (echo Error: Static export directory 'out' was not created! && exit /b 1)
+else
+	@rm -rf $(WEB_DIR)/.next
+	@rm -rf $(WEB_DIR)/out
+	@echo Installing dependencies...
+	@cd $(WEB_DIR) && npm ci
+	@echo Building Next.js static export...
+	@cd $(WEB_DIR) && NODE_ENV=production npm run build
 	@if [ ! -d "$(WEB_DIR)/out" ]; then \
 		echo "Error: Static export directory 'out' was not created!"; \
 		exit 1; \
 	fi
-	@echo "Web frontend built successfully (static export in $(WEB_DIR)/out)"
+endif
+	@echo Web frontend built successfully (static export in $(WEB_DIR)/out)
 
 # Build the Go server
 .PHONY: build-server
 build-server:
-	@echo "Building MaxIOFS server..."
-	mkdir -p $(BUILD_DIR)
+	@echo Building MaxIOFS server...
+ifeq ($(DETECTED_OS),Windows)
+	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
+else
+	@mkdir -p $(BUILD_DIR)
+endif
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/maxiofs
-	@echo "Server built successfully"
+	@echo.
+	@echo ========================================
+	@echo Build successful!
+	@echo ========================================
+	@echo Binary: $(BUILD_DIR)/$(BINARY_NAME)
+	@echo Version: $(VERSION) (commit: $(COMMIT))
+	@echo Frontend: Embedded in binary
+	@echo.
+	@echo Usage:
+ifeq ($(DETECTED_OS),Windows)
+	@echo   .\$(BUILD_DIR)\$(BINARY_NAME) --data-dir .\data
+	@echo   .\$(BUILD_DIR)\$(BINARY_NAME) --version
+	@echo   .\$(BUILD_DIR)\$(BINARY_NAME) --help
+else
+	@echo   ./$(BUILD_DIR)/$(BINARY_NAME) --data-dir ./data
+	@echo   ./$(BUILD_DIR)/$(BINARY_NAME) --version
+	@echo   ./$(BUILD_DIR)/$(BINARY_NAME) --help
+endif
+	@echo.
+	@echo Endpoints:
+	@echo   Web Console: http://localhost:8081
+	@echo   S3 API:      http://localhost:8080
+	@echo.
+	@echo TLS Support (optional):
+ifeq ($(DETECTED_OS),Windows)
+	@echo   .\$(BUILD_DIR)\$(BINARY_NAME) --data-dir .\data --tls-cert cert.pem --tls-key key.pem
+else
+	@echo   ./$(BUILD_DIR)/$(BINARY_NAME) --data-dir ./data --tls-cert cert.pem --tls-key key.pem
+endif
 
 # Development build (without optimizations)
 .PHONY: dev
@@ -114,13 +189,21 @@ fmt:
 # Clean build artifacts
 .PHONY: clean
 clean:
-	@echo "Cleaning build artifacts..."
+	@echo Cleaning build artifacts...
 	$(GOCLEAN)
-	rm -rf $(BUILD_DIR)
-	rm -rf $(DIST_DIR)
-	rm -rf $(WEB_DIR)/.next
-	rm -rf $(WEB_DIR)/out
-	rm -f coverage.out
+ifeq ($(DETECTED_OS),Windows)
+	@if exist "$(BUILD_DIR)" rmdir /s /q "$(BUILD_DIR)"
+	@if exist "$(DIST_DIR)" rmdir /s /q "$(DIST_DIR)"
+	@if exist "$(WEB_DIR)\.next" rmdir /s /q "$(WEB_DIR)\.next"
+	@if exist "$(WEB_DIR)\out" rmdir /s /q "$(WEB_DIR)\out"
+	@if exist "coverage.out" del /q "coverage.out"
+else
+	@rm -rf $(BUILD_DIR)
+	@rm -rf $(DIST_DIR)
+	@rm -rf $(WEB_DIR)/.next
+	@rm -rf $(WEB_DIR)/out
+	@rm -f coverage.out
+endif
 
 # Download Go dependencies
 .PHONY: deps
@@ -132,23 +215,103 @@ deps:
 # Build for all platforms
 .PHONY: build-all
 build-all: clean build-web
-	@echo "Building for all platforms..."
-	mkdir -p $(BUILD_DIR)
+	@echo Building for all platforms...
+ifeq ($(DETECTED_OS),Windows)
+	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
+	@echo Building Linux AMD64...
+	@set GOOS=linux&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-amd64 ./cmd/maxiofs
+	@echo Building Linux ARM64...
+	@set GOOS=linux&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-arm64 ./cmd/maxiofs
+	@echo Building Windows AMD64...
+	@set GOOS=windows&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-windows-amd64.exe ./cmd/maxiofs
+	@echo Building macOS AMD64...
+	@set GOOS=darwin&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-amd64 ./cmd/maxiofs
+	@echo Building macOS ARM64...
+	@set GOOS=darwin&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-arm64 ./cmd/maxiofs
+else
+	@mkdir -p $(BUILD_DIR)
+	@echo "Building Linux AMD64..."
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-amd64 ./cmd/maxiofs
+	@echo "Building Linux ARM64..."
+	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-arm64 ./cmd/maxiofs
+	@echo "Building Windows AMD64..."
+	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-windows-amd64.exe ./cmd/maxiofs
+	@echo "Building macOS AMD64..."
+	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-amd64 ./cmd/maxiofs
+	@echo "Building macOS ARM64..."
+	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-arm64 ./cmd/maxiofs
+endif
+	@echo.
+	@echo ========================================
+	@echo Multi-platform build complete!
+	@echo ========================================
+	@echo Binaries created in $(BUILD_DIR)/:
+	@echo   - maxiofs-linux-amd64
+	@echo   - maxiofs-linux-arm64
+	@echo   - maxiofs-windows-amd64.exe
+	@echo   - maxiofs-darwin-amd64
+	@echo   - maxiofs-darwin-arm64
 
-	# Linux AMD64
-	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./cmd/maxiofs
+# Build for specific platforms (cross-compilation)
+.PHONY: build-linux
+build-linux:
+	@echo Building for Linux AMD64...
+ifeq ($(DETECTED_OS),Windows)
+	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
+	@set GOOS=linux&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-amd64 ./cmd/maxiofs
+else
+	@mkdir -p $(BUILD_DIR)
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-amd64 ./cmd/maxiofs
+endif
+	@echo Linux AMD64 binary created: $(BUILD_DIR)/maxiofs-linux-amd64
 
-	# Linux ARM64
-	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 ./cmd/maxiofs
+.PHONY: build-linux-arm64
+build-linux-arm64:
+	@echo Building for Linux ARM64...
+ifeq ($(DETECTED_OS),Windows)
+	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
+	@set GOOS=linux&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-arm64 ./cmd/maxiofs
+else
+	@mkdir -p $(BUILD_DIR)
+	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-arm64 ./cmd/maxiofs
+endif
+	@echo Linux ARM64 binary created: $(BUILD_DIR)/maxiofs-linux-arm64
 
-	# Windows AMD64
-	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe ./cmd/maxiofs
+.PHONY: build-windows
+build-windows:
+	@echo Building for Windows AMD64...
+ifeq ($(DETECTED_OS),Windows)
+	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
+	@set GOOS=windows&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-windows-amd64.exe ./cmd/maxiofs
+else
+	@mkdir -p $(BUILD_DIR)
+	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-windows-amd64.exe ./cmd/maxiofs
+endif
+	@echo Windows AMD64 binary created: $(BUILD_DIR)/maxiofs-windows-amd64.exe
 
-	# macOS AMD64
-	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 ./cmd/maxiofs
+.PHONY: build-darwin
+build-darwin:
+	@echo Building for macOS AMD64...
+ifeq ($(DETECTED_OS),Windows)
+	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
+	@set GOOS=darwin&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-amd64 ./cmd/maxiofs
+else
+	@mkdir -p $(BUILD_DIR)
+	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-amd64 ./cmd/maxiofs
+endif
+	@echo macOS AMD64 binary created: $(BUILD_DIR)/maxiofs-darwin-amd64
 
-	# macOS ARM64
-	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 ./cmd/maxiofs
+.PHONY: build-darwin-arm64
+build-darwin-arm64:
+	@echo Building for macOS ARM64...
+ifeq ($(DETECTED_OS),Windows)
+	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
+	@set GOOS=darwin&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-arm64 ./cmd/maxiofs
+else
+	@mkdir -p $(BUILD_DIR)
+	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-arm64 ./cmd/maxiofs
+endif
+	@echo macOS ARM64 binary created: $(BUILD_DIR)/maxiofs-darwin-arm64
 
 # Docker build
 .PHONY: docker-build
@@ -188,25 +351,37 @@ release: clean test lint build-all
 # Help target
 .PHONY: help
 help:
-	@echo "MaxIOFS Build System"
+	@echo "MaxIOFS Build System (Cross-Platform)"
+	@echo ""
+	@echo "Detected OS: $(DETECTED_OS)"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  all              - Clean and build everything"
-	@echo "  build            - Build web frontend and server"
-	@echo "  build-web        - Build only the web frontend"
-	@echo "  build-server     - Build only the Go server"
-	@echo "  build-all        - Build for all platforms"
-	@echo "  dev              - Build development version"
-	@echo "  dev-server       - Start development server"
-	@echo "  dev-web          - Start web development server"
-	@echo "  test             - Run all tests"
-	@echo "  test-unit        - Run unit tests only"
-	@echo "  test-integration - Run integration tests only"
-	@echo "  lint             - Lint code"
-	@echo "  fmt              - Format code"
-	@echo "  clean            - Clean build artifacts"
-	@echo "  deps             - Download dependencies"
-	@echo "  docker-build     - Build Docker image"
-	@echo "  docker-run       - Run in Docker"
-	@echo "  release          - Create release build"
-	@echo "  help             - Show this help message"
+	@echo "  all                - Clean and build everything"
+	@echo "  build              - Build web frontend and server (current platform)"
+	@echo "  build-web          - Build only the web frontend"
+	@echo "  build-server       - Build only the Go server (current platform)"
+	@echo "  build-all          - Build for all platforms (cross-compile)"
+	@echo "  build-linux        - Build for Linux AMD64"
+	@echo "  build-linux-arm64  - Build for Linux ARM64"
+	@echo "  build-windows      - Build for Windows AMD64"
+	@echo "  build-darwin       - Build for macOS AMD64 (Intel)"
+	@echo "  build-darwin-arm64 - Build for macOS ARM64 (Apple Silicon)"
+	@echo "  dev                - Build development version"
+	@echo "  dev-server         - Start development server"
+	@echo "  dev-web            - Start web development server"
+	@echo "  test               - Run all tests"
+	@echo "  test-unit          - Run unit tests only"
+	@echo "  test-integration   - Run integration tests only"
+	@echo "  lint               - Lint code"
+	@echo "  fmt                - Format code"
+	@echo "  clean              - Clean build artifacts"
+	@echo "  deps               - Download dependencies"
+	@echo "  docker-build       - Build Docker image"
+	@echo "  docker-run         - Run in Docker"
+	@echo "  release            - Create release build"
+	@echo "  help               - Show this help message"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make build VERSION=v1.0.0           - Build with version"
+	@echo "  make build-linux                     - Cross-compile for Linux"
+	@echo "  make build-all                       - Build for all platforms"

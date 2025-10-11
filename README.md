@@ -90,44 +90,99 @@ MaxIOFS is a high-performance S3-compatible object storage system built in Go wi
 
 ### Building MaxIOFS
 
+MaxIOFS provides two build methods that work on **Windows, Linux, and macOS**:
+
+#### Option 1: Using build.bat (Windows Recommended)
 ```bash
-# Windows - Build with version info
+# Simple build (version defaults to "dev")
 build.bat
 
-# Linux/Mac - Build with Makefile
-make build-server VERSION=v1.1.0
+# Build with specific version
+set VERSION=v1.5.0
+build.bat
 
-# Or manually with go build (no version info)
-go build -o maxiofs.exe ./cmd/maxiofs
+# Using PowerShell
+$env:VERSION="v1.5.0"
+.\build.bat
+```
+
+#### Option 2: Using Makefile (Cross-Platform)
+```bash
+# Windows (PowerShell/cmd)
+make build                    # Build frontend + backend
+make build-server             # Build only backend
+make VERSION=v1.5.0 build     # Build with version
+
+# Linux/macOS (bash/zsh)
+make build
+make build-server VERSION=v1.5.0
+make build-all                # Build for all platforms
+```
+
+**What gets built:**
+- Frontend: Next.js static export in `web/frontend/out/`
+- Backend: Go binary in `build/maxiofs.exe` (Windows) or `build/maxiofs` (Linux/macOS)
+- The backend binary embeds the frontend automatically
+
+**Version Information:**
+Both build methods inject version, git commit, and build date into the binary:
+```bash
+.\build\maxiofs.exe --version
+# Output: maxiofs version v1.5.0 (commit: abc1234, built: 2025-10-11T15:24:05Z)
+```
+
+**Note about Git Commit:**
+If you see `commit: unknown`, it means git can't access the repository. Fix with:
+```bash
+git config --global --add safe.directory C:/Users/YourUser/Projects/MaxIOFS
 ```
 
 ### Running MaxIOFS
 
+MaxIOFS requires the `--data-dir` flag to specify where to store data.
+
 ```bash
-# Run the binary
-./maxiofs.exe --data-dir ./data --log-level debug
+# Basic usage (HTTP)
+.\build\maxiofs.exe --data-dir ./data
+
+# With TLS/HTTPS (both cert and key required)
+.\build\maxiofs.exe --data-dir ./data --tls-cert server.crt --tls-key server.key
+
+# With debug logging
+.\build\maxiofs.exe --data-dir ./data --log-level debug
 
 # Check version
-./maxiofs.exe --version
+.\build\maxiofs.exe --version
 
-# Development mode with Makefile
-make dev
+# Show help
+.\build\maxiofs.exe --help
 ```
+
+**TLS Configuration:**
+- If you provide `--tls-cert` and `--tls-key`, both servers (Console API and S3 API) will run in HTTPS mode
+- Both flags must be provided together (one without the other will cause an error)
+- Certificates should be in PEM format
 
 **Default Credentials:**
 - **Web Console**: `http://localhost:8081` → Login: `admin` / `admin` (Global Admin)
 - **S3 API**: `http://localhost:8080` → Access Key: `maxioadmin` / Secret: `maxioadmin`
 
+**With TLS enabled:**
+- **Web Console**: `https://localhost:8081`
+- **S3 API**: `https://localhost:8080`
+
 ### Frontend Development
+
+The frontend is embedded in the binary by default. For development:
 
 ```bash
 cd web/frontend
 npm install
-npm run dev  # Development server on port 3001 (Next.js 15.5 + React 19)
-npm run build  # Production build (static export not configured)
+npm run dev      # Development server on port 3001 (Next.js 15.5 + React 19)
+npm run build    # Production build (static export to web/frontend/out)
 ```
 
-**Note**: Frontend currently runs separately from backend in development mode. The monolithic embedded build is planned for a future release.
+**Note**: The production build uses Pages Router for static export compatibility. The embedded version in the binary serves from the `web/frontend/out` directory.
 
 ## 📋 Key Capabilities
 
