@@ -44,6 +44,11 @@ type Manager interface {
 	GetObjectLockConfig(ctx context.Context, name string) (*ObjectLockConfig, error)
 	SetObjectLockConfig(ctx context.Context, name string, config *ObjectLockConfig) error
 
+	// Metrics management (for incremental updates)
+	IncrementObjectCount(ctx context.Context, name string, sizeBytes int64) error
+	DecrementObjectCount(ctx context.Context, name string, sizeBytes int64) error
+	RecalculateMetrics(ctx context.Context, name string) error
+
 	// Health check
 	IsReady() bool
 }
@@ -51,9 +56,9 @@ type Manager interface {
 // Bucket represents a storage bucket
 type Bucket struct {
 	Name              string             `json:"name"`
-	OwnerID           string             `json:"owner_id"`           // NEW: Owner user/tenant ID
-	OwnerType         string             `json:"owner_type"`         // NEW: "user" or "tenant"
-	IsPublic          bool               `json:"is_public"`          // NEW: Public access flag
+	OwnerID           string             `json:"owner_id"`   // NEW: Owner user/tenant ID
+	OwnerType         string             `json:"owner_type"` // NEW: "user" or "tenant"
+	IsPublic          bool               `json:"is_public"`  // NEW: Public access flag
 	CreatedAt         time.Time          `json:"created_at"`
 	Region            string             `json:"region"`
 	Versioning        *VersioningConfig  `json:"versioning,omitempty"`
@@ -65,6 +70,10 @@ type Bucket struct {
 	PublicAccessBlock *PublicAccessBlock `json:"public_access_block,omitempty"`
 	Tags              map[string]string  `json:"tags,omitempty"`
 	Metadata          map[string]string  `json:"metadata,omitempty"`
+
+	// Cached metrics for performance (updated incrementally)
+	ObjectCount int64 `json:"object_count"` // Cached object count
+	TotalSize   int64 `json:"total_size"`   // Cached total size in bytes
 }
 
 // bucketManager implements the Manager interface
@@ -761,4 +770,44 @@ func (bm *bucketManager) deleteBucketMetadata(ctx context.Context, name string) 
 		return fmt.Errorf("failed to delete bucket metadata: %w", err)
 	}
 	return nil
+}
+
+// IncrementObjectCount increments the cached object count for a bucket
+func (bm *bucketManager) IncrementObjectCount(ctx context.Context, name string, sizeBytes int64) error {
+	bucket, err := bm.GetBucketInfo(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	bucket.ObjectCount++
+	bucket.TotalSize += sizeBytes
+
+	return bm.saveBucketMetadata(ctx, bucket)
+}
+
+// DecrementObjectCount decrements the cached object count for a bucket
+func (bm *bucketManager) DecrementObjectCount(ctx context.Context, name string, sizeBytes int64) error {
+	bucket, err := bm.GetBucketInfo(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	if bucket.ObjectCount > 0 {
+		bucket.ObjectCount--
+	}
+	if bucket.TotalSize >= sizeBytes {
+		bucket.TotalSize -= sizeBytes
+	} else {
+		bucket.TotalSize = 0
+	}
+
+	return bm.saveBucketMetadata(ctx, bucket)
+}
+
+// RecalculateMetrics recalculates the object count and total size for a bucket
+// This is useful for fixing drift or initializing metrics for existing buckets
+func (bm *bucketManager) RecalculateMetrics(ctx context.Context, name string) error {
+	// This would require the object manager, which we don't have access to here
+	// This method should be called from a higher level (server) that has both managers
+	return fmt.Errorf("RecalculateMetrics must be called from server level")
 }

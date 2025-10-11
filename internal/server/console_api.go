@@ -124,10 +124,13 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Authentication middleware - validates JWT and adds user to context
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip authentication for login endpoint
-			if strings.Contains(r.URL.Path, "/auth/login") || r.Method == "OPTIONS" {
-				next.ServeHTTP(w, r)
-				return
+			// Skip authentication for public endpoints
+			publicPaths := []string{"/auth/login", "/health"}
+			for _, path := range publicPaths {
+				if strings.Contains(r.URL.Path, path) || r.Method == "OPTIONS" {
+					next.ServeHTTP(w, r)
+					return
+				}
 			}
 
 			// Extract JWT token from Authorization header
@@ -418,24 +421,8 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 
 	response := make([]BucketResponse, len(filteredBuckets))
 	for i, b := range filteredBuckets {
-		// Get object count and size for this bucket
-		// NOTE: Limited to first 10,000 objects for performance
-		result, err := s.objectManager.ListObjects(r.Context(), b.Name, "", "", "", 10000)
-		objectCount := int64(0)
-		objectCountIsApprox := false
-		var totalSize int64
-		if err == nil {
-			objectCount = int64(len(result.Objects))
-			// If truncated, we have more than 10,000 objects
-			if result.IsTruncated {
-				objectCount = 10000 // Show 10,000+ in the UI
-				objectCountIsApprox = true
-			}
-			for _, obj := range result.Objects {
-				totalSize += obj.Size
-			}
-		}
-
+		// Use cached metrics from bucket metadata (fast!)
+		// No need to list objects anymore - metrics are updated incrementally
 		response[i] = BucketResponse{
 			Name:                b.Name,
 			CreationDate:        b.CreatedAt.Format("2006-01-02T15:04:05Z"),
@@ -443,9 +430,9 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 			OwnerID:             b.OwnerID,
 			OwnerType:           b.OwnerType,
 			IsPublic:            b.IsPublic,
-			ObjectCount:         objectCount,
-			ObjectCountIsApprox: objectCountIsApprox,
-			Size:                totalSize,
+			ObjectCount:         b.ObjectCount,
+			ObjectCountIsApprox: false, // Exact count from incremental updates
+			Size:                b.TotalSize,
 			Versioning:          b.Versioning,
 			ObjectLock:          b.ObjectLock,
 			Encryption:          b.Encryption,
@@ -654,23 +641,13 @@ func (s *Server) handleGetBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get object count and size
-	result, err := s.objectManager.ListObjects(r.Context(), bucketName, "", "", "", 10000)
-	objectCount := int64(0)
-	var totalSize int64
-	if err == nil {
-		objectCount = int64(len(result.Objects))
-		for _, obj := range result.Objects {
-			totalSize += obj.Size
-		}
-	}
-
+	// Use cached metrics (fast!)
 	response := BucketResponse{
 		Name:              bucketInfo.Name,
 		CreationDate:      bucketInfo.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		Region:            bucketInfo.Region,
-		ObjectCount:       objectCount,
-		Size:              totalSize,
+		ObjectCount:       bucketInfo.ObjectCount,
+		Size:              bucketInfo.TotalSize,
 		Versioning:        bucketInfo.Versioning,
 		ObjectLock:        bucketInfo.ObjectLock,
 		Encryption:        bucketInfo.Encryption,

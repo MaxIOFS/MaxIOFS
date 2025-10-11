@@ -32,27 +32,29 @@ built in Go with an embedded Next.js web interface.`,
 
 	// Add configuration flags
 	rootCmd.PersistentFlags().StringP("config", "c", "", "Configuration file path")
-	rootCmd.PersistentFlags().StringP("data-dir", "d", "./data", "Data directory path")
+	rootCmd.PersistentFlags().StringP("data-dir", "d", "", "Data directory path (required)")
 	rootCmd.PersistentFlags().StringP("listen", "l", ":8080", "API server listen address")
 	rootCmd.PersistentFlags().StringP("console-listen", "", ":8081", "Web console listen address")
 	rootCmd.PersistentFlags().StringP("log-level", "", "info", "Log level (debug, info, warn, error)")
-	rootCmd.PersistentFlags().BoolP("enable-tls", "", false, "Enable TLS")
-	rootCmd.PersistentFlags().StringP("cert-file", "", "", "TLS certificate file")
-	rootCmd.PersistentFlags().StringP("key-file", "", "", "TLS key file")
+	rootCmd.PersistentFlags().StringP("tls-cert", "", "", "TLS certificate file (enables TLS if provided with --tls-key)")
+	rootCmd.PersistentFlags().StringP("tls-key", "", "", "TLS private key file (enables TLS if provided with --tls-cert)")
+
+	// Mark data-dir as required
+	rootCmd.MarkPersistentFlagRequired("data-dir")
 
 	if err := rootCmd.Execute(); err != nil {
-		logrus.Fatal(err)
+		os.Exit(1)
 	}
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
-	// Check if data-dir is provided
-	dataDir, _ := cmd.Flags().GetString("data-dir")
-	if dataDir == "" {
-		fmt.Println("Error: --data-dir is required")
-		fmt.Println()
-		cmd.Help()
-		return fmt.Errorf("data directory not specified")
+	// Get TLS flags
+	tlsCert, _ := cmd.Flags().GetString("tls-cert")
+	tlsKey, _ := cmd.Flags().GetString("tls-key")
+
+	// Validate TLS configuration
+	if (tlsCert != "" && tlsKey == "") || (tlsCert == "" && tlsKey != "") {
+		return fmt.Errorf("both --tls-cert and --tls-key must be provided together")
 	}
 
 	// Load configuration
@@ -69,6 +71,20 @@ func runServer(cmd *cobra.Command, args []string) error {
 		"commit":  commit,
 		"date":    date,
 	}).Info("Starting MaxIOFS")
+
+	// Configure TLS if certificates are provided
+	if tlsCert != "" && tlsKey != "" {
+		logrus.WithFields(logrus.Fields{
+			"cert_file": tlsCert,
+			"key_file":  tlsKey,
+		}).Info("TLS enabled - servers will use HTTPS")
+		cfg.EnableTLS = true
+		cfg.CertFile = tlsCert
+		cfg.KeyFile = tlsKey
+	} else {
+		logrus.Info("TLS disabled - servers will use HTTP")
+		cfg.EnableTLS = false
+	}
 
 	// Create server
 	srv, err := server.New(cfg)

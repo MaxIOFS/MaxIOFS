@@ -45,6 +45,17 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize managers
 	bucketManager := bucket.NewManager(storageBackend)
 	objectManager := object.NewManager(storageBackend, cfg.Storage)
+
+	// Connect object manager to bucket manager for metrics updates
+	if om, ok := objectManager.(interface {
+		SetBucketManager(interface {
+			IncrementObjectCount(ctx context.Context, name string, sizeBytes int64) error
+			DecrementObjectCount(ctx context.Context, name string, sizeBytes int64) error
+		})
+	}); ok {
+		om.SetBucketManager(bucketManager)
+	}
+
 	authManager := auth.NewManager(cfg.Auth, cfg.DataDir)
 	metricsManager := metrics.NewManager(cfg.Metrics)
 
@@ -138,6 +149,11 @@ func (s *Server) startAPIServer() error {
 
 func (s *Server) startConsoleServer() error {
 	logrus.WithField("address", s.config.ConsoleListen).Info("Starting console server")
+
+	if s.config.EnableTLS {
+		logrus.Info("Console server using TLS")
+		return s.consoleServer.ListenAndServeTLS(s.config.CertFile, s.config.KeyFile)
+	}
 	return s.consoleServer.ListenAndServe()
 }
 

@@ -90,16 +90,29 @@ type Object struct {
 
 // objectManager implements the Manager interface
 type objectManager struct {
-	storage storage.Backend
-	config  config.StorageConfig
+	storage       storage.Backend
+	config        config.StorageConfig
+	bucketManager interface {
+		IncrementObjectCount(ctx context.Context, name string, sizeBytes int64) error
+		DecrementObjectCount(ctx context.Context, name string, sizeBytes int64) error
+	}
 }
 
 // NewManager creates a new object manager
 func NewManager(storage storage.Backend, config config.StorageConfig) Manager {
 	return &objectManager{
-		storage: storage,
-		config:  config,
+		storage:       storage,
+		config:        config,
+		bucketManager: nil, // Will be set later via SetBucketManager
 	}
+}
+
+// SetBucketManager sets the bucket manager for metrics updates
+func (om *objectManager) SetBucketManager(bm interface {
+	IncrementObjectCount(ctx context.Context, name string, sizeBytes int64) error
+	DecrementObjectCount(ctx context.Context, name string, sizeBytes int64) error
+}) {
+	om.bucketManager = bm
 }
 
 // GetObject retrieves an object
@@ -213,6 +226,17 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		fmt.Printf("INFO: Saved object metadata for %s/%s\n", bucket, object.Key)
 	}
 
+	// Update bucket metrics (increment object count)
+	if om.bucketManager != nil {
+		if err := om.bucketManager.IncrementObjectCount(ctx, bucket, size); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"bucket": bucket,
+				"key":    key,
+				"size":   size,
+			}).Warn("Failed to increment bucket object count")
+		}
+	}
+
 	return object, nil
 }
 
@@ -224,14 +248,15 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string) e
 
 	objectPath := om.getObjectPath(bucket, key)
 
-	// Check if object exists
-	exists, err := om.storage.Exists(ctx, objectPath)
+	// Check if object exists and get its size before deleting
+	storageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
 	if err != nil {
-		return fmt.Errorf("failed to check object existence: %w", err)
+		if err == storage.ErrObjectNotFound {
+			return ErrObjectNotFound
+		}
+		return fmt.Errorf("failed to get object metadata: %w", err)
 	}
-	if !exists {
-		return ErrObjectNotFound
-	}
+	objectSize, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
 
 	// Check Object Lock - Legal Hold
 	legalHold, err := om.GetObjectLegalHold(ctx, bucket, key)
@@ -280,6 +305,17 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string) e
 		}).Error("⚠️ Failed to delete object metadata - orphaned metadata file may remain")
 		// We don't return the error to avoid breaking the delete operation,
 		// but we log it so operators can monitor and clean up orphaned metadata
+	}
+
+	// Update bucket metrics (decrement object count)
+	if om.bucketManager != nil {
+		if err := om.bucketManager.DecrementObjectCount(ctx, bucket, objectSize); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"bucket": bucket,
+				"key":    key,
+				"size":   objectSize,
+			}).Warn("Failed to decrement bucket object count")
+		}
 	}
 
 	return nil
