@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from 'next/router';
 import APIClient from '@/lib/api';
 import type { User, LoginRequest, APIError } from '@/types';
 

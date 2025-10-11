@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { useRouter } from 'next/router';
 import {
   Home,
   Database,
@@ -112,7 +112,8 @@ const navigation: NavItem[] = [
 ];
 
 export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
-  const pathname = usePathname();
+  const router = useRouter();
+  const pathname = router.pathname;
 
   const isActiveRoute = (href: string, exact = false): boolean => {
     if (exact) {

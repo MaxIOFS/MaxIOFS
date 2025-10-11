@@ -33,11 +33,17 @@ export default function Dashboard() {
   const { data: healthStatus } = useQuery({
     queryKey: ['health'],
     queryFn: async () => {
-      const s3URL = process.env.NEXT_PUBLIC_S3_URL || 'http://localhost:8080';
-      const response = await fetch(`${s3URL}/health`);
-      return response.json();
+      // Use relative URL to the Console API health endpoint (same server)
+      const response = await fetch('/api/v1/health');
+      if (!response.ok) {
+        throw new Error('Health check failed');
+      }
+      const result = await response.json();
+      // Console API returns { success: true, data: { status: "healthy" } }
+      return result.data || result;
     },
     refetchInterval: 30000, // Check every 30 seconds
+    retry: 1, // Only retry once to avoid long waits
   });
 
   const isLoading = metricsLoading || bucketsLoading || usersLoading;

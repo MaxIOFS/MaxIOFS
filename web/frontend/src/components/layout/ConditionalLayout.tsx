@@ -1,16 +1,16 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { useRouter } from 'next/router';
 import { useAuth } from '@/hooks/useAuth';
 import { AppLayout } from './AppLayout';
 import { Loading } from '@/components/ui/Loading';
 
 export function ConditionalLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+  const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
 
   // Public routes that don't need layout
-  const isPublicRoute = pathname === '/login';
+  const isPublicRoute = router.pathname === '/login';
 
   // Show loading while checking authentication
   if (isLoading) {
@@ -26,9 +26,11 @@ export function ConditionalLayout({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  // For private routes, show content if authenticated, otherwise show loading
-  // The middleware will handle redirects to login
+  // For private routes, redirect to login if not authenticated
   if (!isAuthenticated) {
+    if (typeof window !== 'undefined') {
+      router.push('/login');
+    }
     return (
       <div className="flex items-center justify-center h-screen">
         <Loading size="lg" />

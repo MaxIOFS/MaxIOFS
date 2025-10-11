@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/router';
 import {
   Home,
   Database,
@@ -79,8 +79,8 @@ const navigation: NavItem[] = [
 ];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
   const router = useRouter();
+  const pathname = router.pathname;
   const { user, logout } = useAuth();
   const { data: lockedUsers = [], isLoading: loadingLockedUsers } = useLockedUsers();
   const [showUserMenu, setShowUserMenu] = useState(false);
