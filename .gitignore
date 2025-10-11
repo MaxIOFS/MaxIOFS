@@ -79,3 +79,4 @@ logs/
 web/frontend/node_modules
 web/frontend/dist
 web/frontend/.next
+build/
