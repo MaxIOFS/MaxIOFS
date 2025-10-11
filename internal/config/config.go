@@ -116,7 +116,7 @@ func Load(cmd *cobra.Command) (*Config, error) {
 
 func setDefaults(v *viper.Viper) {
 	// Server defaults - usando puertos diferentes a MinIO para evitar conflictos
-	v.SetDefault("listen", ":8080")        // API server
+	v.SetDefault("listen", ":8080")         // API server
 	v.SetDefault("console_listen", ":8081") // Web console
 	v.SetDefault("data_dir", "./data")
 	v.SetDefault("log_level", "info")
@@ -154,9 +154,8 @@ func bindFlags(cmd *cobra.Command, v *viper.Viper) error {
 		"console-listen": "console_listen",
 		"data-dir":       "data_dir",
 		"log-level":      "log_level",
-		"enable-tls":     "enable_tls",
-		"cert-file":      "cert_file",
-		"key-file":       "key_file",
+		"tls-cert":       "cert_file",
+		"tls-key":        "key_file",
 	}
 
 	for flag, key := range flags {
