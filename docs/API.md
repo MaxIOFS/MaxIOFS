@@ -1,405 +1,138 @@
 # MaxIOFS API Reference
 
+**Version**: 0.2.0-dev
+
 ## Overview
 
-MaxIOFS provides two separate APIs:
+MaxIOFS provides two APIs:
 
-1. **S3 API** (Port 8080) - AWS S3-compatible REST API for object storage operations
-2. **Console API** (Port 8081) - Management REST API for the web console
+1. **S3 API** (Port 8080) - AWS S3-compatible REST API
+2. **Console API** (Port 8081) - Management REST API for web console
+
+---
 
 ## S3 API (Port 8080)
 
-The S3 API provides full AWS S3 compatibility with support for both signature V2 and V4 authentication.
-
 ### Authentication
 
-#### AWS Signature V4
+MaxIOFS supports AWS Signature v2 and v4 authentication.
+
+**Using AWS CLI:**
 ```bash
-# Using AWS CLI
 aws configure set aws_access_key_id maxioadmin
 aws configure set aws_secret_access_key maxioadmin
-aws configure set default.s3.signature_version s3v4
 aws --endpoint-url=http://localhost:8080 s3 ls
 ```
 
-#### AWS Signature V2
-```bash
-# Using s3cmd
-s3cmd --access_key=maxioadmin --secret_key=maxioadmin --host=localhost:8080 --no-ssl ls
-```
+**Using Python boto3:**
+```python
+import boto3
 
-### Bucket Operations
-
-#### List Buckets
-```http
-GET / HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-**Response:**
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<ListAllMyBucketsResult>
-  <Buckets>
-    <Bucket>
-      <Name>my-bucket</Name>
-      <CreationDate>2025-10-05T12:00:00.000Z</CreationDate>
-    </Bucket>
-  </Buckets>
-</ListAllMyBucketsResult>
-```
-
-#### Create Bucket
-```http
-PUT /my-bucket HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-**Response:** 200 OK
-
-#### Delete Bucket
-```http
-DELETE /my-bucket HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-**Response:** 204 No Content
-
-#### Head Bucket
-```http
-HEAD /my-bucket HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-**Response:** 200 OK (bucket exists) or 404 Not Found
-
-### Object Operations
-
-#### Put Object
-```http
-PUT /my-bucket/myfile.txt HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-Content-Type: text/plain
-Content-Length: 13
-
-Hello, World!
-```
-
-**Response:** 200 OK
-```xml
-<PutObjectResult>
-  <ETag>"d41d8cd98f00b204e9800998ecf8427e"</ETag>
-</PutObjectResult>
-```
-
-#### Get Object
-```http
-GET /my-bucket/myfile.txt HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-**Response:** 200 OK + object data
-
-#### Delete Object
-```http
-DELETE /my-bucket/myfile.txt HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-**Response:** 204 No Content
-
-#### Head Object
-```http
-HEAD /my-bucket/myfile.txt HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-**Response Headers:**
-```
-Content-Length: 13
-Content-Type: text/plain
-ETag: "d41d8cd98f00b204e9800998ecf8427e"
-Last-Modified: Sat, 05 Oct 2025 12:00:00 GMT
-```
-
-#### List Objects (V2)
-```http
-GET /my-bucket?list-type=2 HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-**Query Parameters:**
-- `list-type=2` - Use ListObjectsV2
-- `prefix` - Filter by prefix
-- `delimiter` - Group by delimiter
-- `max-keys` - Maximum objects to return (default 1000)
-- `continuation-token` - Pagination token
-
-**Response:**
-```xml
-<ListBucketResult>
-  <Name>my-bucket</Name>
-  <Prefix></Prefix>
-  <KeyCount>2</KeyCount>
-  <MaxKeys>1000</MaxKeys>
-  <IsTruncated>false</IsTruncated>
-  <Contents>
-    <Key>file1.txt</Key>
-    <LastModified>2025-10-05T12:00:00.000Z</LastModified>
-    <ETag>"abc123"</ETag>
-    <Size>1024</Size>
-    <StorageClass>STANDARD</StorageClass>
-  </Contents>
-</ListBucketResult>
-```
-
-### Multipart Upload Operations
-
-#### Initiate Multipart Upload
-```http
-POST /my-bucket/large-file.bin?uploads HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-**Response:**
-```xml
-<InitiateMultipartUploadResult>
-  <Bucket>my-bucket</Bucket>
-  <Key>large-file.bin</Key>
-  <UploadId>VXBsb2FkSUQ</UploadId>
-</InitiateMultipartUploadResult>
-```
-
-#### Upload Part
-```http
-PUT /my-bucket/large-file.bin?partNumber=1&uploadId=VXBsb2FkSUQ HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-Content-Length: 5242880
-
-[binary data]
-```
-
-**Response:**
-```
-ETag: "part1-etag"
-```
-
-#### Complete Multipart Upload
-```http
-POST /my-bucket/large-file.bin?uploadId=VXBsb2FkSUQ HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-
-<CompleteMultipartUpload>
-  <Part>
-    <PartNumber>1</PartNumber>
-    <ETag>"part1-etag"</ETag>
-  </Part>
-  <Part>
-    <PartNumber>2</PartNumber>
-    <ETag>"part2-etag"</ETag>
-  </Part>
-</CompleteMultipartUpload>
-```
-
-#### Abort Multipart Upload
-```http
-DELETE /my-bucket/large-file.bin?uploadId=VXBsb2FkSUQ HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-#### List Parts
-```http
-GET /my-bucket/large-file.bin?uploadId=VXBsb2FkSUQ HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-#### List Multipart Uploads
-```http
-GET /my-bucket?uploads HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-### Object Lock Operations
-
-#### Put Object Retention
-```http
-PUT /my-bucket/myfile.txt?retention HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-
-<Retention>
-  <Mode>COMPLIANCE</Mode>
-  <RetainUntilDate>2026-01-01T00:00:00Z</RetainUntilDate>
-</Retention>
-```
-
-#### Get Object Retention
-```http
-GET /my-bucket/myfile.txt?retention HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-**Response:**
-```xml
-<Retention>
-  <Mode>COMPLIANCE</Mode>
-  <RetainUntilDate>2026-01-01T00:00:00Z</RetainUntilDate>
-</Retention>
-```
-
-#### Put Object Legal Hold
-```http
-PUT /my-bucket/myfile.txt?legal-hold HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-
-<LegalHold>
-  <Status>ON</Status>
-</LegalHold>
-```
-
-#### Get Object Legal Hold
-```http
-GET /my-bucket/myfile.txt?legal-hold HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-### Bucket Configuration Operations
-
-#### Put Bucket Versioning
-```http
-PUT /my-bucket?versioning HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-
-<VersioningConfiguration>
-  <Status>Enabled</Status>
-</VersioningConfiguration>
-```
-
-#### Get Bucket Versioning
-```http
-GET /my-bucket?versioning HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-#### Put Bucket CORS
-```http
-PUT /my-bucket?cors HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-
-<CORSConfiguration>
-  <CORSRule>
-    <AllowedOrigin>*</AllowedOrigin>
-    <AllowedMethod>GET</AllowedMethod>
-    <AllowedMethod>PUT</AllowedMethod>
-    <AllowedHeader>*</AllowedHeader>
-  </CORSRule>
-</CORSConfiguration>
-```
-
-#### Get Bucket CORS
-```http
-GET /my-bucket?cors HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-#### Delete Bucket CORS
-```http
-DELETE /my-bucket?cors HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
-```
-
-### Presigned URLs
-
-#### Generate Presigned URL (V4)
-```go
-import (
-    "github.com/aws/aws-sdk-go/aws"
-    "github.com/aws/aws-sdk-go/aws/credentials"
-    "github.com/aws/aws-sdk-go/aws/session"
-    "github.com/aws/aws-sdk-go/service/s3"
+s3 = boto3.client(
+    's3',
+    endpoint_url='http://localhost:8080',
+    aws_access_key_id='maxioadmin',
+    aws_secret_access_key='maxioadmin'
 )
 
-sess := session.Must(session.NewSession(&aws.Config{
-    Region:      aws.String("us-east-1"),
-    Endpoint:    aws.String("http://localhost:8080"),
-    Credentials: credentials.NewStaticCredentials("maxioadmin", "maxioadmin", ""),
-    S3ForcePathStyle: aws.Bool(true),
-}))
-
-svc := s3.New(sess)
-req, _ := svc.GetObjectRequest(&s3.GetObjectInput{
-    Bucket: aws.String("my-bucket"),
-    Key:    aws.String("myfile.txt"),
-})
-
-url, err := req.Presign(15 * time.Minute)
+# List buckets
+buckets = s3.list_buckets()
 ```
 
-### Batch Operations
+### Supported Operations
 
-#### Delete Multiple Objects
-```http
-POST /my-bucket?delete HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 ...
+#### Bucket Operations
+- `ListBuckets` - List all buckets
+- `CreateBucket` - Create new bucket
+- `DeleteBucket` - Delete empty bucket
+- `HeadBucket` - Check if bucket exists
+- `GetBucketVersioning` / `PutBucketVersioning`
+- `GetBucketCORS` / `PutBucketCORS` / `DeleteBucketCORS`
 
-<Delete>
-  <Object>
-    <Key>file1.txt</Key>
-  </Object>
-  <Object>
-    <Key>file2.txt</Key>
-  </Object>
-</Delete>
+#### Object Operations
+- `PutObject` - Upload object
+- `GetObject` - Download object
+- `DeleteObject` - Delete object
+- `HeadObject` - Get object metadata
+- `ListObjects` / `ListObjectsV2` - List objects in bucket
+- `CopyObject` - Copy object within/between buckets
+
+#### Multipart Upload (6 operations)
+- `CreateMultipartUpload` - Start multipart upload
+- `UploadPart` - Upload a part
+- `CompleteMultipartUpload` - Finish upload
+- `AbortMultipartUpload` - Cancel upload
+- `ListParts` - List uploaded parts
+- `ListMultipartUploads` - List active uploads
+
+#### Object Lock Operations
+- `PutObjectRetention` / `GetObjectRetention` - WORM retention
+- `PutObjectLegalHold` / `GetObjectLegalHold` - Legal hold
+
+#### Batch Operations
+- `DeleteMultipleObjects` - Delete up to 1000 objects
+
+#### Advanced Features
+- Presigned URLs (GET/PUT with expiration)
+- Range requests (partial downloads)
+
+### Examples
+
+**Create bucket:**
+```bash
+aws --endpoint-url=http://localhost:8080 s3 mb s3://my-bucket
 ```
 
-**Response:**
-```xml
-<DeleteResult>
-  <Deleted>
-    <Key>file1.txt</Key>
-  </Deleted>
-  <Deleted>
-    <Key>file2.txt</Key>
-  </Deleted>
-</DeleteResult>
+**Upload file:**
+```bash
+aws --endpoint-url=http://localhost:8080 s3 cp file.txt s3://my-bucket/
 ```
+
+**List objects:**
+```bash
+aws --endpoint-url=http://localhost:8080 s3 ls s3://my-bucket/
+```
+
+**Download file:**
+```bash
+aws --endpoint-url=http://localhost:8080 s3 cp s3://my-bucket/file.txt .
+```
+
+**Multipart upload (large files):**
+```bash
+aws --endpoint-url=http://localhost:8080 s3 cp large-file.bin s3://my-bucket/
+```
+
+### S3 API Compatibility
+
+**Supported:**
+- ✅ Standard bucket and object operations
+- ✅ Multipart uploads
+- ✅ Object Lock (COMPLIANCE/GOVERNANCE)
+- ✅ Presigned URLs
+- ✅ AWS Signature v2 and v4
+- ✅ Versioning configuration
+- ✅ CORS configuration
+
+**Not Supported:**
+- ❌ Server-Side Encryption with KMS
+- ❌ Bucket lifecycle policies (planned)
+- ❌ Object ACLs (planned)
+- ❌ Bucket logging/notifications
+
+For detailed S3 API specs, see [AWS S3 API Documentation](https://docs.aws.amazon.com/AmazonS3/latest/API/).
 
 ---
 
 ## Console API (Port 8081)
 
-The Console API provides management endpoints for the web interface. All endpoints require JWT authentication.
+REST API for web console management. All endpoints require JWT authentication.
 
 ### Authentication
 
-#### Login
+**Login:**
 ```http
-POST /api/auth/login HTTP/1.1
-Host: localhost:8081
+POST /api/auth/login
 Content-Type: application/json
 
 {
@@ -416,352 +149,101 @@ Content-Type: application/json
   "user": {
     "id": "user-123",
     "username": "admin",
-    "email": "admin@example.com",
-    "roles": ["admin"],
-    "status": "active"
+    "roles": ["admin"]
   }
 }
 ```
 
-#### Get Current User
+**Authenticated Requests:**
 ```http
-GET /api/auth/me HTTP/1.1
-Host: localhost:8081
+GET /api/users
 Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 ```
 
-#### Logout
-```http
-POST /api/auth/logout HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+### Available Endpoints
+
+#### Authentication
+- `POST /api/auth/login` - Login with username/password
+- `GET /api/auth/me` - Get current user info
+- `POST /api/auth/logout` - Logout
+
+#### User Management
+- `GET /api/users` - List users
+- `POST /api/users` - Create user
+- `PUT /api/users/{id}` - Update user
+- `DELETE /api/users/{id}` - Delete user
+- `POST /api/users/{id}/unlock` - Unlock locked account
+
+#### Tenant Management
+- `GET /api/tenants` - List tenants
+- `POST /api/tenants` - Create tenant
+- `PUT /api/tenants/{id}` - Update tenant
+- `DELETE /api/tenants/{id}` - Delete tenant
+- `GET /api/tenants/{id}/stats` - Get tenant statistics
+
+#### Access Key Management
+- `GET /api/access-keys` - List access keys
+- `POST /api/access-keys` - Create access key
+- `DELETE /api/access-keys/{id}` - Revoke access key
+
+#### Bucket Management
+- `GET /api/buckets` - List buckets
+- `POST /api/buckets` - Create bucket
+- `DELETE /api/buckets/{name}` - Delete bucket
+- `GET /api/buckets/{name}/stats` - Get bucket statistics
+
+#### Object Management
+- `GET /api/buckets/{bucket}/objects` - List objects
+- `POST /api/buckets/{bucket}/objects` - Upload object (multipart/form-data)
+- `DELETE /api/buckets/{bucket}/objects/{key}` - Delete object
+- `POST /api/buckets/{bucket}/objects/{key}/share` - Generate share URL
+- `DELETE /api/buckets/{bucket}/objects/{key}/share` - Revoke share
+
+#### Metrics
+- `GET /api/metrics` - Dashboard metrics
+- `GET /api/metrics/system` - System metrics (CPU, memory, disk)
+
+### Example Usage
+
+**Create tenant:**
+```bash
+curl -X POST http://localhost:8081/api/tenants \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "acme",
+    "displayName": "ACME Corp",
+    "maxStorageBytes": 107374182400,
+    "maxBuckets": 100,
+    "maxAccessKeys": 50
+  }'
 ```
 
-### User Management
-
-#### List Users
-```http
-GET /api/users HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+**Create user:**
+```bash
+curl -X POST http://localhost:8081/api/users \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "john",
+    "password": "password123",
+    "email": "john@acme.com",
+    "roles": ["user"],
+    "tenantId": "tenant-123"
+  }'
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "user-123",
-      "username": "admin",
-      "email": "admin@example.com",
-      "roles": ["admin"],
-      "status": "active",
-      "tenantId": "",
-      "createdAt": 1696512000
-    }
-  ]
-}
-```
-
-#### Create User
-```http
-POST /api/users HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-Content-Type: application/json
-
-{
-  "username": "newuser",
-  "email": "user@example.com",
-  "password": "password123",
-  "roles": ["user"],
-  "tenantId": "tenant-456"
-}
-```
-
-#### Update User
-```http
-PUT /api/users/{userId} HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-Content-Type: application/json
-
-{
-  "email": "newemail@example.com",
-  "roles": ["admin"],
-  "status": "active"
-}
-```
-
-#### Delete User
-```http
-DELETE /api/users/{userId} HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-#### Unlock User Account
-```http
-POST /api/users/{userId}/unlock HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-### Tenant Management
-
-#### List Tenants
-```http
-GET /api/tenants HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "tenant-456",
-      "name": "acme",
-      "displayName": "ACME Corporation",
-      "status": "active",
-      "maxStorageBytes": 107374182400,
-      "currentStorageBytes": 1073741824,
-      "maxBuckets": 100,
-      "currentBuckets": 5,
-      "maxAccessKeys": 50,
-      "currentAccessKeys": 3,
-      "createdAt": 1696512000
-    }
-  ]
-}
-```
-
-#### Create Tenant
-```http
-POST /api/tenants HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-Content-Type: application/json
-
-{
-  "name": "acme",
-  "displayName": "ACME Corporation",
-  "maxStorageBytes": 107374182400,
-  "maxBuckets": 100,
-  "maxAccessKeys": 50
-}
-```
-
-#### Update Tenant
-```http
-PUT /api/tenants/{tenantId} HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-Content-Type: application/json
-
-{
-  "displayName": "ACME Corp",
-  "maxStorageBytes": 214748364800,
-  "status": "active"
-}
-```
-
-#### Delete Tenant
-```http
-DELETE /api/tenants/{tenantId} HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-### Access Key Management
-
-#### List Access Keys
-```http
-GET /api/access-keys HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-#### Create Access Key
-```http
-POST /api/access-keys HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-Content-Type: application/json
-
-{
-  "userId": "user-123",
-  "permissions": ["s3:*"]
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "id": "key-789",
-    "accessKey": "AKIAIOSFODNN7EXAMPLE",
-    "secretKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-    "userId": "user-123",
-    "status": "active",
-    "createdAt": 1696512000
-  }
-}
-```
-
-#### Delete Access Key
-```http
-DELETE /api/access-keys/{keyId} HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-### Bucket Management
-
-#### List Buckets
-```http
-GET /api/buckets HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-#### Create Bucket
-```http
-POST /api/buckets HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-Content-Type: application/json
-
-{
-  "name": "my-bucket",
-  "region": "us-east-1",
-  "versioning": true,
-  "objectLock": false
-}
-```
-
-#### Delete Bucket
-```http
-DELETE /api/buckets/{bucketName} HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-### Object Management
-
-#### List Objects
-```http
-GET /api/buckets/{bucketName}/objects HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-**Query Parameters:**
-- `prefix` - Filter by prefix
-- `delimiter` - Group by delimiter
-- `maxKeys` - Maximum objects (default 1000)
-
-#### Upload Object
-```http
-POST /api/buckets/{bucketName}/objects HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-Content-Type: multipart/form-data
-
---boundary
-Content-Disposition: form-data; name="file"; filename="myfile.txt"
-
-[file content]
---boundary--
-```
-
-#### Delete Object
-```http
-DELETE /api/buckets/{bucketName}/objects/{objectKey} HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-#### Share Object
-```http
-POST /api/buckets/{bucketName}/objects/{objectKey}/share HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-Content-Type: application/json
-
-{
-  "expiresIn": 3600
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "shareUrl": "http://localhost:8080/my-bucket/myfile.txt",
-    "expiresAt": 1696515600
-  }
-}
-```
-
-#### Unshare Object
-```http
-DELETE /api/buckets/{bucketName}/objects/{objectKey}/share HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-### Metrics
-
-#### Get System Metrics
-```http
-GET /api/metrics/system HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "cpu": {
-      "usage_percent": 12.5
-    },
-    "memory": {
-      "total_bytes": 16777216000,
-      "used_bytes": 8388608000,
-      "usage_percent": 50.0
-    },
-    "disk": {
-      "total_bytes": 1099511627776,
-      "used_bytes": 549755813888,
-      "usage_percent": 50.0
-    },
-    "timestamp": 1696512000
-  }
-}
-```
-
-#### Get Dashboard Metrics
-```http
-GET /api/metrics HTTP/1.1
-Host: localhost:8081
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+**Get dashboard metrics:**
+```bash
+curl http://localhost:8081/api/metrics \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
 
 ## Error Responses
 
-### S3 API Errors
-
-All S3 API errors follow the AWS S3 error format:
+### S3 API Errors (XML)
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -769,23 +251,20 @@ All S3 API errors follow the AWS S3 error format:
   <Code>NoSuchBucket</Code>
   <Message>The specified bucket does not exist</Message>
   <Resource>/my-bucket</Resource>
-  <RequestId>request-123</RequestId>
 </Error>
 ```
 
-**Common Error Codes:**
+**Common S3 Error Codes:**
 - `NoSuchBucket` - Bucket does not exist
-- `BucketAlreadyExists` - Bucket name already taken
-- `NoSuchKey` - Object does not exist
+- `BucketAlreadyExists` - Bucket name taken
+- `NoSuchKey` - Object not found
 - `AccessDenied` - Insufficient permissions
-- `InvalidAccessKeyId` - Invalid access key
+- `InvalidAccessKeyId` - Invalid credentials
 - `SignatureDoesNotMatch` - Invalid signature
 - `QuotaExceeded` - Tenant quota exceeded
-- `ObjectLocked` - Object is locked and cannot be deleted
+- `ObjectLocked` - Object cannot be deleted (WORM)
 
-### Console API Errors
-
-Console API errors return JSON format:
+### Console API Errors (JSON)
 
 ```json
 {
@@ -797,106 +276,52 @@ Console API errors return JSON format:
 **HTTP Status Codes:**
 - `200` - Success
 - `400` - Bad Request
-- `401` - Unauthorized
-- `403` - Forbidden
+- `401` - Unauthorized (invalid/missing token)
+- `403` - Forbidden (insufficient permissions)
 - `404` - Not Found
-- `409` - Conflict
+- `409` - Conflict (duplicate resource)
 - `500` - Internal Server Error
 
 ---
 
 ## Rate Limiting
 
-### Login Rate Limiting
-- **Limit:** 5 login attempts per minute per IP
-- **Lockout:** Account locked for 15 minutes after 5 failed attempts
-- **Unlock:** Manual unlock by Global Admin or Tenant Admin
+**Login Rate Limits:**
+- Max 5 login attempts per minute per IP
+- Account locked for 15 minutes after 5 failed attempts
+- Manual unlock by admin required
 
-### API Rate Limiting
-- No global rate limits currently implemented
-- Tenant quotas enforce storage and resource limits
+**API Rate Limits:**
+- No global rate limits (alpha version)
+- Tenant quotas enforce resource limits
 
 ---
 
-## Examples
+## Health & Monitoring
 
-### Using AWS CLI
+**Health Check:**
 ```bash
-# Configure
-aws configure set aws_access_key_id maxioadmin
-aws configure set aws_secret_access_key maxioadmin
-
-# List buckets
-aws --endpoint-url=http://localhost:8080 s3 ls
-
-# Upload file
-aws --endpoint-url=http://localhost:8080 s3 cp file.txt s3://my-bucket/
-
-# Download file
-aws --endpoint-url=http://localhost:8080 s3 cp s3://my-bucket/file.txt .
-
-# Delete object
-aws --endpoint-url=http://localhost:8080 s3 rm s3://my-bucket/file.txt
+curl http://localhost:8080/health
 ```
 
-### Using curl
+**Readiness Probe:**
 ```bash
-# List buckets (simplified, no signature)
-curl -X GET http://localhost:8080/ \
-  -H "Authorization: AWS maxioadmin:..."
-
-# Console API - Login
-curl -X POST http://localhost:8081/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin"}'
-
-# Console API - List users
-curl -X GET http://localhost:8081/api/users \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+curl http://localhost:8080/ready
 ```
 
-### Using Python boto3
-```python
-import boto3
-
-# Create S3 client
-s3 = boto3.client(
-    's3',
-    endpoint_url='http://localhost:8080',
-    aws_access_key_id='maxioadmin',
-    aws_secret_access_key='maxioadmin'
-)
-
-# List buckets
-response = s3.list_buckets()
-for bucket in response['Buckets']:
-    print(bucket['Name'])
-
-# Upload file
-s3.upload_file('local.txt', 'my-bucket', 'remote.txt')
-
-# Download file
-s3.download_file('my-bucket', 'remote.txt', 'local.txt')
+**Prometheus Metrics:**
+```bash
+curl http://localhost:8080/metrics
 ```
 
 ---
 
-## API Compatibility
+## Additional Resources
 
-### Supported S3 Operations
-- ✅ Bucket CRUD (Create, List, Delete, Head)
-- ✅ Object CRUD (Put, Get, Delete, Head, List)
-- ✅ Multipart Upload (6 operations)
-- ✅ Object Lock (Retention, Legal Hold)
-- ✅ Versioning (configuration)
-- ✅ CORS (configuration)
-- ✅ Presigned URLs (V2, V4)
-- ✅ Batch Delete (up to 1000 objects)
+- [AWS S3 API Documentation](https://docs.aws.amazon.com/AmazonS3/latest/API/)
+- [AWS CLI S3 Commands](https://docs.aws.amazon.com/cli/latest/reference/s3/)
+- [boto3 S3 Client](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html)
 
-### Not Supported (Yet)
-- ❌ Bucket Lifecycle Policies (planned)
-- ❌ Server-Side Encryption with KMS
-- ❌ Object ACLs (planned)
-- ❌ Bucket Logging
-- ❌ Bucket Notification
-- ❌ Object Replication
+---
+
+**Note**: This is an alpha API. Endpoints and responses may change without notice.

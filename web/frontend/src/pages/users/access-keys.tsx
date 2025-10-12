@@ -78,8 +78,10 @@ export default function AccessKeysPage() {
     }
   };
 
-  const formatDate = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
+  const formatDate = (timestamp: number | string) => {
+    const date = typeof timestamp === 'string' 
+      ? new Date(timestamp)
+      : new Date(timestamp * 1000);
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',

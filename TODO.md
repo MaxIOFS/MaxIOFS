@@ -1,8 +1,8 @@
 # MaxIOFS - TODO & Roadmap
 
-**Version**: 1.1.0-alpha
-**Last Updated**: October 11, 2025
-**Status**: Active Development (Alpha)
+**Version**: 0.2.0-dev
+**Last Updated**: October 12, 2025
+**Status**: Active Development (Pre-Release)
 
 ## 📊 Current Status
 

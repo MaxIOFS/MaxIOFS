@@ -21,7 +21,8 @@ func (h *Handler) GetBucketPolicy(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: GetBucketPolicy")
 
-	policy, err := h.bucketManager.GetBucketPolicy(r.Context(), bucketName)
+	tenantID := h.getTenantIDFromRequest(r)
+	policy, err := h.bucketManager.GetBucketPolicy(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -87,7 +88,8 @@ func (h *Handler) PutBucketPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set the policy
-	if err := h.bucketManager.SetBucketPolicy(r.Context(), bucketName, &policyDoc); err != nil {
+	tenantID := h.getTenantIDFromRequest(r)
+	if err := h.bucketManager.SetBucketPolicy(r.Context(), tenantID, bucketName, &policyDoc); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
@@ -107,7 +109,8 @@ func (h *Handler) DeleteBucketPolicy(w http.ResponseWriter, r *http.Request) {
 	logrus.WithField("bucket", bucketName).Debug("S3 API: DeleteBucketPolicy")
 
 	// Delete the policy by setting it to nil
-	if err := h.bucketManager.SetBucketPolicy(r.Context(), bucketName, nil); err != nil {
+	tenantID := h.getTenantIDFromRequest(r)
+	if err := h.bucketManager.SetBucketPolicy(r.Context(), tenantID, bucketName, nil); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
@@ -185,7 +188,8 @@ func (h *Handler) GetBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: GetBucketLifecycle")
 
-	lifecycleConfig, err := h.bucketManager.GetLifecycle(r.Context(), bucketName)
+	tenantID := h.getTenantIDFromRequest(r)
+	lifecycleConfig, err := h.bucketManager.GetLifecycle(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -299,7 +303,8 @@ func (h *Handler) PutBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set the lifecycle configuration
-	if err := h.bucketManager.SetLifecycle(r.Context(), bucketName, lifecycleConfig); err != nil {
+	tenantID := h.getTenantIDFromRequest(r)
+	if err := h.bucketManager.SetLifecycle(r.Context(), tenantID, bucketName, lifecycleConfig); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
@@ -319,7 +324,8 @@ func (h *Handler) DeleteBucketLifecycle(w http.ResponseWriter, r *http.Request) 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: DeleteBucketLifecycle")
 
 	// Delete the lifecycle configuration by setting it to nil
-	if err := h.bucketManager.SetLifecycle(r.Context(), bucketName, nil); err != nil {
+	tenantID := h.getTenantIDFromRequest(r)
+	if err := h.bucketManager.SetLifecycle(r.Context(), tenantID, bucketName, nil); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
@@ -352,7 +358,8 @@ func (h *Handler) GetBucketCORS(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: GetBucketCORS")
 
-	corsConfig, err := h.bucketManager.GetCORS(r.Context(), bucketName)
+	tenantID := h.getTenantIDFromRequest(r)
+	corsConfig, err := h.bucketManager.GetCORS(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -443,7 +450,8 @@ func (h *Handler) PutBucketCORS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set the CORS configuration
-	if err := h.bucketManager.SetCORS(r.Context(), bucketName, corsConfig); err != nil {
+	tenantID := h.getTenantIDFromRequest(r)
+	if err := h.bucketManager.SetCORS(r.Context(), tenantID, bucketName, corsConfig); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
@@ -463,7 +471,8 @@ func (h *Handler) DeleteBucketCORS(w http.ResponseWriter, r *http.Request) {
 	logrus.WithField("bucket", bucketName).Debug("S3 API: DeleteBucketCORS")
 
 	// Delete the CORS configuration by setting it to nil
-	if err := h.bucketManager.SetCORS(r.Context(), bucketName, nil); err != nil {
+	tenantID := h.getTenantIDFromRequest(r)
+	if err := h.bucketManager.SetCORS(r.Context(), tenantID, bucketName, nil); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return

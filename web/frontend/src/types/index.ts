@@ -18,6 +18,8 @@ export interface User {
   lastLogin?: string;
   tenantId?: string;
   metadata?: Record<string, string>;
+  lockedUntil?: number;
+  failedLoginAttempts?: number;
 }
 
 export interface AccessKey {
@@ -27,8 +29,8 @@ export interface AccessKey {
   userId: string;
   status: 'active' | 'inactive';
   permissions: string[];
-  createdAt: string;
-  lastUsed?: string;
+  createdAt: string | number;
+  lastUsed?: string | number;
 }
 
 export interface AuthToken {
@@ -149,6 +151,7 @@ export interface Bucket {
   policy?: BucketPolicy;
   encryption?: EncryptionConfig;
   metadata?: Record<string, string>;
+  tags?: Record<string, string>;
   object_count?: number; // Backend uses snake_case
   objectCount?: number; // Alias for compatibility
   size?: number; // Backend uses 'size'

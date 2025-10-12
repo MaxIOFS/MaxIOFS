@@ -6,11 +6,11 @@ import { Database, FolderOpen, Users, Activity, HardDrive, TrendingUp } from 'lu
 import { formatBytes } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import { useRouter } from 'next/router';
+import { useNavigate } from 'react-router-dom';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 export default function Dashboard() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { isGlobalAdmin } = useCurrentUser();
 
   // Fetch real metrics from backend
@@ -72,11 +72,11 @@ export default function Dashboard() {
           <p className="text-gray-600">Welcome to MaxIOFS Object Storage Console</p>
         </div>
         <div className="flex space-x-3">
-          <Button variant="outline" onClick={() => router.push('/buckets')}>
+          <Button variant="outline" onClick={() => navigate('/buckets')}>
             <Database className="h-4 w-4 mr-2" />
             Create Bucket
           </Button>
-          <Button onClick={() => router.push('/buckets')}>
+          <Button onClick={() => navigate('/buckets')}>
             <FolderOpen className="h-4 w-4 mr-2" />
             Browse Buckets
           </Button>
@@ -176,17 +176,17 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              <Button className="w-full justify-start" variant="outline" onClick={() => router.push('/buckets')}>
+              <Button className="w-full justify-start" variant="outline" onClick={() => navigate('/buckets')}>
                 <Database className="h-4 w-4 mr-2" />
                 Create New Bucket
               </Button>
               {/* Browse Objects button removed - access objects through individual buckets */}
-              <Button className="w-full justify-start" variant="outline" onClick={() => router.push('/users')}>
+              <Button className="w-full justify-start" variant="outline" onClick={() => navigate('/users')}>
                 <Users className="h-4 w-4 mr-2" />
                 Manage Users
               </Button>
               {isGlobalAdmin && (
-                <Button className="w-full justify-start" variant="outline" onClick={() => router.push('/metrics')}>
+                <Button className="w-full justify-start" variant="outline" onClick={() => navigate('/metrics')}>
                   <Activity className="h-4 w-4 mr-2" />
                   View Metrics
                 </Button>
@@ -208,7 +208,7 @@ export default function Dashboard() {
                   className="mt-3"
                   size="sm"
                   variant="outline"
-                  onClick={() => router.push('/buckets')}
+                  onClick={() => navigate('/buckets')}
                 >
                   Create your first bucket
                 </Button>
@@ -219,7 +219,7 @@ export default function Dashboard() {
                   <div
                     key={bucket.name}
                     className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-md cursor-pointer"
-                    onClick={() => router.push(`/buckets/${bucket.name}`)}
+                    onClick={() => navigate(`/buckets/${bucket.name}`)}
                   >
                     <div className="flex items-center gap-2">
                       <Database className="h-4 w-4 text-muted-foreground" />
@@ -237,7 +237,7 @@ export default function Dashboard() {
                     variant="link"
                     className="w-full"
                     size="sm"
-                    onClick={() => router.push('/buckets')}
+                    onClick={() => navigate('/buckets')}
                   >
                     View all {buckets.length} buckets
                   </Button>

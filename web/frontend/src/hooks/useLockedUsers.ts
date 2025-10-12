@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import api from '@/lib/api';
+import { APIClient } from '@/lib/api';
+import type { User } from '@/types';
 
 export interface LockedUser {
   id: string;
@@ -14,20 +15,19 @@ export function useLockedUsers() {
   return useQuery({
     queryKey: ['locked-users'],
     queryFn: async () => {
-      const response = await api.get('/users');
-      const users = response.data.data || response.data || [];
+      const users = await APIClient.getUsers();
 
       // Filter users who are currently locked
       const now = Math.floor(Date.now() / 1000);
-      const lockedUsers: LockedUser[] = users.filter((user: any) => {
-        return user.locked_until && user.locked_until > now;
-      }).map((user: any) => ({
+      const lockedUsers: LockedUser[] = users.filter((user: User) => {
+        return user.lockedUntil && user.lockedUntil > now;
+      }).map((user: User) => ({
         id: user.id,
         username: user.username,
-        displayName: user.display_name || user.username,
+        displayName: user.displayName || user.username,
         email: user.email || '',
-        lockedUntil: user.locked_until,
-        failedAttempts: user.failed_login_attempts || 0,
+        lockedUntil: user.lockedUntil || 0,
+        failedAttempts: user.failedLoginAttempts || 0,
       }));
 
       return lockedUsers;

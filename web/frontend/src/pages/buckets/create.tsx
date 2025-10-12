@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useRouter } from 'next/router';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -59,7 +59,7 @@ interface BucketCreationConfig {
 }
 
 export default function CreateBucketPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { isGlobalAdmin } = useCurrentUser();
   const [activeTab, setActiveTab] = useState<'general' | 'objectlock' | 'lifecycle' | 'encryption' | 'access'>('general');
@@ -140,7 +140,7 @@ export default function CreateBucketPage() {
       // Invalidate buckets cache so the list refreshes when we navigate back
       queryClient.invalidateQueries({ queryKey: ['buckets'] });
       SweetAlert.toast('success', `Bucket "${config.name}" created successfully`);
-      router.push('/buckets');
+      navigate('/buckets');
     },
     onError: (error) => {
       SweetAlert.apiError(error);
@@ -243,7 +243,7 @@ export default function CreateBucketPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => router.push('/buckets')}
+            onClick={() => navigate('/buckets')}
             className="gap-2"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -733,7 +733,7 @@ export default function CreateBucketPage() {
           <Button
             type="button"
             variant="outline"
-            onClick={() => router.push('/buckets')}
+            onClick={() => navigate('/buckets')}
           >
             Cancel
           </Button>

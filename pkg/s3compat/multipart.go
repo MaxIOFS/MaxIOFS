@@ -97,8 +97,9 @@ func (h *Handler) CreateMultipartUpload(w http.ResponseWriter, r *http.Request) 
 		"object": objectKey,
 	}).Debug("S3 API: CreateMultipartUpload")
 
+	bucketPath := h.getBucketPath(r, bucketName)
 	// Create multipart upload
-	upload, err := h.objectManager.CreateMultipartUpload(r.Context(), bucketName, objectKey, r.Header)
+	upload, err := h.objectManager.CreateMultipartUpload(r.Context(), bucketPath, objectKey, r.Header)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -124,6 +125,8 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: ListMultipartUploads")
 
+	bucketPath := h.getBucketPath(r, bucketName)
+
 	// Parse query parameters
 	keyMarker := r.URL.Query().Get("key-marker")
 	uploadIdMarker := r.URL.Query().Get("upload-id-marker")
@@ -136,7 +139,7 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// List multipart uploads
-	uploads, err := h.objectManager.ListMultipartUploads(r.Context(), bucketName)
+	uploads, err := h.objectManager.ListMultipartUploads(r.Context(), bucketPath)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)

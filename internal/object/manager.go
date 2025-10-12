@@ -93,8 +93,8 @@ type objectManager struct {
 	storage       storage.Backend
 	config        config.StorageConfig
 	bucketManager interface {
-		IncrementObjectCount(ctx context.Context, name string, sizeBytes int64) error
-		DecrementObjectCount(ctx context.Context, name string, sizeBytes int64) error
+		IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
+		DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 	}
 }
 
@@ -109,10 +109,20 @@ func NewManager(storage storage.Backend, config config.StorageConfig) Manager {
 
 // SetBucketManager sets the bucket manager for metrics updates
 func (om *objectManager) SetBucketManager(bm interface {
-	IncrementObjectCount(ctx context.Context, name string, sizeBytes int64) error
-	DecrementObjectCount(ctx context.Context, name string, sizeBytes int64) error
+	IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
+	DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 }) {
 	om.bucketManager = bm
+}
+
+// parseBucketPath extracts tenantID and bucketName from a bucket path
+// Formats: "tenantID/bucketName" or "bucketName" (for global buckets)
+func (om *objectManager) parseBucketPath(bucketPath string) (tenantID, bucketName string) {
+	parts := strings.SplitN(bucketPath, "/", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1] // "tenant-123", "backups"
+	}
+	return "", parts[0] // "", "backups" (global bucket)
 }
 
 // GetObject retrieves an object
@@ -228,11 +238,15 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 
 	// Update bucket metrics (increment object count)
 	if om.bucketManager != nil {
-		if err := om.bucketManager.IncrementObjectCount(ctx, bucket, size); err != nil {
+		// Parse bucket path to extract tenantID and bucket name
+		tenantID, bucketName := om.parseBucketPath(bucket)
+		if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{
-				"bucket": bucket,
-				"key":    key,
-				"size":   size,
+				"bucket_path": bucket,
+				"tenant_id":   tenantID,
+				"bucket_name": bucketName,
+				"key":         key,
+				"size":        size,
 			}).Warn("Failed to increment bucket object count")
 		}
 	}
@@ -309,11 +323,15 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string) e
 
 	// Update bucket metrics (decrement object count)
 	if om.bucketManager != nil {
-		if err := om.bucketManager.DecrementObjectCount(ctx, bucket, objectSize); err != nil {
+		// Parse bucket path to extract tenantID and bucket name
+		tenantID, bucketName := om.parseBucketPath(bucket)
+		if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objectSize); err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{
-				"bucket": bucket,
-				"key":    key,
-				"size":   objectSize,
+				"bucket_path": bucket,
+				"tenant_id":   tenantID,
+				"bucket_name": bucketName,
+				"key":         key,
+				"size":        objectSize,
 			}).Warn("Failed to decrement bucket object count")
 		}
 	}
