@@ -1,7 +1,7 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 1.1.0-alpha
-**Status**: Alpha - Active Development
+**Version**: 0.2.0-dev
+**Status**: Development - Active Development
 **License**: MIT
 
 MaxIOFS is an S3-compatible object storage system built in Go with an embedded Next.js web interface. It's designed to be simple, portable, and easy to deploy as a single binary.
@@ -111,9 +111,9 @@ This generates `build/maxiofs.exe` (Windows) or `build/maxiofs` (Linux/macOS) wi
 
 ```
 ┌─────────────────────────────────────┐
-│    Single Binary (maxiofs.exe)     │
+│    Single Binary (maxiofs.exe)      │
 ├─────────────────────────────────────┤
-│  Web Console (Embedded Frontend)   │  :8081
+│  Web Console (Embedded Frontend)    │  :8081
 │  - Next.js Pages Router             │
 │  - Static files in /out             │
 ├─────────────────────────────────────┤

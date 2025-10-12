@@ -27,7 +27,9 @@ type CORSConfig struct {
 // DefaultCORSConfig returns the default CORS configuration for S3 compatibility
 func DefaultCORSConfig() *CORSConfig {
 	// Get allowed origins from environment variable or use defaults
-	allowedOrigins := []string{"http://localhost:3000", "http://localhost:3001", "http://localhost:3002"}
+	allowedOrigins := []string{
+		"http://localhost:5173", // Vite dev server
+	}
 	if envOrigins := os.Getenv("MAXIOFS_ALLOWED_ORIGINS"); envOrigins != "" {
 		allowedOrigins = strings.Split(envOrigins, ",")
 	}

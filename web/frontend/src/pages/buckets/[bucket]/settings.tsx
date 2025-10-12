@@ -1,5 +1,5 @@
 import React from 'react';
-import { useRouter } from 'next/router';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
@@ -13,16 +13,16 @@ import {
   FileText,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { bucketsApi } from '@/lib/api';
+import { APIClient } from '@/lib/api';
 
 export default function BucketSettingsPage() {
-  const router = useRouter();
-  const { bucket } = router.query;
+  const { bucket } = useParams<{ bucket: string }>();
+  const navigate = useNavigate();
   const bucketName = bucket as string;
 
   const { data: bucketData, isLoading } = useQuery({
     queryKey: ['bucket', bucketName],
-    queryFn: () => bucketsApi.getBucket(bucketName),
+    queryFn: () => APIClient.getBucket(bucketName),
   });
 
   if (isLoading) {
@@ -36,7 +36,7 @@ export default function BucketSettingsPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => router.push(`/buckets/${bucketName}`)}
+            onClick={() => navigate(`/buckets/${bucketName}`)}
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
@@ -87,26 +87,28 @@ export default function BucketSettingsPage() {
                 <div>
                   <p className="font-medium">Object Lock Status</p>
                   <p className="text-sm text-gray-500">
-                    {bucketData?.object_lock ? 'Enabled' : 'Disabled'}
+                    {bucketData?.objectLock?.objectLockEnabled ? 'Enabled' : 'Disabled'}
                   </p>
                 </div>
-                {bucketData?.object_lock && (
+                {bucketData?.objectLock?.objectLockEnabled && (
                   <Button variant="outline">Configure</Button>
                 )}
               </div>
-              {bucketData?.object_lock && (
+              {bucketData?.objectLock?.objectLockEnabled && bucketData?.objectLock?.rule && (
                 <div className="rounded-lg border p-4 space-y-2">
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Mode:</span>
                     <span className="text-sm font-medium">
-                      {bucketData.retention_mode || 'Not Set'}
+                      {bucketData.objectLock.rule.defaultRetention?.mode || 'Not Set'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Retention:</span>
                     <span className="text-sm font-medium">
-                      {bucketData.retention_days
-                        ? `${bucketData.retention_days} days`
+                      {bucketData.objectLock.rule.defaultRetention?.days
+                        ? `${bucketData.objectLock.rule.defaultRetention.days} days`
+                        : bucketData.objectLock.rule.defaultRetention?.years
+                        ? `${bucketData.objectLock.rule.defaultRetention.years} years`
                         : 'Not Set'}
                     </span>
                   </div>

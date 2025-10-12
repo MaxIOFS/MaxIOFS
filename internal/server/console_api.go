@@ -370,17 +370,20 @@ func (s *Server) handleGetCurrentUser(w http.ResponseWriter, r *http.Request) {
 
 // Bucket handlers
 func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
-	buckets, err := s.bucketManager.ListBuckets(r.Context())
-	if err != nil {
-		s.writeError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	// Get user from context and apply permission filtering
 	user, userExists := auth.GetUserFromContext(r.Context())
 	if !userExists {
 		// No user context, return empty list
 		s.writeJSON(w, []BucketResponse{})
+		return
+	}
+
+	// Extract tenant ID from user context
+	tenantID := user.TenantID
+
+	buckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -523,8 +526,11 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Extract tenant ID from user context
+	tenantID := user.TenantID
+
 	// Crear el bucket
-	if err := s.bucketManager.CreateBucket(r.Context(), req.Name); err != nil {
+	if err := s.bucketManager.CreateBucket(r.Context(), tenantID, req.Name); err != nil {
 		if err == bucket.ErrBucketAlreadyExists {
 			s.writeError(w, "Bucket already exists", http.StatusConflict)
 		} else {
@@ -534,7 +540,7 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Aplicar configuraciones
-	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), req.Name)
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, req.Name)
 	if err != nil {
 		s.writeError(w, "Bucket created but failed to retrieve info: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -611,7 +617,7 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Guardar configuraciones
-	if err := s.bucketManager.UpdateBucket(r.Context(), req.Name, bucketInfo); err != nil {
+	if err := s.bucketManager.UpdateBucket(r.Context(), tenantID, req.Name, bucketInfo); err != nil {
 		s.writeError(w, "Bucket created but failed to apply configuration: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -631,7 +637,15 @@ func (s *Server) handleGetBucket(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), bucketName)
+	// Extract user and tenant ID from context
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+	tenantID := user.TenantID
+
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
@@ -663,8 +677,16 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
+	// Extract user and tenant ID from context
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+	tenantID := user.TenantID
+
 	// Obtener información del bucket antes de eliminarlo para actualizar contadores
-	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), bucketName)
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
@@ -674,7 +696,7 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.bucketManager.DeleteBucket(r.Context(), bucketName); err != nil {
+	if err := s.bucketManager.DeleteBucket(r.Context(), tenantID, bucketName); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
 		} else if err == bucket.ErrBucketNotEmpty {
@@ -701,6 +723,17 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+	tenantID := user.TenantID
+	bucketPath := tenantID + "/" + bucketName
+	if tenantID == "" {
+		bucketPath = bucketName
+	}
+
 	prefix := r.URL.Query().Get("prefix")
 	delimiter := r.URL.Query().Get("delimiter")
 	marker := r.URL.Query().Get("marker")
@@ -712,7 +745,7 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := s.objectManager.ListObjects(r.Context(), bucketName, prefix, delimiter, marker, maxKeys)
+	result, err := s.objectManager.ListObjects(r.Context(), bucketPath, prefix, delimiter, marker, maxKeys)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
@@ -757,13 +790,24 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+	tenantID := user.TenantID
+	bucketPath := tenantID + "/" + bucketName
+	if tenantID == "" {
+		bucketPath = bucketName
+	}
+
 	// Check if client wants metadata only (Accept: application/json) or the actual file
 	acceptHeader := r.Header.Get("Accept")
 	wantsJSON := acceptHeader == "application/json"
 
 	// If client wants JSON metadata only, return metadata
 	if wantsJSON {
-		metadata, err := s.objectManager.GetObjectMetadata(r.Context(), bucketName, objectKey)
+		metadata, err := s.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
 		if err != nil {
 			if err == object.ErrObjectNotFound {
 				s.writeError(w, "Object not found", http.StatusNotFound)
@@ -787,7 +831,7 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Otherwise, return the actual file content
-	obj, reader, err := s.objectManager.GetObject(r.Context(), bucketName, objectKey)
+	obj, reader, err := s.objectManager.GetObject(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			s.writeError(w, "Object not found", http.StatusNotFound)
@@ -816,8 +860,16 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
+	// Extract user and tenant ID from context
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+	tenantID := user.TenantID
+
 	// Get bucket to check tenant
-	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), bucketName)
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
@@ -856,7 +908,7 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if bucket has Object Lock enabled and apply default retention
-	lockConfig, err := s.bucketManager.GetObjectLockConfig(r.Context(), bucketName)
+	lockConfig, err := s.bucketManager.GetObjectLockConfig(r.Context(), tenantID, bucketName)
 	if err == nil && lockConfig != nil && lockConfig.ObjectLockEnabled {
 		// Apply default retention if configured
 		if lockConfig.Rule != nil && lockConfig.Rule.DefaultRetention != nil {
@@ -1295,7 +1347,16 @@ func (s *Server) handleUnlockAccount(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 	// This endpoint is accessible to any authenticated user
 	// Users will see metrics filtered by their permissions
-	buckets, _ := s.bucketManager.ListBuckets(r.Context())
+
+	// Extract user and tenant ID from context
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+	tenantID := user.TenantID
+
+	buckets, _ := s.bucketManager.ListBuckets(r.Context(), tenantID)
 	filteredBuckets := buckets
 
 	totalBuckets := int64(len(filteredBuckets))
@@ -1610,12 +1671,20 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 
 // Security handlers
 func (s *Server) handleGetSecurityStatus(w http.ResponseWriter, r *http.Request) {
+	// Extract user and tenant ID from context
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+	tenantID := user.TenantID
+
 	// Get encryption status
 	encryptionEnabled := s.config.Storage.EnableEncryption
 	algorithm := "AES-256-GCM"
 
 	// Get object lock statistics
-	buckets, err := s.bucketManager.ListBuckets(r.Context())
+	buckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
 	if err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1627,7 +1696,7 @@ func (s *Server) handleGetSecurityStatus(w http.ResponseWriter, r *http.Request)
 	governanceMode := int64(0)
 
 	for _, b := range buckets {
-		lockConfig, err := s.bucketManager.GetObjectLockConfig(r.Context(), b.Name)
+		lockConfig, err := s.bucketManager.GetObjectLockConfig(r.Context(), tenantID, b.Name)
 		if err == nil && lockConfig != nil {
 			bucketsWithLock++
 
@@ -1654,7 +1723,7 @@ func (s *Server) handleGetSecurityStatus(w http.ResponseWriter, r *http.Request)
 	totalPolicies := 0
 	bucketPolicies := 0
 	for _, b := range buckets {
-		policy, err := s.bucketManager.GetBucketPolicy(r.Context(), b.Name)
+		policy, err := s.bucketManager.GetBucketPolicy(r.Context(), tenantID, b.Name)
 		if err == nil && policy != nil {
 			bucketPolicies++
 			totalPolicies++
@@ -1728,7 +1797,8 @@ func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 	// Enrich tenants with real-time usage statistics
 	for i := range tenants {
 		// Calculate current storage bytes from tenant's buckets
-		buckets, err := s.bucketManager.ListBuckets(r.Context())
+		// Use the tenant's ID for filtering buckets
+		buckets, err := s.bucketManager.ListBuckets(r.Context(), tenants[i].ID)
 		if err == nil {
 			var totalStorage int64
 			var bucketCount int64
@@ -2106,6 +2176,14 @@ func (s *Server) handleUpdateBucketOwner(w http.ResponseWriter, r *http.Request)
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
+	// Extract user and tenant ID from context
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+	tenantID := user.TenantID
+
 	var req struct {
 		OwnerID   string `json:"ownerId"`
 		OwnerType string `json:"ownerType"` // "user" or "tenant"
@@ -2127,7 +2205,7 @@ func (s *Server) handleUpdateBucketOwner(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Get bucket info
-	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), bucketName)
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
@@ -2142,7 +2220,7 @@ func (s *Server) handleUpdateBucketOwner(w http.ResponseWriter, r *http.Request)
 	bucketInfo.OwnerType = req.OwnerType
 
 	// Save changes
-	if err := s.bucketManager.UpdateBucket(r.Context(), bucketName, bucketInfo); err != nil {
+	if err := s.bucketManager.UpdateBucket(r.Context(), tenantID, bucketName, bucketInfo); err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

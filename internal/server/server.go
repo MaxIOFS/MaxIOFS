@@ -49,8 +49,8 @@ func New(cfg *config.Config) (*Server, error) {
 	// Connect object manager to bucket manager for metrics updates
 	if om, ok := objectManager.(interface {
 		SetBucketManager(interface {
-			IncrementObjectCount(ctx context.Context, name string, sizeBytes int64) error
-			DecrementObjectCount(ctx context.Context, name string, sizeBytes int64) error
+			IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
+			DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 		})
 	}); ok {
 		om.SetBucketManager(bucketManager)

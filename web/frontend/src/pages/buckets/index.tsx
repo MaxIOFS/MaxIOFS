@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useRouter } from 'next/router';
+import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -19,7 +19,7 @@ import { Bucket } from '@/types';
 import SweetAlert from '@/lib/sweetalert';
 
 export default function BucketsPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const queryClient = useQueryClient();
 
@@ -142,7 +142,7 @@ export default function BucketsPage() {
             Manage your S3 buckets and their configurations
           </p>
         </div>
-        <Button onClick={() => router.push('/buckets/create')} className="gap-2">
+        <Button onClick={() => navigate('/buckets/create')} className="gap-2">
           <Plus className="h-4 w-4" />
           Create Bucket
         </Button>
@@ -213,7 +213,7 @@ export default function BucketsPage() {
               </p>
               {!searchTerm && (
                 <Button
-                  onClick={() => router.push('/buckets/create')}
+                  onClick={() => navigate('/buckets/create')}
                   className="mt-4 gap-2"
                 >
                   <Plus className="h-4 w-4" />
@@ -240,12 +240,12 @@ export default function BucketsPage() {
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         <Database className="h-4 w-4 text-muted-foreground" />
-                        <a
-                          href={`/buckets/${bucket.name}`}
+                        <Link
+                          to={`/buckets/${bucket.name}`}
                           className="hover:underline text-blue-600"
                         >
                           {bucket.name}
-                        </a>
+                        </Link>
                         {bucket.objectLock?.objectLockEnabled && (
                           <div className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-medium" title="Object Lock enabled">
                             <Lock className="h-3 w-3" />
@@ -284,7 +284,7 @@ export default function BucketsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => window.location.href = `/buckets/${bucket.name}/settings`}
+                          onClick={() => navigate(`/buckets/${bucket.name}/settings`)}
                         >
                           <Settings className="h-4 w-4" />
                         </Button>
