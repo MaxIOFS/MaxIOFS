@@ -1,5 +1,3 @@
-'use client';
-
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -369,7 +367,7 @@ export function BucketPermissionsModal({
             <select
               value={newPermission.permissionLevel}
               onChange={(e) =>
-                setNewPermission({ ...newPermission, permissionLevel: e.target.value })
+                setNewPermission({ ...newPermission, permissionLevel: e.target.value as 'read' | 'write' | 'admin' })
               }
               className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
             >

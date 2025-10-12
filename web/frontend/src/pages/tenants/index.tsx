@@ -135,7 +135,7 @@ export default function TenantsPage() {
     return Math.round((current / max) * 100);
   };
 
-  if (isLoading) return <Loading fullScreen />;
+  if (isLoading) return <Loading />;
   if (error) return <div className="p-4 text-red-500">Error loading tenants</div>;
 
   return (

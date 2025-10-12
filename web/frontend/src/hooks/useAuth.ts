@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
-import { useRouter } from 'next/router';
+import { useNavigate, useParams } from 'react-router-dom';
 import APIClient from '@/lib/api';
 import type { User, LoginRequest, APIError } from '@/types';
 
@@ -32,7 +32,7 @@ export function useAuthProvider(): AuthContextType {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<APIError | null>(null);
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Check if user is authenticated
   const isAuthenticated = !!user && APIClient.isAuthenticated();
@@ -82,7 +82,7 @@ export function useAuthProvider(): AuthContextType {
     };
 
     initializeAuth();
-  }, [router]);
+  }, [navigate]);
 
   // Login function
   const login = useCallback(async (credentials: LoginRequest) => {
@@ -112,7 +112,7 @@ export function useAuthProvider(): AuthContextType {
     } finally {
       setIsLoading(false);
     }
-  }, [router]);
+  }, [navigate]);
 
   // Logout function
   const logout = useCallback(async () => {
@@ -123,9 +123,9 @@ export function useAuthProvider(): AuthContextType {
       setUser(null);
       setError(null);
       setIsLoading(false);
-      router.push('/login');
+      navigate('/login');
     }
-  }, [router]);
+  }, [navigate]);
 
   // Refresh auth state
   const refreshAuth = useCallback(async () => {

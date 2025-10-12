@@ -1,419 +1,242 @@
 # MaxIOFS Architecture
 
+**Version**: 0.2.0-dev
+
 ## Overview
 
-MaxIOFS is designed as a high-performance, S3-compatible object storage system with the following key architectural principles:
-
-- **Single Binary Deployment**: Self-contained executable with embedded web interface
-- **Modular Design**: Clean separation of concerns with pluggable components
-- **S3 Compatibility**: Full AWS S3 API compatibility for seamless migration
-- **Performance First**: Built in Go for maximum speed and efficiency
-- **Scalability**: Designed to handle large-scale deployments
+MaxIOFS is a single-binary S3-compatible object storage system built in Go with an embedded Next.js frontend. The architecture emphasizes simplicity, portability, and ease of deployment.
 
 ## System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        MaxIOFS Binary                          │
-├─────────────────────────────────────────────────────────────────┤
-│                     HTTP Layer                                 │
-│  ┌─────────────────┐           ┌─────────────────┐            │
-│  │   API Server    │           │  Console Server │            │
-│  │   (Port 8080)   │           │   (Port 8081)   │            │
-│  │                 │           │                 │            │
-│  │ S3 Compatible   │           │ Web Management  │            │
-│  │ REST API        │           │ Interface       │            │
-│  └─────────────────┘           └─────────────────┘            │
-├─────────────────────────────────────────────────────────────────┤
-│                   Middleware Layer                             │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐         │
-│  │   Auth   │ │  Metrics │ │   CORS   │ │ Logging  │         │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘         │
-├─────────────────────────────────────────────────────────────────┤
-│                   Business Logic Layer                         │
-│  ┌─────────────────┐           ┌─────────────────┐            │
-│  │ Bucket Manager  │           │ Object Manager  │            │
-│  │                 │           │                 │            │
-│  │ • Bucket CRUD   │           │ • Object CRUD   │            │
-│  │ • Policies      │           │ • Object Lock   │            │
-│  │ • Versioning    │           │ • Multipart     │            │
-│  │ • Lifecycle     │           │ • Encryption    │            │
-│  └─────────────────┘           └─────────────────┘            │
-├─────────────────────────────────────────────────────────────────┤
-│                    Storage Layer                               │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                Storage Backend                          │   │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐   │   │
-│  │  │Filesystem│ │    S3    │ │   GCS    │ │  Azure   │   │   │
-│  │  │ Backend  │ │ Backend  │ │ Backend  │ │ Backend  │   │   │
-│  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘   │   │
-│  └─────────────────────────────────────────────────────────┘   │
-├─────────────────────────────────────────────────────────────────┤
-│                   Data Layer                                   │
-│  ┌─────────────────┐           ┌─────────────────┐            │
-│  │   Metadata DB   │           │  Object Storage │            │
-│  │                 │           │                 │            │
-│  │ • Bucket info   │           │ • Object data   │            │
-│  │ • Object meta   │           │ • Versions      │            │
-│  │ • User data     │           │ • Temp files    │            │
-│  │ • Policies      │           │ • Multiparts    │            │
-│  └─────────────────┘           └─────────────────┘            │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────┐
+│    Single Binary (maxiofs.exe)     │
+├─────────────────────────────────────┤
+│  Web Console (Port 8081)            │
+│  - Embedded Next.js frontend        │
+│  - Console REST API                 │
+│  - JWT authentication               │
+├─────────────────────────────────────┤
+│  S3 API (Port 8080)                 │
+│  - S3-compatible REST API           │
+│  - AWS Signature v2/v4 auth         │
+│  - Bucket & object operations       │
+├─────────────────────────────────────┤
+│  Core Logic                         │
+│  - Bucket management                │
+│  - Object management                │
+│  - Multi-tenancy                    │
+│  - Authentication & authorization   │
+├─────────────────────────────────────┤
+│  Storage Backend                    │
+│  - Filesystem storage               │
+│  - SQLite metadata                  │
+│  - Object Lock support              │
+└─────────────────────────────────────┘
 ```
 
-## Component Details
+## Core Components
 
 ### 1. HTTP Layer
 
-#### API Server (Port 8080)
-- Implements complete S3 REST API
-- Handles all object and bucket operations
-- Supports all S3 authentication methods
-- Provides health and readiness endpoints
-
-#### Console Server (Port 8081)
-- Serves embedded Next.js web interface
-- Provides management APIs for web console
-- Handles static asset serving
-- Implements console-specific authentication
-
-### 2. Middleware Layer
-
-#### Authentication Middleware
+**Console Server (Port 8081)**
+- Serves embedded Next.js static files
+- REST API for web console operations
 - JWT-based authentication
-- S3 signature verification (v2 and v4)
-- Access key/secret key validation
-- Role-based access control
+- User, bucket, and tenant management
 
-#### Metrics Middleware
-- Request counting and timing
-- Error rate tracking
-- Storage usage metrics
-- Performance monitoring
+**S3 API Server (Port 8080)**
+- Full S3-compatible REST API
+- AWS Signature v2/v4 authentication
+- Standard S3 operations (Get/Put/Delete/List)
+- Multipart uploads
+- Presigned URLs
+- Object Lock
 
-#### CORS Middleware
-- Cross-origin request handling
-- Configurable CORS policies
-- Preflight request support
+### 2. Business Logic
 
-#### Logging Middleware
-- Structured logging with logrus
-- Request/response logging
-- Error tracking and alerting
-
-### 3. Business Logic Layer
-
-#### Bucket Manager
-Responsible for all bucket-level operations:
-
+**Bucket Manager**
 ```go
 type Manager interface {
-    CreateBucket(ctx context.Context, name string) error
+    CreateBucket(ctx context.Context, name, tenantID, ownerID string) error
     DeleteBucket(ctx context.Context, name string) error
-    ListBuckets(ctx context.Context) ([]Bucket, error)
-    BucketExists(ctx context.Context, name string) (bool, error)
-
-    // Policy management
-    GetBucketPolicy(ctx context.Context, name string) (*Policy, error)
-    SetBucketPolicy(ctx context.Context, name string, policy *Policy) error
-
-    // Versioning
-    GetVersioning(ctx context.Context, name string) (*VersioningConfig, error)
-    SetVersioning(ctx context.Context, name string, config *VersioningConfig) error
-
-    // Lifecycle
-    GetLifecycle(ctx context.Context, name string) (*LifecycleConfig, error)
-    SetLifecycle(ctx context.Context, name string, config *LifecycleConfig) error
-
-    IsReady() bool
+    ListBuckets(ctx context.Context, tenantID string) ([]*Bucket, error)
+    GetBucket(ctx context.Context, name string) (*Bucket, error)
 }
 ```
 
-#### Object Manager
-Handles all object-level operations:
-
+**Object Manager**
 ```go
 type Manager interface {
-    GetObject(ctx context.Context, bucket, key string) (*Object, io.ReadCloser, error)
-    PutObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (*Object, error)
+    PutObject(ctx context.Context, bucket, key string, data io.Reader) error
+    GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, error)
     DeleteObject(ctx context.Context, bucket, key string) error
-    ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) ([]Object, bool, error)
-
-    // Metadata operations
-    GetObjectMetadata(ctx context.Context, bucket, key string) (*Object, error)
-    UpdateObjectMetadata(ctx context.Context, bucket, key string, metadata map[string]string) error
-
-    // Object Lock
-    GetObjectRetention(ctx context.Context, bucket, key string) (*RetentionConfig, error)
-    SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig) error
-    GetObjectLegalHold(ctx context.Context, bucket, key string) (*LegalHoldConfig, error)
-    SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig) error
-
-    // Multipart uploads
-    CreateMultipartUpload(ctx context.Context, bucket, key string) (*MultipartUpload, error)
-    UploadPart(ctx context.Context, uploadID string, partNumber int, data io.Reader) (*Part, error)
-    CompleteMultipartUpload(ctx context.Context, uploadID string, parts []Part) (*Object, error)
-    AbortMultipartUpload(ctx context.Context, uploadID string) error
-
-    IsReady() bool
+    ListObjects(ctx context.Context, bucket, prefix string, maxKeys int) ([]*Object, error)
 }
 ```
 
-### 4. Storage Layer
+**Multi-Tenancy Manager**
+- Tenant isolation
+- Quota enforcement (storage, buckets, keys)
+- Resource accounting
 
-#### Storage Backend Interface
-Abstraction layer for different storage backends:
+### 3. Storage Layer
 
-```go
-type Backend interface {
-    // Basic operations
-    Put(ctx context.Context, path string, data io.Reader, metadata map[string]string) error
-    Get(ctx context.Context, path string) (io.ReadCloser, map[string]string, error)
-    Delete(ctx context.Context, path string) error
-    Exists(ctx context.Context, path string) (bool, error)
+**Filesystem Backend**
+- Object storage on local filesystem
+- Atomic write operations
+- Directory-based bucket organization
+- Path: `{data_dir}/objects/{tenant_id}/{bucket}/{object}`
 
-    // Listing
-    List(ctx context.Context, prefix string, recursive bool) ([]ObjectInfo, error)
+**SQLite Database**
+- Metadata storage
+- Bucket information
+- User credentials (bcrypt hashed)
+- Tenant quotas and usage
+- Access keys
+- Path: `{data_dir}/maxiofs.db`
 
-    // Metadata
-    GetMetadata(ctx context.Context, path string) (map[string]string, error)
-    SetMetadata(ctx context.Context, path string, metadata map[string]string) error
+## Authentication
 
-    // Lifecycle
-    Close() error
-}
-```
+### Console Authentication
+- Username/password login
+- JWT tokens (1 hour expiration)
+- Stored in localStorage
+- Role-based access control (RBAC)
 
-#### Supported Backends
-1. **Filesystem Backend**: Local filesystem storage
-2. **S3 Backend**: Use another S3-compatible service as backend
-3. **GCS Backend**: Google Cloud Storage backend
-4. **Azure Backend**: Azure Blob Storage backend
+### S3 API Authentication
+- Access Key / Secret Key
+- AWS Signature v2 and v4
+- Compatible with AWS CLI, SDKs, and S3 tools
 
-### 5. Data Layer
-
-#### Metadata Database
-- Stores bucket configurations
-- Object metadata and indexing
-- User and access control data
-- Audit logs and metrics
-
-#### Object Storage
-- Actual object data storage
-- Version management
-- Temporary multipart data
-- Compressed and encrypted data
-
-## Security Architecture
-
-### Authentication & Authorization
+## Multi-Tenancy
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Request Flow                             │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                 Authentication                              │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │     JWT     │  │  S3 Sig v4  │  │  Access Key │        │
-│  │ Validation  │  │ Validation  │  │ Validation  │        │
-│  └─────────────┘  └─────────────┘  └─────────────┘        │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Authorization                              │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │    RBAC     │  │   Policies  │  │   ACLs      │        │
-│  │  Checking   │  │  Evaluation │  │  Checking   │        │
-│  └─────────────┘  └─────────────┘  └─────────────┘        │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                        Business Logic
+Global Admin (No tenant)
+    ├── Tenant A
+    │   ├── Tenant Admin
+    │   ├── Users
+    │   ├── Buckets
+    │   └── Access Keys
+    └── Tenant B
+        ├── Tenant Admin
+        ├── Users
+        ├── Buckets
+        └── Access Keys
 ```
 
-### Object Lock Implementation
+**Resource Isolation**
+- Each tenant has isolated resources
+- Quota enforcement (storage, buckets, keys)
+- No cross-tenant access
+- Global admins can manage all tenants
 
-MaxIOFS implements S3-compatible Object Lock with:
+## Data Flow
 
-1. **Retention Modes**:
-   - GOVERNANCE: Can be bypassed with special permissions
-   - COMPLIANCE: Cannot be bypassed by any user
-
-2. **Legal Hold**: Independent object protection mechanism
-
-3. **Default Bucket Configuration**: Apply retention to all new objects
-
-## Performance Optimizations
-
-### 1. Concurrent Processing
-- Goroutine pools for request handling
-- Parallel multipart upload processing
-- Background cleanup and maintenance tasks
-
-### 2. Caching Strategy
-- Metadata caching in memory
-- Object data caching for frequently accessed items
-- Response caching for immutable data
-
-### 3. Connection Pooling
-- HTTP client connection reuse
-- Database connection pooling
-- Storage backend connection management
-
-### 4. Data Compression
-- Automatic compression for compatible objects
-- Configurable compression algorithms (gzip, lz4, zstd)
-- Transparent decompression on retrieval
-
-### 5. Data Encryption
-- At-rest encryption with configurable keys
-- In-transit encryption with TLS
-- Client-side encryption support
-
-## Monitoring and Observability
-
-### Metrics Collection
-- Prometheus-compatible metrics endpoint
-- Custom metrics for business logic
-- System resource monitoring
-
-### Logging
-- Structured JSON logging
-- Configurable log levels
-- Request tracing and correlation IDs
-
-### Health Checks
-- Liveness and readiness probes
-- Component health status
-- Dependency health checking
-
-## Deployment Architecture
-
-### Single Node Deployment
+### Object Upload
 ```
-┌─────────────────────────────────────┐
-│           MaxIOFS Binary            │
-│                                     │
-│  ┌─────────────────────────────┐    │
-│  │        API Server           │    │
-│  │      (Port 8080)            │    │
-│  └─────────────────────────────┘    │
-│                                     │
-│  ┌─────────────────────────────┐    │
-│  │      Console Server         │    │
-│  │      (Port 8081)            │    │
-│  └─────────────────────────────┘    │
-│                                     │
-│  ┌─────────────────────────────┐    │
-│  │      Local Storage          │    │
-│  │      (/data/objects)        │    │
-│  └─────────────────────────────┘    │
-└─────────────────────────────────────┘
+1. Client → S3 API (PUT /bucket/object)
+2. Authentication (AWS Signature)
+3. Authorization (tenant/bucket ownership)
+4. Quota check (tenant storage limit)
+5. Write to filesystem
+6. Update metadata in SQLite
+7. Update tenant usage counters
+8. Return success response
 ```
 
-### Docker Deployment
+### Object Download
 ```
-┌─────────────────────────────────────┐
-│         Docker Container            │
-│                                     │
-│  ┌─────────────────────────────┐    │
-│  │        MaxIOFS              │    │
-│  │                             │    │
-│  │  Ports: 8080, 8081          │    │
-│  │  Volumes: /data             │    │
-│  └─────────────────────────────┘    │
-└─────────────────────────────────────┘
+1. Client → S3 API (GET /bucket/object)
+2. Authentication (AWS Signature)
+3. Authorization (tenant/bucket access)
+4. Read object metadata from SQLite
+5. Stream object data from filesystem
+6. Return object with headers
 ```
 
-### Kubernetes Deployment
-```
-┌─────────────────────────────────────┐
-│           Kubernetes                │
-│                                     │
-│  ┌─────────────────────────────┐    │
-│  │        MaxIOFS Pod          │    │
-│  │                             │    │
-│  │  ┌─────────────────────┐    │    │
-│  │  │    MaxIOFS          │    │    │
-│  │  │    Container        │    │    │
-│  │  └─────────────────────┘    │    │
-│  │                             │    │
-│  │  ┌─────────────────────┐    │    │
-│  │  │  Persistent Volume  │    │    │
-│  │  │     (/data)         │    │    │
-│  │  └─────────────────────┘    │    │
-│  └─────────────────────────────┘    │
-│                                     │
-│  ┌─────────────────────────────┐    │
-│  │        Service              │    │
-│  │  API: 8080                  │    │
-│  │  Console: 8081              │    │
-│  └─────────────────────────────┘    │
-└─────────────────────────────────────┘
-```
+## Security
 
-## Configuration Management
+**Authentication**
+- Bcrypt password hashing (cost 10)
+- JWT tokens with expiration
+- AWS Signature v2/v4 for S3 API
 
-### Configuration Sources (Priority Order)
-1. Command-line flags
-2. Environment variables (MAXIOFS_*)
-3. Configuration files (YAML/JSON)
-4. Default values
+**Authorization**
+- Role-based access control (RBAC)
+- Tenant-level isolation
+- Bucket ownership validation
+- Object-level permissions
 
-### Configuration Structure
-```yaml
-server:
-  listen: ":8080"
-  console_listen: ":8081"
-  data_dir: "./data"
-  log_level: "info"
+**Data Protection**
+- Object Lock (WORM compliance)
+- Filesystem permissions (0755 directories, 0644 files)
+- Rate limiting (planned)
+- Account lockout (planned)
 
-tls:
-  enabled: false
-  cert_file: ""
-  key_file: ""
+## Current Limitations
 
-storage:
-  backend: "filesystem"
-  root: "./data/objects"
-  compression:
-    enabled: false
-    type: "gzip"
-    level: 6
-  encryption:
-    enabled: false
-    key: ""
-  object_lock:
-    enabled: true
+**Alpha Status**
+- ⚠️ Single-node only (no clustering)
+- ⚠️ Filesystem backend only
+- ⚠️ No object versioning (placeholder only)
+- ⚠️ No automatic compression
+- ⚠️ No encryption at rest
+- ⚠️ No data replication
+- ⚠️ Limited metrics
 
-auth:
-  enabled: true
-  jwt_secret: ""
-  access_key: "maxioadmin"
-  secret_key: "maxioadmin"
-  users_file: ""
+**Performance**
+- Not validated in production
+- No load testing performed
+- Benchmarks are preliminary only
 
-metrics:
-  enabled: true
-  path: "/metrics"
-  interval: 60
+## Deployment Options
+
+### Standalone Binary
+```bash
+./maxiofs --data-dir /var/lib/maxiofs
 ```
 
-## Future Enhancements
+### Docker
+```bash
+docker run -d \
+  -p 8080:8080 \
+  -p 8081:8081 \
+  -v /data:/data \
+  maxiofs/maxiofs:1.1.0-alpha
+```
 
-### Planned Features
-1. **Distributed Mode**: Multi-node clustering support
-2. **Replication**: Cross-zone and cross-region replication
-3. **Advanced Analytics**: Usage analytics and reporting
-4. **Plugin System**: Custom storage backends and middleware
-5. **Advanced Security**: LDAP/AD integration, advanced RBAC
+### Systemd Service
+```ini
+[Service]
+ExecStart=/usr/local/bin/maxiofs --data-dir /var/lib/maxiofs
+```
 
-### Scalability Roadmap
-1. **Phase 1**: Single-node optimization (Current)
-2. **Phase 2**: Multi-node clustering
-3. **Phase 3**: Distributed consensus and data distribution
-4. **Phase 4**: Global scale with edge caching
+## Monitoring
+
+**Health Endpoints**
+- `GET /health` - Basic health check
+- `GET /ready` - Readiness probe
+- `GET /metrics` - Prometheus metrics (basic)
+
+**Logs**
+- Structured logging with logrus
+- Configurable levels (debug, info, warn, error)
+- JSON format optional
+
+## Future Considerations
+
+**Not Implemented Yet**
+- Multi-node clustering
+- Object versioning (real implementation)
+- Data replication
+- Encryption at rest
+- Advanced metrics and monitoring
+- Plugin system
+- Additional storage backends (S3, GCS, Azure)
+
+See [TODO.md](../TODO.md) for roadmap.
+
+---
+
+**Note**: This is an alpha project. Architecture may change based on feedback and requirements.

@@ -1,10 +1,10 @@
 import { useState, FormEvent } from 'react';
-import { useRouter } from 'next/router';
+import { useNavigate } from 'react-router-dom';
 import APIClient from '@/lib/api';
 import SweetAlert from '@/lib/sweetalert';
 
 export default function LoginPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({

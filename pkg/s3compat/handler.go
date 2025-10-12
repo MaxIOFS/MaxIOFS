@@ -182,13 +182,18 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 
 	logrus.Debug("S3 API: ListBuckets")
 
-	buckets, err := h.bucketManager.ListBuckets(r.Context())
+	// Get tenant ID from authenticated user
+	// Empty string for global admins (who can see all tenants)
+	tenantID := h.getTenantIDFromRequest(r)
+
+	// List buckets for this tenant (or all if tenantID is empty for global admin)
+	buckets, err := h.bucketManager.ListBuckets(r.Context(), tenantID)
 	if err != nil {
 		h.writeError(w, "InternalError", err.Error(), "", r)
 		return
 	}
 
-	// Filter buckets by tenant ownership
+	// Filter buckets by tenant ownership and user permissions
 	user, userExists := auth.GetUserFromContext(r.Context())
 	if !userExists {
 		h.writeError(w, "AccessDenied", "Access Denied.", "", r)
@@ -201,7 +206,7 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	var filteredBuckets []bucket.Bucket
 
 	if isGlobalAdmin {
-		// ONLY global admins see all buckets
+		// ONLY global admins see all buckets (already filtered by tenantID="" at manager level)
 		filteredBuckets = buckets
 	} else if user.TenantID != "" {
 		// Tenant users (including tenant admins) see their tenant's buckets + buckets where they have permissions
@@ -214,7 +219,7 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Include if user has permissions in bucket policy
-			if h.userHasBucketPermission(r.Context(), b.Name, user.ID) {
+			if h.userHasBucketPermission(r.Context(), tenantID, b.Name, user.ID) {
 				filteredBuckets = append(filteredBuckets, b)
 			}
 		}
@@ -228,7 +233,7 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Include if user has permissions in bucket policy
-			if h.userHasBucketPermission(r.Context(), b.Name, user.ID) {
+			if h.userHasBucketPermission(r.Context(), tenantID, b.Name, user.ID) {
 				filteredBuckets = append(filteredBuckets, b)
 			}
 		}
@@ -255,7 +260,7 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 }
 
 // userHasBucketPermission checks if user has explicit permissions (ACLs or Policy)
-func (h *Handler) userHasBucketPermission(ctx context.Context, bucketName, userID string) bool {
+func (h *Handler) userHasBucketPermission(ctx context.Context, tenantID, bucketName, userID string) bool {
 	// Check bucket permissions table (frontend ACLs)
 	if h.authManager != nil {
 		hasAccess, _, err := h.authManager.CheckBucketAccess(ctx, bucketName, userID)
@@ -265,7 +270,7 @@ func (h *Handler) userHasBucketPermission(ctx context.Context, bucketName, userI
 	}
 
 	// Also check bucket policy (S3 style)
-	// TODO: Implement bucket policy checking if needed
+	// TODO: Implement bucket policy checking if needed (would need tenantID for scoped lookup)
 	return false
 }
 
@@ -327,7 +332,8 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		}).Info("Veeam normal bucket creation - allowing")
 	}
 
-	if err := h.bucketManager.CreateBucket(r.Context(), bucketName); err != nil {
+	tenantID := h.getTenantIDFromRequest(r)
+	if err := h.bucketManager.CreateBucket(r.Context(), tenantID, bucketName); err != nil {
 		if err == bucket.ErrBucketAlreadyExists {
 			h.writeError(w, "BucketAlreadyExists", "The requested bucket name is not available", bucketName, r)
 			return
@@ -345,7 +351,8 @@ func (h *Handler) DeleteBucket(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: DeleteBucket")
 
-	if err := h.bucketManager.DeleteBucket(r.Context(), bucketName); err != nil {
+	tenantID := h.getTenantIDFromRequest(r)
+	if err := h.bucketManager.DeleteBucket(r.Context(), tenantID, bucketName); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
@@ -382,7 +389,8 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: HeadBucket")
 
-	exists, err := h.bucketManager.BucketExists(r.Context(), bucketName)
+	tenantID := h.getTenantIDFromRequest(r)
+	exists, err := h.bucketManager.BucketExists(r.Context(), tenantID, bucketName)
 	if err != nil {
 		h.writeError(w, "InternalError", err.Error(), bucketName, r)
 		return
@@ -414,7 +422,8 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	listResult, err := h.objectManager.ListObjects(r.Context(), bucketName, prefix, delimiter, marker, maxKeys)
+	bucketPath := h.getBucketPath(r, bucketName)
+	listResult, err := h.objectManager.ListObjects(r.Context(), bucketPath, prefix, delimiter, marker, maxKeys)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -521,7 +530,8 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		}).Info("Shared object access - bypassing authentication")
 	}
 
-	obj, reader, err := h.objectManager.GetObject(r.Context(), bucketName, objectKey)
+	bucketPath := h.getBucketPath(r, bucketName)
+	obj, reader, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -569,7 +579,8 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	retainUntilDateStr := r.Header.Get("x-amz-object-lock-retain-until-date")
 	legalHoldStatus := r.Header.Get("x-amz-object-lock-legal-hold")
 
-	obj, err := h.objectManager.PutObject(r.Context(), bucketName, objectKey, r.Body, r.Header)
+	bucketPath := h.getBucketPath(r, bucketName)
+	obj, err := h.objectManager.PutObject(r.Context(), bucketPath, objectKey, r.Body, r.Header)
 	if err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"bucket": bucketName,
@@ -592,7 +603,7 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 				Mode:            lockMode,
 				RetainUntilDate: retainUntilDate,
 			}
-			if setErr := h.objectManager.SetObjectRetention(r.Context(), bucketName, objectKey, retention); setErr != nil {
+			if setErr := h.objectManager.SetObjectRetention(r.Context(), bucketPath, objectKey, retention); setErr != nil {
 				logrus.WithError(setErr).Warn("Failed to set retention from headers")
 			} else {
 				logrus.WithFields(logrus.Fields{
@@ -610,7 +621,7 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	// Aplicar legal hold si se especificó (Veeam compatibility)
 	if legalHoldStatus == "ON" {
 		legalHold := &object.LegalHoldConfig{Status: "ON"}
-		if setErr := h.objectManager.SetObjectLegalHold(r.Context(), bucketName, objectKey, legalHold); setErr != nil {
+		if setErr := h.objectManager.SetObjectLegalHold(r.Context(), bucketPath, objectKey, legalHold); setErr != nil {
 			logrus.WithError(setErr).Warn("Failed to set legal hold from headers")
 		} else {
 			logrus.WithFields(logrus.Fields{
@@ -634,7 +645,8 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: DeleteObject")
 
-	if err := h.objectManager.DeleteObject(r.Context(), bucketName, objectKey); err != nil {
+	bucketPath := h.getBucketPath(r, bucketName)
+	if err := h.objectManager.DeleteObject(r.Context(), bucketPath, objectKey); err != nil {
 		if err == object.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
@@ -696,7 +708,8 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketName, objectKey)
+	bucketPath := h.getBucketPath(r, bucketName)
+	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -762,8 +775,9 @@ func (h *Handler) GetObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		"bucket": bucketName,
 	}).Debug("S3 API: GetObjectLockConfiguration")
 
+	tenantID := h.getTenantIDFromRequest(r)
 	// Obtener bucket metadata
-	bkt, err := h.bucketManager.GetBucketInfo(r.Context(), bucketName)
+	bkt, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -827,6 +841,30 @@ func (h *Handler) writeXMLResponse(w http.ResponseWriter, statusCode int, data i
 	if err := xml.NewEncoder(w).Encode(data); err != nil {
 		logrus.WithError(err).Error("Failed to encode XML response")
 	}
+}
+
+// getTenantIDFromRequest extracts the tenant ID from the authenticated user in the request context
+// Returns empty string for global admin users (who have no tenant) or if user not found
+func (h *Handler) getTenantIDFromRequest(r *http.Request) string {
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		return ""
+	}
+
+	// Global admins have no tenant ID and can see all buckets
+	// Tenant-scoped users/admins have a tenant ID
+	return user.TenantID
+}
+
+// getBucketPath constructs the full bucket path with tenant prefix for object manager
+// Format: "tenantID/bucketName" for tenant buckets, or "bucketName" for global buckets
+// This is transparent to S3 clients - they only see "bucketName"
+func (h *Handler) getBucketPath(r *http.Request, bucketName string) string {
+	tenantID := h.getTenantIDFromRequest(r)
+	if tenantID == "" {
+		return bucketName // Global bucket
+	}
+	return tenantID + "/" + bucketName // Tenant-scoped bucket path
 }
 
 func (h *Handler) writeError(w http.ResponseWriter, code, message, resource string, r *http.Request) {

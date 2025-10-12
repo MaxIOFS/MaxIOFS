@@ -1,162 +1,146 @@
 # MaxIOFS Deployment Guide
 
+**Version**: 0.2.0-dev
+
 ## Overview
 
-MaxIOFS can be deployed in multiple environments, from development to production. This guide covers all deployment scenarios.
+MaxIOFS is an S3-compatible object storage system currently in **alpha development**. This guide covers basic deployment methods suitable for testing and development environments.
 
-## Table of Contents
+**Default Credentials:**
+- Web Console: `admin` / `admin`
+- S3 API: Access Key `maxioadmin` / Secret Key `maxioadmin`
 
-- [Prerequisites](#prerequisites)
-- [Development Deployment](#development-deployment)
-- [Production Deployment](#production-deployment)
-- [Docker Deployment](#docker-deployment)
-- [Kubernetes Deployment](#kubernetes-deployment)
-- [Reverse Proxy Setup](#reverse-proxy-setup)
-- [High Availability](#high-availability)
+**⚠️ Change these credentials immediately after deployment.**
 
 ---
 
-## Prerequisites
+## System Requirements
 
-### System Requirements
-
-**Minimum:**
+### Minimum Requirements
 - CPU: 2 cores
 - RAM: 2 GB
-- Storage: 10 GB (for application + data)
+- Storage: 10 GB
 - OS: Linux, Windows, or macOS
 
-**Recommended Production:**
-- CPU: 4+ cores
-- RAM: 8+ GB
-- Storage: SSD with sufficient space for objects
-- OS: Ubuntu 22.04 LTS or later
-
 ### Software Requirements
-
-- Go 1.21+ (for building from source)
-- Node.js 18+ and npm (for building frontend)
-- SQLite3 (embedded, no separate installation needed)
+- Go 1.21+ (for building)
+- Node.js 18+ (for building)
+- SQLite3 (embedded)
 
 ---
 
-## Development Deployment
+## Standalone Binary Deployment
 
-### Quick Start
+### Building from Source
 
-1. **Clone the repository:**
+**Windows:**
 ```bash
 git clone https://github.com/yourusername/maxiofs.git
 cd maxiofs
+build.bat
 ```
 
-2. **Build the application:**
+**Linux/macOS:**
 ```bash
-# Windows
-build.bat
-
-# Linux/macOS
+git clone https://github.com/yourusername/maxiofs.git
+cd maxiofs
 make build
 ```
 
-3. **Run MaxIOFS:**
-```bash
-# Windows
-./maxiofs.exe --data-dir ./data --log-level debug
+### Running MaxIOFS
 
-# Linux/macOS
-./maxiofs --data-dir ./data --log-level debug
+**Basic usage:**
+```bash
+./maxiofs --data-dir ./data --log-level info
 ```
 
-4. **Access the application:**
-- Web Console: http://localhost:8081
-- S3 API: http://localhost:8080
-
-**Default credentials:**
-- Username: `admin`
-- Password: `admin`
-- S3 Access Key: `maxioadmin`
-- S3 Secret Key: `maxioadmin`
-
-### Development with Hot Reload
-
-**Backend:**
+**Custom ports:**
 ```bash
-go run ./cmd/maxiofs --data-dir ./data --log-level debug
+./maxiofs --data-dir /var/lib/maxiofs --listen :9000 --console-listen :9001
 ```
 
-**Frontend:**
-```bash
-cd web/frontend
-npm run dev
+**Available Options:**
+```
+--data-dir string       Data directory (REQUIRED)
+--listen string         S3 API port (default ":8080")
+--console-listen string Console port (default ":8081")
+--log-level string      Log level (default "info")
+--tls-cert string       TLS certificate (optional)
+--tls-key string        TLS private key (optional)
 ```
 
-Frontend will be available at http://localhost:3000
+### Accessing the Application
+
+- **Web Console**: http://localhost:8081
+- **S3 API**: http://localhost:8080
 
 ---
 
-## Production Deployment
+## Docker Deployment
 
-### 1. Build for Production
+### Using Docker
 
+**Pull and run:**
 ```bash
-# Build with version information
-VERSION="v1.1.0"
-COMMIT=$(git rev-parse --short HEAD)
-DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-go build -ldflags "-X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$DATE" \
-  -o maxiofs ./cmd/maxiofs
-
-# Build frontend
-cd web/frontend
-npm install
-npm run build
-cd ../..
+docker run -d \
+  --name maxiofs \
+  -p 8080:8080 \
+  -p 8081:8081 \
+  -v $(pwd)/data:/data \
+  maxiofs/maxiofs:0.2.0-dev
 ```
 
-### 2. Create Data Directory
+### Docker Compose
 
-```bash
-mkdir -p /var/lib/maxiofs
-chmod 750 /var/lib/maxiofs
-```
-
-### 3. Create Configuration File
-
-Create `/etc/maxiofs/config.yaml`:
+Create `docker-compose.yml`:
 
 ```yaml
-# Server Configuration
-server:
-  s3_port: 8080
-  console_port: 8081
-  data_dir: /var/lib/maxiofs
-  log_level: info
+version: '3.8'
 
-# Security
-security:
-  jwt_secret: "your-secure-random-secret-here"  # Generate with: openssl rand -base64 32
-  session_timeout: 3600  # 1 hour
-
-# Rate Limiting
-rate_limit:
-  enabled: true
-  login_attempts: 5
-  lockout_duration: 900  # 15 minutes
-
-# Storage
-storage:
-  backend: filesystem
-  path: /var/lib/maxiofs/objects
-
-# Monitoring
-monitoring:
-  prometheus_enabled: true
-  metrics_port: 9090
+services:
+  maxiofs:
+    image: maxiofs/maxiofs:0.2.0-dev
+    container_name: maxiofs
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    volumes:
+      - ./data:/data
+    environment:
+      - MAXIOFS_DATA_DIR=/data
+      - MAXIOFS_LOG_LEVEL=info
+    restart: unless-stopped
 ```
 
-### 4. Create Systemd Service
+**Run:**
+```bash
+docker-compose up -d
+```
+
+---
+
+## Systemd Service (Linux)
+
+### Installation
+
+**1. Create directories:**
+```bash
+sudo mkdir -p /opt/maxiofs
+sudo mkdir -p /var/lib/maxiofs
+```
+
+**2. Install binary:**
+```bash
+sudo cp maxiofs /opt/maxiofs/
+```
+
+**3. Create system user:**
+```bash
+sudo useradd -r -s /bin/false maxiofs
+sudo chown -R maxiofs:maxiofs /var/lib/maxiofs
+```
+
+**4. Create service file:**
 
 Create `/etc/systemd/system/maxiofs.service`:
 
@@ -170,353 +154,84 @@ Type=simple
 User=maxiofs
 Group=maxiofs
 WorkingDirectory=/opt/maxiofs
-ExecStart=/opt/maxiofs/maxiofs --config /etc/maxiofs/config.yaml
+ExecStart=/opt/maxiofs/maxiofs --data-dir /var/lib/maxiofs --log-level info
 Restart=on-failure
 RestartSec=5s
 
-# Security hardening
+# Security
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/maxiofs
 
-# Resource limits
-LimitNOFILE=65536
-LimitNPROC=4096
-
 [Install]
 WantedBy=multi-user.target
 ```
 
-### 5. Create User and Set Permissions
-
+**5. Enable and start:**
 ```bash
-# Create system user
-useradd -r -s /bin/false maxiofs
-
-# Set ownership
-chown -R maxiofs:maxiofs /var/lib/maxiofs
-chown -R maxiofs:maxiofs /opt/maxiofs
-
-# Set permissions
-chmod 750 /var/lib/maxiofs
-chmod 750 /opt/maxiofs
-chmod 600 /etc/maxiofs/config.yaml
+sudo systemctl daemon-reload
+sudo systemctl enable maxiofs
+sudo systemctl start maxiofs
+sudo systemctl status maxiofs
 ```
 
-### 6. Start the Service
+### Managing the Service
 
 ```bash
-# Enable and start
-systemctl enable maxiofs
-systemctl start maxiofs
+# Start
+sudo systemctl start maxiofs
 
-# Check status
-systemctl status maxiofs
+# Stop
+sudo systemctl stop maxiofs
+
+# Restart
+sudo systemctl restart maxiofs
 
 # View logs
-journalctl -u maxiofs -f
+sudo journalctl -u maxiofs -f
 ```
 
 ---
 
-## Docker Deployment
+## Reverse Proxy with Nginx
 
-### Using Docker Compose
+For HTTPS and additional security, use Nginx as a reverse proxy.
 
-Create `docker-compose.yml`:
-
-```yaml
-version: '3.8'
-
-services:
-  maxiofs:
-    image: maxiofs/maxiofs:latest
-    container_name: maxiofs
-    ports:
-      - "8080:8080"  # S3 API
-      - "8081:8081"  # Console
-    volumes:
-      - ./data:/data
-      - ./config.yaml:/etc/maxiofs/config.yaml:ro
-    environment:
-      - MAXIOFS_DATA_DIR=/data
-      - MAXIOFS_LOG_LEVEL=info
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-```
-
-Run with:
-```bash
-docker-compose up -d
-```
-
-### Building Docker Image
-
-Create `Dockerfile`:
-
-```dockerfile
-# Build stage
-FROM golang:1.21-alpine AS builder
-
-WORKDIR /app
-COPY . .
-
-RUN apk add --no-cache git make nodejs npm
-RUN cd web/frontend && npm install && npm run build
-RUN go mod download
-RUN CGO_ENABLED=1 go build -o maxiofs ./cmd/maxiofs
-
-# Runtime stage
-FROM alpine:latest
-
-RUN apk --no-cache add ca-certificates sqlite-libs
-
-WORKDIR /app
-
-COPY --from=builder /app/maxiofs .
-COPY --from=builder /app/web/frontend/dist ./web/frontend/dist
-
-RUN adduser -D -s /bin/sh maxiofs && \
-    mkdir -p /data && \
-    chown -R maxiofs:maxiofs /data /app
-
-USER maxiofs
-
-EXPOSE 8080 8081
-
-VOLUME ["/data"]
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8081/health || exit 1
-
-ENTRYPOINT ["./maxiofs"]
-CMD ["--data-dir", "/data", "--log-level", "info"]
-```
-
-Build and run:
-```bash
-docker build -t maxiofs:latest .
-docker run -d -p 8080:8080 -p 8081:8081 -v $(pwd)/data:/data maxiofs:latest
-```
-
----
-
-## Kubernetes Deployment
-
-### Namespace and ConfigMap
-
-```yaml
-# namespace.yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: maxiofs
-
----
-# configmap.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: maxiofs-config
-  namespace: maxiofs
-data:
-  config.yaml: |
-    server:
-      s3_port: 8080
-      console_port: 8081
-      data_dir: /data
-      log_level: info
-    security:
-      jwt_secret: "${JWT_SECRET}"
-      session_timeout: 3600
-    rate_limit:
-      enabled: true
-      login_attempts: 5
-      lockout_duration: 900
-```
-
-### Deployment
-
-```yaml
-# deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: maxiofs
-  namespace: maxiofs
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: maxiofs
-  template:
-    metadata:
-      labels:
-        app: maxiofs
-    spec:
-      containers:
-      - name: maxiofs
-        image: maxiofs/maxiofs:latest
-        ports:
-        - containerPort: 8080
-          name: s3-api
-        - containerPort: 8081
-          name: console
-        volumeMounts:
-        - name: data
-          mountPath: /data
-        - name: config
-          mountPath: /etc/maxiofs
-          readOnly: true
-        env:
-        - name: MAXIOFS_DATA_DIR
-          value: "/data"
-        - name: MAXIOFS_LOG_LEVEL
-          value: "info"
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "2Gi"
-            cpu: "1000m"
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8081
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8081
-          initialDelaySeconds: 10
-          periodSeconds: 5
-      volumes:
-      - name: data
-        persistentVolumeClaim:
-          claimName: maxiofs-pvc
-      - name: config
-        configMap:
-          name: maxiofs-config
-```
-
-### Persistent Volume Claim
-
-```yaml
-# pvc.yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: maxiofs-pvc
-  namespace: maxiofs
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 100Gi
-  storageClassName: fast-ssd
-```
-
-### Service
-
-```yaml
-# service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: maxiofs
-  namespace: maxiofs
-spec:
-  type: LoadBalancer
-  ports:
-  - port: 8080
-    targetPort: 8080
-    name: s3-api
-  - port: 8081
-    targetPort: 8081
-    name: console
-  selector:
-    app: maxiofs
-```
-
-### Deploy to Kubernetes
+### Installation
 
 ```bash
-kubectl apply -f namespace.yaml
-kubectl apply -f configmap.yaml
-kubectl apply -f pvc.yaml
-kubectl apply -f deployment.yaml
-kubectl apply -f service.yaml
+# Ubuntu/Debian
+sudo apt install nginx
 
-# Check status
-kubectl get all -n maxiofs
-kubectl logs -f deployment/maxiofs -n maxiofs
+# CentOS/RHEL
+sudo yum install nginx
 ```
 
----
+### Configuration
 
-## Reverse Proxy Setup
-
-### Nginx
+Create `/etc/nginx/sites-available/maxiofs`:
 
 ```nginx
-# /etc/nginx/sites-available/maxiofs
-upstream maxiofs_s3 {
-    server localhost:8080;
-}
-
-upstream maxiofs_console {
-    server localhost:8081;
-}
-
 # S3 API
 server {
     listen 80;
     server_name s3.yourdomain.com;
 
-    # Redirect to HTTPS
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name s3.yourdomain.com;
-
-    ssl_certificate /etc/letsencrypt/live/s3.yourdomain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/s3.yourdomain.com/privkey.pem;
-
-    # Security headers
-    add_header X-Content-Type-Options nosniff;
-    add_header X-Frame-Options DENY;
-    add_header X-XSS-Protection "1; mode=block";
-
-    # S3 API
     location / {
-        proxy_pass http://maxiofs_s3;
+        proxy_pass http://localhost:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # Increase timeouts for large uploads
+        # Large file support
+        client_max_body_size 0;
+        proxy_request_buffering off;
         proxy_connect_timeout 300s;
         proxy_send_timeout 300s;
         proxy_read_timeout 300s;
-
-        # Disable buffering for large files
-        proxy_request_buffering off;
-        proxy_buffering off;
-
-        client_max_body_size 0;
     }
 }
 
@@ -525,219 +240,149 @@ server {
     listen 80;
     server_name console.yourdomain.com;
 
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name console.yourdomain.com;
-
-    ssl_certificate /etc/letsencrypt/live/console.yourdomain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/console.yourdomain.com/privkey.pem;
-
-    # Security headers
-    add_header X-Content-Type-Options nosniff;
-    add_header X-Frame-Options SAMEORIGIN;
-    add_header X-XSS-Protection "1; mode=block";
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-
     location / {
-        proxy_pass http://maxiofs_console;
+        proxy_pass http://localhost:8081;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # WebSocket support (if needed)
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
     }
 }
 ```
 
-Enable the site:
+**Enable configuration:**
 ```bash
-ln -s /etc/nginx/sites-available/maxiofs /etc/nginx/sites-enabled/
-nginx -t
-systemctl reload nginx
+sudo ln -s /etc/nginx/sites-available/maxiofs /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
 ```
 
-### Traefik
+### Adding HTTPS with Let's Encrypt
 
-```yaml
-# docker-compose.yml with Traefik
-version: '3.8'
+```bash
+# Install certbot
+sudo apt install certbot python3-certbot-nginx
 
-services:
-  traefik:
-    image: traefik:v2.10
-    command:
-      - "--providers.docker=true"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--certificatesresolvers.letsencrypt.acme.email=admin@yourdomain.com"
-      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./letsencrypt:/letsencrypt
+# Obtain certificates
+sudo certbot --nginx -d s3.yourdomain.com -d console.yourdomain.com
+```
 
-  maxiofs:
-    image: maxiofs/maxiofs:latest
-    volumes:
-      - ./data:/data
-    labels:
-      # S3 API
-      - "traefik.http.routers.maxiofs-s3.rule=Host(`s3.yourdomain.com`)"
-      - "traefik.http.routers.maxiofs-s3.entrypoints=websecure"
-      - "traefik.http.routers.maxiofs-s3.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.maxiofs-s3.service=maxiofs-s3"
-      - "traefik.http.services.maxiofs-s3.loadbalancer.server.port=8080"
+Certbot will automatically configure HTTPS.
 
-      # Console
-      - "traefik.http.routers.maxiofs-console.rule=Host(`console.yourdomain.com`)"
-      - "traefik.http.routers.maxiofs-console.entrypoints=websecure"
-      - "traefik.http.routers.maxiofs-console.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.maxiofs-console.service=maxiofs-console"
-      - "traefik.http.services.maxiofs-console.loadbalancer.server.port=8081"
+---
+
+## Basic Troubleshooting
+
+### Service Won't Start
+
+```bash
+# Check logs
+sudo journalctl -u maxiofs -n 50
+
+# Check ports
+sudo netstat -tlnp | grep -E '8080|8081'
+
+# Check permissions
+ls -la /var/lib/maxiofs
+```
+
+### Cannot Access Web Console
+
+```bash
+# Verify service is running
+sudo systemctl status maxiofs
+
+# Check firewall
+sudo ufw status
+sudo ufw allow 8080
+sudo ufw allow 8081
+```
+
+### Docker Container Issues
+
+```bash
+# Check logs
+docker logs maxiofs
+
+# Check status
+docker ps -a | grep maxiofs
+
+# Restart
+docker restart maxiofs
+```
+
+### Login Issues
+
+```bash
+# Default credentials
+# Console: admin/admin
+# S3 API: maxioadmin/maxioadmin
+
+# To reset (WARNING: deletes all data)
+sudo systemctl stop maxiofs
+sudo rm /var/lib/maxiofs/maxiofs.db
+sudo systemctl start maxiofs
 ```
 
 ---
 
-## High Availability
+## Security Recommendations
 
-### Multi-Instance Deployment (Future)
+1. **Change default credentials** immediately
+2. **Use HTTPS** via reverse proxy
+3. **Configure firewall** rules
+4. **Secure data directory** permissions (750 or 700)
+5. **Regular backups** of data directory
+6. **Don't expose directly** to internet
 
-MaxIOFS currently runs in single-instance mode. For high availability:
-
-**Current Workarounds:**
-1. **Active-Passive Failover:** Use keepalived or similar for failover
-2. **Backup & Restore:** Regular backups of data directory and SQLite database
-3. **Load Balancer:** Use HAProxy/Nginx to distribute S3 API requests
-
-**Planned Features:**
-- Distributed consensus with Raft
-- Multi-node data replication
-- Shared storage backend support
-
-### Backup Strategy
+### Basic Backup Script
 
 ```bash
 #!/bin/bash
-# backup.sh
-
 BACKUP_DIR="/backup/maxiofs"
 DATA_DIR="/var/lib/maxiofs"
 DATE=$(date +%Y%m%d_%H%M%S)
 
-# Stop service (optional for consistency)
-systemctl stop maxiofs
+mkdir -p $BACKUP_DIR
+tar -czf $BACKUP_DIR/maxiofs_$DATE.tar.gz -C $DATA_DIR .
 
-# Backup SQLite database
-sqlite3 $DATA_DIR/maxiofs.db ".backup '$BACKUP_DIR/maxiofs_$DATE.db'"
-
-# Backup objects
-tar -czf $BACKUP_DIR/objects_$DATE.tar.gz -C $DATA_DIR objects/
-
-# Restart service
-systemctl start maxiofs
-
-# Cleanup old backups (keep 7 days)
-find $BACKUP_DIR -name "*.db" -mtime +7 -delete
-find $BACKUP_DIR -name "*.tar.gz" -mtime +7 -delete
-```
-
-Schedule with cron:
-```cron
-0 2 * * * /usr/local/bin/backup.sh
+# Keep last 7 backups
+ls -t $BACKUP_DIR/maxiofs_*.tar.gz | tail -n +8 | xargs rm -f
 ```
 
 ---
 
-## Monitoring
+## Alpha Software Notice
 
-### Prometheus Integration
+**MaxIOFS is currently in alpha development.**
 
-MaxIOFS exposes Prometheus metrics on port 9090 (configurable).
+**This means:**
+- ❌ Not production-ready
+- ❌ APIs may change
+- ❌ Limited testing at scale
+- ❌ Potential data loss risk
+- ❌ No guarantees or SLA
 
-**Prometheus config:**
-```yaml
-scrape_configs:
-  - job_name: 'maxiofs'
-    static_configs:
-      - targets: ['localhost:9090']
-    scrape_interval: 15s
-```
+**Current Limitations:**
+- Single-instance only (no clustering)
+- Limited S3 API compatibility
+- No built-in monitoring
+- Basic authentication only
+- SQLite database (not for high concurrency)
+- No data replication
 
-### Grafana Dashboard
+**Recommended Use Cases:**
+- Development and testing
+- Learning S3 APIs
+- Proof-of-concept
 
-Import the MaxIOFS Grafana dashboard (ID: coming soon) or create custom panels:
+**Not Recommended For:**
+- Production workloads
+- Critical data storage
+- High-availability requirements
+- High-concurrency scenarios
 
-- Storage usage over time
-- Request rate and latency
-- Error rates
-- Active connections
-- Tenant quotas
-
----
-
-## Security Checklist
-
-- [ ] Change default credentials immediately
-- [ ] Use strong JWT secret (32+ characters)
-- [ ] Enable HTTPS with valid certificates
-- [ ] Configure rate limiting
-- [ ] Set up regular backups
-- [ ] Use restrictive file permissions
-- [ ] Enable audit logging
-- [ ] Keep MaxIOFS updated
-- [ ] Use firewall rules to restrict access
-- [ ] Implement WAF for additional protection
+**Always maintain backups** and test thoroughly.
 
 ---
 
-## Troubleshooting
-
-### Service won't start
-```bash
-# Check logs
-journalctl -u maxiofs -n 100 --no-pager
-
-# Check permissions
-ls -la /var/lib/maxiofs
-ls -la /opt/maxiofs
-
-# Verify configuration
-/opt/maxiofs/maxiofs --config /etc/maxiofs/config.yaml --validate
-```
-
-### High memory usage
-```bash
-# Check current usage
-ps aux | grep maxiofs
-
-# Set memory limits in systemd
-echo "MemoryMax=2G" >> /etc/systemd/system/maxiofs.service
-systemctl daemon-reload
-systemctl restart maxiofs
-```
-
-### Slow performance
-1. Check disk I/O with `iostat`
-2. Verify SSD is being used
-3. Increase file descriptor limits
-4. Check network latency
-5. Review object size distribution
-
----
-
-## Support
-
-For issues and support:
-- GitHub Issues: https://github.com/yourusername/maxiofs/issues
-- Documentation: https://maxiofs.io/docs
-- Community: https://discord.gg/maxiofs
+**Version**: 0.2.0-dev
+**Last Updated**: October 2025

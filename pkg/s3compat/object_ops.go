@@ -49,7 +49,8 @@ func (h *Handler) GetObjectRetention(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: GetObjectRetention")
 
-	retention, err := h.objectManager.GetObjectRetention(r.Context(), bucketName, objectKey)
+	bucketPath := h.getBucketPath(r, bucketName)
+	retention, err := h.objectManager.GetObjectRetention(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -113,8 +114,9 @@ func (h *Handler) PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 		RetainUntilDate: xmlRetention.RetainUntilDate,
 	}
 
+	bucketPath := h.getBucketPath(r, bucketName)
 	// Set the retention
-	if err := h.objectManager.SetObjectRetention(r.Context(), bucketName, objectKey, retention); err != nil {
+	if err := h.objectManager.SetObjectRetention(r.Context(), bucketPath, objectKey, retention); err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
@@ -141,7 +143,8 @@ func (h *Handler) GetObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: GetObjectLegalHold")
 
-	legalHold, err := h.objectManager.GetObjectLegalHold(r.Context(), bucketName, objectKey)
+	bucketPath := h.getBucketPath(r, bucketName)
+	legalHold, err := h.objectManager.GetObjectLegalHold(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -193,8 +196,9 @@ func (h *Handler) PutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 		Status: xmlLegalHold.Status,
 	}
 
+	bucketPath := h.getBucketPath(r, bucketName)
 	// Set the legal hold
-	if err := h.objectManager.SetObjectLegalHold(r.Context(), bucketName, objectKey, legalHold); err != nil {
+	if err := h.objectManager.SetObjectLegalHold(r.Context(), bucketPath, objectKey, legalHold); err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
@@ -232,7 +236,8 @@ func (h *Handler) GetObjectTagging(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: GetObjectTagging")
 
-	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketName, objectKey)
+	bucketPath := h.getBucketPath(r, bucketName)
+	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -295,8 +300,9 @@ func (h *Handler) PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	bucketPath := h.getBucketPath(r, bucketName)
 	// Get current object metadata
-	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketName, objectKey)
+	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -310,7 +316,7 @@ func (h *Handler) PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 	obj.Tags = tags
 
 	// Update object metadata with new tags
-	if err := h.objectManager.UpdateObjectMetadata(r.Context(), bucketName, objectKey, obj.Metadata); err != nil {
+	if err := h.objectManager.UpdateObjectMetadata(r.Context(), bucketPath, objectKey, obj.Metadata); err != nil {
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
@@ -329,8 +335,9 @@ func (h *Handler) DeleteObjectTagging(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: DeleteObjectTagging")
 
+	bucketPath := h.getBucketPath(r, bucketName)
 	// Get current object metadata
-	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketName, objectKey)
+	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -344,7 +351,7 @@ func (h *Handler) DeleteObjectTagging(w http.ResponseWriter, r *http.Request) {
 	obj.Tags = &object.TagSet{Tags: make([]object.Tag, 0)}
 
 	// Update object metadata
-	if err := h.objectManager.UpdateObjectMetadata(r.Context(), bucketName, objectKey, obj.Metadata); err != nil {
+	if err := h.objectManager.UpdateObjectMetadata(r.Context(), bucketPath, objectKey, obj.Metadata); err != nil {
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
@@ -387,8 +394,9 @@ func (h *Handler) GetObjectACL(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: GetObjectACL")
 
+	bucketPath := h.getBucketPath(r, bucketName)
 	// Check if object exists
-	_, err := h.objectManager.GetObjectMetadata(r.Context(), bucketName, objectKey)
+	_, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -432,8 +440,9 @@ func (h *Handler) PutObjectACL(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: PutObjectACL")
 
+	bucketPath := h.getBucketPath(r, bucketName)
 	// Check if object exists
-	_, err := h.objectManager.GetObjectMetadata(r.Context(), bucketName, objectKey)
+	_, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -501,8 +510,9 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	sourceBucket := copySource[:slashIdx]
 	sourceKey := copySource[slashIdx+1:]
 
+	sourceBucketPath := h.getBucketPath(r, sourceBucket)
 	// Get source object
-	sourceObj, reader, err := h.objectManager.GetObject(r.Context(), sourceBucket, sourceKey)
+	sourceObj, reader, err := h.objectManager.GetObject(r.Context(), sourceBucketPath, sourceKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified source key does not exist", sourceKey, r)
@@ -520,8 +530,9 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		headers.Set(k, v)
 	}
 
+	destBucketPath := h.getBucketPath(r, destBucket)
 	// Put object at destination
-	destObj, err := h.objectManager.PutObject(r.Context(), destBucket, destKey, reader, headers)
+	destObj, err := h.objectManager.PutObject(r.Context(), destBucketPath, destKey, reader, headers)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The destination bucket does not exist", destBucket, r)

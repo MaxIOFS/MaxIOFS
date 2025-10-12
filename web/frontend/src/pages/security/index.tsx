@@ -1,5 +1,5 @@
 import React from 'react';
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import {
@@ -151,7 +151,7 @@ export default function SecurityPage() {
               </div>
               <div className="pt-2 border-t">
                 <Link
-                  href="/users"
+                  to="/users"
                   className="text-sm text-blue-600 hover:text-blue-700 font-medium"
                 >
                   Manage Users →
@@ -185,7 +185,7 @@ export default function SecurityPage() {
               {lockedUsers.length > 0 && (
                 <div className="pt-2 border-t">
                   <Link
-                    href="/users"
+                    to="/users"
                     className="text-sm text-orange-600 hover:text-orange-700 font-medium"
                   >
                     View Locked Users →

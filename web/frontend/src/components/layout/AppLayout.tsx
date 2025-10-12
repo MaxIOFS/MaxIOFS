@@ -1,8 +1,5 @@
-'use client';
-
 import React, { useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/router';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Home,
   Database,
@@ -79,8 +76,9 @@ const navigation: NavItem[] = [
 ];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const pathname = router.pathname;
+  const location = useLocation();
+  const pathname = location.pathname;
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { data: lockedUsers = [], isLoading: loadingLockedUsers } = useLockedUsers();
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -142,8 +140,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       >
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
-          <Link href="/" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+          <Link to="/" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
             <img
               src="/assets/img/icon.png"
               alt="MaxIOFS"
@@ -171,7 +168,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             return (
               <div key={item.name}>
                 <Link
-                  href={item.href}
+                  to={item.href}
                   className={cn(
                     'flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
                     isActive
@@ -192,7 +189,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     {item.children.map((child) => (
                       <Link
                         key={child.name}
-                        href={child.href}
+                        to={child.href}
                         className={cn(
                           'flex items-center space-x-3 px-3 py-2 rounded-lg text-sm transition-colors',
                           isActiveRoute(child.href)
@@ -296,7 +293,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                               return (
                                 <Link
                                   key={lockedUser.id}
-                                  href="/users"
+                                  to="/users"
                                   onClick={() => setShowNotifications(false)}
                                   className="block p-4 hover:bg-gray-50 transition-colors"
                                 >
@@ -330,7 +327,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       {lockedUsers.length > 0 && (
                         <div className="p-3 border-t border-gray-200 bg-gray-50">
                           <Link
-                            href="/users"
+                            to="/users"
                             onClick={() => setShowNotifications(false)}
                             className="text-xs text-blue-600 hover:text-blue-700 font-medium"
                           >
@@ -391,7 +388,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                           className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                           onClick={() => {
                             setShowUserMenu(false);
-                            router.push(`/users/${user?.id}`);
+                            navigate(`/users/${user?.id}`);
                           }}
                         >
                           <User className="h-4 w-4 mr-3" />
