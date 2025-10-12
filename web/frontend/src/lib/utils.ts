@@ -17,8 +17,12 @@ export function formatBytes(bytes: number, decimals = 2): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
-export function formatDate(date: string | Date, options?: Intl.DateTimeFormatOptions): string {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
+export function formatDate(date: string | Date | number, options?: Intl.DateTimeFormatOptions): string {
+  const dateObj = typeof date === 'string' 
+    ? new Date(date) 
+    : typeof date === 'number'
+    ? new Date(date * 1000) // Assume Unix timestamp
+    : date;
 
   const defaultOptions: Intl.DateTimeFormatOptions = {
     year: 'numeric',
@@ -114,7 +118,7 @@ export function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number
 ): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout;
+  let timeout: ReturnType<typeof setTimeout>;
   return (...args: Parameters<T>) => {
     clearTimeout(timeout);
     timeout = setTimeout(() => func(...args), wait);

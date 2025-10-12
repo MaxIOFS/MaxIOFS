@@ -15,16 +15,17 @@ import {
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
+import type { StorageMetrics, SystemMetrics } from '@/types';
 
 export default function MetricsPage() {
   // Fetch storage metrics from backend
-  const { data: storageMetricsData, isLoading: storageLoading } = useQuery({
+  const { data: storageMetricsData, isLoading: storageLoading } = useQuery<StorageMetrics>({
     queryKey: ['storageMetrics'],
     queryFn: APIClient.getStorageMetrics,
   });
 
   // Fetch system metrics from backend
-  const { data: systemMetricsData, isLoading: systemLoading } = useQuery({
+  const { data: systemMetricsData, isLoading: systemLoading } = useQuery<SystemMetrics>({
     queryKey: ['systemMetrics'],
     queryFn: APIClient.getSystemMetrics,
   });
@@ -32,8 +33,8 @@ export default function MetricsPage() {
   const isLoading = storageLoading || systemLoading;
 
   // Parse backend metrics
-  const storageMetrics = storageMetricsData || {};
-  const systemMetrics = systemMetricsData || {};
+  const storageMetrics = storageMetricsData || {} as StorageMetrics;
+  const systemMetrics = systemMetricsData || {} as SystemMetrics;
 
   // Helper to format uptime from seconds
   const formatUptime = (seconds: number) => {
@@ -51,32 +52,30 @@ export default function MetricsPage() {
   // Build display metrics from backend data
   const displayMetrics = {
     system: {
-      uptime: formatUptime(systemMetrics.uptime_seconds || 0),
-      cpu: systemMetrics.cpu_percent || 0,
-      memory: systemMetrics.memory?.used_percent || 0,
-      disk: systemMetrics.disk?.used_percent || 0,
+      uptime: formatUptime(systemMetrics.timestamp ? (Date.now() / 1000 - systemMetrics.timestamp) : 0),
+      cpu: systemMetrics.cpuUsagePercent || 0,
+      memory: systemMetrics.memoryUsagePercent || 0,
+      disk: systemMetrics.diskUsagePercent || 0,
       network: 0
     },
     storage: {
-      totalSize: (storageMetrics.total_buckets || 0) * 100 * 1024 * 1024, // Estimate
-      usedSize: storageMetrics.total_size || 0,
-      objects: storageMetrics.total_objects || 0,
-      buckets: storageMetrics.total_buckets || 0,
-      averageObjectSize: storageMetrics.total_objects > 0
-        ? (storageMetrics.total_size || 0) / storageMetrics.total_objects
-        : 0
+      totalSize: (storageMetrics.totalBuckets || 0) * 100 * 1024 * 1024, // Estimate
+      usedSize: storageMetrics.totalSize || 0,
+      objects: storageMetrics.totalObjects || 0,
+      buckets: storageMetrics.totalBuckets || 0,
+      averageObjectSize: storageMetrics.averageObjectSize || 0
     },
     requests: {
-      totalRequests: systemMetrics.requests?.total_requests || 0,
-      totalErrors: systemMetrics.requests?.total_errors || 0,
-      avgLatency: systemMetrics.requests?.average_latency_ms || 0,
-      requestsPerSec: systemMetrics.requests?.requests_per_sec || 0
+      totalRequests: 0,
+      totalErrors: 0,
+      avgLatency: 0,
+      requestsPerSec: 0
     },
     performance: {
-      uptime: systemMetrics.performance?.uptime_seconds || 0,
-      goRoutines: systemMetrics.performance?.goroutines || 0,
-      heapAllocMB: systemMetrics.performance?.heap_alloc_mb || 0,
-      gcRuns: systemMetrics.performance?.gc_runs || 0
+      uptime: 0,
+      goRoutines: 0,
+      heapAllocMB: 0,
+      gcRuns: 0
     }
   };
 
@@ -149,7 +148,7 @@ export default function MetricsPage() {
             <CardContent>
               <div className="text-2xl font-bold">{displayMetrics.system.memory.toFixed(2)}%</div>
               <p className="text-xs text-muted-foreground mt-1">
-                {formatBytes(systemMetrics.memory?.used_bytes || 0)} / {formatBytes(systemMetrics.memory?.total_bytes || 0)}
+                {formatBytes(systemMetrics.memoryUsedBytes || 0)} / {formatBytes(systemMetrics.memoryTotalBytes || 0)}
               </p>
               <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
                 <div
@@ -168,7 +167,7 @@ export default function MetricsPage() {
             <CardContent>
               <div className="text-2xl font-bold">{displayMetrics.system.disk.toFixed(2)}%</div>
               <p className="text-xs text-muted-foreground mt-1">
-                {formatBytes(systemMetrics.disk?.used_bytes || 0)} / {formatBytes(systemMetrics.disk?.total_bytes || 0)}
+                {formatBytes(systemMetrics.diskUsedBytes || 0)} / {formatBytes(systemMetrics.diskTotalBytes || 0)}
               </p>
               <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
                 <div

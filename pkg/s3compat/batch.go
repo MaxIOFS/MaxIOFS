@@ -93,6 +93,8 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	bucketPath := h.getBucketPath(r, bucketName)
+
 	// Parse XML request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -149,7 +151,7 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 			semaphore <- struct{}{}        // Acquire
 			defer func() { <-semaphore }() // Release
 
-			err := h.objectManager.DeleteObject(ctx, bucketName, obj.Key)
+			err := h.objectManager.DeleteObject(ctx, bucketPath, obj.Key)
 			resultChan <- deleteResult{
 				obj:     obj,
 				err:     err,
@@ -222,6 +224,8 @@ func (h *Handler) CopyObjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	targetBucketPath := h.getBucketPath(r, targetBucket)
+
 	// Parse JSON request body
 	var copyRequest CopyObjectsRequest
 	if err := parseJSONBody(r, &copyRequest); err != nil {
@@ -267,8 +271,9 @@ func (h *Handler) CopyObjects(w http.ResponseWriter, r *http.Request) {
 			destKey = copyRequest.Destinations[i]
 		}
 
+		sourceBucketPath := h.getBucketPath(r, source.Bucket)
 		// Perform copy operation
-		err := h.copyObject(ctx, source.Bucket, source.Key, targetBucket, destKey, copyRequest.Metadata)
+		err := h.copyObject(ctx, sourceBucketPath, source.Key, targetBucketPath, destKey, copyRequest.Metadata)
 		if err != nil {
 			result.Failed = append(result.Failed, CopyFailure{
 				SourceKey: fmt.Sprintf("%s/%s", source.Bucket, source.Key),
@@ -278,7 +283,7 @@ func (h *Handler) CopyObjects(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Get ETag of copied object
-		obj, err := h.objectManager.GetObjectMetadata(ctx, targetBucket, destKey)
+		obj, err := h.objectManager.GetObjectMetadata(ctx, targetBucketPath, destKey)
 		etag := ""
 		if err == nil && obj != nil {
 			etag = obj.ETag
@@ -303,9 +308,9 @@ func (h *Handler) CopyObjects(w http.ResponseWriter, r *http.Request) {
 }
 
 // copyObject is a helper function to copy a single object
-func (h *Handler) copyObject(ctx context.Context, sourceBucket, sourceKey, destBucket, destKey string, metadata map[string]string) error {
+func (h *Handler) copyObject(ctx context.Context, sourceBucketPath, sourceKey, destBucketPath, destKey string, metadata map[string]string) error {
 	// Get source object
-	obj, reader, err := h.objectManager.GetObject(ctx, sourceBucket, sourceKey)
+	obj, reader, err := h.objectManager.GetObject(ctx, sourceBucketPath, sourceKey)
 	if err != nil {
 		return fmt.Errorf("failed to get source object: %w", err)
 	}
@@ -338,7 +343,7 @@ func (h *Handler) copyObject(ctx context.Context, sourceBucket, sourceKey, destB
 	}
 
 	// Put object to destination
-	_, err = h.objectManager.PutObject(ctx, destBucket, destKey, strings.NewReader(string(data)), destHeaders)
+	_, err = h.objectManager.PutObject(ctx, destBucketPath, destKey, strings.NewReader(string(data)), destHeaders)
 	if err != nil {
 		return fmt.Errorf("failed to put destination object: %w", err)
 	}

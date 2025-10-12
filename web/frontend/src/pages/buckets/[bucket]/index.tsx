@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useRouter } from 'next/router';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -35,8 +35,8 @@ import SweetAlert from '@/lib/sweetalert';
 import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 
 export default function BucketDetailsPage() {
-  const router = useRouter();
-  const { bucket } = router.query;
+  const { bucket } = useParams<{ bucket: string }>();
+  const navigate = useNavigate();
   const bucketName = bucket as string;
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPrefix, setCurrentPrefix] = useState('');
@@ -723,7 +723,7 @@ export default function BucketDetailsPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => router.push('/buckets')}
+            onClick={() => navigate('/buckets')}
             className="gap-2"
           >
             <ArrowLeftIcon className="h-4 w-4" />
@@ -1001,10 +1001,9 @@ export default function BucketDetailsPage() {
                             <FileIcon className="h-4 w-4 text-muted-foreground" />
                             <span>{getDisplayName(item)}</span>
                             {sharesMap[item.key] && (
-                              <Share2Icon
-                                className="h-4 w-4 text-green-600"
-                                title="This object is shared"
-                              />
+                              <span title="This object is shared">
+                                <Share2Icon className="h-4 w-4 text-green-600" />
+                              </span>
                             )}
                           </>
                         )}

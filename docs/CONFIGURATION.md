@@ -1,244 +1,55 @@
-# MaxIOFS Configuration Guide
+# MaxIOFS Configuration
 
-## Overview
+**Version**: 0.2.0-dev
 
-MaxIOFS can be configured through:
-1. Command-line flags
-2. Configuration file (YAML)
-3. Environment variables
+## Configuration Methods
 
-Configuration precedence (highest to lowest):
-1. Command-line flags
-2. Environment variables
-3. Configuration file
-4. Default values
+MaxIOFS can be configured in three ways (in order of precedence):
+
+1. **Command-line flags** (highest priority)
+2. **Environment variables** (`MAXIOFS_*`)
+3. **Default values**
+
+*Note: Configuration file support is planned but not yet implemented in alpha.*
 
 ---
 
 ## Command-Line Flags
 
-### Basic Options
-
 ```bash
-maxiofs [flags]
+maxiofs [options]
 
-Flags:
-  --config string         Path to configuration file (default: ./config.yaml)
-  --data-dir string       Data directory path (default: ./data)
-  --log-level string      Log level: debug, info, warn, error (default: info)
-  --s3-port int          S3 API port (default: 8080)
-  --console-port int     Console API port (default: 8081)
-  --version              Show version information
-  --help                 Show help message
+Options:
+  --data-dir string       Data directory (REQUIRED)
+  --listen string         S3 API address (default ":8080")
+  --console-listen string Console API address (default ":8081")
+  --log-level string      Log level: debug, info, warn, error (default "info")
+  --tls-cert string       TLS certificate file (optional)
+  --tls-key string        TLS private key file (optional)
+  --version               Show version information
+  --help                  Show help
 ```
 
 ### Examples
 
+**Basic usage:**
 ```bash
-# Basic usage
-./maxiofs --data-dir /var/lib/maxiofs --log-level info
-
-# With config file
-./maxiofs --config /etc/maxiofs/config.yaml
-
-# Custom ports
-./maxiofs --s3-port 9000 --console-port 9001
-
-# Debug mode
-./maxiofs --log-level debug
+./maxiofs --data-dir ./data
 ```
 
----
-
-## Configuration File
-
-### Full Configuration Example
-
-Create `config.yaml`:
-
-```yaml
-# Server Configuration
-server:
-  # S3 API server port
-  s3_port: 8080
-
-  # Console API server port
-  console_port: 8081
-
-  # Data directory for objects and metadata
-  data_dir: ./data
-
-  # Log level: debug, info, warn, error
-  log_level: info
-
-  # Enable structured JSON logging
-  json_logs: false
-
-  # Server timeouts
-  read_timeout: 60s
-  write_timeout: 60s
-  idle_timeout: 120s
-
-# Security Configuration
-security:
-  # JWT secret for token signing (CHANGE THIS!)
-  jwt_secret: "change-this-to-a-random-32-character-string"
-
-  # JWT token expiration (seconds)
-  token_expiration: 3600  # 1 hour
-
-  # Session timeout (seconds)
-  session_timeout: 3600
-
-  # Enable HTTPS/TLS
-  tls_enabled: false
-
-  # TLS certificate paths (if tls_enabled: true)
-  tls_cert: /path/to/cert.pem
-  tls_key: /path/to/key.pem
-
-# Rate Limiting Configuration
-rate_limit:
-  # Enable rate limiting
-  enabled: true
-
-  # Maximum login attempts per minute per IP
-  login_attempts: 5
-
-  # Account lockout duration after failed attempts (seconds)
-  lockout_duration: 900  # 15 minutes
-
-  # Maximum failed attempts before lockout
-  max_failed_attempts: 5
-
-# Storage Configuration
-storage:
-  # Storage backend type: filesystem (more planned: s3, gcs, azure)
-  backend: filesystem
-
-  # Filesystem backend path
-  path: ./data/objects
-
-  # Enable compression for objects
-  compression: true
-
-  # Enable encryption for objects
-  encryption: true
-
-  # Encryption algorithm: aes-256-gcm
-  encryption_algorithm: aes-256-gcm
-
-# Database Configuration
-database:
-  # SQLite database path
-  path: ./data/maxiofs.db
-
-  # Enable WAL mode for better concurrency
-  wal_mode: true
-
-  # Connection pool size
-  max_connections: 25
-
-  # Busy timeout (milliseconds)
-  busy_timeout: 5000
-
-# Monitoring Configuration
-monitoring:
-  # Enable Prometheus metrics
-  prometheus_enabled: true
-
-  # Prometheus metrics port
-  metrics_port: 9090
-
-  # Enable request logging
-  request_logging: true
-
-  # Enable audit logging
-  audit_logging: true
-
-  # Audit log path
-  audit_log_path: ./data/audit.log
-
-# CORS Configuration (for S3 API external clients)
-cors:
-  # Enable CORS
-  enabled: true
-
-  # Allowed origins (use ["*"] for development only!)
-  allowed_origins:
-    - "https://yourdomain.com"
-    - "https://console.yourdomain.com"
-
-  # Allowed methods
-  allowed_methods:
-    - GET
-    - POST
-    - PUT
-    - DELETE
-    - HEAD
-
-  # Allowed headers
-  allowed_headers:
-    - Authorization
-    - Content-Type
-    - X-Amz-*
-
-  # Max age for preflight cache (seconds)
-  max_age: 3600
-
-# Multi-Tenancy Configuration
-multi_tenancy:
-  # Enable multi-tenancy
-  enabled: true
-
-  # Default quotas for new tenants
-  default_max_storage_bytes: 107374182400  # 100 GB
-  default_max_buckets: 100
-  default_max_access_keys: 50
-
-# Object Lock Configuration
-object_lock:
-  # Enable Object Lock / WORM
-  enabled: true
-
-  # Default retention mode: GOVERNANCE or COMPLIANCE
-  default_mode: GOVERNANCE
-
-  # Default retention days (0 = no default)
-  default_retention_days: 0
-
-# Advanced Configuration
-advanced:
-  # Maximum multipart upload parts
-  max_multipart_parts: 10000
-
-  # Minimum multipart part size (bytes)
-  min_part_size: 5242880  # 5 MB
-
-  # Maximum object size (bytes, 0 = unlimited)
-  max_object_size: 0
-
-  # Presigned URL expiration (seconds)
-  presigned_url_expiration: 3600
-
-  # Enable batch operations
-  batch_operations_enabled: true
-
-  # Maximum objects per batch operation
-  max_batch_size: 1000
+**Custom ports:**
+```bash
+./maxiofs --data-dir /var/lib/maxiofs --listen :9000 --console-listen :9001
 ```
 
-### Minimal Configuration
+**Debug logging:**
+```bash
+./maxiofs --data-dir ./data --log-level debug
+```
 
-For quick start with defaults:
-
-```yaml
-server:
-  data_dir: ./data
-  log_level: info
-
-security:
-  jwt_secret: "your-secure-random-secret"
+**With TLS:**
+```bash
+./maxiofs --data-dir ./data --tls-cert cert.pem --tls-key key.pem
 ```
 
 ---
@@ -247,413 +58,273 @@ security:
 
 All configuration options can be set via environment variables using the `MAXIOFS_` prefix.
 
-### Naming Convention
+### Variable Names
 
-Configuration path → Environment variable:
-- `server.s3_port` → `MAXIOFS_SERVER_S3_PORT`
-- `security.jwt_secret` → `MAXIOFS_SECURITY_JWT_SECRET`
-- `rate_limit.enabled` → `MAXIOFS_RATE_LIMIT_ENABLED`
+Command-line flag → Environment variable:
+- `--data-dir` → `MAXIOFS_DATA_DIR`
+- `--listen` → `MAXIOFS_LISTEN`
+- `--console-listen` → `MAXIOFS_CONSOLE_LISTEN`
+- `--log-level` → `MAXIOFS_LOG_LEVEL`
+- `--tls-cert` → `MAXIOFS_TLS_CERT`
+- `--tls-key` → `MAXIOFS_TLS_KEY`
 
-### Common Environment Variables
+### Example
 
 ```bash
-# Server
-export MAXIOFS_SERVER_S3_PORT=8080
-export MAXIOFS_SERVER_CONSOLE_PORT=8081
-export MAXIOFS_SERVER_DATA_DIR=/var/lib/maxiofs
-export MAXIOFS_SERVER_LOG_LEVEL=info
+export MAXIOFS_DATA_DIR=/var/lib/maxiofs
+export MAXIOFS_LISTEN=:8080
+export MAXIOFS_CONSOLE_LISTEN=:8081
+export MAXIOFS_LOG_LEVEL=info
 
-# Security
-export MAXIOFS_SECURITY_JWT_SECRET="your-secret-here"
-export MAXIOFS_SECURITY_TOKEN_EXPIRATION=3600
-
-# Rate Limiting
-export MAXIOFS_RATE_LIMIT_ENABLED=true
-export MAXIOFS_RATE_LIMIT_LOGIN_ATTEMPTS=5
-
-# Storage
-export MAXIOFS_STORAGE_BACKEND=filesystem
-export MAXIOFS_STORAGE_PATH=/var/lib/maxiofs/objects
-
-# Monitoring
-export MAXIOFS_MONITORING_PROMETHEUS_ENABLED=true
-export MAXIOFS_MONITORING_METRICS_PORT=9090
+./maxiofs
 ```
 
-### Docker Environment Variables
+### Docker
 
 ```yaml
 # docker-compose.yml
 services:
   maxiofs:
-    image: maxiofs/maxiofs:latest
+    image: maxiofs/maxiofs:1.1.0-alpha
     environment:
-      - MAXIOFS_SERVER_DATA_DIR=/data
-      - MAXIOFS_SERVER_LOG_LEVEL=info
-      - MAXIOFS_SECURITY_JWT_SECRET=${JWT_SECRET}
-      - MAXIOFS_RATE_LIMIT_ENABLED=true
-      - MAXIOFS_MONITORING_PROMETHEUS_ENABLED=true
+      - MAXIOFS_DATA_DIR=/data
+      - MAXIOFS_LOG_LEVEL=info
+    ports:
+      - "8080:8080"
+      - "8081:8081"
     volumes:
       - ./data:/data
 ```
 
 ---
 
-## Configuration Sections
+## Configuration Options
 
-### Server Configuration
+### Data Directory
 
-Controls server behavior, ports, and timeouts.
+**Flag**: `--data-dir`
+**Environment**: `MAXIOFS_DATA_DIR`
+**Required**: Yes
+**Default**: None
 
-```yaml
-server:
-  s3_port: 8080              # S3 API port
-  console_port: 8081         # Web console port
-  data_dir: ./data           # Data directory
-  log_level: info            # Log verbosity
-  json_logs: false           # JSON log format
-  read_timeout: 60s          # HTTP read timeout
-  write_timeout: 60s         # HTTP write timeout
-  idle_timeout: 120s         # HTTP idle timeout
+The data directory stores all MaxIOFS data:
+- `{data-dir}/maxiofs.db` - SQLite metadata database
+- `{data-dir}/objects/` - Object storage
+
+**Example structure:**
 ```
-
-**Recommendations:**
-- Production: `log_level: info`, `json_logs: true`
-- Development: `log_level: debug`, `json_logs: false`
-
-### Security Configuration
-
-Authentication, authorization, and encryption settings.
-
-```yaml
-security:
-  jwt_secret: "CHANGE-ME"    # JWT signing secret (32+ chars)
-  token_expiration: 3600     # Token lifetime (seconds)
-  session_timeout: 3600      # Session timeout
-  tls_enabled: false         # Enable HTTPS
-  tls_cert: /path/cert.pem   # TLS certificate
-  tls_key: /path/key.pem     # TLS private key
-```
-
-**Security Best Practices:**
-- Generate strong JWT secret: `openssl rand -base64 32`
-- Enable TLS in production
-- Use short token expiration (1-4 hours)
-- Rotate JWT secret periodically
-
-### Rate Limiting
-
-Protect against brute force attacks.
-
-```yaml
-rate_limit:
-  enabled: true              # Enable rate limiting
-  login_attempts: 5          # Max attempts per minute
-  lockout_duration: 900      # Lockout time (seconds)
-  max_failed_attempts: 5     # Attempts before lockout
-```
-
-**Account Lockout Flow:**
-1. User fails login 5 times
-2. Account locked for 15 minutes
-3. Manual unlock by admin (optional)
-4. Auto-unlock after duration
-
-### Storage Configuration
-
-Storage backend and encryption settings.
-
-```yaml
-storage:
-  backend: filesystem        # Backend type
-  path: ./data/objects       # Storage path
-  compression: true          # Enable gzip compression
-  encryption: true           # Enable encryption
-  encryption_algorithm: aes-256-gcm
-```
-
-**Supported Backends:**
-- `filesystem` - Local filesystem (current)
-- `s3` - AWS S3 or compatible (planned)
-- `gcs` - Google Cloud Storage (planned)
-- `azure` - Azure Blob Storage (planned)
-
-### Database Configuration
-
-SQLite database settings.
-
-```yaml
-database:
-  path: ./data/maxiofs.db    # Database file path
-  wal_mode: true             # Write-Ahead Logging
-  max_connections: 25        # Connection pool size
-  busy_timeout: 5000         # Lock timeout (ms)
-```
-
-**Performance Tuning:**
-- Enable WAL mode for better concurrency
-- Increase `max_connections` for high load
-- Adjust `busy_timeout` for long operations
-
-### Monitoring Configuration
-
-Metrics, logging, and observability.
-
-```yaml
-monitoring:
-  prometheus_enabled: true   # Enable Prometheus metrics
-  metrics_port: 9090         # Metrics endpoint port
-  request_logging: true      # Log all requests
-  audit_logging: true        # Audit log for compliance
-  audit_log_path: ./audit.log
-```
-
-**Prometheus Metrics Endpoint:**
-```
-http://localhost:9090/metrics
-```
-
-### CORS Configuration
-
-Cross-Origin Resource Sharing for S3 API.
-
-```yaml
-cors:
-  enabled: true
-  allowed_origins:
-    - "https://app.yourdomain.com"
-  allowed_methods:
-    - GET
-    - PUT
-    - POST
-    - DELETE
-  allowed_headers:
-    - Authorization
-    - Content-Type
-  max_age: 3600
+/var/lib/maxiofs/
+├── maxiofs.db           # Metadata
+└── objects/             # Objects
+    ├── global/          # Global admin buckets
+    └── tenant-123/      # Tenant buckets
 ```
 
 **Important:**
-- Use specific origins in production
-- Never use `["*"]` in production
-- Console API doesn't need CORS (monolithic deployment)
+- Directory must be writable
+- Must persist across restarts
+- Backup regularly
 
-### Multi-Tenancy Configuration
+### Ports
 
-Tenant quotas and defaults.
+**S3 API Port**
+**Flag**: `--listen`
+**Environment**: `MAXIOFS_LISTEN`
+**Default**: `:8080`
 
-```yaml
-multi_tenancy:
-  enabled: true
-  default_max_storage_bytes: 107374182400  # 100 GB
-  default_max_buckets: 100
-  default_max_access_keys: 50
+Port for S3-compatible API.
+
+**Console Port**
+**Flag**: `--console-listen`
+**Environment**: `MAXIOFS_CONSOLE_LISTEN`
+**Default**: `:8081`
+
+Port for web console and console API.
+
+### Log Level
+
+**Flag**: `--log-level`
+**Environment**: `MAXIOFS_LOG_LEVEL`
+**Default**: `info`
+**Options**: `debug`, `info`, `warn`, `error`
+
+- `debug` - Verbose logging (development)
+- `info` - Normal logging (production)
+- `warn` - Warnings and errors only
+- `error` - Errors only
+
+### TLS/HTTPS
+
+**Certificate**
+**Flag**: `--tls-cert`
+**Environment**: `MAXIOFS_TLS_CERT`
+**Optional**: Yes
+
+Path to TLS certificate file (PEM format).
+
+**Private Key**
+**Flag**: `--tls-key`
+**Environment**: `MAXIOFS_TLS_KEY`
+**Optional**: Yes
+
+Path to TLS private key file (PEM format).
+
+**Example:**
+```bash
+./maxiofs --data-dir ./data \
+  --tls-cert /etc/maxiofs/cert.pem \
+  --tls-key /etc/maxiofs/key.pem
 ```
 
-**Quota Enforcement:**
-- Storage quota checked on upload
-- Bucket quota checked on creation
-- Access key quota checked on key creation
-
-### Object Lock Configuration
-
-WORM (Write Once Read Many) settings.
-
-```yaml
-object_lock:
-  enabled: true
-  default_mode: GOVERNANCE   # or COMPLIANCE
-  default_retention_days: 0  # 0 = no default
-```
-
-**Retention Modes:**
-- `GOVERNANCE` - Can be removed by privileged users
-- `COMPLIANCE` - Cannot be removed until expiry
+**Notes:**
+- Both cert and key must be provided together
+- Alternatively, use a reverse proxy (nginx/traefik) for TLS
+- Self-signed certificates work for testing
 
 ---
 
-## Configuration Validation
+## Default Credentials
 
-Validate configuration before starting:
+**Web Console:**
+- Username: `admin`
+- Password: `admin`
+
+**S3 API:**
+- Access Key: `maxioadmin`
+- Secret Key: `maxioadmin`
+
+**⚠️ IMPORTANT**: Change default credentials after first login!
+
+---
+
+## Storage Paths
+
+### Object Storage
+
+Objects are stored in the filesystem:
+
+```
+{data-dir}/objects/{tenant-id}/{bucket-name}/{object-key}
+```
+
+**Examples:**
+- Global bucket: `./data/objects/global/my-bucket/file.txt`
+- Tenant bucket: `./data/objects/tenant-123/backup/file.bin`
+
+### Metadata Database
+
+SQLite database at:
+```
+{data-dir}/maxiofs.db
+```
+
+Contains:
+- Users and credentials (bcrypt hashed)
+- Tenants and quotas
+- Buckets metadata
+- Access keys
+- Object metadata
+
+---
+
+## Production Recommendations
+
+### Basic Setup
 
 ```bash
-maxiofs --config config.yaml --validate
+# 1. Create data directory
+mkdir -p /var/lib/maxiofs
+chown maxiofs:maxiofs /var/lib/maxiofs
+chmod 750 /var/lib/maxiofs
+
+# 2. Run MaxIOFS
+./maxiofs --data-dir /var/lib/maxiofs --log-level info
 ```
 
-Output:
+### With Systemd
+
+```ini
+# /etc/systemd/system/maxiofs.service
+[Unit]
+Description=MaxIOFS Object Storage
+After=network.target
+
+[Service]
+Type=simple
+User=maxiofs
+Group=maxiofs
+ExecStart=/usr/local/bin/maxiofs --data-dir /var/lib/maxiofs --log-level info
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
 ```
-✓ Configuration is valid
-  - Server ports: 8080 (S3), 8081 (Console)
-  - Data directory: ./data (writable)
-  - JWT secret: configured (32 characters)
-  - Rate limiting: enabled
-  - Storage backend: filesystem
-```
-
----
-
-## Configuration Templates
-
-### Production Template
-
-```yaml
-server:
-  s3_port: 8080
-  console_port: 8081
-  data_dir: /var/lib/maxiofs
-  log_level: info
-  json_logs: true
-  read_timeout: 60s
-  write_timeout: 300s
-
-security:
-  jwt_secret: "${JWT_SECRET}"  # From environment
-  token_expiration: 3600
-  tls_enabled: false  # Use reverse proxy instead
-
-rate_limit:
-  enabled: true
-  login_attempts: 5
-  lockout_duration: 900
-
-storage:
-  backend: filesystem
-  path: /var/lib/maxiofs/objects
-  compression: true
-  encryption: true
-
-monitoring:
-  prometheus_enabled: true
-  metrics_port: 9090
-  audit_logging: true
-  audit_log_path: /var/log/maxiofs/audit.log
-```
-
-### Development Template
-
-```yaml
-server:
-  data_dir: ./data
-  log_level: debug
-  json_logs: false
-
-security:
-  jwt_secret: "dev-secret-do-not-use-in-production"
-  token_expiration: 86400  # 24 hours for dev
-
-rate_limit:
-  enabled: false  # Disable for development
-
-cors:
-  enabled: true
-  allowed_origins: ["*"]  # OK for development
-```
-
-### Docker Template
-
-```yaml
-server:
-  s3_port: 8080
-  console_port: 8081
-  data_dir: /data
-  log_level: info
-  json_logs: true
-
-security:
-  jwt_secret: "${JWT_SECRET}"
-
-monitoring:
-  prometheus_enabled: true
-```
-
----
-
-## Secrets Management
-
-### Using Environment Variables
 
 ```bash
-# .env file
-JWT_SECRET=$(openssl rand -base64 32)
+# Start service
+systemctl daemon-reload
+systemctl enable maxiofs
+systemctl start maxiofs
 ```
 
-Load in shell:
+### With Docker
+
 ```bash
-export $(cat .env | xargs)
-./maxiofs --config config.yaml
+docker run -d \
+  --name maxiofs \
+  -p 8080:8080 \
+  -p 8081:8081 \
+  -v /var/lib/maxiofs:/data \
+  -e MAXIOFS_DATA_DIR=/data \
+  -e MAXIOFS_LOG_LEVEL=info \
+  maxiofs/maxiofs:1.1.0-alpha
 ```
 
-### Using Docker Secrets
+### With Reverse Proxy (nginx)
 
-```yaml
-# docker-compose.yml
-services:
-  maxiofs:
-    image: maxiofs/maxiofs:latest
-    secrets:
-      - jwt_secret
-    environment:
-      - MAXIOFS_SECURITY_JWT_SECRET_FILE=/run/secrets/jwt_secret
+```nginx
+# nginx.conf
+server {
+    listen 443 ssl http2;
+    server_name maxiofs.example.com;
 
-secrets:
-  jwt_secret:
-    file: ./secrets/jwt_secret.txt
+    ssl_certificate /etc/ssl/cert.pem;
+    ssl_certificate_key /etc/ssl/key.pem;
+
+    # Web Console
+    location / {
+        proxy_pass http://localhost:8081;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # S3 API
+    location /s3/ {
+        rewrite ^/s3/(.*) /$1 break;
+        proxy_pass http://localhost:8080;
+        proxy_set_header Host $host;
+    }
+}
 ```
 
-### Using Kubernetes Secrets
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: maxiofs-secrets
-type: Opaque
-data:
-  jwt-secret: <base64-encoded-secret>
 ---
-apiVersion: apps/v1
-kind: Deployment
-spec:
-  template:
-    spec:
-      containers:
-      - name: maxiofs
-        env:
-        - name: MAXIOFS_SECURITY_JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: maxiofs-secrets
-              key: jwt-secret
-```
+
+## Security Best Practices
+
+1. **Change default credentials** immediately after first login
+2. **Use HTTPS** (TLS or reverse proxy)
+3. **Restrict network access** (firewall rules)
+4. **Backup data directory** regularly
+5. **Use strong passwords** for all users
+6. **Monitor logs** for suspicious activity
+7. **Keep MaxIOFS updated** to latest stable version
 
 ---
 
 ## Troubleshooting
 
-### Configuration Not Loading
-
-```bash
-# Check file path
-ls -la /etc/maxiofs/config.yaml
-
-# Validate YAML syntax
-yamllint config.yaml
-
-# Test with explicit path
-./maxiofs --config /etc/maxiofs/config.yaml
-```
-
-### Environment Variables Not Working
-
-```bash
-# Verify variables are set
-env | grep MAXIOFS
-
-# Check precedence (env vars override config file)
-./maxiofs --config config.yaml  # Env vars will still apply
-```
-
-### Permission Errors
+### Permission Denied
 
 ```bash
 # Check data directory permissions
@@ -664,37 +335,57 @@ chown -R maxiofs:maxiofs /var/lib/maxiofs
 chmod 750 /var/lib/maxiofs
 ```
 
+### Port Already in Use
+
+```bash
+# Check what's using the port
+netstat -tuln | grep 8080
+
+# Use different port
+./maxiofs --data-dir ./data --listen :9000
+```
+
+### Cannot Connect
+
+```bash
+# Check if MaxIOFS is running
+ps aux | grep maxiofs
+
+# Check logs
+./maxiofs --data-dir ./data --log-level debug
+```
+
+### Database Locked
+
+```bash
+# Check for stale processes
+ps aux | grep maxiofs
+
+# Kill stale processes
+killall maxiofs
+
+# Restart MaxIOFS
+./maxiofs --data-dir ./data
+```
+
 ---
 
-## Best Practices
+## What's Not Configurable Yet (Alpha)
 
-1. **Always change default secrets** in production
-2. **Use environment variables** for sensitive data
-3. **Enable audit logging** for compliance
-4. **Configure rate limiting** to prevent abuse
-5. **Use TLS/HTTPS** or reverse proxy in production
-6. **Regular backups** of data directory and database
-7. **Monitor metrics** via Prometheus
-8. **Validate configuration** before deployment
-9. **Use JSON logs** for production (easier parsing)
-10. **Set appropriate timeouts** for your use case
+These features are planned but not yet configurable:
+
+- ❌ JWT token expiration
+- ❌ Rate limiting thresholds
+- ❌ Tenant default quotas
+- ❌ Compression settings
+- ❌ Encryption at rest
+- ❌ Audit logging
+- ❌ Prometheus metrics port
+- ❌ CORS settings
+- ❌ Session timeouts
+
+See [TODO.md](../TODO.md) for roadmap.
 
 ---
 
-## Configuration Reference
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `server.s3_port` | int | 8080 | S3 API port |
-| `server.console_port` | int | 8081 | Console port |
-| `server.data_dir` | string | ./data | Data directory |
-| `server.log_level` | string | info | Log level |
-| `security.jwt_secret` | string | - | JWT secret (required) |
-| `security.token_expiration` | int | 3600 | Token lifetime (seconds) |
-| `rate_limit.enabled` | bool | true | Enable rate limiting |
-| `rate_limit.login_attempts` | int | 5 | Max attempts/minute |
-| `storage.backend` | string | filesystem | Storage backend |
-| `storage.compression` | bool | true | Enable compression |
-| `monitoring.prometheus_enabled` | bool | true | Enable metrics |
-
-For complete reference, see the full configuration example above.
+**Note**: This is an alpha release. Configuration options may change without notice.

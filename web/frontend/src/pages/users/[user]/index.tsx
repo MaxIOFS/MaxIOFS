@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -37,9 +37,13 @@ import { APIClient } from '@/lib/api';
 import { User as UserType, AccessKey, EditUserForm } from '@/types';
 
 export default function UserDetailsPage() {
-  const router = useRouter();
-  const { user } = router.query;
+  const { user } = useParams<{ user: string }>();
+  const navigate = useNavigate();
   const userId = user as string;
+  
+  // Debug: Log to verify this component is rendering
+  console.log('UserDetailsPage rendering with userId:', userId);
+  
   const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
   const [isCreateKeyModalOpen, setIsCreateKeyModalOpen] = useState(false);
   const [editForm, setEditForm] = useState<EditUserForm>({
@@ -63,12 +67,14 @@ export default function UserDetailsPage() {
   const { data: userData, isLoading: userLoading } = useQuery({
     queryKey: ['user', userId],
     queryFn: () => APIClient.getUser(userId),
+    enabled: !!userId, // Only fetch when userId is available
   });
 
   // Fetch access keys
   const { data: accessKeys, isLoading: keysLoading } = useQuery({
     queryKey: ['accessKeys', userId],
     queryFn: () => APIClient.getUserAccessKeys(userId),
+    enabled: !!userId, // Only fetch when userId is available
   });
 
   // Fetch tenants for assignment
@@ -95,17 +101,7 @@ export default function UserDetailsPage() {
     mutationFn: () => APIClient.createAccessKey({ userId }),
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['accessKeys', userId] });
-      // Transform backend response to match expected format
-      const transformedKey: AccessKey = {
-        id: response.id || response.access_key_id || response.accessKey,
-        accessKey: response.id || response.access_key_id || response.accessKey,
-        secretKey: response.secret || response.secret_access_key || response.secretKey,
-        userId: response.userId || response.user_id,
-        status: response.status || 'active',
-        permissions: [],
-        createdAt: response.createdAt || response.created_at || Date.now() / 1000,
-      };
-      setCreatedKey(transformedKey);
+      setCreatedKey(response);
       setIsCreateKeyModalOpen(false);
       setNewKeyName('');
       SweetAlert.toast('success', 'Access key created successfully');
@@ -262,6 +258,15 @@ export default function UserDetailsPage() {
       minute: '2-digit',
     });
   };
+
+  // Check if userId exists
+  if (!userId) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loading size="lg" />
+      </div>
+    );
+  }
 
   if (userLoading) {
     return (
