@@ -65,8 +65,8 @@ export default function BucketDetailsPage() {
   });
 
   const { data: sharesMap = {}, isLoading: sharesLoading } = useQuery({
-    queryKey: ['shares', bucketName],
-    queryFn: () => APIClient.getBucketShares(bucketName),
+    queryKey: ['shares', bucketName, tenantId],
+    queryFn: () => APIClient.getBucketShares(bucketName, tenantId),
   });
 
   const uploadMutation = useMutation({
@@ -160,7 +160,7 @@ export default function BucketDetailsPage() {
   const deleteShareMutation = useMutation({
     mutationFn: ({ bucket, key }: { bucket: string; key: string }) => APIClient.deleteShare(bucket, key, tenantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['shares', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['shares', bucketName, tenantId] });
       SweetAlert.toast('success', 'Share deleted successfully');
     },
     onError: (error: any) => {
@@ -460,7 +460,7 @@ export default function BucketDetailsPage() {
       const shareData = await APIClient.shareObject(bucketName, key, expiresIn, tenantId);
 
       // Refresh shares list
-      queryClient.invalidateQueries({ queryKey: ['shares', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['shares', bucketName, tenantId] });
 
       // Close loading indicator
       SweetAlert.close();

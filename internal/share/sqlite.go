@@ -257,17 +257,17 @@ func (s *SQLiteStore) ListShares(ctx context.Context, userID string) ([]*Share, 
 	return shares, rows.Err()
 }
 
-// ListBucketShares lists all shares for a bucket
-func (s *SQLiteStore) ListBucketShares(ctx context.Context, bucketName string) ([]*Share, error) {
+// ListBucketShares lists all shares for a bucket and tenant
+func (s *SQLiteStore) ListBucketShares(ctx context.Context, bucketName, tenantID string) ([]*Share, error) {
 	query := `
 		SELECT id, bucket_name, object_key, tenant_id, access_key_id, secret_key, share_token, expires_at, created_at, created_by
 		FROM shares
-		WHERE bucket_name = ?
+		WHERE bucket_name = ? AND tenant_id = ?
 		AND (expires_at IS NULL OR expires_at > ?)
 		ORDER BY created_at DESC
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, bucketName, time.Now().UTC().Unix())
+	rows, err := s.db.QueryContext(ctx, query, bucketName, tenantID, time.Now().UTC().Unix())
 	if err != nil {
 		return nil, err
 	}

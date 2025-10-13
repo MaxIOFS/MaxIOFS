@@ -17,7 +17,7 @@ type Manager interface {
 	GetShareByToken(ctx context.Context, shareToken string) (*Share, error)
 	GetShareByObject(ctx context.Context, bucketName, objectKey, tenantID string) (*Share, error)
 	ListShares(ctx context.Context, userID string) ([]*Share, error)
-	ListBucketShares(ctx context.Context, bucketName string) ([]*Share, error)
+	ListBucketShares(ctx context.Context, bucketName, tenantID string) ([]*Share, error)
 	DeleteShare(ctx context.Context, shareID string) error
 	DeleteExpiredShares(ctx context.Context) error
 }
@@ -124,8 +124,8 @@ func (m *ShareManager) ListShares(ctx context.Context, userID string) ([]*Share,
 }
 
 // ListBucketShares lists all shares for a bucket
-func (m *ShareManager) ListBucketShares(ctx context.Context, bucketName string) ([]*Share, error) {
-	return m.store.ListBucketShares(ctx, bucketName)
+func (m *ShareManager) ListBucketShares(ctx context.Context, bucketName, tenantID string) ([]*Share, error) {
+	return m.store.ListBucketShares(ctx, bucketName, tenantID)
 }
 
 // DeleteShare deletes a share
