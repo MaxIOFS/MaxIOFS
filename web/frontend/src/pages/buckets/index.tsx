@@ -235,13 +235,17 @@ export default function BucketsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredBuckets.map((bucket) => (
-                  <TableRow key={bucket.name}>
+                {filteredBuckets.map((bucket) => {
+                  const tenantId = bucket.tenant_id || bucket.tenantId;
+                  const bucketPath = tenantId ? `/buckets/${tenantId}/${bucket.name}` : `/buckets/${bucket.name}`;
+
+                  return (
+                  <TableRow key={`${tenantId || 'global'}-${bucket.name}`}>
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         <Database className="h-4 w-4 text-muted-foreground" />
                         <Link
-                          to={`/buckets/${bucket.name}`}
+                          to={bucketPath}
                           className="hover:underline text-blue-600"
                         >
                           {bucket.name}
@@ -284,7 +288,7 @@ export default function BucketsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => navigate(`/buckets/${bucket.name}/settings`)}
+                          onClick={() => navigate(`${bucketPath}/settings`)}
                         >
                           <Settings className="h-4 w-4" />
                         </Button>
@@ -299,7 +303,8 @@ export default function BucketsPage() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}

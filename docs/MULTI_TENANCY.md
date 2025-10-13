@@ -65,6 +65,50 @@ MaxIOFS provides basic multi-tenancy with resource isolation and quota enforceme
 
 ## Resource Isolation
 
+### Tenant-Scoped Bucket Namespaces
+
+**Key Feature**: Each tenant has its own isolated bucket namespace.
+
+**What this means:**
+- Tenant A can create a bucket named "backups"
+- Tenant B can ALSO create a bucket named "backups"
+- Both buckets are completely isolated - no naming conflicts
+- Tenants cannot see or access other tenants' buckets
+
+**How it works:**
+
+```
+Physical Storage Structure:
+/data/objects/
+  ├── tenant-abc123/
+  │   ├── backups/          ← Tenant A's "backups" bucket
+  │   ├── archives/
+  │   └── logs/
+  ├── tenant-xyz789/
+  │   ├── backups/          ← Tenant B's "backups" bucket (same name!)
+  │   ├── media/
+  │   └── databases/
+  └── global-bucket/        ← Global admin bucket (no tenant prefix)
+
+Metadata Storage:
+.maxiofs/buckets/
+  ├── tenant-abc123/
+  │   ├── backups.json      ← Metadata for Tenant A's "backups"
+  │   ├── archives.json
+  │   └── logs.json
+  ├── tenant-xyz789/
+  │   ├── backups.json      ← Metadata for Tenant B's "backups"
+  │   ├── media.json
+  │   └── databases.json
+  └── global/
+      └── global-bucket.json
+```
+
+**S3 API Compatibility**: 100% transparent to clients
+- Client request: `GET /backups/file.txt` with tenant credentials
+- Backend resolves: `access_key` → `user` → `tenant_id` → `tenant-abc123/backups/file.txt`
+- Client never sees or needs to know about tenant prefixes
+
 ### Database Schema
 
 ```sql
@@ -89,10 +133,14 @@ CREATE TABLE users (
     FOREIGN KEY(tenant_id) REFERENCES tenants(id)
 );
 
--- Buckets with tenant FK
+-- Buckets with tenant_id (scoped per tenant)
 CREATE TABLE buckets (
-    name TEXT PRIMARY KEY,
-    tenant_id TEXT,
+    name TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    owner_id TEXT,
+    owner_type TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (tenant_id, name),  -- Unique within tenant
     FOREIGN KEY(tenant_id) REFERENCES tenants(id)
 );
 ```
@@ -100,8 +148,9 @@ CREATE TABLE buckets (
 ### API Filtering
 
 All endpoints automatically filter by tenant:
-- Global Admins see all
-- Tenant Admins/Users see only their tenant
+- Global Admins see all tenants' resources
+- Tenant Admins/Users see only their tenant's resources
+- Bucket names are scoped per tenant (same name allowed across tenants)
 
 ---
 

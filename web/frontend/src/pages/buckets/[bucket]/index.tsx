@@ -35,9 +35,10 @@ import SweetAlert from '@/lib/sweetalert';
 import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 
 export default function BucketDetailsPage() {
-  const { bucket } = useParams<{ bucket: string }>();
+  const { bucket, tenantId } = useParams<{ bucket: string; tenantId?: string }>();
   const navigate = useNavigate();
   const bucketName = bucket as string;
+  const bucketPath = tenantId ? `/buckets/${tenantId}/${bucketName}` : `/buckets/${bucketName}`;
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPrefix, setCurrentPrefix] = useState('');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -49,14 +50,15 @@ export default function BucketDetailsPage() {
   const queryClient = useQueryClient();
 
   const { data: bucketData, isLoading: bucketLoading } = useQuery({
-    queryKey: ['bucket', bucketName],
-    queryFn: () => APIClient.getBucket(bucketName),
+    queryKey: ['bucket', bucketName, tenantId],
+    queryFn: () => APIClient.getBucket(bucketName, tenantId || undefined),
   });
 
   const { data: objectsResponse, isLoading: objectsLoading } = useQuery({
-    queryKey: ['objects', bucketName, currentPrefix],
+    queryKey: ['objects', bucketName, currentPrefix, tenantId],
     queryFn: () => APIClient.getObjects({
       bucket: bucketName,
+      ...(tenantId && { tenantId }),
       prefix: currentPrefix,
       delimiter: '/', // This groups objects by folder
     }),
@@ -96,6 +98,7 @@ export default function BucketDetailsPage() {
 
       return APIClient.uploadObject({
         bucket: bucketName,
+        ...(tenantId && { tenantId }),
         key: folderKey,
         file: emptyFile,
       });
@@ -119,6 +122,7 @@ export default function BucketDetailsPage() {
         // Check if folder has objects
         const folderObjects = await APIClient.getObjects({
           bucket,
+          ...(tenantId && { tenantId }),
           prefix: key,
         });
 
@@ -141,7 +145,7 @@ export default function BucketDetailsPage() {
         }
       }
 
-      return APIClient.deleteObject(bucket, key);
+      return APIClient.deleteObject(bucket, key, tenantId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
@@ -229,6 +233,7 @@ export default function BucketDetailsPage() {
 
         await APIClient.uploadObject({
           bucket: bucketName,
+          ...(tenantId && { tenantId }),
           key,
           file,
         });
@@ -319,6 +324,7 @@ export default function BucketDetailsPage() {
 
       const blob = await APIClient.downloadObject({
         bucket: bucketName,
+        ...(tenantId && { tenantId }),
         key,
       });
 
@@ -590,7 +596,7 @@ export default function BucketDetailsPage() {
       SweetAlert.updateProgress(progress);
 
       try {
-        await APIClient.deleteObject(bucketName, key);
+        await APIClient.deleteObject(bucketName, key, tenantId);
         successCount++;
       } catch (error: any) {
         failCount++;
@@ -774,7 +780,7 @@ export default function BucketDetailsPage() {
           </Button>
           <Button
             variant="outline"
-            onClick={() => window.location.href = `/buckets/${bucketName}/settings`}
+            onClick={() => window.location.href = `${bucketPath}/settings`}
             className="gap-2"
           >
             <SettingsIcon className="h-4 w-4" />

@@ -12,7 +12,7 @@ import (
 
 // Manager handles share operations
 type Manager interface {
-	CreateShare(ctx context.Context, bucketName, objectKey, accessKeyID, secretKey, userID string, expiresIn *int64) (*Share, error)
+	CreateShare(ctx context.Context, bucketName, objectKey, tenantID, accessKeyID, secretKey, userID string, expiresIn *int64) (*Share, error)
 	GetShare(ctx context.Context, shareID string) (*Share, error)
 	GetShareByToken(ctx context.Context, shareToken string) (*Share, error)
 	GetShareByObject(ctx context.Context, bucketName, objectKey string) (*Share, error)
@@ -51,7 +51,7 @@ func NewManagerWithDB(dataDir string) (Manager, error) {
 }
 
 // CreateShare creates a new share for an object
-func (m *ShareManager) CreateShare(ctx context.Context, bucketName, objectKey, accessKeyID, secretKey, userID string, expiresIn *int64) (*Share, error) {
+func (m *ShareManager) CreateShare(ctx context.Context, bucketName, objectKey, tenantID, accessKeyID, secretKey, userID string, expiresIn *int64) (*Share, error) {
 	// Generate unique share token
 	token, err := generateShareToken()
 	if err != nil {
@@ -69,6 +69,7 @@ func (m *ShareManager) CreateShare(ctx context.Context, bucketName, objectKey, a
 		ID:          generateID(),
 		BucketName:  bucketName,
 		ObjectKey:   objectKey,
+		TenantID:    tenantID,
 		AccessKeyID: accessKeyID,
 		SecretKey:   secretKey,
 		ShareToken:  token,

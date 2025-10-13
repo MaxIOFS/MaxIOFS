@@ -324,8 +324,11 @@ export class APIClient {
     return response.data.data || [];
   }
 
-  static async getBucket(bucketName: string): Promise<Bucket> {
-    const response = await apiClient.get<APIResponse<Bucket>>(`/buckets/${bucketName}`);
+  static async getBucket(bucketName: string, tenantId?: string): Promise<Bucket> {
+    const url = tenantId
+      ? `/buckets/${bucketName}?tenantId=${encodeURIComponent(tenantId)}`
+      : `/buckets/${bucketName}`;
+    const response = await apiClient.get<APIResponse<Bucket>>(url);
     return response.data.data!;
   }
 
@@ -334,8 +337,11 @@ export class APIClient {
     return response.data.data!;
   }
 
-  static async deleteBucket(bucketName: string): Promise<void> {
-    await apiClient.delete(`/buckets/${bucketName}`);
+  static async deleteBucket(bucketName: string, tenantId?: string): Promise<void> {
+    const url = tenantId
+      ? `/buckets/${bucketName}?tenantId=${encodeURIComponent(tenantId)}`
+      : `/buckets/${bucketName}`;
+    await apiClient.delete(url);
   }
 
   static async updateBucketConfig(bucketName: string, config: EditBucketForm): Promise<Bucket> {
@@ -350,6 +356,7 @@ export class APIClient {
     if (request.delimiter) params.append('delimiter', request.delimiter);
     if (request.maxKeys) params.append('max_keys', request.maxKeys.toString());
     if (request.continuationToken) params.append('marker', request.continuationToken);
+    if (request.tenantId) params.append('tenantId', request.tenantId);
 
     const response = await apiClient.get<APIResponse<ListObjectsResponse>>(
       `/buckets/${request.bucket}/objects?${params.toString()}`
@@ -357,13 +364,18 @@ export class APIClient {
     return response.data.data!;
   }
 
-  static async getObject(bucket: string, key: string, versionId?: string): Promise<S3Object> {
-    const response = await apiClient.get<APIResponse<S3Object>>(`/buckets/${bucket}/objects/${key}`);
+  static async getObject(bucket: string, key: string, tenantId?: string, versionId?: string): Promise<S3Object> {
+    const url = tenantId
+      ? `/buckets/${bucket}/objects/${key}?tenantId=${encodeURIComponent(tenantId)}`
+      : `/buckets/${bucket}/objects/${key}`;
+    const response = await apiClient.get<APIResponse<S3Object>>(url);
     return response.data.data!;
   }
 
   static async uploadObject(request: UploadRequest): Promise<S3Object> {
-    const uploadUrl = `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}`;
+    const uploadUrl = request.tenantId
+      ? `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}?tenantId=${encodeURIComponent(request.tenantId)}`
+      : `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}`;
 
     // Read file as arrayBuffer for reliable transfer
     const fileBuffer = await request.file.arrayBuffer();
@@ -405,6 +417,10 @@ export class APIClient {
   }
 
   static async downloadObject(request: DownloadRequest): Promise<Blob> {
+    const url = request.tenantId
+      ? `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}?tenantId=${encodeURIComponent(request.tenantId)}`
+      : `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}`;
+
     const config = {
       responseType: 'blob' as const,
       headers: {
@@ -424,15 +440,15 @@ export class APIClient {
     };
 
     // Use API client with authentication instead of direct S3 client
-    const response = await apiClient.get<Blob>(
-      `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}`,
-      config
-    );
+    const response = await apiClient.get<Blob>(url, config);
     return response.data;
   }
 
-  static async deleteObject(bucket: string, key: string, versionId?: string): Promise<void> {
-    await apiClient.delete(`/buckets/${bucket}/objects/${key}`);
+  static async deleteObject(bucket: string, key: string, tenantId?: string, versionId?: string): Promise<void> {
+    const url = tenantId
+      ? `/buckets/${bucket}/objects/${key}?tenantId=${encodeURIComponent(tenantId)}`
+      : `/buckets/${bucket}/objects/${key}`;
+    await apiClient.delete(url);
   }
 
   static async shareObject(bucket: string, key: string, expiresIn: number | null = 3600): Promise<{ id: string; url: string; expiresAt?: string; createdAt: string; isExpired: boolean; existing: boolean }> {

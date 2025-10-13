@@ -53,13 +53,22 @@ BUILD_DIR=build
 WEB_DIR=web/frontend
 DIST_DIR=web/dist
 
+# Kill hanging processes (Windows only)
+.PHONY: kill-processes
+kill-processes:
+ifeq ($(DETECTED_OS),Windows)
+	@echo Stopping any running Node processes...
+	@taskkill /F /IM node.exe /T 2>nul || echo No Node processes found
+	@timeout /t 1 /nobreak >nul
+endif
+
 # Default target
 .PHONY: all
-all: clean build
+all: build
 
 # Build the complete application
 .PHONY: build
-build: build-web build-server
+build: kill-processes build-web build-server
 
 # Build the web frontend
 .PHONY: build-web
@@ -67,26 +76,24 @@ build-web:
 	@echo Building web frontend...
 	@echo Cleaning previous build...
 ifeq ($(DETECTED_OS),Windows)
-	@if exist "$(WEB_DIR)\.next" rmdir /s /q "$(WEB_DIR)\.next"
-	@if exist "$(WEB_DIR)\out" rmdir /s /q "$(WEB_DIR)\out"
+	@if exist "$(WEB_DIR)\dist" rmdir /s /q "$(WEB_DIR)\dist"
 	@echo Installing dependencies...
-	@cd $(WEB_DIR) && npm ci
-	@echo Building Next.js static export...
+	@cd $(WEB_DIR) && npm install
+	@echo Building Vite production bundle...
 	@cd $(WEB_DIR) && set NODE_ENV=production && npm run build
-	@if not exist "$(WEB_DIR)\out" (echo Error: Static export directory 'out' was not created! && exit /b 1)
+	@if not exist "$(WEB_DIR)\dist" (echo Error: Build directory 'dist' was not created! && exit /b 1)
 else
-	@rm -rf $(WEB_DIR)/.next
-	@rm -rf $(WEB_DIR)/out
+	@rm -rf $(WEB_DIR)/dist
 	@echo Installing dependencies...
-	@cd $(WEB_DIR) && npm ci
-	@echo Building Next.js static export...
+	@cd $(WEB_DIR) && npm install
+	@echo Building Vite production bundle...
 	@cd $(WEB_DIR) && NODE_ENV=production npm run build
-	@if [ ! -d "$(WEB_DIR)/out" ]; then \
-		echo "Error: Static export directory 'out' was not created!"; \
+	@if [ ! -d "$(WEB_DIR)/dist" ]; then \
+		echo "Error: Build directory 'dist' was not created!"; \
 		exit 1; \
 	fi
 endif
-	@echo Web frontend built successfully (static export in $(WEB_DIR)/out)
+	@echo Web frontend built successfully (static bundle in $(WEB_DIR)/dist)
 
 # Build the Go server
 .PHONY: build-server
@@ -194,14 +201,12 @@ clean:
 ifeq ($(DETECTED_OS),Windows)
 	@if exist "$(BUILD_DIR)" rmdir /s /q "$(BUILD_DIR)"
 	@if exist "$(DIST_DIR)" rmdir /s /q "$(DIST_DIR)"
-	@if exist "$(WEB_DIR)\.next" rmdir /s /q "$(WEB_DIR)\.next"
-	@if exist "$(WEB_DIR)\out" rmdir /s /q "$(WEB_DIR)\out"
+	@if exist "$(WEB_DIR)\dist" rmdir /s /q "$(WEB_DIR)\dist"
 	@if exist "coverage.out" del /q "coverage.out"
 else
 	@rm -rf $(BUILD_DIR)
 	@rm -rf $(DIST_DIR)
-	@rm -rf $(WEB_DIR)/.next
-	@rm -rf $(WEB_DIR)/out
+	@rm -rf $(WEB_DIR)/dist
 	@rm -f coverage.out
 endif
 
@@ -214,7 +219,7 @@ deps:
 
 # Build for all platforms
 .PHONY: build-all
-build-all: clean build-web
+build-all: kill-processes clean build-web
 	@echo Building for all platforms...
 ifeq ($(DETECTED_OS),Windows)
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"

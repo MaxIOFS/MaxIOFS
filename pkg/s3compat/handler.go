@@ -15,6 +15,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/share"
 	"github.com/sirupsen/logrus"
 )
 
@@ -514,8 +515,9 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If NOT authenticated, check if object has an active share
+	var shareTenantID string
 	if !userExists && h.shareManager != nil {
-		_, err := h.shareManager.GetShareByObject(r.Context(), bucketName, objectKey)
+		shareInterface, err := h.shareManager.GetShareByObject(r.Context(), bucketName, objectKey)
 		if err != nil {
 			logrus.WithFields(logrus.Fields{
 				"bucket": bucketName,
@@ -524,13 +526,29 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "AccessDenied", "Access denied. Object is not shared.", objectKey, r)
 			return
 		}
+
+		// Type assert to *share.Share
+		if s, ok := shareInterface.(*share.Share); ok {
+			shareTenantID = s.TenantID
+		}
+
 		logrus.WithFields(logrus.Fields{
-			"bucket": bucketName,
-			"object": objectKey,
+			"bucket":   bucketName,
+			"object":   objectKey,
+			"tenantID": shareTenantID,
 		}).Info("Shared object access - bypassing authentication")
 	}
 
-	bucketPath := h.getBucketPath(r, bucketName)
+	// Build bucket path: use shareTenantID if available, otherwise use auth-based tenant
+	var bucketPath string
+	if shareTenantID != "" {
+		bucketPath = shareTenantID + "/" + bucketName
+	} else if !userExists && shareTenantID == "" {
+		// Share exists but with empty tenantID (global bucket)
+		bucketPath = bucketName
+	} else {
+		bucketPath = h.getBucketPath(r, bucketName)
+	}
 	obj, reader, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {

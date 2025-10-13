@@ -16,9 +16,10 @@ import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 
 export default function BucketSettingsPage() {
-  const { bucket } = useParams<{ bucket: string }>();
+  const { bucket, tenantId } = useParams<{ bucket: string; tenantId?: string }>();
   const navigate = useNavigate();
   const bucketName = bucket as string;
+  const bucketPath = tenantId ? `/buckets/${tenantId}/${bucketName}` : `/buckets/${bucketName}`;
 
   const { data: bucketData, isLoading } = useQuery({
     queryKey: ['bucket', bucketName],
@@ -36,7 +37,7 @@ export default function BucketSettingsPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => navigate(`/buckets/${bucketName}`)}
+            onClick={() => navigate(bucketPath)}
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
