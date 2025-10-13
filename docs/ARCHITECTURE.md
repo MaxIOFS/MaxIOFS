@@ -4,7 +4,7 @@
 
 ## Overview
 
-MaxIOFS is a single-binary S3-compatible object storage system built in Go with an embedded Next.js frontend. The architecture emphasizes simplicity, portability, and ease of deployment.
+MaxIOFS is a single-binary S3-compatible object storage system built in Go with an embedded React (Vite) frontend. The architecture emphasizes simplicity, portability, and ease of deployment with tenant-scoped bucket namespaces.
 
 ## System Architecture
 
@@ -13,23 +13,24 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 │    Single Binary (maxiofs.exe)     │
 ├─────────────────────────────────────┤
 │  Web Console (Port 8081)            │
-│  - Embedded Next.js frontend        │
+│  - Embedded React (Vite) frontend   │
 │  - Console REST API                 │
 │  - JWT authentication               │
 ├─────────────────────────────────────┤
 │  S3 API (Port 8080)                 │
 │  - S3-compatible REST API           │
 │  - AWS Signature v2/v4 auth         │
+│  - Tenant-transparent routing       │
 │  - Bucket & object operations       │
 ├─────────────────────────────────────┤
 │  Core Logic                         │
-│  - Bucket management                │
-│  - Object management                │
-│  - Multi-tenancy                    │
+│  - Tenant-scoped bucket mgmt        │
+│  - Object management with metrics   │
+│  - Multi-tenancy isolation          │
 │  - Authentication & authorization   │
 ├─────────────────────────────────────┤
 │  Storage Backend                    │
-│  - Filesystem storage               │
+│  - Tenant-scoped filesystem         │
 │  - SQLite metadata                  │
 │  - Object Lock support              │
 └─────────────────────────────────────┘
@@ -40,10 +41,11 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 ### 1. HTTP Layer
 
 **Console Server (Port 8081)**
-- Serves embedded Next.js static files
+- Serves embedded React (Vite) static files
 - REST API for web console operations
 - JWT-based authentication
 - User, bucket, and tenant management
+- Tenant-aware API routing
 
 **S3 API Server (Port 8080)**
 - Full S3-compatible REST API
@@ -55,23 +57,27 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 
 ### 2. Business Logic
 
-**Bucket Manager**
+**Bucket Manager** (Tenant-scoped)
 ```go
 type Manager interface {
-    CreateBucket(ctx context.Context, name, tenantID, ownerID string) error
-    DeleteBucket(ctx context.Context, name string) error
+    // All methods now accept tenantID as first parameter after context
+    CreateBucket(ctx context.Context, tenantID, name string) error
+    DeleteBucket(ctx context.Context, tenantID, name string) error
     ListBuckets(ctx context.Context, tenantID string) ([]*Bucket, error)
-    GetBucket(ctx context.Context, name string) (*Bucket, error)
+    GetBucketInfo(ctx context.Context, tenantID, name string) (*Bucket, error)
+    IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
+    DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 }
 ```
 
-**Object Manager**
+**Object Manager** (Receives bucket paths)
 ```go
 type Manager interface {
-    PutObject(ctx context.Context, bucket, key string, data io.Reader) error
-    GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, error)
-    DeleteObject(ctx context.Context, bucket, key string) error
-    ListObjects(ctx context.Context, bucket, prefix string, maxKeys int) ([]*Object, error)
+    // Receives bucketPath in format "{tenantID}/{bucketName}" or "{bucketName}" for global
+    PutObject(ctx context.Context, bucketPath, key string, data io.Reader, headers http.Header) error
+    GetObject(ctx context.Context, bucketPath, key string) (*Object, io.ReadCloser, error)
+    DeleteObject(ctx context.Context, bucketPath, key string) error
+    ListObjects(ctx context.Context, bucketPath, prefix, delimiter, marker string, maxKeys int) error
 }
 ```
 
@@ -82,19 +88,43 @@ type Manager interface {
 
 ### 3. Storage Layer
 
-**Filesystem Backend**
-- Object storage on local filesystem
+**Filesystem Backend** (Tenant-Scoped)
+- Object storage on local filesystem with tenant isolation
 - Atomic write operations
-- Directory-based bucket organization
-- Path: `{data_dir}/objects/{tenant_id}/{bucket}/{object}`
+- Tenant-scoped directory organization
+- **Object path**: `{data_dir}/objects/{tenant_id}/{bucket_name}/{object_key}`
+- **Metadata path**: `{data_dir}/.maxiofs/buckets/{tenant_id}/{bucket_name}.json`
+- **Global buckets** (admin): `{data_dir}/objects/{bucket_name}/{object_key}`
+
+**Example Storage Structure:**
+```
+/data/
+  ├── objects/
+  │   ├── tenant-abc123/
+  │   │   ├── backups/file1.txt
+  │   │   └── archives/file2.zip
+  │   ├── tenant-xyz789/
+  │   │   └── backups/file3.txt    ← Same bucket name, different tenant
+  │   └── global-bucket/admin.dat  ← Global admin bucket
+  └── .maxiofs/
+      ├── buckets/
+      │   ├── tenant-abc123/
+      │   │   ├── backups.json     ← Bucket metadata
+      │   │   └── archives.json
+      │   ├── tenant-xyz789/
+      │   │   └── backups.json     ← Same name, different tenant
+      │   └── global/
+      │       └── global-bucket.json
+      └── maxiofs.db               ← SQLite database
+```
 
 **SQLite Database**
 - Metadata storage
-- Bucket information
+- Bucket information (tenant-scoped primary key)
 - User credentials (bcrypt hashed)
-- Tenant quotas and usage
-- Access keys
-- Path: `{data_dir}/maxiofs.db`
+- Tenant quotas and real-time usage tracking
+- Access keys with tenant associations
+- Path: `{data_dir}/.maxiofs/maxiofs.db`
 
 ## Authentication
 
@@ -113,47 +143,69 @@ type Manager interface {
 
 ```
 Global Admin (No tenant)
-    ├── Tenant A
+    ├── Tenant A (tenant-abc123)
     │   ├── Tenant Admin
     │   ├── Users
-    │   ├── Buckets
+    │   ├── Buckets (namespace: tenant-abc123/*)
+    │   │   ├── backups → /objects/tenant-abc123/backups/
+    │   │   └── archives → /objects/tenant-abc123/archives/
     │   └── Access Keys
-    └── Tenant B
+    └── Tenant B (tenant-xyz789)
         ├── Tenant Admin
         ├── Users
-        ├── Buckets
+        ├── Buckets (namespace: tenant-xyz789/*)
+        │   ├── backups → /objects/tenant-xyz789/backups/  ← Same name, isolated!
+        │   └── media → /objects/tenant-xyz789/media/
         └── Access Keys
 ```
 
 **Resource Isolation**
-- Each tenant has isolated resources
+- Each tenant has **isolated bucket namespace**
+  - Tenant A can create "backups" bucket
+  - Tenant B can also create "backups" bucket (no conflict!)
+  - Storage paths: `tenant-abc123/backups` vs `tenant-xyz789/backups`
 - Quota enforcement (storage, buckets, keys)
-- No cross-tenant access
-- Global admins can manage all tenants
+- Zero cross-tenant visibility or access
+- Global admins can manage all tenants and see all namespaces
+
+**S3 API Transparency**
+- Clients only see bucket names (e.g., "backups")
+- Backend automatically resolves: `access_key` → `user` → `tenant_id` → `tenant-abc123/backups`
+- 100% S3-compatible - no special client configuration needed
 
 ## Data Flow
 
-### Object Upload
+### Object Upload (Tenant-Scoped)
 ```
-1. Client → S3 API (PUT /bucket/object)
-2. Authentication (AWS Signature)
-3. Authorization (tenant/bucket ownership)
-4. Quota check (tenant storage limit)
-5. Write to filesystem
-6. Update metadata in SQLite
-7. Update tenant usage counters
-8. Return success response
+1. Client → S3 API: PUT /backups/file.txt
+2. Authentication: Extract access_key from AWS Signature
+3. Tenant Resolution:
+   - Query: access_key → user → tenant_id = "tenant-abc123"
+   - Construct bucket path: "tenant-abc123/backups"
+4. Authorization: Check user owns bucket in tenant namespace
+5. Quota check: Verify tenant storage limit not exceeded
+6. Write to filesystem: /data/objects/tenant-abc123/backups/file.txt
+7. Update bucket metrics: IncrementObjectCount(tenant-abc123, backups, size)
+8. Update metadata in SQLite
+9. Return success response to client
 ```
 
-### Object Download
+**Key Point**: Client never sees "tenant-abc123/backups", only "backups"
+
+### Object Download (Tenant-Scoped)
 ```
-1. Client → S3 API (GET /bucket/object)
-2. Authentication (AWS Signature)
-3. Authorization (tenant/bucket access)
-4. Read object metadata from SQLite
-5. Stream object data from filesystem
-6. Return object with headers
+1. Client → S3 API: GET /backups/file.txt
+2. Authentication: Extract access_key from AWS Signature
+3. Tenant Resolution:
+   - Query: access_key → user → tenant_id = "tenant-abc123"
+   - Construct bucket path: "tenant-abc123/backups"
+4. Authorization: Verify user has access to bucket in tenant namespace
+5. Read from filesystem: /data/objects/tenant-abc123/backups/file.txt
+6. Stream object data with S3-compatible headers
+7. Return object to client
 ```
+
+**Key Point**: Client requests "backups/file.txt", backend serves from "tenant-abc123/backups/file.txt"
 
 ## Security
 

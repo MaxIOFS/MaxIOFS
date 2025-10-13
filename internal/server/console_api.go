@@ -28,6 +28,7 @@ type APIResponse struct {
 
 type BucketResponse struct {
 	Name                string                    `json:"name"`
+	TenantID            string                    `json:"tenant_id,omitempty"`
 	CreationDate        string                    `json:"creation_date"`
 	Region              string                    `json:"region,omitempty"`
 	OwnerID             string                    `json:"owner_id,omitempty"`
@@ -428,6 +429,7 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 		// No need to list objects anymore - metrics are updated incrementally
 		response[i] = BucketResponse{
 			Name:                b.Name,
+			TenantID:            b.TenantID,
 			CreationDate:        b.CreatedAt.Format("2006-01-02T15:04:05Z"),
 			Region:              b.Region,
 			OwnerID:             b.OwnerID,
@@ -643,7 +645,16 @@ func (s *Server) handleGetBucket(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
+
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -658,8 +669,11 @@ func (s *Server) handleGetBucket(w http.ResponseWriter, r *http.Request) {
 	// Use cached metrics (fast!)
 	response := BucketResponse{
 		Name:              bucketInfo.Name,
+		TenantID:          bucketInfo.TenantID,
 		CreationDate:      bucketInfo.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		Region:            bucketInfo.Region,
+		OwnerID:           bucketInfo.OwnerID,
+		OwnerType:         bucketInfo.OwnerType,
 		ObjectCount:       bucketInfo.ObjectCount,
 		Size:              bucketInfo.TotalSize,
 		Versioning:        bucketInfo.Versioning,
@@ -728,7 +742,17 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
+
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
+
 	bucketPath := tenantID + "/" + bucketName
 	if tenantID == "" {
 		bucketPath = bucketName
@@ -795,7 +819,17 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
+
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
+
 	bucketPath := tenantID + "/" + bucketName
 	if tenantID == "" {
 		bucketPath = bucketName
@@ -866,7 +900,16 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
+
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	// Get bucket to check tenant
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
@@ -897,7 +940,12 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	obj, err := s.objectManager.PutObject(r.Context(), bucketName, objectKey, r.Body, r.Header)
+	bucketPath := tenantID + "/" + bucketName
+	if tenantID == "" {
+		bucketPath = bucketName
+	}
+
+	obj, err := s.objectManager.PutObject(r.Context(), bucketPath, objectKey, r.Body, r.Header)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
@@ -925,7 +973,7 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 
 			// Set retention on the newly uploaded object
 			if !retention.RetainUntilDate.IsZero() {
-				_ = s.objectManager.SetObjectRetention(r.Context(), bucketName, objectKey, retention)
+				_ = s.objectManager.SetObjectRetention(r.Context(), bucketPath, objectKey, retention)
 				// Ignore errors here - object is already uploaded
 			}
 		}
@@ -965,9 +1013,17 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		}).Info("Found existing share for object")
 
 		// Generate clean S3 URL (no auth required when shared)
+		// Detect protocol (HTTP or HTTPS)
+		protocol := "http"
+		if r.TLS != nil {
+			protocol = "https"
+		} else if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+			protocol = proto
+		}
+
 		// Extract host from request and combine with S3 API port
 		host := strings.Split(r.Host, ":")[0] // Get hostname without port
-		s3URL := fmt.Sprintf("http://%s%s/%s/%s", host, s.config.Listen, bucketName, objectKey)
+		s3URL := fmt.Sprintf("%s://%s%s/%s/%s", protocol, host, s.config.Listen, bucketName, objectKey)
 
 		s.writeJSON(w, map[string]interface{}{
 			"id":        existingShare.ID,
@@ -1007,11 +1063,36 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 
 	accessKey := accessKeys[0]
 
+	// Get bucket info to determine tenant ID
+	tenantID := user.TenantID
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		// If not found in user's tenant, try as global admin
+		isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+		if isGlobalAdmin {
+			// For global admins, we need to find the bucket in any tenant
+			// For now, assume it's a global bucket if not found in user's tenant
+			tenantID = ""
+			bucketInfo, err = s.bucketManager.GetBucketInfo(r.Context(), "", bucketName)
+			if err != nil {
+				s.writeError(w, "Bucket not found", http.StatusNotFound)
+				return
+			}
+		} else {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	// Use the bucket's tenant ID for the share
+	shareTenantID := bucketInfo.TenantID
+
 	// Create persistent share
 	share, err := s.shareManager.CreateShare(
 		r.Context(),
 		bucketName,
 		objectKey,
+		shareTenantID,
 		accessKey.AccessKeyID,
 		accessKey.SecretAccessKey,
 		user.ID,
@@ -1023,9 +1104,17 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate clean S3 URL (no auth required when shared)
+	// Detect protocol (HTTP or HTTPS)
+	protocol := "http"
+	if r.TLS != nil {
+		protocol = "https"
+	} else if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		protocol = proto
+	}
+
 	// Extract host from request and combine with S3 API port
 	host := strings.Split(r.Host, ":")[0] // Get hostname without port
-	s3URL := fmt.Sprintf("http://%s%s/%s/%s", host, s.config.Listen, bucketName, objectKey)
+	s3URL := fmt.Sprintf("%s://%s%s/%s/%s", protocol, host, s.config.Listen, bucketName, objectKey)
 
 	// Return share response
 	s.writeJSON(w, map[string]interface{}{
@@ -1043,7 +1132,28 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
-	if err := s.objectManager.DeleteObject(r.Context(), bucketName, objectKey); err != nil {
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
+	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
+
+	bucketPath := tenantID + "/" + bucketName
+	if tenantID == "" {
+		bucketPath = bucketName
+	}
+
+	if err := s.objectManager.DeleteObject(r.Context(), bucketPath, objectKey); err != nil {
 		if err == object.ErrObjectNotFound {
 			s.writeError(w, "Object not found", http.StatusNotFound)
 			return
@@ -1363,7 +1473,11 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 
 	var totalObjects, totalSize int64
 	for _, b := range filteredBuckets {
-		result, err := s.objectManager.ListObjects(r.Context(), b.Name, "", "", "", 10000)
+		bucketPath := tenantID + "/" + b.Name
+		if tenantID == "" {
+			bucketPath = b.Name
+		}
+		result, err := s.objectManager.ListObjects(r.Context(), bucketPath, "", "", "", 10000)
 		if err == nil {
 			totalObjects += int64(len(result.Objects))
 			for _, obj := range result.Objects {
@@ -1806,7 +1920,8 @@ func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 				if b.OwnerType == "tenant" && b.OwnerID == tenants[i].ID {
 					bucketCount++
 					// Get object count and size for this bucket
-					result, err := s.objectManager.ListObjects(r.Context(), b.Name, "", "", "", 10000)
+					bucketPath := tenants[i].ID + "/" + b.Name
+					result, err := s.objectManager.ListObjects(r.Context(), bucketPath, "", "", "", 10000)
 					if err == nil {
 						for _, obj := range result.Objects {
 							totalStorage += obj.Size

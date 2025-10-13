@@ -10,6 +10,7 @@ type Share struct {
 	ID          string    `json:"id"`
 	BucketName  string    `json:"bucketName"`
 	ObjectKey   string    `json:"objectKey"`
+	TenantID    string    `json:"tenantId,omitempty"` // Tenant ID for tenant-scoped buckets
 	AccessKeyID string    `json:"accessKeyId"`
 	SecretKey   string    `json:"-"` // Never expose in JSON
 	ShareToken  string    `json:"shareToken"`

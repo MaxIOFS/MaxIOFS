@@ -135,6 +135,8 @@ export interface GrantPermissionRequest {
 // Bucket Types
 export interface Bucket {
   name: string;
+  tenant_id?: string; // Backend uses snake_case
+  tenantId?: string; // Alias for compatibility
   creation_date: string; // Backend uses snake_case
   creationDate?: string; // Alias for compatibility
   region?: string;
@@ -316,6 +318,7 @@ export interface ListObjectsResponse {
 
 export interface ListObjectsRequest {
   bucket: string;
+  tenantId?: string;
   prefix?: string;
   delimiter?: string;
   maxKeys?: number;
@@ -327,6 +330,7 @@ export interface ListObjectsRequest {
 // Upload Types
 export interface UploadRequest {
   bucket: string;
+  tenantId?: string;
   key: string;
   file: File;
   contentType?: string;
@@ -347,6 +351,7 @@ export interface UploadProgress {
 
 export interface DownloadRequest {
   bucket: string;
+  tenantId?: string;
   key: string;
   versionId?: string;
   range?: string;

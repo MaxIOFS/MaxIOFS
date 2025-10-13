@@ -281,7 +281,21 @@ func (bm *bucketManager) GetBucketInfo(ctx context.Context, tenantID, name strin
 
 	bucket, err := bm.loadBucketMetadata(ctx, tenantID, name)
 	if err != nil {
-		return nil, err
+		// If metadata not found but bucket exists (legacy bucket), create basic bucket info
+		if err == ErrBucketNotFound {
+			bucket = &Bucket{
+				Name:      name,
+				TenantID:  tenantID,
+				CreatedAt: time.Now(),
+				Region:    "us-east-1",
+				Metadata:  make(map[string]string),
+			}
+
+			// Try to save the metadata for future use
+			_ = bm.saveBucketMetadata(ctx, bucket)
+		} else {
+			return nil, err
+		}
 	}
 
 	// Ensure metadata is always initialized

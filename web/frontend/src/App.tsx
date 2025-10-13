@@ -84,6 +84,28 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            {/* Tenant-scoped bucket routes (must come before global bucket routes) */}
+            <Route
+              path="/buckets/:tenantId/:bucket"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <BucketDetail />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/buckets/:tenantId/:bucket/settings"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <BucketSettings />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            {/* Global bucket routes (fallback) */}
             <Route
               path="/buckets/:bucket"
               element={

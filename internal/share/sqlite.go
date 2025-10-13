@@ -28,13 +28,14 @@ func (s *SQLiteStore) initialize() error {
 		id TEXT PRIMARY KEY,
 		bucket_name TEXT NOT NULL,
 		object_key TEXT NOT NULL,
+		tenant_id TEXT DEFAULT '',
 		access_key_id TEXT NOT NULL,
 		secret_key TEXT NOT NULL,
 		share_token TEXT NOT NULL UNIQUE,
 		expires_at INTEGER,
 		created_at INTEGER NOT NULL,
 		created_by TEXT NOT NULL,
-		UNIQUE(bucket_name, object_key)
+		UNIQUE(bucket_name, object_key, tenant_id)
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_shares_token ON shares(share_token);
@@ -43,8 +44,18 @@ func (s *SQLiteStore) initialize() error {
 	CREATE INDEX IF NOT EXISTS idx_shares_expires_at ON shares(expires_at);
 	`
 
-	_, err := s.db.Exec(schema)
-	return err
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Migration: Add tenant_id column if it doesn't exist (for existing databases)
+	migrationQuery := `
+		ALTER TABLE shares ADD COLUMN tenant_id TEXT DEFAULT '';
+	`
+	// Ignore error if column already exists
+	s.db.Exec(migrationQuery)
+
+	return nil
 }
 
 // CreateShare creates a new share
@@ -55,9 +66,9 @@ func (s *SQLiteStore) CreateShare(ctx context.Context, share *Share) error {
 	}
 
 	query := `
-		INSERT INTO shares (id, bucket_name, object_key, access_key_id, secret_key, share_token, expires_at, created_at, created_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(bucket_name, object_key) DO UPDATE SET
+		INSERT INTO shares (id, bucket_name, object_key, tenant_id, access_key_id, secret_key, share_token, expires_at, created_at, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(bucket_name, object_key, tenant_id) DO UPDATE SET
 			access_key_id = excluded.access_key_id,
 			secret_key = excluded.secret_key,
 			share_token = excluded.share_token,
@@ -70,6 +81,7 @@ func (s *SQLiteStore) CreateShare(ctx context.Context, share *Share) error {
 		share.ID,
 		share.BucketName,
 		share.ObjectKey,
+		share.TenantID,
 		share.AccessKeyID,
 		share.SecretKey,
 		share.ShareToken,
@@ -84,7 +96,7 @@ func (s *SQLiteStore) CreateShare(ctx context.Context, share *Share) error {
 // GetShare retrieves a share by ID
 func (s *SQLiteStore) GetShare(ctx context.Context, shareID string) (*Share, error) {
 	query := `
-		SELECT id, bucket_name, object_key, access_key_id, secret_key, share_token, expires_at, created_at, created_by
+		SELECT id, bucket_name, object_key, tenant_id, access_key_id, secret_key, share_token, expires_at, created_at, created_by
 		FROM shares
 		WHERE id = ?
 	`
@@ -96,7 +108,7 @@ func (s *SQLiteStore) GetShare(ctx context.Context, shareID string) (*Share, err
 // GetShareByToken retrieves a share by token
 func (s *SQLiteStore) GetShareByToken(ctx context.Context, shareToken string) (*Share, error) {
 	query := `
-		SELECT id, bucket_name, object_key, access_key_id, secret_key, share_token, expires_at, created_at, created_by
+		SELECT id, bucket_name, object_key, tenant_id, access_key_id, secret_key, share_token, expires_at, created_at, created_by
 		FROM shares
 		WHERE share_token = ?
 		AND (expires_at IS NULL OR expires_at > ?)
@@ -109,7 +121,7 @@ func (s *SQLiteStore) GetShareByToken(ctx context.Context, shareToken string) (*
 // GetShareByObject retrieves a share by bucket and object
 func (s *SQLiteStore) GetShareByObject(ctx context.Context, bucketName, objectKey string) (*Share, error) {
 	query := `
-		SELECT id, bucket_name, object_key, access_key_id, secret_key, share_token, expires_at, created_at, created_by
+		SELECT id, bucket_name, object_key, tenant_id, access_key_id, secret_key, share_token, expires_at, created_at, created_by
 		FROM shares
 		WHERE bucket_name = ? AND object_key = ?
 		AND (expires_at IS NULL OR expires_at > ?)
@@ -122,7 +134,7 @@ func (s *SQLiteStore) GetShareByObject(ctx context.Context, bucketName, objectKe
 // ListShares lists all shares for a user
 func (s *SQLiteStore) ListShares(ctx context.Context, userID string) ([]*Share, error) {
 	query := `
-		SELECT id, bucket_name, object_key, access_key_id, secret_key, share_token, expires_at, created_at, created_by
+		SELECT id, bucket_name, object_key, tenant_id, access_key_id, secret_key, share_token, expires_at, created_at, created_by
 		FROM shares
 		WHERE created_by = ?
 		ORDER BY created_at DESC
@@ -149,7 +161,7 @@ func (s *SQLiteStore) ListShares(ctx context.Context, userID string) ([]*Share, 
 // ListBucketShares lists all shares for a bucket
 func (s *SQLiteStore) ListBucketShares(ctx context.Context, bucketName string) ([]*Share, error) {
 	query := `
-		SELECT id, bucket_name, object_key, access_key_id, secret_key, share_token, expires_at, created_at, created_by
+		SELECT id, bucket_name, object_key, tenant_id, access_key_id, secret_key, share_token, expires_at, created_at, created_by
 		FROM shares
 		WHERE bucket_name = ?
 		AND (expires_at IS NULL OR expires_at > ?)
@@ -213,6 +225,7 @@ func (s *SQLiteStore) scanShare(scanner interface {
 		&share.ID,
 		&share.BucketName,
 		&share.ObjectKey,
+		&share.TenantID,
 		&share.AccessKeyID,
 		&share.SecretKey,
 		&share.ShareToken,
