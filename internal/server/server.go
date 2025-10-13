@@ -191,8 +191,8 @@ type shareManagerAdapter struct {
 	mgr share.Manager
 }
 
-func (sma *shareManagerAdapter) GetShareByObject(ctx context.Context, bucketName, objectKey string) (interface{}, error) {
-	return sma.mgr.GetShareByObject(ctx, bucketName, objectKey)
+func (sma *shareManagerAdapter) GetShareByObject(ctx context.Context, bucketName, objectKey, tenantID string) (interface{}, error) {
+	return sma.mgr.GetShareByObject(ctx, bucketName, objectKey, tenantID)
 }
 
 func (s *Server) setupRoutes() error {
