@@ -70,7 +70,7 @@ type Handler struct {
 	objectManager object.Manager
 	authManager   auth.Manager
 	shareManager  interface {
-		GetShareByObject(ctx context.Context, bucketName, objectKey string) (interface{}, error)
+		GetShareByObject(ctx context.Context, bucketName, objectKey, tenantID string) (interface{}, error)
 	}
 	publicAPIURL string
 	dataDir      string // For calculating disk capacity in SOSAPI
@@ -92,7 +92,7 @@ func (h *Handler) SetAuthManager(am auth.Manager) {
 
 // SetShareManager sets the share manager for validating presigned URLs
 func (h *Handler) SetShareManager(sm interface {
-	GetShareByObject(ctx context.Context, bucketName, objectKey string) (interface{}, error)
+	GetShareByObject(ctx context.Context, bucketName, objectKey, tenantID string) (interface{}, error)
 }) {
 	h.shareManager = sm
 }
@@ -515,13 +515,46 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If NOT authenticated, check if object has an active share
+	// We need to handle two URL formats:
+	// 1. /bucket/object (global bucket)
+	// 2. /tenant-xxx/bucket/object (tenant bucket)
 	var shareTenantID string
 	if !userExists && h.shareManager != nil {
-		shareInterface, err := h.shareManager.GetShareByObject(r.Context(), bucketName, objectKey)
+		// Extract tenant from bucket name if present
+		realBucket := bucketName
+		realObject := objectKey
+		extractedTenant := ""
+
+		// If bucketName starts with "tenant-", it's actually the tenant ID
+		if strings.HasPrefix(bucketName, "tenant-") {
+			extractedTenant = bucketName
+			// The object key contains bucket/object, split it
+			parts := strings.SplitN(objectKey, "/", 2)
+			if len(parts) == 2 {
+				realBucket = parts[0]
+				realObject = parts[1]
+			} else {
+				realBucket = objectKey
+				realObject = ""
+			}
+
+			logrus.WithFields(logrus.Fields{
+				"originalBucket":  bucketName,
+				"originalObject":  objectKey,
+				"extractedTenant": extractedTenant,
+				"realBucket":      realBucket,
+				"realObject":      realObject,
+			}).Debug("Extracted tenant from URL path")
+		}
+
+		// Try to find share with extracted tenant ID
+		shareInterface, err := h.shareManager.GetShareByObject(r.Context(), realBucket, realObject, extractedTenant)
 		if err != nil {
 			logrus.WithFields(logrus.Fields{
-				"bucket": bucketName,
-				"object": objectKey,
+				"bucket": realBucket,
+				"object": realObject,
+				"tenant": extractedTenant,
+				"error":  err.Error(),
 			}).Warn("Unauthenticated access denied - no active share found")
 			h.writeError(w, "AccessDenied", "Access denied. Object is not shared.", objectKey, r)
 			return
@@ -530,6 +563,9 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		// Type assert to *share.Share
 		if s, ok := shareInterface.(*share.Share); ok {
 			shareTenantID = s.TenantID
+			// Override vars for subsequent processing
+			bucketName = realBucket
+			objectKey = realObject
 		}
 
 		logrus.WithFields(logrus.Fields{

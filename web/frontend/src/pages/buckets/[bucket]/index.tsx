@@ -158,7 +158,7 @@ export default function BucketDetailsPage() {
   });
 
   const deleteShareMutation = useMutation({
-    mutationFn: ({ bucket, key }: { bucket: string; key: string }) => APIClient.deleteShare(bucket, key),
+    mutationFn: ({ bucket, key }: { bucket: string; key: string }) => APIClient.deleteShare(bucket, key, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shares', bucketName] });
       SweetAlert.toast('success', 'Share deleted successfully');
@@ -356,7 +356,7 @@ export default function BucketDetailsPage() {
 
       if (existingShare) {
         // Object is already shared - show copy/unshare options
-        const shareData = await APIClient.shareObject(bucketName, key, null);
+        const shareData = await APIClient.shareObject(bucketName, key, null, tenantId);
 
         let expirationInfo = '';
         if (shareData.expiresAt) {
@@ -457,7 +457,7 @@ export default function BucketDetailsPage() {
       // Show loading indicator
       SweetAlert.loading('Generating shareable link...', `Creating link for "${key}"`);
 
-      const shareData = await APIClient.shareObject(bucketName, key, expiresIn);
+      const shareData = await APIClient.shareObject(bucketName, key, expiresIn, tenantId);
 
       // Refresh shares list
       queryClient.invalidateQueries({ queryKey: ['shares', bucketName] });

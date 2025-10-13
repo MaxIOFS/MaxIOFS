@@ -31,7 +31,7 @@ func NewHandler(
 	authManager auth.Manager,
 	metricsManager metrics.Manager,
 	shareManager interface {
-		GetShareByObject(ctx context.Context, bucketName, objectKey string) (interface{}, error)
+		GetShareByObject(ctx context.Context, bucketName, objectKey, tenantID string) (interface{}, error)
 	},
 	publicAPIURL string,
 	publicConsoleURL string,

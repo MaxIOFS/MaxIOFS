@@ -1002,8 +1002,42 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if tenantId is provided in query params (for accessing tenant buckets from console)
+	queryTenantID := r.URL.Query().Get("tenantId")
+	tenantID := user.TenantID
+
+	// If tenantId is explicitly provided in query, use it (for global admins or console navigation)
+	if queryTenantID != "" {
+		tenantID = queryTenantID
+		logrus.WithFields(logrus.Fields{
+			"queryTenantID": queryTenantID,
+			"userTenantID":  user.TenantID,
+		}).Debug("Using tenantId from query parameter")
+	}
+
+	// Get bucket info to determine tenant ID
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		// If not found in user's tenant, try as global admin
+		isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+		if isGlobalAdmin {
+			tenantID = ""
+			bucketInfo, err = s.bucketManager.GetBucketInfo(r.Context(), "", bucketName)
+			if err != nil {
+				s.writeError(w, "Bucket not found", http.StatusNotFound)
+				return
+			}
+		} else {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	// Use the bucket's tenant ID for the share
+	shareTenantID := bucketInfo.TenantID
+
 	// Check if object already has an active share
-	existingShare, err := s.shareManager.GetShareByObject(r.Context(), bucketName, objectKey)
+	existingShare, err := s.shareManager.GetShareByObject(r.Context(), bucketName, objectKey, shareTenantID)
 	if err == nil && existingShare != nil {
 		// Return existing share
 		logrus.WithFields(logrus.Fields{
@@ -1012,18 +1046,41 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 			"shareID": existingShare.ID,
 		}).Info("Found existing share for object")
 
-		// Generate clean S3 URL (no auth required when shared)
-		// Detect protocol (HTTP or HTTPS)
-		protocol := "http"
-		if r.TLS != nil {
-			protocol = "https"
-		} else if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-			protocol = proto
+		// Generate clean S3 URL with proper protocol and host
+		// Use PublicAPIURL if configured, otherwise build from request
+		var s3URL string
+		if s.config.PublicAPIURL != "" {
+			// Use configured public URL
+			if shareTenantID != "" {
+				s3URL = fmt.Sprintf("%s/%s/%s/%s", s.config.PublicAPIURL, shareTenantID, bucketName, objectKey)
+			} else {
+				s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, bucketName, objectKey)
+			}
+		} else {
+			// Build URL from request context
+			protocol := "http"
+			if r.TLS != nil {
+				protocol = "https"
+			} else if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+				protocol = proto
+			}
+			host := r.Host
+			// If host doesn't include port, add the API listen port
+			if !strings.Contains(host, ":") {
+				host = strings.Split(r.Host, ":")[0] + s.config.Listen
+			}
+			if shareTenantID != "" {
+				s3URL = fmt.Sprintf("%s://%s/%s/%s/%s", protocol, host, shareTenantID, bucketName, objectKey)
+			} else {
+				s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, bucketName, objectKey)
+			}
 		}
 
-		// Extract host from request and combine with S3 API port
-		host := strings.Split(r.Host, ":")[0] // Get hostname without port
-		s3URL := fmt.Sprintf("%s://%s%s/%s/%s", protocol, host, s.config.Listen, bucketName, objectKey)
+		logrus.WithFields(logrus.Fields{
+			"tenantID": shareTenantID,
+			"url":      s3URL,
+			"existing": true,
+		}).Info("Generated share URL for existing share")
 
 		s.writeJSON(w, map[string]interface{}{
 			"id":        existingShare.ID,
@@ -1063,30 +1120,6 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 
 	accessKey := accessKeys[0]
 
-	// Get bucket info to determine tenant ID
-	tenantID := user.TenantID
-	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
-	if err != nil {
-		// If not found in user's tenant, try as global admin
-		isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-		if isGlobalAdmin {
-			// For global admins, we need to find the bucket in any tenant
-			// For now, assume it's a global bucket if not found in user's tenant
-			tenantID = ""
-			bucketInfo, err = s.bucketManager.GetBucketInfo(r.Context(), "", bucketName)
-			if err != nil {
-				s.writeError(w, "Bucket not found", http.StatusNotFound)
-				return
-			}
-		} else {
-			s.writeError(w, "Bucket not found", http.StatusNotFound)
-			return
-		}
-	}
-
-	// Use the bucket's tenant ID for the share
-	shareTenantID := bucketInfo.TenantID
-
 	// Create persistent share
 	share, err := s.shareManager.CreateShare(
 		r.Context(),
@@ -1103,18 +1136,42 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate clean S3 URL (no auth required when shared)
-	// Detect protocol (HTTP or HTTPS)
-	protocol := "http"
-	if r.TLS != nil {
-		protocol = "https"
-	} else if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-		protocol = proto
+	// Generate clean S3 URL with proper protocol and host
+	// Use PublicAPIURL if configured, otherwise build from request
+	var s3URL string
+	if s.config.PublicAPIURL != "" {
+		// Use configured public URL
+		if shareTenantID != "" {
+			s3URL = fmt.Sprintf("%s/%s/%s/%s", s.config.PublicAPIURL, shareTenantID, bucketName, objectKey)
+		} else {
+			s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, bucketName, objectKey)
+		}
+	} else {
+		// Build URL from request context
+		protocol := "http"
+		if r.TLS != nil {
+			protocol = "https"
+		} else if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+			protocol = proto
+		}
+		host := r.Host
+		// If host doesn't include port, add the API listen port
+		if !strings.Contains(host, ":") {
+			host = strings.Split(r.Host, ":")[0] + s.config.Listen
+		}
+		if shareTenantID != "" {
+			s3URL = fmt.Sprintf("%s://%s/%s/%s/%s", protocol, host, shareTenantID, bucketName, objectKey)
+		} else {
+			s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, bucketName, objectKey)
+		}
 	}
 
-	// Extract host from request and combine with S3 API port
-	host := strings.Split(r.Host, ":")[0] // Get hostname without port
-	s3URL := fmt.Sprintf("%s://%s%s/%s/%s", protocol, host, s.config.Listen, bucketName, objectKey)
+	logrus.WithFields(logrus.Fields{
+		"tenantID": shareTenantID,
+		"url":      s3URL,
+		"bucket":   bucketName,
+		"object":   objectKey,
+	}).Info("Generated share URL for new share")
 
 	// Return share response
 	s.writeJSON(w, map[string]interface{}{
@@ -2383,8 +2440,49 @@ func (s *Server) handleDeleteShare(w http.ResponseWriter, r *http.Request) {
 		"method": r.Method,
 	}).Info("Delete share request received")
 
+	// Get user from context to determine tenant ID
+	user, ok := auth.GetUserFromContext(r.Context())
+	if !ok {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if tenantId is provided in query params (for accessing tenant buckets from console)
+	queryTenantID := r.URL.Query().Get("tenantId")
+	tenantID := user.TenantID
+
+	// If tenantId is explicitly provided in query, use it (for global admins or console navigation)
+	if queryTenantID != "" {
+		tenantID = queryTenantID
+		logrus.WithFields(logrus.Fields{
+			"queryTenantID": queryTenantID,
+			"userTenantID":  user.TenantID,
+		}).Debug("Using tenantId from query parameter for delete share")
+	}
+
+	// Get bucket info to determine tenant ID
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		// If not found in user's tenant, try as global admin
+		isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+		if isGlobalAdmin {
+			tenantID = ""
+			bucketInfo, err = s.bucketManager.GetBucketInfo(r.Context(), "", bucketName)
+			if err != nil {
+				s.writeError(w, "Bucket not found", http.StatusNotFound)
+				return
+			}
+		} else {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	// Use the bucket's tenant ID for looking up shares
+	shareTenantID := bucketInfo.TenantID
+
 	// Get the share first to get its ID
-	share, err := s.shareManager.GetShareByObject(r.Context(), bucketName, objectKey)
+	share, err := s.shareManager.GetShareByObject(r.Context(), bucketName, objectKey, shareTenantID)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"bucket": bucketName,

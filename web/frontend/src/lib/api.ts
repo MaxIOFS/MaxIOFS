@@ -451,9 +451,12 @@ export class APIClient {
     await apiClient.delete(url);
   }
 
-  static async shareObject(bucket: string, key: string, expiresIn: number | null = 3600): Promise<{ id: string; url: string; expiresAt?: string; createdAt: string; isExpired: boolean; existing: boolean }> {
+  static async shareObject(bucket: string, key: string, expiresIn: number | null = 3600, tenantId?: string): Promise<{ id: string; url: string; expiresAt?: string; createdAt: string; isExpired: boolean; existing: boolean }> {
+    const url = tenantId 
+      ? `/buckets/${bucket}/objects/${encodeURIComponent(key)}/share?tenantId=${tenantId}`
+      : `/buckets/${bucket}/objects/${encodeURIComponent(key)}/share`;
     const response = await apiClient.post<APIResponse<{ id: string; url: string; expiresAt?: string; createdAt: string; isExpired: boolean; existing: boolean }>>(
-      `/buckets/${bucket}/objects/${encodeURIComponent(key)}/share`,
+      url,
       { expiresIn }
     );
     return response.data.data!;
@@ -464,8 +467,11 @@ export class APIClient {
     return response.data.data || {};
   }
 
-  static async deleteShare(bucket: string, key: string): Promise<void> {
-    await apiClient.delete(`/buckets/${bucket}/objects/${encodeURIComponent(key)}/share`);
+  static async deleteShare(bucket: string, key: string, tenantId?: string): Promise<void> {
+    const url = tenantId
+      ? `/buckets/${bucket}/objects/${encodeURIComponent(key)}/share?tenantId=${tenantId}`
+      : `/buckets/${bucket}/objects/${encodeURIComponent(key)}/share`;
+    await apiClient.delete(url);
   }
 
   static async copyObject(
