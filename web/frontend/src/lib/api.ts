@@ -462,8 +462,11 @@ export class APIClient {
     return response.data.data!;
   }
 
-  static async getBucketShares(bucket: string): Promise<Record<string, any>> {
-    const response = await apiClient.get<APIResponse<Record<string, any>>>(`/buckets/${bucket}/shares`);
+  static async getBucketShares(bucket: string, tenantId?: string): Promise<Record<string, any>> {
+    const url = tenantId
+      ? `/buckets/${bucket}/shares?tenantId=${tenantId}`
+      : `/buckets/${bucket}/shares`;
+    const response = await apiClient.get<APIResponse<Record<string, any>>>(url);
     return response.data.data || {};
   }
 

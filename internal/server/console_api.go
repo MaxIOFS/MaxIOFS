@@ -2409,7 +2409,43 @@ func (s *Server) handleListBucketShares(w http.ResponseWriter, r *http.Request) 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	shares, err := s.shareManager.ListBucketShares(r.Context(), bucketName)
+	// Get user from context to determine tenant ID
+	user, ok := auth.GetUserFromContext(r.Context())
+	if !ok {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if tenantId is provided in query params
+	queryTenantID := r.URL.Query().Get("tenantId")
+	tenantID := user.TenantID
+
+	if queryTenantID != "" {
+		tenantID = queryTenantID
+	}
+
+	// Get bucket info to determine tenant ID
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		// If not found in user's tenant, try as global admin
+		isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+		if isGlobalAdmin {
+			tenantID = ""
+			bucketInfo, err = s.bucketManager.GetBucketInfo(r.Context(), "", bucketName)
+			if err != nil {
+				s.writeError(w, "Bucket not found", http.StatusNotFound)
+				return
+			}
+		} else {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	// Use the bucket's tenant ID
+	shareTenantID := bucketInfo.TenantID
+
+	shares, err := s.shareManager.ListBucketShares(r.Context(), bucketName, shareTenantID)
 	if err != nil {
 		s.writeError(w, fmt.Sprintf("Failed to list shares: %v", err), http.StatusInternalServerError)
 		return
