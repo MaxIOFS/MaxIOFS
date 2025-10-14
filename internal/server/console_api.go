@@ -1529,6 +1529,11 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 	totalBuckets := int64(len(filteredBuckets))
 
 	var totalObjects, totalSize int64
+	var largestSize, smallestSize int64
+	smallestSize = -1 // Initialize to -1 to detect first object
+
+	bucketMetrics := make(map[string]interface{})
+
 	for _, b := range filteredBuckets {
 		bucketPath := tenantID + "/" + b.Name
 		if tenantID == "" {
@@ -1536,18 +1541,54 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 		result, err := s.objectManager.ListObjects(r.Context(), bucketPath, "", "", "", 10000)
 		if err == nil {
-			totalObjects += int64(len(result.Objects))
+			bucketObjectCount := int64(len(result.Objects))
+			var bucketSize int64
+
 			for _, obj := range result.Objects {
 				totalSize += obj.Size
+				bucketSize += obj.Size
+
+				// Track largest and smallest object sizes
+				if obj.Size > largestSize {
+					largestSize = obj.Size
+				}
+				if smallestSize == -1 || obj.Size < smallestSize {
+					smallestSize = obj.Size
+				}
+			}
+
+			totalObjects += bucketObjectCount
+
+			// Store per-bucket metrics
+			bucketMetrics[b.Name] = map[string]interface{}{
+				"name":        b.Name,
+				"objectCount": bucketObjectCount,
+				"size":        bucketSize,
 			}
 		}
 	}
 
-	response := MetricsResponse{
-		TotalBuckets: totalBuckets,
-		TotalObjects: totalObjects,
-		TotalSize:    totalSize,
-		SystemStats:  make(map[string]float64),
+	// Calculate average object size
+	var averageObjectSize int64
+	if totalObjects > 0 {
+		averageObjectSize = totalSize / totalObjects
+	}
+	if smallestSize == -1 {
+		smallestSize = 0
+	}
+
+	// Return response in camelCase format expected by frontend
+	response := map[string]interface{}{
+		"totalBuckets":           totalBuckets,
+		"totalObjects":           totalObjects,
+		"totalSize":              totalSize,
+		"bucketMetrics":          bucketMetrics,
+		"storageOperations":      make(map[string]int),
+		"averageObjectSize":      averageObjectSize,
+		"largestObjectSize":      largestSize,
+		"smallestObjectSize":     smallestSize,
+		"objectSizeDistribution": make(map[string]int),
+		"timestamp":              time.Now().Unix(),
 	}
 
 	s.writeJSON(w, response)
@@ -1571,16 +1612,33 @@ func (s *Server) handleGetSystemMetrics(w http.ResponseWriter, r *http.Request) 
 	cpuUsage, _ := s.systemMetrics.GetCPUUsage()
 	memStats, _ := s.systemMetrics.GetMemoryUsage()
 	diskStats, _ := s.systemMetrics.GetDiskUsage()
-	requestStats := s.systemMetrics.GetRequestStats()
-	perfStats := s.systemMetrics.GetPerformanceStats()
 
+	// Return response in camelCase format expected by frontend
 	response := map[string]interface{}{
-		"uptime_seconds": s.systemMetrics.GetUptime(),
-		"cpu_percent":    cpuUsage,
-		"memory":         memStats,
-		"disk":           diskStats,
-		"requests":       requestStats,
-		"performance":    perfStats,
+		"cpuUsagePercent":    cpuUsage,
+		"memoryUsagePercent": 0.0,
+		"memoryUsedBytes":    uint64(0),
+		"memoryTotalBytes":   uint64(0),
+		"diskUsagePercent":   0.0,
+		"diskUsedBytes":      uint64(0),
+		"diskTotalBytes":     uint64(0),
+		"networkBytesIn":     uint64(0),
+		"networkBytesOut":    uint64(0),
+		"timestamp":          time.Now().Unix(),
+	}
+
+	// Populate memory stats if available
+	if memStats != nil {
+		response["memoryUsagePercent"] = memStats.UsedPercent
+		response["memoryUsedBytes"] = memStats.UsedBytes
+		response["memoryTotalBytes"] = memStats.TotalBytes
+	}
+
+	// Populate disk stats if available
+	if diskStats != nil {
+		response["diskUsagePercent"] = diskStats.UsedPercent
+		response["diskUsedBytes"] = diskStats.UsedBytes
+		response["diskTotalBytes"] = diskStats.TotalBytes
 	}
 
 	s.writeJSON(w, response)
