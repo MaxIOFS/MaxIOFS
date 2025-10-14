@@ -32,6 +32,7 @@ type Server struct {
 	metricsManager metrics.Manager
 	shareManager   share.Manager
 	systemMetrics  *metrics.SystemMetricsTracker
+	startTime      time.Time // Server start time for uptime calculation
 }
 
 // New creates a new MaxIOFS server
@@ -94,6 +95,7 @@ func New(cfg *config.Config) (*Server, error) {
 		metricsManager: metricsManager,
 		shareManager:   shareManager,
 		systemMetrics:  systemMetrics,
+		startTime:      time.Now(), // Record server start time
 	}
 
 	// Setup routes

@@ -503,7 +503,7 @@ export class APIClient {
   }
 
   static async getS3Metrics(): Promise<S3Metrics> {
-    const response = await apiClient.get<APIResponse<S3Metrics>>('/metrics');
+    const response = await apiClient.get<APIResponse<S3Metrics>>('/metrics/s3');
     return response.data.data!;
   }
 

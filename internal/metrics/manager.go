@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -51,6 +52,7 @@ type Manager interface {
 	// Export and Health
 	GetMetricsHandler() http.Handler
 	GetMetricsSnapshot() (map[string]interface{}, error)
+	GetS3MetricsSnapshot() (map[string]interface{}, error)
 	IsHealthy() bool
 	Reset() error
 
@@ -116,6 +118,13 @@ type metricsManager struct {
 	cacheHitRate             prometheus.Gauge
 	cacheSizeBytes           prometheus.Gauge
 
+	// Aggregate tracking for quick access
+	totalRequests      uint64
+	totalErrors        uint64
+	totalLatencyMs     uint64
+	latencyCount       uint64
+	requestsStartTime  time.Time
+
 	// Lifecycle
 	started bool
 	mu      sync.RWMutex
@@ -159,8 +168,9 @@ func NewManager(cfg config.MetricsConfig) Manager {
 	registry := prometheus.NewRegistry()
 
 	manager := &metricsManager{
-		config:   metricsConfig,
-		registry: registry,
+		config:            metricsConfig,
+		registry:          registry,
+		requestsStartTime: time.Now(),
 	}
 
 	manager.initializeMetrics()
@@ -528,6 +538,16 @@ func (m *metricsManager) registerMetrics() {
 func (m *metricsManager) RecordHTTPRequest(method, path, status string, duration time.Duration) {
 	m.httpRequestsTotal.WithLabelValues(method, path, status).Inc()
 	m.httpRequestDuration.WithLabelValues(method, path).Observe(duration.Seconds())
+
+	// Track aggregates
+	atomic.AddUint64(&m.totalRequests, 1)
+	atomic.AddUint64(&m.totalLatencyMs, uint64(duration.Milliseconds()))
+	atomic.AddUint64(&m.latencyCount, 1)
+
+	// Track errors (4xx and 5xx status codes)
+	if len(status) > 0 && (status[0] == '4' || status[0] == '5') {
+		atomic.AddUint64(&m.totalErrors, 1)
+	}
 }
 
 func (m *metricsManager) RecordHTTPRequestSize(method, path string, size int64) {
@@ -663,6 +683,35 @@ func (m *metricsManager) GetMetricsSnapshot() (map[string]interface{}, error) {
 	return snapshot, nil
 }
 
+func (m *metricsManager) GetS3MetricsSnapshot() (map[string]interface{}, error) {
+	totalReqs := atomic.LoadUint64(&m.totalRequests)
+	totalErrs := atomic.LoadUint64(&m.totalErrors)
+	totalLatency := atomic.LoadUint64(&m.totalLatencyMs)
+	latencyCount := atomic.LoadUint64(&m.latencyCount)
+
+	// Calculate average latency
+	var avgLatency float64
+	if latencyCount > 0 {
+		avgLatency = float64(totalLatency) / float64(latencyCount)
+	}
+
+	// Calculate requests per second
+	uptime := time.Since(m.requestsStartTime).Seconds()
+	var requestsPerSec float64
+	if uptime > 0 {
+		requestsPerSec = float64(totalReqs) / uptime
+	}
+
+	snapshot := map[string]interface{}{
+		"totalRequests":   totalReqs,
+		"totalErrors":     totalErrs,
+		"avgLatency":      avgLatency,
+		"requestsPerSec":  requestsPerSec,
+		"timestamp":       time.Now().Unix(),
+	}
+	return snapshot, nil
+}
+
 func (m *metricsManager) IsHealthy() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -764,6 +813,13 @@ func (n *noopManager) RecordBackgroundTask(taskType string, duration time.Durati
 func (n *noopManager) UpdateCacheMetrics(hitRate float64, size int64) {}
 func (n *noopManager) GetMetricsHandler() http.Handler { return http.NotFoundHandler() }
 func (n *noopManager) GetMetricsSnapshot() (map[string]interface{}, error) { return nil, fmt.Errorf("metrics disabled") }
+func (n *noopManager) GetS3MetricsSnapshot() (map[string]interface{}, error) { return map[string]interface{}{
+	"totalRequests": 0,
+	"totalErrors": 0,
+	"avgLatency": 0.0,
+	"requestsPerSec": 0.0,
+	"timestamp": time.Now().Unix(),
+}, nil }
 func (n *noopManager) IsHealthy() bool { return true }
 func (n *noopManager) Reset() error { return nil }
 func (n *noopManager) Middleware() func(http.Handler) http.Handler {
