@@ -15,9 +15,11 @@ import {
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import type { StorageMetrics, SystemMetrics } from '@/types';
+import type { StorageMetrics, SystemMetrics, S3Metrics } from '@/types';
 
 export default function MetricsPage() {
+  const [activeTab, setActiveTab] = React.useState<'system' | 'storage' | 'requests' | 'performance'>('system');
+
   // Fetch storage metrics from backend
   const { data: storageMetricsData, isLoading: storageLoading } = useQuery<StorageMetrics>({
     queryKey: ['storageMetrics'],
@@ -30,11 +32,18 @@ export default function MetricsPage() {
     queryFn: APIClient.getSystemMetrics,
   });
 
-  const isLoading = storageLoading || systemLoading;
+  // Fetch S3 metrics from backend
+  const { data: s3MetricsData, isLoading: s3Loading } = useQuery<S3Metrics>({
+    queryKey: ['s3Metrics'],
+    queryFn: APIClient.getS3Metrics,
+  });
+
+  const isLoading = storageLoading || systemLoading || s3Loading;
 
   // Parse backend metrics
   const storageMetrics = storageMetricsData || {} as StorageMetrics;
   const systemMetrics = systemMetricsData || {} as SystemMetrics;
+  const s3Metrics = s3MetricsData || {} as S3Metrics;
 
   // Helper to format uptime from seconds
   const formatUptime = (seconds: number) => {
@@ -52,7 +61,7 @@ export default function MetricsPage() {
   // Build display metrics from backend data
   const displayMetrics = {
     system: {
-      uptime: formatUptime(systemMetrics.timestamp ? (Date.now() / 1000 - systemMetrics.timestamp) : 0),
+      uptime: formatUptime(systemMetrics.uptime || 0),
       cpu: systemMetrics.cpuUsagePercent || 0,
       memory: systemMetrics.memoryUsagePercent || 0,
       disk: systemMetrics.diskUsagePercent || 0,
@@ -66,16 +75,16 @@ export default function MetricsPage() {
       averageObjectSize: storageMetrics.averageObjectSize || 0
     },
     requests: {
-      totalRequests: 0,
-      totalErrors: 0,
-      avgLatency: 0,
-      requestsPerSec: 0
+      totalRequests: s3Metrics.totalRequests || 0,
+      totalErrors: s3Metrics.totalErrors || 0,
+      avgLatency: s3Metrics.avgLatency || 0,
+      requestsPerSec: s3Metrics.requestsPerSec || 0
     },
     performance: {
-      uptime: 0,
-      goRoutines: 0,
-      heapAllocMB: 0,
-      gcRuns: 0
+      uptime: systemMetrics.uptime || 0,
+      goRoutines: systemMetrics.goroutines || 0,
+      heapAllocMB: systemMetrics.heapAllocBytes ? (systemMetrics.heapAllocBytes / (1024 * 1024)) : 0,
+      gcRuns: systemMetrics.gcRuns || 0
     }
   };
 
@@ -104,6 +113,13 @@ export default function MetricsPage() {
     );
   }
 
+  const tabs = [
+    { id: 'system', label: 'System Health', icon: Activity },
+    { id: 'storage', label: 'Storage', icon: HardDrive },
+    { id: 'requests', label: 'Requests', icon: Globe },
+    { id: 'performance', label: 'Performance', icon: Zap },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -120,9 +136,32 @@ export default function MetricsPage() {
         </div>
       </div>
 
-      {/* System Metrics */}
-      <div>
-        <h2 className="text-xl font-semibold mb-4">System Health</h2>
+      {/* Tabs */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex space-x-1 border-b border-gray-200 mb-6">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`flex items-center space-x-2 px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
+                    activeTab === tab.id
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* System Health Tab */}
+          {activeTab === 'system' && (
+            <div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -191,11 +230,12 @@ export default function MetricsPage() {
             </CardContent>
           </Card>
         </div>
-      </div>
+            </div>
+          )}
 
-      {/* Storage Metrics */}
-      <div>
-        <h2 className="text-xl font-semibold mb-4">Storage Statistics</h2>
+          {/* Storage Tab */}
+          {activeTab === 'storage' && (
+            <div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -249,11 +289,12 @@ export default function MetricsPage() {
             </CardContent>
           </Card>
         </div>
-      </div>
+            </div>
+          )}
 
-      {/* Request Metrics */}
-      <div>
-        <h2 className="text-xl font-semibold mb-4">Request Statistics</h2>
+          {/* Requests Tab */}
+          {activeTab === 'requests' && (
+            <div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -307,11 +348,12 @@ export default function MetricsPage() {
             </CardContent>
           </Card>
         </div>
-      </div>
+            </div>
+          )}
 
-      {/* Performance Metrics */}
-      <div>
-        <h2 className="text-xl font-semibold mb-4">Runtime Performance</h2>
+          {/* Performance Tab */}
+          {activeTab === 'performance' && (
+            <div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -367,7 +409,10 @@ export default function MetricsPage() {
             </CardContent>
           </Card>
         </div>
-      </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

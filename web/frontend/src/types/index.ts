@@ -397,16 +397,18 @@ export interface SystemMetrics {
   diskTotalBytes: number;
   networkBytesIn: number;
   networkBytesOut: number;
+  uptime?: number; // Server uptime in seconds
+  goroutines?: number; // Active goroutines
+  heapAllocBytes?: number; // Bytes allocated in heap
+  gcRuns?: number; // Number of GC runs
   timestamp: number;
 }
 
 export interface S3Metrics {
-  requestsTotal: Record<string, number>;
-  errorsTotal: Record<string, number>;
-  averageResponseTime: Record<string, number>;
-  activeConnections: number;
-  authSuccessRate: number;
-  authFailures: Record<string, number>;
+  totalRequests: number;
+  totalErrors: number;
+  avgLatency: number;
+  requestsPerSec: number;
   timestamp: number;
 }
 

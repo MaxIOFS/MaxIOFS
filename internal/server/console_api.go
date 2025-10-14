@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -201,6 +202,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Metrics endpoints
 	router.HandleFunc("/metrics", s.handleGetMetrics).Methods("GET", "OPTIONS")
 	router.HandleFunc("/metrics/system", s.handleGetSystemMetrics).Methods("GET", "OPTIONS")
+	router.HandleFunc("/metrics/s3", s.handleGetS3Metrics).Methods("GET", "OPTIONS")
 
 	// Security endpoints
 	router.HandleFunc("/security/status", s.handleGetSecurityStatus).Methods("GET", "OPTIONS")
@@ -1613,6 +1615,13 @@ func (s *Server) handleGetSystemMetrics(w http.ResponseWriter, r *http.Request) 
 	memStats, _ := s.systemMetrics.GetMemoryUsage()
 	diskStats, _ := s.systemMetrics.GetDiskUsage()
 
+	// Get Go runtime statistics
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	// Calculate uptime
+	uptime := time.Since(s.startTime).Seconds()
+
 	// Return response in camelCase format expected by frontend
 	response := map[string]interface{}{
 		"cpuUsagePercent":    cpuUsage,
@@ -1624,6 +1633,10 @@ func (s *Server) handleGetSystemMetrics(w http.ResponseWriter, r *http.Request) 
 		"diskTotalBytes":     uint64(0),
 		"networkBytesIn":     uint64(0),
 		"networkBytesOut":    uint64(0),
+		"uptime":             uptime,                  // Server uptime in seconds
+		"goroutines":         runtime.NumGoroutine(), // Active goroutines
+		"heapAllocBytes":     m.HeapAlloc,            // Bytes allocated in heap
+		"gcRuns":             m.NumGC,                 // Number of GC runs
 		"timestamp":          time.Now().Unix(),
 	}
 
@@ -1642,6 +1655,30 @@ func (s *Server) handleGetSystemMetrics(w http.ResponseWriter, r *http.Request) 
 	}
 
 	s.writeJSON(w, response)
+}
+
+func (s *Server) handleGetS3Metrics(w http.ResponseWriter, r *http.Request) {
+	// Only Global Admins can access S3 metrics
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
+	if !isGlobalAdmin {
+		s.writeError(w, "Forbidden: Only Global Admins can access S3 metrics", http.StatusForbidden)
+		return
+	}
+
+	// Get S3 metrics snapshot from metrics manager
+	s3Metrics, err := s.metricsManager.GetS3MetricsSnapshot()
+	if err != nil {
+		s.writeError(w, fmt.Sprintf("Failed to get S3 metrics: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, s3Metrics)
 }
 
 func (s *Server) handleAPIHealth(w http.ResponseWriter, r *http.Request) {
