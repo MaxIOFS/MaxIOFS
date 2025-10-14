@@ -215,7 +215,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <span>System Online</span>
           </div>
           <p className="text-xs text-gray-400 mt-1">
-            Version 1.1.0
+            Version 0.2.0-alpha
           </p>
         </div>
       </div>

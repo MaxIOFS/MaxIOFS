@@ -192,7 +192,7 @@ export default function SettingsPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Version</label>
               <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm font-mono">
-                1.1.0
+                0.2.0-alpha
               </div>
             </div>
             <div>
