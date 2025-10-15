@@ -237,13 +237,13 @@ export default function UserDetailsPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active':
-        return 'bg-green-100 text-green-800';
+        return 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 border border-green-200 dark:border-green-800';
       case 'inactive':
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-gray-100 dark:bg-gray-900/30 text-gray-800 dark:text-gray-400 border border-gray-200 dark:border-gray-700';
       case 'suspended':
-        return 'bg-red-100 text-red-800';
+        return 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400 border border-red-200 dark:border-red-800';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-gray-100 dark:bg-gray-900/30 text-gray-800 dark:text-gray-400 border border-gray-200 dark:border-gray-700';
     }
   };
 
@@ -300,8 +300,8 @@ export default function UserDetailsPage() {
             Back
           </Button>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">{userData.username}</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">{userData.username}</h1>
+            <p className="text-gray-500 dark:text-gray-400">
               User details and configuration
             </p>
           </div>
@@ -336,55 +336,61 @@ export default function UserDetailsPage() {
       {/* User Info Cards */}
       <div className="grid gap-4 md:grid-cols-3">
         {/* Status Card */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Status</CardTitle>
-            <UserIcon className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(userData.status)}`}>
-                {userData.status === 'active' ? <CheckCircle className="h-3 w-3 mr-1" /> : <XCircle className="h-3 w-3 mr-1" />}
-                {userData.status}
-              </span>
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Status</p>
+              <div className="mt-2">
+                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-sm font-medium ${getStatusColor(userData.status)}`}>
+                  {userData.status === 'active' ? <CheckCircle className="h-4 w-4 mr-1" /> : <XCircle className="h-4 w-4 mr-1" />}
+                  {userData.status.charAt(0).toUpperCase() + userData.status.slice(1)}
+                </span>
+              </div>
             </div>
-          </CardContent>
-        </Card>
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-brand-50 dark:bg-brand-900/30">
+              <UserIcon className="h-7 w-7 text-brand-600 dark:text-brand-400" />
+            </div>
+          </div>
+        </div>
 
         {/* Email Card */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Email</CardTitle>
-            <Mail className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-sm">{userData.email || 'Not provided'}</div>
-          </CardContent>
-        </Card>
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Email</p>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white break-all">{userData.email || 'Not provided'}</h3>
+            </div>
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-50 dark:bg-blue-900/30">
+              <Mail className="h-7 w-7 text-blue-600 dark:text-blue-400" />
+            </div>
+          </div>
+        </div>
 
         {/* Roles Card */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Roles</CardTitle>
-            <Shield className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-1">
-              {userData.roles && userData.roles.length > 0 ? (
-                userData.roles.map((role: string) => (
-                  <span
-                    key={role}
-                    className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800"
-                  >
-                    {role}
-                  </span>
-                ))
-              ) : (
-                <span className="text-xs text-muted-foreground">No roles assigned</span>
-              )}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Roles</p>
+              <div className="flex flex-wrap gap-1 mt-2">
+                {userData.roles && userData.roles.length > 0 ? (
+                  userData.roles.map((role: string) => (
+                    <span
+                      key={role}
+                      className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400 border border-blue-200 dark:border-blue-800"
+                    >
+                      {role}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-gray-500 dark:text-gray-400">No roles assigned</span>
+                )}
+              </div>
             </div>
-          </CardContent>
-        </Card>
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-purple-50 dark:bg-purple-900/30">
+              <Shield className="h-7 w-7 text-purple-600 dark:text-purple-400" />
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Password Management - Modal */}
@@ -398,30 +404,33 @@ export default function UserDetailsPage() {
       >
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium mb-2 block">Current Password</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">Current Password</label>
             <Input
               type="password"
               placeholder="Enter current password"
               value={passwordForm.currentPassword}
               onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
             />
           </div>
           <div>
-            <label className="text-sm font-medium mb-2 block">New Password</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">New Password</label>
             <Input
               type="password"
               placeholder="Enter new password (min 6 characters)"
               value={passwordForm.newPassword}
               onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
             />
           </div>
           <div>
-            <label className="text-sm font-medium mb-2 block">Confirm New Password</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">Confirm New Password</label>
             <Input
               type="password"
               placeholder="Confirm new password"
               value={passwordForm.confirmPassword}
               onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
             />
           </div>
           <div className="flex gap-2 justify-end mt-6">
@@ -445,14 +454,15 @@ export default function UserDetailsPage() {
       </Modal>
 
       {/* Access Keys */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Key className="h-5 w-5" />
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <Key className="h-5 w-5 text-gray-600 dark:text-gray-400" />
             Access Keys ({accessKeys?.length || 0})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+          </h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Manage S3-compatible access credentials</p>
+        </div>
+        <div className="p-6">
           {keysLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loading size="md" />
@@ -488,7 +498,7 @@ export default function UserDetailsPage() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Key className="h-4 w-4 text-muted-foreground" />
-                        <code className="text-sm bg-gray-100 px-2 py-1 rounded">{key.id}</code>
+                        <code className="text-sm bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white px-2 py-1 rounded">{key.id}</code>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -500,8 +510,10 @@ export default function UserDetailsPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        key.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${
+                        key.status === 'active'
+                          ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 border-green-200 dark:border-green-800'
+                          : 'bg-gray-100 dark:bg-gray-900/30 text-gray-800 dark:text-gray-400 border-gray-200 dark:border-gray-700'
                       }`}>
                         {key.status}
                       </span>
@@ -529,8 +541,8 @@ export default function UserDetailsPage() {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Edit User Modal */}
       <Modal
@@ -540,7 +552,7 @@ export default function UserDetailsPage() {
       >
         <form onSubmit={handleEditUser} className="space-y-4">
           <div>
-            <label htmlFor="email" className="block text-sm font-medium mb-2">
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Email
             </label>
             <Input
@@ -549,18 +561,19 @@ export default function UserDetailsPage() {
               value={editForm.email}
               onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
               placeholder="user@example.com"
+              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
             />
           </div>
 
           <div>
-            <label htmlFor="tenant" className="block text-sm font-medium mb-2">
+            <label htmlFor="tenant" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Tenant (Optional)
             </label>
             <select
               id="tenant"
               value={editForm.tenantId || ''}
               onChange={(e) => setEditForm(prev => ({ ...prev, tenantId: e.target.value || undefined }))}
-              className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               <option value="">No Tenant (Global User)</option>
               {tenants?.map((tenant) => (
@@ -569,20 +582,20 @@ export default function UserDetailsPage() {
                 </option>
               ))}
             </select>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Global users can access all buckets. Tenant users are limited to their tenant's buckets.
             </p>
           </div>
 
           <div>
-            <label htmlFor="status" className="block text-sm font-medium mb-2">
+            <label htmlFor="status" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Status
             </label>
             <select
               id="status"
               value={editForm.status}
               onChange={(e) => setEditForm(prev => ({ ...prev, status: e.target.value as any }))}
-              className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
@@ -591,7 +604,7 @@ export default function UserDetailsPage() {
           </div>
 
           <div>
-            <label htmlFor="roles" className="block text-sm font-medium mb-2">
+            <label htmlFor="roles" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Roles (comma separated)
             </label>
             <Input
@@ -602,6 +615,7 @@ export default function UserDetailsPage() {
                 roles: e.target.value.split(',').map(r => r.trim()).filter(r => r)
               }))}
               placeholder="admin, user, guest"
+              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
             />
           </div>
 
@@ -630,14 +644,14 @@ export default function UserDetailsPage() {
         title="Create New Access Key"
       >
         <form onSubmit={handleCreateAccessKey} className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-            <p className="text-sm text-blue-800">
+          <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md p-3">
+            <p className="text-sm text-blue-800 dark:text-blue-300">
               <strong>ℹ️ Information:</strong> An access key and secret key pair will be automatically generated for this user.
             </p>
           </div>
 
-          <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
-            <p className="text-sm text-yellow-800">
+          <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-md p-3">
+            <p className="text-sm text-yellow-800 dark:text-yellow-300">
               <strong>⚠️ Important:</strong> The secret key will only be displayed once after creation.
               Make sure to copy and store it in a safe place.
             </p>
@@ -669,17 +683,17 @@ export default function UserDetailsPage() {
           title="Access Key Created"
         >
           <div className="space-y-4">
-            <div className="bg-green-50 border border-green-200 rounded-md p-3">
-              <p className="text-sm text-green-800">
+            <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md p-3">
+              <p className="text-sm text-green-800 dark:text-green-300">
                 <strong>✅ Access Key created successfully!</strong>
               </p>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium mb-1">Access Key ID:</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Access Key ID:</label>
                 <div className="flex items-center gap-2">
-                  <code className="bg-gray-100 px-3 py-2 rounded text-sm flex-1">
+                  <code className="bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 rounded text-sm flex-1">
                     {createdKey.accessKey}
                   </code>
                   <Button
@@ -695,9 +709,9 @@ export default function UserDetailsPage() {
 
               {createdKey.secretKey && (
                 <div>
-                  <label className="block text-sm font-medium mb-1">Secret Access Key:</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Secret Access Key:</label>
                   <div className="flex items-center gap-2">
-                    <code className="bg-gray-100 px-3 py-2 rounded text-sm flex-1">
+                    <code className="bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 rounded text-sm flex-1">
                       {createdKey.secretKey}
                     </code>
                     <Button
@@ -713,8 +727,8 @@ export default function UserDetailsPage() {
               )}
             </div>
 
-            <div className="bg-red-50 border border-red-200 rounded-md p-3">
-              <p className="text-sm text-red-800">
+            <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md p-3">
+              <p className="text-sm text-red-800 dark:text-red-300">
                 <strong>⚠️ Important:</strong> This is the only time the secret key will be displayed.
                 Copy and store it in a safe place before closing this window.
               </p>

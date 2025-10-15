@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Home,
   Database,
-  FolderOpen,
   Users,
   Settings,
   BarChart3,
@@ -14,6 +13,10 @@ import {
   Building2,
   Menu,
   X,
+  ChevronDown,
+  ChevronRight,
+  Moon,
+  Sun,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -40,7 +43,6 @@ const navigation: NavItem[] = [
     href: '/buckets',
     icon: Database,
   },
-  // Objects page removed - access objects through individual buckets
   {
     name: 'Users',
     href: '/users',
@@ -80,37 +82,53 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = location.pathname;
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { data: lockedUsers = [], isLoading: loadingLockedUsers } = useLockedUsers();
+  const { data: lockedUsers = [] } = useLockedUsers();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
+  const [darkMode, setDarkMode] = useState(false);
 
-  // Check if user is Global Admin (no tenantId)
   const isGlobalAdmin = !user?.tenantId;
 
-  // Get tenant name if user belongs to a tenant
   const { data: tenant } = useQuery({
     queryKey: ['tenant', user?.tenantId],
     queryFn: () => APIClient.getTenant(user!.tenantId!),
     enabled: !!user?.tenantId,
   });
 
-  // Backend returns display_name (snake_case) but TypeScript expects displayName (camelCase)
   const tenantDisplayName = (tenant as any)?.display_name || tenant?.displayName || tenant?.name || user?.tenantId;
 
-  // Filter navigation based on user role
   const filteredNavigation = navigation.filter(item => {
-    // Hide Metrics, Security, and Settings for non-Global Admins
     if ((item.name === 'Metrics' || item.name === 'Security' || item.name === 'Settings') && !isGlobalAdmin) {
       return false;
     }
     return true;
   });
 
+  // Dark Mode Toggle
+  useEffect(() => {
+    const isDark = localStorage.getItem('darkMode') === 'true';
+    setDarkMode(isDark);
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    }
+  }, []);
+
+  const toggleDarkMode = () => {
+    const newDarkMode = !darkMode;
+    setDarkMode(newDarkMode);
+    localStorage.setItem('darkMode', String(newDarkMode));
+    if (newDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  };
+
   const handleLogout = async () => {
     try {
       const result = await SweetAlert.confirmLogout();
-
       if (result.isConfirmed) {
         SweetAlert.loading('Signing out...', 'See you soon');
         await logout();
@@ -129,162 +147,214 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return pathname.startsWith(href) && href !== '/';
   };
 
+  const toggleMenu = (menuName: string) => {
+    setExpandedMenus(prev => 
+      prev.includes(menuName) 
+        ? prev.filter(m => m !== menuName)
+        : [...prev, menuName]
+    );
+  };
+
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
-      <div
+      <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static',
+          'fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        {/* Logo */}
-        <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
-          <Link to="/" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
-            <img
-              src="/assets/img/icon.png"
-              alt="MaxIOFS"
-              className="w-8 h-8 rounded-lg"
-            />
+        {/* Logo Header */}
+        <div className="flex items-center justify-center h-20 px-6 border-b border-gray-200 dark:border-gray-800">
+          <Link to="/" className="flex items-center space-x-3 group">
+            <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-brand-600">
+              <img
+                src="/assets/img/icon.png"
+                alt="MaxIOFS"
+                className="w-7 h-7 rounded"
+              />
+            </div>
             <div>
-              <h1 className="text-lg font-semibold text-gray-900">MaxIOFS</h1>
-              <p className="text-xs text-gray-500">Object Storage</p>
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white">MaxIOFS</h1>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Object Storage</p>
             </div>
           </Link>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="lg:hidden p-2 hover:bg-gray-100 rounded-lg"
+            className="lg:hidden p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
           >
-            <X className="h-5 w-5 text-gray-500" />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+        {/* Navigation Menu */}
+        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
           {filteredNavigation.map((item) => {
             const isActive = isActiveRoute(item.href, !item.children);
-            const isExpanded = item.children && item.children.some(child => isActiveRoute(child.href));
+            const isExpanded = item.children && expandedMenus.includes(item.name);
+            const hasActiveChild = item.children && item.children.some(child => isActiveRoute(child.href));
 
             return (
               <div key={item.name}>
-                <Link
-                  to={item.href}
-                  className={cn(
-                    'flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                    isActive
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-gray-700 hover:bg-gray-100'
-                  )}
-                >
-                  <item.icon className={cn(
-                    'h-5 w-5',
-                    isActive ? 'text-blue-700' : 'text-gray-500'
-                  )} />
-                  <span className="flex-1">{item.name}</span>
-                </Link>
-
-                {/* Submenu */}
-                {item.children && isExpanded && (
-                  <div className="mt-1 ml-4 space-y-1">
-                    {item.children.map((child) => (
-                      <Link
-                        key={child.name}
-                        to={child.href}
-                        className={cn(
-                          'flex items-center space-x-3 px-3 py-2 rounded-lg text-sm transition-colors',
-                          isActiveRoute(child.href)
-                            ? 'bg-blue-50 text-blue-700'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        )}
-                      >
-                        <child.icon className="h-4 w-4" />
-                        <span>{child.name}</span>
-                      </Link>
-                    ))}
-                  </div>
+                {item.children ? (
+                  <>
+                    <button
+                      onClick={() => toggleMenu(item.name)}
+                      className={cn(
+                        'flex items-center justify-between w-full px-4 py-3 rounded-lg text-sm font-medium transition-all',
+                        hasActiveChild || isExpanded
+                          ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                      )}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <item.icon className="h-5 w-5 flex-shrink-0" />
+                        <span>{item.name}</span>
+                      </div>
+                      {isExpanded ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                    </button>
+                    
+                    {isExpanded && (
+                      <div className="mt-1 ml-6 space-y-1 pl-4 border-l border-gray-200 dark:border-gray-700">
+                        {item.children.map((child) => (
+                          <Link
+                            key={child.name}
+                            to={child.href}
+                            className={cn(
+                              'flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm transition-all',
+                              isActiveRoute(child.href)
+                                ? 'bg-brand-600 text-white font-medium'
+                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                            )}
+                          >
+                            <child.icon className="h-4 w-4" />
+                            <span>{child.name}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <Link
+                    to={item.href}
+                    className={cn(
+                      'flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all group',
+                      isActive
+                        ? 'bg-brand-600 text-white'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                    )}
+                  >
+                    <item.icon className="h-5 w-5" />
+                    <span>{item.name}</span>
+                  </Link>
                 )}
               </div>
             );
           })}
         </nav>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-gray-200">
-          <div className="flex items-center space-x-3 text-sm text-gray-500">
-            <div className="w-2 h-2 bg-green-500 rounded-full" />
-            <span>System Online</span>
+        {/* Sidebar Footer */}
+        <div className="p-4 border-t border-gray-200 dark:border-gray-800">
+          <div className="flex items-center space-x-3 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-800">
+            <div className="flex items-center justify-center w-2 h-2">
+              <div className="w-2 h-2 bg-success-500 rounded-full animate-pulse"></div>
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-900 dark:text-white">System Status</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">All systems operational</p>
+            </div>
           </div>
-          <p className="text-xs text-gray-400 mt-1">
-            Version 0.2.0-alpha
+          <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-3">
+            v0.2.0-alpha
           </p>
         </div>
-      </div>
+      </aside>
 
       {/* Mobile backdrop */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 lg:hidden bg-black bg-opacity-50"
+          className="fixed inset-0 z-40 bg-gray-900/50 backdrop-blur-sm lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Main content */}
+      {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top bar */}
-        <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-30">
-          <div className="flex items-center justify-between h-16 px-6">
-            {/* Left: Mobile menu button */}
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="lg:hidden p-2 hover:bg-gray-100 rounded-lg"
-            >
-              <Menu className="h-5 w-5 text-gray-500" />
-            </button>
+        {/* Top Header */}
+        <header className="sticky top-0 z-30 flex w-full bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-sm">
+          <div className="flex flex-grow items-center justify-between px-4 py-4 md:px-6 2xl:px-11">
+            {/* Left side */}
+            <div className="flex items-center gap-2 sm:gap-4 lg:hidden">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="z-50 block rounded-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1.5 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 lg:hidden"
+              >
+                <Menu className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+              </button>
+            </div>
 
-            {/* Center: Page title or breadcrumb could go here */}
-            <div className="flex-1" />
+            {/* Spacer to keep right side aligned */}
+            <div className="flex-1"></div>
 
-            {/* Right: Notifications + User */}
-            <div className="flex items-center space-x-4">
-              {/* Notifications */}
+            {/* Right side */}
+            <div className="flex items-center gap-3 2xl:gap-7">
+              {/* Dark Mode Toggle */}
+              <button
+                onClick={toggleDarkMode}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+              >
+                {darkMode ? (
+                  <Sun className="h-5 w-5 text-yellow-500" />
+                ) : (
+                  <Moon className="h-5 w-5 text-gray-600" />
+                )}
+              </button>
+
+              {/* Notification Menu */}
               <div className="relative">
                 <button
                   onClick={() => setShowNotifications(!showNotifications)}
-                  className="relative p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
+                  className="relative flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
-                  <Bell className="h-5 w-5" />
+                  <Bell className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                   {lockedUsers.length > 0 && (
-                    <span className="absolute top-1 right-1 flex items-center justify-center min-w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full px-1">
-                      {lockedUsers.length}
+                    <span className="absolute -top-0.5 -right-0.5 z-1 h-5 w-5 rounded-full bg-error-600 flex items-center justify-center">
+                      <span className="text-[10px] font-medium text-white">{lockedUsers.length}</span>
                     </span>
                   )}
                 </button>
 
-                {/* Notifications dropdown */}
                 {showNotifications && (
                   <>
                     <div
-                      className="fixed inset-0 z-10"
+                      className="fixed inset-0 z-40"
                       onClick={() => setShowNotifications(false)}
                     />
-                    <div className="absolute right-0 mt-2 w-96 bg-white rounded-md shadow-lg border border-gray-200 z-20">
-                      <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-                        <h3 className="text-sm font-semibold text-gray-900">Notifications</h3>
+                    <div className="absolute -right-16 sm:right-0 mt-2.5 w-80 sm:w-96 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+                      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+                        <h5 className="text-sm font-semibold text-gray-900 dark:text-white">
+                          Notifications
+                        </h5>
                         {lockedUsers.length > 0 && (
-                          <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full font-medium">
-                            {lockedUsers.length} locked
+                          <span className="rounded-full bg-brand-600 px-2.5 py-0.5 text-xs font-medium text-white">
+                            {lockedUsers.length} New
                           </span>
                         )}
                       </div>
+
                       <div className="max-h-96 overflow-y-auto">
                         {lockedUsers.length === 0 ? (
-                          <div className="p-8 text-center">
-                            <Bell className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                            <p className="text-sm text-gray-500 font-medium">No new notifications</p>
-                            <p className="text-xs text-gray-400 mt-1">You're all caught up!</p>
+                          <div className="px-5 py-8 text-center">
+                            <Bell className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                            <p className="text-sm text-gray-500 dark:text-gray-400">No notifications</p>
                           </div>
                         ) : (
-                          <div className="divide-y divide-gray-100">
+                          <div>
                             {lockedUsers.map((lockedUser) => {
                               const remainingTime = lockedUser.lockedUntil - Math.floor(Date.now() / 1000);
                               const minutes = Math.floor(remainingTime / 60);
@@ -295,28 +365,21 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                                   key={lockedUser.id}
                                   to="/users"
                                   onClick={() => setShowNotifications(false)}
-                                  className="block p-4 hover:bg-gray-50 transition-colors"
+                                  className="flex gap-4 border-b border-gray-200 dark:border-gray-700 px-5 py-4 hover:bg-gray-50 dark:hover:bg-gray-700"
                                 >
-                                  <div className="flex items-start space-x-3">
-                                    <div className="flex-shrink-0">
-                                      <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                                        <Lock className="h-5 w-5 text-red-600" />
-                                      </div>
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium text-gray-900">
-                                        Account Locked
-                                      </p>
-                                      <p className="text-sm text-gray-600 mt-1">
-                                        {lockedUser.displayName} ({lockedUser.username})
-                                      </p>
-                                      <p className="text-xs text-red-600 mt-1">
-                                        {lockedUser.failedAttempts} failed attempts
-                                      </p>
-                                      <p className="text-xs text-gray-500 mt-1">
-                                        Unlocks in {minutes}m {seconds}s
-                                      </p>
-                                    </div>
+                                  <div className="h-12 w-12 rounded-full bg-error-50 dark:bg-error-900/30 flex items-center justify-center flex-shrink-0">
+                                    <Lock className="h-6 w-6 text-error-600" />
+                                  </div>
+                                  <div className="flex-1">
+                                    <h6 className="text-sm font-medium text-gray-900 dark:text-white mb-1">
+                                      Account Locked
+                                    </h6>
+                                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                                      {lockedUser.displayName} - {lockedUser.failedAttempts} failed attempts
+                                    </p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                                      Unlocks in {minutes}m {seconds}s
+                                    </p>
                                   </div>
                                 </Link>
                               );
@@ -324,85 +387,78 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                           </div>
                         )}
                       </div>
-                      {lockedUsers.length > 0 && (
-                        <div className="p-3 border-t border-gray-200 bg-gray-50">
-                          <Link
-                            to="/users"
-                            onClick={() => setShowNotifications(false)}
-                            className="text-xs text-blue-600 hover:text-blue-700 font-medium"
-                          >
-                            View all users →
-                          </Link>
-                        </div>
-                      )}
                     </div>
                   </>
                 )}
               </div>
 
-              {/* User menu */}
+              {/* User Area */}
               <div className="relative">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex items-center space-x-3 p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                  className="flex items-center gap-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 px-2 py-2"
                 >
-                  <div className="flex items-center justify-center w-8 h-8 bg-blue-100 text-blue-700 rounded-full">
-                    <User className="h-4 w-4" />
-                  </div>
-                  <div className="hidden md:block text-left">
-                    <p className="text-sm font-medium text-gray-900">
-                      {user?.username || 'Unknown User'}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {user?.email || 'No email'}
-                    </p>
-                  </div>
+                  <span className="hidden text-right lg:block">
+                    <span className="block text-sm font-medium text-gray-900 dark:text-white">
+                      {user?.username || 'Unknown'}
+                    </span>
+                    <span className="block text-xs text-gray-500 dark:text-gray-400">
+                      {user?.tenantId ? tenantDisplayName : 'Global Admin'}
+                    </span>
+                  </span>
+
+                  <span className="h-10 w-10 rounded-full bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center">
+                    <span className="text-sm font-semibold text-white">
+                      {user?.username?.charAt(0).toUpperCase() || 'U'}
+                    </span>
+                  </span>
+
+                  <ChevronDown className="hidden sm:block h-4 w-4 text-gray-400" />
                 </button>
 
-                {/* User dropdown menu */}
                 {showUserMenu && (
                   <>
                     <div
-                      className="fixed inset-0 z-10"
+                      className="fixed inset-0 z-40"
                       onClick={() => setShowUserMenu(false)}
                     />
-                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg border border-gray-200 z-20">
-                      <div className="py-1">
-                        {/* User info */}
-                        <div className="px-4 py-3 border-b border-gray-100">
-                          <p className="text-sm font-medium text-gray-900 truncate">
-                            {user?.username || 'Unknown User'}
+                    <div className="absolute right-0 mt-2.5 w-56 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg z-50">
+                      <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 px-4 py-4">
+                        <span className="h-12 w-12 rounded-full bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center flex-shrink-0">
+                          <span className="text-base font-semibold text-white">
+                            {user?.username?.charAt(0).toUpperCase() || 'U'}
+                          </span>
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                            {user?.username || 'Unknown'}
                           </p>
-                          <p className="text-xs text-gray-500 mt-1 truncate">
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
                             {user?.email || 'No email'}
                           </p>
-                          {user?.tenantId && (
-                            <p className="text-xs text-blue-600 mt-1 truncate">
-                              {tenantDisplayName}
-                            </p>
-                          )}
                         </div>
+                      </div>
 
-                        {/* Menu items */}
+                      <div className="p-2">
                         <button
-                          className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                           onClick={() => {
                             setShowUserMenu(false);
                             navigate(`/users/${user?.id}`);
                           }}
+                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                         >
-                          <User className="h-4 w-4 mr-3" />
-                          Profile
+                          <User className="h-4 w-4" />
+                          My Profile
                         </button>
                         <button
-                          className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                           onClick={() => {
                             setShowUserMenu(false);
                             handleLogout();
                           }}
+                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-error-600 hover:bg-error-50 dark:hover:bg-error-900/30"
                         >
-                          <LogOut className="h-4 w-4 mr-3" />
-                          Sign out
+                          <LogOut className="h-4 w-4" />
+                          Log Out
                         </button>
                       </div>
                     </div>
@@ -414,8 +470,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Main content */}
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
-          {children}
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 dark:bg-gray-900">
+          <div className="mx-auto max-w-screen-2xl p-4 md:p-6 2xl:p-10">
+            {children}
+          </div>
         </main>
       </div>
     </div>

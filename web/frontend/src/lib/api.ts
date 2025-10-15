@@ -546,6 +546,79 @@ export class APIClient {
     return response.data;
   }
 
+  // Bucket Versioning
+  static async getBucketVersioning(bucketName: string): Promise<any> {
+    const response = await s3Client.get(`/${bucketName}?versioning`);
+    return response.data;
+  }
+
+  static async putBucketVersioning(bucketName: string, enabled: boolean): Promise<void> {
+    const xml = `<VersioningConfiguration><Status>${enabled ? 'Enabled' : 'Suspended'}</Status></VersioningConfiguration>`;
+    await s3Client.put(`/${bucketName}?versioning`, xml, {
+      headers: { 'Content-Type': 'application/xml' }
+    });
+  }
+
+  // Bucket Policy
+  static async getBucketPolicy(bucketName: string): Promise<any> {
+    const response = await s3Client.get(`/${bucketName}?policy`);
+    return response.data;
+  }
+
+  static async putBucketPolicy(bucketName: string, policy: string): Promise<void> {
+    await s3Client.put(`/${bucketName}?policy`, policy, {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  static async deleteBucketPolicy(bucketName: string): Promise<void> {
+    await s3Client.delete(`/${bucketName}?policy`);
+  }
+
+  // Bucket CORS
+  static async getBucketCORS(bucketName: string): Promise<any> {
+    const response = await s3Client.get(`/${bucketName}?cors`);
+    return response.data;
+  }
+
+  static async putBucketCORS(bucketName: string, cors: string): Promise<void> {
+    await s3Client.put(`/${bucketName}?cors`, cors, {
+      headers: { 'Content-Type': 'application/xml' }
+    });
+  }
+
+  static async deleteBucketCORS(bucketName: string): Promise<void> {
+    await s3Client.delete(`/${bucketName}?cors`);
+  }
+
+  // Bucket Lifecycle
+  static async getBucketLifecycle(bucketName: string): Promise<any> {
+    const response = await s3Client.get(`/${bucketName}?lifecycle`);
+    return response.data;
+  }
+
+  static async putBucketLifecycle(bucketName: string, lifecycle: string): Promise<void> {
+    await s3Client.put(`/${bucketName}?lifecycle`, lifecycle, {
+      headers: { 'Content-Type': 'application/xml' }
+    });
+  }
+
+  static async deleteBucketLifecycle(bucketName: string): Promise<void> {
+    await s3Client.delete(`/${bucketName}?lifecycle`);
+  }
+
+  // Object Lock Configuration
+  static async getObjectLockConfiguration(bucketName: string): Promise<any> {
+    const response = await s3Client.get(`/${bucketName}?object-lock`);
+    return response.data;
+  }
+
+  static async putObjectLockConfiguration(bucketName: string, config: string): Promise<void> {
+    await s3Client.put(`/${bucketName}?object-lock`, config, {
+      headers: { 'Content-Type': 'application/xml' }
+    });
+  }
+
   // Tenant Management
   static async getTenants(): Promise<Tenant[]> {
     const response = await apiClient.get<APIResponse<Tenant[]>>('/tenants');
