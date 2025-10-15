@@ -1,49 +1,72 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.2.0-dev
-**Status**: Development - Active Development
+**Version**: 0.2.0-alpha
+**Status**: Active Development (Alpha Phase)
 **License**: MIT
 
-MaxIOFS is an S3-compatible object storage system built in Go with an embedded Next.js web interface. It's designed to be simple, portable, and easy to deploy as a single binary.
+MaxIOFS is an S3-compatible object storage system built in Go with an embedded Next.js web interface. Designed to be simple, portable, and deployable as a single binary.
 
 ## ⚠️ Project Status
 
 **This project is in ALPHA phase**. This means:
-- ✅ Works for basic use cases
+- ✅ Works for basic to intermediate use cases
 - ⚠️ May have undiscovered bugs
 - ⚠️ API may change without prior notice
 - ❌ DO NOT use in production without extensive testing
 - ❌ DO NOT trust as the only copy of important data
 
-## 🎯 What Works?
+## 🎯 Features
 
-### Core Features
-- ✅ Basic S3 API (PutObject, GetObject, DeleteObject, ListObjects)
-- ✅ Buckets (create, list, delete)
-- ✅ Multipart uploads
-- ✅ Dual authentication (Web Console + S3 API)
-- ✅ Basic Object Lock (COMPLIANCE/GOVERNANCE)
-- ✅ Presigned URLs
-- ✅ Monolithic build (single binary with embedded frontend)
+### S3 API Compatibility
+- ✅ Core operations (PutObject, GetObject, DeleteObject, ListObjects)
+- ✅ Bucket management (Create, List, Delete, GetBucketInfo)
+- ✅ Multipart uploads (complete workflow)
+- ✅ Presigned URLs (GET/PUT with expiration)
+- ✅ Object Lock (COMPLIANCE/GOVERNANCE modes)
+- ✅ Bucket Versioning (Enable/Suspend/Query)
+- ✅ Bucket Policy (Get/Put/Delete JSON policies)
+- ✅ Bucket CORS (Get/Put/Delete CORS rules)
+- ✅ Bucket Lifecycle (Get/Put/Delete lifecycle configurations)
+- ✅ Object Tagging (Get/Put/Delete tags)
+- ✅ Object ACL (Get/Put access control lists)
+- ✅ Object Retention (WORM with legal hold support)
+- ✅ CopyObject (with metadata preservation)
+
+### Authentication & Security
+- ✅ Dual authentication (JWT for Console, S3 Signature v2/v4 for API)
+- ✅ Bcrypt password hashing
+- ✅ Access keys with secret key management
+- ✅ Rate limiting per endpoint
+- ✅ Account lockout after failed attempts
+- ✅ CORS support (configurable per bucket)
+- ✅ Multi-tenancy with resource isolation
 
 ### Web Console
-- ✅ Dashboard with basic metrics
-- ✅ Bucket management
-- ✅ Object browser (upload/download)
-- ✅ User and access key management
-- ✅ Basic multi-tenancy (isolates resources per tenant)
+- ✅ Modern responsive UI with dark mode support
+- ✅ Dashboard with real-time statistics and metrics
+- ✅ Bucket browser with object operations
+- ✅ File upload/download with drag-and-drop
+- ✅ File sharing with expirable links
+- ✅ User management (Create, Edit, Delete, Roles)
+- ✅ Access key management (Create, Revoke, View)
+- ✅ Tenant management with quotas (Storage, Buckets, Keys)
+- ✅ Bucket configuration editor (Versioning, Policy, CORS, Lifecycle, Object Lock)
+- ✅ System settings overview
+- ✅ Security audit page
+- ✅ Metrics monitoring (System, Storage, Requests, Performance)
 
-### New in 1.1.0-alpha
-- ✅ Migration to Pages Router for static export
-- ✅ Real monolithic build (frontend embedded in Go binary)
-- ✅ HTTP and HTTPS support with relative URLs
-- ✅ Critical fix: `--data-dir` now works correctly
+### Deployment
+- ✅ Single binary with embedded frontend
+- ✅ HTTP and HTTPS support
+- ✅ Configurable via CLI flags
+- ✅ SQLite database (embedded)
+- ✅ Filesystem storage backend
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Go 1.21+
-- Node.js 18+ (only for development)
+- Go 1.21+ (for building)
+- Node.js 18+ (for building)
 
 ### Build
 
@@ -55,206 +78,237 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 make build
 ```
 
-This generates `build/maxiofs.exe` (Windows) or `build/maxiofs` (Linux/macOS) with the embedded frontend.
+Output: `build/maxiofs.exe` (Windows) or `build/maxiofs` (Linux/macOS)
 
 ### Run
 
 ```bash
-# HTTP (development)
+# Basic HTTP
 .\build\maxiofs.exe --data-dir ./data
 
-# HTTPS (with certificates)
+# With HTTPS
 .\build\maxiofs.exe --data-dir ./data --tls-cert cert.pem --tls-key key.pem
 ```
 
-**Access:**
-- Web Console: `http://localhost:8081` (user: `admin`, password: `admin`)
-- S3 API: `http://localhost:8080` (Access Key: `maxioadmin`, Secret: `maxioadmin`)
+### Access
 
-## 📋 Missing Features / Known Limitations
+- **Web Console**: `http://localhost:8081`
+  - Default user: `admin` / `admin`
+- **S3 API**: `http://localhost:8080`
+  - Default Access Key: `maxioadmin`
+  - Default Secret Key: `maxioadmin`
 
-### Important Limitations
-- ⚠️ **Passwords**: Bcrypt implemented but needs more testing
-- ⚠️ **Multi-tenancy**: Implemented but without extensive testing
-- ⚠️ **Object Lock**: Functional but not tested with Veeam or other clients
-- ⚠️ **Performance**: Local benchmarks but not validated in production
-- ⚠️ **Storage**: Filesystem only, no replication or redundancy
-- ⚠️ **Scalability**: Single-node, no clustering
-
-### Pending Features
-- [ ] Exhaustive testing of all functionalities
-- [ ] Complete API documentation
-- [ ] Veeam integration (tested)
-- [ ] CI/CD pipeline
-- [ ] Official Docker images
-- [ ] Helm charts for Kubernetes
-- [ ] Additional backends (S3, GCS, Azure)
-- [ ] Complete object versioning
-- [ ] Node replication
+**⚠️ Change default credentials immediately!**
 
 ## 🔧 Configuration
 
 ```bash
-# View all options
-.\build\maxiofs.exe --help
+Usage: maxiofs [OPTIONS]
 
-# Main options
---data-dir string         # Data directory (REQUIRED)
---listen string           # S3 API port (default ":8080")
---console-listen string   # Web Console port (default ":8081")
---log-level string        # Log level (debug, info, warn, error)
---tls-cert string         # TLS certificate
---tls-key string          # TLS private key
+Required:
+  --data-dir string         Data directory path
+
+Optional:
+  --listen string           S3 API address (default ":8080")
+  --console-listen string   Console API address (default ":8081")
+  --log-level string        Log level: debug|info|warn|error (default "info")
+  --tls-cert string         TLS certificate file
+  --tls-key string          TLS private key file
+
+Example:
+  maxiofs --data-dir /var/lib/maxiofs --log-level debug
 ```
 
 ## 📖 Architecture
 
 ```
-┌─────────────────────────────────────┐
-│    Single Binary (maxiofs.exe)      │
-├─────────────────────────────────────┤
-│  Web Console (Embedded Frontend)    │  :8081
-│  - Next.js Pages Router             │
-│  - Static files in /out             │
-├─────────────────────────────────────┤
-│  Console API (REST)                 │  :8081/api/v1
-│  - JWT authentication               │
-│  - User/Bucket/Tenant management    │
-├─────────────────────────────────────┤
-│  S3 API (S3-compatible)             │  :8080
-│  - S3 signature v2/v4               │
-│  - Basic S3 operations              │
-├─────────────────────────────────────┤
-│  Storage Backend (Filesystem)       │
-│  - Atomic writes                    │
-│  - Object Lock support              │
-└─────────────────────────────────────┘
+┌─────────────────────────────────────────┐
+│      Single Binary (maxiofs.exe)        │
+├─────────────────────────────────────────┤
+│  Web Console (Embedded Next.js)   :8081│
+│  - Static files in Go binary           │
+│  - Dark mode support                   │
+│  - Responsive design                   │
+├─────────────────────────────────────────┤
+│  Console REST API              :8081/api│
+│  - JWT authentication                  │
+│  - User/Bucket/Tenant management       │
+│  - File operations                     │
+├─────────────────────────────────────────┤
+│  S3-Compatible API                 :8080│
+│  - AWS Signature v2/v4                 │
+│  - 40+ S3 operations                   │
+│  - Multipart upload support            │
+├─────────────────────────────────────────┤
+│  Storage Layer                          │
+│  - SQLite metadata database            │
+│  - Filesystem object storage           │
+│  - Atomic write operations             │
+└─────────────────────────────────────────┘
 ```
 
-## 🧪 Testing
+## 📊 Project Structure
 
-**Test Coverage: ~60%** (estimated, needs validation)
+```
+MaxIOFS/
+├── cmd/maxiofs/              # Main application entry
+├── internal/
+│   ├── api/                  # Console REST API handlers
+│   ├── auth/                 # Authentication & authorization
+│   ├── bucket/               # Bucket management
+│   ├── config/               # Configuration management
+│   ├── database/             # SQLite database layer
+│   ├── metrics/              # System metrics collection
+│   ├── object/               # Object storage operations
+│   ├── server/               # HTTP server setup
+│   ├── storage/              # Storage backend
+│   └── tenant/               # Multi-tenancy logic
+├── pkg/s3compat/             # S3 API implementation
+│   ├── handler.go            # Main S3 handler
+│   ├── bucket_ops.go         # Bucket operations
+│   ├── object_ops.go         # Object operations
+│   ├── multipart.go          # Multipart upload
+│   └── auth.go               # S3 signature validation
+├── web/
+│   ├── embed.go              # Frontend embedding
+│   └── frontend/             # Next.js application
+│       ├── src/
+│       │   ├── components/   # React components
+│       │   ├── pages/        # Page components
+│       │   ├── lib/          # API client & utilities
+│       │   └── hooks/        # Custom React hooks
+│       └── public/           # Static assets
+├── build/                    # Build output directory
+└── data/                     # Runtime data (gitignored)
+```
+
+## 🧪 Testing with AWS CLI
 
 ```bash
-# Unit tests
-go test ./internal/... -v
+# Configure credentials
+aws configure --profile maxiofs
+AWS Access Key ID: maxioadmin
+AWS Secret Access Key: maxioadmin
+Default region name: us-east-1
+Default output format: json
 
-# Integration tests (if they exist)
-go test ./tests/integration/... -v
+# Create bucket
+aws --profile maxiofs --endpoint-url http://localhost:8080 s3 mb s3://test-bucket
 
-# Frontend dev
+# Upload file
+aws --profile maxiofs --endpoint-url http://localhost:8080 s3 cp file.txt s3://test-bucket/
+
+# List objects
+aws --profile maxiofs --endpoint-url http://localhost:8080 s3 ls s3://test-bucket/
+
+# Download file
+aws --profile maxiofs --endpoint-url http://localhost:8080 s3 cp s3://test-bucket/file.txt downloaded.txt
+```
+
+## ⚠️ Known Limitations
+
+### Critical
+- ⚠️ Single-node only (no clustering/replication)
+- ⚠️ Filesystem backend only (no S3/GCS/Azure backends)
+- ⚠️ Limited performance testing (not validated at scale)
+- ⚠️ Multi-tenancy needs more real-world testing
+- ⚠️ Object Lock not validated with Veeam or other backup tools
+
+### Performance
+- Local benchmarks: ~374 MB/s writes, ~1703 MB/s reads
+- *Numbers are from local tests and vary by hardware*
+
+### Security
+- ⚠️ Default credentials must be changed
+- ⚠️ HTTPS recommended for production
+- ⚠️ No security audit performed
+- ⚠️ Audit logging incomplete
+
+## 🛠️ Development
+
+### Building from Source
+
+```bash
+# Install dependencies
+cd web/frontend
+npm install
+cd ../..
+
+# Build
+.\build.bat  # Windows
+make build   # Linux/macOS
+```
+
+### Running in Development Mode
+
+```bash
+# Terminal 1: Backend
+go run cmd/maxiofs/main.go --data-dir ./data --log-level debug
+
+# Terminal 2: Frontend (optional, for UI dev)
 cd web/frontend
 npm run dev
 ```
 
-## ⚠️ Security
+### Running Tests
 
-**DO NOT use in production without:**
-1. Changing default credentials
-2. Implementing HTTPS (reverse proxy recommended)
-3. Configuring appropriate firewall
-4. Backing up data
-5. Extensive testing
+```bash
+# Backend unit tests
+go test ./internal/... -v
 
-**Implemented Security Features:**
-- ✅ Bcrypt for passwords
-- ✅ JWT authentication
-- ✅ Basic rate limiting
-- ✅ Account lockout after failed attempts
-
-**Pending:**
-- [ ] Complete audit logging
-- [ ] Validated granular RBAC
-- [ ] Complete security hardening
-
-## 📊 Performance
-
-**Preliminary benchmarks (not validated in production):**
-- Writes: ~374 MB/s (local filesystem)
-- Reads: ~1703 MB/s (local filesystem)
-
-*Note: These numbers are from local tests and may vary significantly depending on hardware, network, and configuration.*
-
-## 🛠️ Development
-
-### Project Structure
-
-```
-MaxIOFS/
-├── cmd/maxiofs/          # Main binary
-├── internal/             # Core logic
-│   ├── api/             # Console API
-│   ├── auth/            # Authentication
-│   ├── bucket/          # Bucket management
-│   ├── config/          # Configuration
-│   ├── object/          # Object management
-│   ├── server/          # HTTP servers
-│   └── storage/         # Storage backend
-├── pkg/s3compat/        # S3 API implementation
-├── web/
-│   ├── embed.go         # Frontend embed
-│   └── frontend/        # Next.js app
-└── build/               # Build output
+# With coverage
+go test ./internal/... -coverprofile=coverage.out
+go tool cover -html=coverage.out
 ```
 
-### Build Process
+## 🔒 Security Best Practices
 
-The `build.bat` does:
-1. Build the frontend (`npm run build` → `web/frontend/out/`)
-2. Embed the frontend in Go (`web/embed.go`)
-3. Build the Go binary with embedded frontend
-
-## 🐛 Known Bugs
-
-- [ ] Needs more Object Lock testing
-- [ ] Multi-tenancy without complete testing
-- [ ] Possible race conditions in concurrent operations
-- [ ] UI may have unhandled edge cases
-
-**Report bugs:** GitHub Issues
+1. **Change default credentials** immediately
+2. **Use HTTPS** in production (TLS certs or reverse proxy)
+3. **Configure firewall** rules (restrict port access)
+4. **Regular backups** of data directory
+5. **Monitor logs** for suspicious activity
+6. **Update regularly** for security patches
 
 ## 📝 Contributing
 
-Pull requests welcome for:
-- Bug fixes
-- Additional tests
-- Documentation
-- Performance improvements
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Write tests for new features
+4. Ensure all tests pass
+5. Submit a pull request
 
-**DO NOT accept without:**
-- Passing tests
-- Documented code
-- Descriptive commits
+## 🗺️ Roadmap
 
-## 🗺️ Roadmap (Aspirational)
+### Short Term (v0.3.0)
+- [ ] Comprehensive test suite (80%+ coverage)
+- [ ] Complete API documentation
+- [ ] Docker images
+- [ ] Performance benchmarking suite
 
-### Short Term
-- [ ] Exhaustive testing
-- [ ] API documentation
-- [ ] Veeam integration validation
-- [ ] Basic CI/CD
+### Medium Term (v0.4.0-v0.5.0)
+- [ ] Object versioning (full implementation)
+- [ ] Prometheus metrics export
+- [ ] Kubernetes Helm charts
+- [ ] CI/CD pipeline
 
-### Medium Term
-- [ ] Docker/Kubernetes support
-- [ ] Complete monitoring/metrics
-- [ ] S3 backend (store on AWS S3)
-- [ ] Performance tuning
-
-### Long Term
+### Long Term (v1.0.0+)
 - [ ] Multi-node clustering
-- [ ] Complete object versioning
-- [ ] Node replication
-- [ ] GCS/Azure backends
+- [ ] Replication between nodes
+- [ ] Additional storage backends (S3, GCS, Azure)
+- [ ] LDAP/SSO integration
 
 ## 📄 License
 
-MIT License - See LICENSE file
+MIT License - See LICENSE file for details
 
 ## 💬 Support
 
-- GitHub Issues: For bugs and feature requests
-- Documentation: See `/docs` (in development)
+- **Issues**: [GitHub Issues](https://github.com/yourusername/maxiofs/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/yourusername/maxiofs/discussions)
+- **Documentation**: See `/docs` directory
 
 ---
 
-**Reminder**: This is an ALPHA project. Use at your own risk.
+**⚠️ Reminder**: This is an ALPHA project. Use at your own risk. Always backup your data.

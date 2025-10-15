@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import {
   Table,
@@ -17,6 +16,7 @@ import { ArrowLeft as ArrowLeftIcon } from 'lucide-react';
 import { Upload as UploadIcon } from 'lucide-react';
 import { Download as DownloadIcon } from 'lucide-react';
 import { Search as SearchIcon } from 'lucide-react';
+import { Globe as GlobeIcon } from 'lucide-react';
 import { Settings as SettingsIcon } from 'lucide-react';
 import { Trash2 as Trash2Icon } from 'lucide-react';
 import { File as FileIcon } from 'lucide-react';
@@ -724,35 +724,33 @@ export default function BucketDetailsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate('/buckets')}
-            className="gap-2"
-          >
-            <ArrowLeftIcon className="h-4 w-4" />
-            Back
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">{bucketName}</h1>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              {currentPrefix && (
-                <>
-                  <span>Path: /{currentPrefix}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={navigateUp}
-                    className="text-blue-600 hover:text-blue-800"
-                  >
-                    ← Up
-                  </Button>
-                </>
-              )}
-            </div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/buckets')}
+              className="gap-2 -ml-2"
+            >
+              <ArrowLeftIcon className="h-4 w-4" />
+              Back
+            </Button>
           </div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{bucketName}</h1>
+          {currentPrefix && (
+            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mt-1">
+              <span>Path: /{currentPrefix}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={navigateUp}
+                className="text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 -ml-1"
+              >
+                ← Up
+              </Button>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -791,53 +789,56 @@ export default function BucketDetailsPage() {
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Objects</CardTitle>
-            <FileIcon className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {(bucketData?.object_count || 0).toLocaleString()}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Objects</p>
+              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{(bucketData?.object_count || 0).toLocaleString()}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                Files and folders
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Files and folders
-            </p>
-          </CardContent>
-        </Card>
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-brand-50 dark:bg-brand-900/30">
+              <FileIcon className="h-7 w-7 text-brand-600 dark:text-brand-400" />
+            </div>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Size</CardTitle>
-            <HardDriveIcon className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {formatSize(bucketData?.size || 0)}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Size</p>
+              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{formatSize(bucketData?.size || 0)}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                Storage used
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Storage used
-            </p>
-          </CardContent>
-        </Card>
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-orange-50 dark:bg-orange-900/30">
+              <HardDriveIcon className="h-7 w-7 text-orange-600 dark:text-orange-400" />
+            </div>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Region</CardTitle>
-            <SettingsIcon className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {bucketData?.region || 'us-east-1'}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Region</p>
+              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{bucketData?.region || 'us-east-1'}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                Storage region
+              </p>
             </div>
-          </CardContent>
-        </Card>
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-light-50 dark:bg-blue-light-900/30">
+              <GlobeIcon className="h-7 w-7 text-blue-light-600 dark:text-blue-light-400" />
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Object Lock Banner */}
       {bucketData?.objectLock?.objectLockEnabled && (
-        <Card className="border-blue-200 bg-blue-50">
-          <CardContent className="pt-6">
+        <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800 shadow-sm overflow-hidden">
+          <div className="p-6">
             <div className="flex items-start gap-4">
               <div className="flex-shrink-0">
                 <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
@@ -881,34 +882,34 @@ export default function BucketDetailsPage() {
                 )}
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Search */}
-      <div className="flex items-center space-x-4">
-        <div className="relative flex-1 max-w-sm">
-          <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-4">
+        <div className="relative max-w-md">
+          <SearchIcon className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
           <Input
             placeholder="Search objects..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
+            className="pl-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white focus:ring-brand-500 focus:border-brand-500"
           />
         </div>
       </div>
 
       {/* Objects Table */}
-      <Card>
-        <CardHeader>
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
-            <CardTitle>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
               Objects ({filteredItems.length})
               {currentPrefix && ` in ${currentPrefix}`}
-            </CardTitle>
+            </h3>
             {selectedObjects.size > 0 && (
               <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">
+                <span className="text-sm text-gray-500 dark:text-gray-400">
                   {selectedObjects.size} selected
                 </span>
                 <Button
@@ -923,17 +924,19 @@ export default function BucketDetailsPage() {
               </div>
             )}
           </div>
-        </CardHeader>
-        <CardContent>
+        </div>
+        <div className="overflow-x-auto">
           {objectsLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loading size="md" />
             </div>
           ) : filteredItems.length === 0 ? (
-            <div className="text-center py-8">
-              <FileIcon className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-semibold">No objects found</h3>
-              <p className="text-muted-foreground">
+            <div className="text-center py-12 px-4">
+              <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-gray-100 dark:bg-gray-700 mb-4">
+                <FileIcon className="h-8 w-8 text-gray-400 dark:text-gray-500" />
+              </div>
+              <h3 className="text-base font-medium text-gray-900 dark:text-white mb-1">No objects found</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                 {searchTerm ? 'Try adjusting your search terms' : 'Create folders or upload files to get started'}
               </p>
               {!searchTerm && (
@@ -1004,7 +1007,7 @@ export default function BucketDetailsPage() {
                           </>
                         ) : (
                           <>
-                            <FileIcon className="h-4 w-4 text-muted-foreground" />
+                            <FileIcon className="h-4 w-4 text-gray-400 dark:text-gray-500" />
                             <span>{getDisplayName(item)}</span>
                             {sharesMap[item.key] && (
                               <span title="This object is shared">
@@ -1099,8 +1102,8 @@ export default function BucketDetailsPage() {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Upload Modal */}
       <Modal
