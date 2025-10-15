@@ -1,13 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import { DataTable, DataTableColumn } from '@/components/ui/DataTable';
 import {
   Key,
-  Search,
   Trash2,
   Calendar,
   User,
@@ -19,7 +16,6 @@ import SweetAlert from '@/lib/sweetalert';
 
 export default function AccessKeysPage() {
   const navigate = useNavigate();
-  const [searchTerm, setSearchTerm] = useState('');
   const queryClient = useQueryClient();
 
   const { data: accessKeys, isLoading } = useQuery({
@@ -46,14 +42,7 @@ export default function AccessKeysPage() {
     },
   });
 
-  const filteredKeys = (accessKeys || []).filter((key: AccessKey) => {
-    const user = users?.find((u: any) => u.id === key.userId);
-    const username = user?.username || '';
-    return (
-      key.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      username.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  });
+  const filteredKeys = accessKeys || [];
 
   const handleDeleteKey = async (key: AccessKey) => {
     const user = users?.find((u: any) => u.id === key.userId);
@@ -168,19 +157,6 @@ export default function AccessKeysPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Manage S3 API access keys for all users
           </p>
-        </div>
-      </div>
-
-      {/* Search */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-4">
-        <div className="relative max-w-md">
-          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
-          <Input
-            placeholder="Search by key ID or username..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white focus:ring-brand-500 focus:border-brand-500"
-          />
         </div>
       </div>
 

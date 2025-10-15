@@ -67,6 +67,28 @@
     --color-orange-400: 253 133 58;
     --color-orange-500: 251 101 20;
     --color-orange-600: 236 74 10;
+
+    /* UI Component Variables */
+    --background: 249 250 251; /* gray-50 */
+    --foreground: 17 24 39; /* gray-900 */
+    --card: 255 255 255; /* white */
+    --card-foreground: 17 24 39; /* gray-900 */
+    --popover: 255 255 255; /* white */
+    --popover-foreground: 17 24 39; /* gray-900 */
+    --primary: 54 65 245; /* brand-600 */
+    --primary-foreground: 255 255 255; /* white */
+    --secondary: 243 244 246; /* gray-100 */
+    --secondary-foreground: 17 24 39; /* gray-900 */
+    --muted: 243 244 246; /* gray-100 */
+    --muted-foreground: 107 114 128; /* gray-500 */
+    --accent: 243 244 246; /* gray-100 */
+    --accent-foreground: 17 24 39; /* gray-900 */
+    --destructive: 240 68 56; /* error-500 */
+    --destructive-foreground: 255 255 255; /* white */
+    --border: 229 231 235; /* gray-200 */
+    --input: 229 231 235; /* gray-200 */
+    --ring: 54 65 245; /* brand-600 */
+    --radius: 0.5rem;
   }
 
   /* Dark Mode Colors */
@@ -76,6 +98,27 @@
     --color-sidebar-text: 222 228 238;
     --color-sidebar-text-muted: 138 153 175;
     --color-sidebar-border: 46 58 71;
+
+    /* UI Component Variables - Dark Mode */
+    --background: 17 24 39; /* gray-900 */
+    --foreground: 249 250 251; /* gray-50 */
+    --card: 31 41 55; /* gray-800 */
+    --card-foreground: 249 250 251; /* gray-50 */
+    --popover: 31 41 55; /* gray-800 */
+    --popover-foreground: 249 250 251; /* gray-50 */
+    --primary: 70 95 255; /* brand-500 */
+    --primary-foreground: 255 255 255; /* white */
+    --secondary: 55 65 81; /* gray-700 */
+    --secondary-foreground: 249 250 251; /* gray-50 */
+    --muted: 55 65 81; /* gray-700 */
+    --muted-foreground: 156 163 175; /* gray-400 */
+    --accent: 55 65 81; /* gray-700 */
+    --accent-foreground: 249 250 251; /* gray-50 */
+    --destructive: 240 68 56; /* error-500 */
+    --destructive-foreground: 255 255 255; /* white */
+    --border: 55 65 81; /* gray-700 */
+    --input: 55 65 81; /* gray-700 */
+    --ring: 70 95 255; /* brand-500 */
   }
 }
 
