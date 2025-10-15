@@ -1,231 +1,311 @@
 # MaxIOFS - TODO & Roadmap
 
-**Version**: 0.2.0-dev
-**Last Updated**: October 12, 2025
-**Status**: Active Development (Pre-Release)
+**Version**: 0.2.0-alpha
+**Last Updated**: October 15, 2025
+**Status**: Active Development
 
-## 📊 Current Status
+## 📊 Current Status Summary
 
 ```
-┌─────────────────────────────────────────────────┐
-│  MaxIOFS v1.1.0-alpha                           │
-│  Status: ALPHA - Functional but unvalidated    │
-├─────────────────────────────────────────────────┤
-│  ✅ Monolithic build working                    │
-│  ✅ Basic S3 API implemented                    │
-│  ✅ Web console operational                     │
-│  ⚠️  Multi-tenancy without complete testing     │
-│  ⚠️  Object Lock not validated with Veeam       │
-│  ⚠️  Performance not validated in production    │
-└─────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────┐
+│  MaxIOFS v0.2.0-alpha                         │
+│  Status: ALPHA - Functional but not validated│
+├───────────────────────────────────────────────┤
+│  ✅ S3 API: 40+ operations implemented        │
+│  ✅ Web Console: Feature complete with UI/UX │
+│  ✅ Dark Mode: Fully implemented              │
+│  ✅ Multi-tenancy: Basic implementation       │
+│  ⚠️  Testing: Limited (needs expansion)       │
+│  ⚠️  Performance: Not validated at scale      │
+│  ⚠️  Security: No professional audit          │
+└───────────────────────────────────────────────┘
 ```
 
-## ✅ Recently Completed
+## ✅ Recently Completed (v0.2.0-alpha)
 
-### Build & Deployment (v1.1.0-alpha)
-- [x] Migration from App Router to Pages Router
-- [x] Monolithic build with embedded frontend
-- [x] Relative URLs for HTTP/HTTPS support
-- [x] Fix `--data-dir` bug
-- [x] Functional `build.bat` script
+### Frontend Improvements
+- [x] Dark mode support (system-wide with toggle)
+- [x] Consistent dashboard card design across all pages
+- [x] Bucket settings page fully functional (Versioning, Policy, CORS, Lifecycle, Object Lock)
+- [x] User detail page with dashboard-style cards
+- [x] Tenant page with informative stat cards
+- [x] File sharing with expirable public links
+- [x] Metrics dashboard (System, Storage, Requests, Performance)
+- [x] Security overview page
+- [x] System settings page
+- [x] Fixed user settings page navigation (eliminated "jump" effect)
+- [x] Responsive design for mobile/tablet
+- [x] Improved error handling and user feedback
 
-### Backend Core
-- [x] Basic S3 API (Get/Put/Delete/List)
-- [x] Bucket management
-- [x] Multipart uploads
-- [x] Presigned URLs
-- [x] Object Lock (COMPLIANCE/GOVERNANCE)
-- [x] Dual authentication (Console + S3)
-- [x] Basic multi-tenancy
-- [x] Bcrypt password hashing
+### Backend S3 API
+- [x] Bucket Versioning (Get/Put/Delete)
+- [x] Bucket Policy (Get/Put/Delete)
+- [x] Bucket CORS (Get/Put/Delete)
+- [x] Bucket Lifecycle (Get/Put/Delete)
+- [x] Object Tagging (Get/Put/Delete)
+- [x] Object ACL (Get/Put)
+- [x] Object Retention (Get/Put)
+- [x] Object Legal Hold (Get/Put)
+- [x] CopyObject with metadata
+- [x] Complete multipart upload workflow
 
-### Frontend
-- [x] Next.js Pages Router migration
-- [x] Dashboard with basic metrics
-- [x] Bucket browser
-- [x] Object upload/download
-- [x] User management
-- [x] Tenant management UI
+### Infrastructure
+- [x] Monolithic build (single binary)
+- [x] Frontend embedded in Go binary
+- [x] HTTP and HTTPS support
+- [x] SQLite database for metadata
+- [x] Filesystem storage backend
+- [x] JWT authentication for console
+- [x] S3 Signature v2/v4 for API
 
-## 🎯 High Priority - Required for Beta
+## 🔥 High Priority - Beta Blockers
 
 ### Testing & Validation
-**Criticality: HIGH** - Without this we cannot move from alpha
+**Status**: 🔴 Critical - Required for Beta
 
-- [ ] **S3 API Testing**
-  - [ ] Test all operations with aws-cli
-  - [ ] Validate multipart uploads of large files
-  - [ ] Verify presigned URLs work correctly
-  - [ ] Test Object Lock with different clients
+- [ ] **S3 API Comprehensive Testing**
+  - [ ] Test all 40+ operations with AWS CLI
+  - [ ] Validate multipart uploads (>5GB files)
+  - [ ] Test presigned URLs (GET/PUT with expiration)
+  - [ ] Verify Object Lock with backup tools (Veeam, Duplicati)
+  - [ ] Test bucket policies with complex rules
+  - [ ] Validate CORS with real browser requests
+  - [ ] Test lifecycle policies (automatic deletion)
 
-- [ ] **Multi-Tenancy Testing**
-  - [ ] Verify real resource isolation between tenants
-  - [ ] Test quotas work (storage, buckets, keys)
-  - [ ] Validate permissions and roles work correctly
-  - [ ] Test edge cases (empty tenant, exceeded limits, etc.)
+- [ ] **Multi-Tenancy Validation**
+  - [ ] Verify complete resource isolation between tenants
+  - [ ] Test quota enforcement (storage, buckets, access keys)
+  - [ ] Validate permission system works correctly
+  - [ ] Test edge cases (empty tenant, exceeded limits, concurrent operations)
+  - [ ] Verify tenant deletion cleans up all resources
 
 - [ ] **Web Console Testing**
-  - [ ] Complete navigation without errors
-  - [ ] Upload/download files of different sizes
-  - [ ] CRUD operations for users, buckets, tenants
-  - [ ] Error handling in UI
+  - [ ] Complete user flow testing (all pages, all features)
+  - [ ] Upload/download files of various sizes (1KB to 5GB+)
+  - [ ] Test all CRUD operations (Users, Buckets, Tenants, Keys)
+  - [ ] Validate error handling and user feedback
+  - [ ] Test dark mode across all components
+  - [ ] Mobile/tablet responsive testing
 
-- [ ] **Security Testing**
-  - [ ] Rate limiting works
-  - [ ] Account lockout works
-  - [ ] JWT tokens expire correctly
-  - [ ] No token/password leaks in logs
+- [ ] **Security Audit**
+  - [ ] Verify rate limiting prevents brute force
+  - [ ] Test account lockout mechanism
+  - [ ] Validate JWT token expiration and refresh
+  - [ ] Check for credential leaks in logs
+  - [ ] Test CORS policies prevent unauthorized access
+  - [ ] Verify bucket policies enforce permissions correctly
 
-### Basic Documentation
-**Criticality: HIGH** - Without docs it's hard to use
+### Documentation
+**Status**: 🟡 Important - Needed Soon
 
-- [ ] Document Console API (REST endpoints)
-- [ ] Document complete configuration
-- [ ] Create troubleshooting guide
-- [ ] Document known limitations
-- [ ] Write basic FAQ
+- [ ] **API Documentation**
+  - [ ] Console REST API reference (all endpoints)
+  - [ ] S3 API compatibility matrix (supported operations)
+  - [ ] Authentication guide (JWT + S3 signatures)
+  - [ ] Error codes and troubleshooting
+
+- [ ] **User Guides**
+  - [ ] Quick start guide (installation to first bucket)
+  - [ ] Configuration reference (all CLI flags and env vars)
+  - [ ] Multi-tenancy setup guide
+  - [ ] Backup and restore procedures
+  - [ ] Migration from other S3 systems
+
+- [ ] **Developer Documentation**
+  - [ ] Architecture overview
+  - [ ] Build process documentation
+  - [ ] Contributing guidelines
+  - [ ] Testing guide
+  - [ ] Release process
 
 ## 🚀 Medium Priority - Important Improvements
 
 ### Performance & Stability
-- [ ] Realistic benchmarks with real data
-- [ ] Memory and CPU profiling
-- [ ] Identify and fix memory leaks
-- [ ] Optimize database queries
-- [ ] Load testing (simulate multiple users)
+- [ ] Conduct realistic performance benchmarks (concurrent users, large files)
+- [ ] Memory profiling and optimization
+- [ ] CPU profiling and optimization
+- [ ] Identify and fix potential memory leaks
+- [ ] Database query optimization (SQLite tuning)
+- [ ] Concurrent operation testing (race condition detection)
+- [ ] Load testing with realistic workloads
 
-### Missing Features
-- [ ] Complete object versioning (currently placeholder)
-- [ ] Lifecycle policies (auto-delete by age)
-- [ ] Complete structured logging
-- [ ] Exportable metrics (Prometheus)
-- [ ] More robust health checks
+### Missing S3 Features
+- [ ] Complete object versioning (list versions, delete specific version)
+- [ ] Bucket replication (cross-region/cross-bucket)
+- [ ] Server-side encryption (SSE-S3, SSE-C)
+- [ ] Bucket notifications (webhook on object events)
+- [ ] Bucket inventory (periodic reports)
+- [ ] Object metadata search
+
+### Monitoring & Observability
+- [ ] Prometheus metrics endpoint
+- [ ] Structured logging (JSON format)
+- [ ] Distributed tracing support (OpenTelemetry)
+- [ ] Health check endpoint (liveness/readiness)
+- [ ] Performance metrics dashboard (Grafana template)
+- [ ] Audit log export (to file/syslog)
 
 ### Developer Experience
-- [ ] Improved Makefile (more useful targets)
-- [ ] Automated development environment setup
-- [ ] Hot reload for development
-- [ ] Docker Compose for testing
-- [ ] Integration examples
+- [ ] Improved Makefile (lint, test, coverage targets)
+- [ ] Docker Compose for local development
+- [ ] Hot reload for frontend development
+- [ ] Mock S3 client for testing
+- [ ] Integration test framework
+- [ ] CI/CD pipeline (GitHub Actions)
 
 ## 📦 Low Priority - Nice to Have
 
-### Deployment
-- [ ] Optimized Dockerfile (multi-stage)
-- [ ] Basic Helm chart for Kubernetes
+### Deployment & Operations
+- [ ] Official Docker images (Docker Hub)
+- [ ] Multi-arch Docker builds (amd64, arm64)
+- [ ] Kubernetes Helm chart
 - [ ] Systemd service file
-- [ ] Basic Ansible playbook
-- [ ] Terraform examples
+- [ ] Ansible playbook for deployment
+- [ ] Terraform module
+- [ ] Auto-update mechanism
 
-### Monitoring
-- [ ] Grafana dashboard template
-- [ ] Alert rules examples
-- [ ] Log aggregation setup (ELK/Loki)
-- [ ] Basic APM integration
+### Additional Features
+- [ ] Object compression (transparent gzip)
+- [ ] Deduplication (content-addressed storage)
+- [ ] Storage tiering (hot/cold/archive)
+- [ ] Thumbnail generation for images
+- [ ] Video transcoding integration
+- [ ] Full-text search for object metadata
 
 ### Storage Backends
-- [ ] Backend for AWS S3 (use S3 as storage)
-- [ ] Backend for Google Cloud Storage
-- [ ] Backend for Azure Blob Storage
-- [ ] Storage tiering (hot/cold)
+- [ ] AWS S3 backend (store objects in S3)
+- [ ] Google Cloud Storage backend
+- [ ] Azure Blob Storage backend
+- [ ] MinIO backend (distributed storage)
+- [ ] Database backend (PostgreSQL BLOB storage)
 
-## 🔮 Far Future - Aspirational
+## 🔮 Future Vision - v1.0+
 
-### Advanced Features
-- [ ] Multi-node clustering
-- [ ] Data replication between nodes
-- [ ] Load balancing
-- [ ] Geo-replication
-- [ ] CDN integration
+### Scalability & High Availability
+- [ ] Multi-node clustering (distributed architecture)
+- [ ] Data replication between nodes (sync/async)
+- [ ] Automatic failover and load balancing
+- [ ] Geo-replication (multi-region)
+- [ ] Horizontal scaling (add nodes dynamically)
+- [ ] Consistent hashing for object distribution
 
 ### Enterprise Features
 - [ ] LDAP/Active Directory integration
-- [ ] SSO/SAML support
-- [ ] Advanced audit logging
-- [ ] Compliance reports
-- [ ] Custom retention policies
+- [ ] SAML/OAuth SSO support
+- [ ] Advanced RBAC (role-based access control)
+- [ ] Compliance reporting (GDPR, HIPAA)
+- [ ] Custom retention policies per bucket
+- [ ] Legal hold and immutability guarantees
+- [ ] Encrypted storage at rest (AES-256)
 
-## ⚠️ Known Issues to Fix
+### Advanced S3 Compatibility
+- [ ] S3 Batch Operations API
+- [ ] S3 Select (SQL queries on objects)
+- [ ] S3 Glacier storage class
+- [ ] S3 Intelligent-Tiering
+- [ ] S3 Access Points
+- [ ] S3 Object Lambda
+
+## 🐛 Known Issues
 
 ### Confirmed Bugs
-- [ ] Possible race conditions in concurrent writes
-- [ ] UI may crash with empty buckets in certain cases
-- [ ] Object pagination needs improvements
-- [ ] Inconsistent error handling in some endpoints
+- [ ] Potential race condition in concurrent multipart uploads
+- [ ] Empty bucket display may show incorrect state
+- [ ] Object pagination breaks with >10k objects
+- [ ] Error messages inconsistent across API/Console
+- [ ] Large file upload progress not accurate
+- [ ] Metrics collection may cause memory spike
 
-### Current Limitations
-- ⚠️ Single-node only (no replication)
-- ⚠️ Filesystem backend only
-- ⚠️ No real object versioning
-- ⚠️ No automatic compression
-- ⚠️ Basic metrics (many missing)
-- ⚠️ CORS allows everything (*) - unsafe for production
+### Technical Debt
+- [ ] Frontend needs unit tests (0% coverage)
+- [ ] Backend test coverage needs improvement (currently ~60%)
+- [ ] CORS allows everything (*) - needs proper configuration
+- [ ] Database migrations not versioned
+- [ ] Log rotation not implemented
+- [ ] Error handling inconsistent in some modules
 
-## 🧪 Testing Status
+## 📅 Milestone Planning
 
-### Backend
-- Unit tests: ~60% coverage (estimated)
-- Integration tests: Minimal
-- Performance tests: Local benchmarks not validated
+### v0.2.0-alpha (Current)
+**Status**: ✅ Released
+**Focus**: Feature completeness, UI polish, S3 API expansion
 
-### Frontend
-- Unit tests: 0% (no tests)
-- E2E tests: 0% (not implemented)
-- Manual testing: Basic
+### v0.3.0-beta (Next)
+**ETA**: TBD
+**Focus**: Testing, stability, documentation
+**Blockers**:
+1. Complete comprehensive testing (all high priority items)
+2. Fix all known critical bugs
+3. Complete user documentation
+4. Security review
 
-### Security
-- Security audit: Not performed
-- Penetration testing: Not performed
-- Dependency scanning: Not automated
+**Definition of Done**:
+- ✅ 80%+ backend test coverage
+- ✅ All S3 operations tested with AWS CLI
+- ✅ Multi-tenancy validated with real scenarios
+- ✅ User documentation complete
+- ✅ Zero critical bugs
 
-## 📝 Important Notes
+### v0.4.0-rc (Release Candidate)
+**ETA**: TBD
+**Focus**: Performance, monitoring, production readiness
+**Requirements**:
+- Performance benchmarks completed
+- Monitoring/metrics implemented
+- Docker images available
+- CI/CD pipeline operational
 
-### Before Beta Release
-1. Complete **ALL** items in "High Priority"
-2. Pass extensive manual testing of all functionalities
-3. Have at least 80% test coverage in backend
-4. Complete basic documentation
-5. Fix known critical bugs
+### v1.0.0 (Stable)
+**ETA**: TBD
+**Focus**: Production-ready, stable, well-documented
+**Requirements**:
+- Security audit completed
+- 90%+ test coverage
+- Complete documentation
+- 6+ months of real-world usage
+- All medium priority items addressed
 
-### Before 1.0 Release
-1. All High and Medium priority items completed
-2. Robust automated testing (CI/CD)
-3. Professional security audit
-4. Performance validated in production
-5. Complete documentation
+## 🎯 Success Metrics
 
-### Ongoing Maintenance
-- Update dependencies regularly
-- Monitor security CVEs
-- Respond to GitHub issues
-- Improve documentation based on feedback
-- Keep changelog updated
+### For Beta (v0.3.0)
+- Zero critical bugs in normal operation
+- All S3 basic operations work correctly
+- Documentation allows self-service usage
+- Can handle 100+ concurrent users
+- Uptime >99% in test environment
 
-## 🎯 Current Milestone
+### For v1.0
+- Production deployments successfully running
+- Performance validated at scale
+- Security audit passed with no critical issues
+- Complete feature parity with MinIO for basic operations
+- Active community of users and contributors
 
-**Target: Beta Release**
-**ETA**: TBD (depends on testing)
+## 📝 Contributing
 
-**Beta Blockers:**
-1. Exhaustive testing of all APIs
-2. Complete minimum documentation
-3. Fix known critical bugs
-4. Multi-tenancy validation
+Want to help? Pick any TODO item and:
 
-**Success Criteria:**
-- ✅ All APIs work according to spec
-- ✅ Multi-tenancy validated with tests
-- ✅ Zero crashes in normal use
-- ✅ Documentation allows use without external help
+1. **Comment on related issue** (or create one)
+2. **Fork the repository**
+3. **Write tests** for your changes
+4. **Implement the feature/fix**
+5. **Ensure all tests pass**
+6. **Submit a pull request**
+
+**Priority areas for contribution**:
+- Writing tests (backend and frontend)
+- Documentation improvements
+- Bug fixes
+- Performance optimization
+- UI/UX improvements
+
+## 💬 Questions?
+
+- Open an issue with label `question`
+- Start a discussion on GitHub Discussions
+- Check existing documentation in `/docs`
 
 ---
 
-**Reminder**: This is an ALPHA project. Priorities may change based on feedback and real needs.
-
-**How to contribute?**
-1. Choose a TODO from the list
-2. Create an issue on GitHub
-3. Implement with tests
-4. Open PR with clear description
-
-**Questions?** Open an issue on GitHub with label `question`
+**Last Updated**: October 15, 2025
+**Next Review**: When planning v0.3.0-beta
