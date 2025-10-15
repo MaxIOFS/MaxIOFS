@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -17,6 +18,7 @@ import { AccessKey } from '@/types';
 import SweetAlert from '@/lib/sweetalert';
 
 export default function AccessKeysPage() {
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const queryClient = useQueryClient();
 
@@ -103,8 +105,8 @@ export default function AccessKeysPage() {
       sortable: true,
       render: (key) => (
         <div className="flex items-center gap-2">
-          <Key className="h-4 w-4 text-muted-foreground" />
-          <code className="text-sm bg-gray-100 px-2 py-1 rounded">{key.id}</code>
+          <Key className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+          <code className="text-sm bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">{key.id}</code>
         </div>
       ),
     },
@@ -114,7 +116,7 @@ export default function AccessKeysPage() {
       sortable: true,
       render: (key) => (
         <div className="flex items-center gap-2">
-          <User className="h-4 w-4 text-muted-foreground" />
+          <User className="h-4 w-4 text-gray-400 dark:text-gray-500" />
           <span>{getUserName(key.userId)}</span>
         </div>
       ),
@@ -124,7 +126,7 @@ export default function AccessKeysPage() {
       header: 'Created',
       sortable: true,
       render: (key) => (
-        <div className="flex items-center gap-1 text-sm text-muted-foreground">
+        <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
           <Calendar className="h-3 w-3" />
           {formatDate(key.createdAt)}
         </div>
@@ -135,14 +137,14 @@ export default function AccessKeysPage() {
       header: 'Last Used',
       sortable: true,
       render: (key) => (
-        <div className="flex items-center gap-1 text-sm text-muted-foreground">
+        <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
           {key.lastUsed ? (
             <>
               <Calendar className="h-3 w-3" />
               {formatDate(key.lastUsed)}
             </>
           ) : (
-            <span className="text-gray-400">Never</span>
+            <span className="text-gray-400 dark:text-gray-500">Never</span>
           )}
         </div>
       ),
@@ -160,24 +162,24 @@ export default function AccessKeysPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Access Keys</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Access Keys</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Manage S3 API access keys for all users
           </p>
         </div>
       </div>
 
       {/* Search */}
-      <div className="flex items-center space-x-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-4">
+        <div className="relative max-w-md">
+          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
           <Input
             placeholder="Search by key ID or username..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
+            className="pl-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white focus:ring-brand-500 focus:border-brand-500"
           />
         </div>
       </div>
@@ -189,13 +191,13 @@ export default function AccessKeysPage() {
         isLoading={isLoading}
         title={`Access Keys (${filteredKeys.length})`}
         emptyMessage="No access keys found"
-        emptyIcon={<Key className="h-12 w-12 text-muted-foreground" />}
+        emptyIcon={<Key className="h-12 w-12 text-gray-400 dark:text-gray-500" />}
         actions={(key) => (
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => window.location.href = `/users/${key.userId}`}
+              onClick={() => navigate(`/users/${key.userId}`)}
               title="View user details"
             >
               <User className="h-4 w-4" />

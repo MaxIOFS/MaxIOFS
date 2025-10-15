@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -16,7 +17,6 @@ import {
   Users,
   Plus,
   Search,
-  Settings,
   Trash2,
   UserCheck,
   UserX,
@@ -26,7 +26,8 @@ import {
   Key,
   Building2,
   Lock,
-  Unlock
+  Unlock,
+  Edit
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -35,6 +36,7 @@ import SweetAlert from '@/lib/sweetalert';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 export default function UsersPage() {
+  const navigate = useNavigate();
   const { isGlobalAdmin, user: currentUser } = useCurrentUser();
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -490,9 +492,10 @@ export default function UsersPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => window.location.href = `/users/${user.id}`}
+                          onClick={() => navigate(`/users/${user.id}`)}
+                          title="Edit user"
                         >
-                          <Settings className="h-4 w-4" />
+                          <Edit className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"

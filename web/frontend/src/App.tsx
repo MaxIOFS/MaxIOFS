@@ -13,7 +13,6 @@ import BucketSettings from '@/pages/buckets/[bucket]/settings';
 import BucketCreate from '@/pages/buckets/create';
 import Users from '@/pages/users/index';
 import UserDetail from '@/pages/users/[user]/index';
-import UserSettings from '@/pages/users/[user]/settings';
 import AccessKeys from '@/pages/users/access-keys';
 import Metrics from '@/pages/metrics/index';
 import Security from '@/pages/security/index';
@@ -151,7 +150,7 @@ function App() {
               element={
                 <ProtectedRoute>
                   <AppLayout>
-                    <UserSettings />
+                    <UserDetail />
                   </AppLayout>
                 </ProtectedRoute>
               }

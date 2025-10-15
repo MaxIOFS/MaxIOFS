@@ -76,6 +76,17 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 		if err := os.MkdirAll(fullPath, 0755); err != nil {
 			return NewErrorWithCause("CreateDirectory", "Failed to create directory marker", err)
 		}
+
+		// Create the .maxiofs-folder marker file inside the directory
+		markerPath := filepath.Join(fullPath, ".maxiofs-folder")
+		markerFile, err := os.Create(markerPath)
+		if err != nil {
+			fmt.Printf("ERROR: Failed to create folder marker file: %v\n", err)
+			return NewErrorWithCause("CreateFolderMarker", "Failed to create folder marker file", err)
+		}
+		markerFile.Close()
+		fmt.Printf("INFO: Created folder marker file: %s\n", markerPath)
+
 		// Save metadata for the directory
 		if metadata == nil {
 			metadata = make(map[string]string)
@@ -231,8 +242,8 @@ func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive 
 			return nil // Skip errors
 		}
 
-		// Skip directories and metadata files
-		if info.IsDir() || strings.HasSuffix(path, ".metadata") {
+		// Skip metadata files
+		if strings.HasSuffix(path, ".metadata") {
 			return nil
 		}
 
@@ -250,6 +261,44 @@ func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive 
 			return nil
 		}
 
+		// Handle directories (potential folders)
+		if info.IsDir() {
+			// Check if this directory has a .maxiofs-folder marker
+			markerPath := filepath.Join(path, ".maxiofs-folder")
+			if _, err := os.Stat(markerPath); err == nil {
+				// This is a MaxIOFS folder
+				folderPath := relPath
+				if !strings.HasSuffix(folderPath, "/") {
+					folderPath += "/"
+				}
+
+				// For non-recursive, check if this folder is at the immediate level
+				if !recursive {
+					remaining := strings.TrimPrefix(folderPath, prefix)
+					// Count slashes - should have exactly one (the trailing one) for immediate level
+					if strings.Count(remaining, "/") > 1 {
+						return nil
+					}
+				}
+
+				// Create object info for the folder
+				obj := ObjectInfo{
+					Path:         folderPath,
+					Size:         0,
+					LastModified: info.ModTime().Unix(),
+					ETag:         "d41d8cd98f00b204e9800998ecf8427e", // MD5 of empty string
+				}
+
+				// Try to get metadata
+				if metadata, err := fs.GetMetadata(context.Background(), folderPath); err == nil {
+					obj.Metadata = metadata
+				}
+
+				objects = append(objects, obj)
+			}
+			return nil // Don't descend into directories when non-recursive
+		}
+
 		// For non-recursive, skip if path contains additional slashes after prefix
 		if !recursive {
 			remaining := strings.TrimPrefix(relPath, prefix)
@@ -258,7 +307,7 @@ func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive 
 			}
 		}
 
-		// Create object info
+		// Create object info for regular files
 		obj := ObjectInfo{
 			Path:         relPath,
 			Size:         info.Size(),

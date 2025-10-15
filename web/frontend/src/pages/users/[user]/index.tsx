@@ -288,24 +288,55 @@ export default function UserDetailsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-4">
+        <div>
           <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => window.history.back()}
-            className="gap-2"
+            variant="outline"
+            size="default"
+            onClick={() => navigate('/users')}
+            className="gap-2 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back
+            Back to Users
           </Button>
+        </div>
+        <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">{userData.username}</h1>
-            <p className="text-gray-500 dark:text-gray-400">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{userData.username}</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               User details and configuration
             </p>
           </div>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => setIsChangePasswordOpen(true)}
+              variant="outline"
+              className="gap-2"
+            >
+              <Key className="h-4 w-4" />
+              Change Password
+            </Button>
+            <Button
+              onClick={() => setIsEditUserModalOpen(true)}
+              variant="outline"
+              className="gap-2"
+            >
+              <Edit className="h-4 w-4" />
+              Edit User
+            </Button>
+            <Button
+              onClick={() => setIsCreateKeyModalOpen(true)}
+              className="gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Create Access Key
+            </Button>
+          </div>
         </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-3">
         <div className="flex items-center gap-2">
           <Button
             onClick={() => setIsChangePasswordOpen(true)}
