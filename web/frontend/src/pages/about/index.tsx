@@ -25,13 +25,15 @@ export default function AboutPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">About MaxIOFS</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">
-            S3-Compatible Object Storage System
-          </p>
+      {/* Header with Logo */}
+      <div className="flex flex-col items-center justify-center text-center space-y-4">
+        <div className="flex justify-center px-12 py-8 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-2xl">
+          <img
+            src="/assets/img/logo.png"
+            alt="MaxIOFS Logo"
+            className="h-auto object-contain dark:opacity-90 dark:brightness-0 dark:invert"
+            style={{ width: '22rem', maxHeight: '200px' }}
+          />
         </div>
       </div>
 
