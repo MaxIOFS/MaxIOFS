@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Moon,
   Sun,
+  Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -79,6 +80,11 @@ const navigation: NavItem[] = [
     name: 'Settings',
     href: '/settings',
     icon: Settings,
+  },
+  {
+    name: 'About',
+    href: '/about',
+    icon: Info,
   },
 ];
 
@@ -149,12 +155,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     if (exact) {
       return pathname === href;
     }
+    // Special case for root - must be exact match
+    if (href === '/') {
+      return pathname === '/';
+    }
     // For routes with children, check exact match first
     if (href === '/users' && pathname.startsWith('/users/')) {
       // Only mark /users as active if we're exactly on /users, not on sub-routes
       return pathname === '/users';
     }
-    return pathname.startsWith(href) && href !== '/';
+    return pathname.startsWith(href);
   };
 
   const toggleMenu = (menuName: string) => {
@@ -279,7 +289,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-3">
-            v0.2.1-alpha
+            v0.2.2-alpha
           </p>
         </div>
       </aside>

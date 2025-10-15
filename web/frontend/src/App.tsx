@@ -18,6 +18,7 @@ import Metrics from '@/pages/metrics/index';
 import Security from '@/pages/security/index';
 import Settings from '@/pages/settings/index';
 import Tenants from '@/pages/tenants/index';
+import About from '@/pages/about/index';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -201,6 +202,16 @@ function App() {
                 <ProtectedRoute>
                   <AppLayout>
                     <Settings />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/about"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <About />
                   </AppLayout>
                 </ProtectedRoute>
               }

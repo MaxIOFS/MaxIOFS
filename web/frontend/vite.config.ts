@@ -20,7 +20,7 @@ export default defineConfig({
           react: ['react', 'react-dom'],
           router: ['react-router-dom'],
           query: ['@tanstack/react-query'],
-          ui: ['sweetalert2', 'lucide-react'],
+          ui: ['sweetalert2', 'lucide-react', 'recharts'],
         },
       },
     },
