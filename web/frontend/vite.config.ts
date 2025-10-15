@@ -13,6 +13,17 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Dependencias grandes que se cargan aparte
+          react: ['react', 'react-dom'],
+          router: ['react-router-dom'],
+          query: ['@tanstack/react-query'],
+          ui: ['sweetalert2', 'lucide-react'],
+        },
+      },
+    },
   },
   server: {
     port: 5173,

@@ -54,6 +54,11 @@ const navigation: NavItem[] = [
         icon: Users,
       },
       {
+        name: 'Access Keys',
+        href: '/users/access-keys',
+        icon: Lock,
+      },
+      {
         name: 'Tenants',
         href: '/tenants',
         icon: Building2,
@@ -144,6 +149,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     if (exact) {
       return pathname === href;
     }
+    // For routes with children, check exact match first
+    if (href === '/users' && pathname.startsWith('/users/')) {
+      // Only mark /users as active if we're exactly on /users, not on sub-routes
+      return pathname === '/users';
+    }
     return pathname.startsWith(href) && href !== '/';
   };
 
@@ -226,7 +236,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                             to={child.href}
                             className={cn(
                               'flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm transition-all',
-                              isActiveRoute(child.href)
+                              isActiveRoute(child.href, true)
                                 ? 'bg-brand-600 text-white font-medium'
                                 : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
                             )}
@@ -285,8 +295,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 flex w-full bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-sm">
-          <div className="flex flex-grow items-center justify-between px-4 py-4 md:px-6 2xl:px-11">
+        <header className="sticky top-0 z-30 flex w-full h-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-sm">
+          <div className="flex flex-grow items-center justify-between px-6">
             {/* Left side */}
             <div className="flex items-center gap-2 sm:gap-4 lg:hidden">
               <button

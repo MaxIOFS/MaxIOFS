@@ -724,43 +724,47 @@ export default function BucketDetailsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate('/buckets')}
-              className="gap-2 -ml-2"
-            >
-              <ArrowLeftIcon className="h-4 w-4" />
-              Back
-            </Button>
-          </div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{bucketName}</h1>
-          {currentPrefix && (
-            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mt-1">
-              <span>Path: /{currentPrefix}</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={navigateUp}
-                className="text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 -ml-1"
-              >
-                ← Up
-              </Button>
-            </div>
-          )}
-        </div>
+      <div className="flex flex-col gap-4">
         <div className="flex items-center gap-2">
           <Button
-            onClick={() => setIsPermissionsModalOpen(true)}
             variant="outline"
-            className="gap-2"
+            size="default"
+            onClick={() => navigate('/buckets')}
+            className="gap-2 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700"
           >
-            <ShieldIcon className="h-4 w-4" />
-            Permissions
+            <ArrowLeftIcon className="h-4 w-4" />
+            Back to Buckets
           </Button>
+          {currentPrefix && (
+            <Button
+              variant="outline"
+              size="default"
+              onClick={navigateUp}
+              className="gap-2 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700"
+            >
+              <ArrowLeftIcon className="h-4 w-4" />
+              Up to Parent Folder
+            </Button>
+          )}
+        </div>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{bucketName}</h1>
+            {currentPrefix && (
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Current path: /{currentPrefix}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => setIsPermissionsModalOpen(true)}
+              variant="outline"
+              className="gap-2"
+            >
+              <ShieldIcon className="h-4 w-4" />
+              Permissions
+            </Button>
           <Button
             onClick={() => setIsCreateFolderModalOpen(true)}
             variant="outline"
@@ -771,6 +775,7 @@ export default function BucketDetailsPage() {
           </Button>
           <Button
             onClick={() => setIsUploadModalOpen(true)}
+            variant="outline"
             className="gap-2"
           >
             <UploadIcon className="h-4 w-4" />
@@ -778,13 +783,14 @@ export default function BucketDetailsPage() {
           </Button>
           <Button
             variant="outline"
-            onClick={() => window.location.href = `${bucketPath}/settings`}
+            onClick={() => navigate(`${bucketPath}/settings`)}
             className="gap-2"
           >
             <SettingsIcon className="h-4 w-4" />
             Settings
           </Button>
         </div>
+      </div>
       </div>
 
       {/* Stats */}
@@ -1169,8 +1175,8 @@ export default function BucketDetailsPage() {
         title="Create New Folder"
       >
         <form onSubmit={handleCreateFolder} className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-4">
-            <p className="text-sm text-blue-800">
+          <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
+            <p className="text-sm text-blue-800 dark:text-blue-200">
               <strong>💡 About S3 Folders:</strong> In S3, folders are <strong>virtual</strong> - they don't physically exist.
               A folder is represented by adding "/" to object names (e.g., "photos/vacation.jpg").
               This is the standard S3 behavior used by AWS and all S3-compatible systems.
@@ -1178,7 +1184,7 @@ export default function BucketDetailsPage() {
           </div>
 
           <div>
-            <label htmlFor="folderName" className="block text-sm font-medium mb-2">
+            <label htmlFor="folderName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Folder Name *
             </label>
             <Input
@@ -1189,30 +1195,33 @@ export default function BucketDetailsPage() {
               required
               pattern="^[a-zA-Z0-9][a-zA-Z0-9\-_]{0,254}$"
               title="Folder name must be alphanumeric, hyphens, and underscores only"
+              className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white"
             />
             {currentPrefix ? (
-              <p className="text-xs text-muted-foreground mt-1">
-                📁 Full path: <code className="bg-gray-100 px-1 rounded">{currentPrefix}/{newFolderName}/</code>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                📁 Full path: <code className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-900 dark:text-white">{currentPrefix}/{newFolderName}/</code>
               </p>
             ) : (
-              <p className="text-xs text-muted-foreground mt-1">
-                📁 Full path: <code className="bg-gray-100 px-1 rounded">{newFolderName}/</code>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                📁 Full path: <code className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-900 dark:text-white">{newFolderName}/</code>
               </p>
             )}
           </div>
 
-          <div className="flex justify-end space-x-2 pt-4 border-t">
+          <div className="flex justify-end space-x-2 pt-4 border-t border-gray-200 dark:border-gray-700">
             <Button
               type="button"
               variant="outline"
               onClick={() => setIsCreateFolderModalOpen(false)}
               disabled={createFolderMutation.isPending}
+              className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white"
             >
               Cancel
             </Button>
             <Button
               type="submit"
               disabled={createFolderMutation.isPending || !newFolderName.trim()}
+              className="bg-brand-600 hover:bg-brand-700 text-white"
             >
               {createFolderMutation.isPending ? 'Creating...' : 'Create Folder'}
             </Button>
