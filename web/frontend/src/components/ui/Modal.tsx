@@ -92,13 +92,13 @@ export function Modal({
 
   const modalContent = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 dark:bg-opacity-70"
       onClick={handleOverlayClick}
     >
       <div
         ref={modalRef}
         className={cn(
-          'relative w-full bg-white rounded-lg shadow-lg max-h-[90vh] flex flex-col',
+          'relative w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg max-h-[90vh] flex flex-col',
           sizeClasses[size],
           className
         )}
@@ -106,15 +106,15 @@ export function Modal({
       >
         {/* Header */}
         {(title || showCloseButton) && (
-          <div className="flex items-center justify-between p-6 border-b">
+          <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
             <div>
               {title && (
-                <h2 className="text-lg font-semibold text-gray-900">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                   {title}
                 </h2>
               )}
               {description && (
-                <p className="mt-1 text-sm text-gray-600">
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
                   {description}
                 </p>
               )}
@@ -124,7 +124,7 @@ export function Modal({
                 variant="ghost"
                 size="icon"
                 onClick={onClose}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -139,7 +139,7 @@ export function Modal({
 
         {/* Footer */}
         {footer && (
-          <div className="border-t p-6">
+          <div className="border-t border-gray-200 dark:border-gray-700 p-6">
             {footer}
           </div>
         )}
@@ -208,7 +208,7 @@ export function ConfirmModal({
         </div>
       }
     >
-      <p className="text-gray-600">{message}</p>
+      <p className="text-gray-600 dark:text-gray-400">{message}</p>
     </Modal>
   );
 }

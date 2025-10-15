@@ -4,57 +4,121 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222.2 84% 4.9%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222.2 84% 4.9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
+    /* TailAdmin Brand Colors */
+    --color-brand-50: 236 243 255;
+    --color-brand-100: 221 233 255;
+    --color-brand-200: 194 214 255;
+    --color-brand-300: 156 185 255;
+    --color-brand-400: 117 146 255;
+    --color-brand-500: 70 95 255;
+    --color-brand-600: 54 65 245;
+    --color-brand-700: 42 49 216;
+    --color-brand-800: 37 45 174;
+    --color-brand-900: 38 46 137;
+    
+    /* Success Colors */
+    --color-success-50: 236 253 243;
+    --color-success-100: 209 250 223;
+    --color-success-200: 166 244 197;
+    --color-success-300: 108 233 166;
+    --color-success-400: 50 213 131;
+    --color-success-500: 18 183 106;
+    --color-success-600: 3 152 85;
+    --color-success-700: 2 122 72;
+    --color-success-800: 5 96 58;
+    
+    /* Error Colors */
+    --color-error-50: 254 243 242;
+    --color-error-100: 254 228 226;
+    --color-error-200: 254 205 202;
+    --color-error-300: 253 162 155;
+    --color-error-400: 249 112 102;
+    --color-error-500: 240 68 56;
+    --color-error-600: 217 45 32;
+    --color-error-700: 180 35 24;
+    --color-error-800: 145 32 24;
+    
+    /* Warning Colors */
+    --color-warning-50: 255 250 235;
+    --color-warning-100: 254 240 199;
+    --color-warning-200: 254 223 137;
+    --color-warning-300: 254 200 75;
+    --color-warning-400: 253 176 34;
+    --color-warning-500: 247 144 9;
+    --color-warning-600: 220 104 3;
+    --color-warning-700: 181 71 8;
+    --color-warning-800: 147 55 13;
+    
+    /* Blue Light Colors */
+    --color-blue-light-50: 240 249 255;
+    --color-blue-light-100: 224 242 254;
+    --color-blue-light-200: 185 230 254;
+    --color-blue-light-300: 124 212 253;
+    --color-blue-light-400: 54 191 250;
+    --color-blue-light-500: 11 165 236;
+    --color-blue-light-600: 0 134 201;
+    --color-blue-light-700: 2 106 162;
+    
+    /* Orange Colors */
+    --color-orange-50: 255 246 237;
+    --color-orange-100: 255 234 213;
+    --color-orange-200: 253 220 171;
+    --color-orange-300: 254 178 115;
+    --color-orange-400: 253 133 58;
+    --color-orange-500: 251 101 20;
+    --color-orange-600: 236 74 10;
   }
 
+  /* Dark Mode Colors */
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 84% 4.9%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 94.1%;
+    --color-sidebar-bg: 28 36 52;
+    --color-sidebar-hover: 51 58 72;
+    --color-sidebar-text: 222 228 238;
+    --color-sidebar-text-muted: 138 153 175;
+    --color-sidebar-border: 46 58 71;
   }
 }
 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-gray-200 dark:border-gray-700;
   }
+  
   body {
-    @apply bg-background text-foreground;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    @apply bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+  
+  /* Scrollbar Styling */
+  ::-webkit-scrollbar {
+    @apply w-2;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-100 dark:bg-gray-800;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 dark:bg-gray-600 rounded-full;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400 dark:bg-gray-500;
+  }
+}
+
+@layer components {
+  /* Card Styles */
+  .card {
+    @apply bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm;
+  }
+  
+  /* Button Styles */
+  .btn-primary {
+    @apply bg-brand-600 hover:bg-brand-700 text-white font-medium px-4 py-2 rounded-lg transition-colors;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 font-medium px-4 py-2 rounded-lg transition-colors;
   }
 }

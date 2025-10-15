@@ -1,21 +1,6 @@
-import React from 'react';
-import { useParams, useNavigate, Navigate } from 'react-router-dom';
+import UserDetailsPage from './index';
 
-export default function UserSettingsPage() {
-  const { user } = useParams<{ user: string }>();
-  const navigate = useNavigate();
-  const userId = user as string;
-
-  React.useEffect(() => {
-    if (userId) {
-      navigate(`/users/${userId}`);
-    }
-  }, [userId, navigate]);
-
-  // Or simply use Navigate component for immediate redirect
-  if (userId) {
-    return <Navigate to={`/users/${userId}`} replace />;
-  }
-
-  return <div>Redirecting...</div>;
-}
+// Re-export the UserDetailsPage component to avoid redirect and page jump
+// This ensures /users/:user/settings shows the same content as /users/:user
+// without any navigation, eliminating the "jump" effect
+export default UserDetailsPage;

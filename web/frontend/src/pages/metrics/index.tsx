@@ -125,21 +125,21 @@ export default function MetricsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Metrics Overview</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Metrics Overview</h1>
+          <p className="text-gray-500 dark:text-gray-400">
             Monitor system performance and usage statistics
           </p>
         </div>
-        <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+        <div className="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
           <div className="w-2 h-2 bg-green-500 rounded-full"></div>
           <span>Live Data</span>
         </div>
       </div>
 
       {/* Tabs */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex space-x-1 border-b border-gray-200 mb-6">
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="p-6">
+          <div className="flex space-x-1 border-b border-gray-200 dark:border-gray-700 mb-6">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
@@ -148,8 +148,8 @@ export default function MetricsPage() {
                   onClick={() => setActiveTab(tab.id as any)}
                   className={`flex items-center space-x-2 px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
                     activeTab === tab.id
-                      ? 'border-blue-600 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      ? 'border-brand-600 text-brand-600 dark:text-brand-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
                   }`}
                 >
                   <Icon className="h-4 w-4" />
@@ -161,258 +161,274 @@ export default function MetricsPage() {
 
           {/* System Health Tab */}
           {activeTab === 'system' && (
-            <div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">CPU Usage</CardTitle>
-              <Activity className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{displayMetrics.system.cpu.toFixed(2)}%</div>
-              <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-                <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${displayMetrics.system.cpu}%` }}
-                ></div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {/* CPU Usage */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">CPU Usage</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{displayMetrics.system.cpu.toFixed(2)}%</h3>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-50 dark:bg-blue-900/30">
+                    <Activity className="h-7 w-7 text-blue-600 dark:text-blue-400" />
+                  </div>
+                </div>
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div
+                    className="bg-blue-600 dark:bg-blue-400 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${displayMetrics.system.cpu}%` }}
+                  ></div>
+                </div>
               </div>
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Memory Usage</CardTitle>
-              <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{displayMetrics.system.memory.toFixed(2)}%</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {formatBytes(systemMetrics.memoryUsedBytes || 0)} / {formatBytes(systemMetrics.memoryTotalBytes || 0)}
-              </p>
-              <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-                <div
-                  className="bg-green-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${displayMetrics.system.memory}%` }}
-                ></div>
+              {/* Memory Usage */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Memory Usage</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{displayMetrics.system.memory.toFixed(2)}%</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {formatBytes(systemMetrics.memoryUsedBytes || 0)} / {formatBytes(systemMetrics.memoryTotalBytes || 0)}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-green-50 dark:bg-green-900/30">
+                    <BarChart3 className="h-7 w-7 text-green-600 dark:text-green-400" />
+                  </div>
+                </div>
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div
+                    className="bg-green-600 dark:bg-green-400 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${displayMetrics.system.memory}%` }}
+                  ></div>
+                </div>
               </div>
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Disk Usage</CardTitle>
-              <HardDrive className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{displayMetrics.system.disk.toFixed(2)}%</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {formatBytes(systemMetrics.diskUsedBytes || 0)} / {formatBytes(systemMetrics.diskTotalBytes || 0)}
-              </p>
-              <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-                <div
-                  className="bg-yellow-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${displayMetrics.system.disk}%` }}
-                ></div>
+              {/* Disk Usage */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Disk Usage</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{displayMetrics.system.disk.toFixed(2)}%</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {formatBytes(systemMetrics.diskUsedBytes || 0)} / {formatBytes(systemMetrics.diskTotalBytes || 0)}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-yellow-50 dark:bg-yellow-900/30">
+                    <HardDrive className="h-7 w-7 text-yellow-600 dark:text-yellow-400" />
+                  </div>
+                </div>
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div
+                    className="bg-yellow-600 dark:bg-yellow-400 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${displayMetrics.system.disk}%` }}
+                  ></div>
+                </div>
               </div>
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Uptime</CardTitle>
-              <Clock className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-lg font-bold">{displayMetrics.system.uptime}</div>
-              <p className="text-xs text-muted-foreground">
-                System uptime
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+              {/* Uptime */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Uptime</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{displayMetrics.system.uptime}</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">System uptime</p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-purple-50 dark:bg-purple-900/30">
+                    <Clock className="h-7 w-7 text-purple-600 dark:text-purple-400" />
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
           {/* Storage Tab */}
           {activeTab === 'storage' && (
-            <div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Storage</CardTitle>
-              <HardDrive className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatBytes(displayMetrics.storage.usedSize)}</div>
-              <p className="text-xs text-muted-foreground">
-                Storage in use
-              </p>
-            </CardContent>
-          </Card>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {/* Total Storage */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Storage</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{formatBytes(displayMetrics.storage.usedSize)}</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Storage in use</p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-brand-50 dark:bg-brand-900/30">
+                    <HardDrive className="h-7 w-7 text-brand-600 dark:text-brand-400" />
+                  </div>
+                </div>
+              </div>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Objects</CardTitle>
-              <Database className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatNumber(displayMetrics.storage.objects)}</div>
-              <p className="text-xs text-muted-foreground">
-                Stored objects
-              </p>
-            </CardContent>
-          </Card>
+              {/* Total Objects */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Objects</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{formatNumber(displayMetrics.storage.objects)}</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Stored objects</p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-50 dark:bg-blue-900/30">
+                    <Database className="h-7 w-7 text-blue-600 dark:text-blue-400" />
+                  </div>
+                </div>
+              </div>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Buckets</CardTitle>
-              <Database className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{displayMetrics.storage.buckets}</div>
-              <p className="text-xs text-muted-foreground">
-                Total buckets
-              </p>
-            </CardContent>
-          </Card>
+              {/* Total Buckets */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Buckets</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{displayMetrics.storage.buckets}</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Total buckets</p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-green-50 dark:bg-green-900/30">
+                    <Database className="h-7 w-7 text-green-600 dark:text-green-400" />
+                  </div>
+                </div>
+              </div>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg Object Size</CardTitle>
-              <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatBytes(displayMetrics.storage.averageObjectSize)}</div>
-              <p className="text-xs text-muted-foreground">
-                Per object
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+              {/* Avg Object Size */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Avg Object Size</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{formatBytes(displayMetrics.storage.averageObjectSize)}</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Per object</p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-purple-50 dark:bg-purple-900/30">
+                    <BarChart3 className="h-7 w-7 text-purple-600 dark:text-purple-400" />
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
           {/* Requests Tab */}
           {activeTab === 'requests' && (
-            <div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Requests</CardTitle>
-              <Globe className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatNumber(displayMetrics.requests.totalRequests)}</div>
-              <p className="text-xs text-muted-foreground">
-                Since startup
-              </p>
-            </CardContent>
-          </Card>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {/* Total Requests */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Requests</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{formatNumber(displayMetrics.requests.totalRequests)}</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Since startup</p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-50 dark:bg-blue-900/30">
+                    <Globe className="h-7 w-7 text-blue-600 dark:text-blue-400" />
+                  </div>
+                </div>
+              </div>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Errors</CardTitle>
-              <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatNumber(displayMetrics.requests.totalErrors)}</div>
-              <p className="text-xs text-muted-foreground">
-                Failed requests
-              </p>
-            </CardContent>
-          </Card>
+              {/* Total Errors */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Errors</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{formatNumber(displayMetrics.requests.totalErrors)}</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Failed requests</p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-red-50 dark:bg-red-900/30">
+                    <BarChart3 className="h-7 w-7 text-red-600 dark:text-red-400" />
+                  </div>
+                </div>
+              </div>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg Latency</CardTitle>
-              <Zap className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{displayMetrics.requests.avgLatency.toFixed(1)}ms</div>
-              <p className="text-xs text-muted-foreground">
-                Average response time
-              </p>
-            </CardContent>
-          </Card>
+              {/* Avg Latency */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Avg Latency</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{displayMetrics.requests.avgLatency.toFixed(1)}ms</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Average response time</p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-yellow-50 dark:bg-yellow-900/30">
+                    <Zap className="h-7 w-7 text-yellow-600 dark:text-yellow-400" />
+                  </div>
+                </div>
+              </div>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Requests/sec</CardTitle>
-              <Activity className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{displayMetrics.requests.requestsPerSec.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">
-                Current throughput
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+              {/* Requests/sec */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Requests/sec</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{displayMetrics.requests.requestsPerSec.toFixed(2)}</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Current throughput</p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-green-50 dark:bg-green-900/30">
+                    <Activity className="h-7 w-7 text-green-600 dark:text-green-400" />
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
           {/* Performance Tab */}
           {activeTab === 'performance' && (
-            <div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Goroutines</CardTitle>
-              <Activity className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatNumber(displayMetrics.performance.goRoutines)}</div>
-              <p className="text-xs text-muted-foreground">
-                Active goroutines
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Heap Memory</CardTitle>
-              <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{displayMetrics.performance.heapAllocMB.toFixed(1)} MB</div>
-              <p className="text-xs text-muted-foreground">
-                Allocated heap
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">GC Runs</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatNumber(displayMetrics.performance.gcRuns)}</div>
-              <p className="text-xs text-muted-foreground">Garbage collections</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
-              <TrendingDown className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {displayMetrics.requests.totalRequests > 0
-                  ? (((displayMetrics.requests.totalRequests - displayMetrics.requests.totalErrors) / displayMetrics.requests.totalRequests) * 100).toFixed(2)
-                  : (100).toFixed(2)}%
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {/* Goroutines */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Goroutines</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{formatNumber(displayMetrics.performance.goRoutines)}</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Active goroutines</p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-brand-50 dark:bg-brand-900/30">
+                    <Activity className="h-7 w-7 text-brand-600 dark:text-brand-400" />
+                  </div>
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Request success rate
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+
+              {/* Heap Memory */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Heap Memory</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{displayMetrics.performance.heapAllocMB.toFixed(1)} MB</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Allocated heap</p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-purple-50 dark:bg-purple-900/30">
+                    <BarChart3 className="h-7 w-7 text-purple-600 dark:text-purple-400" />
+                  </div>
+                </div>
+              </div>
+
+              {/* GC Runs */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">GC Runs</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{formatNumber(displayMetrics.performance.gcRuns)}</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Garbage collections</p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-orange-50 dark:bg-orange-900/30">
+                    <TrendingUp className="h-7 w-7 text-orange-600 dark:text-orange-400" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Success Rate */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Success Rate</p>
+                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white">
+                      {displayMetrics.requests.totalRequests > 0
+                        ? (((displayMetrics.requests.totalRequests - displayMetrics.requests.totalErrors) / displayMetrics.requests.totalRequests) * 100).toFixed(2)
+                        : (100).toFixed(2)}%
+                    </h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Request success rate</p>
+                  </div>
+                  <div className="flex items-center justify-center w-14 h-14 rounded-full bg-green-50 dark:bg-green-900/30">
+                    <TrendingDown className="h-7 w-7 text-green-600 dark:text-green-400" />
+                  </div>
+                </div>
+              </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

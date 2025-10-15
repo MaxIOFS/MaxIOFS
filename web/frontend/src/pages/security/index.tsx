@@ -42,8 +42,8 @@ export default function SecurityPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Security Overview</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Security Overview</h1>
+          <p className="text-gray-500 dark:text-gray-400">
             Monitor authentication and user access
           </p>
         </div>
@@ -51,196 +51,194 @@ export default function SecurityPage() {
 
       {/* Security Status */}
       <div>
-        <h2 className="text-xl font-semibold mb-4">Security Status</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Security Status</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card className="border-green-200">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Authentication</CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600">
-                Enabled
+          {/* Authentication */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Authentication</p>
+                <h3 className="text-3xl font-bold text-green-600 dark:text-green-400">Enabled</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">JWT-based authentication</p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                JWT-based authentication
-              </p>
-            </CardContent>
-          </Card>
+              <div className="flex items-center justify-center w-14 h-14 rounded-full bg-green-50 dark:bg-green-900/30">
+                <CheckCircle className="h-7 w-7 text-green-600 dark:text-green-400" />
+              </div>
+            </div>
+          </div>
 
-          <Card className="border-blue-200">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Active Users</CardTitle>
-              <Users className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-blue-600">
-                {activeUsers}
+          {/* Active Users */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Active Users</p>
+                <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{activeUsers}</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">{totalUsers} total users</p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {totalUsers} total users
-              </p>
-            </CardContent>
-          </Card>
+              <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-50 dark:bg-blue-900/30">
+                <Users className="h-7 w-7 text-blue-600 dark:text-blue-400" />
+              </div>
+            </div>
+          </div>
 
-          <Card className="border-orange-200">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Locked Accounts</CardTitle>
-              {lockedUsers.length > 0 ? (
-                <AlertTriangle className="h-4 w-4 text-orange-600" />
-              ) : (
-                <CheckCircle className="h-4 w-4 text-green-600" />
-              )}
-            </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${lockedUsers.length > 0 ? 'text-orange-600' : 'text-green-600'}`}>
-                {lockedUsers.length}
+          {/* Locked Accounts */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Locked Accounts</p>
+                <h3 className={`text-3xl font-bold ${lockedUsers.length > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'}`}>
+                  {lockedUsers.length}
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Due to failed logins</p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Due to failed logins
-              </p>
-            </CardContent>
-          </Card>
+              <div className={`flex items-center justify-center w-14 h-14 rounded-full ${lockedUsers.length > 0 ? 'bg-orange-50 dark:bg-orange-900/30' : 'bg-green-50 dark:bg-green-900/30'}`}>
+                {lockedUsers.length > 0 ? (
+                  <AlertTriangle className="h-7 w-7 text-orange-600 dark:text-orange-400" />
+                ) : (
+                  <CheckCircle className="h-7 w-7 text-green-600 dark:text-green-400" />
+                )}
+              </div>
+            </div>
+          </div>
 
-          <Card className="border-purple-200">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Rate Limiting</CardTitle>
-              <Shield className="h-4 w-4 text-purple-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-purple-600">
-                Active
+          {/* Rate Limiting */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Rate Limiting</p>
+                <h3 className="text-3xl font-bold text-purple-600 dark:text-purple-400">Active</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">5 attempts per minute</p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                5 attempts per minute
-              </p>
-            </CardContent>
-          </Card>
+              <div className="flex items-center justify-center w-14 h-14 rounded-full bg-purple-50 dark:bg-purple-900/30">
+                <Shield className="h-7 w-7 text-purple-600 dark:text-purple-400" />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* User Statistics */}
       <div>
-        <h2 className="text-xl font-semibold mb-4">User Statistics</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">User Statistics</h2>
         <div className="grid gap-4 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5" />
+          {/* User Status Card */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <Users className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                 User Status
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
+              </h3>
+            </div>
+            <div className="p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Total Users</span>
-                <span className="text-sm font-bold">{totalUsers}</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Total Users</span>
+                <span className="text-sm font-bold text-gray-900 dark:text-white">{totalUsers}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Active Users</span>
-                <span className="flex items-center gap-2 text-green-600 font-medium">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Active Users</span>
+                <span className="flex items-center gap-2 text-green-600 dark:text-green-400 font-medium">
                   <CheckCircle className="h-4 w-4" />
                   {activeUsers}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Inactive Users</span>
-                <span className="flex items-center gap-2 text-gray-600 font-medium">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Inactive Users</span>
+                <span className="flex items-center gap-2 text-gray-600 dark:text-gray-400 font-medium">
                   <UserX className="h-4 w-4" />
                   {inactiveUsers}
                 </span>
               </div>
-              <div className="pt-2 border-t">
+              <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
                 <Link
                   to="/users"
-                  className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                  className="text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium"
                 >
                   Manage Users →
                 </Link>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Lock className="h-5 w-5" />
+          {/* Account Security Card */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <Lock className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                 Account Security
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
+              </h3>
+            </div>
+            <div className="p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Locked Accounts</span>
-                <span className={`text-sm font-bold ${lockedUsers.length > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Locked Accounts</span>
+                <span className={`text-sm font-bold ${lockedUsers.length > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'}`}>
                   {lockedUsers.length}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Lockout Duration</span>
-                <span className="text-sm text-gray-600">15 minutes</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Lockout Duration</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">15 minutes</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Max Failed Attempts</span>
-                <span className="text-sm text-gray-600">5 attempts</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Max Failed Attempts</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">5 attempts</span>
               </div>
               {lockedUsers.length > 0 && (
-                <div className="pt-2 border-t">
+                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
                   <Link
                     to="/users"
-                    className="text-sm text-orange-600 hover:text-orange-700 font-medium"
+                    className="text-sm text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 font-medium"
                   >
                     View Locked Users →
                   </Link>
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Active Security Features */}
       <div>
-        <h2 className="text-xl font-semibold mb-4">Active Security Features</h2>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <div>
-                  <p className="font-medium">JWT Authentication</p>
-                  <p className="text-sm text-muted-foreground">Token-based authentication for all API requests</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <div>
-                  <p className="font-medium">Rate Limiting</p>
-                  <p className="text-sm text-muted-foreground">IP-based rate limiting (5 login attempts per minute)</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <div>
-                  <p className="font-medium">Account Lockout</p>
-                  <p className="text-sm text-muted-foreground">Automatic 15-minute lockout after 5 failed login attempts</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <div>
-                  <p className="font-medium">Role-Based Access Control (RBAC)</p>
-                  <p className="text-sm text-muted-foreground">Global Admin and Tenant Admin roles with granular permissions</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <div>
-                  <p className="font-medium">Multi-Tenancy</p>
-                  <p className="text-sm text-muted-foreground">Isolated tenant environments with separate access control</p>
-                </div>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Active Security Features</h2>
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">JWT Authentication</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Token-based authentication for all API requests</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
+            <div className="flex items-center gap-3">
+              <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">Rate Limiting</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">IP-based rate limiting (5 login attempts per minute)</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">Account Lockout</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Automatic 15-minute lockout after 5 failed login attempts</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">Role-Based Access Control (RBAC)</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Global Admin and Tenant Admin roles with granular permissions</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">Multi-Tenancy</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Isolated tenant environments with separate access control</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

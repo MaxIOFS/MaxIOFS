@@ -2,16 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/Table';
 import { Database, Plus, Search, Settings, Trash2, Calendar, HardDrive, Lock, Shield, Building2, Users } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -28,7 +19,6 @@ export default function BucketsPage() {
     queryFn: APIClient.getBuckets,
   });
 
-  // Fetch users and tenants for ownership display
   const { data: users } = useQuery({
     queryKey: ['users'],
     queryFn: APIClient.getUsers,
@@ -57,11 +47,8 @@ export default function BucketsPage() {
   const handleDeleteBucket = async (bucketName: string) => {
     try {
       const result = await SweetAlert.confirmDeleteBucket(bucketName);
-
       if (result.isConfirmed) {
-        // Show loading indicator
         SweetAlert.loading('Deleting bucket...', `Deleting "${bucketName}" and all its data`);
-
         deleteBucketMutation.mutate(bucketName);
       }
     } catch (error) {
@@ -74,12 +61,10 @@ export default function BucketsPage() {
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let size = bytes;
     let unitIndex = 0;
-
     while (size >= 1024 && unitIndex < units.length - 1) {
       size /= 1024;
       unitIndex++;
     }
-
     return `${size.toFixed(1)} ${units[unitIndex]}`;
   };
 
@@ -96,21 +81,17 @@ export default function BucketsPage() {
   const getOwnerDisplay = (bucket: Bucket) => {
     const ownerId = bucket.owner_id || bucket.ownerId;
     const ownerType = bucket.owner_type || bucket.ownerType;
-
     if (!ownerId || !ownerType) {
       return { type: 'global', name: 'Global', icon: Shield };
     }
-
     if (ownerType === 'user') {
       const user = users?.find(u => u.id === ownerId);
       return { type: 'user', name: user?.username || ownerId, icon: Users };
     }
-
     if (ownerType === 'tenant') {
       const tenant = tenants?.find(t => t.id === ownerId);
       return { type: 'tenant', name: tenant?.displayName || ownerId, icon: Building2 };
     }
-
     return { type: 'unknown', name: 'Unknown', icon: Shield };
   };
 
@@ -124,8 +105,8 @@ export default function BucketsPage() {
 
   if (error) {
     return (
-      <div className="rounded-md bg-red-50 p-4">
-        <div className="text-sm text-red-700">
+      <div className="rounded-lg bg-error-50 dark:bg-error-900/30 border border-error-200 dark:border-error-800 p-4">
+        <div className="text-sm text-error-700 dark:text-error-400 font-medium">
           Error loading buckets: {error instanceof Error ? error.message : 'Unknown error'}
         </div>
       </div>
@@ -135,86 +116,100 @@ export default function BucketsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Buckets</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Buckets</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Manage your S3 buckets and their configurations
           </p>
         </div>
-        <Button onClick={() => navigate('/buckets/create')} className="gap-2">
+        <Button 
+          onClick={() => navigate('/buckets/create')} 
+          className="bg-brand-600 hover:bg-brand-700 text-white inline-flex items-center gap-2"
+        >
           <Plus className="h-4 w-4" />
           Create Bucket
         </Button>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Buckets</CardTitle>
-            <Database className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{filteredBuckets.length}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Objects</CardTitle>
-            <HardDrive className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {filteredBuckets.reduce((sum, bucket) => sum + (bucket.object_count || bucket.objectCount || 0), 0).toLocaleString()}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Buckets</p>
+              <h3 className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{filteredBuckets.length}</h3>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Size</CardTitle>
-            <HardDrive className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {formatSize(filteredBuckets.reduce((sum, bucket) => sum + (bucket.size || bucket.totalSize || 0), 0))}
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-brand-50 dark:bg-brand-900/30">
+              <Database className="h-7 w-7 text-brand-600 dark:text-brand-400" />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Objects</p>
+              <h3 className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
+                {filteredBuckets.reduce((sum, bucket) => sum + (bucket.object_count || bucket.objectCount || 0), 0).toLocaleString()}
+              </h3>
+            </div>
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-light-50 dark:bg-blue-light-900/30">
+              <HardDrive className="h-7 w-7 text-blue-light-600 dark:text-blue-light-400" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Size</p>
+              <h3 className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
+                {formatSize(filteredBuckets.reduce((sum, bucket) => sum + (bucket.size || bucket.totalSize || 0), 0))}
+              </h3>
+            </div>
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-orange-50 dark:bg-orange-900/30">
+              <HardDrive className="h-7 w-7 text-orange-600 dark:text-orange-400" />
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Search and Filters */}
-      <div className="flex items-center space-x-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+      {/* Search Bar */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-4">
+        <div className="relative max-w-md">
+          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
           <Input
             placeholder="Search buckets..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
+            className="pl-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white focus:ring-brand-500 focus:border-brand-500"
           />
         </div>
       </div>
 
       {/* Buckets Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Buckets ({filteredBuckets.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            All Buckets ({filteredBuckets.length})
+          </h3>
+        </div>
+
+        <div className="overflow-x-auto">
           {filteredBuckets.length === 0 ? (
-            <div className="text-center py-8">
-              <Database className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-semibold">No buckets found</h3>
-              <p className="text-muted-foreground">
+            <div className="text-center py-12 px-4">
+              <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-gray-100 dark:bg-gray-700 mb-4">
+                <Database className="h-8 w-8 text-gray-400 dark:text-gray-500" />
+              </div>
+              <h3 className="text-base font-medium text-gray-900 dark:text-white mb-1">No buckets found</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                 {searchTerm ? 'Try adjusting your search terms' : 'Get started by creating your first bucket'}
               </p>
               {!searchTerm && (
                 <Button
                   onClick={() => navigate('/buckets/create')}
-                  className="mt-4 gap-2"
+                  className="bg-brand-600 hover:bg-brand-700 text-white inline-flex items-center gap-2"
                 >
                   <Plus className="h-4 w-4" />
                   Create Bucket
@@ -222,94 +217,118 @@ export default function BucketsPage() {
               )}
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Region</TableHead>
-                  <TableHead>Owner</TableHead>
-                  <TableHead>Objects</TableHead>
-                  <TableHead>Size</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <table className="w-full">
+              <thead className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                    Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                    Region
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                    Owner
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                    Objects
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                    Size
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                    Created
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {filteredBuckets.map((bucket) => {
                   const tenantId = bucket.tenant_id || bucket.tenantId;
                   const bucketPath = tenantId ? `/buckets/${tenantId}/${bucket.name}` : `/buckets/${bucket.name}`;
+                  const owner = getOwnerDisplay(bucket);
+                  const OwnerIcon = owner.icon;
 
                   return (
-                  <TableRow key={`${tenantId || 'global'}-${bucket.name}`}>
-                    <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
-                        <Database className="h-4 w-4 text-muted-foreground" />
-                        <Link
-                          to={bucketPath}
-                          className="hover:underline text-blue-600"
-                        >
-                          {bucket.name}
-                        </Link>
-                        {bucket.objectLock?.objectLockEnabled && (
-                          <div className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-medium" title="Object Lock enabled">
-                            <Lock className="h-3 w-3" />
-                            <span>WORM</span>
+                    <tr key={`${tenantId || 'global'}-${bucket.name}`} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-center w-8 h-8 rounded bg-brand-50 dark:bg-brand-900/30">
+                            <Database className="h-4 w-4 text-brand-600 dark:text-brand-400" />
                           </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>{bucket.region || 'us-east-1'}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {(() => {
-                          const owner = getOwnerDisplay(bucket);
-                          const Icon = owner.icon;
-                          return (
-                            <>
-                              <Icon className="h-4 w-4 text-muted-foreground" />
-                              <span className={owner.type === 'global' ? 'text-sm text-muted-foreground italic' : 'text-sm'}>
-                                {owner.name}
-                              </span>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </TableCell>
-                    <TableCell>{(bucket.object_count || bucket.objectCount || 0).toLocaleString()}</TableCell>
-                    <TableCell>{formatSize(bucket.size || bucket.totalSize || 0)}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <Calendar className="h-3 w-3" />
-                        {formatDate(bucket.creation_date || bucket.creationDate || '')}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => navigate(`${bucketPath}/settings`)}
-                        >
-                          <Settings className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteBucket(bucket.name)}
-                          disabled={deleteBucketMutation.isPending}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                          <div>
+                            <Link
+                              to={bucketPath}
+                              className="text-sm font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300"
+                            >
+                              {bucket.name}
+                            </Link>
+                            {bucket.objectLock?.objectLockEnabled && (
+                              <div className="flex items-center gap-1 mt-1">
+                                <span className="inline-flex items-center gap-1 bg-blue-light-100 dark:bg-blue-light-900/30 text-blue-light-700 dark:text-blue-light-400 px-2 py-0.5 rounded text-xs font-medium">
+                                  <Lock className="h-3 w-3" />
+                                  WORM
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm text-gray-900 dark:text-gray-300">{bucket.region || 'us-east-1'}</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <OwnerIcon className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+                          <span className={owner.type === 'global' ? 'text-sm text-gray-500 dark:text-gray-400 italic' : 'text-sm text-gray-900 dark:text-gray-300'}>
+                            {owner.name}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm text-gray-900 dark:text-gray-300">
+                          {(bucket.object_count || bucket.objectCount || 0).toLocaleString()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm text-gray-900 dark:text-gray-300">
+                          {formatSize(bucket.size || bucket.totalSize || 0)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
+                          <Calendar className="h-3 w-3" />
+                          {formatDate(bucket.creation_date || bucket.creationDate || '')}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => navigate(`${bucketPath}/settings`)}
+                            className="p-2 text-gray-600 dark:text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                            title="Settings"
+                          >
+                            <Settings className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteBucket(bucket.name)}
+                            disabled={deleteBucketMutation.isPending}
+                            className="p-2 text-gray-600 dark:text-gray-400 hover:text-error-600 dark:hover:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/30 rounded-lg transition-colors disabled:opacity-50"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   );
                 })}
-              </TableBody>
-            </Table>
+              </tbody>
+            </table>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

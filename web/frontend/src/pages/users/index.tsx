@@ -250,8 +250,8 @@ export default function UsersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Users</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Users</h1>
+          <p className="text-gray-500 dark:text-gray-400">
             Manage user accounts and their permissions
           </p>
         </div>
@@ -262,78 +262,101 @@ export default function UsersPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Users</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{filteredUsers.length}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Users</CardTitle>
-            <UserCheck className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {filteredUsers.filter((user: User) => user.status === 'active').length}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        {/* Total Users Card */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Users</p>
+              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{filteredUsers.length}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                Across all tenants
+              </p>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Admin Users</CardTitle>
-            <Shield className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {filteredUsers.filter((user: User) => user.roles.includes('admin')).length}
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-brand-50 dark:bg-brand-900/30">
+              <Users className="h-7 w-7 text-brand-600 dark:text-brand-400" />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Inactive Users</CardTitle>
-            <UserX className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {filteredUsers.filter((user: User) => user.status !== 'active').length}
+        {/* Active Users Card */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Active Users</p>
+              <h3 className="text-3xl font-bold text-success-600 dark:text-success-400">
+                {filteredUsers.filter((user: User) => user.status === 'active').length}
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                Ready to use the system
+              </p>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-success-50 dark:bg-success-900/30">
+              <UserCheck className="h-7 w-7 text-success-600 dark:text-success-400" />
+            </div>
+          </div>
+        </div>
 
-      {/* Search and Filters */}
-      <div className="flex items-center space-x-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-          <Input
-            placeholder="Search users..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
+        {/* Admin Users Card */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Admin Users</p>
+              <h3 className="text-3xl font-bold text-blue-light-600 dark:text-blue-light-400">
+                {filteredUsers.filter((user: User) => user.roles.includes('admin')).length}
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                Users with admin access
+              </p>
+            </div>
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-light-50 dark:bg-blue-light-900/30">
+              <Shield className="h-7 w-7 text-blue-light-600 dark:text-blue-light-400" />
+            </div>
+          </div>
+        </div>
+
+        {/* Inactive Users Card */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Inactive Users</p>
+              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">
+                {filteredUsers.filter((user: User) => user.status !== 'active').length}
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                Suspended or inactive
+              </p>
+            </div>
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-gray-100 dark:bg-gray-700">
+              <UserX className="h-7 w-7 text-gray-600 dark:text-gray-400" />
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Users Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Users ({filteredUsers.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">All Users ({filteredUsers.length})</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Manage user accounts and permissions</p>
+
+          {/* Search */}
+          <div className="mt-4 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 h-5 w-5" />
+            <Input
+              placeholder="Search users by username or email..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white border-gray-200 dark:border-gray-600"
+            />
+          </div>
+        </div>
+        <div className="p-6">
           {filteredUsers.length === 0 ? (
             <div className="text-center py-8">
-              <Users className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-semibold">No users found</h3>
-              <p className="text-muted-foreground">
+              <Users className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
+              <h3 className="mt-4 text-lg font-semibold text-gray-900 dark:text-white">No users found</h3>
+              <p className="text-gray-500 dark:text-gray-400">
                 {searchTerm ? 'Try adjusting your search terms' : 'Get started by creating your first user'}
               </p>
               {!searchTerm && (
@@ -400,7 +423,13 @@ export default function UsersPage() {
                         {user.roles.map((role: string) => (
                           <span
                             key={role}
-                            className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getRoleColor(role)}`}
+                            className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                              role === 'admin'
+                                ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400 border border-red-200 dark:border-red-800'
+                                : role === 'write'
+                                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
+                                : 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 border border-green-200 dark:border-green-800'
+                            }`}
                           >
                             {role}
                           </span>
@@ -408,7 +437,13 @@ export default function UsersPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(user.status)}`}>
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                        user.status === 'active'
+                          ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 border border-green-200 dark:border-green-800'
+                          : user.status === 'suspended'
+                          ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400 border border-red-200 dark:border-red-800'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-400 border border-gray-200 dark:border-gray-600'
+                      }`}>
                         {user.status}
                       </span>
                     </TableCell>
@@ -421,7 +456,7 @@ export default function UsersPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
                         <Calendar className="h-3 w-3" />
                         {formatDate(user.createdAt)}
                       </div>
@@ -474,8 +509,8 @@ export default function UsersPage() {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Create User Modal */}
       <Modal
@@ -485,7 +520,7 @@ export default function UsersPage() {
       >
         <form onSubmit={handleCreateUser} className="space-y-4">
           <div>
-            <label htmlFor="username" className="block text-sm font-medium mb-2">
+            <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Username
             </label>
             <Input
@@ -493,12 +528,13 @@ export default function UsersPage() {
               value={newUser.username || ''}
               onChange={(e) => updateNewUser('username', e.target.value)}
               placeholder="john.doe"
+              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
               required
             />
           </div>
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium mb-2">
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Email (Optional)
             </label>
             <Input
@@ -507,11 +543,12 @@ export default function UsersPage() {
               value={newUser.email || ''}
               onChange={(e) => updateNewUser('email', e.target.value)}
               placeholder="john.doe@example.com"
+              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
             />
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium mb-2">
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Password
             </label>
             <Input
@@ -520,6 +557,7 @@ export default function UsersPage() {
               value={newUser.password || ''}
               onChange={(e) => updateNewUser('password', e.target.value)}
               placeholder="Enter password"
+              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
               required
             />
           </div>
@@ -527,13 +565,13 @@ export default function UsersPage() {
           {/* Tenant selector - only for global admins */}
           {isGlobalAdmin ? (
             <div>
-              <label className="block text-sm font-medium mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Tenant (Optional)
               </label>
               <select
                 value={newUser.tenantId || ''}
                 onChange={(e) => updateNewUser('tenantId', e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2"
+                className="w-full border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
               >
                 <option value="">No Tenant (Global User)</option>
                 {tenants?.map((tenant) => (
@@ -542,26 +580,26 @@ export default function UsersPage() {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Global users can access all buckets. Tenant users are limited to their tenant's buckets.
               </p>
             </div>
           ) : currentUser?.tenantId && (
             <div>
-              <label className="block text-sm font-medium mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Tenant
               </label>
-              <div className="w-full border border-gray-200 bg-gray-50 rounded-md px-3 py-2 text-gray-700">
+              <div className="w-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-md px-3 py-2 text-gray-700 dark:text-gray-300">
                 {tenants?.find(t => t.id === currentUser.tenantId)?.displayName || 'Your Tenant'}
               </div>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Tenant admins can only create users within their own tenant.
               </p>
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Roles
             </label>
             <div className="space-y-2">
@@ -578,23 +616,23 @@ export default function UsersPage() {
                         updateNewUser('roles', currentRoles.filter((r: string) => r !== role));
                       }
                     }}
-                    className="rounded border-gray-300"
+                    className="rounded border-gray-300 dark:border-gray-600"
                   />
-                  <span className="text-sm capitalize">{role}</span>
+                  <span className="text-sm capitalize text-gray-700 dark:text-gray-300">{role}</span>
                 </label>
               ))}
             </div>
           </div>
 
           <div>
-            <label htmlFor="status" className="block text-sm font-medium mb-2">
+            <label htmlFor="status" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Status
             </label>
             <select
               id="status"
               value={newUser.status || 'active'}
               onChange={(e) => updateNewUser('status', e.target.value)}
-              className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
