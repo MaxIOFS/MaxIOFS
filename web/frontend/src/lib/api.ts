@@ -507,6 +507,26 @@ export class APIClient {
     return response.data.data!;
   }
 
+  // Historical Metrics
+  static async getHistoricalMetrics(params: {
+    type?: string;
+    start?: number | string;
+    end?: number | string;
+  }): Promise<any> {
+    const queryParams = new URLSearchParams();
+    if (params.type) queryParams.append('type', params.type);
+    if (params.start) queryParams.append('start', params.start.toString());
+    if (params.end) queryParams.append('end', params.end.toString());
+
+    const response = await apiClient.get<APIResponse<any>>(`/metrics/history?${queryParams.toString()}`);
+    return response.data.data!;
+  }
+
+  static async getHistoryStats(): Promise<any> {
+    const response = await apiClient.get<APIResponse<any>>('/metrics/history/stats');
+    return response.data.data!;
+  }
+
   // Metrics
   static async getMetrics(): Promise<APIResponse<any>> {
     const response = await apiClient.get<APIResponse<any>>('/metrics');

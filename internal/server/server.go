@@ -58,10 +58,33 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	authManager := auth.NewManager(cfg.Auth, cfg.DataDir)
-	metricsManager := metrics.NewManager(cfg.Metrics)
+	metricsManager := metrics.NewManagerWithDataDir(cfg.Metrics, cfg.DataDir)
 
 	// Initialize system metrics
 	systemMetrics := metrics.NewSystemMetrics(cfg.DataDir)
+
+	// Connect system metrics to metrics manager
+	if mm, ok := metricsManager.(interface{ SetSystemMetrics(*metrics.SystemMetricsTracker) }); ok {
+		mm.SetSystemMetrics(systemMetrics)
+	}
+
+	// Connect storage metrics provider to metrics manager
+	if mm, ok := metricsManager.(interface{ SetStorageMetricsProvider(metrics.StorageMetricsProvider) }); ok {
+		mm.SetStorageMetricsProvider(func() (totalBuckets, totalObjects, totalSize int64) {
+			// Get storage metrics by listing all buckets
+			buckets, err := bucketManager.ListBuckets(context.Background(), "")
+			if err != nil {
+				return 0, 0, 0
+			}
+
+			totalBuckets = int64(len(buckets))
+			for _, b := range buckets {
+				totalObjects += b.ObjectCount
+				totalSize += b.TotalSize
+			}
+			return
+		})
+	}
 
 	// Initialize share manager with same database as auth
 	shareManager, err := share.NewManagerWithDB(cfg.DataDir)

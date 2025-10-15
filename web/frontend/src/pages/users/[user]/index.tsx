@@ -182,19 +182,12 @@ export default function UserDetailsPage() {
     }
   };
 
-  const toggleSecretVisibility = (keyId: string) => {
-    setShowSecretKeys(prev => ({
-      ...prev,
-      [keyId]: !prev[keyId]
-    }));
-  };
-
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
       SweetAlert.toast('success', 'Copied to clipboard');
     } catch (err) {
-      SweetAlert.toast('error', 'Error copying');
+      SweetAlert.toast('error', err.message);
     }
   };
 
@@ -326,41 +319,13 @@ export default function UserDetailsPage() {
             </Button>
             <Button
               onClick={() => setIsCreateKeyModalOpen(true)}
+              variant="outline"
               className="gap-2"
             >
               <Plus className="h-4 w-4" />
               Create Access Key
             </Button>
           </div>
-        </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={() => setIsChangePasswordOpen(true)}
-            variant="outline"
-            className="gap-2"
-          >
-            <Key className="h-4 w-4" />
-            Change Password
-          </Button>
-          <Button
-            onClick={() => setIsEditUserModalOpen(true)}
-            variant="outline"
-            className="gap-2"
-          >
-            <Edit className="h-4 w-4" />
-            Edit User
-          </Button>
-          <Button
-            onClick={() => setIsCreateKeyModalOpen(true)}
-            className="gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            New Access Key
-          </Button>
         </div>
       </div>
 
@@ -477,6 +442,7 @@ export default function UserDetailsPage() {
             <Button
               onClick={handleChangePassword}
               disabled={changePasswordMutation.isPending}
+              variant="outline"
             >
               {changePasswordMutation.isPending ? 'Changing...' : 'Change Password'}
             </Button>
@@ -507,6 +473,7 @@ export default function UserDetailsPage() {
               </p>
               <Button
                 onClick={() => setIsCreateKeyModalOpen(true)}
+                variant="outline"
                 className="mt-4 gap-2"
               >
                 <Plus className="h-4 w-4" />
@@ -660,6 +627,7 @@ export default function UserDetailsPage() {
             </Button>
             <Button
               type="submit"
+              variant="outline"
               disabled={updateUserMutation.isPending}
             >
               {updateUserMutation.isPending ? 'Saving...' : 'Save Changes'}
@@ -698,6 +666,7 @@ export default function UserDetailsPage() {
             </Button>
             <Button
               type="submit"
+              variant="outline"
               disabled={createAccessKeyMutation.isPending}
             >
               {createAccessKeyMutation.isPending ? 'Creating...' : 'Create Access Key'}
@@ -774,7 +743,7 @@ export default function UserDetailsPage() {
                 <Download className="h-4 w-4" />
                 Download CSV
               </Button>
-              <Button onClick={() => setCreatedKey(null)}>
+              <Button onClick={() => setCreatedKey(null)} variant="outline">
                 Got it
               </Button>
             </div>
