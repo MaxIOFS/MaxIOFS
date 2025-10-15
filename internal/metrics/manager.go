@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/maxiofs/maxiofs/internal/config"
 )
 
 // Manager defines the interface for metrics management
@@ -56,6 +56,10 @@ type Manager interface {
 	IsHealthy() bool
 	Reset() error
 
+	// Historical Metrics
+	GetHistoricalMetrics(metricType string, start, end time.Time) ([]MetricSnapshot, error)
+	GetHistoryStats() (map[string]interface{}, error)
+
 	// HTTP Middleware
 	Middleware() func(http.Handler) http.Handler
 
@@ -63,6 +67,9 @@ type Manager interface {
 	Start(ctx context.Context) error
 	Stop() error
 }
+
+// StorageMetricsProvider is a function that returns current storage metrics
+type StorageMetricsProvider func() (totalBuckets, totalObjects, totalSize int64)
 
 // metricsManager implements the Manager interface using Prometheus
 type metricsManager struct {
@@ -73,35 +80,35 @@ type metricsManager struct {
 	registry *prometheus.Registry
 
 	// HTTP Metrics
-	httpRequestsTotal    *prometheus.CounterVec
-	httpRequestDuration  *prometheus.HistogramVec
-	httpRequestSize      *prometheus.HistogramVec
-	httpResponseSize     *prometheus.HistogramVec
+	httpRequestsTotal   *prometheus.CounterVec
+	httpRequestDuration *prometheus.HistogramVec
+	httpRequestSize     *prometheus.HistogramVec
+	httpResponseSize    *prometheus.HistogramVec
 
 	// S3 API Metrics
-	s3OperationsTotal    *prometheus.CounterVec
-	s3OperationDuration  *prometheus.HistogramVec
-	s3ErrorsTotal        *prometheus.CounterVec
+	s3OperationsTotal   *prometheus.CounterVec
+	s3OperationDuration *prometheus.HistogramVec
+	s3ErrorsTotal       *prometheus.CounterVec
 
 	// Storage Metrics
-	storageOperationsTotal    *prometheus.CounterVec
-	storageOperationDuration  *prometheus.HistogramVec
-	storageBytesTotal         *prometheus.GaugeVec
-	storageObjectsTotal       *prometheus.GaugeVec
+	storageOperationsTotal   *prometheus.CounterVec
+	storageOperationDuration *prometheus.HistogramVec
+	storageBytesTotal        *prometheus.GaugeVec
+	storageObjectsTotal      *prometheus.GaugeVec
 
 	// Object Metrics
-	objectOperationsTotal    *prometheus.CounterVec
-	objectOperationDuration  *prometheus.HistogramVec
-	objectSizeBytes          *prometheus.HistogramVec
+	objectOperationsTotal   *prometheus.CounterVec
+	objectOperationDuration *prometheus.HistogramVec
+	objectSizeBytes         *prometheus.HistogramVec
 
 	// Authentication Metrics
-	authAttemptsTotal  *prometheus.CounterVec
-	authFailuresTotal  *prometheus.CounterVec
+	authAttemptsTotal *prometheus.CounterVec
+	authFailuresTotal *prometheus.CounterVec
 
 	// System Metrics
-	systemCPUUsage     prometheus.Gauge
-	systemMemoryUsage  prometheus.Gauge
-	systemEventsTotal  *prometheus.CounterVec
+	systemCPUUsage    prometheus.Gauge
+	systemMemoryUsage prometheus.Gauge
+	systemEventsTotal *prometheus.CounterVec
 
 	// Bucket Metrics
 	bucketObjectsTotal *prometheus.GaugeVec
@@ -109,44 +116,61 @@ type metricsManager struct {
 	bucketOpsTotal     *prometheus.CounterVec
 
 	// Object Lock Metrics
-	objectLockOpsTotal        *prometheus.CounterVec
-	retentionObjectsTotal     *prometheus.GaugeVec
+	objectLockOpsTotal    *prometheus.CounterVec
+	retentionObjectsTotal *prometheus.GaugeVec
 
 	// Performance Metrics
-	backgroundTasksTotal      *prometheus.CounterVec
-	backgroundTaskDuration    *prometheus.HistogramVec
-	cacheHitRate             prometheus.Gauge
-	cacheSizeBytes           prometheus.Gauge
+	backgroundTasksTotal   *prometheus.CounterVec
+	backgroundTaskDuration *prometheus.HistogramVec
+	cacheHitRate           prometheus.Gauge
+	cacheSizeBytes         prometheus.Gauge
 
 	// Aggregate tracking for quick access
-	totalRequests      uint64
-	totalErrors        uint64
-	totalLatencyMs     uint64
-	latencyCount       uint64
-	requestsStartTime  time.Time
+	totalRequests     uint64
+	totalErrors       uint64
+	totalLatencyMs    uint64
+	latencyCount      uint64
+	requestsStartTime time.Time
+
+	// Historical metrics storage
+	historyStore *HistoryStore
+	dataDir      string
+
+	// System metrics tracker
+	systemMetrics *SystemMetricsTracker
+
+	// Storage metrics provider
+	storageMetricsProvider StorageMetricsProvider
 
 	// Lifecycle
 	started bool
+	ctx     context.Context
+	cancel  context.CancelFunc
 	mu      sync.RWMutex
 }
 
 // MetricsConfig holds configuration for the metrics system
 type MetricsConfig struct {
-	Enabled    bool          `json:"enabled"`
-	Path       string        `json:"path"`
-	Namespace  string        `json:"namespace"`
-	Subsystem  string        `json:"subsystem"`
-	Interval   time.Duration `json:"interval"`
-	Labels     map[string]string `json:"labels"`
+	Enabled   bool              `json:"enabled"`
+	Path      string            `json:"path"`
+	Namespace string            `json:"namespace"`
+	Subsystem string            `json:"subsystem"`
+	Interval  time.Duration     `json:"interval"`
+	Labels    map[string]string `json:"labels"`
 }
 
 // NewManager creates a new metrics manager
 func NewManager(cfg config.MetricsConfig) Manager {
+	return NewManagerWithDataDir(cfg, "")
+}
+
+// NewManagerWithDataDir creates a new metrics manager with a custom data directory
+func NewManagerWithDataDir(cfg config.MetricsConfig, dataDir string) Manager {
 	// Convert config.MetricsConfig to our internal MetricsConfig
 	metricsConfig := MetricsConfig{
 		Enabled:   cfg.Enable,
 		Path:      cfg.Path,
-		Namespace: "maxiofs",  // Default namespace
+		Namespace: "maxiofs", // Default namespace
 		Interval:  time.Duration(cfg.Interval) * time.Second,
 	}
 
@@ -162,7 +186,7 @@ func NewManager(cfg config.MetricsConfig) Manager {
 		metricsConfig.Path = "/metrics"
 	}
 	if metricsConfig.Interval == 0 {
-		metricsConfig.Interval = 15 * time.Second
+		metricsConfig.Interval = 60 * time.Second // Default: collect every minute
 	}
 
 	registry := prometheus.NewRegistry()
@@ -171,6 +195,18 @@ func NewManager(cfg config.MetricsConfig) Manager {
 		config:            metricsConfig,
 		registry:          registry,
 		requestsStartTime: time.Now(),
+		dataDir:           dataDir,
+	}
+
+	// Initialize history store if dataDir is provided
+	if dataDir != "" {
+		historyStore, err := NewHistoryStore(dataDir, 365) // 1 year retention
+		if err != nil {
+			// Log error but don't fail - metrics will work without history
+			fmt.Printf("Failed to initialize metrics history store: %v\n", err)
+		} else {
+			manager.historyStore = historyStore
+		}
 	}
 
 	manager.initializeMetrics()
@@ -673,13 +709,56 @@ func (m *metricsManager) GetMetricsHandler() http.Handler {
 }
 
 func (m *metricsManager) GetMetricsSnapshot() (map[string]interface{}, error) {
-	// This would collect all current metric values
-	// For MVP, return basic info
+	// Collect real system metrics
+	if m.systemMetrics == nil {
+		return map[string]interface{}{
+			"timestamp": time.Now().Unix(),
+			"namespace": m.config.Namespace,
+			"status":    "healthy",
+		}, nil
+	}
+
 	snapshot := map[string]interface{}{
 		"timestamp": time.Now().Unix(),
 		"namespace": m.config.Namespace,
-		"status":    "healthy",
 	}
+
+	// Get CPU usage
+	if cpuUsage, err := m.systemMetrics.GetCPUUsage(); err == nil {
+		snapshot["cpuUsagePercent"] = cpuUsage
+	} else {
+		snapshot["cpuUsagePercent"] = 0.0
+	}
+
+	// Get memory usage
+	if memStats, err := m.systemMetrics.GetMemoryUsage(); err == nil {
+		snapshot["memoryUsagePercent"] = memStats.UsedPercent
+		snapshot["memoryUsedBytes"] = memStats.UsedBytes
+		snapshot["memoryTotalBytes"] = memStats.TotalBytes
+	} else {
+		snapshot["memoryUsagePercent"] = 0.0
+		snapshot["memoryUsedBytes"] = uint64(0)
+		snapshot["memoryTotalBytes"] = uint64(0)
+	}
+
+	// Get disk usage
+	if diskStats, err := m.systemMetrics.GetDiskUsage(); err == nil {
+		snapshot["diskUsagePercent"] = diskStats.UsedPercent
+		snapshot["diskUsedBytes"] = diskStats.UsedBytes
+		snapshot["diskTotalBytes"] = diskStats.TotalBytes
+	} else {
+		snapshot["diskUsagePercent"] = 0.0
+		snapshot["diskUsedBytes"] = uint64(0)
+		snapshot["diskTotalBytes"] = uint64(0)
+	}
+
+	// Get performance stats
+	perfStats := m.systemMetrics.GetPerformanceStats()
+	snapshot["goroutines"] = perfStats.GoRoutines
+	snapshot["heapAllocBytes"] = uint64(perfStats.HeapAllocMB * 1024 * 1024)
+	snapshot["gcRuns"] = perfStats.GCRuns
+	snapshot["uptime"] = perfStats.Uptime
+
 	return snapshot, nil
 }
 
@@ -703,11 +782,22 @@ func (m *metricsManager) GetS3MetricsSnapshot() (map[string]interface{}, error) 
 	}
 
 	snapshot := map[string]interface{}{
-		"totalRequests":   totalReqs,
-		"totalErrors":     totalErrs,
-		"avgLatency":      avgLatency,
-		"requestsPerSec":  requestsPerSec,
-		"timestamp":       time.Now().Unix(),
+		"totalRequests":  totalReqs,
+		"totalErrors":    totalErrs,
+		"avgLatency":     avgLatency,
+		"requestsPerSec": requestsPerSec,
+		"timestamp":      time.Now().Unix(),
+	}
+	return snapshot, nil
+}
+
+// GetStorageMetricsSnapshot returns a snapshot of storage metrics
+func (m *metricsManager) GetStorageMetricsSnapshot(totalBuckets, totalObjects, totalSize int64) (map[string]interface{}, error) {
+	snapshot := map[string]interface{}{
+		"timestamp":    time.Now().Unix(),
+		"totalSize":    totalSize,
+		"totalObjects": totalObjects,
+		"totalBuckets": totalBuckets,
 	}
 	return snapshot, nil
 }
@@ -763,7 +853,15 @@ func (m *metricsManager) Start(ctx context.Context) error {
 		return fmt.Errorf("metrics manager already started")
 	}
 
+	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.started = true
+
+	// Start metrics collection goroutine if history store is available
+	if m.historyStore != nil {
+		go m.metricsCollectionLoop()
+		go m.metricsMaintenanceLoop()
+	}
+
 	return nil
 }
 
@@ -775,8 +873,114 @@ func (m *metricsManager) Stop() error {
 		return fmt.Errorf("metrics manager not started")
 	}
 
+	// Cancel context to stop background goroutines
+	if m.cancel != nil {
+		m.cancel()
+	}
+
+	// Close history store
+	if m.historyStore != nil {
+		m.historyStore.Close()
+	}
+
 	m.started = false
 	return nil
+}
+
+// metricsCollectionLoop periodically collects and stores metrics snapshots
+func (m *metricsManager) metricsCollectionLoop() {
+	ticker := time.NewTicker(m.config.Interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-ticker.C:
+			m.collectAndStoreMetrics()
+		}
+	}
+}
+
+// metricsMaintenanceLoop performs periodic maintenance on metrics history
+func (m *metricsManager) metricsMaintenanceLoop() {
+	// Run maintenance every hour
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-ticker.C:
+			// Aggregate old metrics
+			if err := m.historyStore.AggregateHourlyMetrics(); err != nil {
+				fmt.Printf("Failed to aggregate metrics: %v\n", err)
+			}
+
+			// Clean up old metrics
+			if err := m.historyStore.CleanupOldMetrics(); err != nil {
+				fmt.Printf("Failed to clean up old metrics: %v\n", err)
+			}
+		}
+	}
+}
+
+// collectAndStoreMetrics collects current metrics and stores them in history
+func (m *metricsManager) collectAndStoreMetrics() {
+	if m.historyStore == nil {
+		return
+	}
+
+	// Collect system metrics
+	if systemSnapshot, err := m.GetMetricsSnapshot(); err == nil {
+		m.historyStore.SaveSnapshot("system", systemSnapshot)
+	}
+
+	// Collect S3 metrics
+	if s3Snapshot, err := m.GetS3MetricsSnapshot(); err == nil {
+		m.historyStore.SaveSnapshot("s3", s3Snapshot)
+	}
+
+	// Collect storage metrics
+	if m.storageMetricsProvider != nil {
+		totalBuckets, totalObjects, totalSize := m.storageMetricsProvider()
+		if storageSnapshot, err := m.GetStorageMetricsSnapshot(totalBuckets, totalObjects, totalSize); err == nil {
+			m.historyStore.SaveSnapshot("storage", storageSnapshot)
+		}
+	}
+}
+
+// GetHistoricalMetrics retrieves historical metrics for a given type and time range
+func (m *metricsManager) GetHistoricalMetrics(metricType string, start, end time.Time) ([]MetricSnapshot, error) {
+	if m.historyStore == nil {
+		return nil, fmt.Errorf("metrics history not enabled")
+	}
+
+	return m.historyStore.GetSnapshotsIntelligent(metricType, start, end)
+}
+
+// GetHistoryStats returns statistics about the metrics history
+func (m *metricsManager) GetHistoryStats() (map[string]interface{}, error) {
+	if m.historyStore == nil {
+		return nil, fmt.Errorf("metrics history not enabled")
+	}
+
+	return m.historyStore.GetStats()
+}
+
+// SetSystemMetrics sets the system metrics tracker
+func (m *metricsManager) SetSystemMetrics(tracker *SystemMetricsTracker) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.systemMetrics = tracker
+}
+
+// SetStorageMetricsProvider sets a function that provides storage metrics
+func (m *metricsManager) SetStorageMetricsProvider(provider StorageMetricsProvider) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.storageMetricsProvider = provider
 }
 
 // responseWriterWrapper wraps http.ResponseWriter to capture status code
@@ -794,36 +998,50 @@ func (w *responseWriterWrapper) WriteHeader(statusCode int) {
 type noopManager struct{}
 
 func (n *noopManager) RecordHTTPRequest(method, path, status string, duration time.Duration) {}
-func (n *noopManager) RecordHTTPRequestSize(method, path string, size int64) {}
-func (n *noopManager) RecordHTTPResponseSize(method, path string, size int64) {}
-func (n *noopManager) RecordS3Operation(operation, bucket string, success bool, duration time.Duration) {}
+func (n *noopManager) RecordHTTPRequestSize(method, path string, size int64)                 {}
+func (n *noopManager) RecordHTTPResponseSize(method, path string, size int64)                {}
+func (n *noopManager) RecordS3Operation(operation, bucket string, success bool, duration time.Duration) {
+}
 func (n *noopManager) RecordS3Error(operation, bucket, errorType string) {}
-func (n *noopManager) RecordStorageOperation(operation string, success bool, duration time.Duration) {}
+func (n *noopManager) RecordStorageOperation(operation string, success bool, duration time.Duration) {
+}
 func (n *noopManager) UpdateStorageUsage(bucket string, objects, bytes int64) {}
-func (n *noopManager) RecordObjectOperation(operation, bucket string, objectSize int64, duration time.Duration) {}
-func (n *noopManager) RecordAuthAttempt(method string, success bool) {}
-func (n *noopManager) RecordAuthFailure(method, reason string) {}
-func (n *noopManager) UpdateSystemMetrics(cpuUsage, memoryUsage float64) {}
-func (n *noopManager) RecordSystemEvent(eventType string, details map[string]string) {}
-func (n *noopManager) UpdateBucketMetrics(bucket string, objects, bytes int64) {}
-func (n *noopManager) RecordBucketOperation(operation, bucket string, success bool) {}
+func (n *noopManager) RecordObjectOperation(operation, bucket string, objectSize int64, duration time.Duration) {
+}
+func (n *noopManager) RecordAuthAttempt(method string, success bool)                    {}
+func (n *noopManager) RecordAuthFailure(method, reason string)                          {}
+func (n *noopManager) UpdateSystemMetrics(cpuUsage, memoryUsage float64)                {}
+func (n *noopManager) RecordSystemEvent(eventType string, details map[string]string)    {}
+func (n *noopManager) UpdateBucketMetrics(bucket string, objects, bytes int64)          {}
+func (n *noopManager) RecordBucketOperation(operation, bucket string, success bool)     {}
 func (n *noopManager) RecordObjectLockOperation(operation, bucket string, success bool) {}
-func (n *noopManager) UpdateRetentionMetrics(bucket string, governanceObjects, complianceObjects int64) {}
+func (n *noopManager) UpdateRetentionMetrics(bucket string, governanceObjects, complianceObjects int64) {
+}
 func (n *noopManager) RecordBackgroundTask(taskType string, duration time.Duration, success bool) {}
-func (n *noopManager) UpdateCacheMetrics(hitRate float64, size int64) {}
-func (n *noopManager) GetMetricsHandler() http.Handler { return http.NotFoundHandler() }
-func (n *noopManager) GetMetricsSnapshot() (map[string]interface{}, error) { return nil, fmt.Errorf("metrics disabled") }
-func (n *noopManager) GetS3MetricsSnapshot() (map[string]interface{}, error) { return map[string]interface{}{
-	"totalRequests": 0,
-	"totalErrors": 0,
-	"avgLatency": 0.0,
-	"requestsPerSec": 0.0,
-	"timestamp": time.Now().Unix(),
-}, nil }
+func (n *noopManager) UpdateCacheMetrics(hitRate float64, size int64)                             {}
+func (n *noopManager) GetMetricsHandler() http.Handler                                            { return http.NotFoundHandler() }
+func (n *noopManager) GetMetricsSnapshot() (map[string]interface{}, error) {
+	return nil, fmt.Errorf("metrics disabled")
+}
+func (n *noopManager) GetS3MetricsSnapshot() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"totalRequests":  0,
+		"totalErrors":    0,
+		"avgLatency":     0.0,
+		"requestsPerSec": 0.0,
+		"timestamp":      time.Now().Unix(),
+	}, nil
+}
 func (n *noopManager) IsHealthy() bool { return true }
-func (n *noopManager) Reset() error { return nil }
+func (n *noopManager) Reset() error    { return nil }
+func (n *noopManager) GetHistoricalMetrics(metricType string, start, end time.Time) ([]MetricSnapshot, error) {
+	return nil, fmt.Errorf("metrics disabled")
+}
+func (n *noopManager) GetHistoryStats() (map[string]interface{}, error) {
+	return nil, fmt.Errorf("metrics disabled")
+}
 func (n *noopManager) Middleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler { return next }
 }
 func (n *noopManager) Start(ctx context.Context) error { return nil }
-func (n *noopManager) Stop() error { return nil }
+func (n *noopManager) Stop() error                     { return nil }

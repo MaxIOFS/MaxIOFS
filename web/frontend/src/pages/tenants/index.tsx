@@ -147,7 +147,7 @@ export default function TenantsPage() {
           <p className="text-gray-500 dark:text-gray-400 mt-1">Manage organizational tenants and quotas</p>
         </div>
         {isGlobalAdmin && (
-          <Button onClick={() => setIsCreateModalOpen(true)}>
+          <Button onClick={() => setIsCreateModalOpen(true)} className="bg-brand-600 hover:bg-brand-700 text-white inline-flex items-center gap-2" variant="outline">
             <Plus className="w-4 h-4 mr-2" />
             Create Tenant
           </Button>

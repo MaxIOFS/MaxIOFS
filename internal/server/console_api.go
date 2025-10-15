@@ -203,6 +203,8 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/metrics", s.handleGetMetrics).Methods("GET", "OPTIONS")
 	router.HandleFunc("/metrics/system", s.handleGetSystemMetrics).Methods("GET", "OPTIONS")
 	router.HandleFunc("/metrics/s3", s.handleGetS3Metrics).Methods("GET", "OPTIONS")
+	router.HandleFunc("/metrics/history", s.handleGetHistoricalMetrics).Methods("GET", "OPTIONS")
+	router.HandleFunc("/metrics/history/stats", s.handleGetHistoryStats).Methods("GET", "OPTIONS")
 
 	// Security endpoints
 	router.HandleFunc("/security/status", s.handleGetSecurityStatus).Methods("GET", "OPTIONS")
@@ -1611,7 +1613,7 @@ func (s *Server) handleGetSystemMetrics(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Get system metrics
-	cpuUsage, _ := s.systemMetrics.GetCPUUsage()
+	cpuStats, _ := s.systemMetrics.GetCPUStats()
 	memStats, _ := s.systemMetrics.GetMemoryUsage()
 	diskStats, _ := s.systemMetrics.GetDiskUsage()
 
@@ -1624,7 +1626,11 @@ func (s *Server) handleGetSystemMetrics(w http.ResponseWriter, r *http.Request) 
 
 	// Return response in camelCase format expected by frontend
 	response := map[string]interface{}{
-		"cpuUsagePercent":    cpuUsage,
+		"cpuUsagePercent":    0.0,
+		"cpuCores":           0,
+		"cpuLogicalCores":    0,
+		"cpuFrequencyMhz":    0.0,
+		"cpuModelName":       "Unknown",
 		"memoryUsagePercent": 0.0,
 		"memoryUsedBytes":    uint64(0),
 		"memoryTotalBytes":   uint64(0),
@@ -1633,11 +1639,20 @@ func (s *Server) handleGetSystemMetrics(w http.ResponseWriter, r *http.Request) 
 		"diskTotalBytes":     uint64(0),
 		"networkBytesIn":     uint64(0),
 		"networkBytesOut":    uint64(0),
-		"uptime":             uptime,                  // Server uptime in seconds
+		"uptime":             uptime,                 // Server uptime in seconds
 		"goroutines":         runtime.NumGoroutine(), // Active goroutines
 		"heapAllocBytes":     m.HeapAlloc,            // Bytes allocated in heap
-		"gcRuns":             m.NumGC,                 // Number of GC runs
+		"gcRuns":             m.NumGC,                // Number of GC runs
 		"timestamp":          time.Now().Unix(),
+	}
+
+	// Populate CPU stats if available
+	if cpuStats != nil {
+		response["cpuUsagePercent"] = cpuStats.UsagePercent
+		response["cpuCores"] = cpuStats.Cores
+		response["cpuLogicalCores"] = cpuStats.LogicalCores
+		response["cpuFrequencyMhz"] = cpuStats.FrequencyMHz
+		response["cpuModelName"] = cpuStats.ModelName
 	}
 
 	// Populate memory stats if available
@@ -1679,6 +1694,110 @@ func (s *Server) handleGetS3Metrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, s3Metrics)
+}
+
+func (s *Server) handleGetHistoricalMetrics(w http.ResponseWriter, r *http.Request) {
+	// Only Global Admins can access historical metrics
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
+	if !isGlobalAdmin {
+		s.writeError(w, "Forbidden: Only Global Admins can access historical metrics", http.StatusForbidden)
+		return
+	}
+
+	// Parse query parameters
+	metricType := r.URL.Query().Get("type")
+	if metricType == "" {
+		metricType = "system" // Default to system metrics
+	}
+
+	// Parse time range
+	startStr := r.URL.Query().Get("start")
+	endStr := r.URL.Query().Get("end")
+
+	var start, end time.Time
+	var err error
+
+	if startStr != "" {
+		// Try parsing as Unix timestamp first
+		if timestamp, parseErr := strconv.ParseInt(startStr, 10, 64); parseErr == nil {
+			start = time.Unix(timestamp, 0)
+		} else {
+			// Try parsing as RFC3339
+			start, err = time.Parse(time.RFC3339, startStr)
+			if err != nil {
+				s.writeError(w, fmt.Sprintf("Invalid start time format: %v", err), http.StatusBadRequest)
+				return
+			}
+		}
+	} else {
+		// Default: last 24 hours
+		start = time.Now().Add(-24 * time.Hour)
+	}
+
+	if endStr != "" {
+		// Try parsing as Unix timestamp first
+		if timestamp, parseErr := strconv.ParseInt(endStr, 10, 64); parseErr == nil {
+			end = time.Unix(timestamp, 0)
+		} else {
+			// Try parsing as RFC3339
+			end, err = time.Parse(time.RFC3339, endStr)
+			if err != nil {
+				s.writeError(w, fmt.Sprintf("Invalid end time format: %v", err), http.StatusBadRequest)
+				return
+			}
+		}
+	} else {
+		// Default: now
+		end = time.Now()
+	}
+
+	// Get historical metrics from metrics manager
+	snapshots, err := s.metricsManager.GetHistoricalMetrics(metricType, start, end)
+	if err != nil {
+		s.writeError(w, fmt.Sprintf("Failed to get historical metrics: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Transform snapshots to frontend format
+	response := map[string]interface{}{
+		"type":      metricType,
+		"start":     start.Unix(),
+		"end":       end.Unix(),
+		"snapshots": snapshots,
+		"count":     len(snapshots),
+	}
+
+	s.writeJSON(w, response)
+}
+
+func (s *Server) handleGetHistoryStats(w http.ResponseWriter, r *http.Request) {
+	// Only Global Admins can access history stats
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
+	if !isGlobalAdmin {
+		s.writeError(w, "Forbidden: Only Global Admins can access history stats", http.StatusForbidden)
+		return
+	}
+
+	// Get history statistics from metrics manager
+	stats, err := s.metricsManager.GetHistoryStats()
+	if err != nil {
+		s.writeError(w, fmt.Sprintf("Failed to get history stats: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, stats)
 }
 
 func (s *Server) handleAPIHealth(w http.ResponseWriter, r *http.Request) {
@@ -1839,7 +1958,8 @@ func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 	// Return complete key with secret (only shown once)
 	type CreateAccessKeyResponse struct {
 		ID        string `json:"id"`
-		Secret    string `json:"secret"`
+		AccessKey string `json:"accessKey"`
+		SecretKey string `json:"secretKey"`
 		UserID    string `json:"userId"`
 		Status    string `json:"status"`
 		CreatedAt int64  `json:"createdAt"`
@@ -1847,7 +1967,8 @@ func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 
 	response := CreateAccessKeyResponse{
 		ID:        accessKey.AccessKeyID,
-		Secret:    accessKey.SecretAccessKey,
+		AccessKey: accessKey.AccessKeyID,
+		SecretKey: accessKey.SecretAccessKey,
 		UserID:    accessKey.UserID,
 		Status:    accessKey.Status,
 		CreatedAt: accessKey.CreatedAt,

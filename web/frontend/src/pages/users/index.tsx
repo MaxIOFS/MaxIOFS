@@ -257,7 +257,7 @@ export default function UsersPage() {
             Manage user accounts and their permissions
           </p>
         </div>
-        <Button onClick={() => setIsCreateModalOpen(true)} className="gap-2">
+        <Button onClick={() => setIsCreateModalOpen(true)} className="bg-brand-600 hover:bg-brand-700 text-white inline-flex items-center gap-2" variant="outline">
           <Plus className="h-4 w-4" />
           Create User
         </Button>

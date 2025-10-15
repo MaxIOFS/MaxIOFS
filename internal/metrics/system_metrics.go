@@ -31,6 +31,15 @@ func (sm *SystemMetricsTracker) GetUptime() int64 {
 	return int64(time.Since(sm.startTime).Seconds())
 }
 
+// CPUStats represents CPU usage and information
+type CPUStats struct {
+	UsagePercent float64 `json:"usage_percent"`
+	Cores        int     `json:"cores"`
+	LogicalCores int     `json:"logical_cores"`
+	FrequencyMHz float64 `json:"frequency_mhz"`
+	ModelName    string  `json:"model_name"`
+}
+
 // GetCPUUsage returns current CPU usage percentage
 func (sm *SystemMetricsTracker) GetCPUUsage() (float64, error) {
 	percentages, err := cpu.Percent(time.Second, false)
@@ -38,6 +47,37 @@ func (sm *SystemMetricsTracker) GetCPUUsage() (float64, error) {
 		return 0.0, err
 	}
 	return percentages[0], nil
+}
+
+// GetCPUStats returns detailed CPU statistics
+func (sm *SystemMetricsTracker) GetCPUStats() (*CPUStats, error) {
+	// Get CPU usage
+	percentages, err := cpu.Percent(time.Second, false)
+	usagePercent := 0.0
+	if err == nil && len(percentages) > 0 {
+		usagePercent = percentages[0]
+	}
+
+	// Get physical and logical CPU counts
+	physicalCores, _ := cpu.Counts(false)
+	logicalCores, _ := cpu.Counts(true)
+
+	// Get CPU info (model, frequency, etc.)
+	cpuInfo, err := cpu.Info()
+	modelName := "Unknown"
+	frequencyMHz := 0.0
+	if err == nil && len(cpuInfo) > 0 {
+		modelName = cpuInfo[0].ModelName
+		frequencyMHz = cpuInfo[0].Mhz
+	}
+
+	return &CPUStats{
+		UsagePercent: usagePercent,
+		Cores:        physicalCores,
+		LogicalCores: logicalCores,
+		FrequencyMHz: frequencyMHz,
+		ModelName:    modelName,
+	}, nil
 }
 
 // MemoryStats represents memory usage statistics

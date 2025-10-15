@@ -389,6 +389,10 @@ export interface BucketMetric {
 
 export interface SystemMetrics {
   cpuUsagePercent: number;
+  cpuCores?: number; // Physical CPU cores
+  cpuLogicalCores?: number; // Logical CPU cores (with hyperthreading)
+  cpuFrequencyMhz?: number; // CPU frequency in MHz
+  cpuModelName?: string; // CPU model name
   memoryUsagePercent: number;
   memoryUsedBytes: number;
   memoryTotalBytes: number;
