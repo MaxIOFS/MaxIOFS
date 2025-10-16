@@ -74,13 +74,13 @@ func isVeeamClient(userAgent string) bool {
 func generateSystemXML() ([]byte, error) {
 	sysInfo := SystemInfo{
 		ProtocolVersion: `"1.0"`,
-		ModelName:       `"MaxIOFS RELEASE.2024-10-15T00-00-00Z"`,
+		ModelName:       `"MaxIOFS"`,
 		APIEndpoints:    nil, // nil = omitempty will exclude from XML (we don't support IAM/STS)
 	}
 
 	// Initialize inline ProtocolCapabilities
 	sysInfo.ProtocolCapabilities.CapacityInfo = true
-	sysInfo.ProtocolCapabilities.UploadSessions = false
+	sysInfo.ProtocolCapabilities.UploadSessions = true
 	sysInfo.ProtocolCapabilities.IAMSTS = false
 
 	// Initialize inline SystemRecommendations (ONLY KbBlockSize)
