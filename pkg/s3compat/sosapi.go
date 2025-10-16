@@ -26,7 +26,7 @@ type APIEndpoints struct {
 }
 
 // SystemInfo represents VEEAM SOSAPI system.xml structure
-// Structure must match MinIO's implementation exactly
+// SystemInfo structure for SOSAPI system.xml
 type SystemInfo struct {
 	XMLName              xml.Name `xml:"SystemInfo" json:"-"`
 	ProtocolVersion      string   `xml:"ProtocolVersion"`
@@ -74,8 +74,8 @@ func isVeeamClient(userAgent string) bool {
 func generateSystemXML() ([]byte, error) {
 	sysInfo := SystemInfo{
 		ProtocolVersion: `"1.0"`,
-		ModelName:       `"MinIO RELEASE.2024-01-01T00-00-00Z"`, // CRITICAL: Must say "MinIO" for Veeam recognition
-		APIEndpoints:    nil,                                    // nil = omitempty will exclude from XML (we don't support IAM/STS)
+		ModelName:       `"MaxIOFS RELEASE.2024-10-15T00-00-00Z"`,
+		APIEndpoints:    nil, // nil = omitempty will exclude from XML (we don't support IAM/STS)
 	}
 
 	// Initialize inline ProtocolCapabilities
@@ -83,12 +83,12 @@ func generateSystemXML() ([]byte, error) {
 	sysInfo.ProtocolCapabilities.UploadSessions = false
 	sysInfo.ProtocolCapabilities.IAMSTS = false
 
-	// Initialize inline SystemRecommendations (EXACTLY like MinIO - ONLY KbBlockSize)
+	// Initialize inline SystemRecommendations (ONLY KbBlockSize)
 	sysInfo.SystemRecommendations.KBBlockSize = 4096
-	// MinIO does NOT set S3ConcurrentTaskLimit, S3MultiObjectDeleteLimit, StorageCurrentTaskLimit
-	// Those fields are omitempty and MinIO leaves them as 0 (omitted from XML)
+	// MaxIOFS does NOT set S3ConcurrentTaskLimit, S3MultiObjectDeleteLimit, StorageCurrentTaskLimit
+	// Those fields are omitempty and left as 0 (omitted from XML)
 
-	// Use xml.Marshal WITHOUT indentation (MinIO generates compact XML, not formatted)
+	// Use xml.Marshal WITHOUT indentation (compact XML format)
 	output, err := xml.Marshal(sysInfo)
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func generateSystemXML() ([]byte, error) {
 		"protocol_version": sysInfo.ProtocolVersion,
 		"model_name":       sysInfo.ModelName,
 		"xml_length":       len(xmlData),
-	}).Info("Generated SOSAPI system.xml - Identifying as MinIO to disable multi-bucket")
+	}).Info("Generated SOSAPI system.xml - MaxIOFS S3-compatible storage")
 
 	return xmlData, nil
 }

@@ -19,38 +19,38 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// generateRequestID generates a SHORT request ID (like MinIO does)
-// MinIO uses 16 character hex strings, not 32
+// generateRequestID generates a SHORT request ID (like MaxIOFS does)
+// MaxIOFS uses 16 character hex strings, not 32
 func generateRequestID() string {
 	b := make([]byte, 8) // 8 bytes = 16 hex chars
 	rand.Read(b)
 	return strings.ToUpper(hex.EncodeToString(b))
 }
 
-// generateAmzId2 generates a LONG hash for x-amz-id-2 (like MinIO does)
-// MinIO uses 64 character hex strings
+// generateAmzId2 generates a LONG hash for x-amz-id-2 (like MaxIOFS does)
+// MaxIOFS uses 64 character hex strings
 func generateAmzId2() string {
 	b := make([]byte, 32) // 32 bytes = 64 hex chars
 	rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
-// addMinIOHeaders adds MinIO-compatible headers to all S3 responses
-// This is critical for Veeam to recognize the server as MinIO
-func addMinIOHeaders(w http.ResponseWriter) {
-	// x-amz-request-id: SHORT request ID (16 chars like MinIO)
+// addS3CompatHeaders adds S3-compatible headers to all responses
+// This ensures compatibility with Veeam and other S3 clients
+func addS3CompatHeaders(w http.ResponseWriter) {
+	// x-amz-request-id: SHORT request ID (16 chars like MaxIOFS)
 	w.Header().Set("X-Amz-Request-Id", generateRequestID())
 
-	// x-amz-id-2: LONG host ID hash (64 chars like MinIO)
+	// x-amz-id-2: LONG host ID hash (64 chars like MaxIOFS)
 	w.Header().Set("X-Amz-Id-2", generateAmzId2())
 
-	// Server header identifying as MinIO
-	w.Header().Set("Server", "MinIO")
+	// Server header identifying as MaxIOFS
+	w.Header().Set("Server", "MaxIOFS")
 
 	// Accept ranges for partial content
 	w.Header().Set("Accept-Ranges", "bytes")
 
-	// Security headers (exactly like MinIO)
+	// Security headers (S3-compatible)
 	w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Xss-Protection", "1; mode=block")
@@ -160,13 +160,13 @@ type Error struct {
 	Message   string   `xml:"Message"`
 	Resource  string   `xml:"Resource"`
 	RequestId string   `xml:"RequestId"`
-	HostId    string   `xml:"HostId"` // MinIO includes this field
+	HostId    string   `xml:"HostId"` // MaxIOFS includes this field
 }
 
 // Service operations
 func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
-	// Add MinIO headers FIRST
-	addMinIOHeaders(w)
+	// Add S3-compatible headers FIRST
+	addS3CompatHeaders(w)
 
 	// Detect Veeam and log extensively
 	userAgent := r.Header.Get("User-Agent")
@@ -178,7 +178,7 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 			"uri":              r.RequestURI,
 			"request_headers":  r.Header,
 			"response_headers": w.Header(),
-		}).Warn("VEEAM ListBuckets - RESPONSE HEADERS - Compare with MinIO")
+		}).Warn("VEEAM ListBuckets - RESPONSE HEADERS - MaxIOFS S3-compatible")
 	}
 
 	logrus.Debug("S3 API: ListBuckets")
@@ -280,8 +280,8 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	// Add MinIO-compatible headers (CRITICAL for Veeam recognition)
-	addMinIOHeaders(w)
+	// Add S3-compatible headers (CRITICAL for Veeam recognition)
+	addS3CompatHeaders(w)
 
 	// Detect if request is from Veeam client
 	// Detect if request is from Veeam client
@@ -373,8 +373,8 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	// Add MinIO-compatible headers (CRITICAL for Veeam recognition)
-	addMinIOHeaders(w)
+	// Add S3-compatible headers (CRITICAL for Veeam recognition)
+	addS3CompatHeaders(w)
 
 	// Detect Veeam and log ALL response headers
 	userAgent := r.Header.Get("User-Agent")
@@ -385,7 +385,7 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 			"method":           r.Method,
 			"uri":              r.RequestURI,
 			"response_headers": w.Header(),
-		}).Warn("VEEAM HeadBucket - RESPONSE HEADERS - Compare with MinIO")
+		}).Warn("VEEAM HeadBucket - RESPONSE HEADERS - MaxIOFS S3-compatible")
 	}
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: HeadBucket")
@@ -475,8 +475,8 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
-	// Add MinIO-compatible headers (CRITICAL for Veeam recognition)
-	addMinIOHeaders(w)
+	// Add S3-compatible headers (CRITICAL for Veeam recognition)
+	addS3CompatHeaders(w)
 
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
@@ -793,8 +793,8 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 
 // Placeholder implementations for other S3 operations
 func (h *Handler) GetBucketLocation(w http.ResponseWriter, r *http.Request) {
-	// Add MinIO-compatible headers (CRITICAL for Veeam recognition)
-	addMinIOHeaders(w)
+	// Add S3-compatible headers (CRITICAL for Veeam recognition)
+	addS3CompatHeaders(w)
 
 	// Detect Veeam and log
 	vars := mux.Vars(r)
@@ -971,7 +971,7 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 
 	w.WriteHeader(statusCode)
 
-	// Write XML declaration (like MinIO does)
+	// Write XML declaration (S3-compatible format)
 	w.Write([]byte(xml.Header))
 
 	errorResponse := Error{

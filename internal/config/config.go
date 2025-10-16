@@ -115,7 +115,7 @@ func Load(cmd *cobra.Command) (*Config, error) {
 }
 
 func setDefaults(v *viper.Viper) {
-	// Server defaults - usando puertos diferentes a MinIO para evitar conflictos
+	// Server defaults - puertos estándar de MaxIOFS
 	v.SetDefault("listen", ":8080")         // API server
 	v.SetDefault("console_listen", ":8081") // Web console
 	v.SetDefault("data_dir", "./data")

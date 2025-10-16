@@ -33,7 +33,7 @@ type SystemRecommendations struct {
 func main() {
 	sysInfo := SystemInfo{
 		ProtocolVersion: "1.0",
-		ModelName:       "MinIO",
+		ModelName:       "MaxIOFS",
 		ProtocolCapabilities: ProtocolCapabilities{
 			CapacityInfo:   true,
 			UploadSessions: false,

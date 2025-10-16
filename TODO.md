@@ -176,7 +176,7 @@
 - [ ] AWS S3 backend (store objects in S3)
 - [ ] Google Cloud Storage backend
 - [ ] Azure Blob Storage backend
-- [ ] MinIO backend (distributed storage)
+- [ ] Distributed storage backend (multi-node)
 - [ ] Database backend (PostgreSQL BLOB storage)
 
 ## 🔮 Future Vision - v1.0+
@@ -278,7 +278,7 @@
 - Production deployments successfully running
 - Performance validated at scale
 - Security audit passed with no critical issues
-- Complete feature parity with MinIO for basic operations
+- Complete S3 API compatibility for all basic operations
 - Active community of users and contributors
 
 ## 📝 Contributing
