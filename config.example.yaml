@@ -1,0 +1,339 @@
+# MaxIOFS Configuration File Example
+# Copy this file to config.yaml and customize for your environment
+# Usage: ./maxiofs --config config.yaml
+
+# =============================================================================
+# SERVER CONFIGURATION
+# =============================================================================
+
+# API Server listen address (S3-compatible API)
+# Default: :8080
+listen: ":8080"
+
+# Web Console listen address (Web UI)
+# Default: :8081
+console_listen: ":8081"
+
+# Data directory path (REQUIRED)
+# This is where all data will be stored (buckets, objects, metadata, etc.)
+# Default: ./data
+data_dir: "./data"
+
+# Log level (debug, info, warn, error)
+# Default: info
+log_level: "info"
+
+# =============================================================================
+# PUBLIC URLs
+# =============================================================================
+# These URLs are used for:
+# - Generating presigned URLs
+# - CORS configuration
+# - Redirects in the web console
+# - External access documentation
+
+# Public API URL (S3 endpoint)
+# Users will use this URL to access the S3 API
+# Examples:
+#   - http://localhost:8080 (development)
+#   - https://s3.example.com (production with reverse proxy)
+#   - https://s3.mydomain.com:9000 (production with custom port)
+public_api_url: "http://localhost:8080"
+
+# Public Console URL (Web UI)
+# Users will use this URL to access the web interface
+# Examples:
+#   - http://localhost:8081 (development)
+#   - https://console.example.com (production with reverse proxy)
+#   - https://maxiofs.mydomain.com (production)
+public_console_url: "http://localhost:8081"
+
+# =============================================================================
+# TLS/SSL CONFIGURATION
+# =============================================================================
+# Enable TLS/SSL for secure connections (HTTPS)
+# When enabled, both cert_file and key_file must be provided
+enable_tls: false
+
+# TLS certificate file path
+# Required if enable_tls is true
+# Example: /etc/ssl/certs/maxiofs.crt
+cert_file: ""
+
+# TLS private key file path
+# Required if enable_tls is true
+# Example: /etc/ssl/private/maxiofs.key
+key_file: ""
+
+# TLS Configuration Examples:
+#
+# Self-signed certificate (development):
+#   enable_tls: true
+#   cert_file: "./selfsigned.crt"
+#   key_file: "./selfsigned.key"
+#
+# Let's Encrypt (production):
+#   enable_tls: true
+#   cert_file: "/etc/letsencrypt/live/s3.example.com/fullchain.pem"
+#   key_file: "/etc/letsencrypt/live/s3.example.com/privkey.pem"
+
+# =============================================================================
+# STORAGE CONFIGURATION
+# =============================================================================
+storage:
+  # Storage backend type
+  # Supported: filesystem (more backends coming soon: s3, gcs, azure)
+  # Default: filesystem
+  backend: "filesystem"
+
+  # Storage root directory (for filesystem backend)
+  # If empty, will be set to {data_dir}/objects
+  # Default: {data_dir}/objects
+  root: ""
+
+  # --- COMPRESSION SETTINGS ---
+  # Enable automatic object compression
+  # Reduces storage space but adds CPU overhead
+  # Default: false
+  enable_compression: false
+
+  # Compression level (1-9)
+  # 1 = fastest, less compression
+  # 9 = slowest, best compression
+  # Default: 6 (balanced)
+  compression_level: 6
+
+  # Compression type
+  # Supported: gzip, lz4, zstd
+  # - gzip: Standard, widely compatible, moderate speed
+  # - lz4: Very fast, lower compression ratio
+  # - zstd: Best compression ratio, good speed
+  # Default: gzip
+  compression_type: "gzip"
+
+  # --- ENCRYPTION SETTINGS ---
+  # Enable automatic object encryption at rest
+  # All objects will be encrypted before writing to disk
+  # Default: false
+  enable_encryption: false
+
+  # Encryption key (AES-256)
+  # IMPORTANT: Keep this key secure and backed up!
+  # If you lose this key, encrypted data cannot be recovered
+  # Should be a 32-character string for AES-256
+  # Example: "your-32-character-encryption-key"
+  encryption_key: ""
+
+  # --- OBJECT LOCKING ---
+  # Enable S3 Object Lock and Retention features
+  # Prevents objects from being deleted or modified for a specified retention period
+  # Required for compliance and WORM (Write Once Read Many) scenarios
+  # Default: true
+  enable_object_lock: true
+
+# =============================================================================
+# AUTHENTICATION CONFIGURATION
+# =============================================================================
+auth:
+  # Enable authentication (strongly recommended for production)
+  # When false, all requests are allowed without credentials
+  # Default: true
+  enable_auth: true
+
+  # JWT Secret for token signing
+  # Will be auto-generated if not provided
+  # For production, set a strong random string
+  # Example: openssl rand -base64 32
+  jwt_secret: ""
+
+  # Default admin credentials
+  # These credentials will be created automatically on first startup
+  # IMPORTANT: Change these in production!
+  access_key: "maxioadmin"
+  secret_key: "maxioadmin"
+
+  # Users configuration file (optional)
+  # External file for managing users and credentials
+  # Format: JSON or YAML with user definitions
+  users_file: ""
+
+# =============================================================================
+# METRICS CONFIGURATION
+# =============================================================================
+metrics:
+  # Enable metrics collection
+  # Collects system metrics (CPU, memory, disk, requests, etc.)
+  # Default: true
+  enable: true
+
+  # Metrics endpoint path
+  # Accessible at: http://{listen}{path}
+  # Example: http://localhost:8080/metrics
+  # Default: /metrics
+  path: "/metrics"
+
+  # Metrics collection interval (seconds)
+  # How often to collect and store metrics
+  # Default: 60 (1 minute)
+  interval: 60
+
+# =============================================================================
+# ENVIRONMENT VARIABLES
+# =============================================================================
+# You can also set configuration using environment variables with MAXIOFS_ prefix
+# Examples:
+#   export MAXIOFS_LISTEN=":9000"
+#   export MAXIOFS_DATA_DIR="/var/lib/maxiofs"
+#   export MAXIOFS_PUBLIC_API_URL="https://s3.example.com"
+#   export MAXIOFS_ENABLE_TLS=true
+#   export MAXIOFS_CERT_FILE="/etc/ssl/certs/maxiofs.crt"
+#   export MAXIOFS_KEY_FILE="/etc/ssl/private/maxiofs.key"
+#   export MAXIOFS_AUTH_ACCESS_KEY="myadmin"
+#   export MAXIOFS_AUTH_SECRET_KEY="mysecret"
+#   export MAXIOFS_STORAGE_ENABLE_COMPRESSION=true
+#   export MAXIOFS_STORAGE_ENABLE_ENCRYPTION=true
+#   export MAXIOFS_STORAGE_ENCRYPTION_KEY="your-secret-key"
+
+# =============================================================================
+# COMMAND LINE FLAGS
+# =============================================================================
+# Configuration can also be set via command line flags:
+#   --config, -c             Configuration file path
+#   --data-dir, -d          Data directory path (required)
+#   --listen, -l            API server listen address
+#   --console-listen        Web console listen address
+#   --log-level             Log level (debug, info, warn, error)
+#   --tls-cert              TLS certificate file
+#   --tls-key               TLS private key file
+#
+# Example:
+#   ./maxiofs --data-dir /var/lib/maxiofs --listen :9000 --log-level debug
+
+# =============================================================================
+# CONFIGURATION PRIORITY (highest to lowest)
+# =============================================================================
+# 1. Command line flags (--flag value)
+# 2. Environment variables (MAXIOFS_*)
+# 3. Configuration file (config.yaml)
+# 4. Default values
+
+# =============================================================================
+# PRODUCTION DEPLOYMENT EXAMPLE
+# =============================================================================
+# listen: ":9000"
+# console_listen: ":9001"
+# data_dir: "/var/lib/maxiofs"
+# log_level: "info"
+# 
+# public_api_url: "https://s3.mydomain.com"
+# public_console_url: "https://console.mydomain.com"
+# 
+# enable_tls: true
+# cert_file: "/etc/letsencrypt/live/s3.mydomain.com/fullchain.pem"
+# key_file: "/etc/letsencrypt/live/s3.mydomain.com/privkey.pem"
+# 
+# storage:
+#   backend: "filesystem"
+#   enable_compression: true
+#   compression_type: "zstd"
+#   compression_level: 6
+#   enable_encryption: true
+#   encryption_key: "change-this-to-a-secure-32-char-key"
+#   enable_object_lock: true
+# 
+# auth:
+#   enable_auth: true
+#   jwt_secret: "your-secure-random-jwt-secret"
+#   access_key: "production-admin"
+#   secret_key: "change-this-secure-secret"
+# 
+# metrics:
+#   enable: true
+#   path: "/metrics"
+#   interval: 60
+
+# =============================================================================
+# DEVELOPMENT/TESTING EXAMPLE
+# =============================================================================
+# listen: ":8080"
+# console_listen: ":8081"
+# data_dir: "./data"
+# log_level: "debug"
+# 
+# public_api_url: "http://localhost:8080"
+# public_console_url: "http://localhost:8081"
+# 
+# enable_tls: false
+# 
+# storage:
+#   backend: "filesystem"
+#   enable_compression: false
+#   enable_encryption: false
+#   enable_object_lock: true
+# 
+# auth:
+#   enable_auth: true
+#   access_key: "maxioadmin"
+#   secret_key: "maxioadmin"
+# 
+# metrics:
+#   enable: true
+#   interval: 10
+
+# =============================================================================
+# AWS CLI CONFIGURATION
+# =============================================================================
+# To use MaxIOFS with AWS CLI, configure your credentials:
+#
+# aws configure --profile maxiofs
+#   AWS Access Key ID: maxioadmin
+#   AWS Secret Access Key: maxioadmin
+#   Default region name: us-east-1
+#   Default output format: json
+#
+# Then use:
+#   aws s3 --profile maxiofs --endpoint-url http://localhost:8080 ls
+#   aws s3 --profile maxiofs --endpoint-url http://localhost:8080 mb s3://mybucket
+#   aws s3 --profile maxiofs --endpoint-url http://localhost:8080 cp file.txt s3://mybucket/
+
+# =============================================================================
+# VEEAM BACKUP COMPATIBILITY
+# =============================================================================
+# MaxIOFS is compatible with Veeam Backup & Replication
+# Configure Veeam to use MaxIOFS as S3 object storage:
+#   1. In Veeam, add a new Object Storage Repository
+#   2. Select "S3 Compatible"
+#   3. Enter your MaxIOFS endpoint URL
+#   4. Use your access_key and secret_key for authentication
+#   5. Veeam will detect MaxIOFS as S3-compatible storage
+
+# =============================================================================
+# DOCKER DEPLOYMENT
+# =============================================================================
+# Example docker-compose.yml:
+#
+# version: '3.8'
+# services:
+#   maxiofs:
+#     image: maxiofs:latest
+#     ports:
+#       - "8080:8080"  # API
+#       - "8081:8081"  # Console
+#     volumes:
+#       - ./data:/data
+#       - ./config.yaml:/config.yaml
+#     command: --config /config.yaml
+#     environment:
+#       - MAXIOFS_LOG_LEVEL=info
+#     restart: unless-stopped
+
+# =============================================================================
+# NOTES
+# =============================================================================
+# - All paths can be absolute or relative
+# - Relative paths are resolved from the current working directory
+# - The data_dir will be created automatically if it doesn't exist
+# - For production, always use TLS (enable_tls: true) with valid certificates
+# - Keep your encryption_key and jwt_secret secure and backed up
+# - Regular backups of the data_dir are recommended
+# - Monitor metrics endpoint for system health and performance
