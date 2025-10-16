@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -187,12 +188,12 @@ func validate(cfg *Config) error {
 		}
 	}
 
-	fmt.Printf("INFO: Creating storage root: %s\n", cfg.Storage.Root)
-	if err := os.MkdirAll(cfg.Storage.Root, 0755); err != nil {
-		return fmt.Errorf("failed to create storage root %s: %w", cfg.Storage.Root, err)
+	if _, err := os.Stat(cfg.Storage.Root); os.IsNotExist(err) {
+		logrus.Debugf("Creating storage root: %s", cfg.Storage.Root)
+		if err := os.MkdirAll(cfg.Storage.Root, 0755); err != nil {
+			return fmt.Errorf("failed to create storage root: %w", err)
+		}
 	}
-	fmt.Printf("INFO: Storage root created successfully: %s\n", cfg.Storage.Root)
-
 	// Validate TLS configuration
 	if cfg.EnableTLS {
 		if cfg.CertFile == "" || cfg.KeyFile == "" {

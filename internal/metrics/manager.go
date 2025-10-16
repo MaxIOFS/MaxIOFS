@@ -11,6 +11,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/sirupsen/logrus"
 )
 
 // Manager defines the interface for metrics management
@@ -203,7 +204,7 @@ func NewManagerWithDataDir(cfg config.MetricsConfig, dataDir string) Manager {
 		historyStore, err := NewHistoryStore(dataDir, 365) // 1 year retention
 		if err != nil {
 			// Log error but don't fail - metrics will work without history
-			fmt.Printf("Failed to initialize metrics history store: %v\n", err)
+			logrus.WithError(err).Warn("Failed to initialize metrics history store")
 		} else {
 			manager.historyStore = historyStore
 		}
@@ -915,12 +916,12 @@ func (m *metricsManager) metricsMaintenanceLoop() {
 		case <-ticker.C:
 			// Aggregate old metrics
 			if err := m.historyStore.AggregateHourlyMetrics(); err != nil {
-				fmt.Printf("Failed to aggregate metrics: %v\n", err)
+				logrus.WithError(err).Debug("Failed to aggregate metrics")
 			}
 
 			// Clean up old metrics
 			if err := m.historyStore.CleanupOldMetrics(); err != nil {
-				fmt.Printf("Failed to clean up old metrics: %v\n", err)
+				logrus.WithError(err).Debug("Failed to clean up old metrics")
 			}
 		}
 	}

@@ -189,18 +189,14 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 
 	// Store object in storage backend
 	if err := om.storage.Put(ctx, objectPath, data, metadata); err != nil {
-		fmt.Printf("ERROR: Failed to store object at path %s: %v\n", objectPath, err)
 		return nil, fmt.Errorf("failed to store object: %w", err)
 	}
-	fmt.Printf("INFO: Successfully stored object at path %s\n", objectPath)
 
 	// Get object metadata from storage to get size and etag
 	storageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
 	if err != nil {
-		fmt.Printf("ERROR: Failed to get metadata for path %s: %v\n", objectPath, err)
 		return nil, fmt.Errorf("failed to get object metadata: %w", err)
 	}
-	fmt.Printf("INFO: Retrieved metadata for path %s\n", objectPath)
 
 	// Create object info
 	size, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
@@ -219,21 +215,12 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 
 	// Apply default Object Lock retention if bucket has it configured
 	if err := om.applyDefaultRetention(ctx, object); err != nil {
-		fmt.Printf("WARNING: Failed to apply default retention: %v\n", err)
-	} else {
-		if object.Retention != nil {
-			fmt.Printf("INFO: Applied Object Lock retention - Mode: %s, RetainUntil: %v\n",
-				object.Retention.Mode, object.Retention.RetainUntilDate)
-		} else {
-			fmt.Printf("INFO: No default retention applied for bucket %s\n", bucket)
-		}
+		logrus.WithError(err).Debug("Failed to apply default retention")
 	}
 
 	// Save object metadata
 	if err := om.saveObjectMetadata(ctx, object); err != nil {
-		fmt.Printf("ERROR: Failed to save object metadata: %v\n", err)
-	} else {
-		fmt.Printf("INFO: Saved object metadata for %s/%s\n", bucket, object.Key)
+		logrus.WithError(err).Warn("Failed to save object metadata")
 	}
 
 	// Update bucket metrics (increment object count)

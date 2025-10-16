@@ -708,6 +708,10 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 
 		// S3 spec: DELETE on non-existent object should return success (idempotent)
 		if err == object.ErrObjectNotFound {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"object": objectKey,
+			}).Debug("DELETE on non-existent object - returning success (S3 spec)")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}

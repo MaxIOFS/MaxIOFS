@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // FilesystemBackend implements the Backend interface for local filesystem storage
@@ -44,7 +46,7 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 
 	// Special handling for directory markers (objects ending with /)
 	if strings.HasSuffix(path, "/") {
-		fmt.Printf("INFO: Creating directory marker for: %s\n", path)
+		logrus.Debugf("Creating directory marker for: %s", path)
 
 		// Convert any files in the path to directories
 		parts := strings.Split(strings.TrimSuffix(fullPath, string(filepath.Separator)), string(filepath.Separator))
@@ -64,7 +66,7 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 			info, err := os.Stat(currentPath)
 			if err == nil && !info.IsDir() {
 				// It's a file, remove it so we can create a directory
-				fmt.Printf("INFO: Converting file to directory: %s\n", currentPath)
+				logrus.Debugf("Converting file to directory: %s", currentPath)
 				os.Remove(currentPath)
 				// Also remove metadata
 				metaPath := currentPath + ".metadata"
@@ -81,11 +83,9 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 		markerPath := filepath.Join(fullPath, ".maxiofs-folder")
 		markerFile, err := os.Create(markerPath)
 		if err != nil {
-			fmt.Printf("ERROR: Failed to create folder marker file: %v\n", err)
 			return NewErrorWithCause("CreateFolderMarker", "Failed to create folder marker file", err)
 		}
 		markerFile.Close()
-		fmt.Printf("INFO: Created folder marker file: %s\n", markerPath)
 
 		// Save metadata for the directory
 		if metadata == nil {
@@ -100,12 +100,9 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(fullPath)
-	fmt.Printf("DEBUG: Attempting to create directory: %s (fullPath: %s, rootPath: %s)\n", dir, fullPath, fs.rootPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		fmt.Printf("ERROR: MkdirAll failed for %s: %v\n", dir, err)
 		return NewErrorWithCause("CreateDirectory", "Failed to create directory", err)
 	}
-	fmt.Printf("DEBUG: Directory created successfully: %s\n", dir)
 
 	// Create temporary file
 	tempFile, err := os.CreateTemp(dir, ".tmp_")
@@ -437,6 +434,10 @@ func (fs *FilesystemBackend) generateBasicMetadata(path string) (map[string]stri
 
 	stat, err := os.Stat(fullPath)
 	if err != nil {
+		// Check if it's a file not found error
+		if os.IsNotExist(err) {
+			return nil, ErrObjectNotFound
+		}
 		return nil, NewErrorWithCause("StatFile", "Failed to stat file", err)
 	}
 

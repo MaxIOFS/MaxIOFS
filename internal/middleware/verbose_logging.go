@@ -16,7 +16,7 @@ func VerboseLogging() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 
-			// Log incoming request with ALL details
+			// Log incoming request with ALL details (only in DEBUG mode)
 			logrus.WithFields(logrus.Fields{
 				"method":         r.Method,
 				"url":            r.URL.String(),
@@ -29,19 +29,21 @@ func VerboseLogging() func(http.Handler) http.Handler {
 				"referer":        r.Header.Get("Referer"),
 				"content_type":   r.Header.Get("Content-Type"),
 				"content_length": r.ContentLength,
-			}).Info("📥 INCOMING REQUEST")
+			}).Debug("📥 INCOMING REQUEST")
 
-			// Log ALL headers
-			logrus.Info("📋 REQUEST HEADERS:")
-			for name, values := range r.Header {
-				for _, value := range values {
-					logrus.Infof("  %s: %s", name, value)
+			// Log ALL headers (only in DEBUG mode)
+			if logrus.IsLevelEnabled(logrus.DebugLevel) {
+				logrus.Debug("📋 REQUEST HEADERS:")
+				for name, values := range r.Header {
+					for _, value := range values {
+						logrus.Debugf("  %s: %s", name, value)
+					}
 				}
 			}
 
-			// Read and log request body (for small requests)
+			// Read and log request body (for small requests, only in DEBUG mode)
 			var requestBody []byte
-			if r.Body != nil && r.ContentLength > 0 && r.ContentLength < 10000 {
+			if logrus.IsLevelEnabled(logrus.DebugLevel) && r.Body != nil && r.ContentLength > 0 && r.ContentLength < 10000 {
 				requestBody, _ = io.ReadAll(r.Body)
 				r.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 
@@ -50,7 +52,7 @@ func VerboseLogging() func(http.Handler) http.Handler {
 					if len(bodyStr) > 500 {
 						bodyStr = bodyStr[:500] + "..."
 					}
-					logrus.WithField("body", bodyStr).Info("📝 REQUEST BODY")
+					logrus.WithField("body", bodyStr).Debug("📝 REQUEST BODY")
 				}
 			}
 
@@ -66,32 +68,34 @@ func VerboseLogging() func(http.Handler) http.Handler {
 			// Calculate duration
 			duration := time.Since(start)
 
-			// Log response
+			// Log response (only in DEBUG mode)
 			logrus.WithFields(logrus.Fields{
 				"status":      rw.statusCode,
 				"size":        rw.size,
 				"duration_ms": duration.Milliseconds(),
-			}).Info("📤 RESPONSE")
+			}).Debug("📤 RESPONSE")
 
-			// Log response headers
-			logrus.Info("📋 RESPONSE HEADERS:")
-			for name, values := range rw.Header() {
-				for _, value := range values {
-					logrus.Infof("  %s: %s", name, value)
+			// Log response headers (only in DEBUG mode)
+			if logrus.IsLevelEnabled(logrus.DebugLevel) {
+				logrus.Debug("📋 RESPONSE HEADERS:")
+				for name, values := range rw.Header() {
+					for _, value := range values {
+						logrus.Debugf("  %s: %s", name, value)
+					}
 				}
-			}
 
-			// Log response body (if small)
-			if rw.body.Len() > 0 && rw.body.Len() < 1000 {
-				bodyStr := rw.body.String()
-				if !strings.Contains(rw.Header().Get("Content-Type"), "image") &&
-					!strings.Contains(rw.Header().Get("Content-Type"), "octet-stream") {
-					logrus.WithField("body", bodyStr).Info("📝 RESPONSE BODY")
+				// Log response body (if small)
+				if rw.body.Len() > 0 && rw.body.Len() < 1000 {
+					bodyStr := rw.body.String()
+					if !strings.Contains(rw.Header().Get("Content-Type"), "image") &&
+						!strings.Contains(rw.Header().Get("Content-Type"), "octet-stream") {
+						logrus.WithField("body", bodyStr).Debug("📝 RESPONSE BODY")
+					}
 				}
-			}
 
-			logrus.WithField("duration", duration).Info("✅ REQUEST COMPLETED")
-			logrus.Info("=" + strings.Repeat("=", 80))
+				logrus.WithField("duration", duration).Debug("✅ REQUEST COMPLETED")
+				logrus.Debug("=" + strings.Repeat("=", 80))
+			}
 		})
 	}
 }

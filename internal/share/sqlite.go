@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // SQLiteStore implements Store interface using SQLite
@@ -104,11 +106,11 @@ func (s *SQLiteStore) initialize() error {
 				share["expires_at"], share["created_at"], share["created_by"],
 			)
 			if err != nil {
-				fmt.Printf("⚠️  Warning: Failed to restore share %v: %v\n", share["id"], err)
+				logrus.WithError(err).Warnf("Failed to restore share %v", share["id"])
 			}
 		}
 
-		fmt.Printf("✅ Migrated %d shares to new structure\n", len(existingShares))
+		logrus.Infof("Migrated %d shares to new structure", len(existingShares))
 	}
 
 	// Create table if not exists (this will only run on first install)

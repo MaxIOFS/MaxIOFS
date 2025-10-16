@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"path/filepath"
 	"runtime"
@@ -889,7 +888,7 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 
 	// Copy the object content to response
 	if _, err := io.Copy(w, reader); err != nil {
-		log.Printf("Error streaming object content: %v", err)
+		logrus.WithError(err).Debug("Error streaming object content")
 	}
 }
 
@@ -1872,7 +1871,7 @@ func (s *Server) handleListAllAccessKeys(w http.ResponseWriter, r *http.Request)
 		accessKeys, err := s.authManager.ListAccessKeys(r.Context(), user.ID)
 		if err != nil {
 			// Log error but continue with other users
-			log.Printf("Error listing access keys for user %s: %v", user.ID, err)
+			logrus.WithError(err).WithField("user_id", user.ID).Debug("Error listing access keys")
 			continue
 		}
 
@@ -2168,18 +2167,11 @@ func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// DEBUG: Log current user info
-	log.Printf("[DEBUG] handleListTenants called - user_id=%s username=%s tenant_id=%s roles=%v",
-		currentUser.ID, currentUser.Username, currentUser.TenantID, currentUser.Roles)
-
 	tenants, err := s.authManager.ListTenants(r.Context())
 	if err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	// DEBUG: Log tenants found
-	log.Printf("[DEBUG] Tenants retrieved - count=%d", len(tenants))
 
 	// Enrich tenants with real-time usage statistics
 	for i := range tenants {
@@ -2225,50 +2217,26 @@ func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 	// Filter tenants based on user role
 	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
 
-	// DEBUG: Log filtering info
-	log.Printf("[DEBUG] Filtering tenants - is_global_admin=%v current_user_tenant_id=%s total_tenants=%d",
-		isGlobalAdmin, currentUser.TenantID, len(tenants))
-
 	// Initialize as empty slice instead of nil to ensure JSON returns [] not null
 	filteredTenants := make([]*auth.Tenant, 0)
 
 	if isGlobalAdmin {
 		// Global admins see all tenants
 		filteredTenants = tenants
-		log.Printf("[DEBUG] Global admin: returning all tenants - count=%d", len(filteredTenants))
 	} else if currentUser.TenantID != "" {
 		// Tenant users only see their own tenant
 		for _, t := range tenants {
-			log.Printf("[DEBUG] Checking tenant - tenant_id=%s tenant_name=%s user_tenant_id=%s match=%v",
-				t.ID, t.Name, currentUser.TenantID, t.ID == currentUser.TenantID)
 			if t.ID == currentUser.TenantID {
 				filteredTenants = []*auth.Tenant{t}
-				log.Printf("[DEBUG] Tenant user: found matching tenant - tenant_name=%s", t.Name)
 				break
 			}
 		}
-		if len(filteredTenants) == 0 {
-			tenantIds := make([]string, len(tenants))
-			for i, t := range tenants {
-				tenantIds[i] = t.ID
-			}
-			log.Printf("[DEBUG] Tenant user: no matching tenant found - user_tenant_id=%s available_tenant_ids=%v",
-				currentUser.TenantID, tenantIds)
-		}
-	} else {
-		log.Printf("[DEBUG] Regular user without tenant: no tenants shown")
 	}
 
 	// Return in APIResponse format
 	response := APIResponse{
 		Success: true,
 		Data:    filteredTenants,
-	}
-	log.Printf("[DEBUG] Sending response - success=%v filtered_count=%d", response.Success, len(filteredTenants))
-	if len(filteredTenants) > 0 {
-		log.Printf("[DEBUG] First tenant in response - id=%s name=%s displayName=%s currentBuckets=%d currentAccessKeys=%d currentStorageBytes=%d",
-			filteredTenants[0].ID, filteredTenants[0].Name, filteredTenants[0].DisplayName,
-			filteredTenants[0].CurrentBuckets, filteredTenants[0].CurrentAccessKeys, filteredTenants[0].CurrentStorageBytes)
 	}
 	s.writeJSON(w, response)
 }
