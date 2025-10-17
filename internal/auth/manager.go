@@ -90,7 +90,7 @@ type User struct {
 	Password    string            `json:"password,omitempty"` // Hashed password for console login
 	DisplayName string            `json:"display_name"`
 	Email       string            `json:"email,omitempty"`
-	Status      string            `json:"status"` // active, inactive, suspended
+	Status      string            `json:"status"`              // active, inactive, suspended
 	TenantID    string            `json:"tenant_id,omitempty"` // NEW: Tenant assignment
 	Roles       []string          `json:"roles"`
 	Policies    []string          `json:"policies"`
@@ -163,7 +163,7 @@ func NewManager(cfg config.AuthConfig, dataDir string) Manager {
 		rateLimiter: rateLimiter,
 	}
 
-	// Create default admin user if not exists (ONLY admin, no default keys)
+	// Create default admin user if not exists (without access keys)
 	_, err = store.GetUserByUsername("admin")
 	if err != nil {
 		// Admin doesn't exist, create it
@@ -183,7 +183,8 @@ func NewManager(cfg config.AuthConfig, dataDir string) Manager {
 		if err := store.CreateUser(adminUser); err != nil {
 			logrus.WithError(err).Error("Failed to create default admin user")
 		} else {
-			logrus.Info("Created default admin user (username: admin, password: admin)")
+			logrus.Info("✅ Created default admin user (username: admin, password: admin)")
+			logrus.Warn("⚠️  Please create S3 access keys through the web console - no default keys are created for security")
 		}
 	}
 
@@ -1206,9 +1207,9 @@ func (am *authManager) IsAccountLocked(ctx context.Context, userID string) (bool
 
 		newLockedUntil := now + lockDuration
 		logrus.WithFields(logrus.Fields{
-			"user_id":       userID,
-			"attempts":      failedAttempts,
-			"locked_until":  time.Unix(newLockedUntil, 0).Format(time.RFC3339),
+			"user_id":      userID,
+			"attempts":     failedAttempts,
+			"locked_until": time.Unix(newLockedUntil, 0).Format(time.RFC3339),
 		}).Warn("Account locked due to failed login attempts")
 
 		return true, newLockedUntil, nil
@@ -1226,7 +1227,7 @@ func (am *authManager) LockAccount(ctx context.Context, userID string) error {
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"user_id": userID,
+		"user_id":          userID,
 		"duration_minutes": 15,
 	}).Info("Account manually locked")
 
@@ -1263,8 +1264,8 @@ func (am *authManager) UnlockAccount(ctx context.Context, adminUserID, targetUse
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"admin_user_id":  adminUserID,
-		"target_user_id": targetUserID,
+		"admin_user_id":   adminUserID,
+		"target_user_id":  targetUserID,
 		"is_global_admin": isGlobalAdmin,
 	}).Info("Account unlocked by admin")
 

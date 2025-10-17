@@ -247,9 +247,15 @@ aws s3api put-object-legal-hold \
 
 **First priority:**
 ```
-Console: admin/admin → strong password
-S3 API: maxioadmin/maxioadmin → new keys
+Console: admin/admin → Change password immediately
+S3 API: No default keys → Create secure access keys via console
 ```
+
+**Steps:**
+1. Login to web console with admin/admin
+2. Change admin password
+3. Create S3 access keys for your applications
+4. Store keys securely (password manager/vault)
 
 ### 2. Use HTTPS
 

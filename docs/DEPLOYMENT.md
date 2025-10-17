@@ -7,10 +7,10 @@
 MaxIOFS is an S3-compatible object storage system currently in **alpha development**. This guide covers basic deployment methods suitable for testing and development environments.
 
 **Default Credentials:**
-- Web Console: `admin` / `admin`
-- S3 API: Access Key `maxioadmin` / Secret Key `maxioadmin`
+- Web Console: `admin` / `admin` - **⚠️ Change password after first login**
+- S3 API: **No default access keys** - Create them via web console for security
 
-**⚠️ Change these credentials immediately after deployment.**
+**🔒 Security Note**: Access keys must be created manually through the web console after login.
 
 ---
 
@@ -313,13 +313,14 @@ docker restart maxiofs
 
 ```bash
 # Default credentials
-# Console: admin/admin
-# S3 API: maxioadmin/maxioadmin
+# Console: admin/admin (change password after first login)
+# S3 API: Create access keys via web console
 
-# To reset (WARNING: deletes all data)
+# To reset admin password (WARNING: deletes auth database)
 sudo systemctl stop maxiofs
-sudo rm /var/lib/maxiofs/maxiofs.db
+sudo rm -f /var/lib/maxiofs/auth/auth.db
 sudo systemctl start maxiofs
+# Admin user will be recreated with default password
 ```
 
 ---

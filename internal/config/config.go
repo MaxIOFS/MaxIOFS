@@ -119,7 +119,7 @@ func setDefaults(v *viper.Viper) {
 	// Server defaults - puertos estándar de MaxIOFS
 	v.SetDefault("listen", ":8080")         // API server
 	v.SetDefault("console_listen", ":8081") // Web console
-	v.SetDefault("data_dir", "./data")
+	// NO default for data_dir - must be explicitly configured
 	v.SetDefault("log_level", "info")
 
 	// Public URL defaults (will be auto-detected from request if not set)
@@ -138,10 +138,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("storage.enable_encryption", false)
 	v.SetDefault("storage.enable_object_lock", true)
 
-	// Auth defaults - credenciales diferentes para diferenciación
+	// Auth defaults - NO default credentials for security
 	v.SetDefault("auth.enable_auth", true)
-	v.SetDefault("auth.access_key", "maxioadmin")
-	v.SetDefault("auth.secret_key", "maxioadmin")
+	// access_key and secret_key must be explicitly configured
+	// or created through the web console on first setup
 
 	// Metrics defaults
 	v.SetDefault("metrics.enable", true)
@@ -169,6 +169,11 @@ func bindFlags(cmd *cobra.Command, v *viper.Viper) error {
 }
 
 func validate(cfg *Config) error {
+	// Validate that data_dir is configured (either via flag, config file, or env var)
+	if cfg.DataDir == "" {
+		return fmt.Errorf("data_dir is required: specify via --data-dir flag, config file, or MAXIOFS_DATA_DIR environment variable")
+	}
+
 	// Ensure data directory exists
 	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)

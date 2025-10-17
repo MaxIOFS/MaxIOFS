@@ -94,11 +94,12 @@ Output: `build/maxiofs.exe` (Windows) or `build/maxiofs` (Linux/macOS)
 
 - **Web Console**: `http://localhost:8081`
   - Default user: `admin` / `admin`
+  - ⚠️ **Change password after first login!**
 - **S3 API**: `http://localhost:8080`
-  - Default Access Key: `maxioadmin`
-  - Default Secret Key: `maxioadmin`
+  - **No default access keys** - Create them via web console
+  - Login to console → Users → Create Access Key
 
-**⚠️ Change default credentials immediately!**
+**🔒 Security Note**: Access keys must be created manually through the web console. No default S3 credentials are provided for security reasons.
 
 ## 🔧 Configuration
 
@@ -185,13 +186,20 @@ MaxIOFS/
 ## 🧪 Testing with AWS CLI
 
 ```bash
-# Configure credentials
+# Step 1: Create access keys via web console
+# - Login to http://localhost:8081 (admin/admin)
+# - Go to Users section
+# - Click "Create Access Key" for your user
+# - Copy the generated Access Key ID and Secret Access Key
+
+# Step 2: Configure AWS CLI with your generated credentials
 aws configure --profile maxiofs
-AWS Access Key ID: maxioadmin
-AWS Secret Access Key: maxioadmin
+AWS Access Key ID: [your-generated-access-key]
+AWS Secret Access Key: [your-generated-secret-key]
 Default region name: us-east-1
 Default output format: json
 
+# Step 3: Use AWS CLI
 # Create bucket
 aws --profile maxiofs --endpoint-url http://localhost:8080 s3 mb s3://test-bucket
 

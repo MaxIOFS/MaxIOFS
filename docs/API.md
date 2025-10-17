@@ -17,10 +17,17 @@ MaxIOFS provides two APIs:
 
 MaxIOFS supports AWS Signature v2 and v4 authentication.
 
+**Creating Access Keys:**
+1. Login to web console at `http://localhost:8081` (admin/admin)
+2. Navigate to Users section
+3. Click "Create Access Key"
+4. Copy the generated credentials
+
 **Using AWS CLI:**
 ```bash
-aws configure set aws_access_key_id maxioadmin
-aws configure set aws_secret_access_key maxioadmin
+# Replace with your generated credentials
+aws configure set aws_access_key_id YOUR_ACCESS_KEY
+aws configure set aws_secret_access_key YOUR_SECRET_KEY
 aws --endpoint-url=http://localhost:8080 s3 ls
 ```
 
@@ -31,8 +38,8 @@ import boto3
 s3 = boto3.client(
     's3',
     endpoint_url='http://localhost:8080',
-    aws_access_key_id='maxioadmin',
-    aws_secret_access_key='maxioadmin'
+    aws_access_key_id='YOUR_ACCESS_KEY',
+    aws_secret_access_key='YOUR_SECRET_KEY'
 )
 
 # List buckets

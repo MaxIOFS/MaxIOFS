@@ -146,16 +146,12 @@ auth:
   # Example: openssl rand -base64 32
   jwt_secret: ""
 
-  # Default admin credentials
-  # These credentials will be created automatically on first startup
-  # IMPORTANT: Change these in production!
-  access_key: "maxioadmin"
-  secret_key: "maxioadmin"
-
-  # Users configuration file (optional)
-  # External file for managing users and credentials
-  # Format: JSON or YAML with user definitions
-  users_file: ""
+  # NOTE: Default admin user is created automatically on first startup
+  #       Username: admin, Password: admin
+  #       Please change the password after first login!
+  #
+  # NOTE: S3 Access Keys must be created manually via the web console
+  #       No default access keys are created for security reasons
 
 # =============================================================================
 # METRICS CONFIGURATION
@@ -244,8 +240,7 @@ metrics:
 # auth:
 #   enable_auth: true
 #   jwt_secret: "your-secure-random-jwt-secret"
-#   access_key: "production-admin"
-#   secret_key: "change-this-secure-secret"
+#   # NOTE: Access keys must be created via web console
 # 
 # metrics:
 #   enable: true
@@ -273,8 +268,7 @@ metrics:
 # 
 # auth:
 #   enable_auth: true
-#   access_key: "maxioadmin"
-#   secret_key: "maxioadmin"
+#   # NOTE: Create access keys via web console
 # 
 # metrics:
 #   enable: true
@@ -285,13 +279,19 @@ metrics:
 # =============================================================================
 # To use MaxIOFS with AWS CLI, configure your credentials:
 #
-# aws configure --profile maxiofs
-#   AWS Access Key ID: maxioadmin
-#   AWS Secret Access Key: maxioadmin
-#   Default region name: us-east-1
-#   Default output format: json
+# 1. First, create an access key via the web console (http://localhost:8081)
+#    - Login with admin/admin
+#    - Go to Users section
+#    - Create an access key for your user
 #
-# Then use:
+# 2. Configure AWS CLI with your created credentials:
+#    aws configure --profile maxiofs
+#      AWS Access Key ID: [your-generated-access-key]
+#      AWS Secret Access Key: [your-generated-secret-key]
+#      Default region name: us-east-1
+#      Default output format: json
+#
+# 3. Use AWS CLI:
 #   aws s3 --profile maxiofs --endpoint-url http://localhost:8080 ls
 #   aws s3 --profile maxiofs --endpoint-url http://localhost:8080 mb s3://mybucket
 #   aws s3 --profile maxiofs --endpoint-url http://localhost:8080 cp file.txt s3://mybucket/

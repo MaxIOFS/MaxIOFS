@@ -32,15 +32,12 @@ built in Go with an embedded Next.js web interface.`,
 
 	// Add configuration flags
 	rootCmd.PersistentFlags().StringP("config", "c", "", "Configuration file path")
-	rootCmd.PersistentFlags().StringP("data-dir", "d", "", "Data directory path (required)")
+	rootCmd.PersistentFlags().StringP("data-dir", "d", "", "Data directory path")
 	rootCmd.PersistentFlags().StringP("listen", "l", ":8080", "API server listen address")
 	rootCmd.PersistentFlags().StringP("console-listen", "", ":8081", "Web console listen address")
 	rootCmd.PersistentFlags().StringP("log-level", "", "info", "Log level (debug, info, warn, error)")
 	rootCmd.PersistentFlags().StringP("tls-cert", "", "", "TLS certificate file (enables TLS if provided with --tls-key)")
 	rootCmd.PersistentFlags().StringP("tls-key", "", "", "TLS private key file (enables TLS if provided with --tls-cert)")
-
-	// Mark data-dir as required
-	rootCmd.MarkPersistentFlagRequired("data-dir")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
