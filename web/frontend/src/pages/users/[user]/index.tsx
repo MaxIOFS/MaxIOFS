@@ -743,7 +743,10 @@ export default function UserDetailsPage() {
                 <Download className="h-4 w-4" />
                 Download CSV
               </Button>
-              <Button onClick={() => setCreatedKey(null)} variant="outline">
+              <Button 
+                onClick={() => setCreatedKey(null)}
+                variant="outline"
+              >
                 Got it
               </Button>
             </div>

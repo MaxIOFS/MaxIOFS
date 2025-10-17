@@ -27,7 +27,7 @@ import {
   Building2,
   Lock,
   Unlock,
-  Edit
+  Settings
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -206,28 +206,11 @@ export default function UsersPage() {
     });
   };
 
-  const getRoleColor = (role: string) => {
-    switch (role) {
-      case 'admin': return 'bg-red-100 text-red-800';
-      case 'write': return 'bg-blue-100 text-blue-800';
-      case 'read': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
   const getUserAccessKeysCount = (userId: string) => {
     if (!allAccessKeys) return 0;
     return allAccessKeys.filter((key: any) => key.userId === userId).length;
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return 'bg-green-100 text-green-800';
-      case 'inactive': return 'bg-gray-100 text-gray-800';
-      case 'suspended': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
 
   if (isLoading) {
     return (
@@ -493,9 +476,9 @@ export default function UsersPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => navigate(`/users/${user.id}`)}
-                          title="Edit user"
+                          title="User settings"
                         >
-                          <Edit className="h-4 w-4" />
+                          <Settings className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
