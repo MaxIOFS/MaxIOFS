@@ -487,6 +487,7 @@ export default function UserDetailsPage() {
                   <TableHead>Access Key ID</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Created</TableHead>
+                  <TableHead>Last Time Used</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -520,6 +521,14 @@ export default function UserDetailsPage() {
                       <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Calendar className="h-3 w-3" />
                         {formatDate(key.createdAt)}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                        <Calendar className="h-3 w-3" />
+                          {!key.lastUsed || isNaN(new Date(key.lastUsed).getTime())
+                          ? 'Never'
+                          : formatDate(key.lastUsed)}
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
