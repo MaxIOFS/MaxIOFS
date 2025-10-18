@@ -36,7 +36,7 @@ func NewManager(store Store) Manager {
 
 // NewManagerWithDB creates a new share manager with SQLite database
 func NewManagerWithDB(dataDir string) (Manager, error) {
-	dbPath := filepath.Join(dataDir, "maxiofs.db")
+	dbPath := filepath.Join(dataDir, "db", "maxiofs.db")
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)

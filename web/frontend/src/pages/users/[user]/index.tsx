@@ -100,7 +100,10 @@ export default function UserDetailsPage() {
   const createAccessKeyMutation = useMutation({
     mutationFn: () => APIClient.createAccessKey({ userId }),
     onSuccess: (response) => {
-      queryClient.invalidateQueries({ queryKey: ['accessKeys', userId] });
+      queryClient.invalidateQueries({ queryKey: ['accessKeys', userId] }); // Update user's keys
+      queryClient.invalidateQueries({ queryKey: ['accessKeys'] }); // Update global access keys list
+      queryClient.invalidateQueries({ queryKey: ['users'] }); // Update users list (shows key count)
+      queryClient.invalidateQueries({ queryKey: ['tenants'] }); // Update tenant access key count
       setCreatedKey(response);
       setIsCreateKeyModalOpen(false);
       setNewKeyName('');
@@ -115,7 +118,10 @@ export default function UserDetailsPage() {
   const deleteAccessKeyMutation = useMutation({
     mutationFn: (keyId: string) => APIClient.deleteAccessKey(userId, keyId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accessKeys', userId] });
+      queryClient.invalidateQueries({ queryKey: ['accessKeys', userId] }); // Update user's keys
+      queryClient.invalidateQueries({ queryKey: ['accessKeys'] }); // Update global access keys list
+      queryClient.invalidateQueries({ queryKey: ['users'] }); // Update users list (shows key count)
+      queryClient.invalidateQueries({ queryKey: ['tenants'] }); // Update tenant access key count
       SweetAlert.toast('success', 'Access key deleted successfully');
     },
     onError: (error) => {

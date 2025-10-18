@@ -96,6 +96,14 @@ func (s *SQLiteStore) GetTenant(tenantID string) (*Tenant, error) {
 		json.Unmarshal([]byte(metadataJSON), &tenant.Metadata)
 	}
 
+	// Calculate CurrentAccessKeys in real-time
+	count, err := s.CountActiveAccessKeysByTenant(tenantID)
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to count active access keys for tenant, using 0")
+		count = 0
+	}
+	tenant.CurrentAccessKeys = int64(count)
+
 	return &tenant, nil
 }
 
@@ -135,6 +143,14 @@ func (s *SQLiteStore) GetTenantByName(name string) (*Tenant, error) {
 	if metadataJSON != "" {
 		json.Unmarshal([]byte(metadataJSON), &tenant.Metadata)
 	}
+
+	// Calculate CurrentAccessKeys in real-time
+	count, err := s.CountActiveAccessKeysByTenant(tenant.ID)
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to count active access keys for tenant, using 0")
+		count = 0
+	}
+	tenant.CurrentAccessKeys = int64(count)
 
 	return &tenant, nil
 }
@@ -181,6 +197,14 @@ func (s *SQLiteStore) ListTenants() ([]*Tenant, error) {
 		if metadataJSON != "" {
 			json.Unmarshal([]byte(metadataJSON), &tenant.Metadata)
 		}
+
+		// Calculate CurrentAccessKeys in real-time
+		count, err := s.CountActiveAccessKeysByTenant(tenant.ID)
+		if err != nil {
+			logrus.WithError(err).Warn("Failed to count active access keys for tenant, using 0")
+			count = 0
+		}
+		tenant.CurrentAccessKeys = int64(count)
 
 		tenants = append(tenants, &tenant)
 	}

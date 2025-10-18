@@ -33,7 +33,7 @@ func NewHistoryStore(dataDir string, retentionDays int) (*HistoryStore, error) {
 	}
 
 	// Create metrics database
-	dbPath := filepath.Join(dataDir, "metrics_history.db")
+	dbPath := filepath.Join(dataDir, "db", "maxiofs.db")
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open metrics database: %w", err)

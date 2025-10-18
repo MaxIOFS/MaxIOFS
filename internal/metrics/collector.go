@@ -31,88 +31,88 @@ type Collector interface {
 
 // SystemMetrics holds system-level metrics
 type SystemMetrics struct {
-	CPUUsagePercent    float64 `json:"cpu_usage_percent"`
-	MemoryUsagePercent float64 `json:"memory_usage_percent"`
-	MemoryUsedBytes    int64   `json:"memory_used_bytes"`
-	MemoryTotalBytes   int64   `json:"memory_total_bytes"`
-	DiskUsagePercent   float64 `json:"disk_usage_percent"`
-	DiskUsedBytes      int64   `json:"disk_used_bytes"`
-	DiskTotalBytes     int64   `json:"disk_total_bytes"`
-	OpenFileDescriptors int64  `json:"open_file_descriptors"`
-	NetworkBytesIn     int64   `json:"network_bytes_in"`
-	NetworkBytesOut    int64   `json:"network_bytes_out"`
-	Timestamp          int64   `json:"timestamp"`
+	CPUUsagePercent     float64 `json:"cpu_usage_percent"`
+	MemoryUsagePercent  float64 `json:"memory_usage_percent"`
+	MemoryUsedBytes     int64   `json:"memory_used_bytes"`
+	MemoryTotalBytes    int64   `json:"memory_total_bytes"`
+	DiskUsagePercent    float64 `json:"disk_usage_percent"`
+	DiskUsedBytes       int64   `json:"disk_used_bytes"`
+	DiskTotalBytes      int64   `json:"disk_total_bytes"`
+	OpenFileDescriptors int64   `json:"open_file_descriptors"`
+	NetworkBytesIn      int64   `json:"network_bytes_in"`
+	NetworkBytesOut     int64   `json:"network_bytes_out"`
+	Timestamp           int64   `json:"timestamp"`
 }
 
 // RuntimeMetrics holds Go runtime metrics
 type RuntimeMetrics struct {
-	GoVersion        string  `json:"go_version"`
-	GoRoutines       int     `json:"goroutines"`
-	Threads          int     `json:"threads"`
-	GCPauses         int64   `json:"gc_pauses"`
-	HeapAlloc        int64   `json:"heap_alloc"`
-	HeapSys          int64   `json:"heap_sys"`
-	HeapInuse        int64   `json:"heap_inuse"`
-	HeapIdle         int64   `json:"heap_idle"`
-	HeapReleased     int64   `json:"heap_released"`
-	StackInuse       int64   `json:"stack_inuse"`
-	StackSys         int64   `json:"stack_sys"`
-	MSpanInuse       int64   `json:"mspan_inuse"`
-	MSpanSys         int64   `json:"mspan_sys"`
-	MCacheInuse      int64   `json:"mcache_inuse"`
-	MCacheSys        int64   `json:"mcache_sys"`
-	NextGC           int64   `json:"next_gc"`
-	LastGC           int64   `json:"last_gc"`
-	PauseTotalNs     int64   `json:"pause_total_ns"`
-	NumGC            int64   `json:"num_gc"`
-	NumForcedGC      int64   `json:"num_forced_gc"`
-	GCCPUFraction    float64 `json:"gc_cpu_fraction"`
-	Timestamp        int64   `json:"timestamp"`
+	GoVersion     string  `json:"go_version"`
+	GoRoutines    int     `json:"goroutines"`
+	Threads       int     `json:"threads"`
+	GCPauses      int64   `json:"gc_pauses"`
+	HeapAlloc     int64   `json:"heap_alloc"`
+	HeapSys       int64   `json:"heap_sys"`
+	HeapInuse     int64   `json:"heap_inuse"`
+	HeapIdle      int64   `json:"heap_idle"`
+	HeapReleased  int64   `json:"heap_released"`
+	StackInuse    int64   `json:"stack_inuse"`
+	StackSys      int64   `json:"stack_sys"`
+	MSpanInuse    int64   `json:"mspan_inuse"`
+	MSpanSys      int64   `json:"mspan_sys"`
+	MCacheInuse   int64   `json:"mcache_inuse"`
+	MCacheSys     int64   `json:"mcache_sys"`
+	NextGC        int64   `json:"next_gc"`
+	LastGC        int64   `json:"last_gc"`
+	PauseTotalNs  int64   `json:"pause_total_ns"`
+	NumGC         int64   `json:"num_gc"`
+	NumForcedGC   int64   `json:"num_forced_gc"`
+	GCCPUFraction float64 `json:"gc_cpu_fraction"`
+	Timestamp     int64   `json:"timestamp"`
 }
 
 // StorageMetrics holds storage-related metrics
 type StorageMetrics struct {
-	TotalBuckets        int64             `json:"total_buckets"`
-	TotalObjects        int64             `json:"total_objects"`
-	TotalBytes          int64             `json:"total_bytes"`
-	BucketMetrics       map[string]BucketMetric `json:"bucket_metrics"`
-	StorageOperations   map[string]int64  `json:"storage_operations"`
-	AverageObjectSize   float64           `json:"average_object_size"`
-	LargestObjectSize   int64             `json:"largest_object_size"`
-	SmallestObjectSize  int64             `json:"smallest_object_size"`
-	ObjectSizeDistribution map[string]int64 `json:"object_size_distribution"`
-	Timestamp           int64             `json:"timestamp"`
+	TotalBuckets           int64                   `json:"total_buckets"`
+	TotalObjects           int64                   `json:"total_objects"`
+	TotalBytes             int64                   `json:"total_bytes"`
+	BucketMetrics          map[string]BucketMetric `json:"bucket_metrics"`
+	StorageOperations      map[string]int64        `json:"storage_operations"`
+	AverageObjectSize      float64                 `json:"average_object_size"`
+	LargestObjectSize      int64                   `json:"largest_object_size"`
+	SmallestObjectSize     int64                   `json:"smallest_object_size"`
+	ObjectSizeDistribution map[string]int64        `json:"object_size_distribution"`
+	Timestamp              int64                   `json:"timestamp"`
 }
 
 // BucketMetric holds metrics for a specific bucket
 type BucketMetric struct {
-	Name         string `json:"name"`
-	ObjectCount  int64  `json:"object_count"`
-	TotalSize    int64  `json:"total_size"`
+	Name         string  `json:"name"`
+	ObjectCount  int64   `json:"object_count"`
+	TotalSize    int64   `json:"total_size"`
 	AverageSize  float64 `json:"average_size"`
-	LastModified int64  `json:"last_modified"`
+	LastModified int64   `json:"last_modified"`
 }
 
 // S3Metrics holds S3 API specific metrics
 type S3Metrics struct {
-	RequestsTotal       map[string]int64 `json:"requests_total"`
-	ErrorsTotal         map[string]int64 `json:"errors_total"`
+	RequestsTotal       map[string]int64   `json:"requests_total"`
+	ErrorsTotal         map[string]int64   `json:"errors_total"`
 	AverageResponseTime map[string]float64 `json:"average_response_time"`
-	ActiveConnections   int64            `json:"active_connections"`
-	AuthSuccessRate     float64          `json:"auth_success_rate"`
-	AuthFailures        map[string]int64 `json:"auth_failures"`
-	Timestamp           int64            `json:"timestamp"`
+	ActiveConnections   int64              `json:"active_connections"`
+	AuthSuccessRate     float64            `json:"auth_success_rate"`
+	AuthFailures        map[string]int64   `json:"auth_failures"`
+	Timestamp           int64              `json:"timestamp"`
 }
 
 // collector implements the Collector interface
 type collector struct {
-	running    bool
-	stopChan   chan struct{}
-	interval   time.Duration
-	lastCPU    time.Duration
-	lastTime   time.Time
-	startTime  time.Time
-	dataDir    string
+	running   bool
+	stopChan  chan struct{}
+	interval  time.Duration
+	lastCPU   time.Duration
+	lastTime  time.Time
+	startTime time.Time
+	dataDir   string
 }
 
 // NewCollector creates a new metrics collector
@@ -134,17 +134,17 @@ func (c *collector) CollectSystemMetrics() (*SystemMetrics, error) {
 	memInfo, _ := mem.VirtualMemory()
 
 	metrics := &SystemMetrics{
-		CPUUsagePercent:    c.getCPUUsage(),
-		MemoryUsagePercent: c.getMemoryUsage(&m),
-		MemoryUsedBytes:    int64(memInfo.Used),
-		MemoryTotalBytes:   c.getTotalMemory(),
-		DiskUsagePercent:   c.getDiskUsage(),
-		DiskUsedBytes:      c.getDiskUsed(),
-		DiskTotalBytes:     c.getDiskTotal(),
+		CPUUsagePercent:     c.getCPUUsage(),
+		MemoryUsagePercent:  c.getMemoryUsage(&m),
+		MemoryUsedBytes:     int64(memInfo.Used),
+		MemoryTotalBytes:    c.getTotalMemory(),
+		DiskUsagePercent:    c.getDiskUsage(),
+		DiskUsedBytes:       c.getDiskUsed(),
+		DiskTotalBytes:      c.getDiskTotal(),
 		OpenFileDescriptors: c.getOpenFileDescriptors(),
-		NetworkBytesIn:     c.getNetworkBytesIn(),
-		NetworkBytesOut:    c.getNetworkBytesOut(),
-		Timestamp:          time.Now().Unix(),
+		NetworkBytesIn:      c.getNetworkBytesIn(),
+		NetworkBytesOut:     c.getNetworkBytesOut(),
+		Timestamp:           time.Now().Unix(),
 	}
 
 	return metrics, nil
@@ -156,28 +156,28 @@ func (c *collector) CollectRuntimeMetrics() (*RuntimeMetrics, error) {
 	runtime.ReadMemStats(&m)
 
 	metrics := &RuntimeMetrics{
-		GoVersion:        runtime.Version(),
-		GoRoutines:       runtime.NumGoroutine(),
-		Threads:          runtime.GOMAXPROCS(0),
-		GCPauses:         int64(len(m.PauseNs)),
-		HeapAlloc:        int64(m.HeapAlloc),
-		HeapSys:          int64(m.HeapSys),
-		HeapInuse:        int64(m.HeapInuse),
-		HeapIdle:         int64(m.HeapIdle),
-		HeapReleased:     int64(m.HeapReleased),
-		StackInuse:       int64(m.StackInuse),
-		StackSys:         int64(m.StackSys),
-		MSpanInuse:       int64(m.MSpanInuse),
-		MSpanSys:         int64(m.MSpanSys),
-		MCacheInuse:      int64(m.MCacheInuse),
-		MCacheSys:        int64(m.MCacheSys),
-		NextGC:           int64(m.NextGC),
-		LastGC:           int64(m.LastGC),
-		PauseTotalNs:     int64(m.PauseTotalNs),
-		NumGC:            int64(m.NumGC),
-		NumForcedGC:      int64(m.NumForcedGC),
-		GCCPUFraction:    m.GCCPUFraction,
-		Timestamp:        time.Now().Unix(),
+		GoVersion:     runtime.Version(),
+		GoRoutines:    runtime.NumGoroutine(),
+		Threads:       runtime.GOMAXPROCS(0),
+		GCPauses:      int64(len(m.PauseNs)),
+		HeapAlloc:     int64(m.HeapAlloc),
+		HeapSys:       int64(m.HeapSys),
+		HeapInuse:     int64(m.HeapInuse),
+		HeapIdle:      int64(m.HeapIdle),
+		HeapReleased:  int64(m.HeapReleased),
+		StackInuse:    int64(m.StackInuse),
+		StackSys:      int64(m.StackSys),
+		MSpanInuse:    int64(m.MSpanInuse),
+		MSpanSys:      int64(m.MSpanSys),
+		MCacheInuse:   int64(m.MCacheInuse),
+		MCacheSys:     int64(m.MCacheSys),
+		NextGC:        int64(m.NextGC),
+		LastGC:        int64(m.LastGC),
+		PauseTotalNs:  int64(m.PauseTotalNs),
+		NumGC:         int64(m.NumGC),
+		NumForcedGC:   int64(m.NumForcedGC),
+		GCCPUFraction: m.GCCPUFraction,
+		Timestamp:     time.Now().Unix(),
 	}
 
 	return metrics, nil
@@ -188,16 +188,16 @@ func (c *collector) CollectStorageMetrics(ctx context.Context) (*StorageMetrics,
 	// This would integrate with the storage manager to collect metrics
 	// For MVP, return mock metrics
 	metrics := &StorageMetrics{
-		TotalBuckets:      0,
-		TotalObjects:      0,
-		TotalBytes:        0,
-		BucketMetrics:     make(map[string]BucketMetric),
-		StorageOperations: make(map[string]int64),
-		AverageObjectSize: 0,
-		LargestObjectSize: 0,
-		SmallestObjectSize: 0,
+		TotalBuckets:           0,
+		TotalObjects:           0,
+		TotalBytes:             0,
+		BucketMetrics:          make(map[string]BucketMetric),
+		StorageOperations:      make(map[string]int64),
+		AverageObjectSize:      0,
+		LargestObjectSize:      0,
+		SmallestObjectSize:     0,
 		ObjectSizeDistribution: make(map[string]int64),
-		Timestamp:         time.Now().Unix(),
+		Timestamp:              time.Now().Unix(),
 	}
 
 	// TODO: Integrate with actual storage backend
@@ -285,8 +285,8 @@ func (c *collector) collectAndReport(ctx context.Context, manager Manager) {
 	if err == nil {
 		// Report runtime metrics as custom events
 		manager.RecordSystemEvent("runtime_stats", map[string]string{
-			"goroutines": string(runtimeMetrics.GoRoutines),
-			"gc_pauses":  string(runtimeMetrics.GCPauses),
+			"goroutines": string(rune(runtimeMetrics.GoRoutines)),
+			"gc_pauses":  string(rune(runtimeMetrics.GCPauses)),
 		})
 	}
 

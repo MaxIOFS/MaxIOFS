@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "modernc.org/sqlite"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
+	_ "modernc.org/sqlite"
 )
 
 // SQLiteStore implements authentication storage using SQLite
@@ -20,14 +20,11 @@ type SQLiteStore struct {
 
 // NewSQLiteStore creates a new SQLite-based auth store
 func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
-	// Ensure auth directory exists
-	authDir := filepath.Join(dataDir, "auth")
-	if err := ensureDir(authDir); err != nil {
-		return nil, fmt.Errorf("failed to create auth directory: %w", err)
+	// Use unified DB path
+	dbPath := filepath.Join(dataDir, "db", "maxiofs.db")
+	if err := ensureDir(filepath.Dir(dbPath)); err != nil {
+		return nil, fmt.Errorf("failed to create db directory: %w", err)
 	}
-
-	dbPath := filepath.Join(authDir, "auth.db")
-
 	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -167,7 +164,7 @@ func isDuplicateColumnError(err error) bool {
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) &&
 		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-		findSubstring(s, substr)))
+			findSubstring(s, substr)))
 }
 
 func findSubstring(s, substr string) bool {
@@ -556,6 +553,17 @@ func (s *SQLiteStore) ListAllAccessKeys() ([]*AccessKey, error) {
 	}
 
 	return keys, nil
+}
+
+func (s *SQLiteStore) CountActiveAccessKeysByTenant(tenantID string) (int, error) {
+	var count int
+	err := s.db.QueryRow(`
+        SELECT COUNT(*)
+        FROM access_keys ak
+        JOIN users u ON ak.user_id = u.id
+        WHERE u.tenant_id = ? AND ak.status = 'active'
+    `, tenantID).Scan(&count)
+	return count, err
 }
 
 // IncrementFailedLoginAttempts increments failed login attempts for a user
