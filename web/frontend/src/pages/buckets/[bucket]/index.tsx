@@ -148,8 +148,9 @@ export default function BucketDetailsPage() {
       return APIClient.deleteObject(bucket, key, tenantId);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      // Use refetchQueries instead of invalidateQueries for immediate UI update
+      queryClient.refetchQueries({ queryKey: ['objects', bucketName] });
+      queryClient.refetchQueries({ queryKey: ['bucket', bucketName] });
       SweetAlert.toast('success', 'Object deleted successfully');
     },
     onError: (error: any) => {
@@ -639,8 +640,9 @@ export default function BucketDetailsPage() {
 
     // Refresh and clear selections
     if (successCount > 0) {
-      queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      // Use refetchQueries for immediate UI update
+      queryClient.refetchQueries({ queryKey: ['objects', bucketName] });
+      queryClient.refetchQueries({ queryKey: ['bucket', bucketName] });
     }
     setSelectedObjects(new Set());
   };

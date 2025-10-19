@@ -373,8 +373,6 @@ export interface StorageMetrics {
   bucketMetrics: Record<string, BucketMetric>;
   storageOperations: Record<string, number>;
   averageObjectSize: number;
-  largestObjectSize: number;
-  smallestObjectSize: number;
   objectSizeDistribution: Record<string, number>;
   timestamp: number;
 }

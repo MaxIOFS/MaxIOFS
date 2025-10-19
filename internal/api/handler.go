@@ -76,36 +76,42 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	// Service operations - root handler with browser detection
 	s3Router.HandleFunc("/", h.handleRoot).Methods("GET")
 
-	// Bucket operations
+	// Bucket operations (support both with and without trailing slash)
 	bucketRouter := s3Router.PathPrefix("/{bucket}").Subrouter()
 
-	// Bucket management
-	bucketRouter.HandleFunc("", h.s3Handler.HeadBucket).Methods("HEAD")
-	bucketRouter.HandleFunc("", h.s3Handler.CreateBucket).Methods("PUT")
-	bucketRouter.HandleFunc("", h.s3Handler.DeleteBucket).Methods("DELETE")
-	bucketRouter.HandleFunc("", h.s3Handler.ListObjects).Methods("GET")
+	// Bucket management - register both "" and "/" to handle trailing slash
+	for _, path := range []string{"", "/"} {
+		bucketRouter.HandleFunc(path, h.s3Handler.HeadBucket).Methods("HEAD")
+		bucketRouter.HandleFunc(path, h.s3Handler.CreateBucket).Methods("PUT")
+		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucket).Methods("DELETE")
+		bucketRouter.HandleFunc(path, h.s3Handler.ListObjects).Methods("GET")
 
-	// Bucket configuration endpoints
-	bucketRouter.HandleFunc("", h.s3Handler.GetBucketLocation).Methods("GET").Queries("location", "")
-	bucketRouter.HandleFunc("", h.s3Handler.GetBucketVersioning).Methods("GET").Queries("versioning", "")
-	bucketRouter.HandleFunc("", h.s3Handler.PutBucketVersioning).Methods("PUT").Queries("versioning", "")
-	bucketRouter.HandleFunc("", h.s3Handler.GetBucketPolicy).Methods("GET").Queries("policy", "")
-	bucketRouter.HandleFunc("", h.s3Handler.PutBucketPolicy).Methods("PUT").Queries("policy", "")
-	bucketRouter.HandleFunc("", h.s3Handler.DeleteBucketPolicy).Methods("DELETE").Queries("policy", "")
+		// Bucket configuration endpoints
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketLocation).Methods("GET").Queries("location", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketVersioning).Methods("GET").Queries("versioning", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketVersioning).Methods("PUT").Queries("versioning", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketPolicy).Methods("GET").Queries("policy", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketPolicy).Methods("PUT").Queries("policy", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketPolicy).Methods("DELETE").Queries("policy", "")
 
-	// Object Lock configuration
-	bucketRouter.HandleFunc("", h.s3Handler.GetObjectLockConfiguration).Methods("GET").Queries("object-lock", "")
-	bucketRouter.HandleFunc("", h.s3Handler.PutObjectLockConfiguration).Methods("PUT").Queries("object-lock", "")
+		// Object Lock configuration
+		bucketRouter.HandleFunc(path, h.s3Handler.GetObjectLockConfiguration).Methods("GET").Queries("object-lock", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutObjectLockConfiguration).Methods("PUT").Queries("object-lock", "")
 
-	// Lifecycle configuration
-	bucketRouter.HandleFunc("", h.s3Handler.GetBucketLifecycle).Methods("GET").Queries("lifecycle", "")
-	bucketRouter.HandleFunc("", h.s3Handler.PutBucketLifecycle).Methods("PUT").Queries("lifecycle", "")
-	bucketRouter.HandleFunc("", h.s3Handler.DeleteBucketLifecycle).Methods("DELETE").Queries("lifecycle", "")
+		// Lifecycle configuration
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketLifecycle).Methods("GET").Queries("lifecycle", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketLifecycle).Methods("PUT").Queries("lifecycle", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketLifecycle).Methods("DELETE").Queries("lifecycle", "")
 
-	// CORS configuration
-	bucketRouter.HandleFunc("", h.s3Handler.GetBucketCORS).Methods("GET").Queries("cors", "")
-	bucketRouter.HandleFunc("", h.s3Handler.PutBucketCORS).Methods("PUT").Queries("cors", "")
-	bucketRouter.HandleFunc("", h.s3Handler.DeleteBucketCORS).Methods("DELETE").Queries("cors", "")
+		// CORS configuration
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketCORS).Methods("GET").Queries("cors", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketCORS).Methods("PUT").Queries("cors", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketCORS).Methods("DELETE").Queries("cors", "")
+	}
+
+	// Multipart uploads
+	bucketRouter.HandleFunc("", h.s3Handler.ListMultipartUploads).Methods("GET").Queries("uploads", "")
+	bucketRouter.HandleFunc("/", h.s3Handler.ListMultipartUploads).Methods("GET").Queries("uploads", "")
 
 	// Object operations
 	objectRouter := bucketRouter.PathPrefix("/{object:.+}").Subrouter()

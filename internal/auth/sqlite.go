@@ -346,7 +346,7 @@ func (s *SQLiteStore) UpdateUserPassword(userID, passwordHash string) error {
 	return tx.Commit()
 }
 
-// DeleteUser soft deletes a user (sets status to 'deleted')
+// DeleteUser permanently deletes a user
 func (s *SQLiteStore) DeleteUser(userID string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -354,16 +354,16 @@ func (s *SQLiteStore) DeleteUser(userID string) error {
 	}
 	defer tx.Rollback()
 
-	// Soft delete user
-	_, err = tx.Exec(`UPDATE users SET status = 'deleted', updated_at = ? WHERE id = ?`, time.Now().Unix(), userID)
-	if err != nil {
-		return fmt.Errorf("failed to delete user: %w", err)
-	}
-
-	// Soft delete all associated access keys
-	_, err = tx.Exec(`UPDATE access_keys SET status = 'deleted' WHERE user_id = ?`, userID)
+	// Delete all associated access keys first (foreign key constraint)
+	_, err = tx.Exec(`DELETE FROM access_keys WHERE user_id = ?`, userID)
 	if err != nil {
 		return fmt.Errorf("failed to delete user access keys: %w", err)
+	}
+
+	// Delete user
+	_, err = tx.Exec(`DELETE FROM users WHERE id = ?`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
 	}
 
 	return tx.Commit()
@@ -469,7 +469,7 @@ func (s *SQLiteStore) UpdateAccessKeyLastUsed(accessKeyID string, timestamp int6
 	return err
 }
 
-// DeleteAccessKey soft deletes an access key (sets status to 'deleted')
+// DeleteAccessKey permanently deletes an access key
 func (s *SQLiteStore) DeleteAccessKey(accessKeyID string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -477,7 +477,7 @@ func (s *SQLiteStore) DeleteAccessKey(accessKeyID string) error {
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`UPDATE access_keys SET status = 'deleted' WHERE access_key_id = ?`, accessKeyID)
+	_, err = tx.Exec(`DELETE FROM access_keys WHERE access_key_id = ?`, accessKeyID)
 	if err != nil {
 		return fmt.Errorf("failed to delete access key: %w", err)
 	}

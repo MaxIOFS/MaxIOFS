@@ -104,6 +104,11 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 		return NewErrorWithCause("CreateDirectory", "Failed to create directory", err)
 	}
 
+	// IMPORTANT: Create .maxiofs-folder markers in all intermediate directories
+	// This ensures that folders are properly detected even when created implicitly
+	// by S3 clients that upload files directly to nested paths
+	fs.ensureFolderMarkersInPath(dir)
+
 	// Create temporary file
 	tempFile, err := os.CreateTemp(dir, ".tmp_")
 	if err != nil {

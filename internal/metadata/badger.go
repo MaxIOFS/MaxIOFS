@@ -268,7 +268,14 @@ func (s *BadgerStore) ListBuckets(ctx context.Context, tenantID string) ([]*Buck
 
 	err := s.db.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
-		opts.Prefix = bucketListPrefix(tenantID)
+
+		// If tenantID is empty (global admin), list ALL buckets
+		// Otherwise, list only buckets for specific tenant
+		if tenantID == "" {
+			opts.Prefix = []byte("bucket:")
+		} else {
+			opts.Prefix = bucketListPrefix(tenantID)
+		}
 
 		it := txn.NewIterator(opts)
 		defer it.Close()

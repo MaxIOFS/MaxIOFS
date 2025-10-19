@@ -242,6 +242,10 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		logrus.WithError(err).Warn("Failed to save object metadata to BadgerDB")
 	}
 
+	// Create implicit parent folders in BadgerDB
+	// This ensures folders are listable even when created implicitly by S3 clients
+	om.ensureImplicitFolders(ctx, bucket, key)
+
 	// Update bucket metrics (increment object count)
 	if om.bucketManager != nil {
 		// Parse bucket path to extract tenantID and bucket name
@@ -268,38 +272,33 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string) e
 
 	objectPath := om.getObjectPath(bucket, key)
 
-	// Check if object exists and get its size before deleting
-	storageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
+	// OPTIMIZATION: Get object metadata once from BadgerDB to check both Legal Hold and Retention
+	// This replaces two separate calls (GetObjectLegalHold + GetObjectRetention)
+	objMetadata, err := om.GetObjectMetadata(ctx, bucket, key)
 	if err != nil {
-		if err == storage.ErrObjectNotFound {
+		if err == ErrObjectNotFound {
 			return ErrObjectNotFound
 		}
 		return fmt.Errorf("failed to get object metadata: %w", err)
 	}
-	objectSize, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
+	objectSize := objMetadata.Size
 
-	// Check Object Lock - Legal Hold
-	legalHold, err := om.GetObjectLegalHold(ctx, bucket, key)
-	if err == nil && legalHold != nil && legalHold.Status == LegalHoldStatusOn {
+	// Check Object Lock - Legal Hold (from cached metadata)
+	if objMetadata.LegalHold != nil && objMetadata.LegalHold.Status == LegalHoldStatusOn {
 		return ErrObjectUnderLegalHold
 	}
 
-	// Check Object Lock - Retention
-	// Checking Object Lock retention
-	retention, err := om.GetObjectRetention(ctx, bucket, key)
-	if err != nil {
-		// GetObjectRetention error - object might not have retention
-	} else if retention != nil {
-		// Found retention configuration
+	// Check Object Lock - Retention (from cached metadata)
+	if objMetadata.Retention != nil {
 		// Check if retention is still active
-		if time.Now().Before(retention.RetainUntilDate) {
+		if time.Now().Before(objMetadata.Retention.RetainUntilDate) {
 			// COMPLIANCE mode cannot be bypassed
-			if retention.Mode == RetentionModeCompliance {
-				return NewComplianceRetentionError(retention.RetainUntilDate)
+			if objMetadata.Retention.Mode == RetentionModeCompliance {
+				return NewComplianceRetentionError(objMetadata.Retention.RetainUntilDate)
 			}
 			// GOVERNANCE mode requires bypass permission (handled at API layer)
-			if retention.Mode == RetentionModeGovernance {
-				return NewGovernanceRetentionError(retention.RetainUntilDate)
+			if objMetadata.Retention.Mode == RetentionModeGovernance {
+				return NewGovernanceRetentionError(objMetadata.Retention.RetainUntilDate)
 			}
 		}
 	}
@@ -345,60 +344,31 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 		maxKeys = 1000 // Default max keys
 	}
 
-	// List objects from storage - always list entire bucket, then filter by prefix
-	bucketPath := bucket + "/"
+	// When using delimiter, we need to scan more objects to find all unique folders
+	// Since folders are derived from object keys, we must iterate through enough objects
+	// to discover all common prefixes (folders)
+	scanLimit := maxKeys
+	if delimiter != "" {
+		// Scan up to 100k objects to find all folders
+		// This is necessary because folders are derived from file paths
+		scanLimit = 100000
+	}
 
-	storageObjects, err := om.storage.List(ctx, bucketPath, true)
+	// OPTIMIZATION: Use BadgerDB metadata store for fast listing
+	// This avoids expensive filesystem operations
+	metadataObjects, nextMarker, err := om.metadataStore.ListObjects(ctx, bucket, prefix, marker, scanLimit)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list objects: %w", err)
+		return nil, fmt.Errorf("failed to list objects from metadata store: %w", err)
 	}
 
 	var objects []Object
 	commonPrefixesMap := make(map[string]bool) // Use map to avoid duplicates
 
-	for _, storageObj := range storageObjects {
-		// Extract object key from path
-		if !strings.HasPrefix(storageObj.Path, bucket+"/") {
-			continue
-		}
+	for _, metaObj := range metadataObjects {
+		key := metaObj.Key
 
-		key := strings.TrimPrefix(storageObj.Path, bucket+"/")
-		if key == "" {
-			continue
-		}
-
-		// Skip bucket marker files
-		if strings.HasSuffix(key, ".maxiofs-bucket") {
-			continue
-		}
-
-		// Skip metadata files
-		if strings.Contains(key, ".maxiofs/objects/") {
-			continue
-		}
-
-		// Skip bucket configuration files and internal marker files
-		// Check both if the key starts with .maxiofs- OR if the filename (last part) starts with .maxiofs-
+		// Skip internal MaxIOFS files (shouldn't be in metadata, but double-check)
 		if strings.HasPrefix(key, ".maxiofs-") {
-			continue
-		}
-
-		// Check if the filename (last segment) starts with .maxiofs-
-		lastSlashIndex := strings.LastIndex(key, "/")
-		if lastSlashIndex >= 0 {
-			filename := key[lastSlashIndex+1:]
-			if strings.HasPrefix(filename, ".maxiofs-") {
-				continue
-			}
-		}
-
-		// Apply prefix filter
-		if prefix != "" && !strings.HasPrefix(key, prefix) {
-			continue
-		}
-
-		// Apply marker filter
-		if marker != "" && key <= marker {
 			continue
 		}
 
@@ -417,48 +387,25 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 			}
 		}
 
-		// Try to load extended metadata from BadgerDB
-		metaObj, err := om.metadataStore.GetObject(ctx, bucket, key)
-		if err == nil && metaObj != nil {
-			// Use metadata from BadgerDB
-			objects = append(objects, *fromMetadataObject(metaObj))
-		} else {
-			// Fallback: Create basic object info from storage metadata
-			object := Object{
-				Key:          key,
-				Bucket:       bucket,
-				Size:         storageObj.Size,
-				LastModified: time.Unix(storageObj.LastModified, 0),
-				ETag:         storageObj.ETag,
-				StorageClass: StorageClassStandard,
-				Metadata:     make(map[string]string),
-			}
-			objects = append(objects, object)
-		}
+		// Convert metadata object to API object
+		objects = append(objects, *fromMetadataObject(metaObj))
 	}
 
-	// Convert commonPrefixesMap to slice
+	// Convert commonPrefixesMap to slice and sort
 	var commonPrefixes []CommonPrefix
 	for prefix := range commonPrefixesMap {
 		commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: prefix})
 	}
-
-	// Sort common prefixes
 	sort.Slice(commonPrefixes, func(i, j int) bool {
 		return commonPrefixes[i].Prefix < commonPrefixes[j].Prefix
 	})
 
-	// Sort objects by key
-	sort.Slice(objects, func(i, j int) bool {
-		return objects[i].Key < objects[j].Key
-	})
+	// Objects are already sorted by BadgerDB iterator
+	// Check if truncated based on nextMarker from metadata store
+	isTruncated := nextMarker != ""
 
-	// Calculate total items (objects + prefixes) for truncation
+	// Apply maxKeys limit considering both objects and common prefixes
 	totalItems := len(objects) + len(commonPrefixes)
-	isTruncated := false
-	nextMarker := ""
-
-	// Apply maxKeys limit
 	if totalItems > maxKeys {
 		isTruncated = true
 
@@ -1158,4 +1105,78 @@ func (om *objectManager) abortMultipartUpload(ctx context.Context, uploadID stri
 	}
 
 	return nil
+}
+
+// ensureImplicitFolders creates folder objects in BadgerDB for all parent directories
+// of the given key. This is necessary because S3 clients often upload files to nested
+// paths without explicitly creating parent folders first.
+// For example, uploading "folder1/folder2/file.txt" should create:
+// - "folder1/" (folder object in BadgerDB)
+// - "folder1/folder2/" (folder object in BadgerDB)
+// - "folder1/folder2/file.txt" (actual file object)
+func (om *objectManager) ensureImplicitFolders(ctx context.Context, bucket, key string) {
+	// Skip if key ends with / (it's already a folder)
+	if strings.HasSuffix(key, "/") {
+		return
+	}
+
+	// Extract all parent directories from the key
+	parts := strings.Split(key, "/")
+	if len(parts) <= 1 {
+		return // No parent directories
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucket,
+		"key":    key,
+		"parts":  len(parts) - 1,
+	}).Debug("ensureImplicitFolders called")
+
+	// Create folder objects for each parent directory
+	currentPath := ""
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] == "" {
+			continue
+		}
+
+		if currentPath != "" {
+			currentPath += "/"
+		}
+		currentPath += parts[i]
+		folderKey := currentPath + "/"
+
+		// Check if folder object already exists in BadgerDB
+		_, err := om.metadataStore.GetObject(ctx, bucket, folderKey)
+		if err == nil {
+			// Folder already exists, skip
+			logrus.WithField("folder_key", folderKey).Debug("Folder already exists, skipping")
+			continue
+		}
+
+		// Create folder object in BadgerDB
+		now := time.Now()
+		folderObj := &metadata.ObjectMetadata{
+			Bucket:       bucket,
+			Key:          folderKey,
+			Size:         0,
+			LastModified: now,
+			ETag:         "d41d8cd98f00b204e9800998ecf8427e", // MD5 of empty string
+			ContentType:  "application/x-directory",
+			Metadata:     make(map[string]string),
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}
+
+		if err := om.metadataStore.PutObject(ctx, folderObj); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"bucket":     bucket,
+				"folder_key": folderKey,
+			}).Debug("Failed to create implicit folder object in BadgerDB")
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"bucket":     bucket,
+				"folder_key": folderKey,
+			}).Debug("Created implicit folder object in BadgerDB")
+		}
+	}
 }

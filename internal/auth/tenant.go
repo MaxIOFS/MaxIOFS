@@ -236,7 +236,7 @@ func (s *SQLiteStore) UpdateTenant(tenant *Tenant) error {
 	return tx.Commit()
 }
 
-// DeleteTenant soft deletes a tenant
+// DeleteTenant permanently deletes a tenant and all associated users and access keys
 func (s *SQLiteStore) DeleteTenant(tenantID string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -244,16 +244,41 @@ func (s *SQLiteStore) DeleteTenant(tenantID string) error {
 	}
 	defer tx.Rollback()
 
-	// Soft delete tenant
-	_, err = tx.Exec(`UPDATE tenants SET status = 'deleted', updated_at = ? WHERE id = ?`, time.Now().Unix(), tenantID)
+	// Get all users in this tenant
+	rows, err := tx.Query(`SELECT id FROM users WHERE tenant_id = ?`, tenantID)
 	if err != nil {
-		return fmt.Errorf("failed to delete tenant: %w", err)
+		return fmt.Errorf("failed to get tenant users: %w", err)
 	}
 
-	// Unassign users from tenant
-	_, err = tx.Exec(`UPDATE users SET tenant_id = NULL WHERE tenant_id = ?`, tenantID)
+	var userIDs []string
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to scan user ID: %w", err)
+		}
+		userIDs = append(userIDs, userID)
+	}
+	rows.Close()
+
+	// Delete all access keys for each user in the tenant
+	for _, userID := range userIDs {
+		_, err = tx.Exec(`DELETE FROM access_keys WHERE user_id = ?`, userID)
+		if err != nil {
+			return fmt.Errorf("failed to delete access keys for user %s: %w", userID, err)
+		}
+	}
+
+	// Delete all users in the tenant
+	_, err = tx.Exec(`DELETE FROM users WHERE tenant_id = ?`, tenantID)
 	if err != nil {
-		return fmt.Errorf("failed to unassign users: %w", err)
+		return fmt.Errorf("failed to delete tenant users: %w", err)
+	}
+
+	// Delete tenant
+	_, err = tx.Exec(`DELETE FROM tenants WHERE id = ?`, tenantID)
+	if err != nil {
+		return fmt.Errorf("failed to delete tenant: %w", err)
 	}
 
 	return tx.Commit()

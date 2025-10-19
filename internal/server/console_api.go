@@ -1539,42 +1539,24 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 	totalBuckets := int64(len(filteredBuckets))
 
 	var totalObjects, totalSize int64
-	var largestSize, smallestSize int64
-	smallestSize = -1 // Initialize to -1 to detect first object
 
 	bucketMetrics := make(map[string]interface{})
 
+	// Use cached bucket metrics from BadgerDB (O(1) per bucket instead of O(n) objects)
 	for _, b := range filteredBuckets {
-		bucketPath := tenantID + "/" + b.Name
-		if tenantID == "" {
-			bucketPath = b.Name
-		}
-		result, err := s.objectManager.ListObjects(r.Context(), bucketPath, "", "", "", 10000)
-		if err == nil {
-			bucketObjectCount := int64(len(result.Objects))
-			var bucketSize int64
+		// Use the pre-computed ObjectCount and TotalSize from bucket metadata
+		// These are maintained incrementally by UpdateBucketMetrics
+		bucketObjectCount := b.ObjectCount
+		bucketSize := b.TotalSize
 
-			for _, obj := range result.Objects {
-				totalSize += obj.Size
-				bucketSize += obj.Size
+		totalObjects += bucketObjectCount
+		totalSize += bucketSize
 
-				// Track largest and smallest object sizes
-				if obj.Size > largestSize {
-					largestSize = obj.Size
-				}
-				if smallestSize == -1 || obj.Size < smallestSize {
-					smallestSize = obj.Size
-				}
-			}
-
-			totalObjects += bucketObjectCount
-
-			// Store per-bucket metrics
-			bucketMetrics[b.Name] = map[string]interface{}{
-				"name":        b.Name,
-				"objectCount": bucketObjectCount,
-				"size":        bucketSize,
-			}
+		// Store per-bucket metrics
+		bucketMetrics[b.Name] = map[string]interface{}{
+			"name":        b.Name,
+			"objectCount": bucketObjectCount,
+			"size":        bucketSize,
 		}
 	}
 
@@ -1582,9 +1564,6 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 	var averageObjectSize int64
 	if totalObjects > 0 {
 		averageObjectSize = totalSize / totalObjects
-	}
-	if smallestSize == -1 {
-		smallestSize = 0
 	}
 
 	// Return response in camelCase format expected by frontend
@@ -1595,8 +1574,6 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 		"bucketMetrics":          bucketMetrics,
 		"storageOperations":      make(map[string]int),
 		"averageObjectSize":      averageObjectSize,
-		"largestObjectSize":      largestSize,
-		"smallestObjectSize":     smallestSize,
 		"objectSizeDistribution": make(map[string]int),
 		"timestamp":              time.Now().Unix(),
 	}
@@ -2420,6 +2397,18 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 
 	vars := mux.Vars(r)
 	tenantID := vars["tenant"]
+
+	// Validate that tenant has no buckets before allowing deletion
+	buckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
+	if err != nil {
+		s.writeError(w, fmt.Sprintf("Failed to check tenant buckets: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if len(buckets) > 0 {
+		s.writeError(w, fmt.Sprintf("Cannot delete tenant: tenant has %d bucket(s). Please delete all buckets before deleting the tenant", len(buckets)), http.StatusConflict)
+		return
+	}
 
 	if err := s.authManager.DeleteTenant(r.Context(), tenantID); err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)

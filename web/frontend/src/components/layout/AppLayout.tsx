@@ -108,6 +108,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     enabled: !!user?.tenantId,
   });
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tenantDisplayName = (tenant as any)?.display_name || tenant?.displayName || tenant?.name || user?.tenantId;
 
   const filteredNavigation = navigation.filter(item => {
@@ -147,7 +148,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       }
     } catch (error) {
       SweetAlert.close();
-      SweetAlert.error('Error signing out', 'Could not sign out properly');
+      SweetAlert.error('Error signing out', error as string);
     }
   };
 
