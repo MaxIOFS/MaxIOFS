@@ -1,5 +1,4 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import {
   Server,
   Shield,
@@ -192,7 +191,7 @@ export default function SettingsPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Version</label>
               <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white font-mono">
-                0.2.2-alpha
+                0.2.3-alpha
               </div>
             </div>
             <div>

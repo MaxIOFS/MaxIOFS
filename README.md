@@ -1,6 +1,6 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.2.2-alpha
+**Version**: 0.2.3-alpha
 **Status**: Active Development (Alpha Phase)
 **License**: MIT
 

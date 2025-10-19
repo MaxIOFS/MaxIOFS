@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 
 export default function AboutPage() {
-  const version = '0.2.2-alpha';
+  const version = '0.2.3-alpha';
   const buildDate = new Date().toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
