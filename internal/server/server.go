@@ -71,7 +71,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	authManager := auth.NewManager(cfg.Auth, cfg.DataDir)
-	metricsManager := metrics.NewManagerWithDataDir(cfg.Metrics, cfg.DataDir)
+	metricsManager := metrics.NewManagerWithStore(cfg.Metrics, cfg.DataDir, metadataStore)
 
 	// Initialize system metrics
 	systemMetrics := metrics.NewSystemMetrics(cfg.DataDir)

@@ -134,7 +134,7 @@ type metricsManager struct {
 	requestsStartTime time.Time
 
 	// Historical metrics storage
-	historyStore *HistoryStore
+	historyStore HistoryStoreInterface
 	dataDir      string
 
 	// System metrics tracker
@@ -166,7 +166,13 @@ func NewManager(cfg config.MetricsConfig) Manager {
 }
 
 // NewManagerWithDataDir creates a new metrics manager with a custom data directory
+// Deprecated: Use NewManagerWithStore instead
 func NewManagerWithDataDir(cfg config.MetricsConfig, dataDir string) Manager {
+	return NewManagerWithStore(cfg, dataDir, nil)
+}
+
+// NewManagerWithStore creates a new metrics manager with BadgerDB backing
+func NewManagerWithStore(cfg config.MetricsConfig, dataDir string, metadataStore interface{}) Manager {
 	// Convert config.MetricsConfig to our internal MetricsConfig
 	metricsConfig := MetricsConfig{
 		Enabled:   cfg.Enable,
@@ -187,7 +193,7 @@ func NewManagerWithDataDir(cfg config.MetricsConfig, dataDir string) Manager {
 		metricsConfig.Path = "/metrics"
 	}
 	if metricsConfig.Interval == 0 {
-		metricsConfig.Interval = 60 * time.Second // Default: collect every minute
+		metricsConfig.Interval = 10 * time.Second // Default: collect every 10 seconds (was 60s)
 	}
 
 	registry := prometheus.NewRegistry()
@@ -199,14 +205,30 @@ func NewManagerWithDataDir(cfg config.MetricsConfig, dataDir string) Manager {
 		dataDir:           dataDir,
 	}
 
-	// Initialize history store if dataDir is provided
-	if dataDir != "" {
-		historyStore, err := NewHistoryStore(dataDir, 365) // 1 year retention
+	// Initialize BadgerDB history store if metadata store is provided
+	logrus.WithFields(logrus.Fields{
+		"metadataStore_nil": metadataStore == nil,
+		"metadataStore_type": fmt.Sprintf("%T", metadataStore),
+		"dataDir": dataDir,
+	}).Info("Initializing metrics history store")
+
+	if metadataStore != nil {
+		// Use BadgerDB history store - cast to metadata.Store
+		badgerHistory, err := NewBadgerHistoryStore(metadataStore, 365)
 		if err != nil {
-			// Log error but don't fail - metrics will work without history
-			logrus.WithError(err).Warn("Failed to initialize metrics history store")
+			logrus.WithError(err).Warn("Failed to initialize BadgerDB metrics history store")
+		} else {
+			manager.historyStore = badgerHistory
+			logrus.Info("Metrics history store using BadgerDB")
+		}
+	} else if dataDir != "" {
+		// Fallback to SQLite for backward compatibility
+		historyStore, err := NewHistoryStore(dataDir, 365)
+		if err != nil {
+			logrus.WithError(err).Warn("Failed to initialize SQLite metrics history store")
 		} else {
 			manager.historyStore = historyStore
+			logrus.Warn("Metrics history store using SQLite (deprecated, switch to BadgerDB)")
 		}
 	}
 
@@ -859,8 +881,11 @@ func (m *metricsManager) Start(ctx context.Context) error {
 
 	// Start metrics collection goroutine if history store is available
 	if m.historyStore != nil {
+		logrus.WithField("interval", m.config.Interval).Info("Starting metrics collection loops")
 		go m.metricsCollectionLoop()
 		go m.metricsMaintenanceLoop()
+	} else {
+		logrus.Warn("Metrics history store is nil, collection will not start")
 	}
 
 	return nil
@@ -930,17 +955,24 @@ func (m *metricsManager) metricsMaintenanceLoop() {
 // collectAndStoreMetrics collects current metrics and stores them in history
 func (m *metricsManager) collectAndStoreMetrics() {
 	if m.historyStore == nil {
+		logrus.Debug("historyStore is nil, skipping metrics collection")
 		return
 	}
 
 	// Collect system metrics
 	if systemSnapshot, err := m.GetMetricsSnapshot(); err == nil {
-		m.historyStore.SaveSnapshot("system", systemSnapshot)
+		if err := m.historyStore.SaveSnapshot("system", systemSnapshot); err != nil {
+			logrus.WithError(err).Debug("Failed to save system snapshot")
+		} else {
+			logrus.Debug("System snapshot saved successfully")
+		}
 	}
 
 	// Collect S3 metrics
 	if s3Snapshot, err := m.GetS3MetricsSnapshot(); err == nil {
-		m.historyStore.SaveSnapshot("s3", s3Snapshot)
+		if err := m.historyStore.SaveSnapshot("s3", s3Snapshot); err != nil {
+			logrus.WithError(err).Debug("Failed to save S3 snapshot")
+		}
 	}
 
 	// Collect storage metrics

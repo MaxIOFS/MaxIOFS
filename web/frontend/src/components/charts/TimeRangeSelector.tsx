@@ -12,6 +12,7 @@ interface TimeRangeSelectorProps {
 }
 
 export const TIME_RANGES: TimeRange[] = [
+  { label: 'Real-time', hours: 5 / 60 }, // 5 minutes for true real-time (10s intervals)
   { label: '1H', hours: 1 },
   { label: '6H', hours: 6 },
   { label: '24H', hours: 24 },

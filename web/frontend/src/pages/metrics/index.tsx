@@ -19,7 +19,7 @@ import { MetricLineChart, MetricPieChart, TimeRangeSelector, TIME_RANGES, type T
 
 export default function MetricsPage() {
   const [activeTab, setActiveTab] = React.useState<'system' | 'storage' | 'requests' | 'performance'>('system');
-  const [timeRange, setTimeRange] = React.useState<TimeRange>(TIME_RANGES[2]); // Default: 24H
+  const [timeRange, setTimeRange] = React.useState<TimeRange>(TIME_RANGES[0]); // Default: Real-time (5 min)
 
   // Fetch current storage metrics
   const { data: storageMetricsData, isLoading: storageLoading } = useQuery<StorageMetrics>({
@@ -58,13 +58,16 @@ export default function MetricsPage() {
 
       console.log(`Fetching metrics: type=${metricTypeMap[activeTab]}, start=${new Date(start * 1000).toISOString()}, end=${new Date(end * 1000).toISOString()}, range=${timeRange.label}`);
 
-      return APIClient.getHistoricalMetrics({
+      const result = await APIClient.getHistoricalMetrics({
         type: metricTypeMap[activeTab],
         start,
         end,
       });
+
+      // Store time range for gap filling
+      return { ...result, requestedRange: { start, end } };
     },
-    refetchInterval: 60000,
+    refetchInterval: 10000, // Update every 10 seconds to match backend collection
     staleTime: 0, // Always consider data stale, so it refetches on time range change
   });
 
@@ -294,6 +297,7 @@ export default function MetricsPage() {
                     height={350}
                     formatYAxis={(value) => `${value.toFixed(0)}%`}
                     formatTooltip={(value) => `${value.toFixed(2)}%`}
+                    timeRange={historyData?.requestedRange}
                   />
                   <MetricLineChart
                     data={chartData}
@@ -304,6 +308,7 @@ export default function MetricsPage() {
                     height={350}
                     formatYAxis={(value) => `${value.toFixed(0)}%`}
                     formatTooltip={(value) => `${value.toFixed(2)}%`}
+                    timeRange={historyData?.requestedRange}
                   />
                 </div>
               ) : (
@@ -367,6 +372,7 @@ export default function MetricsPage() {
                     height={350}
                     formatYAxis={(value) => formatNumber(value)}
                     formatTooltip={(value) => formatNumber(value)}
+                    timeRange={historyData?.requestedRange}
                   />
                   <MetricLineChart
                     data={chartData}
@@ -377,6 +383,7 @@ export default function MetricsPage() {
                     height={350}
                     formatYAxis={(value) => `${value.toFixed(0)} MB`}
                     formatTooltip={(value) => formatBytes(value * 1024 * 1024)}
+                    timeRange={historyData?.requestedRange}
                   />
                 </div>
               ) : (
@@ -440,6 +447,7 @@ export default function MetricsPage() {
                     height={350}
                     formatYAxis={(value) => `${value.toFixed(1)}/s`}
                     formatTooltip={(value) => `${value.toFixed(2)}/s`}
+                    timeRange={historyData?.requestedRange}
                   />
                   <MetricLineChart
                     data={chartData}
@@ -450,6 +458,7 @@ export default function MetricsPage() {
                     height={350}
                     formatYAxis={(value) => `${value.toFixed(0)}ms`}
                     formatTooltip={(value) => `${value.toFixed(2)}ms`}
+                    timeRange={historyData?.requestedRange}
                   />
                 </div>
               ) : (
@@ -517,6 +526,7 @@ export default function MetricsPage() {
                     height={350}
                     formatYAxis={(value) => formatNumber(value)}
                     formatTooltip={(value) => formatNumber(value)}
+                    timeRange={historyData?.requestedRange}
                   />
                   <MetricLineChart
                     data={chartData}
@@ -527,6 +537,7 @@ export default function MetricsPage() {
                     height={350}
                     formatYAxis={(value) => `${value.toFixed(0)} MB`}
                     formatTooltip={(value) => `${value.toFixed(2)} MB`}
+                    timeRange={historyData?.requestedRange}
                   />
                 </div>
               ) : (

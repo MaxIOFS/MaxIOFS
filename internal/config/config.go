@@ -146,7 +146,7 @@ func setDefaults(v *viper.Viper) {
 	// Metrics defaults
 	v.SetDefault("metrics.enable", true)
 	v.SetDefault("metrics.path", "/metrics")
-	v.SetDefault("metrics.interval", 60)
+	v.SetDefault("metrics.interval", 10) // Collect metrics every 10 seconds for real-time monitoring
 }
 
 func bindFlags(cmd *cobra.Command, v *viper.Viper) error {

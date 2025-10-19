@@ -38,8 +38,8 @@ import SweetAlert from '@/lib/sweetalert';
 const API_CONFIG = {
   baseURL: '/api/v1', // Relative URL - works with both HTTP and HTTPS
   s3URL: typeof window !== 'undefined'
-    ? `${window.location.protocol}//${window.location.hostname}:8080` // S3 API on port 8080
-    : 'http://localhost:8080', // Fallback for SSR/SSG
+    ? `${window.location.protocol}//${window.location.hostname}:8080` // S3 API on port 8080 (auto-detects HTTP/HTTPS from browser)
+    : 'https://localhost:8080', // Fallback to HTTPS for SSR/SSG (TLS is typically enabled in production)
   timeout: 30000,
   withCredentials: false, // Changed to false for development CORS
 };

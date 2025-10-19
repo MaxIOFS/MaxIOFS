@@ -69,6 +69,12 @@ func NewBadgerStore(opts BadgerOptions) (*BadgerStore, error) {
 	return store, nil
 }
 
+// DB returns the underlying BadgerDB instance
+// This is useful for advanced operations like metrics storage
+func (s *BadgerStore) DB() *badger.DB {
+	return s.db
+}
+
 // ==================== Key Naming Scheme ====================
 // This defines how we structure keys in BadgerDB for efficient lookups
 

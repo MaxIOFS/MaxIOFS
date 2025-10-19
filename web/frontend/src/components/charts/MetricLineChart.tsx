@@ -19,6 +19,7 @@ interface MetricLineChartProps {
   height?: number;
   formatYAxis?: (value: any) => string;
   formatTooltip?: (value: any) => string;
+  timeRange?: { start: number; end: number }; // Unix timestamps in seconds
 }
 
 export const MetricLineChart: React.FC<MetricLineChartProps> = ({
@@ -29,7 +30,38 @@ export const MetricLineChart: React.FC<MetricLineChartProps> = ({
   height = 300,
   formatYAxis,
   formatTooltip,
+  timeRange,
 }) => {
+  // Add boundary markers to ensure full time range is displayed
+  const dataWithBoundaries = React.useMemo(() => {
+    if (!timeRange) return data;
+
+    const { start, end } = timeRange;
+
+    // Create boundary markers with null values (invisible but fix axis domain)
+    const startMarker: any = { [xAxisKey]: start };
+    const endMarker: any = { [xAxisKey]: end };
+
+    dataKeys.forEach(dk => {
+      startMarker[dk.key] = null;
+      endMarker[dk.key] = null;
+    });
+
+    // Add boundaries only if data doesn't already cover them
+    const result = [...data];
+    const firstTimestamp = data.length > 0 ? data[0][xAxisKey] : Number.MAX_VALUE;
+    const lastTimestamp = data.length > 0 ? data[data.length - 1][xAxisKey] : 0;
+
+    if (start < firstTimestamp) {
+      result.unshift(startMarker);
+    }
+    if (end > lastTimestamp) {
+      result.push(endMarker);
+    }
+
+    return result;
+  }, [data, timeRange, xAxisKey, dataKeys]);
+
   // Format timestamp for display
   const formatXAxis = (timestamp: number) => {
     const date = new Date(timestamp * 1000);
@@ -60,17 +92,28 @@ export const MetricLineChart: React.FC<MetricLineChartProps> = ({
     return null;
   };
 
+  // Determine X axis domain (fixed to requested time range)
+  const xAxisDomain = React.useMemo(() => {
+    if (timeRange) {
+      return [timeRange.start, timeRange.end];
+    }
+    return ['auto', 'auto'];
+  }, [timeRange]);
+
   return (
     <Card>
       <div className="p-6">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{title}</h3>
         <ResponsiveContainer width="100%" height={height}>
-          <LineChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+          <LineChart data={dataWithBoundaries} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
             <XAxis
               dataKey={xAxisKey}
               tickFormatter={formatXAxis}
               className="text-xs text-gray-600 dark:text-gray-400"
+              domain={xAxisDomain}
+              type="number"
+              scale="time"
             />
             <YAxis
               tickFormatter={formatYAxis}
@@ -83,13 +126,14 @@ export const MetricLineChart: React.FC<MetricLineChartProps> = ({
             {dataKeys.map((dk) => (
               <Line
                 key={dk.key}
-                type="monotone"
+                type="linear"
                 dataKey={dk.key}
                 name={dk.name}
                 stroke={dk.color}
                 strokeWidth={2}
                 dot={false}
                 activeDot={{ r: 4 }}
+                connectNulls={false}
               />
             ))}
           </LineChart>

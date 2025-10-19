@@ -19,7 +19,20 @@ type MetricSnapshot struct {
 	Data      map[string]interface{} `json:"data"`
 }
 
-// HistoryStore manages historical metrics storage
+// HistoryStoreInterface defines the interface for metrics history storage
+// This allows for different implementations (SQLite, BadgerDB, etc.)
+type HistoryStoreInterface interface {
+	SaveSnapshot(metricType string, data map[string]interface{}) error
+	GetSnapshots(metricType string, start, end time.Time) ([]MetricSnapshot, error)
+	GetLatestSnapshot(metricType string) (*MetricSnapshot, error)
+	GetSnapshotsIntelligent(metricType string, start, end time.Time) ([]MetricSnapshot, error)
+	AggregateHourlyMetrics() error
+	CleanupOldMetrics() error
+	GetStats() (map[string]interface{}, error)
+	Close() error
+}
+
+// HistoryStore manages historical metrics storage (SQLite implementation)
 type HistoryStore struct {
 	db            *sql.DB
 	dataDir       string
