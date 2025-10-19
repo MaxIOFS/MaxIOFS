@@ -328,45 +328,73 @@ func (s *BadgerStore) BucketExists(ctx context.Context, tenantID, name string) (
 func (s *BadgerStore) UpdateBucketMetrics(ctx context.Context, tenantID, bucketName string, objectCountDelta, sizeDelta int64) error {
 	key := bucketKey(tenantID, bucketName)
 
-	return s.db.Update(func(txn *badger.Txn) error {
-		// Get current bucket metadata
-		item, err := txn.Get(key)
-		if err == badger.ErrKeyNotFound {
-			return ErrBucketNotFound
-		}
-		if err != nil {
-			return fmt.Errorf("failed to get bucket: %w", err)
-		}
+	// Retry logic for transaction conflicts (up to 5 attempts with exponential backoff)
+	maxRetries := 5
+	var lastErr error
 
-		var bucket BucketMetadata
-		err = item.Value(func(val []byte) error {
-			return json.Unmarshal(val, &bucket)
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		err := s.db.Update(func(txn *badger.Txn) error {
+			// Get current bucket metadata
+			item, err := txn.Get(key)
+			if err == badger.ErrKeyNotFound {
+				return ErrBucketNotFound
+			}
+			if err != nil {
+				return fmt.Errorf("failed to get bucket: %w", err)
+			}
+
+			var bucket BucketMetadata
+			err = item.Value(func(val []byte) error {
+				return json.Unmarshal(val, &bucket)
+			})
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal bucket: %w", err)
+			}
+
+			// Update metrics
+			bucket.ObjectCount += objectCountDelta
+			bucket.TotalSize += sizeDelta
+			bucket.UpdatedAt = time.Now()
+
+			// Ensure metrics don't go negative
+			if bucket.ObjectCount < 0 {
+				bucket.ObjectCount = 0
+			}
+			if bucket.TotalSize < 0 {
+				bucket.TotalSize = 0
+			}
+
+			// Marshal and store
+			data, err := json.Marshal(&bucket)
+			if err != nil {
+				return fmt.Errorf("failed to marshal bucket: %w", err)
+			}
+
+			return txn.Set(key, data)
 		})
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal bucket: %w", err)
+
+		if err == nil {
+			return nil // Success
 		}
 
-		// Update metrics
-		bucket.ObjectCount += objectCountDelta
-		bucket.TotalSize += sizeDelta
-		bucket.UpdatedAt = time.Now()
+		lastErr = err
 
-		// Ensure metrics don't go negative
-		if bucket.ObjectCount < 0 {
-			bucket.ObjectCount = 0
+		// Check if it's a transaction conflict that we should retry
+		if err == badger.ErrConflict {
+			if attempt < maxRetries-1 {
+				// Exponential backoff: 1ms, 2ms, 4ms, 8ms
+				backoff := (1 << attempt) * 1000000 // nanoseconds
+				time.Sleep(time.Duration(backoff))
+				continue
+			}
+		} else {
+			// For non-conflict errors, return immediately
+			return err
 		}
-		if bucket.TotalSize < 0 {
-			bucket.TotalSize = 0
-		}
+	}
 
-		// Marshal and store
-		data, err := json.Marshal(&bucket)
-		if err != nil {
-			return fmt.Errorf("failed to marshal bucket: %w", err)
-		}
-
-		return txn.Set(key, data)
-	})
+	// If we exhausted all retries, return the last error
+	return fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
 }
 
 // GetBucketStats retrieves bucket statistics

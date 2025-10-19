@@ -272,16 +272,25 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string) e
 
 	objectPath := om.getObjectPath(bucket, key)
 
-	// OPTIMIZATION: Get object metadata once from BadgerDB to check both Legal Hold and Retention
-	// This replaces two separate calls (GetObjectLegalHold + GetObjectRetention)
-	objMetadata, err := om.GetObjectMetadata(ctx, bucket, key)
+	// CRITICAL: Get metadata directly from BadgerDB, NOT from GetObjectMetadata
+	// GetObjectMetadata checks filesystem first, which fails if file was deleted but metadata exists
+	metaObj, err := om.metadataStore.GetObject(ctx, bucket, key)
+	var objectSize int64
+
 	if err != nil {
-		if err == ErrObjectNotFound {
+		if err == metadata.ErrObjectNotFound {
+			// Metadata doesn't exist in BadgerDB - try to cleanup physical file if it exists
+			if err := om.storage.Delete(ctx, objectPath); err != nil && err != storage.ErrObjectNotFound {
+				logrus.WithError(err).Debug("Failed to delete orphaned physical file")
+			}
 			return ErrObjectNotFound
 		}
-		return fmt.Errorf("failed to get object metadata: %w", err)
+		return fmt.Errorf("failed to get object metadata from BadgerDB: %w", err)
 	}
-	objectSize := objMetadata.Size
+
+	// Convert metadata object
+	objMetadata := fromMetadataObject(metaObj)
+	objectSize = objMetadata.Size
 
 	// Check Object Lock - Legal Hold (from cached metadata)
 	if objMetadata.LegalHold != nil && objMetadata.LegalHold.Status == LegalHoldStatusOn {
@@ -303,36 +312,41 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string) e
 		}
 	}
 
-	// Delete object from storage
-	if err := om.storage.Delete(ctx, objectPath); err != nil {
-		if err == storage.ErrObjectNotFound {
-			return ErrObjectNotFound
+	// CRITICAL: Delete from BadgerDB FIRST before touching filesystem
+	// This ensures metadata consistency - better to have orphaned files than orphaned metadata
+
+	// Step 1: Delete object metadata from BadgerDB
+	if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil {
+		if err == metadata.ErrObjectNotFound {
+			// Continue to filesystem delete anyway
+		} else {
+			// BadgerDB error is FATAL - we must not proceed with filesystem delete
+			return fmt.Errorf("failed to delete object metadata from BadgerDB: %w", err)
 		}
-		return fmt.Errorf("failed to delete object: %w", err)
 	}
 
-	// Delete object metadata from BadgerDB
-	if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil && err != metadata.ErrObjectNotFound {
-		// Log the error but don't fail the operation since the object itself was deleted
+	// Step 2: Update bucket metrics (decrement object count)
+	if om.bucketManager != nil {
+		tenantID, bucketName := om.parseBucketPath(bucket)
+		if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objectSize); err != nil {
+			// Metrics error is FATAL - rollback would be complex, so we fail here
+			return fmt.Errorf("failed to decrement bucket object count: %w", err)
+		}
+	}
+
+	// Step 3: Delete object from filesystem (only after BadgerDB is updated)
+	if err := om.storage.Delete(ctx, objectPath); err != nil {
+		if err == storage.ErrObjectNotFound {
+			// Physical file doesn't exist - this is OK, metadata was already cleaned
+			return nil
+		}
+		// Filesystem delete failed after metadata cleanup - log warning but return success
+		// The metadata is gone, which is what matters for consistency
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"bucket": bucket,
 			"key":    key,
-		}).Warn("Failed to delete object metadata from BadgerDB")
-	}
-
-	// Update bucket metrics (decrement object count)
-	if om.bucketManager != nil {
-		// Parse bucket path to extract tenantID and bucket name
-		tenantID, bucketName := om.parseBucketPath(bucket)
-		if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objectSize); err != nil {
-			logrus.WithError(err).WithFields(logrus.Fields{
-				"bucket_path": bucket,
-				"tenant_id":   tenantID,
-				"bucket_name": bucketName,
-				"key":         key,
-				"size":        objectSize,
-			}).Warn("Failed to decrement bucket object count")
-		}
+		}).Warn("Failed to delete physical file after metadata cleanup - orphaned file will remain")
+		return nil
 	}
 
 	return nil

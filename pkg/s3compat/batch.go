@@ -120,7 +120,13 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Process deletions in parallel for better performance
+	logrus.WithFields(logrus.Fields{
+		"bucket":       bucketName,
+		"object_count": len(deleteRequest.Objects),
+	}).Debug("Batch delete request received")
+
+	// Process deletions sequentially to avoid BadgerDB transaction conflicts
+	// This is more reliable than parallel processing with retries, especially under high load
 	result := DeleteObjectsResult{
 		Deleted: []DeletedObject{},
 		Errors:  []DeleteError{},
@@ -128,72 +134,54 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Use worker pool for parallel processing
-	type deleteResult struct {
-		obj     ObjectToDelete
-		err     error
-		success bool
-	}
-
-	resultChan := make(chan deleteResult, len(deleteRequest.Objects))
-	semaphore := make(chan struct{}, 50) // Max 50 concurrent deletes
-
+	// Process each object deletion sequentially
 	for _, obj := range deleteRequest.Objects {
 		if obj.Key == "" {
-			resultChan <- deleteResult{
-				obj: obj,
-				err: fmt.Errorf("Object key cannot be empty"),
-			}
+			result.Errors = append(result.Errors, DeleteError{
+				Key:     obj.Key,
+				Code:    "InvalidArgument",
+				Message: "Object key cannot be empty",
+			})
 			continue
 		}
 
-		go func(obj ObjectToDelete) {
-			semaphore <- struct{}{}        // Acquire
-			defer func() { <-semaphore }() // Release
+		// Delete object (filesystem + BadgerDB metadata + bucket metrics)
+		err := h.objectManager.DeleteObject(ctx, bucketPath, obj.Key)
 
-			err := h.objectManager.DeleteObject(ctx, bucketPath, obj.Key)
-			resultChan <- deleteResult{
-				obj:     obj,
-				err:     err,
-				success: err == nil || err == object.ErrObjectNotFound,
-			}
-		}(obj)
-	}
-
-	// Collect results
-	for i := 0; i < len(deleteRequest.Objects); i++ {
-		res := <-resultChan
-
-		if res.err != nil {
+		if err != nil {
 			// Log error but continue with other objects
-			if res.err == object.ErrObjectNotFound {
-				// S3 returns success even if object doesn't exist
+			if err == object.ErrObjectNotFound {
+				// S3 spec: DELETE on non-existent object should return success
 				if !deleteRequest.Quiet {
 					result.Deleted = append(result.Deleted, DeletedObject{
-						Key:       res.obj.Key,
-						VersionId: res.obj.VersionId,
+						Key:       obj.Key,
+						VersionId: obj.VersionId,
 					})
 				}
 			} else {
+				// Log the error for debugging
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"bucket": bucketName,
+					"key":    obj.Key,
+				}).Warn("Failed to delete object in batch operation")
+
 				result.Errors = append(result.Errors, DeleteError{
-					Key:       res.obj.Key,
+					Key:       obj.Key,
 					Code:      "InternalError",
-					Message:   res.err.Error(),
-					VersionId: res.obj.VersionId,
+					Message:   err.Error(),
+					VersionId: obj.VersionId,
 				})
 			}
 		} else {
 			// Success - add to deleted list if not quiet mode
 			if !deleteRequest.Quiet {
 				result.Deleted = append(result.Deleted, DeletedObject{
-					Key:       res.obj.Key,
-					VersionId: res.obj.VersionId,
+					Key:       obj.Key,
+					VersionId: obj.VersionId,
 				})
 			}
 		}
 	}
-
-	close(resultChan)
 
 	// Return XML response
 	w.Header().Set("Content-Type", "application/xml")

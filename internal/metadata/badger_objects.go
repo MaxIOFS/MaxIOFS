@@ -106,53 +106,81 @@ func (s *BadgerStore) DeleteObject(ctx context.Context, bucket, key string, vers
 		return ErrInvalidKey
 	}
 
-	return s.db.Update(func(txn *badger.Txn) error {
-		var objKey []byte
-		if len(versionID) > 0 && versionID[0] != "" {
-			objKey = objectVersionKey(bucket, key, versionID[0])
-		} else {
-			objKey = objectKey(bucket, key)
-		}
+	// Retry logic for transaction conflicts (up to 5 attempts with exponential backoff)
+	maxRetries := 5
+	var lastErr error
 
-		// Get object to retrieve tags before deletion
-		item, err := txn.Get(objKey)
-		if err == badger.ErrKeyNotFound {
-			return ErrObjectNotFound
-		}
-		if err != nil {
-			return fmt.Errorf("failed to get object: %w", err)
-		}
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		err := s.db.Update(func(txn *badger.Txn) error {
+			var objKey []byte
+			if len(versionID) > 0 && versionID[0] != "" {
+				objKey = objectVersionKey(bucket, key, versionID[0])
+			} else {
+				objKey = objectKey(bucket, key)
+			}
 
-		var obj ObjectMetadata
-		err = item.Value(func(val []byte) error {
-			return json.Unmarshal(val, &obj)
-		})
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal object: %w", err)
-		}
+			// Get object to retrieve tags before deletion
+			item, err := txn.Get(objKey)
+			if err == badger.ErrKeyNotFound {
+				return ErrObjectNotFound
+			}
+			if err != nil {
+				return fmt.Errorf("failed to get object: %w", err)
+			}
 
-		// Delete tag indices
-		if len(obj.Tags) > 0 {
-			for tagKey, tagValue := range obj.Tags {
-				tagIdxKey := tagIndexKey(bucket, tagKey, tagValue, key)
-				if err := txn.Delete(tagIdxKey); err != nil {
-					s.logger.WithError(err).Warn("Failed to delete tag index")
+			var obj ObjectMetadata
+			err = item.Value(func(val []byte) error {
+				return json.Unmarshal(val, &obj)
+			})
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal object: %w", err)
+			}
+
+			// Delete tag indices
+			if len(obj.Tags) > 0 {
+				for tagKey, tagValue := range obj.Tags {
+					tagIdxKey := tagIndexKey(bucket, tagKey, tagValue, key)
+					if err := txn.Delete(tagIdxKey); err != nil {
+						s.logger.WithError(err).Warn("Failed to delete tag index")
+					}
 				}
 			}
+
+			// Delete the object
+			if err := txn.Delete(objKey); err != nil {
+				return fmt.Errorf("failed to delete object: %w", err)
+			}
+
+			s.logger.WithFields(logrus.Fields{
+				"bucket": bucket,
+				"key":    key,
+			}).Debug("Object metadata deleted")
+
+			return nil
+		})
+
+		if err == nil {
+			return nil // Success
 		}
 
-		// Delete the object
-		if err := txn.Delete(objKey); err != nil {
-			return fmt.Errorf("failed to delete object: %w", err)
+		lastErr = err
+
+		// Check if it's a transaction conflict that we should retry
+		if err == badger.ErrConflict {
+			if attempt < maxRetries-1 {
+				// Exponential backoff: 1ms, 2ms, 4ms, 8ms
+				backoff := (1 << attempt) * 1000000 // nanoseconds
+				time.Sleep(time.Duration(backoff))
+				continue
+			}
+		} else {
+			// For non-conflict errors, return immediately
+			return err
 		}
+	}
 
-		s.logger.WithFields(logrus.Fields{
-			"bucket": bucket,
-			"key":    key,
-		}).Debug("Object metadata deleted")
-
-		return nil
-	})
+	// If we exhausted all retries, return the last error
+	return fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
 }
 
 // ListObjects lists objects in a bucket with optional prefix and pagination

@@ -109,6 +109,10 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketCORS).Methods("DELETE").Queries("cors", "")
 	}
 
+	// Batch operations
+	bucketRouter.HandleFunc("", h.s3Handler.DeleteObjects).Methods("POST").Queries("delete", "")
+	bucketRouter.HandleFunc("/", h.s3Handler.DeleteObjects).Methods("POST").Queries("delete", "")
+
 	// Multipart uploads
 	bucketRouter.HandleFunc("", h.s3Handler.ListMultipartUploads).Methods("GET").Queries("uploads", "")
 	bucketRouter.HandleFunc("/", h.s3Handler.ListMultipartUploads).Methods("GET").Queries("uploads", "")
