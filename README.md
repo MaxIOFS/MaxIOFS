@@ -1,6 +1,6 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.2.0-alpha
+**Version**: 0.2.2-alpha
 **Status**: Active Development (Alpha Phase)
 **License**: MIT
 
@@ -71,10 +71,7 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 ### Build
 
 ```bash
-# Windows
-.\build.bat
-
-# Linux/macOS
+# Windows/Linux/macOS
 make build
 ```
 
@@ -243,8 +240,8 @@ npm install
 cd ../..
 
 # Build
-.\build.bat  # Windows
-make build   # Linux/macOS
+# Windows/Linux/macOS
+make build   
 ```
 
 ### Running in Development Mode
@@ -313,8 +310,8 @@ MIT License - See LICENSE file for details
 
 ## 💬 Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/maxiofs/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/maxiofs/discussions)
+- **Issues**: [GitHub Issues](https://github.com/aluisco/maxiofs/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/aluisco/maxiofs/discussions)
 - **Documentation**: See `/docs` directory
 
 ---
