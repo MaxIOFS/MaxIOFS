@@ -31,9 +31,21 @@ export default function AccessKeysPage() {
   const deleteAccessKeyMutation = useMutation({
     mutationFn: ({ userId, keyId }: { userId: string; keyId: string }) =>
       APIClient.deleteAccessKey(userId, keyId),
-    onSuccess: () => {
+    onSuccess: async (_, variables) => {
       SweetAlert.close();
-      queryClient.invalidateQueries({ queryKey: ['accessKeys'] });
+
+      // Update cache immediately by removing the deleted key
+      queryClient.setQueryData(['accessKeys'], (oldData: AccessKey[] | undefined) => {
+        if (!oldData) return [];
+        return oldData.filter(key => key.id !== variables.keyId);
+      });
+
+      // Also invalidate users query to update key counts
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+
+      // Force refetch to ensure we have the latest data from server
+      await queryClient.refetchQueries({ queryKey: ['accessKeys'] });
+
       SweetAlert.toast('success', 'Access key deleted successfully');
     },
     onError: (error: any) => {

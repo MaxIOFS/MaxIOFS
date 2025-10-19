@@ -117,14 +117,35 @@ export default function UserDetailsPage() {
   // Delete access key mutation
   const deleteAccessKeyMutation = useMutation({
     mutationFn: (keyId: string) => APIClient.deleteAccessKey(userId, keyId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accessKeys', userId] }); // Update user's keys
-      queryClient.invalidateQueries({ queryKey: ['accessKeys'] }); // Update global access keys list
-      queryClient.invalidateQueries({ queryKey: ['users'] }); // Update users list (shows key count)
-      queryClient.invalidateQueries({ queryKey: ['tenants'] }); // Update tenant access key count
+    onSuccess: async (_, keyId) => {
+      SweetAlert.close();
+
+      // Update cache immediately for this user's keys
+      queryClient.setQueryData(['accessKeys', userId], (oldData: AccessKey[] | undefined) => {
+        if (!oldData) return [];
+        return oldData.filter(key => key.id !== keyId);
+      });
+
+      // Update cache for global access keys list
+      queryClient.setQueryData(['accessKeys'], (oldData: AccessKey[] | undefined) => {
+        if (!oldData) return [];
+        return oldData.filter(key => key.id !== keyId);
+      });
+
+      // Invalidate other queries to update counts
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['tenants'] });
+
+      // Force refetch to ensure we have the latest data from server
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['accessKeys', userId] }),
+        queryClient.refetchQueries({ queryKey: ['accessKeys'] }),
+      ]);
+
       SweetAlert.toast('success', 'Access key deleted successfully');
     },
     onError: (error) => {
+      SweetAlert.close();
       SweetAlert.apiError(error);
     },
   });
