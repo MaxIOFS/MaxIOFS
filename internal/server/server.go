@@ -12,6 +12,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/config"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/metrics"
 	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -26,6 +27,7 @@ type Server struct {
 	httpServer     *http.Server
 	consoleServer  *http.Server
 	storageBackend storage.Backend
+	metadataStore  metadata.Store
 	bucketManager  bucket.Manager
 	objectManager  object.Manager
 	authManager    auth.Manager
@@ -43,9 +45,20 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create storage backend: %w", err)
 	}
 
+	// Initialize metadata store (BadgerDB)
+	metadataStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
+		DataDir:           cfg.DataDir,
+		SyncWrites:        false, // Async for performance
+		CompactionEnabled: true,  // Auto GC
+		Logger:            logrus.StandardLogger(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create metadata store: %w", err)
+	}
+
 	// Initialize managers
-	bucketManager := bucket.NewManager(storageBackend)
-	objectManager := object.NewManager(storageBackend, cfg.Storage)
+	bucketManager := bucket.NewManager(storageBackend, metadataStore)
+	objectManager := object.NewManager(storageBackend, metadataStore, cfg.Storage)
 
 	// Connect object manager to bucket manager for metrics updates
 	if om, ok := objectManager.(interface {
@@ -112,6 +125,7 @@ func New(cfg *config.Config) (*Server, error) {
 		httpServer:     httpServer,
 		consoleServer:  consoleServer,
 		storageBackend: storageBackend,
+		metadataStore:  metadataStore,
 		bucketManager:  bucketManager,
 		objectManager:  objectManager,
 		authManager:    authManager,

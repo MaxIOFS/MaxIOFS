@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
 import type {
   APIResponse,
@@ -207,30 +208,26 @@ s3Client.interceptors.response.use(handleResponse, handleError);
 export class APIClient {
   // Authentication
   static async login(credentials: LoginRequest): Promise<LoginResponse> {
-    try {
-      const payload = {
-        username: credentials.username,
-        password: credentials.password,
-      };
+    const payload = {
+      username: credentials.username,
+      password: credentials.password,
+    };
 
-      const response = await apiClient.post<APIResponse<any>>('/auth/login', payload);
+    const response = await apiClient.post<APIResponse<any>>('/auth/login', payload);
 
-      const result: LoginResponse = {
-        success: response.data.success,
-        token: response.data.data?.token,
-        refreshToken: response.data.data?.refreshToken,
-        user: response.data.data?.user,
-        error: response.data.error,
-      };
+    const result: LoginResponse = {
+      success: response.data.success,
+      token: response.data.data?.token,
+      refreshToken: response.data.data?.refreshToken,
+      user: response.data.data?.user,
+      error: response.data.error,
+    };
 
-      if (result.success && result.token) {
-        tokenManager.setTokens(result.token, result.refreshToken);
-      }
-
-      return result;
-    } catch (error) {
-      throw error;
+    if (result.success && result.token) {
+      tokenManager.setTokens(result.token, result.refreshToken);
     }
+
+    return result;
   }
 
   static async logout(): Promise<void> {

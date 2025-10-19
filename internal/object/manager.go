@@ -2,10 +2,8 @@ package object
 
 import (
 	"context"
-	"crypto/md5"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +13,7 @@ import (
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/config"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 )
@@ -92,6 +91,7 @@ type Object struct {
 type objectManager struct {
 	storage       storage.Backend
 	config        config.StorageConfig
+	metadataStore metadata.Store
 	bucketManager interface {
 		IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 		DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
@@ -99,10 +99,11 @@ type objectManager struct {
 }
 
 // NewManager creates a new object manager
-func NewManager(storage storage.Backend, config config.StorageConfig) Manager {
+func NewManager(storage storage.Backend, metadataStore metadata.Store, config config.StorageConfig) Manager {
 	return &objectManager{
 		storage:       storage,
 		config:        config,
+		metadataStore: metadataStore,
 		bucketManager: nil, // Will be set later via SetBucketManager
 	}
 }
@@ -134,7 +135,7 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string) (*Ob
 	objectPath := om.getObjectPath(bucket, key)
 
 	// Get object data
-	reader, metadata, err := om.storage.Get(ctx, objectPath)
+	reader, storageMetadata, err := om.storage.Get(ctx, objectPath)
 	if err != nil {
 		if err == storage.ErrObjectNotFound {
 			return nil, nil, ErrObjectNotFound
@@ -142,21 +143,30 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string) (*Ob
 		return nil, nil, fmt.Errorf("failed to get object: %w", err)
 	}
 
-	// Load object metadata
-	object, err := om.loadObjectMetadata(ctx, bucket, key)
-	if err != nil {
+	// Load object metadata from BadgerDB
+	metaObj, err := om.metadataStore.GetObject(ctx, bucket, key)
+	if err != nil && err != metadata.ErrObjectNotFound {
+		// Log error but continue with basic metadata
+		logrus.WithError(err).Debug("Failed to load object metadata from BadgerDB")
+		metaObj = nil // Ensure metaObj is nil on error
+	}
+
+	var object *Object
+	if metaObj != nil {
+		object = fromMetadataObject(metaObj)
+	} else {
 		// If metadata doesn't exist, create basic object info from storage metadata
-		size, _ := strconv.ParseInt(metadata["size"], 10, 64)
-		lastModified, _ := strconv.ParseInt(metadata["last_modified"], 10, 64)
+		size, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
+		lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
 
 		object = &Object{
 			Key:          key,
 			Bucket:       bucket,
 			Size:         size,
 			LastModified: time.Unix(lastModified, 0),
-			ETag:         metadata["etag"],
-			ContentType:  metadata["content-type"],
-			Metadata:     metadata,
+			ETag:         storageMetadata["etag"],
+			ContentType:  storageMetadata["content-type"],
+			Metadata:     storageMetadata,
 			StorageClass: StorageClassStandard,
 		}
 	}
@@ -172,44 +182,52 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 
 	objectPath := om.getObjectPath(bucket, key)
 
-	// Extract metadata from headers
-	metadata := make(map[string]string)
+	// Extract ONLY relevant S3/storage metadata from headers (not auth, cookies, etc.)
+	storageMetadata := make(map[string]string)
+	userMetadata := make(map[string]string)
+
+	// Extract Content-Type
+	if contentType := headers.Get("Content-Type"); contentType != "" {
+		storageMetadata["content-type"] = contentType
+	} else {
+		storageMetadata["content-type"] = "application/octet-stream"
+	}
+
+	// Extract user-defined metadata (x-amz-meta-* headers)
 	for headerKey, values := range headers {
 		if len(values) > 0 {
-			// Convert header keys to lowercase for consistency
-			key := strings.ToLower(headerKey)
-			metadata[key] = values[0]
+			lowerKey := strings.ToLower(headerKey)
+			// Only store x-amz-meta-* headers as user metadata
+			if strings.HasPrefix(lowerKey, "x-amz-meta-") {
+				metaKey := strings.TrimPrefix(lowerKey, "x-amz-meta-")
+				userMetadata[metaKey] = values[0]
+			}
 		}
 	}
 
-	// Set default content type if not provided
-	if _, exists := metadata["content-type"]; !exists {
-		metadata["content-type"] = "application/octet-stream"
-	}
-
-	// Store object in storage backend
-	if err := om.storage.Put(ctx, objectPath, data, metadata); err != nil {
+	// Store object in storage backend (ONLY storage metadata, not HTTP headers)
+	if err := om.storage.Put(ctx, objectPath, data, storageMetadata); err != nil {
 		return nil, fmt.Errorf("failed to store object: %w", err)
 	}
 
 	// Get object metadata from storage to get size and etag
-	storageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
+	finalStorageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get object metadata: %w", err)
 	}
 
 	// Create object info
-	size, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
-	lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
+	size, _ := strconv.ParseInt(finalStorageMetadata["size"], 10, 64)
+	lastModified, _ := strconv.ParseInt(finalStorageMetadata["last_modified"], 10, 64)
 
 	object := &Object{
 		Key:          key,
 		Bucket:       bucket,
 		Size:         size,
 		LastModified: time.Unix(lastModified, 0),
-		ETag:         storageMetadata["etag"],
-		ContentType:  metadata["content-type"],
-		Metadata:     metadata,
+		ETag:         finalStorageMetadata["etag"],
+		ContentType:  finalStorageMetadata["content-type"],
+		Metadata:     userMetadata, // User metadata from x-amz-meta-* headers
 		StorageClass: StorageClassStandard,
 	}
 
@@ -218,9 +236,10 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		logrus.WithError(err).Debug("Failed to apply default retention")
 	}
 
-	// Save object metadata
-	if err := om.saveObjectMetadata(ctx, object); err != nil {
-		logrus.WithError(err).Warn("Failed to save object metadata")
+	// Save object metadata to BadgerDB
+	metaObj := toMetadataObject(object)
+	if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
+		logrus.WithError(err).Warn("Failed to save object metadata to BadgerDB")
 	}
 
 	// Update bucket metrics (increment object count)
@@ -293,19 +312,13 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string) e
 		return fmt.Errorf("failed to delete object: %w", err)
 	}
 
-	// Delete object metadata
-	metadataPath := om.getObjectMetadataPath(bucket, key)
-	err = om.storage.Delete(ctx, metadataPath)
-	if err != nil && err != storage.ErrObjectNotFound {
+	// Delete object metadata from BadgerDB
+	if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil && err != metadata.ErrObjectNotFound {
 		// Log the error but don't fail the operation since the object itself was deleted
-		logrus.WithFields(logrus.Fields{
-			"bucket":        bucket,
-			"key":           key,
-			"metadata_path": metadataPath,
-			"error":         err.Error(),
-		}).Error("⚠️ Failed to delete object metadata - orphaned metadata file may remain")
-		// We don't return the error to avoid breaking the delete operation,
-		// but we log it so operators can monitor and clean up orphaned metadata
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"bucket": bucket,
+			"key":    key,
+		}).Warn("Failed to delete object metadata from BadgerDB")
 	}
 
 	// Update bucket metrics (decrement object count)
@@ -407,26 +420,24 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 			}
 		}
 
-		// Create object info
-		object := Object{
-			Key:          key,
-			Bucket:       bucket,
-			Size:         storageObj.Size,
-			LastModified: time.Unix(storageObj.LastModified, 0),
-			ETag:         storageObj.ETag,
-			StorageClass: StorageClassStandard,
-			Metadata:     make(map[string]string),
+		// Try to load extended metadata from BadgerDB
+		metaObj, err := om.metadataStore.GetObject(ctx, bucket, key)
+		if err == nil && metaObj != nil {
+			// Use metadata from BadgerDB
+			objects = append(objects, *fromMetadataObject(metaObj))
+		} else {
+			// Fallback: Create basic object info from storage metadata
+			object := Object{
+				Key:          key,
+				Bucket:       bucket,
+				Size:         storageObj.Size,
+				LastModified: time.Unix(storageObj.LastModified, 0),
+				ETag:         storageObj.ETag,
+				StorageClass: StorageClassStandard,
+				Metadata:     make(map[string]string),
+			}
+			objects = append(objects, object)
 		}
-
-		// Try to load extended metadata
-		if objectMeta, err := om.loadObjectMetadata(ctx, bucket, key); err == nil {
-			object.ContentType = objectMeta.ContentType
-			object.Metadata = objectMeta.Metadata
-			object.StorageClass = objectMeta.StorageClass
-			object.Retention = objectMeta.Retention // Load retention from metadata
-		}
-
-		objects = append(objects, object)
 	}
 
 	// Convert commonPrefixesMap to slice
@@ -494,7 +505,7 @@ func (om *objectManager) GetObjectMetadata(ctx context.Context, bucket, key stri
 
 	objectPath := om.getObjectPath(bucket, key)
 
-	// Check if object exists
+	// Check if object exists in storage
 	exists, err := om.storage.Exists(ctx, objectPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check object existence: %w", err)
@@ -503,29 +514,30 @@ func (om *objectManager) GetObjectMetadata(ctx context.Context, bucket, key stri
 		return nil, ErrObjectNotFound
 	}
 
-	// Get storage metadata
+	// Try to load metadata from BadgerDB
+	metaObj, err := om.metadataStore.GetObject(ctx, bucket, key)
+	if err == nil && metaObj != nil {
+		return fromMetadataObject(metaObj), nil
+	}
+
+	// Fallback: create basic object info from storage metadata
 	storageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get storage metadata: %w", err)
 	}
 
-	// Try to load extended metadata
-	object, err := om.loadObjectMetadata(ctx, bucket, key)
-	if err != nil {
-		// Create basic object info from storage metadata
-		size, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
-		lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
+	size, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
+	lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
 
-		object = &Object{
-			Key:          key,
-			Bucket:       bucket,
-			Size:         size,
-			LastModified: time.Unix(lastModified, 0),
-			ETag:         storageMetadata["etag"],
-			ContentType:  storageMetadata["content-type"],
-			Metadata:     storageMetadata,
-			StorageClass: StorageClassStandard,
-		}
+	object := &Object{
+		Key:          key,
+		Bucket:       bucket,
+		Size:         size,
+		LastModified: time.Unix(lastModified, 0),
+		ETag:         storageMetadata["etag"],
+		ContentType:  storageMetadata["content-type"],
+		Metadata:     storageMetadata,
+		StorageClass: StorageClassStandard,
 	}
 
 	return object, nil
@@ -553,27 +565,10 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 		return fmt.Errorf("failed to update storage metadata: %w", err)
 	}
 
-	// Load current object metadata
-	object, err := om.loadObjectMetadata(ctx, bucket, key)
+	// Load current object metadata from BadgerDB
+	object, err := om.GetObjectMetadata(ctx, bucket, key)
 	if err != nil {
-		// Create new object metadata if it doesn't exist
-		storageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
-		if err != nil {
-			return fmt.Errorf("failed to get storage metadata: %w", err)
-		}
-
-		size, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
-		lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
-
-		object = &Object{
-			Key:          key,
-			Bucket:       bucket,
-			Size:         size,
-			LastModified: time.Unix(lastModified, 0),
-			ETag:         storageMetadata["etag"],
-			ContentType:  metadata["content-type"],
-			StorageClass: StorageClassStandard,
-		}
+		return fmt.Errorf("failed to get object metadata: %w", err)
 	}
 
 	// Update object metadata
@@ -589,8 +584,9 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 		object.ContentType = contentType
 	}
 
-	// Save updated metadata
-	return om.saveObjectMetadata(ctx, object)
+	// Save updated metadata to BadgerDB
+	metaObj := toMetadataObject(object)
+	return om.metadataStore.PutObject(ctx, metaObj)
 }
 
 // Object Lock operations implementations
@@ -631,8 +627,9 @@ func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key str
 	// Update retention
 	obj.Retention = config
 
-	// Save updated metadata
-	return om.saveObjectMetadata(ctx, obj)
+	// Save updated metadata to BadgerDB
+	metaObj := toMetadataObject(obj)
+	return om.metadataStore.PutObject(ctx, metaObj)
 }
 
 func (om *objectManager) GetObjectLegalHold(ctx context.Context, bucket, key string) (*LegalHoldConfig, error) {
@@ -660,8 +657,9 @@ func (om *objectManager) SetObjectLegalHold(ctx context.Context, bucket, key str
 	// Update legal hold
 	obj.LegalHold = config
 
-	// Save updated metadata
-	return om.saveObjectMetadata(ctx, obj)
+	// Save updated metadata to BadgerDB
+	metaObj := toMetadataObject(obj)
+	return om.metadataStore.PutObject(ctx, metaObj)
 }
 
 // Versioning operations (Fase 7.2 - future)
@@ -707,8 +705,9 @@ func (om *objectManager) SetObjectTagging(ctx context.Context, bucket, key strin
 	// Update tags
 	obj.Tags = tags
 
-	// Save updated metadata
-	return om.saveObjectMetadata(ctx, obj)
+	// Save updated metadata to BadgerDB
+	metaObj := toMetadataObject(obj)
+	return om.metadataStore.PutObject(ctx, metaObj)
 }
 
 func (om *objectManager) DeleteObjectTagging(ctx context.Context, bucket, key string) error {
@@ -721,8 +720,9 @@ func (om *objectManager) DeleteObjectTagging(ctx context.Context, bucket, key st
 	// Clear tags
 	obj.Tags = &TagSet{Tags: []Tag{}}
 
-	// Save updated metadata
-	return om.saveObjectMetadata(ctx, obj)
+	// Save updated metadata to BadgerDB
+	metaObj := toMetadataObject(obj)
+	return om.metadataStore.PutObject(ctx, metaObj)
 }
 
 // ACL operations implementations (basic placeholders)
@@ -803,8 +803,9 @@ func (om *objectManager) CreateMultipartUpload(ctx context.Context, bucket, key 
 		Parts:        []Part{},
 	}
 
-	// Save multipart upload metadata
-	if err := om.saveMultipartUpload(ctx, multipart); err != nil {
+	// Save multipart upload metadata to BadgerDB
+	metaMU := toMetadataMultipartUpload(multipart)
+	if err := om.metadataStore.CreateMultipartUpload(ctx, metaMU); err != nil {
 		return nil, fmt.Errorf("failed to save multipart upload: %w", err)
 	}
 
@@ -814,12 +815,6 @@ func (om *objectManager) CreateMultipartUpload(ctx context.Context, bucket, key 
 func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNumber int, data io.Reader) (*Part, error) {
 	if partNumber < 1 || partNumber > 10000 {
 		return nil, fmt.Errorf("part number must be between 1 and 10000")
-	}
-
-	// Load multipart upload metadata
-	multipart, err := om.loadMultipartUpload(ctx, uploadID)
-	if err != nil {
-		return nil, err
 	}
 
 	// Create part path
@@ -845,6 +840,19 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 	size, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
 	lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
 
+	partMeta := &metadata.PartMetadata{
+		UploadID:     uploadID,
+		PartNumber:   partNumber,
+		ETag:         storageMetadata["etag"],
+		Size:         size,
+		LastModified: time.Unix(lastModified, 0),
+	}
+
+	// Store part metadata in BadgerDB
+	if err := om.metadataStore.PutPart(ctx, partMeta); err != nil {
+		return nil, fmt.Errorf("failed to save part metadata: %w", err)
+	}
+
 	part := &Part{
 		PartNumber:   partNumber,
 		ETag:         storageMetadata["etag"],
@@ -852,36 +860,43 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 		LastModified: time.Unix(lastModified, 0),
 	}
 
-	// Update multipart upload parts list
-	multipart.Parts = om.updatePartsList(multipart.Parts, *part)
-	if err := om.saveMultipartUpload(ctx, multipart); err != nil {
-		return nil, fmt.Errorf("failed to update multipart upload: %w", err)
-	}
-
 	return part, nil
 }
 
 func (om *objectManager) ListParts(ctx context.Context, uploadID string) ([]Part, error) {
-	// Load multipart upload metadata
-	multipart, err := om.loadMultipartUpload(ctx, uploadID)
+	// List parts from BadgerDB
+	metaParts, err := om.metadataStore.ListParts(ctx, uploadID)
 	if err != nil {
+		if err == metadata.ErrUploadNotFound {
+			return nil, ErrInvalidUploadID
+		}
 		return nil, err
 	}
 
-	// Sort parts by part number
-	sort.Slice(multipart.Parts, func(i, j int) bool {
-		return multipart.Parts[i].PartNumber < multipart.Parts[j].PartNumber
-	})
+	// Convert to object.Part
+	parts := make([]Part, len(metaParts))
+	for i, mp := range metaParts {
+		parts[i] = Part{
+			PartNumber:   mp.PartNumber,
+			ETag:         mp.ETag,
+			Size:         mp.Size,
+			LastModified: mp.LastModified,
+		}
+	}
 
-	return multipart.Parts, nil
+	return parts, nil
 }
 
 func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID string, parts []Part) (*Object, error) {
-	// Load multipart upload metadata
-	multipart, err := om.loadMultipartUpload(ctx, uploadID)
+	// Load multipart upload metadata from BadgerDB
+	metaMU, err := om.metadataStore.GetMultipartUpload(ctx, uploadID)
 	if err != nil {
+		if err == metadata.ErrUploadNotFound {
+			return nil, ErrInvalidUploadID
+		}
 		return nil, err
 	}
+	multipart := fromMetadataMultipartUpload(metaMU)
 
 	// Validate parts list
 	if len(parts) == 0 {
@@ -937,13 +952,22 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 		StorageClass: multipart.StorageClass,
 	}
 
-	// Save object metadata
-	if err := om.saveObjectMetadata(ctx, object); err != nil {
-		// Log error but don't fail the operation
+	// Save object metadata to BadgerDB
+	metaObj := toMetadataObject(object)
+	if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
+		logrus.WithError(err).Warn("Failed to save final object metadata to BadgerDB")
 	}
 
-	// Clean up multipart upload
-	om.abortMultipartUpload(ctx, uploadID, false) // Don't return error
+	// Clean up multipart upload from BadgerDB
+	if err := om.metadataStore.AbortMultipartUpload(ctx, uploadID); err != nil {
+		logrus.WithError(err).Warn("Failed to delete multipart upload from BadgerDB")
+	}
+
+	// Clean up part files from storage
+	for _, part := range parts {
+		partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
+		om.storage.Delete(ctx, partPath) // Ignore errors
+	}
 
 	return object, nil
 }
@@ -953,34 +977,17 @@ func (om *objectManager) AbortMultipartUpload(ctx context.Context, uploadID stri
 }
 
 func (om *objectManager) ListMultipartUploads(ctx context.Context, bucket string) ([]MultipartUpload, error) {
-	// List all multipart upload metadata files
-	prefix := ".maxiofs/multipart/uploads/"
-	objects, err := om.storage.List(ctx, prefix, true)
+	// List multipart uploads from BadgerDB (with prefix matching on bucket)
+	metaUploads, err := om.metadataStore.ListMultipartUploads(ctx, bucket, "", 1000)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list multipart uploads: %w", err)
 	}
 
-	var uploads []MultipartUpload
-	for _, obj := range objects {
-		if strings.HasSuffix(obj.Path, ".json") {
-			// Extract upload ID from path
-			parts := strings.Split(obj.Path, "/")
-			if len(parts) >= 1 {
-				uploadID := strings.TrimSuffix(parts[len(parts)-1], ".json")
-
-				// Load multipart upload
-				multipart, err := om.loadMultipartUpload(ctx, uploadID)
-				if err == nil && multipart.Bucket == bucket {
-					uploads = append(uploads, *multipart)
-				}
-			}
-		}
+	// Convert to object.MultipartUpload
+	uploads := make([]MultipartUpload, len(metaUploads))
+	for i, mu := range metaUploads {
+		uploads[i] = *fromMetadataMultipartUpload(mu)
 	}
-
-	// Sort by initiated time
-	sort.Slice(uploads, func(i, j int) bool {
-		return uploads[i].Initiated.Before(uploads[j].Initiated)
-	})
 
 	return uploads, nil
 }
@@ -1027,106 +1034,24 @@ func (om *objectManager) getObjectPath(bucket, key string) string {
 	return fmt.Sprintf("%s/%s", bucket, key)
 }
 
-// getObjectMetadataPath returns the path for object metadata
-func (om *objectManager) getObjectMetadataPath(bucket, key string) string {
-	// Create a hash of the key to avoid filesystem issues with special characters
-	hash := fmt.Sprintf("%x", md5.Sum([]byte(key)))
-	return fmt.Sprintf(".maxiofs/objects/%s/%s.json", bucket, hash)
-}
+// Removed: getObjectMetadataPath, saveObjectMetadata, loadObjectMetadata
+// These functions are now replaced with BadgerDB operations via metadataStore
 
-// saveObjectMetadata saves object metadata to storage
-func (om *objectManager) saveObjectMetadata(ctx context.Context, object *Object) error {
-	data, err := json.Marshal(object)
+// loadBucketMetadata loads bucket metadata from BadgerDB to check Object Lock configuration
+func (om *objectManager) loadBucketMetadata(ctx context.Context, bucketName string) (*metadata.BucketMetadata, error) {
+	// Parse bucket path to extract tenantID and bucket name
+	tenantID, actualBucketName := om.parseBucketPath(bucketName)
+
+	// Get bucket metadata from BadgerDB
+	bucketMeta, err := om.metadataStore.GetBucket(ctx, tenantID, actualBucketName)
 	if err != nil {
-		return fmt.Errorf("failed to marshal object metadata: %w", err)
-	}
-
-	metadataPath := om.getObjectMetadataPath(object.Bucket, object.Key)
-	return om.storage.Put(ctx, metadataPath, strings.NewReader(string(data)), map[string]string{
-		"content-type": "application/json",
-	})
-}
-
-// loadObjectMetadata loads object metadata from storage
-func (om *objectManager) loadObjectMetadata(ctx context.Context, bucket, key string) (*Object, error) {
-	metadataPath := om.getObjectMetadataPath(bucket, key)
-
-	reader, _, err := om.storage.Get(ctx, metadataPath)
-	if err != nil {
-		if err == storage.ErrObjectNotFound {
-			return nil, ErrObjectNotFound
-		}
-		return nil, fmt.Errorf("failed to load object metadata: %w", err)
-	}
-	defer reader.Close()
-
-	var object Object
-	if err := json.NewDecoder(reader).Decode(&object); err != nil {
-		return nil, fmt.Errorf("failed to decode object metadata: %w", err)
-	}
-
-	return &object, nil
-}
-
-// loadBucketMetadata loads bucket metadata to check Object Lock configuration
-func (om *objectManager) loadBucketMetadata(ctx context.Context, bucketName string) (map[string]interface{}, error) {
-	// Use the same path as bucketManager: .maxiofs/buckets/{bucket}.json
-	metadataPath := fmt.Sprintf(".maxiofs/buckets/%s.json", bucketName)
-
-	reader, _, err := om.storage.Get(ctx, metadataPath)
-	if err != nil {
-		if err == storage.ErrObjectNotFound {
+		if err == metadata.ErrBucketNotFound {
 			return nil, fmt.Errorf("bucket metadata not found")
 		}
 		return nil, fmt.Errorf("failed to load bucket metadata: %w", err)
 	}
-	defer reader.Close()
 
-	var metadata map[string]interface{}
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read bucket metadata: %w", err)
-	}
-
-	if err := json.Unmarshal(data, &metadata); err != nil {
-		return nil, fmt.Errorf("failed to decode bucket metadata: %w", err)
-	}
-
-	// Migrate legacy object_lock format (PascalCase) to new format (camelCase)
-	if objectLock, ok := metadata["object_lock"].(map[string]interface{}); ok {
-		// Check if using old format with "ObjectLockEnabled" string
-		if enabled, ok := objectLock["ObjectLockEnabled"].(string); ok {
-			objectLock["objectLockEnabled"] = (enabled == "Enabled")
-			delete(objectLock, "ObjectLockEnabled")
-		}
-		// Migrate Rule -> rule
-		if rule, ok := objectLock["Rule"].(map[string]interface{}); ok {
-			objectLock["rule"] = rule
-			delete(objectLock, "Rule")
-
-			// Migrate DefaultRetention -> defaultRetention
-			if defaultRetention, ok := rule["DefaultRetention"].(map[string]interface{}); ok {
-				rule["defaultRetention"] = defaultRetention
-				delete(rule, "DefaultRetention")
-
-				// Migrate Mode, Days, Years to lowercase
-				if mode, ok := defaultRetention["Mode"].(string); ok {
-					defaultRetention["mode"] = mode
-					delete(defaultRetention, "Mode")
-				}
-				if days, ok := defaultRetention["Days"]; ok {
-					defaultRetention["days"] = days
-					delete(defaultRetention, "Days")
-				}
-				if years, ok := defaultRetention["Years"]; ok {
-					defaultRetention["years"] = years
-					delete(defaultRetention, "Years")
-				}
-			}
-		}
-	}
-
-	return metadata, nil
+	return bucketMeta, nil
 }
 
 // applyDefaultRetention applies bucket's default Object Lock retention to a new object
@@ -1139,48 +1064,21 @@ func (om *objectManager) applyDefaultRetention(ctx context.Context, object *Obje
 	}
 
 	// Check if Object Lock is enabled
-	objectLockConfig, ok := bucketMeta["object_lock"].(map[string]interface{})
-	if !ok || objectLockConfig == nil {
-		return nil
-	}
-
-	enabled, _ := objectLockConfig["objectLockEnabled"].(bool)
-	if !enabled {
+	if bucketMeta.ObjectLock == nil || !bucketMeta.ObjectLock.Enabled {
 		return nil
 	}
 
 	// Check for default retention rule
-	rule, ok := objectLockConfig["rule"].(map[string]interface{})
-	if !ok || rule == nil {
+	if bucketMeta.ObjectLock.Rule == nil || bucketMeta.ObjectLock.Rule.DefaultRetention == nil {
 		return nil
 	}
 
-	defaultRetention, ok := rule["defaultRetention"].(map[string]interface{})
-	if !ok || defaultRetention == nil {
-		return nil
-	}
-
-	// Extract retention mode and duration
-	mode, _ := defaultRetention["mode"].(string)
-	if mode == "" {
-		return nil
-	}
-
-	// Calculate retain until date
-	var retainUntil time.Time
-	if days, ok := defaultRetention["days"].(float64); ok && days > 0 {
-		retainUntil = time.Now().AddDate(0, 0, int(days))
-	} else if years, ok := defaultRetention["years"].(float64); ok && years > 0 {
-		retainUntil = time.Now().AddDate(int(years), 0, 0)
-	} else {
-		// No valid retention period
-		return nil
-	}
+	retention := bucketMeta.ObjectLock.Rule.DefaultRetention
 
 	// Apply retention to object
 	object.Retention = &RetentionConfig{
-		Mode:            mode,
-		RetainUntilDate: retainUntil,
+		Mode:            retention.Mode,
+		RetainUntilDate: retention.RetainUntilDate,
 	}
 
 	return nil
@@ -1197,62 +1095,13 @@ func (om *objectManager) generateUploadID() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// getMultipartUploadPath returns the path for multipart upload metadata
-func (om *objectManager) getMultipartUploadPath(uploadID string) string {
-	return fmt.Sprintf(".maxiofs/multipart/uploads/%s.json", uploadID)
-}
-
-// getMultipartPartPath returns the path for a multipart part
+// getMultipartPartPath returns the path for a multipart part in storage
 func (om *objectManager) getMultipartPartPath(uploadID string, partNumber int) string {
 	return fmt.Sprintf(".maxiofs/multipart/parts/%s/%05d", uploadID, partNumber)
 }
 
-// saveMultipartUpload saves multipart upload metadata to storage
-func (om *objectManager) saveMultipartUpload(ctx context.Context, multipart *MultipartUpload) error {
-	data, err := json.Marshal(multipart)
-	if err != nil {
-		return fmt.Errorf("failed to marshal multipart upload metadata: %w", err)
-	}
-
-	metadataPath := om.getMultipartUploadPath(multipart.UploadID)
-	return om.storage.Put(ctx, metadataPath, strings.NewReader(string(data)), map[string]string{
-		"content-type": "application/json",
-	})
-}
-
-// loadMultipartUpload loads multipart upload metadata from storage
-func (om *objectManager) loadMultipartUpload(ctx context.Context, uploadID string) (*MultipartUpload, error) {
-	metadataPath := om.getMultipartUploadPath(uploadID)
-
-	reader, _, err := om.storage.Get(ctx, metadataPath)
-	if err != nil {
-		if err == storage.ErrObjectNotFound {
-			return nil, ErrInvalidUploadID
-		}
-		return nil, fmt.Errorf("failed to load multipart upload metadata: %w", err)
-	}
-	defer reader.Close()
-
-	var multipart MultipartUpload
-	if err := json.NewDecoder(reader).Decode(&multipart); err != nil {
-		return nil, fmt.Errorf("failed to decode multipart upload metadata: %w", err)
-	}
-
-	return &multipart, nil
-}
-
-// updatePartsList updates the parts list with a new part
-func (om *objectManager) updatePartsList(parts []Part, newPart Part) []Part {
-	// Find existing part with same number and replace, or add new
-	for i, part := range parts {
-		if part.PartNumber == newPart.PartNumber {
-			parts[i] = newPart
-			return parts
-		}
-	}
-	// Add new part
-	return append(parts, newPart)
-}
+// Removed: getMultipartUploadPath, saveMultipartUpload, loadMultipartUpload, updatePartsList
+// These functions are now replaced with BadgerDB operations via metadataStore
 
 // combineMultipartParts combines all parts into the final object
 func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID string, parts []Part, finalPath string) error {
@@ -1290,25 +1139,24 @@ func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID str
 
 // abortMultipartUpload cleans up a multipart upload
 func (om *objectManager) abortMultipartUpload(ctx context.Context, uploadID string, returnError bool) error {
-	// Load multipart upload to get parts list
-	multipart, err := om.loadMultipartUpload(ctx, uploadID)
+	// Get parts list from BadgerDB before deleting
+	metaParts, err := om.metadataStore.ListParts(ctx, uploadID)
 	if err != nil {
-		if returnError {
+		if returnError && err != metadata.ErrUploadNotFound {
 			return err
 		}
 		return nil
 	}
 
-	// Delete all parts
-	for _, part := range multipart.Parts {
+	// Delete all part files from storage
+	for _, part := range metaParts {
 		partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
 		om.storage.Delete(ctx, partPath) // Ignore errors
 	}
 
-	// Delete multipart upload metadata
-	metadataPath := om.getMultipartUploadPath(uploadID)
-	err = om.storage.Delete(ctx, metadataPath)
-	if err != nil && err != storage.ErrObjectNotFound && returnError {
+	// Delete multipart upload metadata from BadgerDB
+	err = om.metadataStore.AbortMultipartUpload(ctx, uploadID)
+	if err != nil && err != metadata.ErrUploadNotFound && returnError {
 		return fmt.Errorf("failed to delete multipart upload metadata: %w", err)
 	}
 
