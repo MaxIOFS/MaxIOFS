@@ -582,16 +582,23 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 
 	// Aplicar Object Lock
 	if req.ObjectLock != nil && req.ObjectLock.Enabled {
-		days := req.ObjectLock.Days
-		years := req.ObjectLock.Years
+		retention := &bucket.DefaultRetention{
+			Mode: req.ObjectLock.Mode,
+		}
+
+		// Only set Days or Years, not both (as per S3 specification)
+		if req.ObjectLock.Days > 0 {
+			days := req.ObjectLock.Days
+			retention.Days = &days
+		} else if req.ObjectLock.Years > 0 {
+			years := req.ObjectLock.Years
+			retention.Years = &years
+		}
+
 		bucketInfo.ObjectLock = &bucket.ObjectLockConfig{
 			ObjectLockEnabled: true,
 			Rule: &bucket.ObjectLockRule{
-				DefaultRetention: &bucket.DefaultRetention{
-					Mode:  req.ObjectLock.Mode,
-					Days:  &days,
-					Years: &years,
-				},
+				DefaultRetention: retention,
 			},
 		}
 	}

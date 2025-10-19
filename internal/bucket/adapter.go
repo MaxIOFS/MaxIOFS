@@ -136,9 +136,9 @@ func toMetadataRetention(r *DefaultRetention) *metadata.RetentionMetadata {
 		return nil
 	}
 	return &metadata.RetentionMetadata{
-		Mode: r.Mode,
-		// Note: DefaultRetention uses Days/Years, but RetentionMetadata uses RetainUntilDate
-		// This will need to be calculated when actually setting retention
+		Mode:  r.Mode,
+		Days:  r.Days,
+		Years: r.Years,
 	}
 }
 
@@ -147,8 +147,9 @@ func fromMetadataRetention(r *metadata.RetentionMetadata) *DefaultRetention {
 		return nil
 	}
 	return &DefaultRetention{
-		Mode: r.Mode,
-		// Days/Years would need to be calculated from RetainUntilDate
+		Mode:  r.Mode,
+		Days:  r.Days,
+		Years: r.Years,
 	}
 }
 

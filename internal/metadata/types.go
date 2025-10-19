@@ -89,9 +89,13 @@ type ObjectLockRuleMetadata struct {
 }
 
 // RetentionMetadata represents object retention configuration
+// For bucket default retention: Uses Days/Years (one of them, not both)
+// For object retention: Uses RetainUntilDate
 type RetentionMetadata struct {
-	Mode            string    `json:"mode"` // "GOVERNANCE" or "COMPLIANCE"
-	RetainUntilDate time.Time `json:"retain_until_date"`
+	Mode            string     `json:"mode"` // "GOVERNANCE" or "COMPLIANCE"
+	RetainUntilDate time.Time  `json:"retain_until_date,omitempty"`
+	Days            *int       `json:"days,omitempty"`  // For bucket default retention
+	Years           *int       `json:"years,omitempty"` // For bucket default retention
 }
 
 // PolicyMetadata represents bucket policy

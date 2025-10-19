@@ -650,6 +650,7 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Aplicar retención si se especificó en headers (Veeam compatibility)
+	retentionApplied := false
 	if lockMode != "" && retainUntilDateStr != "" {
 		retainUntilDate, parseErr := time.Parse(time.RFC3339, retainUntilDateStr)
 		if parseErr == nil {
@@ -666,9 +667,45 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 					"mode":   lockMode,
 					"until":  retainUntilDate,
 				}).Info("Applied Object Lock retention from headers")
+				retentionApplied = true
 			}
 		} else {
 			logrus.WithError(parseErr).Warn("Failed to parse retain-until-date header")
+		}
+	}
+
+	// Si no se aplicó retención desde headers, aplicar la retención por defecto del bucket
+	if !retentionApplied {
+		tenantID := h.getTenantIDFromRequest(r)
+		lockConfig, err := h.bucketManager.GetObjectLockConfig(r.Context(), tenantID, bucketName)
+		if err == nil && lockConfig != nil && lockConfig.ObjectLockEnabled {
+			// Apply default retention if configured
+			if lockConfig.Rule != nil && lockConfig.Rule.DefaultRetention != nil {
+				retention := &object.RetentionConfig{
+					Mode: lockConfig.Rule.DefaultRetention.Mode,
+				}
+
+				// Calculate retain until date based on days or years
+				if lockConfig.Rule.DefaultRetention.Days != nil {
+					retention.RetainUntilDate = time.Now().AddDate(0, 0, *lockConfig.Rule.DefaultRetention.Days)
+				} else if lockConfig.Rule.DefaultRetention.Years != nil {
+					retention.RetainUntilDate = time.Now().AddDate(*lockConfig.Rule.DefaultRetention.Years, 0, 0)
+				}
+
+				// Set retention on the newly uploaded object
+				if !retention.RetainUntilDate.IsZero() {
+					if setErr := h.objectManager.SetObjectRetention(r.Context(), bucketPath, objectKey, retention); setErr != nil {
+						logrus.WithError(setErr).Warn("Failed to apply default bucket retention")
+					} else {
+						logrus.WithFields(logrus.Fields{
+							"bucket": bucketName,
+							"object": objectKey,
+							"mode":   retention.Mode,
+							"until":  retention.RetainUntilDate,
+						}).Info("Applied default bucket retention")
+					}
+				}
+			}
 		}
 	}
 

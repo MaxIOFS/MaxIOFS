@@ -345,13 +345,10 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 		maxKeys = 1000 // Default max keys
 	}
 
-	// List objects from storage
-	bucketPrefix := bucket + "/"
-	if prefix != "" {
-		bucketPrefix = bucket + "/" + prefix
-	}
+	// List objects from storage - always list entire bucket, then filter by prefix
+	bucketPath := bucket + "/"
 
-	storageObjects, err := om.storage.List(ctx, bucketPrefix, true)
+	storageObjects, err := om.storage.List(ctx, bucketPath, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list objects: %w", err)
 	}
