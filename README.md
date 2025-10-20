@@ -22,6 +22,7 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 - ✅ Bucket management (Create, List, Delete, GetBucketInfo)
 - ✅ Multipart uploads (complete workflow)
 - ✅ Presigned URLs (GET/PUT with expiration)
+- ✅ **Bulk operations (DeleteObjects - batch delete up to 1000 objects)**
 - ✅ Object Lock (COMPLIANCE/GOVERNANCE modes)
 - ✅ Bucket Versioning (Enable/Suspend/Query)
 - ✅ Bucket Policy (Get/Put/Delete JSON policies)
@@ -55,12 +56,19 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 - ✅ Security audit page
 - ✅ Metrics monitoring (System, Storage, Requests, Performance)
 
+### Storage & Performance
+- ✅ **BadgerDB metadata store** (high-performance key-value database)
+- ✅ **Transaction retry logic** for concurrent operations
+- ✅ **Metadata-first deletion** (ensures consistency)
+- ✅ Filesystem storage backend for objects
+- ✅ Atomic write operations with rollback
+- ✅ SQLite for authentication and user management
+
 ### Deployment
 - ✅ Single binary with embedded frontend
 - ✅ HTTP and HTTPS support
 - ✅ Configurable via CLI flags
-- ✅ SQLite database (embedded)
-- ✅ Filesystem storage backend
+- ✅ Production-ready with proper error handling
 
 ## 🚀 Quick Start
 
@@ -139,9 +147,10 @@ Example:
 │  - Multipart upload support            │
 ├─────────────────────────────────────────┤
 │  Storage Layer                          │
-│  - SQLite metadata database            │
-│  - Filesystem object storage           │
-│  - Atomic write operations             │
+│  - BadgerDB (object metadata)          │
+│  - SQLite (auth & user management)     │
+│  - Filesystem (object storage)         │
+│  - Transaction retry with backoff      │
 └─────────────────────────────────────────┘
 ```
 
@@ -155,12 +164,12 @@ MaxIOFS/
 │   ├── auth/                 # Authentication & authorization
 │   ├── bucket/               # Bucket management
 │   ├── config/               # Configuration management
-│   ├── database/             # SQLite database layer
+│   ├── metadata/             # BadgerDB metadata store
 │   ├── metrics/              # System metrics collection
 │   ├── object/               # Object storage operations
 │   ├── server/               # HTTP server setup
-│   ├── storage/              # Storage backend
-│   └── tenant/               # Multi-tenancy logic
+│   ├── storage/              # Filesystem storage backend
+│   └── db/                   # SQLite for auth (legacy)
 ├── pkg/s3compat/             # S3 API implementation
 │   ├── handler.go            # Main S3 handler
 │   ├── bucket_ops.go         # Bucket operations
@@ -180,7 +189,9 @@ MaxIOFS/
 └── data/                     # Runtime data (gitignored)
 ```
 
-## 🧪 Testing with AWS CLI
+## 🧪 Testing
+
+### Testing with AWS CLI
 
 ```bash
 # Step 1: Create access keys via web console
@@ -208,7 +219,34 @@ aws --profile maxiofs --endpoint-url http://localhost:8080 s3 ls s3://test-bucke
 
 # Download file
 aws --profile maxiofs --endpoint-url http://localhost:8080 s3 cp s3://test-bucket/file.txt downloaded.txt
+
+# Bulk delete
+aws --profile maxiofs --endpoint-url http://localhost:8080 s3 rm s3://test-bucket/ --recursive
 ```
+
+### Stress Testing with Warp
+
+MaxIOFS has been tested with [MinIO Warp](https://github.com/minio/warp) for performance validation:
+
+```bash
+# Install warp
+# Download from https://github.com/minio/warp/releases
+
+# Run mixed workload test
+warp mixed --host localhost:8080 \
+  --access-key YOUR_ACCESS_KEY \
+  --secret-key YOUR_SECRET_KEY \
+  --bucket test-bucket \
+  --duration 5m
+
+# Example results (hardware dependent):
+# - Successfully handles 7000+ objects
+# - Bulk delete operations complete without errors
+# - Metadata consistency maintained under load
+# - No BadgerDB transaction conflicts with retry logic
+```
+
+**Note**: Performance varies significantly based on hardware, OS, and workload characteristics.
 
 ## ⚠️ Known Limitations
 

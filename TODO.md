@@ -1,7 +1,7 @@
 # MaxIOFS - TODO & Roadmap
 
 **Version**: 0.2.3-alpha
-**Last Updated**: October 19, 2025
+**Last Updated**: October 19, 2025 (20:50 ART)
 **Status**: Active Development
 
 ## 📊 Current Status Summary
@@ -48,20 +48,44 @@
 - [x] Object Legal Hold (Get/Put)
 - [x] CopyObject with metadata
 - [x] Complete multipart upload workflow
+- [x] **DeleteObjects (bulk delete up to 1000 objects)**
 
 ### Infrastructure
 - [x] Monolithic build (single binary)
 - [x] Frontend embedded in Go binary
 - [x] HTTP and HTTPS support
-- [x] SQLite database for metadata
-- [x] Filesystem storage backend
+- [x] **BadgerDB for object metadata** (high-performance KV store)
+- [x] **Transaction retry logic** (handles concurrent operations)
+- [x] **Metadata-first deletion** (ensures consistency)
+- [x] SQLite database for auth/users
+- [x] Filesystem storage backend for objects
 - [x] JWT authentication for console
 - [x] S3 Signature v2/v4 for API
+
+### Multi-Tenancy & Admin
+- [x] **Global admin sees all buckets** (across all tenants)
+- [x] **Tenant deletion validation** (prevents deletion with buckets)
+- [x] **Cascading delete** (tenant → users → access keys)
+- [x] Tenant quotas (storage, buckets, access keys)
+- [x] Resource isolation between tenants
+
+### Testing Completed
+- [x] **Warp stress testing** (MinIO's S3 benchmark tool)
+  - Successfully handled 7000+ objects in mixed workload
+  - Bulk delete operations validated (up to 1000 objects per request)
+  - BadgerDB transaction conflicts resolved with retry logic
+  - Metadata consistency verified under load
+  - Test results: `warp-mixed-2025-10-19[205102]-LxBL.json.zst`
 
 ## 🔥 High Priority - Beta Blockers
 
 ### Testing & Validation
-**Status**: 🔴 Critical - Required for Beta
+**Status**: 🟡 In Progress - Partial validation completed
+
+- [x] **S3 Bulk Operations**
+  - [x] DeleteObjects tested with warp (7000+ objects)
+  - [x] Validated metadata consistency after bulk delete
+  - [x] Confirmed sequential processing avoids BadgerDB conflicts
 
 - [ ] **S3 API Comprehensive Testing**
   - [ ] Test all 40+ operations with AWS CLI
@@ -72,12 +96,14 @@
   - [ ] Validate CORS with real browser requests
   - [ ] Test lifecycle policies (automatic deletion)
 
-- [ ] **Multi-Tenancy Validation**
-  - [ ] Verify complete resource isolation between tenants
+- [x] **Multi-Tenancy Validation**
+  - [x] Verify complete resource isolation between tenants
+  - [x] Global admin can see all buckets across tenants
+  - [x] Tenant deletion validates no buckets exist
+  - [x] Cascading delete removes users and access keys
   - [ ] Test quota enforcement (storage, buckets, access keys)
   - [ ] Validate permission system works correctly
   - [ ] Test edge cases (empty tenant, exceeded limits, concurrent operations)
-  - [ ] Verify tenant deletion cleans up all resources
 
 - [ ] **Web Console Testing**
   - [ ] Complete user flow testing (all pages, all features)
