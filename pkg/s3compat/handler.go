@@ -623,18 +623,52 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
+	contentEncoding := r.Header.Get("Content-Encoding")
+	decodedContentLength := r.Header.Get("X-Amz-Decoded-Content-Length")
+
 	logrus.WithFields(logrus.Fields{
-		"bucket": bucketName,
-		"object": objectKey,
-	}).Debug("S3 API: PutObject")
+		"bucket":                 bucketName,
+		"object":                 objectKey,
+		"content-length":         r.ContentLength,
+		"transfer-encoding":      r.Header.Get("Transfer-Encoding"),
+		"content-encoding":       contentEncoding,
+		"decoded-content-length": decodedContentLength,
+		"content-type":           r.Header.Get("Content-Type"),
+	}).Debug("S3 API: PutObject - Request headers")
 
 	// Leer headers de Object Lock si están presentes (para Veeam)
 	lockMode := r.Header.Get("x-amz-object-lock-mode")
 	retainUntilDateStr := r.Header.Get("x-amz-object-lock-retain-until-date")
 	legalHoldStatus := r.Header.Get("x-amz-object-lock-legal-hold")
 
+	// CRITICAL FIX: AWS CLI uses "aws-chunked" encoding (not standard HTTP chunked)
+	// This is a special format that includes checksums in trailers
+	// We need to decode it manually
+	var bodyReader io.Reader = r.Body
+
+	if strings.Contains(contentEncoding, "aws-chunked") {
+		logrus.WithFields(logrus.Fields{
+			"bucket":                 bucketName,
+			"object":                 objectKey,
+			"decoded-content-length": decodedContentLength,
+		}).Info("AWS chunked encoding detected - decoding")
+
+		bodyReader = NewAwsChunkedReader(r.Body)
+
+		// Update Content-Length header for storage layer
+		if decodedContentLength != "" {
+			if size, err := strconv.ParseInt(decodedContentLength, 10, 64); err == nil {
+				r.ContentLength = size
+				r.Header.Set("Content-Length", decodedContentLength)
+			}
+		}
+
+		// Remove aws-chunked from Content-Encoding for storage
+		r.Header.Del("Content-Encoding")
+	}
+
 	bucketPath := h.getBucketPath(r, bucketName)
-	obj, err := h.objectManager.PutObject(r.Context(), bucketPath, objectKey, r.Body, r.Header)
+	obj, err := h.objectManager.PutObject(r.Context(), bucketPath, objectKey, bodyReader, r.Header)
 	if err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"bucket": bucketName,

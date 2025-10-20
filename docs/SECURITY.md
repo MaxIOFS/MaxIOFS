@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 0.2.0-dev
+**Version**: 0.2.4-alpha
 
 > **ALPHA SOFTWARE DISCLAIMER**
 >
@@ -395,5 +395,5 @@ Response time: Within 48 hours
 
 ---
 
-**Version**: 0.2.0-dev
+**Version**: 0.2.4-alpha
 **Last Updated**: October 2025

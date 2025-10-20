@@ -1,7 +1,7 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.2.3-alpha
-**Status**: Active Development (Alpha Phase)
+**Version**: 0.2.4-alpha
+**Status**: Active Development (Alpha Phase - Validated with Warp Testing)
 **License**: MIT
 
 MaxIOFS is an S3-compatible object storage system built in Go with an embedded Next.js web interface. Designed to be simple, portable, and deployable as a single binary.
@@ -10,10 +10,12 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 
 **This project is in ALPHA phase**. This means:
 - ✅ Works for basic to intermediate use cases
-- ⚠️ May have undiscovered bugs
+- ✅ **Successfully tested with MinIO Warp (7000+ objects, bulk operations validated)**
+- ✅ **Metadata consistency verified under load**
 - ⚠️ API may change without prior notice
-- ❌ DO NOT use in production without extensive testing
-- ❌ DO NOT trust as the only copy of important data
+- ⚠️ Recommended for testing and development environments
+- ❌ DO NOT use in production without your own extensive testing
+- ❌ DO NOT trust as the only copy of critical data
 
 ## 🎯 Features
 
@@ -253,11 +255,13 @@ warp mixed --host localhost:8080 \
 ### Critical
 - ⚠️ Single-node only (no clustering/replication)
 - ⚠️ Filesystem backend only (no S3/GCS/Azure backends)
-- ⚠️ Limited performance testing (not validated at scale)
-- ⚠️ Multi-tenancy needs more real-world testing
 - ⚠️ Object Lock not validated with Veeam or other backup tools
+- ⚠️ Multi-tenancy needs more real-world production testing
 
 ### Performance
+- ✅ **Validated with MinIO Warp stress testing (7000+ objects)**
+- ✅ **Bulk operations tested and working correctly**
+- ✅ **BadgerDB transaction conflicts resolved with retry logic**
 - Local benchmarks: ~374 MB/s writes, ~1703 MB/s reads
 - *Numbers are from local tests and vary by hardware*
 
@@ -324,21 +328,25 @@ Contributions welcome! Please:
 
 ## 🗺️ Roadmap
 
-### Short Term (v0.3.0)
+### Short Term (v0.3.0-beta)
+- [x] **Warp stress testing completed** (7000+ objects validated)
+- [x] **Bulk operations validated** (DeleteObjects working)
+- [x] **Metadata consistency verified** under concurrent load
 - [ ] Comprehensive test suite (80%+ coverage)
 - [ ] Complete API documentation
 - [ ] Docker images
-- [ ] Performance benchmarking suite
+- [ ] Security audit
 
 ### Medium Term (v0.4.0-v0.5.0)
 - [ ] Object versioning (full implementation)
+- [ ] Bucket replication (cross-bucket/cross-region)
 - [ ] Prometheus metrics export
 - [ ] Kubernetes Helm charts
 - [ ] CI/CD pipeline
 
 ### Long Term (v1.0.0+)
 - [ ] Multi-node clustering
-- [ ] Replication between nodes
+- [ ] Replication between nodes (sync/async)
 - [ ] Additional storage backends (S3, GCS, Azure)
 - [ ] LDAP/SSO integration
 

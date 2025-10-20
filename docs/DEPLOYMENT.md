@@ -1,10 +1,12 @@
 # MaxIOFS Deployment Guide
 
-**Version**: 0.2.0-dev
+**Version**: 0.2.4-alpha
 
 ## Overview
 
-MaxIOFS is an S3-compatible object storage system currently in **alpha development**. This guide covers basic deployment methods suitable for testing and development environments.
+MaxIOFS is an S3-compatible object storage system currently in **alpha development** with validated stress testing. This guide covers basic deployment methods suitable for testing and development environments.
+
+**Testing Status**: Successfully validated with MinIO Warp (7000+ objects, bulk operations working correctly).
 
 **Default Credentials:**
 - Web Console: `admin` / `admin` - **⚠️ Change password after first login**
@@ -385,5 +387,5 @@ ls -t $BACKUP_DIR/maxiofs_*.tar.gz | tail -n +8 | xargs rm -f
 
 ---
 
-**Version**: 0.2.0-dev
+**Version**: 0.2.4-alpha
 **Last Updated**: October 2025

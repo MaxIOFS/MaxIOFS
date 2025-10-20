@@ -1,6 +1,6 @@
 # MaxIOFS API Reference
 
-**Version**: 0.2.0-dev
+**Version**: 0.2.4-alpha
 
 ## Overview
 
