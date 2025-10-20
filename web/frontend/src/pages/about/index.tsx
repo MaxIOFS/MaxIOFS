@@ -12,11 +12,14 @@ import {
   Package,
   Award,
   Heart,
-  Send
+  Send,
+  FileJson,
+  RefreshCw,
+  Layers
 } from 'lucide-react';
 
 export default function AboutPage() {
-  const version = '0.2.3-alpha';
+  const version = '0.2.4-alpha';
   const buildDate = new Date().toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
@@ -61,9 +64,11 @@ export default function AboutPage() {
                   Description
                 </h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
-                  MaxIOFS is an S3-compatible object storage system designed to be simple, 
-                  portable, and deployable as a single binary. It includes a modern integrated 
-                  web interface and full support for the main operations of the S3 protocol.
+                  MaxIOFS is a high-performance S3-compatible object storage system built with Go and React.
+                  Designed to be simple, portable, and deployable as a single binary with an embedded modern
+                  web interface. Features full multi-tenancy support, BadgerDB-powered metadata storage, and
+                  comprehensive S3 API compatibility with 40+ operations including bulk operations, object lock,
+                  and advanced bucket management.
                 </p>
               </div>
 
@@ -108,9 +113,10 @@ export default function AboutPage() {
                   Main Developer
                 </h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
-                  Project entirely developed by Alberto Ricardo. MaxIOFS was born as a solution 
-                  to provide S3-compatible object storage in a simple and efficient way, with 
-                  multi-tenant support and integrated security.
+                  Project entirely developed by Aluisco Ricardo. MaxIOFS was born as a solution
+                  to provide enterprise-grade S3-compatible object storage in a simple and efficient way,
+                  with complete multi-tenant support, high-performance metadata storage using BadgerDB,
+                  and production-ready security features.
                 </p>
               </div>
 
@@ -132,7 +138,7 @@ export default function AboutPage() {
                   <span>github.com/aluisco/MaxIOFS</span>
                 </a>
                 <a
-                href="https://t.me/aluisco" // <-- cambia esto por tu usuario o grupo
+                href="https://t.me/aluisco"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center space-x-3 text-sm text-gray-600 dark:text-gray-400 hover:text-[#0088cc] transition-colors"
@@ -165,32 +171,47 @@ export default function AboutPage() {
             <FeatureCard
               icon={Database}
               title="S3 Compatible"
-              description="Full implementation of the S3 protocol with support for AWS CLI and SDKs"
+              description="Full S3 API implementation with 40+ operations including multipart uploads, presigned URLs, and bulk operations (up to 1000 objects)"
             />
             <FeatureCard
               icon={Shield}
               title="Multi-Tenant"
-              description="Complete isolation between tenants with configurable quotas and permissions"
+              description="Complete tenant isolation with configurable quotas, cascading deletes, deletion validation, and global admin cross-tenant visibility"
             />
             <FeatureCard
               icon={Lock}
               title="Security"
-              description="JWT authentication, AWS Signature v2/v4, and granular access control"
+              description="JWT authentication, AWS Signature v2/v4, bcrypt password hashing, rate limiting, account lockout, and granular access control"
             />
             <FeatureCard
               icon={Zap}
               title="High Performance"
-              description="Designed to handle concurrent operations with low latency"
+              description="BadgerDB v4 metadata store with transaction retry logic, metadata-first deletion, and stress-tested with 7000+ objects using MinIO Warp"
             />
             <FeatureCard
               icon={Package}
               title="Single Binary"
-              description="Packaged as a single executable with no external dependencies"
+              description="Packaged as a single executable with embedded Next.js frontend, no external dependencies, and easy deployment"
             />
             <FeatureCard
               icon={Code}
-              title="REST API"
-              description="Complete REST interface for managing users, buckets, and objects"
+              title="Modern UI"
+              description="React 19 + TypeScript interface with dark mode support, real-time metrics, responsive design, and comprehensive management features"
+            />
+            <FeatureCard
+              icon={FileJson}
+              title="Advanced S3 Features"
+              description="Object Lock (WORM), Bucket Versioning, Bucket Policies (JSON), CORS, Lifecycle rules, Object Tagging, and Object ACLs"
+            />
+            <FeatureCard
+              icon={RefreshCw}
+              title="Bulk Operations"
+              description="DeleteObjects API (up to 1000 objects), sequential processing to avoid conflicts, complete metadata consistency"
+            />
+            <FeatureCard
+              icon={Layers}
+              title="Dual Storage"
+              description="BadgerDB v4 for high-performance object metadata, SQLite for authentication, filesystem for object storage with atomic operations"
             />
           </div>
         </div>
@@ -219,11 +240,19 @@ export default function AboutPage() {
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
-                  SQLite (Metadata)
+                  BadgerDB v4 (Object Metadata)
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
-                  Filesystem Storage
+                  SQLite (Authentication)
+                </li>
+                <li className="flex items-center">
+                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  Filesystem Storage Backend
+                </li>
+                <li className="flex items-center">
+                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  Logrus (Structured Logging)
                 </li>
               </ul>
             </div>
@@ -247,9 +276,77 @@ export default function AboutPage() {
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
-                  TanStack Query
+                  TanStack Query (React Query)
+                </li>
+                <li className="flex items-center">
+                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  React Router v6
+                </li>
+                <li className="flex items-center">
+                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  SweetAlert2 (Notifications)
                 </li>
               </ul>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Recent Improvements */}
+      <Card>
+        <div className="p-6">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
+            Recent Improvements (v0.2.4-alpha)
+          </h2>
+          <div className="space-y-4">
+            <div className="border-l-4 border-green-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                BadgerDB Integration
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Replaced generic metadata storage with BadgerDB v4, a high-performance embedded key-value database.
+                Includes transaction retry logic with exponential backoff and metadata-first deletion for guaranteed consistency.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-blue-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Bulk Operations
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Implemented S3 DeleteObjects API supporting up to 1000 objects per request. Features sequential processing
+                to avoid transaction conflicts and complete metadata consistency validation.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-purple-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Multi-Tenancy Enhancements
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Added tenant deletion validation (prevents deletion with buckets), cascading delete (tenant → users → keys),
+                and global admin cross-tenant visibility for all buckets.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-orange-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Performance Validation
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Stress tested with MinIO Warp benchmark tool. Successfully handled 7000+ objects in mixed workload
+                with zero transaction conflicts and complete metadata consistency.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-yellow-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                UI/UX Improvements
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Full dark mode support, immediate query refetching for real-time updates, recent buckets sorted by
+                creation date (3 latest), and improved error handling with user feedback.
+              </p>
             </div>
           </div>
         </div>

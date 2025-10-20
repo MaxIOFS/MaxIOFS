@@ -1,6 +1,6 @@
 # MaxIOFS - TODO & Roadmap
 
-**Version**: 0.2.3-alpha
+**Version**: 0.2.4-alpha
 **Last Updated**: October 19, 2025 (20:50 ART)
 **Status**: Active Development
 
@@ -8,7 +8,7 @@
 
 ```
 ┌───────────────────────────────────────────────┐
-│  MaxIOFS v0.2.3-alpha                         │
+│  MaxIOFS v0.2.4-alpha                         │
 │  Status: ALPHA - Functional but not validated│
 ├───────────────────────────────────────────────┤
 │  ✅ S3 API: 40+ operations implemented        │
