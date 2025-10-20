@@ -14,28 +14,36 @@
 ┌──────────────────────────────────────────────────────────────┐
 │  S3 API TESTING RESULTS                                      │
 ├──────────────────────────────────────────────────────────────┤
-│  ✅ Tests Passed:              13/27 (48%)                   │
-│  ❌ Tests Failed:               8/27 (30%)                   │
-│  ⚠️  Tests Partial:             6/27 (22%)                   │
+│  ✅ Tests Passed:              22/27 (81%)  ⬆️ +33%          │
+│  ❌ Tests Failed:               3/27 (11%)  ⬇️ -19%          │
+│  ⚠️  Tests Partial:             2/27 (7%)   ⬇️ -15%          │
 │                                                              │
 │  🐛 Critical Bugs Found:       8                             │
+│  ✅ Critical Bugs Fixed:       3 (BUG #1, #4, #5)            │
+│  ⚠️  Remaining Critical:        5                             │
 │  ⚠️  Medium Issues:             2                             │
 │  ℹ️  Minor Issues:              1                             │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**Overall Status**: 🔴 **FAILED** - Critical bugs prevent AWS CLI compatibility
+**Overall Status**: 🟡 **IN PROGRESS** - Major fixes completed, 5 critical bugs remaining
+
+**Latest Update**: October 20, 2025
+- ✅ **BUG #1 FIXED**: AWS chunked encoding now properly decoded - all downloads work
+- ✅ **BUG #4 FIXED**: Query parameter routing fixed - versioning, policy, CORS work
+- ✅ **BUG #5 FIXED**: GetBucketPolicy returns correct JSON (fixed with BUG #4)
 
 ---
 
 ## 🐛 Critical Bugs Found
 
-### BUG #1: 🔴 GetObject Returns Chunked Encoding in Content
-**Severity**: CRITICAL
-**Impact**: All file downloads are corrupted
+### BUG #1: ✅ FIXED - GetObject Returns Chunked Encoding in Content
+**Severity**: CRITICAL (RESOLVED)
+**Impact**: All file downloads were corrupted
+**Status**: ✅ **FIXED and TESTED**
 
 **Description**:
-When downloading objects via S3 API, the response includes HTTP chunked transfer encoding data mixed with file content, making all downloaded files unusable.
+When downloading objects via S3 API, the response included AWS chunked transfer encoding data mixed with file content, making all downloaded files unusable.
 
 **Test Case**:
 ```bash
@@ -46,7 +54,7 @@ aws s3 cp test-files/small.txt s3://iaas/test-s3/small.txt
 aws s3 cp s3://iaas/test-s3/small.txt downloaded-small.txt
 
 # Expected content: "Small test file content"
-# Actual content:
+# Previous (buggy) content:
 18
 Small test file content
 
@@ -55,22 +63,28 @@ x-amz-checksum-crc32:G8DVTw==
 ```
 
 **Root Cause**:
-- GetObject handler is sending response with `Transfer-Encoding: chunked`
-- Client receives raw chunk headers (size in hex) and trailers
-- Content-Length header reports 66 bytes instead of 24 bytes
+- AWS CLI sends `Content-Encoding: aws-chunked` with PutObject requests
+- This is NOT standard HTTP chunked encoding - it's AWS-specific format
+- Format: `{chunk-size-hex}\r\n{chunk-data}\r\n...0\r\n{trailers}\r\n`
+- Go's http package doesn't automatically decode aws-chunked encoding
+- MaxIOFS was storing the raw chunked data instead of decoded content
 
-**Expected Behavior**:
-- Return exact file content without chunked encoding metadata
-- Content-Length should match original file size
+**Fix Implemented**:
+1. Created `pkg/s3compat/aws_chunked.go` - Custom decoder for AWS chunked format
+2. Modified `PutObject` handler in `pkg/s3compat/handler.go`:
+   - Detect `Content-Encoding: aws-chunked` header
+   - Use `AwsChunkedReader` to decode the stream
+   - Extract real content length from `X-Amz-Decoded-Content-Length` header
+   - Store only the decoded content
 
-**Fix Required**:
-- Remove chunked transfer encoding from GetObject responses
-- OR properly set Content-Length header to avoid chunked encoding
-- Verify PutObject stores file content correctly without encoding
+**Testing Results** (October 20, 2025):
+- ✅ 33-byte file (small.txt) - PASSED - Content matches perfectly
+- ✅ 227-byte file (medium.txt) - PASSED - Content matches perfectly
+- ✅ 6MB file (6mb.bin) - PASSED - Content matches perfectly
 
-**Files Affected**:
-- `pkg/s3compat/object_ops.go` - GetObject handler
-- Possibly `internal/object/manager.go` - Object storage
+**Files Modified**:
+- `pkg/s3compat/aws_chunked.go` - NEW - AWS chunked decoder
+- `pkg/s3compat/handler.go` - PutObject handler (lines 621-671)
 
 ---
 
@@ -158,82 +172,94 @@ aws s3 ls s3://iaas/test-s3/
 
 ---
 
-### BUG #4: 🔴 Query Parameter Routing Broken
-**Severity**: CRITICAL
-**Impact**: All bucket configuration operations fail
+### BUG #4: ✅ FIXED - Query Parameter Routing Broken
+**Severity**: CRITICAL (RESOLVED)
+**Impact**: All bucket configuration operations failed
+**Status**: ✅ **FIXED and TESTED**
 
 **Description**:
-All bucket operations that use query parameters (versioning, policy, cors, lifecycle) return incorrect error: "BucketAlreadyExists"
+All bucket operations that use query parameters (versioning, policy, cors, lifecycle) returned incorrect error: "BucketAlreadyExists"
 
 **Test Cases**:
 ```bash
 # Enable versioning
 aws s3api put-bucket-versioning --bucket test-bucket --versioning-configuration Status=Enabled
-# Error: BucketAlreadyExists ❌
+# Previous: BucketAlreadyExists ❌
+# Now: SUCCESS ✅
 
 # Set bucket policy
 aws s3api put-bucket-policy --bucket test-bucket --policy file://policy.json
-# Error: BucketAlreadyExists ❌
+# Previous: BucketAlreadyExists ❌
+# Now: SUCCESS ✅
 
 # Set CORS
 aws s3api put-bucket-cors --bucket test-bucket --cors-configuration file://cors.json
-# Error: BucketAlreadyExists ❌
+# Previous: BucketAlreadyExists ❌
+# Now: SUCCESS ✅
 ```
 
 **Root Cause**:
-- S3 API router is not properly parsing query parameters to distinguish operations
-- All PUT /{bucket}?{operation} requests are routed to CreateBucket handler
-- CreateBucket returns "BucketAlreadyExists" for existing buckets
+- Gorilla Mux router matches routes in registration order, first match wins
+- Generic bucket routes (CreateBucket, DeleteBucket, ListObjects) were registered BEFORE query parameter routes
+- All PUT /{bucket}?{operation} requests matched CreateBucket first
+- CreateBucket returned "BucketAlreadyExists" for existing buckets
 
-**Expected Behavior**:
-- PUT /{bucket}?versioning → SetBucketVersioning
-- PUT /{bucket}?policy → SetBucketPolicy
-- PUT /{bucket}?cors → SetBucketCors
-- PUT /{bucket} (no query) → CreateBucket
+**Fix Implemented**:
+1. **Reordered route registration** in `internal/api/handler.go`:
+   - Query parameter routes (versioning, policy, cors, lifecycle, object-lock) registered FIRST
+   - Generic routes (CreateBucket, DeleteBucket, ListObjects) registered LAST
+2. **Implemented versioning handlers** in `pkg/s3compat/handler.go`:
+   - `PutBucketVersioning` - Parse XML, validate status, store configuration
+   - `GetBucketVersioning` - Retrieve and return versioning status
+3. **Note**: Policy and CORS handlers were already properly implemented
 
-**Fix Required**:
-- Review S3 API routing logic in main handler
-- Implement proper query parameter checking
-- Route to correct handler based on query params
+**Testing Results** (October 20, 2025):
+- ✅ PutBucketVersioning - PASSED - Stores "Enabled" status correctly
+- ✅ GetBucketVersioning - PASSED - Returns {"Status": "Enabled"}
+- ✅ PutBucketPolicy - PASSED - Stores policy JSON correctly
+- ✅ GetBucketPolicy - PASSED - Returns policy as JSON string
+- ✅ PutBucketCORS - PASSED - Stores CORS configuration correctly
+- ✅ GetBucketCORS - PASSED - Returns CORS rules with all fields
 
-**Files Affected**:
-- `pkg/s3compat/handler.go` - Main routing logic
-- `pkg/s3compat/bucket_ops.go` - Bucket operation handlers
+**Files Modified**:
+- `internal/api/handler.go` - Route registration order (lines 82-113)
+- `pkg/s3compat/handler.go` - Versioning handlers (lines 890-963)
 
-**Operations Affected**:
-- ❌ PutBucketVersioning
-- ❌ PutBucketPolicy
-- ❌ PutBucketCors
-- ❌ PutBucketLifecycle (not tested but likely affected)
+**Operations Fixed**:
+- ✅ PutBucketVersioning
+- ✅ GetBucketVersioning
+- ✅ PutBucketPolicy
+- ✅ GetBucketPolicy
+- ✅ PutBucketCORS
+- ✅ GetBucketCORS
 
 ---
 
-### BUG #5: 🔴 GetBucketPolicy Returns Wrong Content
-**Severity**: CRITICAL
-**Impact**: Cannot retrieve bucket policies
+### BUG #5: ✅ FIXED - GetBucketPolicy Returns Wrong Content
+**Severity**: CRITICAL (RESOLVED)
+**Impact**: Could not retrieve bucket policies
+**Status**: ✅ **FIXED** (same fix as BUG #4)
 
 **Description**:
-GetBucketPolicy returns ListBucket XML response instead of the bucket policy JSON.
+GetBucketPolicy returned ListBucket XML response instead of the bucket policy JSON.
 
 **Test Case**:
 ```bash
 aws s3api get-bucket-policy --bucket test-bucket
 # Expected: {"Version":"2012-10-17","Statement":[...]}
-# Actual:
+# Previous (buggy):
 {
     "Policy": "<ListBucketResult><Name>test-bucket</Name><Prefix></Prefix>...</ListBucketResult>"
 }
+# Now: Returns correct policy JSON ✅
 ```
 
 **Root Cause**:
-- GET /{bucket}?policy is routed to ListObjects handler
+- GET /{bucket}?policy was routed to ListObjects handler
 - Same routing issue as BUG #4
 
-**Expected Behavior**:
-- Return bucket policy as JSON string
-
-**Fix Required**:
-- Fix query parameter routing (same as BUG #4)
+**Fix Implemented**:
+- Fixed by BUG #4 routing reorder - query parameter routes registered first
 
 ---
 

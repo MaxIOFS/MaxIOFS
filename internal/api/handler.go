@@ -80,13 +80,10 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	bucketRouter := s3Router.PathPrefix("/{bucket}").Subrouter()
 
 	// Bucket management - register both "" and "/" to handle trailing slash
+	// IMPORTANT: Register routes with query parameters FIRST, before generic routes
+	// Gorilla Mux matches routes in order, first match wins
 	for _, path := range []string{"", "/"} {
-		bucketRouter.HandleFunc(path, h.s3Handler.HeadBucket).Methods("HEAD")
-		bucketRouter.HandleFunc(path, h.s3Handler.CreateBucket).Methods("PUT")
-		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucket).Methods("DELETE")
-		bucketRouter.HandleFunc(path, h.s3Handler.ListObjects).Methods("GET")
-
-		// Bucket configuration endpoints
+		// Bucket configuration endpoints (with query parameters - must be registered first)
 		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketLocation).Methods("GET").Queries("location", "")
 		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketVersioning).Methods("GET").Queries("versioning", "")
 		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketVersioning).Methods("PUT").Queries("versioning", "")
@@ -107,6 +104,12 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketCORS).Methods("GET").Queries("cors", "")
 		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketCORS).Methods("PUT").Queries("cors", "")
 		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketCORS).Methods("DELETE").Queries("cors", "")
+
+		// Generic bucket operations (without query parameters - registered last)
+		bucketRouter.HandleFunc(path, h.s3Handler.HeadBucket).Methods("HEAD")
+		bucketRouter.HandleFunc(path, h.s3Handler.CreateBucket).Methods("PUT")
+		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucket).Methods("DELETE")
+		bucketRouter.HandleFunc(path, h.s3Handler.ListObjects).Methods("GET")
 	}
 
 	// Batch operations

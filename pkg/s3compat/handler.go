@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/xml"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -888,10 +889,77 @@ func (h *Handler) GetBucketLocation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetBucketVersioning(w http.ResponseWriter, r *http.Request) {
-	h.writeXMLResponse(w, http.StatusOK, `<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>`)
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
+		"tenant": tenantID,
+	}).Debug("S3 API: GetBucketVersioning")
+
+	// Get bucket info
+	bkt, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	// Build versioning response
+	status := "Suspended"
+	if bkt.Versioning != nil && bkt.Versioning.Status == "Enabled" {
+		status = "Enabled"
+	}
+
+	h.writeXMLResponse(w, http.StatusOK, fmt.Sprintf(`<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>%s</Status></VersioningConfiguration>`, status))
 }
 
 func (h *Handler) PutBucketVersioning(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
+		"tenant": tenantID,
+	}).Debug("S3 API: PutBucketVersioning")
+
+	// Parse versioning configuration from request body
+	type VersioningConfiguration struct {
+		XMLName xml.Name `xml:"VersioningConfiguration"`
+		Status  string   `xml:"Status"`
+	}
+
+	var versioningConfig VersioningConfiguration
+	if err := xml.NewDecoder(r.Body).Decode(&versioningConfig); err != nil {
+		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
+		return
+	}
+
+	// Validate status
+	if versioningConfig.Status != "Enabled" && versioningConfig.Status != "Suspended" {
+		h.writeError(w, "IllegalVersioningConfigurationException", "Invalid versioning status", bucketName, r)
+		return
+	}
+
+	// Set versioning configuration
+	config := &bucket.VersioningConfig{
+		Status: versioningConfig.Status,
+	}
+
+	if err := h.bucketManager.SetVersioning(r.Context(), tenantID, bucketName, config); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
