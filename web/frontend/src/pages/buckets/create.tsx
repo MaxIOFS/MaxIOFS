@@ -137,8 +137,9 @@ export default function CreateBucketPage() {
       return APIClient.createBucket(payload);
     },
     onSuccess: () => {
-      // Invalidate buckets cache so the list refreshes when we navigate back
-      queryClient.invalidateQueries({ queryKey: ['buckets'] });
+      // Refetch to update immediately (buckets list and tenant counters)
+      queryClient.refetchQueries({ queryKey: ['buckets'] });
+      queryClient.refetchQueries({ queryKey: ['tenants'] });
       SweetAlert.toast('success', `Bucket "${config.name}" created successfully`);
       navigate('/buckets');
     },

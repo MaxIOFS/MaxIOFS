@@ -100,10 +100,11 @@ export default function UserDetailsPage() {
   const createAccessKeyMutation = useMutation({
     mutationFn: () => APIClient.createAccessKey({ userId }),
     onSuccess: (response) => {
-      queryClient.invalidateQueries({ queryKey: ['accessKeys', userId] }); // Update user's keys
-      queryClient.invalidateQueries({ queryKey: ['accessKeys'] }); // Update global access keys list
-      queryClient.invalidateQueries({ queryKey: ['users'] }); // Update users list (shows key count)
-      queryClient.invalidateQueries({ queryKey: ['tenants'] }); // Update tenant access key count
+      // Refetch to update immediately
+      queryClient.refetchQueries({ queryKey: ['accessKeys', userId] }); // Update user's keys
+      queryClient.refetchQueries({ queryKey: ['accessKeys'] }); // Update global access keys list
+      queryClient.refetchQueries({ queryKey: ['users'] }); // Update users list (shows key count)
+      queryClient.refetchQueries({ queryKey: ['tenants'] }); // Update tenant access key count
       setCreatedKey(response);
       setIsCreateKeyModalOpen(false);
       setNewKeyName('');
@@ -132,9 +133,9 @@ export default function UserDetailsPage() {
         return oldData.filter(key => key.id !== keyId);
       });
 
-      // Invalidate other queries to update counts
-      queryClient.invalidateQueries({ queryKey: ['users'] });
-      queryClient.invalidateQueries({ queryKey: ['tenants'] });
+      // Refetch other queries to update counts immediately
+      queryClient.refetchQueries({ queryKey: ['users'] });
+      queryClient.refetchQueries({ queryKey: ['tenants'] });
 
       // Force refetch to ensure we have the latest data from server
       await Promise.all([

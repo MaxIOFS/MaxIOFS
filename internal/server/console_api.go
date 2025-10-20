@@ -707,7 +707,13 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
-	tenantID := user.TenantID
+
+	// Get tenantId from query parameter if provided (for global admin deleting tenant buckets)
+	// Otherwise use the user's tenantID
+	tenantID := r.URL.Query().Get("tenantId")
+	if tenantID == "" {
+		tenantID = user.TenantID
+	}
 
 	// Obtener información del bucket antes de eliminarlo para actualizar contadores
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)

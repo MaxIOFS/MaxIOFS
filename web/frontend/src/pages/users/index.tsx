@@ -66,7 +66,8 @@ export default function UsersPage() {
   const createUserMutation = useMutation({
     mutationFn: (data: CreateUserRequest) => APIClient.createUser(data),
     onSuccess: (response, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.refetchQueries({ queryKey: ['users'] });
+      queryClient.refetchQueries({ queryKey: ['tenants'] });
       setIsCreateModalOpen(false);
       setNewUser({ roles: ['read'], status: 'active' });
       SweetAlert.successUserCreated(variables.username);
@@ -80,7 +81,8 @@ export default function UsersPage() {
     mutationFn: ({ userId, data }: { userId: string; data: EditUserForm }) =>
       APIClient.updateUser(userId, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.refetchQueries({ queryKey: ['users'] });
+      queryClient.refetchQueries({ queryKey: ['tenants'] });
       SweetAlert.toast('success', 'User updated successfully');
     },
     onError: (error: any) => {
@@ -92,7 +94,8 @@ export default function UsersPage() {
     mutationFn: (userId: string) => APIClient.deleteUser(userId),
     onSuccess: () => {
       SweetAlert.close();
-      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.refetchQueries({ queryKey: ['users'] });
+      queryClient.refetchQueries({ queryKey: ['tenants'] });
       SweetAlert.toast('success', 'User deleted successfully');
     },
     onError: (error: any) => {
@@ -104,8 +107,8 @@ export default function UsersPage() {
   const unlockUserMutation = useMutation({
     mutationFn: (userId: string) => APIClient.unlockUser(userId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] });
-      queryClient.invalidateQueries({ queryKey: ['locked-users'] });
+      queryClient.refetchQueries({ queryKey: ['users'] });
+      queryClient.refetchQueries({ queryKey: ['locked-users'] });
       SweetAlert.toast('success', 'User unlocked successfully');
     },
     onError: (error: any) => {

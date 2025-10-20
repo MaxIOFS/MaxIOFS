@@ -52,7 +52,7 @@ export default function TenantsPage() {
   const createTenantMutation = useMutation({
     mutationFn: (data: CreateTenantRequest) => APIClient.createTenant(data),
     onSuccess: (response, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['tenants'] });
+      queryClient.refetchQueries({ queryKey: ['tenants'] });
       setIsCreateModalOpen(false);
       setNewTenant({ maxAccessKeys: 10, maxStorageBytes: 107374182400, maxBuckets: 100 });
       SweetAlert.toast('success', `Tenant "${variables.displayName}" created successfully`);
@@ -66,7 +66,7 @@ export default function TenantsPage() {
     mutationFn: ({ tenantId, data }: { tenantId: string; data: UpdateTenantRequest }) =>
       APIClient.updateTenant(tenantId, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tenants'] });
+      queryClient.refetchQueries({ queryKey: ['tenants'] });
       setIsEditModalOpen(false);
       setSelectedTenant(null);
       SweetAlert.toast('success', 'Tenant updated successfully');
@@ -80,7 +80,8 @@ export default function TenantsPage() {
     mutationFn: (tenantId: string) => APIClient.deleteTenant(tenantId),
     onSuccess: () => {
       SweetAlert.close();
-      queryClient.invalidateQueries({ queryKey: ['tenants'] });
+      queryClient.refetchQueries({ queryKey: ['tenants'] });
+      queryClient.refetchQueries({ queryKey: ['buckets'] });
       SweetAlert.toast('success', 'Tenant deleted successfully');
     },
     onError: (error: any) => {

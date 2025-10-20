@@ -30,9 +30,12 @@ export default function BucketsPage() {
   });
 
   const deleteBucketMutation = useMutation({
-    mutationFn: (bucketName: string) => APIClient.deleteBucket(bucketName),
-    onSuccess: (response, bucketName) => {
-      queryClient.invalidateQueries({ queryKey: ['buckets'] });
+    mutationFn: ({ bucketName, tenantId }: { bucketName: string; tenantId?: string }) =>
+      APIClient.deleteBucket(bucketName, tenantId),
+    onSuccess: (response, { bucketName }) => {
+      // Refetch to update immediately (buckets list and tenant counters)
+      queryClient.refetchQueries({ queryKey: ['buckets'] });
+      queryClient.refetchQueries({ queryKey: ['tenants'] });
       SweetAlert.successBucketDeleted(bucketName);
     },
     onError: (error: any) => {
@@ -49,7 +52,12 @@ export default function BucketsPage() {
       const result = await SweetAlert.confirmDeleteBucket(bucketName);
       if (result.isConfirmed) {
         SweetAlert.loading('Deleting bucket...', `Deleting "${bucketName}" and all its data`);
-        deleteBucketMutation.mutate(bucketName);
+
+        // Find the bucket to get its tenant_id
+        const bucket = buckets?.find(b => b.name === bucketName);
+        const tenantId = bucket?.tenant_id || bucket?.tenantId;
+
+        deleteBucketMutation.mutate({ bucketName, tenantId });
       }
     } catch (error) {
       SweetAlert.close();

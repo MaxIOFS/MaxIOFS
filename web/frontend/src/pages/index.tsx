@@ -277,7 +277,10 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="space-y-2">
-                {buckets.slice(0, 5).map((bucket) => (
+                {buckets
+                  .sort((a, b) => new Date(b.creation_date).getTime() - new Date(a.creation_date).getTime())
+                  .slice(0, 3)
+                  .map((bucket) => (
                   <div
                     key={bucket.name}
                     className="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg cursor-pointer transition-colors group"
@@ -297,7 +300,7 @@ export default function Dashboard() {
                     <ArrowUpRight className="h-4 w-4 text-gray-400 dark:text-gray-500 group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors flex-shrink-0" />
                   </div>
                 ))}
-                {buckets.length > 5 && (
+                {buckets.length > 3 && (
                   <button
                     onClick={() => navigate('/buckets')}
                     className="w-full mt-4 text-center text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium py-2"
