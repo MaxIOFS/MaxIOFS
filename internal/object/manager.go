@@ -381,9 +381,18 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 	for _, metaObj := range metadataObjects {
 		key := metaObj.Key
 
-		// Skip internal MaxIOFS files (shouldn't be in metadata, but double-check)
-		if strings.HasPrefix(key, ".maxiofs-") {
+		// Skip internal MaxIOFS files
+		// Check if the filename (not just prefix) contains .maxiofs-
+		if strings.HasPrefix(key, ".maxiofs-") || strings.Contains(key, "/.maxiofs-") {
 			continue
+		}
+
+		// Skip implicit folders (created automatically when uploading files)
+		// In S3, only explicitly created folders should appear in listings
+		if metaObj.Metadata != nil {
+			if implicit, ok := metaObj.Metadata["x-maxiofs-implicit-folder"]; ok && implicit == "true" {
+				continue
+			}
 		}
 
 		// Handle delimiter (common prefixes / folders)
@@ -1186,6 +1195,8 @@ func (om *objectManager) ensureImplicitFolders(ctx context.Context, bucket, key 
 
 		// Create folder object in BadgerDB
 		now := time.Now()
+		folderMetadata := make(map[string]string)
+		folderMetadata["x-maxiofs-implicit-folder"] = "true" // Mark as implicit
 		folderObj := &metadata.ObjectMetadata{
 			Bucket:       bucket,
 			Key:          folderKey,
@@ -1193,7 +1204,7 @@ func (om *objectManager) ensureImplicitFolders(ctx context.Context, bucket, key 
 			LastModified: now,
 			ETag:         "d41d8cd98f00b204e9800998ecf8427e", // MD5 of empty string
 			ContentType:  "application/x-directory",
-			Metadata:     make(map[string]string),
+			Metadata:     folderMetadata,
 			CreatedAt:    now,
 			UpdatedAt:    now,
 		}

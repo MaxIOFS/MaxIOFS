@@ -1,6 +1,7 @@
 package s3compat
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -709,19 +710,39 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	retainUntilDateStr := r.Header.Get("x-amz-object-lock-retain-until-date")
 	legalHoldStatus := r.Header.Get("x-amz-object-lock-legal-hold")
 
-	// CRITICAL FIX: AWS CLI uses "aws-chunked" encoding (not standard HTTP chunked)
-	// This is a special format that includes checksums in trailers
-	// We need to decode it manually
+	// CRITICAL FIX: AWS CLI and warp/MinIO-Go use "aws-chunked" encoding
+	// Some clients send the header, others don't - we need to detect by content
 	var bodyReader io.Reader = r.Body
+	isAwsChunked := strings.Contains(contentEncoding, "aws-chunked") || decodedContentLength != ""
 
-	if strings.Contains(contentEncoding, "aws-chunked") {
+	// If not detected by headers, peek at first bytes to check for aws-chunked format
+	if !isAwsChunked {
+		// Buffer first 100 bytes to detect aws-chunked format
+		buf := make([]byte, 100)
+		n, _ := io.ReadFull(r.Body, buf)
+		if n > 0 {
+			// Check if starts with hex digits followed by ";chunk-signature="
+			content := string(buf[:n])
+			if strings.Contains(content, ";chunk-signature=") {
+				isAwsChunked = true
+				logrus.WithFields(logrus.Fields{
+					"bucket": bucketName,
+					"object": objectKey,
+				}).Info("AWS chunked encoding detected by content inspection")
+			}
+			// Restore the buffer to the reader
+			bodyReader = io.MultiReader(bytes.NewReader(buf[:n]), r.Body)
+		}
+	}
+
+	if isAwsChunked {
 		logrus.WithFields(logrus.Fields{
 			"bucket":                 bucketName,
 			"object":                 objectKey,
 			"decoded-content-length": decodedContentLength,
 		}).Info("AWS chunked encoding detected - decoding")
 
-		bodyReader = NewAwsChunkedReader(r.Body)
+		bodyReader = NewAwsChunkedReader(bodyReader)
 
 		// Update Content-Length header for storage layer
 		if decodedContentLength != "" {

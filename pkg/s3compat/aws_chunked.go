@@ -62,6 +62,12 @@ func (r *AwsChunkedReader) readNextChunk() error {
 
 	sizeLine = strings.TrimSpace(sizeLine)
 
+	// Strip chunk-signature if present (warp/MinIO-Go format)
+	// Format: {hex-size};chunk-signature={signature}
+	if idx := strings.Index(sizeLine, ";"); idx != -1 {
+		sizeLine = sizeLine[:idx]
+	}
+
 	// Parse chunk size (in hexadecimal)
 	chunkSize, err := strconv.ParseInt(sizeLine, 16, 64)
 	if err != nil {

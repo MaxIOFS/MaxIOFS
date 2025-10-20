@@ -249,6 +249,11 @@ func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive 
 			return nil
 		}
 
+		// Skip MaxIOFS internal folder markers
+		if strings.HasSuffix(path, ".maxiofs-folder") {
+			return nil
+		}
+
 		// Get relative path
 		relPath, err := filepath.Rel(fs.rootPath, path)
 		if err != nil {
@@ -274,29 +279,36 @@ func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive 
 					folderPath += "/"
 				}
 
-				// For non-recursive, check if this folder is at the immediate level
-				if !recursive {
-					remaining := strings.TrimPrefix(folderPath, prefix)
-					// Count slashes - should have exactly one (the trailing one) for immediate level
-					if strings.Count(remaining, "/") > 1 {
-						return nil
+				// IMPORTANT: Only list folders that were created explicitly (have metadata)
+				// Implicit folders (created by uploading files) should NOT appear in S3 listings
+				metadataPath := filepath.Join(path, ".maxiofs-folder.metadata")
+				if _, err := os.Stat(metadataPath); err == nil {
+					// This folder was created explicitly, include it in listing
+
+					// For non-recursive, check if this folder is at the immediate level
+					if !recursive {
+						remaining := strings.TrimPrefix(folderPath, prefix)
+						// Count slashes - should have exactly one (the trailing one) for immediate level
+						if strings.Count(remaining, "/") > 1 {
+							return nil
+						}
 					}
-				}
 
-				// Create object info for the folder
-				obj := ObjectInfo{
-					Path:         folderPath,
-					Size:         0,
-					LastModified: info.ModTime().Unix(),
-					ETag:         "d41d8cd98f00b204e9800998ecf8427e", // MD5 of empty string
-				}
+					// Create object info for the folder
+					obj := ObjectInfo{
+						Path:         folderPath,
+						Size:         0,
+						LastModified: info.ModTime().Unix(),
+						ETag:         "d41d8cd98f00b204e9800998ecf8427e", // MD5 of empty string
+					}
 
-				// Try to get metadata
-				if metadata, err := fs.GetMetadata(context.Background(), folderPath); err == nil {
-					obj.Metadata = metadata
-				}
+					// Get metadata
+					if metadata, err := fs.GetMetadata(context.Background(), folderPath); err == nil {
+						obj.Metadata = metadata
+					}
 
-				objects = append(objects, obj)
+					objects = append(objects, obj)
+				}
 			}
 			return nil // Don't descend into directories when non-recursive
 		}

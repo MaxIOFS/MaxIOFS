@@ -233,13 +233,26 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 		"partNumber": partNumber,
 	}).Debug("S3 API: UploadPart")
 
-	// Handle AWS chunked encoding (same as PutObject)
+	// Handle AWS chunked encoding
+	// IMPORTANT: Some clients (like warp/MinIO-Go) send AWS chunked format
+	// WITHOUT the Content-Encoding header. We need to detect it.
 	contentEncoding := r.Header.Get("Content-Encoding")
 	decodedContentLength := r.Header.Get("X-Amz-Decoded-Content-Length")
 
 	var bodyReader io.Reader = r.Body
 
-	if strings.Contains(contentEncoding, "aws-chunked") {
+	// Detect AWS chunked by header OR by decoded-content-length presence
+	isAwsChunked := strings.Contains(contentEncoding, "aws-chunked") || decodedContentLength != ""
+
+	if isAwsChunked {
+		logrus.WithFields(logrus.Fields{
+			"bucket":     bucketName,
+			"object":     objectKey,
+			"uploadId":   uploadID,
+			"partNumber": partNumber,
+			"decodedLen": decodedContentLength,
+		}).Info("AWS chunked encoding detected in UploadPart")
+
 		bodyReader = NewAwsChunkedReader(r.Body)
 
 		// Update Content-Length from X-Amz-Decoded-Content-Length
