@@ -597,11 +597,45 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer reader.Close()
 
-	// Set response headers
+	// Parse Range header if present (for parallel/resumable downloads)
+	rangeHeader := r.Header.Get("Range")
+	var rangeStart, rangeEnd int64
+	var isRangeRequest bool
+
+	if rangeHeader != "" {
+		// Parse Range header: "bytes=start-end" or "bytes=start-"
+		var parseErr error
+		rangeStart, rangeEnd, parseErr = parseRangeHeader(rangeHeader, obj.Size)
+		if parseErr != nil {
+			// Invalid range - return 416 Range Not Satisfiable
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", obj.Size))
+			h.writeError(w, "InvalidRange", parseErr.Error(), objectKey, r)
+			return
+		}
+		isRangeRequest = true
+
+		logrus.WithFields(logrus.Fields{
+			"bucket":     bucketName,
+			"object":     objectKey,
+			"rangeStart": rangeStart,
+			"rangeEnd":   rangeEnd,
+			"totalSize":  obj.Size,
+		}).Debug("GetObject: Range request detected")
+	} else {
+		// No range header - send entire object
+		rangeStart = 0
+		rangeEnd = obj.Size - 1
+		isRangeRequest = false
+	}
+
+	// Calculate content length for this range
+	contentLength := rangeEnd - rangeStart + 1
+
+	// Set common response headers
 	w.Header().Set("Content-Type", obj.ContentType)
-	w.Header().Set("Content-Length", strconv.FormatInt(obj.Size, 10))
 	w.Header().Set("ETag", obj.ETag)
 	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
+	w.Header().Set("Accept-Ranges", "bytes")
 
 	// Agregar headers de Object Lock si existen (Veeam compatibility)
 	if obj.Retention != nil {
@@ -613,9 +647,42 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("x-amz-object-lock-legal-hold", "ON")
 	}
 
-	// Copy object data to response
-	if _, err := io.Copy(w, reader); err != nil {
-		logrus.WithError(err).Error("Failed to write object data")
+	// Handle range request
+	if isRangeRequest {
+		// Set 206 Partial Content headers
+		w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, obj.Size))
+		w.WriteHeader(http.StatusPartialContent)
+
+		// Skip to start position if needed
+		if rangeStart > 0 {
+			if seeker, ok := reader.(io.Seeker); ok {
+				// Use Seek if available (more efficient)
+				if _, err := seeker.Seek(rangeStart, io.SeekStart); err != nil {
+					logrus.WithError(err).Error("Failed to seek to range start")
+					return
+				}
+			} else {
+				// Fall back to reading and discarding bytes
+				if _, err := io.CopyN(io.Discard, reader, rangeStart); err != nil {
+					logrus.WithError(err).Error("Failed to skip to range start")
+					return
+				}
+			}
+		}
+
+		// Copy only the requested range
+		if _, err := io.CopyN(w, reader, contentLength); err != nil && err != io.EOF {
+			logrus.WithError(err).Error("Failed to write partial object data")
+		}
+	} else {
+		// Send entire object (no range request)
+		w.Header().Set("Content-Length", strconv.FormatInt(obj.Size, 10))
+
+		// Copy object data to response
+		if _, err := io.Copy(w, reader); err != nil {
+			logrus.WithError(err).Error("Failed to write object data")
+		}
 	}
 }
 
@@ -1126,6 +1193,76 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	}
 
 	xml.NewEncoder(w).Encode(errorResponse)
+}
+
+// parseRangeHeader parses HTTP Range header (e.g., "bytes=0-1023" or "bytes=1024-")
+// Returns start offset, end offset (inclusive), and error
+func parseRangeHeader(rangeHeader string, objectSize int64) (int64, int64, error) {
+	// Remove "bytes=" prefix
+	if !strings.HasPrefix(rangeHeader, "bytes=") {
+		return 0, 0, fmt.Errorf("invalid range header format")
+	}
+	rangeSpec := strings.TrimPrefix(rangeHeader, "bytes=")
+
+	// Split on comma (we only support single range for now)
+	ranges := strings.Split(rangeSpec, ",")
+	if len(ranges) > 1 {
+		return 0, 0, fmt.Errorf("multiple ranges not supported")
+	}
+
+	// Parse start-end
+	parts := strings.Split(ranges[0], "-")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid range format")
+	}
+
+	var start, end int64
+	var err error
+
+	// Handle "start-end" format
+	if parts[0] != "" && parts[1] != "" {
+		start, err = strconv.ParseInt(parts[0], 10, 64)
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid range start: %w", err)
+		}
+		end, err = strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid range end: %w", err)
+		}
+	} else if parts[0] != "" && parts[1] == "" {
+		// Handle "start-" format (from start to end of file)
+		start, err = strconv.ParseInt(parts[0], 10, 64)
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid range start: %w", err)
+		}
+		end = objectSize - 1
+	} else if parts[0] == "" && parts[1] != "" {
+		// Handle "-suffix" format (last N bytes)
+		suffix, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid range suffix: %w", err)
+		}
+		start = objectSize - suffix
+		if start < 0 {
+			start = 0
+		}
+		end = objectSize - 1
+	} else {
+		return 0, 0, fmt.Errorf("invalid range format")
+	}
+
+	// Validate range
+	if start < 0 || start >= objectSize {
+		return 0, 0, fmt.Errorf("range start out of bounds")
+	}
+	if end >= objectSize {
+		end = objectSize - 1
+	}
+	if start > end {
+		return 0, 0, fmt.Errorf("range start greater than end")
+	}
+
+	return start, end, nil
 }
 
 // Placeholder stubs for future implementation

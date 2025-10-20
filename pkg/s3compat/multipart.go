@@ -2,9 +2,11 @@ package s3compat
 
 import (
 	"encoding/xml"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -21,14 +23,14 @@ type InitiateMultipartUploadResult struct {
 }
 
 type ListMultipartUploadsResult struct {
-	XMLName            xml.Name         `xml:"ListMultipartUploadsResult"`
-	Bucket             string           `xml:"Bucket"`
-	KeyMarker          string           `xml:"KeyMarker,omitempty"`
-	UploadIdMarker     string           `xml:"UploadIdMarker,omitempty"`
-	NextKeyMarker      string           `xml:"NextKeyMarker,omitempty"`
-	NextUploadIdMarker string           `xml:"NextUploadIdMarker,omitempty"`
-	MaxUploads         int              `xml:"MaxUploads"`
-	IsTruncated        bool             `xml:"IsTruncated"`
+	XMLName            xml.Name          `xml:"ListMultipartUploadsResult"`
+	Bucket             string            `xml:"Bucket"`
+	KeyMarker          string            `xml:"KeyMarker,omitempty"`
+	UploadIdMarker     string            `xml:"UploadIdMarker,omitempty"`
+	NextKeyMarker      string            `xml:"NextKeyMarker,omitempty"`
+	NextUploadIdMarker string            `xml:"NextUploadIdMarker,omitempty"`
+	MaxUploads         int               `xml:"MaxUploads"`
+	IsTruncated        bool              `xml:"IsTruncated"`
 	Uploads            []MultipartUpload `xml:"Upload,omitempty"`
 }
 
@@ -47,10 +49,10 @@ type Initiator struct {
 }
 
 type ListPartsResult struct {
-	XMLName              xml.Name `xml:"ListPartsResult"`
-	Bucket               string   `xml:"Bucket"`
-	Key                  string   `xml:"Key"`
-	UploadId             string   `xml:"UploadId"`
+	XMLName              xml.Name  `xml:"ListPartsResult"`
+	Bucket               string    `xml:"Bucket"`
+	Key                  string    `xml:"Key"`
+	UploadId             string    `xml:"UploadId"`
 	Initiator            Initiator `xml:"Initiator"`
 	Owner                Owner     `xml:"Owner"`
 	StorageClass         string    `xml:"StorageClass"`
@@ -231,8 +233,27 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 		"partNumber": partNumber,
 	}).Debug("S3 API: UploadPart")
 
+	// Handle AWS chunked encoding (same as PutObject)
+	contentEncoding := r.Header.Get("Content-Encoding")
+	decodedContentLength := r.Header.Get("X-Amz-Decoded-Content-Length")
+
+	var bodyReader io.Reader = r.Body
+
+	if strings.Contains(contentEncoding, "aws-chunked") {
+		bodyReader = NewAwsChunkedReader(r.Body)
+
+		// Update Content-Length from X-Amz-Decoded-Content-Length
+		if decodedContentLength != "" {
+			if size, err := strconv.ParseInt(decodedContentLength, 10, 64); err == nil {
+				r.ContentLength = size
+				r.Header.Set("Content-Length", decodedContentLength)
+			}
+		}
+		r.Header.Del("Content-Encoding")
+	}
+
 	// Upload the part
-	part, err := h.objectManager.UploadPart(r.Context(), uploadID, partNumber, r.Body)
+	part, err := h.objectManager.UploadPart(r.Context(), uploadID, partNumber, bodyReader)
 	if err != nil {
 		if err == object.ErrUploadNotFound {
 			h.writeError(w, "NoSuchUpload", "The specified multipart upload does not exist", uploadID, r)

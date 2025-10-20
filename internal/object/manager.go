@@ -866,13 +866,9 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 		return parts[i].PartNumber < parts[j].PartNumber
 	})
 
-	// Validate part numbers are consecutive starting from 1
-	for i, part := range parts {
-		if part.PartNumber != i+1 {
-			return nil, fmt.Errorf("part numbers must be consecutive starting from 1")
-		}
-
-		// Validate part exists in storage
+	// Validate parts exist in storage
+	// Note: S3 does NOT require consecutive part numbers
+	for _, part := range parts {
 		partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
 		exists, err := om.storage.Exists(ctx, partPath)
 		if err != nil {
@@ -1063,36 +1059,57 @@ func (om *objectManager) getMultipartPartPath(uploadID string, partNumber int) s
 
 // combineMultipartParts combines all parts into the final object
 func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID string, parts []Part, finalPath string) error {
-	// For simplicity, we'll store a reference to the parts and combine them on read
-	// In a production implementation, you might want to actually concatenate the files
-
-	// Create a combined metadata that references all parts
+	// Create a combined metadata
 	combinedMetadata := map[string]string{
-		"content-type":        "application/octet-stream",
-		"multipart-upload-id": uploadID,
-		"parts-count":         strconv.Itoa(len(parts)),
+		"content-type": "application/octet-stream",
 	}
 
-	// For now, we'll use the first part as the base and create a reference
+	if len(parts) == 0 {
+		return fmt.Errorf("no parts to combine")
+	}
+
+	// Get content type from first part if available
 	if len(parts) > 0 {
 		firstPartPath := om.getMultipartPartPath(uploadID, parts[0].PartNumber)
-		reader, metadata, err := om.storage.Get(ctx, firstPartPath)
-		if err != nil {
-			return err
+		metadata, err := om.storage.GetMetadata(ctx, firstPartPath)
+		if err == nil {
+			if contentType, exists := metadata["content-type"]; exists {
+				combinedMetadata["content-type"] = contentType
+			}
 		}
-		defer reader.Close()
-
-		// Copy first part content type if available
-		if contentType, exists := metadata["content-type"]; exists {
-			combinedMetadata["content-type"] = contentType
-		}
-
-		// For MVP, just copy the first part as the final object
-		// TODO: Implement proper part concatenation
-		return om.storage.Put(ctx, finalPath, reader, combinedMetadata)
 	}
 
-	return fmt.Errorf("no parts to combine")
+	// Create a MultiReader that concatenates all parts in order
+	readers := make([]io.Reader, len(parts))
+	for i, part := range parts {
+		partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
+		reader, _, err := om.storage.Get(ctx, partPath)
+		if err != nil {
+			// Close all previously opened readers
+			for j := 0; j < i; j++ {
+				if closer, ok := readers[j].(io.Closer); ok {
+					closer.Close()
+				}
+			}
+			return fmt.Errorf("failed to read part %d: %w", part.PartNumber, err)
+		}
+		readers[i] = reader
+	}
+
+	// Create a combined reader that reads all parts sequentially
+	combinedReader := io.MultiReader(readers...)
+
+	// Store the combined object
+	err := om.storage.Put(ctx, finalPath, combinedReader, combinedMetadata)
+
+	// Close all readers after Put completes
+	for _, reader := range readers {
+		if closer, ok := reader.(io.Closer); ok {
+			closer.Close()
+		}
+	}
+
+	return err
 }
 
 // abortMultipartUpload cleans up a multipart upload

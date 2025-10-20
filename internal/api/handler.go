@@ -123,36 +123,38 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	// Object operations
 	objectRouter := bucketRouter.PathPrefix("/{object:.+}").Subrouter()
 
-	// Basic object operations
-	objectRouter.HandleFunc("", h.s3Handler.HeadObject).Methods("HEAD")
-	objectRouter.HandleFunc("", h.s3Handler.GetObject).Methods("GET")
-	objectRouter.HandleFunc("", h.s3Handler.PutObject).Methods("PUT")
-	objectRouter.HandleFunc("", h.s3Handler.DeleteObject).Methods("DELETE")
+	// IMPORTANT: Register routes with query parameters FIRST (Gorilla Mux matches in order)
 
-	// Object versioning
-	objectRouter.HandleFunc("", h.s3Handler.GetObjectVersions).Methods("GET").Queries("versions", "")
-	objectRouter.HandleFunc("", h.s3Handler.DeleteObjectVersion).Methods("DELETE").Queries("versionId", "{versionId}")
-
-	// Object Lock operations
-	objectRouter.HandleFunc("", h.s3Handler.GetObjectRetention).Methods("GET").Queries("retention", "")
-	objectRouter.HandleFunc("", h.s3Handler.PutObjectRetention).Methods("PUT").Queries("retention", "")
-	objectRouter.HandleFunc("", h.s3Handler.GetObjectLegalHold).Methods("GET").Queries("legal-hold", "")
-	objectRouter.HandleFunc("", h.s3Handler.PutObjectLegalHold).Methods("PUT").Queries("legal-hold", "")
-
-	// Object metadata operations
-	objectRouter.HandleFunc("", h.s3Handler.GetObjectACL).Methods("GET").Queries("acl", "")
-	objectRouter.HandleFunc("", h.s3Handler.PutObjectACL).Methods("PUT").Queries("acl", "")
-	objectRouter.HandleFunc("", h.s3Handler.GetObjectTagging).Methods("GET").Queries("tagging", "")
-	objectRouter.HandleFunc("", h.s3Handler.PutObjectTagging).Methods("PUT").Queries("tagging", "")
-	objectRouter.HandleFunc("", h.s3Handler.DeleteObjectTagging).Methods("DELETE").Queries("tagging", "")
-
-	// Multipart upload operations
+	// Multipart upload operations (with query parameters - must be first)
 	objectRouter.HandleFunc("", h.s3Handler.CreateMultipartUpload).Methods("POST").Queries("uploads", "")
 	objectRouter.HandleFunc("", h.s3Handler.ListMultipartUploads).Methods("GET").Queries("uploads", "")
 	objectRouter.HandleFunc("", h.s3Handler.UploadPart).Methods("PUT").Queries("partNumber", "{partNumber}", "uploadId", "{uploadId}")
 	objectRouter.HandleFunc("", h.s3Handler.ListParts).Methods("GET").Queries("uploadId", "{uploadId}")
 	objectRouter.HandleFunc("", h.s3Handler.CompleteMultipartUpload).Methods("POST").Queries("uploadId", "{uploadId}")
 	objectRouter.HandleFunc("", h.s3Handler.AbortMultipartUpload).Methods("DELETE").Queries("uploadId", "{uploadId}")
+
+	// Object versioning (with query parameters)
+	objectRouter.HandleFunc("", h.s3Handler.GetObjectVersions).Methods("GET").Queries("versions", "")
+	objectRouter.HandleFunc("", h.s3Handler.DeleteObjectVersion).Methods("DELETE").Queries("versionId", "{versionId}")
+
+	// Object Lock operations (with query parameters)
+	objectRouter.HandleFunc("", h.s3Handler.GetObjectRetention).Methods("GET").Queries("retention", "")
+	objectRouter.HandleFunc("", h.s3Handler.PutObjectRetention).Methods("PUT").Queries("retention", "")
+	objectRouter.HandleFunc("", h.s3Handler.GetObjectLegalHold).Methods("GET").Queries("legal-hold", "")
+	objectRouter.HandleFunc("", h.s3Handler.PutObjectLegalHold).Methods("PUT").Queries("legal-hold", "")
+
+	// Object metadata operations (with query parameters)
+	objectRouter.HandleFunc("", h.s3Handler.GetObjectACL).Methods("GET").Queries("acl", "")
+	objectRouter.HandleFunc("", h.s3Handler.PutObjectACL).Methods("PUT").Queries("acl", "")
+	objectRouter.HandleFunc("", h.s3Handler.GetObjectTagging).Methods("GET").Queries("tagging", "")
+	objectRouter.HandleFunc("", h.s3Handler.PutObjectTagging).Methods("PUT").Queries("tagging", "")
+	objectRouter.HandleFunc("", h.s3Handler.DeleteObjectTagging).Methods("DELETE").Queries("tagging", "")
+
+	// Basic object operations (without query parameters - registered LAST)
+	objectRouter.HandleFunc("", h.s3Handler.HeadObject).Methods("HEAD")
+	objectRouter.HandleFunc("", h.s3Handler.GetObject).Methods("GET")
+	objectRouter.HandleFunc("", h.s3Handler.PutObject).Methods("PUT")
+	objectRouter.HandleFunc("", h.s3Handler.DeleteObject).Methods("DELETE")
 
 	// Copy operations
 	objectRouter.HandleFunc("", h.s3Handler.CopyObject).Methods("PUT").Headers("x-amz-copy-source", "{source}")
