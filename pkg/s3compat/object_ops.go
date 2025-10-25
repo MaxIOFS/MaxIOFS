@@ -241,7 +241,9 @@ func (h *Handler) GetObjectTagging(w http.ResponseWriter, r *http.Request) {
 	}).Debug("S3 API: GetObjectTagging")
 
 	bucketPath := h.getBucketPath(r, bucketName)
-	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
+
+	// Use GetObjectTagging for consistency and clarity
+	tags, err := h.objectManager.GetObjectTagging(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -258,8 +260,8 @@ func (h *Handler) GetObjectTagging(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	if obj.Tags != nil {
-		for _, tag := range obj.Tags.Tags {
+	if tags != nil {
+		for _, tag := range tags.Tags {
 			xmlTagging.TagSet.Tags = append(xmlTagging.TagSet.Tags, Tag{
 				Key:   tag.Key,
 				Value: tag.Value,
@@ -305,22 +307,14 @@ func (h *Handler) PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
-	// Get current object metadata
-	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
-	if err != nil {
+
+	// FIX: Use SetObjectTagging instead of UpdateObjectMetadata
+	// SetObjectTagging properly saves tags to the metadata store
+	if err := h.objectManager.SetObjectTagging(r.Context(), bucketPath, objectKey, tags); err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
 		}
-		h.writeError(w, "InternalError", err.Error(), objectKey, r)
-		return
-	}
-
-	// Update tags
-	obj.Tags = tags
-
-	// Update object metadata with new tags
-	if err := h.objectManager.UpdateObjectMetadata(r.Context(), bucketPath, objectKey, obj.Metadata); err != nil {
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
@@ -340,22 +334,13 @@ func (h *Handler) DeleteObjectTagging(w http.ResponseWriter, r *http.Request) {
 	}).Debug("S3 API: DeleteObjectTagging")
 
 	bucketPath := h.getBucketPath(r, bucketName)
-	// Get current object metadata
-	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
-	if err != nil {
+
+	// FIX: Use DeleteObjectTagging instead of UpdateObjectMetadata
+	if err := h.objectManager.DeleteObjectTagging(r.Context(), bucketPath, objectKey); err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
 		}
-		h.writeError(w, "InternalError", err.Error(), objectKey, r)
-		return
-	}
-
-	// Clear tags
-	obj.Tags = &object.TagSet{Tags: make([]object.Tag, 0)}
-
-	// Update object metadata
-	if err := h.objectManager.UpdateObjectMetadata(r.Context(), bucketPath, objectKey, obj.Metadata); err != nil {
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
