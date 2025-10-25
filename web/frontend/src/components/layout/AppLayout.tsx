@@ -290,7 +290,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-3">
-            v0.2.4-alpha
+            v0.2.5-alpha
           </p>
         </div>
       </aside>

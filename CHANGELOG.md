@@ -5,6 +5,49 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5-alpha] - 2025-10-25
+
+### Added
+- **CopyObject S3 API Implementation**
+  - Complete CopyObject operation with metadata preservation
+  - Support for both `/bucket/key` and `bucket/key` copy source formats
+  - Binary data preservation using `bytes.NewReader`
+  - Cross-bucket object copying functionality
+- **UploadPartCopy for Multipart Operations**
+  - Implemented UploadPartCopy for files larger than 5MB
+  - Support for partial copy ranges (bytes=start-end)
+  - Full AWS CLI compatibility for large file copying
+  - Proper part numbering and ETag handling
+- **Modern Login Page Design**
+  - Redesigned login page with professional UI/UX
+  - Grid layout with logo and wave patterns
+  - Blue gradient background matching Horizon UI colors
+  - Floating label inputs with smooth animations
+  - Full dark mode support
+  - Responsive design (mobile/desktop optimized)
+
+### Fixed
+- CopyObject routing issue - added header detection in PutObject handler
+- Copy source format parsing now accepts both formats with/without leading slash
+- UploadPartCopy range handling with proper byte seeking
+- Binary file corruption during copy operations
+
+### Enhanced
+- S3 API compatibility significantly improved
+- All CopyObject tests passing (39 bytes to 50MB files)
+- AWS CLI copy operations fully functional
+- Multipart copy workflow complete
+
+### Validated
+- ✅ CopyObject with small files (39 bytes)
+- ✅ CopyObject with medium files (6MB, 10MB)
+- ✅ CopyObject with large files (50MB via UploadPartCopy)
+- ✅ Cross-bucket object copying
+- ✅ Metadata preservation during copy
+- ✅ AWS CLI compatibility for copy operations
+
+---
+
 ## [0.2.4-alpha] - 2025-10-19
 
 ### Added

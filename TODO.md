@@ -1,23 +1,25 @@
 # MaxIOFS - TODO & Roadmap
 
-**Version**: 0.2.4-alpha
-**Last Updated**: October 19, 2025 (20:50 ART)
+**Version**: 0.2.5-alpha
+**Last Updated**: October 25, 2025 (12:00 ART)
 **Status**: Active Development
 
 ## 📊 Current Status Summary
 
 ```
 ┌───────────────────────────────────────────────┐
-│  MaxIOFS v0.2.4-alpha                         │
-│  Status: ALPHA - Warp Validated, 25% Testing │
+│  MaxIOFS v0.2.5-alpha                         │
+│  Status: ALPHA - Warp Validated, 30% Testing │
 ├───────────────────────────────────────────────┤
 │  ✅ S3 API: 40+ operations implemented        │
-│  ✅ Web Console: Feature complete with UI/UX │
+│  ✅ CopyObject: Fully functional (all sizes)  │
+│  ✅ UploadPartCopy: Implemented (files >5MB)  │
+│  ✅ Web Console: Modern login + UI/UX         │
 │  ✅ Dark Mode: Fully implemented              │
 │  ✅ Multi-tenancy: Basic implementation       │
 │  ✅ Warp Testing: PASSED (7000+ objects)      │
-│  🟡 Testing Progress: 25% complete (72 items) │
-│  ⚠️  S3 API Testing: 0% (27 tests pending)    │
+│  🟡 Testing Progress: 30% complete (70 items) │
+│  🟡 S3 API Testing: 15% (CopyObject complete) │
 │  ⚠️  Security Audit: 0% (16 tests pending)    │
 │  ⚠️  Performance: Basic validation only       │
 └───────────────────────────────────────────────┘
@@ -25,7 +27,37 @@
 
 **📋 Detailed Testing Status**: See [TESTING_STATUS.md](TESTING_STATUS.md)
 
-## ✅ Recently Completed (v0.2.3-alpha)
+## ✅ Recently Completed (v0.2.5-alpha)
+
+### S3 API Improvements
+- [x] **CopyObject complete implementation**
+  - Cross-bucket object copying
+  - Metadata preservation
+  - Binary data integrity
+  - Support for both copy-source formats (`/bucket/key` and `bucket/key`)
+- [x] **UploadPartCopy for large files**
+  - Multipart copy for files >5MB
+  - Partial range support (bytes=start-end)
+  - Full AWS CLI compatibility
+  - Proper ETag handling
+
+### Frontend Improvements
+- [x] **Modern login page redesign**
+  - Professional grid layout with waves pattern
+  - Blue gradient background matching Horizon UI
+  - Floating label inputs with animations
+  - Full dark mode support
+  - Responsive design (mobile/desktop)
+
+### Bug Fixes
+- [x] CopyObject routing issue fixed
+- [x] Copy source format parsing improved
+- [x] UploadPartCopy range handling corrected
+- [x] Binary file corruption during copy resolved
+
+---
+
+## ✅ Previously Completed (v0.2.3-v0.2.4)
 
 ### Frontend Improvements
 - [x] Dark mode support (system-wide with toggle)

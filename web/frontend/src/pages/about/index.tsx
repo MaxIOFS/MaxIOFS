@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 
 export default function AboutPage() {
-  const version = '0.2.4-alpha';
+  const version = '0.2.5-alpha';
   const buildDate = new Date().toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
@@ -296,56 +296,56 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            Recent Improvements (v0.2.4-alpha)
+            Recent Improvements (v0.2.5-alpha)
           </h2>
           <div className="space-y-4">
             <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                BadgerDB Integration
+                CopyObject S3 API Implementation
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Replaced generic metadata storage with BadgerDB v4, a high-performance embedded key-value database.
-                Includes transaction retry logic with exponential backoff and metadata-first deletion for guaranteed consistency.
+                Complete CopyObject operation with metadata preservation, cross-bucket copying, and binary data integrity.
+                Supports both AWS copy source formats and includes proper routing detection for seamless integration.
               </p>
             </div>
 
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Bulk Operations
+                UploadPartCopy for Large Files
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Implemented S3 DeleteObjects API supporting up to 1000 objects per request. Features sequential processing
-                to avoid transaction conflicts and complete metadata consistency validation.
+                Implemented UploadPartCopy for files larger than 5MB with partial range support (bytes=start-end).
+                Full AWS CLI compatibility for multipart copy operations with proper ETag handling.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Multi-Tenancy Enhancements
+                Modern Login Page Redesign
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Added tenant deletion validation (prevents deletion with buckets), cascading delete (tenant → users → keys),
-                and global admin cross-tenant visibility for all buckets.
+                Professional UI/UX with grid layout, wave patterns, blue gradient background matching Horizon UI colors.
+                Features floating label inputs with smooth animations, full dark mode support, and responsive design.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Performance Validation
+                S3 Compatibility Improvements
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Stress tested with MinIO Warp benchmark tool. Successfully handled 7000+ objects in mixed workload
-                with zero transaction conflicts and complete metadata consistency.
+                Significantly enhanced S3 API compatibility with all CopyObject tests passing (39 bytes to 50MB files).
+                AWS CLI copy operations fully functional with complete multipart copy workflow.
               </p>
             </div>
 
             <div className="border-l-4 border-yellow-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                UI/UX Improvements
+                Bug Fixes & Enhancements
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Full dark mode support, immediate query refetching for real-time updates, recent buckets sorted by
-                creation date (3 latest), and improved error handling with user feedback.
+                Fixed CopyObject routing issues, copy source format parsing, UploadPartCopy range handling,
+                and binary file corruption during copy operations. All core copy functionality validated and working.
               </p>
             </div>
           </div>

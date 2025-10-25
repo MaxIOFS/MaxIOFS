@@ -1,7 +1,7 @@
 # MaxIOFS - S3 API Comprehensive Test Report
 
-**Date**: October 19, 2025 (22:47 ART)
-**Version Tested**: 0.2.4-alpha
+**Date**: October 25, 2025 (12:00 ART)
+**Version Tested**: 0.2.5-alpha
 **Test Environment**: Windows, HTTPS with self-signed certificate
 **AWS CLI Version**: Configured with access keys
 **Endpoint**: https://localhost:8080
@@ -14,24 +14,26 @@
 ┌──────────────────────────────────────────────────────────────┐
 │  S3 API TESTING RESULTS                                      │
 ├──────────────────────────────────────────────────────────────┤
-│  ✅ Tests Passed:              22/27 (81%)  ⬆️ +33%          │
-│  ❌ Tests Failed:               3/27 (11%)  ⬇️ -19%          │
-│  ⚠️  Tests Partial:             2/27 (7%)   ⬇️ -15%          │
+│  ✅ Tests Passed:              24/27 (89%)  ⬆️ +8%           │
+│  ❌ Tests Failed:               2/27 (7%)   ⬇️ -4%           │
+│  ⚠️  Tests Partial:             1/27 (4%)   ⬇️ -3%           │
 │                                                              │
 │  🐛 Critical Bugs Found:       8                             │
-│  ✅ Critical Bugs Fixed:       3 (BUG #1, #4, #5)            │
-│  ⚠️  Remaining Critical:        5                             │
+│  ✅ Critical Bugs Fixed:       4 (BUG #1, #3, #4, #5)        │
+│  ⚠️  Remaining Critical:        4                             │
 │  ⚠️  Medium Issues:             2                             │
 │  ℹ️  Minor Issues:              1                             │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**Overall Status**: 🟡 **IN PROGRESS** - Major fixes completed, 5 critical bugs remaining
+**Overall Status**: 🟢 **IMPROVING** - CopyObject fixed, 4 critical bugs remaining
 
-**Latest Update**: October 20, 2025
+**Latest Update**: October 25, 2025 (v0.2.5-alpha)
 - ✅ **BUG #1 FIXED**: AWS chunked encoding now properly decoded - all downloads work
+- ✅ **BUG #3 FIXED**: CopyObject now copies content correctly - tested up to 50MB
 - ✅ **BUG #4 FIXED**: Query parameter routing fixed - versioning, policy, CORS work
 - ✅ **BUG #5 FIXED**: GetBucketPolicy returns correct JSON (fixed with BUG #4)
+- ✅ **NEW FEATURE**: UploadPartCopy implemented for large file copying (>5MB)
 
 ---
 
@@ -136,39 +138,61 @@ aws s3 cp test-files/6mb.bin s3://iaas/test-s3/6mb.bin
 
 ---
 
-### BUG #3: 🔴 CopyObject Creates 0-byte Files
-**Severity**: CRITICAL
-**Impact**: Object copy functionality broken
+### BUG #3: ✅ FIXED - CopyObject Creates 0-byte Files
+**Severity**: CRITICAL (RESOLVED)
+**Impact**: Object copy functionality was broken
+**Status**: ✅ **FIXED and TESTED**
 
 **Description**:
-CopyObject operation creates the target object but with 0 bytes size instead of copying content.
+CopyObject operation was creating target objects but with 0 bytes size instead of copying content.
 
-**Test Case**:
+**Test Cases**:
 ```bash
-# Copy existing object
-aws s3 cp s3://iaas/test-s3/small.txt s3://iaas/test-s3/small-copy.txt
+# Copy small file (39 bytes)
+aws s3 cp s3://test-regression/small.txt s3://test-regression-copy/small.txt
+# Result: ✅ PASSED - 39 bytes copied correctly
 
-# List objects
-aws s3 ls s3://iaas/test-s3/
-# Result:
-2025-10-19 22:43:26     0 small-copy.txt  ❌ (should be 66 bytes)
-2025-10-19 22:41:05    66 small.txt       ✅
+# Copy medium file (6MB)
+aws s3 cp s3://test-regression/6mb.bin s3://test-regression-copy/6mb.bin
+# Result: ✅ PASSED - 6MB copied correctly
+
+# Copy large file (50MB - uses UploadPartCopy)
+aws s3 cp s3://test-regression/50mb.bin s3://test-regression-copy/50mb.bin
+# Result: ✅ PASSED - 50MB copied using multipart copy
 ```
 
 **Root Cause**:
-- CopyObject creates metadata entry correctly
-- Content is not copied from source to destination
+- PutObject handler was catching copy requests before CopyObject handler
+- Copy source header detection was missing
+- Copy source format parsing didn't accept both formats
 
-**Expected Behavior**:
-- Destination object should have same content and size as source
+**Fix Implemented**:
+1. **Added header detection** in PutObject handler:
+   - Detect `x-amz-copy-source` header
+   - Dispatch to CopyObject handler when present
+2. **Fixed copy source parsing**:
+   - Accept both `/bucket/key` and `bucket/key` formats
+   - Properly parse bucket and key from copy source
+3. **Implemented UploadPartCopy** for files >5MB:
+   - Detect `x-amz-copy-source` in UploadPart
+   - Support partial copy ranges (bytes=start-end)
+   - Proper ETag generation for parts
+4. **Binary data preservation**:
+   - Use `bytes.NewReader` instead of `strings.NewReader`
+   - Prevents corruption of binary files
 
-**Fix Required**:
-- Implement actual content copy in CopyObject handler
-- Verify source content is read and written to destination
+**Testing Results** (October 25, 2025):
+- ✅ 39-byte file (small.txt) - PASSED - Content matches perfectly
+- ✅ 6MB file (6mb.bin) - PASSED - Content matches perfectly
+- ✅ 10MB file (10mb.bin) - PASSED - Content matches perfectly
+- ✅ 50MB file (50mb.bin) - PASSED - Multipart copy working
+- ✅ Cross-bucket copy - PASSED
+- ✅ Metadata preservation - PASSED
 
-**Files Affected**:
-- `pkg/s3compat/object_ops.go` - CopyObject handler
-- `internal/object/manager.go` - CopyObject implementation
+**Files Modified**:
+- `pkg/s3compat/handler.go` - Added copy-source detection in PutObject (lines 690-705)
+- `pkg/s3compat/object_ops.go` - Fixed CopyObject implementation (lines 472-575)
+- `pkg/s3compat/multipart.go` - Implemented UploadPartCopy (lines 236-253, 500-642)
 
 ---
 
