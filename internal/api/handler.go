@@ -153,14 +153,14 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	objectRouter.HandleFunc("", h.s3Handler.PutObjectTagging).Methods("PUT").Queries("tagging", "")
 	objectRouter.HandleFunc("", h.s3Handler.DeleteObjectTagging).Methods("DELETE").Queries("tagging", "")
 
+	// Copy operations (with header filter - must be before PutObject)
+	objectRouter.HandleFunc("", h.s3Handler.CopyObject).Methods("PUT").Headers("x-amz-copy-source", "{source}")
+
 	// Basic object operations (without query parameters - registered LAST)
 	objectRouter.HandleFunc("", h.s3Handler.HeadObject).Methods("HEAD")
 	objectRouter.HandleFunc("", h.s3Handler.GetObject).Methods("GET")
 	objectRouter.HandleFunc("", h.s3Handler.PutObject).Methods("PUT")
 	objectRouter.HandleFunc("", h.s3Handler.DeleteObject).Methods("DELETE")
-
-	// Copy operations
-	objectRouter.HandleFunc("", h.s3Handler.CopyObject).Methods("PUT").Headers("x-amz-copy-source", "{source}")
 
 	// Presigned URL support (for compatibility)
 	router.HandleFunc("/{bucket}/{object:.+}", h.s3Handler.PresignedOperation).Methods("GET", "PUT", "DELETE").Queries("X-Amz-Algorithm", "{algorithm}")

@@ -1,8 +1,12 @@
 package s3compat
 
 import (
+	"bytes"
 	"encoding/xml"
+	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -12,8 +16,8 @@ import (
 
 // Object Lock XML structures
 type ObjectLockConfiguration struct {
-	XMLName           xml.Name `xml:"ObjectLockConfiguration"`
-	ObjectLockEnabled string   `xml:"ObjectLockEnabled"`
+	XMLName           xml.Name        `xml:"ObjectLockConfiguration"`
+	ObjectLockEnabled string          `xml:"ObjectLockEnabled"`
 	Rule              *ObjectLockRule `xml:"Rule,omitempty"`
 }
 
@@ -481,34 +485,39 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"source": copySource,
+		"source":      copySource,
 		"dest_bucket": destBucket,
-		"dest_key": destKey,
-	}).Debug("S3 API: CopyObject")
+		"dest_key":    destKey,
+	}).Info("S3 API: CopyObject - received request")
 
 	// Parse source bucket and key from copy source
-	// Format: /source-bucket/source-key
-	if len(copySource) < 2 || copySource[0] != '/' {
-		h.writeError(w, "InvalidArgument", "Invalid copy source format", destKey, r)
-		return
+	// Format can be: "/source-bucket/source-key" OR "source-bucket/source-key"
+	// AWS CLI may send with or without leading slash
+	if copySource[0] == '/' {
+		copySource = copySource[1:] // Remove leading slash if present
 	}
 
-	copySource = copySource[1:] // Remove leading slash
-	slashIdx := 0
-	for i, c := range copySource {
-		if c == '/' {
-			slashIdx = i
-			break
-		}
-	}
-
-	if slashIdx == 0 {
-		h.writeError(w, "InvalidArgument", "Invalid copy source format", destKey, r)
+	// Find first slash to separate bucket from key
+	slashIdx := strings.Index(copySource, "/")
+	if slashIdx == -1 {
+		logrus.WithFields(logrus.Fields{
+			"copySource": copySource,
+		}).Error("CopyObject: No slash found in copy source")
+		h.writeError(w, "InvalidArgument", fmt.Sprintf("Invalid copy source format: %s", copySource), destKey, r)
 		return
 	}
 
 	sourceBucket := copySource[:slashIdx]
 	sourceKey := copySource[slashIdx+1:]
+
+	if sourceBucket == "" || sourceKey == "" {
+		logrus.WithFields(logrus.Fields{
+			"sourceBucket": sourceBucket,
+			"sourceKey":    sourceKey,
+		}).Error("CopyObject: Empty bucket or key")
+		h.writeError(w, "InvalidArgument", "Invalid copy source: empty bucket or key", destKey, r)
+		return
+	}
 
 	sourceBucketPath := h.getBucketPath(r, sourceBucket)
 	// Get source object
@@ -523,16 +532,39 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer reader.Close()
 
+	logrus.WithFields(logrus.Fields{
+		"source_bucket": sourceBucket,
+		"source_key":    sourceKey,
+		"dest_bucket":   destBucket,
+		"dest_key":      destKey,
+		"source_size":   sourceObj.Size,
+		"source_etag":   sourceObj.ETag,
+	}).Info("CopyObject: Starting copy operation")
+
+	// IMPORTANT: Read all data from source into memory
+	// This ensures the reader is fully consumed before passing to PutObject
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		h.writeError(w, "InternalError", fmt.Sprintf("Failed to read source object: %v", err), sourceKey, r)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bytes_read": len(data),
+		"expected":   sourceObj.Size,
+	}).Info("CopyObject: Read source data")
+
 	// Copy metadata
 	headers := make(http.Header)
 	headers.Set("Content-Type", sourceObj.ContentType)
 	for k, v := range sourceObj.Metadata {
-		headers.Set(k, v)
+		headers.Set("X-Amz-Meta-"+k, v)
 	}
 
 	destBucketPath := h.getBucketPath(r, destBucket)
-	// Put object at destination
-	destObj, err := h.objectManager.PutObject(r.Context(), destBucketPath, destKey, reader, headers)
+	// Put object at destination with new reader from data
+	// IMPORTANT: Use bytes.NewReader to preserve binary data correctly
+	destObj, err := h.objectManager.PutObject(r.Context(), destBucketPath, destKey, bytes.NewReader(data), headers)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The destination bucket does not exist", destBucket, r)

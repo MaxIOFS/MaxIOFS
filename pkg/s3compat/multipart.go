@@ -1,7 +1,9 @@
 package s3compat
 
 import (
+	"bytes"
 	"encoding/xml"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -232,6 +234,25 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 		"uploadId":   uploadID,
 		"partNumber": partNumber,
 	}).Debug("S3 API: UploadPart")
+
+	// IMPORTANT: Detect UploadPartCopy operation
+	// AWS CLI uses this for copying large files (>5MB) between buckets
+	copySource := r.Header.Get("x-amz-copy-source")
+	copySourceRange := r.Header.Get("x-amz-copy-source-range")
+
+	if copySource != "" {
+		logrus.WithFields(logrus.Fields{
+			"bucket":      bucketName,
+			"object":      objectKey,
+			"uploadId":    uploadID,
+			"partNumber":  partNumber,
+			"copySource":  copySource,
+			"sourceRange": copySourceRange,
+		}).Info("S3 API: UploadPartCopy detected")
+
+		h.UploadPartCopy(w, r, uploadID, partNumber, copySource, copySourceRange)
+		return
+	}
 
 	// Handle AWS chunked encoding
 	// IMPORTANT: Some clients (like warp/MinIO-Go) send AWS chunked format
@@ -474,4 +495,164 @@ func (h *Handler) AbortMultipartUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// UploadPartCopy implements S3 UploadPartCopy for copying parts of large files
+// This is used by AWS CLI when copying files > 5MB between buckets
+func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadID string, partNumber int, copySource, copySourceRange string) {
+	// Parse source bucket and key from copy source
+	// Format can be: "/source-bucket/source-key" OR "source-bucket/source-key"
+	// AWS CLI may send with or without leading slash
+	if len(copySource) > 0 && copySource[0] == '/' {
+		copySource = copySource[1:] // Remove leading slash if present
+	}
+
+	slashIdx := strings.Index(copySource, "/")
+	if slashIdx == -1 {
+		h.writeError(w, "InvalidArgument", "Invalid copy source format", uploadID, r)
+		return
+	}
+
+	sourceBucket := copySource[:slashIdx]
+	sourceKey := copySource[slashIdx+1:]
+
+	if sourceBucket == "" || sourceKey == "" {
+		h.writeError(w, "InvalidArgument", "Invalid copy source: empty bucket or key", uploadID, r)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"uploadId":    uploadID,
+		"partNumber":  partNumber,
+		"sourceBucket": sourceBucket,
+		"sourceKey":   sourceKey,
+		"sourceRange": copySourceRange,
+	}).Info("UploadPartCopy: Processing copy part")
+
+	sourceBucketPath := h.getBucketPath(r, sourceBucket)
+	// Get source object
+	sourceObj, reader, err := h.objectManager.GetObject(r.Context(), sourceBucketPath, sourceKey)
+	if err != nil {
+		if err == object.ErrObjectNotFound {
+			h.writeError(w, "NoSuchKey", "The specified source key does not exist", sourceKey, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), sourceKey, r)
+		return
+	}
+	defer reader.Close()
+
+	// Parse range if specified
+	var data []byte
+	if copySourceRange != "" {
+		// Format: "bytes=start-end"
+		rangeStart, rangeEnd, err := parseCopySourceRange(copySourceRange, sourceObj.Size)
+		if err != nil {
+			h.writeError(w, "InvalidArgument", fmt.Sprintf("Invalid copy source range: %v", err), uploadID, r)
+			return
+		}
+
+		rangeSize := rangeEnd - rangeStart + 1
+
+		logrus.WithFields(logrus.Fields{
+			"uploadId":   uploadID,
+			"partNumber": partNumber,
+			"rangeStart": rangeStart,
+			"rangeEnd":   rangeEnd,
+			"rangeSize":  rangeSize,
+		}).Info("UploadPartCopy: Using range")
+
+		// Skip to start position if needed
+		if rangeStart > 0 {
+			if _, err := io.CopyN(io.Discard, reader, rangeStart); err != nil {
+				h.writeError(w, "InternalError", fmt.Sprintf("Failed to seek to range start: %v", err), uploadID, r)
+				return
+			}
+		}
+
+		// Read only the range size
+		data = make([]byte, rangeSize)
+		n, err := io.ReadFull(reader, data)
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			h.writeError(w, "InternalError", fmt.Sprintf("Failed to read range data: %v", err), uploadID, r)
+			return
+		}
+		data = data[:n] // Trim to actual bytes read
+	} else {
+		// No range specified, read entire object
+		logrus.WithFields(logrus.Fields{
+			"uploadId":   uploadID,
+			"partNumber": partNumber,
+			"sourceSize": sourceObj.Size,
+		}).Info("UploadPartCopy: Reading entire object")
+
+		data, err = io.ReadAll(reader)
+	}
+	if err != nil {
+		h.writeError(w, "InternalError", fmt.Sprintf("Failed to read source data: %v", err), uploadID, r)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"uploadId":   uploadID,
+		"partNumber": partNumber,
+		"bytesRead":  len(data),
+	}).Info("UploadPartCopy: Read source data, uploading part")
+
+	// Upload the part
+	part, err := h.objectManager.UploadPart(r.Context(), uploadID, partNumber, bytes.NewReader(data))
+	if err != nil {
+		if err == object.ErrUploadNotFound {
+			h.writeError(w, "NoSuchUpload", "The specified multipart upload does not exist", uploadID, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), uploadID, r)
+		return
+	}
+
+	// Return copy part result
+	type CopyPartResult struct {
+		XMLName      xml.Name  `xml:"CopyPartResult"`
+		LastModified time.Time `xml:"LastModified"`
+		ETag         string    `xml:"ETag"`
+	}
+
+	result := CopyPartResult{
+		LastModified: time.Now(),
+		ETag:         part.ETag,
+	}
+
+	h.writeXMLResponse(w, http.StatusOK, result)
+}
+
+// parseCopySourceRange parses S3 copy-source-range header
+// Format: "bytes=start-end"
+func parseCopySourceRange(rangeHeader string, objectSize int64) (int64, int64, error) {
+	// Remove "bytes=" prefix
+	if !strings.HasPrefix(rangeHeader, "bytes=") {
+		return 0, 0, fmt.Errorf("invalid range format, must start with 'bytes='")
+	}
+	rangeSpec := strings.TrimPrefix(rangeHeader, "bytes=")
+
+	// Split on dash
+	parts := strings.Split(rangeSpec, "-")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid range format, expected 'start-end'")
+	}
+
+	start, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid range start: %w", err)
+	}
+
+	end, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid range end: %w", err)
+	}
+
+	if start < 0 || end < start || end >= objectSize {
+		return 0, 0, fmt.Errorf("range out of bounds (start=%d, end=%d, size=%d)", start, end, objectSize)
+	}
+
+	return start, end, nil
 }

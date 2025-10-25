@@ -692,6 +692,18 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
+	// IMPORTANT: Detect CopyObject operation by x-amz-copy-source header
+	// AWS CLI sends PUT with this header for copy operations
+	if copySource := r.Header.Get("x-amz-copy-source"); copySource != "" {
+		logrus.WithFields(logrus.Fields{
+			"bucket":      bucketName,
+			"object":      objectKey,
+			"copy-source": copySource,
+		}).Debug("S3 API: PutObject detected copy-source header, dispatching to CopyObject")
+		h.CopyObject(w, r)
+		return
+	}
+
 	contentEncoding := r.Header.Get("Content-Encoding")
 	decodedContentLength := r.Header.Get("X-Amz-Decoded-Content-Length")
 
