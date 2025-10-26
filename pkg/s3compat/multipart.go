@@ -463,6 +463,11 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		ETag:     obj.ETag,
 	}
 
+	// Return version ID if versioning is enabled
+	if obj.VersionID != "" {
+		w.Header().Set("x-amz-version-id", obj.VersionID)
+	}
+
 	h.writeXMLResponse(w, http.StatusOK, result)
 }
 

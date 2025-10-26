@@ -146,7 +146,7 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Delete object (filesystem + BadgerDB metadata + bucket metrics)
-		err := h.objectManager.DeleteObject(ctx, bucketPath, obj.Key)
+		_, err := h.objectManager.DeleteObject(ctx, bucketPath, obj.Key)
 
 		if err != nil {
 			// Log error but continue with other objects

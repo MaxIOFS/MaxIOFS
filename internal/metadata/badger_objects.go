@@ -297,7 +297,42 @@ func (s *BadgerStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata,
 	}
 
 	return s.db.Update(func(txn *badger.Txn) error {
-		// Store the version
+		// If this is the latest version, mark all previous versions as not latest
+		if version.IsLatest {
+			// Get all existing versions
+			opts := badger.DefaultIteratorOptions
+			prefix := []byte(fmt.Sprintf("version:%s:%s:", obj.Bucket, obj.Key))
+			opts.Prefix = prefix
+
+			it := txn.NewIterator(opts)
+			defer it.Close()
+
+			for it.Rewind(); it.Valid(); it.Next() {
+				item := it.Item()
+				var existingVersion ObjectVersion
+
+				err := item.Value(func(val []byte) error {
+					return json.Unmarshal(val, &existingVersion)
+				})
+				if err != nil {
+					continue
+				}
+
+				// Mark as not latest
+				if existingVersion.IsLatest {
+					existingVersion.IsLatest = false
+					updatedData, err := json.Marshal(&existingVersion)
+					if err != nil {
+						continue
+					}
+					if err := txn.Set(item.Key(), updatedData); err != nil {
+						s.logger.WithError(err).Warn("Failed to update existing version")
+					}
+				}
+			}
+		}
+
+		// Store the new version
 		versionKey := objectVersionKey(obj.Bucket, obj.Key, version.VersionID)
 		versionData, err := json.Marshal(version)
 		if err != nil {

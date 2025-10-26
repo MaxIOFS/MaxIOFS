@@ -21,9 +21,9 @@ import (
 // Manager defines the interface for object management
 type Manager interface {
 	// Basic object operations
-	GetObject(ctx context.Context, bucket, key string) (*Object, io.ReadCloser, error)
+	GetObject(ctx context.Context, bucket, key string, versionID ...string) (*Object, io.ReadCloser, error)
 	PutObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (*Object, error)
-	DeleteObject(ctx context.Context, bucket, key string) error
+	DeleteObject(ctx context.Context, bucket, key string, versionID ...string) (deleteMarkerVersionID string, err error)
 	ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*ListObjectsResult, error)
 
 	// Metadata operations
@@ -126,15 +126,60 @@ func (om *objectManager) parseBucketPath(bucketPath string) (tenantID, bucketNam
 	return "", parts[0] // "", "backups" (global bucket)
 }
 
-// GetObject retrieves an object
-func (om *objectManager) GetObject(ctx context.Context, bucket, key string) (*Object, io.ReadCloser, error) {
+// generateVersionID generates a unique version ID for object versioning
+// Format: timestamp (nanoseconds) + random hex (8 chars)
+func generateVersionID() string {
+	timestamp := time.Now().UnixNano()
+	randomBytes := make([]byte, 4)
+	rand.Read(randomBytes)
+	randomHex := hex.EncodeToString(randomBytes)
+	return fmt.Sprintf("%d.%s", timestamp, randomHex)
+}
+
+// GetObject retrieves an object (optionally a specific version)
+func (om *objectManager) GetObject(ctx context.Context, bucket, key string, versionID ...string) (*Object, io.ReadCloser, error) {
 	if err := om.validateObjectName(key); err != nil {
 		return nil, nil, err
 	}
 
-	objectPath := om.getObjectPath(bucket, key)
+	// Load object metadata from BadgerDB first to determine if versioning is enabled
+	var metaObj *metadata.ObjectMetadata
+	var requestedVersionID string
+	var err error
 
-	// Get object data
+	if len(versionID) > 0 && versionID[0] != "" {
+		requestedVersionID = versionID[0]
+		// Get specific version metadata
+		metaObj, err = om.metadataStore.GetObject(ctx, bucket, key, requestedVersionID)
+		if err != nil {
+			if err == metadata.ErrObjectNotFound {
+				return nil, nil, ErrObjectNotFound
+			}
+			return nil, nil, fmt.Errorf("failed to get object version metadata: %w", err)
+		}
+	} else {
+		// Get latest version metadata
+		metaObj, err = om.metadataStore.GetObject(ctx, bucket, key)
+		if err != nil && err != metadata.ErrObjectNotFound {
+			logrus.WithError(err).Debug("Failed to load object metadata from BadgerDB")
+		}
+		// If metadata exists and has VersionID, use it
+		if metaObj != nil && metaObj.VersionID != "" {
+			requestedVersionID = metaObj.VersionID
+		}
+	}
+
+	// Determine the correct object path
+	var objectPath string
+	if requestedVersionID != "" {
+		// Use versioned path
+		objectPath = om.getVersionedObjectPath(bucket, key, requestedVersionID)
+	} else {
+		// Use regular path (for non-versioned objects)
+		objectPath = om.getObjectPath(bucket, key)
+	}
+
+	// Get object data from storage
 	reader, storageMetadata, err := om.storage.Get(ctx, objectPath)
 	if err != nil {
 		if err == storage.ErrObjectNotFound {
@@ -143,17 +188,17 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string) (*Ob
 		return nil, nil, fmt.Errorf("failed to get object: %w", err)
 	}
 
-	// Load object metadata from BadgerDB
-	metaObj, err := om.metadataStore.GetObject(ctx, bucket, key)
-	if err != nil && err != metadata.ErrObjectNotFound {
-		// Log error but continue with basic metadata
-		logrus.WithError(err).Debug("Failed to load object metadata from BadgerDB")
-		metaObj = nil // Ensure metaObj is nil on error
-	}
-
 	var object *Object
 	if metaObj != nil {
 		object = fromMetadataObject(metaObj)
+
+		// Check if this is a delete marker (Size==0, ETag=="")
+		// Delete markers should return 404
+		if object.Size == 0 && object.ETag == "" && requestedVersionID == "" {
+			// Latest version is a delete marker
+			reader.Close()
+			return nil, nil, ErrObjectNotFound
+		}
 	} else {
 		// If metadata doesn't exist, create basic object info from storage metadata
 		size, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
@@ -180,8 +225,6 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		return nil, err
 	}
 
-	objectPath := om.getObjectPath(bucket, key)
-
 	// Extract ONLY relevant S3/storage metadata from headers (not auth, cookies, etc.)
 	storageMetadata := make(map[string]string)
 	userMetadata := make(map[string]string)
@@ -203,6 +246,24 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 				userMetadata[metaKey] = values[0]
 			}
 		}
+	}
+
+	// Check if versioning is enabled for this bucket
+	tenantID, bucketName := om.parseBucketPath(bucket)
+	bucketMeta, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
+	versioningEnabled := false
+	if err == nil && bucketMeta != nil && bucketMeta.Versioning != nil {
+		versioningEnabled = bucketMeta.Versioning.Status == "Enabled"
+	}
+
+	// Generate versionID if versioning is enabled
+	var versionID string
+	var objectPath string
+	if versioningEnabled {
+		versionID = generateVersionID()
+		objectPath = om.getVersionedObjectPath(bucket, key, versionID)
+	} else {
+		objectPath = om.getObjectPath(bucket, key)
 	}
 
 	// Store object in storage backend (ONLY storage metadata, not HTTP headers)
@@ -229,6 +290,7 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		ContentType:  finalStorageMetadata["content-type"],
 		Metadata:     userMetadata, // User metadata from x-amz-meta-* headers
 		StorageClass: StorageClassStandard,
+		VersionID:    versionID, // Set versionID (empty string if versioning disabled)
 	}
 
 	// Apply default Object Lock retention if bucket has it configured
@@ -236,117 +298,291 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		logrus.WithError(err).Debug("Failed to apply default retention")
 	}
 
-	// Save object metadata to BadgerDB
-	metaObj := toMetadataObject(object)
-	if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
-		logrus.WithError(err).Warn("Failed to save object metadata to BadgerDB")
+	// If versioning is enabled, store as version
+	if versioningEnabled {
+
+		// Create version entry
+		version := &metadata.ObjectVersion{
+			VersionID:    versionID,
+			IsLatest:     true,
+			Key:          key,
+			Size:         size,
+			ETag:         object.ETag,
+			LastModified: object.LastModified,
+			StorageClass: StorageClassStandard,
+		}
+
+		// Store version (this also updates the main object if IsLatest=true)
+		metaObj := toMetadataObject(object)
+		if err := om.metadataStore.PutObjectVersion(ctx, metaObj, version); err != nil {
+			logrus.WithError(err).Warn("Failed to save object version to BadgerDB")
+		}
+	} else {
+		// No versioning - use regular PutObject
+		metaObj := toMetadataObject(object)
+		if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
+			logrus.WithError(err).Warn("Failed to save object metadata to BadgerDB")
+		}
 	}
 
 	// Create implicit parent folders in BadgerDB
 	// This ensures folders are listable even when created implicitly by S3 clients
 	om.ensureImplicitFolders(ctx, bucket, key)
 
-	// Update bucket metrics (increment object count)
+	// Update bucket metrics (increment object count only for first version)
 	if om.bucketManager != nil {
-		// Parse bucket path to extract tenantID and bucket name
-		tenantID, bucketName := om.parseBucketPath(bucket)
-		if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
-			logrus.WithError(err).WithFields(logrus.Fields{
-				"bucket_path": bucket,
-				"tenant_id":   tenantID,
-				"bucket_name": bucketName,
-				"key":         key,
-				"size":        size,
-			}).Warn("Failed to increment bucket object count")
+		// Only increment if this is a new object (not a new version of existing)
+		// Check if object existed before
+		existingVersions, err := om.metadataStore.GetObjectVersions(ctx, bucket, key)
+		shouldIncrement := err != nil || len(existingVersions) <= 1 // New object or first version
+
+		if shouldIncrement {
+			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"bucket_path": bucket,
+					"tenant_id":   tenantID,
+					"bucket_name": bucketName,
+					"key":         key,
+					"size":        size,
+				}).Warn("Failed to increment bucket object count")
+			}
 		}
 	}
 
 	return object, nil
 }
 
-// DeleteObject deletes an object
-func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string) error {
+// DeleteObject deletes an object or creates a delete marker
+// Returns deleteMarkerVersionID if a delete marker was created, empty string otherwise
+func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, versionID ...string) (string, error) {
 	if err := om.validateObjectName(key); err != nil {
-		return err
+		return "", err
 	}
 
-	objectPath := om.getObjectPath(bucket, key)
+	// Check if versioning is enabled
+	tenantID, bucketName := om.parseBucketPath(bucket)
+	bucketMeta, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
+	versioningEnabled := false
+	if err == nil && bucketMeta != nil && bucketMeta.Versioning != nil {
+		versioningEnabled = bucketMeta.Versioning.Status == "Enabled"
+	}
 
-	// CRITICAL: Get metadata directly from BadgerDB, NOT from GetObjectMetadata
-	// GetObjectMetadata checks filesystem first, which fails if file was deleted but metadata exists
-	metaObj, err := om.metadataStore.GetObject(ctx, bucket, key)
-	var objectSize int64
+	// Determine if we're deleting a specific version or creating a delete marker
+	var specificVersionID string
+	if len(versionID) > 0 && versionID[0] != "" {
+		specificVersionID = versionID[0]
+	}
 
+	if specificVersionID != "" {
+		// DELETE with versionId → Permanent deletion of specific version
+		return "", om.deleteSpecificVersion(ctx, bucket, key, specificVersionID)
+	} else if versioningEnabled {
+		// DELETE without versionId + versioning enabled → Create delete marker
+		return om.createDeleteMarker(ctx, bucket, key)
+	} else {
+		// DELETE without versioning → Legacy behavior (permanent delete)
+		return "", om.deletePermanently(ctx, bucket, key)
+	}
+}
+
+// createDeleteMarker creates a delete marker for a versioned object
+func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key string) (string, error) {
+	// Generate delete marker versionID
+	deleteMarkerVersionID := generateVersionID()
+
+	// Create delete marker version entry
+	deleteMarker := &metadata.ObjectVersion{
+		VersionID:    deleteMarkerVersionID,
+		IsLatest:     true,
+		Key:          key,
+		Size:         0,
+		ETag:         "",
+		LastModified: time.Now(),
+		StorageClass: StorageClassStandard,
+	}
+
+	// Create minimal object metadata for delete marker
+	deleteMarkerObj := &metadata.ObjectMetadata{
+		Bucket:       bucket,
+		Key:          key,
+		VersionID:    deleteMarkerVersionID,
+		Size:         0,
+		LastModified: time.Now(),
+		ETag:         "",
+		ContentType:  "",
+		StorageClass: StorageClassStandard,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+
+	// Store delete marker version
+	if err := om.metadataStore.PutObjectVersion(ctx, deleteMarkerObj, deleteMarker); err != nil {
+		return "", fmt.Errorf("failed to create delete marker: %w", err)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket":    bucket,
+		"key":       key,
+		"versionID": deleteMarkerVersionID,
+	}).Info("Created delete marker")
+
+	return deleteMarkerVersionID, nil
+}
+
+// deleteSpecificVersion permanently deletes a specific version
+func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key, versionID string) error {
+	// Get all versions first to check if we're deleting the latest
+	allVersions, err := om.metadataStore.GetObjectVersions(ctx, bucket, key)
+	if err != nil {
+		return fmt.Errorf("failed to get object versions: %w", err)
+	}
+
+	// Find the version we're deleting and check if it's latest
+	var deletingLatest bool
+	var versionToDelete *metadata.ObjectVersion
+	for _, ver := range allVersions {
+		if ver.VersionID == versionID {
+			versionToDelete = ver
+			deletingLatest = ver.IsLatest
+			break
+		}
+	}
+
+	if versionToDelete == nil {
+		return ErrObjectNotFound
+	}
+
+	// Get full metadata for Object Lock checks
+	metaObj, err := om.metadataStore.GetObject(ctx, bucket, key, versionID)
 	if err != nil {
 		if err == metadata.ErrObjectNotFound {
-			// Metadata doesn't exist in BadgerDB - try to cleanup physical file if it exists
-			if err := om.storage.Delete(ctx, objectPath); err != nil && err != storage.ErrObjectNotFound {
-				logrus.WithError(err).Debug("Failed to delete orphaned physical file")
-			}
 			return ErrObjectNotFound
 		}
-		return fmt.Errorf("failed to get object metadata from BadgerDB: %w", err)
+		return fmt.Errorf("failed to get version metadata: %w", err)
 	}
 
-	// Convert metadata object
 	objMetadata := fromMetadataObject(metaObj)
-	objectSize = objMetadata.Size
 
-	// Check Object Lock - Legal Hold (from cached metadata)
+	// Check Object Lock - Legal Hold
 	if objMetadata.LegalHold != nil && objMetadata.LegalHold.Status == LegalHoldStatusOn {
 		return ErrObjectUnderLegalHold
 	}
 
-	// Check Object Lock - Retention (from cached metadata)
+	// Check Object Lock - Retention
 	if objMetadata.Retention != nil {
-		// Check if retention is still active
 		if time.Now().Before(objMetadata.Retention.RetainUntilDate) {
-			// COMPLIANCE mode cannot be bypassed
 			if objMetadata.Retention.Mode == RetentionModeCompliance {
 				return NewComplianceRetentionError(objMetadata.Retention.RetainUntilDate)
 			}
-			// GOVERNANCE mode requires bypass permission (handled at API layer)
 			if objMetadata.Retention.Mode == RetentionModeGovernance {
 				return NewGovernanceRetentionError(objMetadata.Retention.RetainUntilDate)
 			}
 		}
 	}
 
-	// CRITICAL: Delete from BadgerDB FIRST before touching filesystem
-	// This ensures metadata consistency - better to have orphaned files than orphaned metadata
+	// Delete version metadata from BadgerDB
+	if err := om.metadataStore.DeleteObjectVersion(ctx, bucket, key, versionID); err != nil {
+		return fmt.Errorf("failed to delete version metadata: %w", err)
+	}
 
-	// Step 1: Delete object metadata from BadgerDB
-	if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil {
-		if err == metadata.ErrObjectNotFound {
-			// Continue to filesystem delete anyway
-		} else {
-			// BadgerDB error is FATAL - we must not proceed with filesystem delete
-			return fmt.Errorf("failed to delete object metadata from BadgerDB: %w", err)
+	// Delete physical file (if not a delete marker)
+	if objMetadata.Size > 0 {
+		objectPath := om.getVersionedObjectPath(bucket, key, versionID)
+		if err := om.storage.Delete(ctx, objectPath); err != nil && err != storage.ErrObjectNotFound {
+			logrus.WithError(err).Warn("Failed to delete physical versioned file")
 		}
 	}
 
-	// Step 2: Update bucket metrics (decrement object count)
+	// If we deleted the latest version, mark the next most recent as latest
+	if deletingLatest && len(allVersions) > 1 {
+		// Find the next most recent version (excluding the one we just deleted)
+		var nextLatest *metadata.ObjectVersion
+		for _, ver := range allVersions {
+			if ver.VersionID != versionID {
+				if nextLatest == nil || ver.LastModified.After(nextLatest.LastModified) {
+					nextLatest = ver
+				}
+			}
+		}
+
+		if nextLatest != nil {
+			// Mark as latest
+			nextLatest.IsLatest = true
+
+			// Get full object metadata and update
+			nextMetaObj, err := om.metadataStore.GetObject(ctx, bucket, key, nextLatest.VersionID)
+			if err == nil {
+				err = om.metadataStore.PutObjectVersion(ctx, nextMetaObj, nextLatest)
+				if err != nil {
+					logrus.WithError(err).Warn("Failed to mark next version as latest")
+				}
+			}
+		}
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket":    bucket,
+		"key":       key,
+		"versionID": versionID,
+	}).Info("Permanently deleted version")
+
+	return nil
+}
+
+// deletePermanently permanently deletes an object (legacy behavior without versioning)
+func (om *objectManager) deletePermanently(ctx context.Context, bucket, key string) error {
+	objectPath := om.getObjectPath(bucket, key)
+
+	// Get metadata
+	metaObj, err := om.metadataStore.GetObject(ctx, bucket, key)
+	var objectSize int64
+
+	if err != nil {
+		if err == metadata.ErrObjectNotFound {
+			// Try to cleanup physical file if it exists
+			if err := om.storage.Delete(ctx, objectPath); err != nil && err != storage.ErrObjectNotFound {
+				logrus.WithError(err).Debug("Failed to delete orphaned physical file")
+			}
+			return ErrObjectNotFound
+		}
+		return fmt.Errorf("failed to get object metadata: %w", err)
+	}
+
+	objMetadata := fromMetadataObject(metaObj)
+	objectSize = objMetadata.Size
+
+	// Check Object Lock
+	if objMetadata.LegalHold != nil && objMetadata.LegalHold.Status == LegalHoldStatusOn {
+		return ErrObjectUnderLegalHold
+	}
+
+	if objMetadata.Retention != nil {
+		if time.Now().Before(objMetadata.Retention.RetainUntilDate) {
+			if objMetadata.Retention.Mode == RetentionModeCompliance {
+				return NewComplianceRetentionError(objMetadata.Retention.RetainUntilDate)
+			}
+			if objMetadata.Retention.Mode == RetentionModeGovernance {
+				return NewGovernanceRetentionError(objMetadata.Retention.RetainUntilDate)
+			}
+		}
+	}
+
+	// Delete metadata from BadgerDB
+	if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil && err != metadata.ErrObjectNotFound {
+		return fmt.Errorf("failed to delete object metadata: %w", err)
+	}
+
+	// Update bucket metrics
 	if om.bucketManager != nil {
 		tenantID, bucketName := om.parseBucketPath(bucket)
 		if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objectSize); err != nil {
-			// Metrics error is FATAL - rollback would be complex, so we fail here
 			return fmt.Errorf("failed to decrement bucket object count: %w", err)
 		}
 	}
 
-	// Step 3: Delete object from filesystem (only after BadgerDB is updated)
-	if err := om.storage.Delete(ctx, objectPath); err != nil {
-		if err == storage.ErrObjectNotFound {
-			// Physical file doesn't exist - this is OK, metadata was already cleaned
-			return nil
-		}
-		// Filesystem delete failed after metadata cleanup - log warning but return success
-		// The metadata is gone, which is what matters for consistency
-		logrus.WithError(err).WithFields(logrus.Fields{
-			"bucket": bucket,
-			"key":    key,
-		}).Warn("Failed to delete physical file after metadata cleanup - orphaned file will remain")
-		return nil
+	// Delete physical file
+	if err := om.storage.Delete(ctx, objectPath); err != nil && err != storage.ErrObjectNotFound {
+		logrus.WithError(err).Warn("Failed to delete physical file")
 	}
 
 	return nil
@@ -631,8 +867,40 @@ func (om *objectManager) SetObjectLegalHold(ctx context.Context, bucket, key str
 
 // Versioning operations (Fase 7.2 - future)
 func (om *objectManager) GetObjectVersions(ctx context.Context, bucket, key string) ([]ObjectVersion, error) {
-	// TODO: Implement versioning in Fase 7.2
-	return []ObjectVersion{}, nil
+	// Get versions from metadata store
+	metaVersions, err := om.metadataStore.GetObjectVersions(ctx, bucket, key)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert metadata versions to object versions
+	versions := make([]ObjectVersion, 0, len(metaVersions))
+	for _, metaVer := range metaVersions {
+		// Get full object metadata for this version
+		objMeta, err := om.metadataStore.GetObject(ctx, bucket, key, metaVer.VersionID)
+		if err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"bucket":    bucket,
+				"key":       key,
+				"versionID": metaVer.VersionID,
+			}).Warn("Failed to get object metadata for version")
+			continue
+		}
+
+		// Convert to Object
+		obj := fromMetadataObject(objMeta)
+
+		// Create ObjectVersion
+		version := ObjectVersion{
+			Object:         *obj,
+			IsLatest:       metaVer.IsLatest,
+			IsDeleteMarker: false, // TODO: Implement delete markers
+		}
+
+		versions = append(versions, version)
+	}
+
+	return versions, nil
 }
 
 func (om *objectManager) DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error {
@@ -995,6 +1263,12 @@ func (om *objectManager) validateObjectName(key string) error {
 // getObjectPath returns the storage path for an object
 func (om *objectManager) getObjectPath(bucket, key string) string {
 	return fmt.Sprintf("%s/%s", bucket, key)
+}
+
+// getVersionedObjectPath returns the storage path for a versioned object
+// Format: bucket/.versions/key/versionID
+func (om *objectManager) getVersionedObjectPath(bucket, key, versionID string) string {
+	return fmt.Sprintf("%s/.versions/%s/%s", bucket, key, versionID)
 }
 
 // Removed: getObjectMetadataPath, saveObjectMetadata, loadObjectMetadata

@@ -587,7 +587,11 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	} else {
 		bucketPath = h.getBucketPath(r, bucketName)
 	}
-	obj, reader, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey)
+
+	// Get versionId if specified (for versioning support)
+	versionID := r.URL.Query().Get("versionId")
+
+	obj, reader, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -637,6 +641,11 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", obj.ETag)
 	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
 	w.Header().Set("Accept-Ranges", "bytes")
+
+	// Add version ID if available
+	if obj.VersionID != "" {
+		w.Header().Set("x-amz-version-id", obj.VersionID)
+	}
 
 	// Agregar headers de Object Lock si existen (Veeam compatibility)
 	if obj.Retention != nil {
@@ -858,6 +867,12 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("ETag", obj.ETag)
+
+	// Return version ID if versioning is enabled
+	if obj.VersionID != "" {
+		w.Header().Set("x-amz-version-id", obj.VersionID)
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -866,13 +881,18 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
+	// Get versionId if specified (for permanent deletion)
+	versionID := r.URL.Query().Get("versionId")
+
 	logrus.WithFields(logrus.Fields{
-		"bucket": bucketName,
-		"object": objectKey,
+		"bucket":    bucketName,
+		"object":    objectKey,
+		"versionId": versionID,
 	}).Debug("S3 API: DeleteObject")
 
 	bucketPath := h.getBucketPath(r, bucketName)
-	if err := h.objectManager.DeleteObject(r.Context(), bucketPath, objectKey); err != nil {
+	deleteMarkerVersionID, err := h.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, versionID)
+	if err != nil {
 		if err == object.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
@@ -902,6 +922,17 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
+	}
+
+	// Set response headers
+	if deleteMarkerVersionID != "" {
+		// A delete marker was created
+		w.Header().Set("x-amz-version-id", deleteMarkerVersionID)
+		w.Header().Set("x-amz-delete-marker", "true")
+	} else if versionID != "" {
+		// A specific version was permanently deleted
+		w.Header().Set("x-amz-version-id", versionID)
+		w.Header().Set("x-amz-delete-marker", "false")
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -1303,7 +1334,9 @@ func (h *Handler) GetObjectVersions(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 func (h *Handler) DeleteObjectVersion(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
+	// This handler is called when DELETE has versionId query parameter
+	// Redirect to DeleteObject which now handles versionId
+	h.DeleteObject(w, r)
 }
 func (h *Handler) PresignedOperation(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)

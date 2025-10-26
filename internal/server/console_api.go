@@ -1226,7 +1226,7 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 		bucketPath = bucketName
 	}
 
-	if err := s.objectManager.DeleteObject(r.Context(), bucketPath, objectKey); err != nil {
+	if _, err := s.objectManager.DeleteObject(r.Context(), bucketPath, objectKey); err != nil {
 		if err == object.ErrObjectNotFound {
 			s.writeError(w, "Object not found", http.StatusNotFound)
 			return

@@ -565,12 +565,9 @@ MaxIOFS está **LISTO para uso en producción** con las siguientes capacidades:
    - 📄 Documentación completa en `BUGFIX_TAGGING.md`
 
 2. **FIX: Bucket Policy (BUG #8)** 🔥 **ÚNICO BUG CRÍTICO RESTANTE**
-   - Implementar persistencia de tags
-   - Verificar GetObjectTagging retorna tags correctos
-
-3. **FIX: Bucket Policy (BUG #8)**
    - Revisar parser de JSON de policy
    - Validar con diferentes formatos de policy
+   - Posible problema de encoding o escape de caracteres
 
 ### Prioridad MEDIA (Importante para Beta)
 4. **FIX: Object Versioning (BUG #9)**
