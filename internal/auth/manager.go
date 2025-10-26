@@ -47,6 +47,7 @@ type Manager interface {
 
 	// Access key management
 	GenerateAccessKey(ctx context.Context, userID string) (*AccessKey, error)
+	GetAccessKey(ctx context.Context, accessKeyID string) (*AccessKey, error)
 	RevokeAccessKey(ctx context.Context, accessKey string) error
 	ListAccessKeys(ctx context.Context, userID string) ([]AccessKey, error)
 
@@ -563,6 +564,10 @@ func (am *authManager) GenerateAccessKey(ctx context.Context, userID string) (*A
 	}
 
 	return accessKey, nil
+}
+
+func (am *authManager) GetAccessKey(ctx context.Context, accessKeyID string) (*AccessKey, error) {
+	return am.store.GetAccessKey(accessKeyID)
 }
 
 func (am *authManager) RevokeAccessKey(ctx context.Context, accessKey string) error {

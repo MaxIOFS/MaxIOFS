@@ -16,6 +16,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/presigned"
 	"github.com/sirupsen/logrus"
 )
 
@@ -172,6 +173,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/shares", s.handleListBucketShares).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/share", s.handleShareObject).Methods("POST", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/share", s.handleDeleteShare).Methods("DELETE", "OPTIONS")
+
+	// Presigned URL endpoints
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/presigned-url", s.handleGeneratePresignedURL).Methods("POST", "OPTIONS")
 
 	// Object endpoints
 	router.HandleFunc("/buckets/{bucket}/objects", s.handleListObjects).Methods("GET", "OPTIONS")
@@ -2740,5 +2744,133 @@ func (s *Server) handleDeleteShare(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, map[string]interface{}{
 		"success": true,
 		"message": "Share deleted successfully",
+	})
+}
+
+// handleGeneratePresignedURL generates a presigned URL for an object
+func (s *Server) handleGeneratePresignedURL(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey := vars["object"]
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
+		"object": objectKey,
+	}).Info("Generate presigned URL request")
+
+	// Get user from context
+	user, ok := auth.GetUserFromContext(r.Context())
+	if !ok {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		ExpiresIn int64  `json:"expiresIn"` // seconds
+		Method    string `json:"method"`    // HTTP method (GET, PUT, etc.), default GET
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, fmt.Sprintf("Invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Default values
+	if req.ExpiresIn <= 0 {
+		req.ExpiresIn = 3600 // 1 hour default
+	}
+	if req.Method == "" {
+		req.Method = "GET"
+	}
+
+	// Get user's access keys
+	accessKeys, err := s.authManager.ListAccessKeys(r.Context(), user.ID)
+	if err != nil || len(accessKeys) == 0 {
+		s.writeError(w, "No access keys found for user", http.StatusInternalServerError)
+		return
+	}
+
+	// Use first active access key
+	accessKey := accessKeys[0]
+
+	// Determine tenant ID for bucket path
+	tenantID := user.TenantID
+	queryTenantID := r.URL.Query().Get("tenantId")
+	if queryTenantID != "" {
+		// Check if user is system admin (has "system_admin" role)
+		isAdmin := false
+		for _, role := range user.Roles {
+			if role == "system_admin" {
+				isAdmin = true
+				break
+			}
+		}
+		if isAdmin {
+			tenantID = queryTenantID
+		}
+	}
+
+	// Get bucket info to verify it exists
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		s.writeError(w, fmt.Sprintf("Bucket not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	// Verify object exists
+	bucketPath := tenantID + "/" + bucketName
+	_, _, err = s.objectManager.GetObject(r.Context(), bucketPath, objectKey)
+	if err != nil {
+		s.writeError(w, fmt.Sprintf("Object not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	// Build endpoint URL
+	endpoint := s.config.PublicAPIURL
+	if endpoint == "" {
+		// Build from request if not configured
+		protocol := "http"
+		if r.TLS != nil {
+			protocol = "https"
+		}
+		endpoint = fmt.Sprintf("%s://%s", protocol, r.Host)
+	}
+
+	// Generate presigned URL
+	params := presigned.PresignedURLParams{
+		Endpoint:        endpoint,
+		Bucket:          bucketName,
+		Key:             objectKey,
+		TenantID:        bucketInfo.TenantID,
+		AccessKeyID:     accessKey.AccessKeyID,
+		SecretAccessKey: accessKey.SecretAccessKey,
+		Method:          req.Method,
+		ExpiresIn:       req.ExpiresIn,
+		Region:          "us-east-1",
+	}
+
+	presignedURL, err := presigned.GeneratePresignedURL(params)
+	if err != nil {
+		s.writeError(w, fmt.Sprintf("Failed to generate presigned URL: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Calculate expiration time
+	expiresAt := time.Now().UTC().Add(time.Duration(req.ExpiresIn) * time.Second)
+
+	logrus.WithFields(logrus.Fields{
+		"bucket":    bucketName,
+		"object":    objectKey,
+		"method":    req.Method,
+		"expiresIn": req.ExpiresIn,
+		"expiresAt": expiresAt,
+	}).Info("Presigned URL generated successfully")
+
+	s.writeJSON(w, map[string]interface{}{
+		"url":       presignedURL,
+		"method":    req.Method,
+		"expiresIn": req.ExpiresIn,
+		"expiresAt": expiresAt.Format(time.RFC3339),
 	})
 }

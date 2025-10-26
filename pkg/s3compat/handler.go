@@ -17,6 +17,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/presigned"
 	"github.com/maxiofs/maxiofs/internal/share"
 	"github.com/sirupsen/logrus"
 )
@@ -488,6 +489,54 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	// Check if user is authenticated
 	_, userExists := auth.GetUserFromContext(r.Context())
 
+	// Track if access is allowed via presigned URL
+	allowedByPresignedURL := false
+
+	// If NOT authenticated, check if this is a presigned URL request
+	if !userExists && presigned.IsPresignedURL(r) {
+		// Extract access key from presigned URL
+		accessKeyID := presigned.ExtractAccessKeyID(r)
+		if accessKeyID == "" {
+			h.writeError(w, "InvalidRequest", "Invalid presigned URL: missing access key", objectKey, r)
+			return
+		}
+
+		// Get access key to retrieve secret
+		if h.authManager == nil {
+			h.writeError(w, "InternalError", "Auth manager not configured", objectKey, r)
+			return
+		}
+
+		accessKey, err := h.authManager.GetAccessKey(r.Context(), accessKeyID)
+		if err != nil {
+			logrus.WithFields(logrus.Fields{
+				"accessKeyID": accessKeyID,
+				"error":       err.Error(),
+			}).Warn("Presigned URL: access key not found")
+			h.writeError(w, "InvalidAccessKeyId", "The AWS access key ID you provided does not exist in our records", objectKey, r)
+			return
+		}
+
+		// Validate presigned URL signature
+		valid, err := presigned.ValidatePresignedURL(r, accessKey.SecretAccessKey)
+		if err != nil || !valid {
+			logrus.WithFields(logrus.Fields{
+				"accessKeyID": accessKeyID,
+				"error":       err,
+			}).Warn("Presigned URL validation failed")
+			h.writeError(w, "SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided", objectKey, r)
+			return
+		}
+
+		// Presigned URL is valid - mark as allowed
+		allowedByPresignedURL = true
+		logrus.WithFields(logrus.Fields{
+			"bucket":      bucketName,
+			"object":      objectKey,
+			"accessKeyID": accessKeyID,
+		}).Info("Presigned URL validated successfully")
+	}
+
 	// Check if this is a VEEAM SOSAPI virtual object (after authentication check)
 	if isVeeamSOSAPIObject(objectKey) {
 		// SOSAPI requires authentication - Veeam sends credentials
@@ -516,12 +565,12 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If NOT authenticated, check if object has an active share
+	// If NOT authenticated and NOT allowed by presigned URL, check if object has an active share (Public Link)
 	// We need to handle two URL formats:
 	// 1. /bucket/object (global bucket)
 	// 2. /tenant-xxx/bucket/object (tenant bucket)
 	var shareTenantID string
-	if !userExists && h.shareManager != nil {
+	if !userExists && !allowedByPresignedURL && h.shareManager != nil {
 		// Extract tenant from bucket name if present
 		realBucket := bucketName
 		realObject := objectKey
@@ -581,8 +630,8 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	var bucketPath string
 	if shareTenantID != "" {
 		bucketPath = shareTenantID + "/" + bucketName
-	} else if !userExists && shareTenantID == "" {
-		// Share exists but with empty tenantID (global bucket)
+	} else if !userExists && (shareTenantID == "" || allowedByPresignedURL) {
+		// Share exists but with empty tenantID (global bucket) OR presigned URL access
 		bucketPath = bucketName
 	} else {
 		bucketPath = h.getBucketPath(r, bucketName)
