@@ -97,6 +97,14 @@ func (s *BadgerStore) GetObject(ctx context.Context, bucket, key string, version
 		return nil, err
 	}
 
+	// Ensure bucket and key are always set (version metadata doesn't store these fields)
+	if obj.Bucket == "" {
+		obj.Bucket = bucket
+	}
+	if obj.Key == "" {
+		obj.Key = key
+	}
+
 	return &obj, nil
 }
 

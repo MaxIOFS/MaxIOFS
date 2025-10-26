@@ -511,7 +511,17 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 
 			// Get full object metadata and update
 			nextMetaObj, err := om.metadataStore.GetObject(ctx, bucket, key, nextLatest.VersionID)
-			if err == nil {
+			if err != nil {
+				logrus.WithError(err).Warn("Failed to get object metadata for next latest")
+			} else {
+				// Ensure bucket and key are set correctly (they might be empty from version metadata)
+				if nextMetaObj.Bucket == "" {
+					nextMetaObj.Bucket = bucket
+				}
+				if nextMetaObj.Key == "" {
+					nextMetaObj.Key = key
+				}
+
 				err = om.metadataStore.PutObjectVersion(ctx, nextMetaObj, nextLatest)
 				if err != nil {
 					logrus.WithError(err).Warn("Failed to mark next version as latest")
