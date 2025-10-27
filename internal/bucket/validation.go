@@ -95,13 +95,43 @@ func validateStatement(stmt Statement, index int) error {
 	}
 
 	// Must have at least one action
-	if len(stmt.Action) == 0 {
+	if stmt.Action == nil {
 		return fmt.Errorf("statement %d: must specify at least one action", index)
+	}
+	// Check if Action is empty (both string and array cases)
+	switch v := stmt.Action.(type) {
+	case string:
+		if v == "" {
+			return fmt.Errorf("statement %d: must specify at least one action", index)
+		}
+	case []interface{}:
+		if len(v) == 0 {
+			return fmt.Errorf("statement %d: must specify at least one action", index)
+		}
+	case []string:
+		if len(v) == 0 {
+			return fmt.Errorf("statement %d: must specify at least one action", index)
+		}
 	}
 
 	// Must have at least one resource
-	if len(stmt.Resource) == 0 {
+	if stmt.Resource == nil {
 		return fmt.Errorf("statement %d: must specify at least one resource", index)
+	}
+	// Check if Resource is empty (both string and array cases)
+	switch v := stmt.Resource.(type) {
+	case string:
+		if v == "" {
+			return fmt.Errorf("statement %d: must specify at least one resource", index)
+		}
+	case []interface{}:
+		if len(v) == 0 {
+			return fmt.Errorf("statement %d: must specify at least one resource", index)
+		}
+	case []string:
+		if len(v) == 0 {
+			return fmt.Errorf("statement %d: must specify at least one resource", index)
+		}
 	}
 
 	return nil

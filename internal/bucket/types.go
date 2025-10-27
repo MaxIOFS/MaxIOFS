@@ -26,9 +26,9 @@ type Policy struct {
 type Statement struct {
 	Sid       string                 `json:"Sid,omitempty"`
 	Effect    string                 `json:"Effect"`
-	Principal map[string]interface{} `json:"Principal,omitempty"`
-	Action    []string               `json:"Action"`
-	Resource  []string               `json:"Resource"`
+	Principal interface{}            `json:"Principal,omitempty"` // Can be string "*" or map[string]interface{}
+	Action    interface{}            `json:"Action"`              // Can be string or []string
+	Resource  interface{}            `json:"Resource"`            // Can be string or []string
 	Condition map[string]interface{} `json:"Condition,omitempty"`
 }
 

@@ -108,9 +108,9 @@ type PolicyMetadata struct {
 type PolicyStatement struct {
 	Sid       string                 `json:"sid,omitempty"`
 	Effect    string                 `json:"effect"` // "Allow" or "Deny"
-	Principal map[string]interface{} `json:"principal,omitempty"`
-	Action    []string               `json:"action"`
-	Resource  []string               `json:"resource"`
+	Principal interface{}            `json:"principal,omitempty"` // Can be string "*" or map[string]interface{}
+	Action    interface{}            `json:"action"`              // Can be string or []string
+	Resource  interface{}            `json:"resource"`            // Can be string or []string
 	Condition map[string]interface{} `json:"condition,omitempty"`
 }
 

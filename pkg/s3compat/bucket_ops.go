@@ -1,6 +1,7 @@
 package s3compat
 
 import (
+	"bytes"
 	"encoding/json"
 	"encoding/xml"
 	"io"
@@ -64,14 +65,21 @@ func (h *Handler) PutBucketPolicy(w http.ResponseWriter, r *http.Request) {
 	// Read the policy document from request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		logrus.WithError(err).Error("Failed to read request body")
 		h.writeError(w, "InvalidRequest", "Failed to read request body", bucketName, r)
 		return
 	}
 	defer r.Body.Close()
 
+	// Strip UTF-8 BOM if present (PowerShell adds BOM by default)
+	// Handle both normal BOM (EF BB BF) and double-encoded BOM (C3 AF C2 BB C2 BF)
+	body = bytes.TrimPrefix(body, []byte{0xEF, 0xBB, 0xBF})
+	body = bytes.TrimPrefix(body, []byte{0xC3, 0xAF, 0xC2, 0xBB, 0xC2, 0xBF})
+
 	// Validate JSON format
 	var policyDoc bucket.Policy
 	if err := json.Unmarshal(body, &policyDoc); err != nil {
+		logrus.WithError(err).Error("PutBucketPolicy: Failed to parse policy JSON")
 		h.writeError(w, "MalformedPolicy", "The policy is not valid JSON", bucketName, r)
 		return
 	}
