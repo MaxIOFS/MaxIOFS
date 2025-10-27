@@ -39,7 +39,15 @@ export function ObjectVersionsModal({
   });
 
   const deleteVersionMutation = useMutation({
-    mutationFn: (versionId: string) => APIClient.deleteObject(bucketName, objectKey, tenantId, versionId),
+    mutationFn: ({ versionId, isLatest }: { versionId: string; isLatest: boolean }) => {
+      // If deleting the latest version (and not a delete marker), create a Delete Marker by not passing versionId
+      // Otherwise, permanently delete the specific version
+      if (isLatest) {
+        return APIClient.deleteObject(bucketName, objectKey, tenantId); // No versionId = Create Delete Marker
+      } else {
+        return APIClient.deleteObject(bucketName, objectKey, tenantId, versionId); // With versionId = Permanent delete
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['objectVersions', bucketName, objectKey] });
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
@@ -50,21 +58,23 @@ export function ObjectVersionsModal({
     },
   });
 
-  const handleDeleteVersion = async (versionId: string, isDeleteMarker: boolean) => {
+  const handleDeleteVersion = async (versionId: string, isDeleteMarker: boolean, isLatest: boolean) => {
     const result = await SweetAlert.fire({
       icon: 'warning',
       title: `Delete ${isDeleteMarker ? 'Delete Marker' : 'Version'}?`,
       html: isDeleteMarker
         ? `<p>Deleting this Delete Marker will <strong>restore</strong> the previous version of the object.</p>`
-        : `<p>This will <strong>permanently</strong> delete this version.</p><p class="text-red-600 mt-2">This action cannot be undone</p>`,
+        : isLatest
+          ? `<p>This will create a <strong>Delete Marker</strong> for this object.</p><p class="text-gray-600 mt-2">The version will still exist and can be recovered</p>`
+          : `<p>This will <strong>permanently</strong> delete this version.</p><p class="text-red-600 mt-2">This action cannot be undone</p>`,
       showCancelButton: true,
-      confirmButtonText: isDeleteMarker ? 'Yes, restore object' : 'Yes, delete',
+      confirmButtonText: isDeleteMarker ? 'Yes, restore object' : isLatest ? 'Yes, mark as deleted' : 'Yes, delete permanently',
       cancelButtonText: 'Cancel',
       confirmButtonColor: isDeleteMarker ? '#10b981' : '#dc2626',
     });
 
     if (result.isConfirmed) {
-      deleteVersionMutation.mutate(versionId);
+      deleteVersionMutation.mutate({ versionId, isLatest });
     }
   };
 
@@ -187,9 +197,9 @@ export function ObjectVersionsModal({
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDeleteVersion(version.versionId, !!version.isDeleteMarker)}
+                          onClick={() => handleDeleteVersion(version.versionId, !!version.isDeleteMarker, !!version.isLatest)}
                           disabled={deleteVersionMutation.isPending}
-                          title={version.isDeleteMarker ? 'Delete marker (restores object)' : 'Delete this version'}
+                          title={version.isDeleteMarker ? 'Delete marker (restores object)' : version.isLatest ? 'Create delete marker' : 'Delete this version permanently'}
                           className={version.isDeleteMarker ? 'text-green-600 hover:text-green-700' : 'text-red-600 hover:text-red-700'}
                         >
                           {version.isDeleteMarker ? <RotateCcwIcon className="h-4 w-4" /> : <Trash2Icon className="h-4 w-4" />}
