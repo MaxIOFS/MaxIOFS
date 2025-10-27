@@ -28,11 +28,15 @@ import { Lock as LockIcon } from 'lucide-react';
 import { Shield as ShieldIcon } from 'lucide-react';
 import { Clock as ClockIcon } from 'lucide-react';
 import { Share2 as Share2Icon } from 'lucide-react';
+import { History as HistoryIcon } from 'lucide-react';
+import { Link as LinkIcon } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { S3Object, UploadRequest } from '@/types';
 import SweetAlert from '@/lib/sweetalert';
 import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
+import { ObjectVersionsModal } from '@/components/ObjectVersionsModal';
+import { PresignedURLModal } from '@/components/PresignedURLModal';
 
 export default function BucketDetailsPage() {
   const { bucket, tenantId } = useParams<{ bucket: string; tenantId?: string }>();
@@ -44,6 +48,9 @@ export default function BucketDetailsPage() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
   const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
+  const [isVersionsModalOpen, setIsVersionsModalOpen] = useState(false);
+  const [isPresignedURLModalOpen, setIsPresignedURLModalOpen] = useState(false);
+  const [selectedObjectKey, setSelectedObjectKey] = useState<string>('');
   const [newFolderName, setNewFolderName] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [selectedObjects, setSelectedObjects] = useState<Set<string>>(new Set());
@@ -524,6 +531,16 @@ export default function BucketDetailsPage() {
       SweetAlert.close();
       SweetAlert.apiError(error);
     }
+  };
+
+  const handleViewVersions = (key: string) => {
+    setSelectedObjectKey(key);
+    setIsVersionsModalOpen(true);
+  };
+
+  const handleGeneratePresignedURL = (key: string) => {
+    setSelectedObjectKey(key);
+    setIsPresignedURLModalOpen(true);
   };
 
   const navigateToFolder = (folderKey: string) => {
@@ -1087,10 +1104,30 @@ export default function BucketDetailsPage() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleShareObject(item.key)}
-                              title={sharesMap[item.key] ? "View/Copy share link" : "Share"}
+                              title={sharesMap[item.key] ? "View/Copy share link" : "Share (Public Link)"}
                               className={sharesMap[item.key] ? "text-green-600 hover:text-green-700" : ""}
                             >
                               <Share2Icon className="h-4 w-4" />
+                            </Button>
+                            {bucketData?.versioning?.Status === 'Enabled' && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleViewVersions(item.key)}
+                                title="View versions"
+                                className="text-blue-600 hover:text-blue-700"
+                              >
+                                <HistoryIcon className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleGeneratePresignedURL(item.key)}
+                              title="Generate Presigned URL"
+                              className="text-purple-600 hover:text-purple-700"
+                            >
+                              <LinkIcon className="h-4 w-4" />
                             </Button>
                           </>
                         )}
@@ -1236,6 +1273,24 @@ export default function BucketDetailsPage() {
         isOpen={isPermissionsModalOpen}
         onClose={() => setIsPermissionsModalOpen(false)}
         bucketName={bucketName}
+      />
+
+      {/* Object Versions Modal */}
+      <ObjectVersionsModal
+        isOpen={isVersionsModalOpen}
+        onClose={() => setIsVersionsModalOpen(false)}
+        bucketName={bucketName}
+        objectKey={selectedObjectKey}
+        tenantId={tenantId}
+      />
+
+      {/* Presigned URL Modal */}
+      <PresignedURLModal
+        isOpen={isPresignedURLModalOpen}
+        onClose={() => setIsPresignedURLModalOpen(false)}
+        bucketName={bucketName}
+        objectKey={selectedObjectKey}
+        tenantId={tenantId}
       />
     </div>
   );

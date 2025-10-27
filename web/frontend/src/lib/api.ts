@@ -11,6 +11,9 @@ import type {
   ListBucketsResponse,
   ListObjectsResponse,
   ListObjectsRequest,
+  ListObjectVersionsResponse,
+  GeneratePresignedURLRequest,
+  GeneratePresignedURLResponse,
   UploadRequest,
   DownloadRequest,
   StorageMetrics,
@@ -442,9 +445,20 @@ export class APIClient {
   }
 
   static async deleteObject(bucket: string, key: string, tenantId?: string, versionId?: string): Promise<void> {
-    const url = tenantId
-      ? `/buckets/${bucket}/objects/${key}?tenantId=${encodeURIComponent(tenantId)}`
-      : `/buckets/${bucket}/objects/${key}`;
+    let url = `/buckets/${bucket}/objects/${key}`;
+    const params = new URLSearchParams();
+
+    if (tenantId) {
+      params.append('tenantId', tenantId);
+    }
+    if (versionId) {
+      params.append('versionId', versionId);
+    }
+
+    if (params.toString()) {
+      url += `?${params.toString()}`;
+    }
+
     await apiClient.delete(url);
   }
 
@@ -472,6 +486,29 @@ export class APIClient {
       ? `/buckets/${bucket}/objects/${encodeURIComponent(key)}/share?tenantId=${tenantId}`
       : `/buckets/${bucket}/objects/${encodeURIComponent(key)}/share`;
     await apiClient.delete(url);
+  }
+
+  // Object Versioning
+  static async listObjectVersions(bucket: string, key: string, tenantId?: string): Promise<ListObjectVersionsResponse> {
+    const url = tenantId
+      ? `/buckets/${bucket}/objects/${encodeURIComponent(key)}/versions?tenantId=${tenantId}`
+      : `/buckets/${bucket}/objects/${encodeURIComponent(key)}/versions`;
+
+    const response = await apiClient.get<APIResponse<ListObjectVersionsResponse>>(url);
+    return response.data.data!;
+  }
+
+  // Presigned URLs
+  static async generatePresignedURL(request: GeneratePresignedURLRequest): Promise<GeneratePresignedURLResponse> {
+    const url = request.tenantId
+      ? `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}/presigned-url?tenantId=${request.tenantId}`
+      : `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}/presigned-url`;
+
+    const response = await apiClient.post<APIResponse<GeneratePresignedURLResponse>>(url, {
+      expiresIn: request.expiresIn,
+      method: request.method || 'GET'
+    });
+    return response.data.data!;
   }
 
   static async copyObject(
@@ -610,18 +647,18 @@ export class APIClient {
 
   // Bucket Lifecycle
   static async getBucketLifecycle(bucketName: string): Promise<any> {
-    const response = await s3Client.get(`/${bucketName}?lifecycle`);
+    const response = await apiClient.get(`/buckets/${bucketName}/lifecycle`);
     return response.data;
   }
 
   static async putBucketLifecycle(bucketName: string, lifecycle: string): Promise<void> {
-    await s3Client.put(`/${bucketName}?lifecycle`, lifecycle, {
+    await apiClient.put(`/buckets/${bucketName}/lifecycle`, lifecycle, {
       headers: { 'Content-Type': 'application/xml' }
     });
   }
 
   static async deleteBucketLifecycle(bucketName: string): Promise<void> {
-    await s3Client.delete(`/${bucketName}?lifecycle`);
+    await apiClient.delete(`/buckets/${bucketName}/lifecycle`);
   }
 
   // Object Lock Configuration

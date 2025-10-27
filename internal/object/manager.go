@@ -493,40 +493,51 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 		}
 	}
 
-	// If we deleted the latest version, mark the next most recent as latest
-	if deletingLatest && len(allVersions) > 1 {
-		// Find the next most recent version (excluding the one we just deleted)
-		var nextLatest *metadata.ObjectVersion
-		for _, ver := range allVersions {
-			if ver.VersionID != versionID {
-				if nextLatest == nil || ver.LastModified.After(nextLatest.LastModified) {
-					nextLatest = ver
+	// If we deleted the latest version, handle next version or delete object entry
+	if deletingLatest {
+		if len(allVersions) > 1 {
+			// Find the next most recent version (excluding the one we just deleted)
+			var nextLatest *metadata.ObjectVersion
+			for _, ver := range allVersions {
+				if ver.VersionID != versionID {
+					if nextLatest == nil || ver.LastModified.After(nextLatest.LastModified) {
+						nextLatest = ver
+					}
 				}
 			}
-		}
 
-		if nextLatest != nil {
-			// Mark as latest
-			nextLatest.IsLatest = true
+			if nextLatest != nil {
+				// Mark as latest
+				nextLatest.IsLatest = true
 
-			// Get full object metadata and update
-			nextMetaObj, err := om.metadataStore.GetObject(ctx, bucket, key, nextLatest.VersionID)
-			if err != nil {
-				logrus.WithError(err).Warn("Failed to get object metadata for next latest")
-			} else {
-				// Ensure bucket and key are set correctly (they might be empty from version metadata)
-				if nextMetaObj.Bucket == "" {
-					nextMetaObj.Bucket = bucket
-				}
-				if nextMetaObj.Key == "" {
-					nextMetaObj.Key = key
-				}
-
-				err = om.metadataStore.PutObjectVersion(ctx, nextMetaObj, nextLatest)
+				// Get full object metadata and update
+				nextMetaObj, err := om.metadataStore.GetObject(ctx, bucket, key, nextLatest.VersionID)
 				if err != nil {
-					logrus.WithError(err).Warn("Failed to mark next version as latest")
+					logrus.WithError(err).Warn("Failed to get object metadata for next latest")
+				} else {
+					// Ensure bucket and key are set correctly (they might be empty from version metadata)
+					if nextMetaObj.Bucket == "" {
+						nextMetaObj.Bucket = bucket
+					}
+					if nextMetaObj.Key == "" {
+						nextMetaObj.Key = key
+					}
+
+					err = om.metadataStore.PutObjectVersion(ctx, nextMetaObj, nextLatest)
+					if err != nil {
+						logrus.WithError(err).Warn("Failed to mark next version as latest")
+					}
 				}
 			}
+		} else {
+			// This was the last version - delete the main object entry
+			if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil {
+				logrus.WithError(err).Warn("Failed to delete main object entry")
+			}
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucket,
+				"key":    key,
+			}).Info("Deleted main object entry - no versions remaining")
 		}
 	}
 
@@ -639,6 +650,12 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 			if implicit, ok := metaObj.Metadata["x-maxiofs-implicit-folder"]; ok && implicit == "true" {
 				continue
 			}
+		}
+
+		// Skip Delete Markers (objects with Size=0 and empty ETag)
+		// These are "deleted" objects and should not appear in ListObjects (AWS S3 behavior)
+		if metaObj.Size == 0 && metaObj.ETag == "" {
+			continue
 		}
 
 		// Handle delimiter (common prefixes / folders)
@@ -900,11 +917,14 @@ func (om *objectManager) GetObjectVersions(ctx context.Context, bucket, key stri
 		// Convert to Object
 		obj := fromMetadataObject(objMeta)
 
+		// Detect if this is a Delete Marker (Size == 0 and ETag is empty)
+		isDeleteMarker := objMeta.Size == 0 && objMeta.ETag == ""
+
 		// Create ObjectVersion
 		version := ObjectVersion{
 			Object:         *obj,
 			IsLatest:       metaVer.IsLatest,
-			IsDeleteMarker: false, // TODO: Implement delete markers
+			IsDeleteMarker: isDeleteMarker,
 		}
 
 		versions = append(versions, version)

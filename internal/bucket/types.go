@@ -48,6 +48,7 @@ type LifecycleRule struct {
 	Status                         string                                   `json:"Status"` // Enabled, Disabled
 	Filter                         LifecycleFilter                          `json:"Filter"`
 	Expiration                     *LifecycleExpiration                     `json:"Expiration,omitempty"`
+	NoncurrentVersionExpiration    *NoncurrentVersionExpiration             `json:"NoncurrentVersionExpiration,omitempty"`
 	Transition                     *LifecycleTransition                     `json:"Transition,omitempty"`
 	AbortIncompleteMultipartUpload *LifecycleAbortIncompleteMultipartUpload `json:"AbortIncompleteMultipartUpload,omitempty"`
 }
@@ -70,6 +71,11 @@ type LifecycleTransition struct {
 	Days         *int       `json:"Days,omitempty"`
 	Date         *time.Time `json:"Date,omitempty"`
 	StorageClass string     `json:"StorageClass"`
+}
+
+// NoncurrentVersionExpiration represents noncurrent version expiration settings
+type NoncurrentVersionExpiration struct {
+	NoncurrentDays int `json:"NoncurrentDays"` // Delete noncurrent versions after this many days
 }
 
 // LifecycleAbortIncompleteMultipartUpload represents incomplete multipart upload abort settings

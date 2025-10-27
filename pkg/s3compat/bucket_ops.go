@@ -228,7 +228,16 @@ func (h *Handler) GetBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 			if rule.Expiration.Date != nil {
 				exp.Date = rule.Expiration.Date.Format(time.RFC3339)
 			}
+			if rule.Expiration.ExpiredObjectDeleteMarker != nil {
+				exp.ExpiredObjectDeleteMarker = *rule.Expiration.ExpiredObjectDeleteMarker
+			}
 			xmlRule.Expiration = exp
+		}
+
+		if rule.NoncurrentVersionExpiration != nil {
+			xmlRule.NoncurrentVersionExpiration = &NoncurrentVersionExpiration{
+				NoncurrentDays: rule.NoncurrentVersionExpiration.NoncurrentDays,
+			}
 		}
 
 		if rule.AbortIncompleteMultipartUpload != nil {
@@ -290,7 +299,17 @@ func (h *Handler) PutBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 					exp.Date = &parsedDate
 				}
 			}
+			if rule.Expiration.ExpiredObjectDeleteMarker {
+				expiredMarker := true
+				exp.ExpiredObjectDeleteMarker = &expiredMarker
+			}
 			internalRule.Expiration = exp
+		}
+
+		if rule.NoncurrentVersionExpiration != nil {
+			internalRule.NoncurrentVersionExpiration = &bucket.NoncurrentVersionExpiration{
+				NoncurrentDays: rule.NoncurrentVersionExpiration.NoncurrentDays,
+			}
 		}
 
 		if rule.AbortIncompleteMultipartUpload != nil {

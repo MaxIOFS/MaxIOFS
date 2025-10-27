@@ -161,7 +161,7 @@ export interface Bucket {
 }
 
 export interface VersioningConfig {
-  status: 'Enabled' | 'Suspended';
+  Status: 'Enabled' | 'Suspended';  // Backend uses capital S
   mfaDelete?: 'Enabled' | 'Disabled';
 }
 
@@ -179,20 +179,26 @@ export interface CORSRule {
 }
 
 export interface LifecycleConfig {
-  rules: LifecycleRule[];
+  Rules: LifecycleRule[];
 }
 
 export interface LifecycleRule {
-  id: string;
-  status: 'Enabled' | 'Disabled';
-  filter?: {
-    prefix?: string;
-    tags?: Record<string, string>;
+  ID: string;
+  Status: 'Enabled' | 'Disabled';
+  Filter?: {
+    Prefix?: string;
   };
-  transitions?: LifecycleTransition[];
-  expiration?: {
-    days?: number;
-    date?: string;
+  Expiration?: {
+    Days?: number;
+    Date?: string;
+    ExpiredObjectDeleteMarker?: boolean;
+  };
+  NoncurrentVersionExpiration?: {
+    NoncurrentDays: number;
+  };
+  Transition?: LifecycleTransition[];
+  AbortIncompleteMultipartUpload?: {
+    DaysAfterInitiation: number;
   };
 }
 
@@ -274,6 +280,35 @@ export interface ObjectVersion {
   size: number;
   storageClass?: string;
   isDeleteMarker?: boolean;
+  key?: string;
+}
+
+export interface ListObjectVersionsResponse {
+  versions: ObjectVersion[];
+  deleteMarkers: ObjectVersion[];
+  name: string;
+  prefix?: string;
+  keyMarker?: string;
+  versionIdMarker?: string;
+  nextKeyMarker?: string;
+  nextVersionIdMarker?: string;
+  maxKeys: number;
+  isTruncated: boolean;
+}
+
+export interface GeneratePresignedURLRequest {
+  bucket: string;
+  key: string;
+  tenantId?: string;
+  expiresIn: number;  // seconds
+  method?: string;    // HTTP method (GET, PUT, etc.)
+}
+
+export interface GeneratePresignedURLResponse {
+  url: string;
+  method: string;
+  expiresIn: number;
+  expiresAt: string;
 }
 
 export interface MultipartUpload {

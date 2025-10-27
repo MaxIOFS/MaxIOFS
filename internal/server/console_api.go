@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -42,6 +43,7 @@ type BucketResponse struct {
 	ObjectLock          *bucket.ObjectLockConfig  `json:"objectLock,omitempty"`
 	Encryption          *bucket.EncryptionConfig  `json:"encryption,omitempty"`
 	PublicAccessBlock   *bucket.PublicAccessBlock `json:"publicAccessBlock,omitempty"`
+	Lifecycle           *bucket.LifecycleConfig   `json:"lifecycle,omitempty"`
 	Tags                map[string]string         `json:"tags,omitempty"`
 	Metadata            map[string]string         `json:"metadata,omitempty"`
 }
@@ -177,6 +179,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Presigned URL endpoints
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/presigned-url", s.handleGeneratePresignedURL).Methods("POST", "OPTIONS")
 
+	// Object versioning endpoints
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/versions", s.handleListObjectVersions).Methods("GET", "OPTIONS")
+
 	// Object endpoints
 	router.HandleFunc("/buckets/{bucket}/objects", s.handleListObjects).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}", s.handleGetObject).Methods("GET", "OPTIONS")
@@ -226,6 +231,11 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/permissions/revoke", s.handleRevokeBucketPermission).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/permissions/{permission}", s.handleRevokeBucketPermission).Methods("DELETE", "OPTIONS") // Legacy endpoint
 	router.HandleFunc("/buckets/{bucket}/owner", s.handleUpdateBucketOwner).Methods("PUT", "OPTIONS")
+
+	// Bucket lifecycle endpoints
+	router.HandleFunc("/buckets/{bucket}/lifecycle", s.handleGetBucketLifecycle).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/lifecycle", s.handlePutBucketLifecycle).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/lifecycle", s.handleDeleteBucketLifecycle).Methods("DELETE", "OPTIONS")
 
 	// Health check
 	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET", "OPTIONS")
@@ -449,6 +459,7 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 			ObjectLock:          b.ObjectLock,
 			Encryption:          b.Encryption,
 			PublicAccessBlock:   b.PublicAccessBlock,
+			Lifecycle:           b.Lifecycle,
 			Tags:                b.Tags,
 			Metadata:            b.Metadata,
 		}
@@ -694,6 +705,7 @@ func (s *Server) handleGetBucket(w http.ResponseWriter, r *http.Request) {
 		ObjectLock:        bucketInfo.ObjectLock,
 		Encryption:        bucketInfo.Encryption,
 		PublicAccessBlock: bucketInfo.PublicAccessBlock,
+		Lifecycle:         bucketInfo.Lifecycle,
 		Tags:              bucketInfo.Tags,
 		Metadata:          bucketInfo.Metadata,
 	}
@@ -1230,7 +1242,18 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 		bucketPath = bucketName
 	}
 
-	if _, err := s.objectManager.DeleteObject(r.Context(), bucketPath, objectKey); err != nil {
+	// Check if versionId is provided (for deleting specific versions)
+	versionID := r.URL.Query().Get("versionId")
+
+	// Call DeleteObject with optional versionID
+	var err error
+	if versionID != "" {
+		_, err = s.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, versionID)
+	} else {
+		_, err = s.objectManager.DeleteObject(r.Context(), bucketPath, objectKey)
+	}
+
+	if err != nil {
 		if err == object.ErrObjectNotFound {
 			s.writeError(w, "Object not found", http.StatusNotFound)
 			return
@@ -2819,7 +2842,12 @@ func (s *Server) handleGeneratePresignedURL(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Verify object exists
-	bucketPath := tenantID + "/" + bucketName
+	var bucketPath string
+	if tenantID != "" {
+		bucketPath = tenantID + "/" + bucketName
+	} else {
+		bucketPath = bucketName
+	}
 	_, _, err = s.objectManager.GetObject(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		s.writeError(w, fmt.Sprintf("Object not found: %v", err), http.StatusNotFound)
@@ -2873,4 +2901,220 @@ func (s *Server) handleGeneratePresignedURL(w http.ResponseWriter, r *http.Reque
 		"expiresIn": req.ExpiresIn,
 		"expiresAt": expiresAt.Format(time.RFC3339),
 	})
+}
+
+// handleListObjectVersions lists all versions of an object
+func (s *Server) handleListObjectVersions(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey := vars["object"]
+
+	// Extract user and tenant ID from context
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
+	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
+
+	// Construct the full bucket path
+	var bucketPath string
+	if tenantID != "" {
+		bucketPath = tenantID + "/" + bucketName
+	} else {
+		bucketPath = bucketName
+	}
+
+	// List all versions for this object
+	versions, err := s.objectManager.GetObjectVersions(r.Context(), bucketPath, objectKey)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to list object versions")
+		s.writeError(w, "Failed to list versions", http.StatusInternalServerError)
+		return
+	}
+
+	// Separate versions and delete markers
+	var regularVersions []map[string]interface{}
+	var deleteMarkers []map[string]interface{}
+
+	for _, v := range versions {
+		versionData := map[string]interface{}{
+			"versionId":    v.VersionID,
+			"lastModified": v.LastModified.Format(time.RFC3339),
+			"isLatest":     v.IsLatest,
+			"size":         v.Size,
+		}
+
+		if v.IsDeleteMarker {
+			versionData["isDeleteMarker"] = true
+			deleteMarkers = append(deleteMarkers, versionData)
+		} else {
+			versionData["isDeleteMarker"] = false
+			versionData["etag"] = v.ETag
+			regularVersions = append(regularVersions, versionData)
+		}
+	}
+
+	response := map[string]interface{}{
+		"versions":      regularVersions,
+		"deleteMarkers": deleteMarkers,
+		"name":          objectKey,
+		"isTruncated":   false,
+	}
+
+	s.writeJSON(w, response)
+}
+
+// Lifecycle handlers
+func (s *Server) handleGetBucketLifecycle(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	lifecycle, err := s.bucketManager.GetLifecycle(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		if err == bucket.ErrLifecycleNotFound {
+			s.writeError(w, "Lifecycle configuration not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, lifecycle)
+}
+
+func (s *Server) handlePutBucketLifecycle(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	// Read XML body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.writeError(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Parse XML lifecycle configuration
+	var xmlConfig struct {
+		XMLName xml.Name `xml:"LifecycleConfiguration"`
+		Rules   []struct {
+			ID                             string `xml:"ID"`
+			Status                         string `xml:"Status"`
+			Prefix                         string `xml:"Prefix"`
+			NoncurrentVersionExpiration    *struct {
+				NoncurrentDays int `xml:"NoncurrentDays"`
+			} `xml:"NoncurrentVersionExpiration"`
+			Expiration *struct {
+				Days                      int  `xml:"Days"`
+				ExpiredObjectDeleteMarker bool `xml:"ExpiredObjectDeleteMarker"`
+			} `xml:"Expiration"`
+		} `xml:"Rule"`
+	}
+
+	if err := xml.Unmarshal(body, &xmlConfig); err != nil {
+		s.writeError(w, "Invalid XML: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Convert to internal format
+	lifecycleConfig := &bucket.LifecycleConfig{
+		Rules: make([]bucket.LifecycleRule, len(xmlConfig.Rules)),
+	}
+
+	for i, rule := range xmlConfig.Rules {
+		internalRule := bucket.LifecycleRule{
+			ID:     rule.ID,
+			Status: rule.Status,
+			Filter: bucket.LifecycleFilter{
+				Prefix: rule.Prefix,
+			},
+		}
+
+		if rule.NoncurrentVersionExpiration != nil {
+			internalRule.NoncurrentVersionExpiration = &bucket.NoncurrentVersionExpiration{
+				NoncurrentDays: rule.NoncurrentVersionExpiration.NoncurrentDays,
+			}
+		}
+
+		if rule.Expiration != nil {
+			exp := &bucket.LifecycleExpiration{}
+			if rule.Expiration.Days > 0 {
+				days := rule.Expiration.Days
+				exp.Days = &days
+			}
+			if rule.Expiration.ExpiredObjectDeleteMarker {
+				expiredMarker := true
+				exp.ExpiredObjectDeleteMarker = &expiredMarker
+			}
+			internalRule.Expiration = exp
+		}
+
+		lifecycleConfig.Rules[i] = internalRule
+	}
+
+	// Set lifecycle configuration
+	if err := s.bucketManager.SetLifecycle(r.Context(), tenantID, bucketName, lifecycleConfig); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleDeleteBucketLifecycle(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	if err := s.bucketManager.SetLifecycle(r.Context(), tenantID, bucketName, nil); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/config"
+	"github.com/maxiofs/maxiofs/internal/lifecycle"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/metrics"
 	"github.com/maxiofs/maxiofs/internal/middleware"
@@ -23,18 +24,19 @@ import (
 
 // Server represents the MaxIOFS server
 type Server struct {
-	config         *config.Config
-	httpServer     *http.Server
-	consoleServer  *http.Server
-	storageBackend storage.Backend
-	metadataStore  metadata.Store
-	bucketManager  bucket.Manager
-	objectManager  object.Manager
-	authManager    auth.Manager
-	metricsManager metrics.Manager
-	shareManager   share.Manager
-	systemMetrics  *metrics.SystemMetricsTracker
-	startTime      time.Time // Server start time for uptime calculation
+	config          *config.Config
+	httpServer      *http.Server
+	consoleServer   *http.Server
+	storageBackend  storage.Backend
+	metadataStore   metadata.Store
+	bucketManager   bucket.Manager
+	objectManager   object.Manager
+	authManager     auth.Manager
+	metricsManager  metrics.Manager
+	shareManager    share.Manager
+	systemMetrics   *metrics.SystemMetricsTracker
+	lifecycleWorker *lifecycle.Worker
+	startTime       time.Time // Server start time for uptime calculation
 }
 
 // New creates a new MaxIOFS server
@@ -105,6 +107,9 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create share manager: %w", err)
 	}
 
+	// Initialize lifecycle worker
+	lifecycleWorker := lifecycle.NewWorker(bucketManager, objectManager, metadataStore)
+
 	// Create HTTP servers
 	httpServer := &http.Server{
 		Addr:         cfg.Listen,
@@ -121,18 +126,19 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	server := &Server{
-		config:         cfg,
-		httpServer:     httpServer,
-		consoleServer:  consoleServer,
-		storageBackend: storageBackend,
-		metadataStore:  metadataStore,
-		bucketManager:  bucketManager,
-		objectManager:  objectManager,
-		authManager:    authManager,
-		metricsManager: metricsManager,
-		shareManager:   shareManager,
-		systemMetrics:  systemMetrics,
-		startTime:      time.Now(), // Record server start time
+		config:          cfg,
+		httpServer:      httpServer,
+		consoleServer:   consoleServer,
+		storageBackend:  storageBackend,
+		metadataStore:   metadataStore,
+		bucketManager:   bucketManager,
+		objectManager:   objectManager,
+		authManager:     authManager,
+		metricsManager:  metricsManager,
+		shareManager:    shareManager,
+		systemMetrics:   systemMetrics,
+		lifecycleWorker: lifecycleWorker,
+		startTime:       time.Now(), // Record server start time
 	}
 
 	// Setup routes
@@ -155,6 +161,9 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.config.Metrics.Enable {
 		s.metricsManager.Start(ctx)
 	}
+
+	// Start lifecycle worker (runs every 1 hour)
+	s.lifecycleWorker.Start(ctx, 1*time.Hour)
 
 	// Start API server
 	go func() {
@@ -215,6 +224,11 @@ func (s *Server) shutdown() error {
 	// Stop metrics
 	if s.metricsManager != nil {
 		s.metricsManager.Stop()
+	}
+
+	// Stop lifecycle worker
+	if s.lifecycleWorker != nil {
+		s.lifecycleWorker.Stop()
 	}
 
 	// Close storage backend

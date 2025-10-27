@@ -31,6 +31,8 @@ export default function BucketSettingsPage() {
   const [policyText, setPolicyText] = useState('');
   const [corsText, setCorsText] = useState('');
   const [lifecycleText, setLifecycleText] = useState('');
+  const [noncurrentDays, setNoncurrentDays] = useState<number>(30);
+  const [deleteExpiredMarkers, setDeleteExpiredMarkers] = useState<boolean>(true);
 
   const { data: bucketData, isLoading } = useQuery({
     queryKey: ['bucket', bucketName],
@@ -169,15 +171,31 @@ export default function BucketSettingsPage() {
     );
   };
 
-  const handleEditLifecycle = async () => {
-    try {
-      const lifecycle = await APIClient.getBucketLifecycle(bucketName);
-      setLifecycleText(typeof lifecycle === 'string' ? lifecycle : JSON.stringify(lifecycle, null, 2));
-      setIsLifecycleModalOpen(true);
-    } catch (error) {
-      setLifecycleText('');
-      setIsLifecycleModalOpen(true);
+  const handleEditLifecycle = () => {
+    // Use bucketData.lifecycle directly instead of making another API call
+    const lifecycle = bucketData?.lifecycle;
+
+    // Reset to defaults first
+    setNoncurrentDays(30);
+    setDeleteExpiredMarkers(true);
+
+    // Parse lifecycle to extract values
+    if (lifecycle && lifecycle.Rules && lifecycle.Rules.length > 0) {
+      const rule = lifecycle.Rules[0];
+
+      // Extract NoncurrentDays
+      if (rule.NoncurrentVersionExpiration?.NoncurrentDays) {
+        setNoncurrentDays(rule.NoncurrentVersionExpiration.NoncurrentDays);
+      }
+
+      // Extract ExpiredObjectDeleteMarker
+      if (rule.Expiration?.ExpiredObjectDeleteMarker !== undefined) {
+        setDeleteExpiredMarkers(rule.Expiration.ExpiredObjectDeleteMarker);
+      }
     }
+
+    setLifecycleText(lifecycle ? JSON.stringify(lifecycle, null, 2) : '');
+    setIsLifecycleModalOpen(true);
   };
 
   const handleDeleteLifecycle = () => {
@@ -490,32 +508,71 @@ export default function BucketSettingsPage() {
       <Modal
         isOpen={isLifecycleModalOpen}
         onClose={() => setIsLifecycleModalOpen(false)}
-        title="Edit Lifecycle Rules"
+        title="Lifecycle Rules"
         size="lg"
       >
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Lifecycle Configuration XML
-            </label>
-            <textarea
-              value={lifecycleText}
-              onChange={(e) => setLifecycleText(e.target.value)}
-              rows={15}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md font-mono text-sm"
-              placeholder='<LifecycleConfiguration><Rule>...</Rule></LifecycleConfiguration>'
-            />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Enter valid lifecycle configuration in XML format
+        <div className="space-y-6">
+          <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              Lifecycle policies automatically delete old versions and expired delete markers to save storage space.
             </p>
           </div>
-          <div className="flex justify-end gap-2">
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Delete Noncurrent Versions After (days)
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="3650"
+              value={noncurrentDays}
+              onChange={(e) => setNoncurrentDays(parseInt(e.target.value) || 30)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Automatically delete versions that are no longer the latest after this many days
+            </p>
+          </div>
+
+          <div className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              id="delete-markers"
+              checked={deleteExpiredMarkers}
+              onChange={(e) => setDeleteExpiredMarkers(e.target.checked)}
+              className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <div>
+              <label htmlFor="delete-markers" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Delete Expired Delete Markers
+              </label>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Automatically remove delete markers when they are the only version remaining
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsLifecycleModalOpen(false)}>
               Cancel
             </Button>
             <Button
-              onClick={() => saveLifecycleMutation.mutate(lifecycleText)}
-              disabled={saveLifecycleMutation.isPending || !lifecycleText.trim()}
+              onClick={() => {
+                // Generate XML from form values
+                const xml = `<LifecycleConfiguration>
+  <Rule>
+    <ID>delete-old-versions</ID>
+    <Status>Enabled</Status>
+    <Prefix></Prefix>
+    <NoncurrentVersionExpiration>
+      <NoncurrentDays>${noncurrentDays}</NoncurrentDays>
+    </NoncurrentVersionExpiration>${deleteExpiredMarkers ? '\n    <Expiration>\n      <ExpiredObjectDeleteMarker>true</ExpiredObjectDeleteMarker>\n    </Expiration>' : ''}
+  </Rule>
+</LifecycleConfiguration>`;
+                saveLifecycleMutation.mutate(xml);
+              }}
+              disabled={saveLifecycleMutation.isPending}
             >
               {saveLifecycleMutation.isPending ? 'Saving...' : 'Save Rules'}
             </Button>

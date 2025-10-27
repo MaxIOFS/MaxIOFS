@@ -270,6 +270,20 @@ func toMetadataLifecycleRule(r *LifecycleRule) metadata.LifecycleRule {
 		}
 	}
 
+	// NoncurrentVersionExpiration
+	if r.NoncurrentVersionExpiration != nil {
+		rule.NoncurrentVersionExpiration = &metadata.NoncurrentExpiration{
+			NoncurrentDays: r.NoncurrentVersionExpiration.NoncurrentDays,
+		}
+	}
+
+	// AbortIncompleteMultipartUpload
+	if r.AbortIncompleteMultipartUpload != nil {
+		rule.AbortIncompleteMultipartUpload = &metadata.AbortMultipartMetadata{
+			DaysAfterInitiation: r.AbortIncompleteMultipartUpload.DaysAfterInitiation,
+		}
+	}
+
 	return rule
 }
 
@@ -303,6 +317,20 @@ func fromMetadataLifecycleRule(r *metadata.LifecycleRule) LifecycleRule {
 		rule.Transition = &LifecycleTransition{
 			Days:         &days,
 			StorageClass: t.StorageClass,
+		}
+	}
+
+	// NoncurrentVersionExpiration
+	if r.NoncurrentVersionExpiration != nil {
+		rule.NoncurrentVersionExpiration = &NoncurrentVersionExpiration{
+			NoncurrentDays: r.NoncurrentVersionExpiration.NoncurrentDays,
+		}
+	}
+
+	// AbortIncompleteMultipartUpload
+	if r.AbortIncompleteMultipartUpload != nil {
+		rule.AbortIncompleteMultipartUpload = &LifecycleAbortIncompleteMultipartUpload{
+			DaysAfterInitiation: r.AbortIncompleteMultipartUpload.DaysAfterInitiation,
 		}
 	}
 

@@ -1,10 +1,8 @@
 import { useState, FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
 import APIClient from '@/lib/api';
 import SweetAlert from '@/lib/sweetalert';
 
 export default function LoginPage() {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -41,6 +39,7 @@ export default function LoginPage() {
         await SweetAlert.error('Authentication error', response.error || 'Invalid credentials');
         setError(response.error || 'Login failed');
       }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       SweetAlert.close();
       await SweetAlert.apiError(err);
