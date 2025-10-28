@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
@@ -384,8 +385,9 @@ func (h *Handler) GetObjectACL(w http.ResponseWriter, r *http.Request) {
 	}).Debug("S3 API: GetObjectACL")
 
 	bucketPath := h.getBucketPath(r, bucketName)
-	// Check if object exists
-	_, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
+
+	// Get ACL from object manager
+	aclData, err := h.objectManager.GetObjectACL(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -395,27 +397,32 @@ func (h *Handler) GetObjectACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return default ACL (private to owner)
-	acl := AccessControlPolicy{
+	// Convert object.ACL to S3 XML format
+	// The object manager already returns object.ACL, we need to convert to S3 format
+	s3ACL := AccessControlPolicy{
 		Owner: Owner{
-			ID:          "maxiofs",
-			DisplayName: "MaxIOFS",
+			ID:          aclData.Owner.ID,
+			DisplayName: aclData.Owner.DisplayName,
 		},
 		AccessControlList: AccessControlList{
-			Grants: []Grant{
-				{
-					Grantee: Grantee{
-						Type:        "CanonicalUser",
-						ID:          "maxiofs",
-						DisplayName: "MaxIOFS",
-					},
-					Permission: "FULL_CONTROL",
-				},
-			},
+			Grants: make([]Grant, len(aclData.Grants)),
 		},
 	}
 
-	h.writeXMLResponse(w, http.StatusOK, acl)
+	for i, grant := range aclData.Grants {
+		s3ACL.AccessControlList.Grants[i] = Grant{
+			Grantee: Grantee{
+				Type:         grant.Grantee.Type,
+				ID:           grant.Grantee.ID,
+				DisplayName:  grant.Grantee.DisplayName,
+				EmailAddress: grant.Grantee.EmailAddress,
+				URI:          grant.Grantee.URI,
+			},
+			Permission: grant.Permission,
+		}
+	}
+
+	h.writeXMLResponse(w, http.StatusOK, s3ACL)
 }
 
 // PutObjectACL sets the object ACL
@@ -430,9 +437,90 @@ func (h *Handler) PutObjectACL(w http.ResponseWriter, r *http.Request) {
 	}).Debug("S3 API: PutObjectACL")
 
 	bucketPath := h.getBucketPath(r, bucketName)
-	// Check if object exists
-	_, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
-	if err != nil {
+
+	// Check for canned ACL header
+	cannedACL := r.Header.Get("x-amz-acl")
+
+	var aclData *object.ACL
+
+	if cannedACL != "" {
+		// Use canned ACL
+		if !acl.IsValidCannedACL(cannedACL) {
+			h.writeError(w, "InvalidArgument", "Invalid canned ACL: "+cannedACL, objectKey, r)
+			return
+		}
+
+		// Create ACL from canned ACL using helper function
+		grants := acl.GetCannedACLGrants(cannedACL, "maxiofs", "MaxIOFS")
+		if grants == nil {
+			h.writeError(w, "InvalidArgument", "Invalid canned ACL: "+cannedACL, objectKey, r)
+			return
+		}
+
+		// Convert acl.Grant to object.Grant
+		objectGrants := make([]object.Grant, len(grants))
+		for i, g := range grants {
+			objectGrants[i] = object.Grant{
+				Grantee: object.Grantee{
+					Type:         string(g.Grantee.Type),
+					ID:           g.Grantee.ID,
+					DisplayName:  g.Grantee.DisplayName,
+					EmailAddress: g.Grantee.EmailAddress,
+					URI:          g.Grantee.URI,
+				},
+				Permission: string(g.Permission),
+			}
+		}
+
+		aclData = &object.ACL{
+			Owner: object.Owner{
+				ID:          "maxiofs",
+				DisplayName: "MaxIOFS",
+			},
+			Grants: objectGrants,
+		}
+	} else {
+		// Parse the XML ACL
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			h.writeError(w, "InvalidRequest", "Failed to read request body", objectKey, r)
+			return
+		}
+		defer r.Body.Close()
+
+		var s3ACL AccessControlPolicy
+		if err := xml.Unmarshal(body, &s3ACL); err != nil {
+			logrus.WithError(err).Error("PutObjectACL: Failed to parse XML")
+			h.writeError(w, "MalformedXML", "The XML is not well-formed", objectKey, r)
+			return
+		}
+
+		// Convert S3 ACL to object.ACL
+		objectGrants := make([]object.Grant, len(s3ACL.AccessControlList.Grants))
+		for i, grant := range s3ACL.AccessControlList.Grants {
+			objectGrants[i] = object.Grant{
+				Grantee: object.Grantee{
+					Type:         grant.Grantee.Type,
+					ID:           grant.Grantee.ID,
+					DisplayName:  grant.Grantee.DisplayName,
+					EmailAddress: grant.Grantee.EmailAddress,
+					URI:          grant.Grantee.URI,
+				},
+				Permission: grant.Permission,
+			}
+		}
+
+		aclData = &object.ACL{
+			Owner: object.Owner{
+				ID:          s3ACL.Owner.ID,
+				DisplayName: s3ACL.Owner.DisplayName,
+			},
+			Grants: objectGrants,
+		}
+	}
+
+	// Set ACL using object manager
+	if err := h.objectManager.SetObjectACL(r.Context(), bucketPath, objectKey, aclData); err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
@@ -440,18 +528,6 @@ func (h *Handler) PutObjectACL(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
-
-	// Parse the XML ACL (basic validation)
-	var acl AccessControlPolicy
-	if err := xml.NewDecoder(r.Body).Decode(&acl); err != nil {
-		h.writeError(w, "MalformedXML", "The XML is not well-formed", objectKey, r)
-		return
-	}
-	defer r.Body.Close()
-
-	// For MVP, we just accept the ACL but don't enforce it
-	// Full ACL implementation would require storing and enforcing permissions
-	logrus.WithField("object", objectKey).Debug("ACL set (not enforced in MVP)")
 
 	w.WriteHeader(http.StatusOK)
 }

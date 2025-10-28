@@ -445,3 +445,8 @@ func (bm *badgerBucketManager) SetBucketACL(ctx context.Context, tenantID, name 
 	// Set ACL using ACL manager
 	return bm.aclManager.SetBucketACL(ctx, tenantID, name, aclData)
 }
+
+// GetACLManager returns the ACL manager
+func (bm *badgerBucketManager) GetACLManager() interface{} {
+	return bm.aclManager
+}

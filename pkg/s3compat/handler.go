@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -394,6 +395,40 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 	logrus.WithField("bucket", bucketName).Debug("S3 API: HeadBucket")
 
 	tenantID := h.getTenantIDFromRequest(r)
+
+	// Permission check: Verify user has READ permission via ACL
+	user, userExists := auth.GetUserFromContext(r.Context())
+
+	if userExists {
+		// Check bucket READ permission
+		hasPermission := h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionRead)
+
+		// If no explicit ACL permission, check if authenticated users have read access
+		if !hasPermission {
+			hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+		}
+
+		if !hasPermission {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"userID": user.ID,
+			}).Warn("ACL permission denied for HeadBucket")
+			h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+			return
+		}
+	} else {
+		// Unauthenticated access - check if bucket is public
+		hasPublicAccess := h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+
+		if !hasPublicAccess {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+			}).Warn("Public access denied for HeadBucket - bucket not publicly readable")
+			h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+			return
+		}
+	}
+
 	exists, err := h.bucketManager.BucketExists(r.Context(), tenantID, bucketName)
 	if err != nil {
 		h.writeError(w, "InternalError", err.Error(), bucketName, r)
@@ -413,6 +448,41 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: ListObjects")
+
+	// Permission check: Verify user has READ permission via ACL
+	user, userExists := auth.GetUserFromContext(r.Context())
+	tenantID := h.getTenantIDFromRequest(r)
+
+	// Check if user is authenticated
+	if userExists {
+		// Check bucket READ permission
+		hasPermission := h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionRead)
+
+		// If no explicit ACL permission, check if authenticated users have read access
+		if !hasPermission {
+			hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+		}
+
+		if !hasPermission {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"userID": user.ID,
+			}).Warn("ACL permission denied for ListObjects")
+			h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+			return
+		}
+	} else {
+		// Unauthenticated access - check if bucket is public
+		hasPublicAccess := h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+
+		if !hasPublicAccess {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+			}).Warn("Public access denied for ListObjects - bucket not publicly readable")
+			h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+			return
+		}
+	}
 
 	// Parse query parameters
 	prefix := r.URL.Query().Get("prefix")
@@ -487,10 +557,13 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	}).Debug("S3 API: GetObject")
 
 	// Check if user is authenticated
-	_, userExists := auth.GetUserFromContext(r.Context())
+	user, userExists := auth.GetUserFromContext(r.Context())
 
 	// Track if access is allowed via presigned URL
 	allowedByPresignedURL := false
+
+	// Extract tenant ID for permission checking
+	tenantID := h.getTenantIDFromRequest(r)
 
 	// If NOT authenticated, check if this is a presigned URL request
 	if !userExists && presigned.IsPresignedURL(r) {
@@ -637,6 +710,40 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		bucketPath = h.getBucketPath(r, bucketName)
 	}
 
+	// Permission check: Verify user has READ permission via ACL
+	// Skip ACL check if access is via presigned URL or public share
+	if userExists && !allowedByPresignedURL && shareTenantID == "" {
+		// Check ACL permissions for authenticated users
+		hasPermission := h.checkObjectACLPermission(r.Context(), bucketPath, objectKey, user.ID, acl.PermissionRead)
+
+		// If no explicit ACL permission, check if authenticated users have access
+		if !hasPermission {
+			hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+		}
+
+		if !hasPermission {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"object": objectKey,
+				"userID": user.ID,
+			}).Warn("ACL permission denied for GetObject")
+			h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
+			return
+		}
+	} else if !userExists && !allowedByPresignedURL && shareTenantID == "" {
+		// Unauthenticated access - check if object/bucket is public
+		hasPublicAccess := h.checkPublicObjectAccess(r.Context(), bucketPath, objectKey, acl.PermissionRead)
+
+		if !hasPublicAccess {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"object": objectKey,
+			}).Warn("Public access denied - object not publicly readable")
+			h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
+			return
+		}
+	}
+
 	// Get versionId if specified (for versioning support)
 	versionID := r.URL.Query().Get("versionId")
 
@@ -774,6 +881,38 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		"decoded-content-length": decodedContentLength,
 		"content-type":           r.Header.Get("Content-Type"),
 	}).Debug("S3 API: PutObject - Request headers")
+
+	// Permission check: Verify user has WRITE permission via ACL
+	user, userExists := auth.GetUserFromContext(r.Context())
+	tenantID := h.getTenantIDFromRequest(r)
+
+	if !userExists {
+		h.writeError(w, "AccessDenied", "Authentication required for PutObject", objectKey, r)
+		return
+	}
+
+	// Check bucket WRITE permission (objects inherit bucket write permissions)
+	hasPermission := h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionWrite)
+
+	// If no explicit ACL permission, check if authenticated users have write access
+	if !hasPermission {
+		hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
+	}
+
+	// Also check FULL_CONTROL as an alternative
+	if !hasPermission {
+		hasPermission = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionFullControl)
+	}
+
+	if !hasPermission {
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucketName,
+			"object": objectKey,
+			"userID": user.ID,
+		}).Warn("ACL permission denied for PutObject")
+		h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
+		return
+	}
 
 	// Leer headers de Object Lock si están presentes (para Veeam)
 	lockMode := r.Header.Get("x-amz-object-lock-mode")
@@ -939,7 +1078,45 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		"versionId": versionID,
 	}).Debug("S3 API: DeleteObject")
 
+	// Permission check: Verify user has WRITE permission via ACL
+	user, userExists := auth.GetUserFromContext(r.Context())
+	tenantID := h.getTenantIDFromRequest(r)
+
+	if !userExists {
+		h.writeError(w, "AccessDenied", "Authentication required for DeleteObject", objectKey, r)
+		return
+	}
+
 	bucketPath := h.getBucketPath(r, bucketName)
+
+	// Check object-level WRITE permission first, then fall back to bucket
+	hasPermission := h.checkObjectACLPermission(r.Context(), bucketPath, objectKey, user.ID, acl.PermissionWrite)
+
+	// If no explicit object ACL, check bucket WRITE permission
+	if !hasPermission {
+		hasPermission = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionWrite)
+	}
+
+	// Check if authenticated users have write access
+	if !hasPermission {
+		hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
+	}
+
+	// Also check FULL_CONTROL as an alternative
+	if !hasPermission {
+		hasPermission = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionFullControl)
+	}
+
+	if !hasPermission {
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucketName,
+			"object": objectKey,
+			"userID": user.ID,
+		}).Warn("ACL permission denied for DeleteObject")
+		h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
+		return
+	}
+
 	deleteMarkerVersionID, err := h.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, versionID)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
@@ -997,6 +1174,43 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: HeadObject")
 
+	// Permission check: Verify user has READ permission via ACL
+	user, userExists := auth.GetUserFromContext(r.Context())
+	tenantID := h.getTenantIDFromRequest(r)
+	bucketPath := h.getBucketPath(r, bucketName)
+
+	if userExists {
+		// Check ACL permissions for authenticated users
+		hasPermission := h.checkObjectACLPermission(r.Context(), bucketPath, objectKey, user.ID, acl.PermissionRead)
+
+		// If no explicit ACL permission, check if authenticated users have access
+		if !hasPermission {
+			hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+		}
+
+		if !hasPermission {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"object": objectKey,
+				"userID": user.ID,
+			}).Warn("ACL permission denied for HeadObject")
+			h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
+			return
+		}
+	} else {
+		// Unauthenticated access - check if object/bucket is public
+		hasPublicAccess := h.checkPublicObjectAccess(r.Context(), bucketPath, objectKey, acl.PermissionRead)
+
+		if !hasPublicAccess {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"object": objectKey,
+			}).Warn("Public access denied for HeadObject - object not publicly readable")
+			h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
+			return
+		}
+	}
+
 	// Check if this is a VEEAM SOSAPI virtual object
 	if isVeeamSOSAPIObject(objectKey) {
 		logrus.WithFields(logrus.Fields{
@@ -1018,7 +1232,6 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bucketPath := h.getBucketPath(r, bucketName)
 	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
@@ -1376,6 +1589,208 @@ func parseRangeHeader(rangeHeader string, objectSize int64) (int64, int64, error
 	}
 
 	return start, end, nil
+}
+
+// ACL Permission Checking Helpers
+
+// checkBucketACLPermission checks if a user has permission on a bucket via ACL
+// Returns true if access is allowed, false otherwise
+func (h *Handler) checkBucketACLPermission(ctx context.Context, tenantID, bucketName, userID string, permission acl.Permission) bool {
+	// Get bucket ACL
+	bucketACL, err := h.bucketManager.GetBucketACL(ctx, tenantID, bucketName)
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to get bucket ACL for permission check")
+		return false
+	}
+
+	// Type assert to *acl.ACL
+	aclData, ok := bucketACL.(*acl.ACL)
+	if !ok || aclData == nil {
+		logrus.Warn("Invalid bucket ACL type")
+		return false
+	}
+
+	// Get ACL manager from bucket manager
+	aclManager := h.getACLManager()
+	if aclManager == nil {
+		logrus.Warn("ACL manager not available")
+		return false
+	}
+
+	// Check if user has permission
+	return aclManager.CheckPermission(ctx, aclData, userID, permission)
+}
+
+// checkObjectACLPermission checks if a user has permission on an object via ACL
+// Returns true if access is allowed, false otherwise
+func (h *Handler) checkObjectACLPermission(ctx context.Context, bucketPath, objectKey, userID string, permission acl.Permission) bool {
+	// Get object ACL (bucketPath already contains tenant prefix if needed)
+	objectACL, err := h.objectManager.GetObjectACL(ctx, bucketPath, objectKey)
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to get object ACL for permission check")
+		// If object has no ACL, fall back to bucket ACL
+		// Extract bucket name from path
+		parts := strings.SplitN(bucketPath, "/", 2)
+		var tenantID, bucketName string
+		if len(parts) == 2 {
+			tenantID = parts[0]
+			bucketName = parts[1]
+		} else {
+			tenantID = ""
+			bucketName = bucketPath
+		}
+		return h.checkBucketACLPermission(ctx, tenantID, bucketName, userID, permission)
+	}
+
+	// Convert from object.ACL to acl.ACL
+	aclData := h.convertObjectACLToInternal(objectACL)
+	if aclData == nil {
+		logrus.Warn("Failed to convert object ACL")
+		// Extract bucket name from path
+		parts := strings.SplitN(bucketPath, "/", 2)
+		var tenantID, bucketName string
+		if len(parts) == 2 {
+			tenantID = parts[0]
+			bucketName = parts[1]
+		} else {
+			tenantID = ""
+			bucketName = bucketPath
+		}
+		return h.checkBucketACLPermission(ctx, tenantID, bucketName, userID, permission)
+	}
+
+	// Get ACL manager
+	aclManager := h.getACLManager()
+	if aclManager == nil {
+		logrus.Warn("ACL manager not available")
+		return false
+	}
+
+	// Check if user has permission
+	return aclManager.CheckPermission(ctx, aclData, userID, permission)
+}
+
+// checkPublicBucketAccess checks if a bucket allows public access via ACL
+func (h *Handler) checkPublicBucketAccess(ctx context.Context, tenantID, bucketName string, permission acl.Permission) bool {
+	// Get bucket ACL
+	bucketACL, err := h.bucketManager.GetBucketACL(ctx, tenantID, bucketName)
+	if err != nil {
+		return false
+	}
+
+	aclData, ok := bucketACL.(*acl.ACL)
+	if !ok || aclData == nil {
+		return false
+	}
+
+	aclManager := h.getACLManager()
+	if aclManager == nil {
+		return false
+	}
+
+	return aclManager.CheckPublicAccess(aclData, permission)
+}
+
+// checkPublicObjectAccess checks if an object allows public access via ACL
+func (h *Handler) checkPublicObjectAccess(ctx context.Context, bucketPath, objectKey string, permission acl.Permission) bool {
+	// Get object ACL (bucketPath already contains tenant prefix if needed)
+	objectACL, err := h.objectManager.GetObjectACL(ctx, bucketPath, objectKey)
+	if err != nil {
+		// If object has no ACL, check bucket ACL
+		// Extract bucket name from path
+		parts := strings.SplitN(bucketPath, "/", 2)
+		var tenantID, bucketName string
+		if len(parts) == 2 {
+			tenantID = parts[0]
+			bucketName = parts[1]
+		} else {
+			tenantID = ""
+			bucketName = bucketPath
+		}
+		return h.checkPublicBucketAccess(ctx, tenantID, bucketName, permission)
+	}
+
+	aclData := h.convertObjectACLToInternal(objectACL)
+	if aclData == nil {
+		// Extract bucket name from path
+		parts := strings.SplitN(bucketPath, "/", 2)
+		var tenantID, bucketName string
+		if len(parts) == 2 {
+			tenantID = parts[0]
+			bucketName = parts[1]
+		} else {
+			tenantID = ""
+			bucketName = bucketPath
+		}
+		return h.checkPublicBucketAccess(ctx, tenantID, bucketName, permission)
+	}
+
+	aclManager := h.getACLManager()
+	if aclManager == nil {
+		return false
+	}
+
+	return aclManager.CheckPublicAccess(aclData, permission)
+}
+
+// checkAuthenticatedBucketAccess checks if a bucket allows access to any authenticated user
+func (h *Handler) checkAuthenticatedBucketAccess(ctx context.Context, tenantID, bucketName string, permission acl.Permission) bool {
+	bucketACL, err := h.bucketManager.GetBucketACL(ctx, tenantID, bucketName)
+	if err != nil {
+		return false
+	}
+
+	aclData, ok := bucketACL.(*acl.ACL)
+	if !ok || aclData == nil {
+		return false
+	}
+
+	aclManager := h.getACLManager()
+	if aclManager == nil {
+		return false
+	}
+
+	return aclManager.CheckAuthenticatedAccess(aclData, permission)
+}
+
+// getACLManager extracts the ACL manager from bucket manager
+// This is a helper to access the internal ACL manager
+func (h *Handler) getACLManager() acl.Manager {
+	// Try to extract ACL manager from bucket manager
+	if bm, ok := h.bucketManager.(interface{ GetACLManager() acl.Manager }); ok {
+		return bm.GetACLManager()
+	}
+	return nil
+}
+
+// convertObjectACLToInternal converts object.ACL to acl.ACL
+func (h *Handler) convertObjectACLToInternal(objACL *object.ACL) *acl.ACL {
+	if objACL == nil {
+		return nil
+	}
+
+	aclData := &acl.ACL{
+		Owner: acl.Owner{
+			ID:          objACL.Owner.ID,
+			DisplayName: objACL.Owner.DisplayName,
+		},
+		Grants: make([]acl.Grant, len(objACL.Grants)),
+	}
+
+	for i, grant := range objACL.Grants {
+		aclData.Grants[i] = acl.Grant{
+			Grantee: acl.Grantee{
+				Type:         acl.GranteeType(grant.Grantee.Type),
+				ID:           grant.Grantee.ID,
+				DisplayName:  grant.Grantee.DisplayName,
+				EmailAddress: grant.Grantee.EmailAddress,
+				URI:          grant.Grantee.URI,
+			},
+			Permission: acl.Permission(grant.Permission),
+		}
+	}
+
+	return aclData
 }
 
 // Placeholder stubs for future implementation

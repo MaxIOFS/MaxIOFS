@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/sirupsen/logrus"
 )
@@ -639,4 +640,106 @@ func (h *Handler) DeleteBucketTagging(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetBucketACL retrieves the bucket ACL
+func (h *Handler) GetBucketACL(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	logrus.WithField("bucket", bucketName).Debug("S3 API: GetBucketACL")
+
+	tenantID := h.getTenantIDFromRequest(r)
+
+	// Get ACL from bucket manager
+	aclInterface, err := h.bucketManager.GetBucketACL(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	// Convert to internal ACL type
+	aclData, ok := aclInterface.(*acl.ACL)
+	if !ok || aclData == nil {
+		h.writeError(w, "InternalError", "Invalid ACL data", bucketName, r)
+		return
+	}
+
+	// Convert to S3 XML format
+	s3ACL := aclData.ToS3Format()
+
+	h.writeXMLResponse(w, http.StatusOK, s3ACL)
+}
+
+// PutBucketACL sets the bucket ACL
+func (h *Handler) PutBucketACL(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	logrus.WithField("bucket", bucketName).Debug("S3 API: PutBucketACL")
+
+	tenantID := h.getTenantIDFromRequest(r)
+
+	// Check for canned ACL header
+	cannedACL := r.Header.Get("x-amz-acl")
+
+	var aclData *acl.ACL
+
+	if cannedACL != "" {
+		// Use canned ACL
+		if !acl.IsValidCannedACL(cannedACL) {
+			h.writeError(w, "InvalidArgument", "Invalid canned ACL: "+cannedACL, bucketName, r)
+			return
+		}
+
+		// Create ACL from canned ACL using helper function
+		grants := acl.GetCannedACLGrants(cannedACL, "maxiofs", "MaxIOFS")
+		if grants == nil {
+			h.writeError(w, "InvalidArgument", "Invalid canned ACL: "+cannedACL, bucketName, r)
+			return
+		}
+
+		aclData = &acl.ACL{
+			Owner: acl.Owner{
+				ID:          "maxiofs",
+				DisplayName: "MaxIOFS",
+			},
+			Grants:    grants,
+			CannedACL: cannedACL,
+		}
+	} else {
+		// Parse XML ACL from body
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			h.writeError(w, "InvalidRequest", "Failed to read request body", bucketName, r)
+			return
+		}
+		defer r.Body.Close()
+
+		var s3ACL acl.S3AccessControlPolicy
+		if err := xml.Unmarshal(body, &s3ACL); err != nil {
+			logrus.WithError(err).Error("PutBucketACL: Failed to parse XML")
+			h.writeError(w, "MalformedXML", "The XML is not well-formed", bucketName, r)
+			return
+		}
+
+		// Convert from S3 format to internal format
+		aclData = acl.FromS3Format(&s3ACL)
+	}
+
+	// Set ACL using bucket manager
+	if err := h.bucketManager.SetBucketACL(r.Context(), tenantID, bucketName, aclData); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

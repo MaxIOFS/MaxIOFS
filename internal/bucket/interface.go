@@ -71,6 +71,7 @@ type Manager interface {
 	// ACL operations
 	GetBucketACL(ctx context.Context, tenantID, name string) (interface{}, error)
 	SetBucketACL(ctx context.Context, tenantID, name string, acl interface{}) error
+	GetACLManager() interface{} // Returns acl.Manager but uses interface{} to avoid circular dependency
 
 	// Metrics management (for incremental updates)
 	IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
