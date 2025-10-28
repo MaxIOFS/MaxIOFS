@@ -240,6 +240,52 @@ export interface EncryptionConfig {
   masterKey?: string;
 }
 
+// ACL Types
+export interface ACL {
+  owner: ACLOwner;
+  grants: ACLGrant[];
+  cannedACL?: string;
+}
+
+export interface ACLOwner {
+  id: string;
+  displayName: string;
+}
+
+export interface ACLGrant {
+  grantee: ACLGrantee;
+  permission: ACLPermission;
+}
+
+export interface ACLGrantee {
+  type: 'CanonicalUser' | 'AmazonCustomerByEmail' | 'Group';
+  id?: string;
+  displayName?: string;
+  emailAddress?: string;
+  uri?: string;
+}
+
+export type ACLPermission = 'READ' | 'WRITE' | 'READ_ACP' | 'WRITE_ACP' | 'FULL_CONTROL';
+
+export type CannedACL =
+  | 'private'
+  | 'public-read'
+  | 'public-read-write'
+  | 'authenticated-read'
+  | 'bucket-owner-read'
+  | 'bucket-owner-full-control'
+  | 'log-delivery-write';
+
+export const CANNED_ACL_DESCRIPTIONS: Record<CannedACL, string> = {
+  'private': 'Owner gets FULL_CONTROL. No one else has access.',
+  'public-read': 'Owner gets FULL_CONTROL. Anyone can READ.',
+  'public-read-write': 'Owner gets FULL_CONTROL. Anyone can READ and WRITE.',
+  'authenticated-read': 'Owner gets FULL_CONTROL. Any authenticated AWS user can READ.',
+  'bucket-owner-read': 'Object owner gets FULL_CONTROL. Bucket owner gets READ.',
+  'bucket-owner-full-control': 'Both object owner and bucket owner get FULL_CONTROL.',
+  'log-delivery-write': 'LogDelivery group gets WRITE and READ_ACP permissions.',
+};
+
 // Object Types
 export interface S3Object {
   key: string;

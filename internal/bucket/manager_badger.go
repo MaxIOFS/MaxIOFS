@@ -3,6 +3,7 @@ package bucket
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -61,11 +62,24 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 		return err
 	}
 
-	// Create default private ACL for the bucket
-	defaultACL := acl.CreateDefaultACL("maxiofs", "MaxIOFS")
-	if err := bm.aclManager.SetBucketACL(ctx, tenantID, name, defaultACL); err != nil {
-		// Log error but don't fail bucket creation
-		fmt.Printf("Warning: Failed to set default ACL for bucket %s: %v\n", name, err)
+	// Solo crear ACL por defecto si no existe uno explícito
+	if bm.aclManager != nil {
+		aclActual, err := bm.aclManager.GetBucketACL(ctx, tenantID, name)
+		defaultACL := acl.CreateDefaultACL("maxiofs", "MaxIOFS")
+		if err != nil {
+			// Si hay error inesperado, loguear pero no fallar bucket creation
+			fmt.Printf("Warning: Error al consultar ACL para bucket %s: %v\n", name, err)
+		} else {
+			// Compara owner y cannedACL para saber si es el default
+			esDefault := reflect.DeepEqual(aclActual.Owner, defaultACL.Owner) && aclActual.CannedACL == defaultACL.CannedACL && len(aclActual.Grants) == len(defaultACL.Grants)
+			if esDefault {
+				if err := bm.aclManager.SetBucketACL(ctx, tenantID, name, defaultACL); err != nil {
+					fmt.Printf("Warning: Failed to set default ACL for bucket %s: %v\n", name, err)
+				}
+			}
+		}
+	} else {
+		fmt.Printf("Warning: ACL manager not initialized for bucket %s\n", name)
 	}
 
 	// Create bucket directory in storage
@@ -421,6 +435,11 @@ func (bm *badgerBucketManager) GetBucketACL(ctx context.Context, tenantID, name 
 		return nil, ErrBucketNotFound
 	}
 
+	// Check if ACL manager is available
+	if bm.aclManager == nil {
+		return nil, fmt.Errorf("ACL manager not initialized")
+	}
+
 	// Get ACL from ACL manager
 	return bm.aclManager.GetBucketACL(ctx, tenantID, name)
 }
@@ -434,6 +453,11 @@ func (bm *badgerBucketManager) SetBucketACL(ctx context.Context, tenantID, name 
 	}
 	if !exists {
 		return ErrBucketNotFound
+	}
+
+	// Check if ACL manager is available
+	if bm.aclManager == nil {
+		return fmt.Errorf("ACL manager not initialized")
 	}
 
 	// Type assertion to convert interface{} to *acl.ACL

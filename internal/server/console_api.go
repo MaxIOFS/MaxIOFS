@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -246,6 +247,14 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/cors", s.handleGetBucketCors).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/cors", s.handlePutBucketCors).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/cors", s.handleDeleteBucketCors).Methods("DELETE", "OPTIONS")
+
+	// Bucket ACL endpoints
+	router.HandleFunc("/buckets/{bucket}/acl", s.handleGetBucketACL).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/acl", s.handlePutBucketACL).Methods("PUT", "OPTIONS")
+
+	// Object ACL endpoints
+	router.HandleFunc("/buckets/{bucket}/objects/{object}/acl", s.handleGetObjectACL).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/objects/{object}/acl", s.handlePutObjectACL).Methods("PUT", "OPTIONS")
 
 	// Health check
 	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET", "OPTIONS")
@@ -3454,4 +3463,238 @@ func (s *Server) handleDeleteBucketCors(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Bucket ACL handlers
+func (s *Server) handleGetBucketACL(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	aclData, err := s.bucketManager.GetBucketACL(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return as JSON (the frontend will handle XML conversion if needed)
+	s.writeJSON(w, aclData)
+}
+
+func (s *Server) handlePutBucketACL(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	// Check for canned ACL header
+	cannedACL := r.Header.Get("x-amz-acl")
+	if cannedACL == "" {
+		s.writeError(w, "Missing x-amz-acl header", http.StatusBadRequest)
+		return
+	}
+
+	// Get canned ACL from the ACL manager
+	aclManager := s.bucketManager.GetACLManager()
+	if aclManager == nil {
+		s.writeError(w, "ACL manager not available", http.StatusInternalServerError)
+		return
+	}
+
+	// Import acl package type
+	type ACLManager interface {
+		GetCannedACL(cannedACL string, ownerID, ownerDisplayName string) (interface{}, error)
+	}
+
+	aclMgr, ok := aclManager.(ACLManager)
+	if !ok {
+		s.writeError(w, "Invalid ACL manager type", http.StatusInternalServerError)
+		return
+	}
+
+	// Get canned ACL
+	aclData, err := aclMgr.GetCannedACL(cannedACL, "maxiofs", "MaxIOFS")
+	if err != nil {
+		s.writeError(w, fmt.Sprintf("Invalid canned ACL: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Set bucket ACL
+	if err := s.bucketManager.SetBucketACL(r.Context(), tenantID, bucketName, aclData); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// Object ACL handlers
+func (s *Server) handleGetObjectACL(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey := vars["object"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	// Construct bucket path
+	var bucketPath string
+	if tenantID != "" {
+		bucketPath = tenantID + "/" + bucketName
+	} else {
+		bucketPath = bucketName
+	}
+
+	aclData, err := s.objectManager.GetObjectACL(r.Context(), bucketPath, objectKey)
+	if err != nil {
+		if err == object.ErrObjectNotFound {
+			s.writeError(w, "Object not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return as JSON
+	s.writeJSON(w, aclData)
+}
+
+func (s *Server) handlePutObjectACL(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey := vars["object"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	// Construct bucket path
+	var bucketPath string
+	if tenantID != "" {
+		bucketPath = tenantID + "/" + bucketName
+	} else {
+		bucketPath = bucketName
+	}
+
+	// Check for canned ACL header
+	cannedACL := r.Header.Get("x-amz-acl")
+	if cannedACL == "" {
+		s.writeError(w, "Missing x-amz-acl header", http.StatusBadRequest)
+		return
+	}
+
+	// Get canned ACL from the ACL manager
+	aclManager := s.bucketManager.GetACLManager()
+	if aclManager == nil {
+		s.writeError(w, "ACL manager not available", http.StatusInternalServerError)
+		return
+	}
+
+	type ACLManager interface {
+		GetCannedACL(cannedACL string, ownerID, ownerDisplayName string) (interface{}, error)
+	}
+
+	aclMgr, ok := aclManager.(ACLManager)
+	if !ok {
+		s.writeError(w, "Invalid ACL manager type", http.StatusInternalServerError)
+		return
+	}
+
+	// Get canned ACL
+	aclData, err := aclMgr.GetCannedACL(cannedACL, "maxiofs", "MaxIOFS")
+	if err != nil {
+		s.writeError(w, fmt.Sprintf("Invalid canned ACL: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Convert to object.ACL
+	type Owner struct {
+		ID          string
+		DisplayName string
+	}
+	type Grantee struct {
+		Type         string
+		ID           string
+		DisplayName  string
+		EmailAddress string
+		URI          string
+	}
+	type Grant struct {
+		Grantee    Grantee
+		Permission string
+	}
+	type ACL struct {
+		Owner  Owner
+		Grants []Grant
+	}
+
+	// Type assert and convert
+	internalACL, ok := aclData.(*acl.ACL)
+	if !ok {
+		s.writeError(w, "Invalid ACL data type", http.StatusInternalServerError)
+		return
+	}
+
+	objectACL := &object.ACL{
+		Owner: object.Owner{
+			ID:          internalACL.Owner.ID,
+			DisplayName: internalACL.Owner.DisplayName,
+		},
+		Grants: make([]object.Grant, len(internalACL.Grants)),
+	}
+
+	for i, grant := range internalACL.Grants {
+		objectACL.Grants[i] = object.Grant{
+			Grantee: object.Grantee{
+				Type:         string(grant.Grantee.Type),
+				ID:           grant.Grantee.ID,
+				DisplayName:  grant.Grantee.DisplayName,
+				EmailAddress: grant.Grantee.EmailAddress,
+				URI:          grant.Grantee.URI,
+			},
+			Permission: string(grant.Permission),
+		}
+	}
+
+	// Set object ACL
+	if err := s.objectManager.SetObjectACL(r.Context(), bucketPath, objectKey, objectACL); err != nil {
+		if err == object.ErrObjectNotFound {
+			s.writeError(w, "Object not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

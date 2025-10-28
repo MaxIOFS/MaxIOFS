@@ -661,6 +661,92 @@ export class APIClient {
     await apiClient.delete(`/buckets/${bucketName}/tagging`);
   }
 
+  // Bucket ACL
+  static async getBucketACL(bucketName: string): Promise<any> {
+    const response = await apiClient.get(`/buckets/${bucketName}/acl`);
+    return response.data;
+  }
+
+  static async putBucketACL(bucketName: string, acl: string | object, cannedACL?: string): Promise<void> {
+    const headers: any = {};
+
+    if (cannedACL) {
+      // Use canned ACL via header
+      headers['x-amz-acl'] = cannedACL;
+      await apiClient.put(`/buckets/${bucketName}/acl`, '', { headers });
+    } else {
+      // Use custom ACL via XML body
+      const aclXml = typeof acl === 'string' ? acl : this.convertACLToXML(acl);
+      headers['Content-Type'] = 'application/xml';
+      await apiClient.put(`/buckets/${bucketName}/acl`, aclXml, { headers });
+    }
+  }
+
+  // Object ACL
+  static async getObjectACL(bucketName: string, objectKey: string): Promise<any> {
+    const response = await apiClient.get(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/acl`);
+    return response.data;
+  }
+
+  static async putObjectACL(bucketName: string, objectKey: string, acl: string | object, cannedACL?: string): Promise<void> {
+    const headers: any = {};
+
+    if (cannedACL) {
+      // Use canned ACL via header
+      headers['x-amz-acl'] = cannedACL;
+      await apiClient.put(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/acl`, '', { headers });
+    } else {
+      // Use custom ACL via XML body
+      const aclXml = typeof acl === 'string' ? acl : this.convertACLToXML(acl);
+      headers['Content-Type'] = 'application/xml';
+      await apiClient.put(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/acl`, aclXml, { headers });
+    }
+  }
+
+  // Helper to convert ACL object to XML
+  private static convertACLToXML(acl: any): string {
+    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<AccessControlPolicy>\n';
+
+    // Owner
+    xml += '  <Owner>\n';
+    xml += `    <ID>${acl.owner?.id || acl.Owner?.ID || 'maxiofs'}</ID>\n`;
+    xml += `    <DisplayName>${acl.owner?.displayName || acl.Owner?.DisplayName || 'MaxIOFS'}</DisplayName>\n`;
+    xml += '  </Owner>\n';
+
+    // Access Control List
+    xml += '  <AccessControlList>\n';
+    const grants = acl.grants || acl.Grants || acl.AccessControlList?.Grant || [];
+    grants.forEach((grant: any) => {
+      xml += '    <Grant>\n';
+
+      // Grantee
+      const grantee = grant.grantee || grant.Grantee;
+      const granteeType = grantee.type || grantee.Type || 'CanonicalUser';
+      xml += `      <Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="${granteeType}">\n`;
+
+      if (granteeType === 'CanonicalUser') {
+        xml += `        <ID>${grantee.id || grantee.ID}</ID>\n`;
+        if (grantee.displayName || grantee.DisplayName) {
+          xml += `        <DisplayName>${grantee.displayName || grantee.DisplayName}</DisplayName>\n`;
+        }
+      } else if (granteeType === 'AmazonCustomerByEmail') {
+        xml += `        <EmailAddress>${grantee.emailAddress || grantee.EmailAddress}</EmailAddress>\n`;
+      } else if (granteeType === 'Group') {
+        xml += `        <URI>${grantee.uri || grantee.URI}</URI>\n`;
+      }
+
+      xml += '      </Grantee>\n';
+
+      // Permission
+      xml += `      <Permission>${grant.permission || grant.Permission}</Permission>\n`;
+      xml += '    </Grant>\n';
+    });
+    xml += '  </AccessControlList>\n';
+    xml += '</AccessControlPolicy>';
+
+    return xml;
+  }
+
   // Bucket Lifecycle
   static async getBucketLifecycle(bucketName: string): Promise<any> {
     const response = await apiClient.get(`/buckets/${bucketName}/lifecycle`);

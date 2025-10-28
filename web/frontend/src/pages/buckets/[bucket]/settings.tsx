@@ -12,6 +12,7 @@ import {
   Lock,
   Globe,
   FileText,
+  Users,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -38,6 +39,11 @@ export default function BucketSettingsPage() {
   const [tags, setTags] = useState<Record<string, string>>({});
   const [newTagKey, setNewTagKey] = useState('');
   const [newTagValue, setNewTagValue] = useState('');
+
+  // ACL state
+  const [isACLModalOpen, setIsACLModalOpen] = useState(false);
+  const [selectedCannedACL, setSelectedCannedACL] = useState<string>('private');
+  const [aclViewMode, setAclViewMode] = useState<'simple' | 'advanced'>('simple');
 
   // CORS rules state
   interface CORSRule {
@@ -162,6 +168,19 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
       SweetAlert.toast('success', 'Bucket tags deleted successfully');
+    },
+    onError: (error: any) => {
+      SweetAlert.apiError(error);
+    },
+  });
+
+  // ACL mutations
+  const saveACLMutation = useMutation({
+    mutationFn: (cannedACL: string) => APIClient.putBucketACL(bucketName, '', cannedACL),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      setIsACLModalOpen(false);
+      SweetAlert.toast('success', 'Bucket ACL updated successfully');
     },
     onError: (error: any) => {
       SweetAlert.apiError(error);
@@ -475,6 +494,39 @@ export default function BucketSettingsPage() {
     );
   };
 
+  // ACL handlers
+  const handleManageACL = async () => {
+    try {
+      const response = await APIClient.getBucketACL(bucketName);
+      // Try to detect canned ACL from grants
+      const acl = response.AccessControlList || response;
+      const grants = acl.Grant || [];
+
+      // Simple detection: if only owner has FULL_CONTROL, it's private
+      if (grants.length === 1 && grants[0].Permission === 'FULL_CONTROL') {
+        setSelectedCannedACL('private');
+      } else {
+        // Check for public-read
+        const hasPublicRead = grants.some((g: any) =>
+          g.Grantee?.URI?.includes('AllUsers') && g.Permission === 'READ'
+        );
+        if (hasPublicRead) {
+          setSelectedCannedACL('public-read');
+        } else {
+          setSelectedCannedACL('private');
+        }
+      }
+    } catch (error) {
+      // Default to private if error
+      setSelectedCannedACL('private');
+    }
+    setIsACLModalOpen(true);
+  };
+
+  const handleSaveACL = () => {
+    saveACLMutation.mutate(selectedCannedACL);
+  };
+
   // Policy Templates
   const policyTemplates = {
     publicRead: {
@@ -681,6 +733,33 @@ export default function BucketSettingsPage() {
                       Delete
                     </Button>
                   )}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Bucket ACL */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Access Control List (ACL)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">Bucket Permissions</p>
+                  <p className="text-sm text-gray-500">
+                    Control who can access this bucket
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={handleManageACL}>
+                    Manage ACL
+                  </Button>
                 </div>
               </div>
             </div>
@@ -1387,6 +1466,126 @@ export default function BucketSettingsPage() {
               disabled={saveTagsMutation.isPending}
             >
               {saveTagsMutation.isPending ? 'Saving...' : 'Save Tags'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ACL Modal */}
+      <Modal
+        isOpen={isACLModalOpen}
+        onClose={() => setIsACLModalOpen(false)}
+        title="Bucket Access Control List (ACL)"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              <strong>ACL (Access Control List)</strong> defines who can access your bucket and what permissions they have.
+              Choose a canned ACL for simple permission management.
+            </p>
+          </div>
+
+          {/* Canned ACL Selection */}
+          <div className="space-y-3">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Select Permission Level
+            </label>
+
+            <div className="space-y-2">
+              {/* Private */}
+              <label className="flex items-start gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <input
+                  type="radio"
+                  name="acl"
+                  value="private"
+                  checked={selectedCannedACL === 'private'}
+                  onChange={(e) => setSelectedCannedACL(e.target.value)}
+                  className="mt-1"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-sm text-gray-900 dark:text-white">Private</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Owner gets FULL_CONTROL. No one else has access rights.
+                  </div>
+                </div>
+              </label>
+
+              {/* Public Read */}
+              <label className="flex items-start gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <input
+                  type="radio"
+                  name="acl"
+                  value="public-read"
+                  checked={selectedCannedACL === 'public-read'}
+                  onChange={(e) => setSelectedCannedACL(e.target.value)}
+                  className="mt-1"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-sm text-gray-900 dark:text-white">Public Read</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Owner gets FULL_CONTROL. Anyone (including anonymous users) can READ objects.
+                  </div>
+                </div>
+              </label>
+
+              {/* Public Read Write */}
+              <label className="flex items-start gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <input
+                  type="radio"
+                  name="acl"
+                  value="public-read-write"
+                  checked={selectedCannedACL === 'public-read-write'}
+                  onChange={(e) => setSelectedCannedACL(e.target.value)}
+                  className="mt-1"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-sm text-gray-900 dark:text-white">Public Read/Write</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Owner gets FULL_CONTROL. Anyone can READ and WRITE objects. <strong className="text-yellow-600">Use with caution!</strong>
+                  </div>
+                </div>
+              </label>
+
+              {/* Authenticated Read */}
+              <label className="flex items-start gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <input
+                  type="radio"
+                  name="acl"
+                  value="authenticated-read"
+                  checked={selectedCannedACL === 'authenticated-read'}
+                  onChange={(e) => setSelectedCannedACL(e.target.value)}
+                  className="mt-1"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-sm text-gray-900 dark:text-white">Authenticated Read</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Owner gets FULL_CONTROL. Any authenticated AWS user can READ objects.
+                  </div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          {/* Warning for public access */}
+          {(selectedCannedACL === 'public-read' || selectedCannedACL === 'public-read-write') && (
+            <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+              <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                <strong>Warning:</strong> This ACL grants public access. Anyone on the internet can access your bucket.
+              </p>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <Button variant="outline" onClick={() => setIsACLModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveACL}
+              disabled={saveACLMutation.isPending}
+            >
+              {saveACLMutation.isPending ? 'Saving...' : 'Save ACL'}
             </Button>
           </div>
         </div>
