@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	badger "github.com/dgraph-io/badger/v4"
+	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/storage"
@@ -92,6 +94,7 @@ type objectManager struct {
 	storage       storage.Backend
 	config        config.StorageConfig
 	metadataStore metadata.Store
+	aclManager    acl.Manager
 	bucketManager interface {
 		IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 		DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
@@ -100,10 +103,19 @@ type objectManager struct {
 
 // NewManager creates a new object manager
 func NewManager(storage storage.Backend, metadataStore metadata.Store, config config.StorageConfig) Manager {
+	// Extract BadgerDB instance for ACL manager
+	var aclMgr acl.Manager
+	if badgerStore, ok := metadataStore.(interface{ DB() interface{} }); ok {
+		if db, ok := badgerStore.DB().(*badger.DB); ok {
+			aclMgr = acl.NewManager(db)
+		}
+	}
+
 	return &objectManager{
 		storage:       storage,
 		config:        config,
 		metadataStore: metadataStore,
+		aclManager:    aclMgr,
 		bucketManager: nil, // Will be set later via SetBucketManager
 	}
 }
@@ -990,7 +1002,7 @@ func (om *objectManager) DeleteObjectTagging(ctx context.Context, bucket, key st
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
 
-// ACL operations implementations (basic placeholders)
+// ACL operations implementations
 
 func (om *objectManager) GetObjectACL(ctx context.Context, bucket, key string) (*ACL, error) {
 	// Get object metadata to ensure it exists
@@ -999,24 +1011,17 @@ func (om *objectManager) GetObjectACL(ctx context.Context, bucket, key string) (
 		return nil, err
 	}
 
-	// Return default ACL (owner has full control)
-	// TODO: Implement actual ACL storage and retrieval
-	return &ACL{
-		Owner: Owner{
-			ID:          "maxiofs",
-			DisplayName: "MaxIOFS",
-		},
-		Grants: []Grant{
-			{
-				Grantee: Grantee{
-					Type:        "CanonicalUser",
-					ID:          "maxiofs",
-					DisplayName: "MaxIOFS",
-				},
-				Permission: "FULL_CONTROL",
-			},
-		},
-	}, nil
+	// Parse bucket path to extract tenantID and bucketName
+	tenantID, bucketName := om.parseBucketPath(bucket)
+
+	// Get ACL from ACL manager
+	aclData, err := om.aclManager.GetObjectACL(ctx, tenantID, bucketName, key)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert from acl.ACL to object.ACL
+	return om.convertFromACLManagerType(aclData), nil
 }
 
 func (om *objectManager) SetObjectACL(ctx context.Context, bucket, key string, acl *ACL) error {
@@ -1026,9 +1031,72 @@ func (om *objectManager) SetObjectACL(ctx context.Context, bucket, key string, a
 		return err
 	}
 
-	// TODO: Implement actual ACL storage
-	// For now, just validate that object exists (done above)
-	return nil
+	// Parse bucket path to extract tenantID and bucketName
+	tenantID, bucketName := om.parseBucketPath(bucket)
+
+	// Convert from object.ACL to acl.ACL
+	aclData := om.convertToACLManagerType(acl)
+
+	// Set ACL using ACL manager
+	return om.aclManager.SetObjectACL(ctx, tenantID, bucketName, key, aclData)
+}
+
+// convertFromACLManagerType converts acl.ACL to object.ACL
+func (om *objectManager) convertFromACLManagerType(aclData *acl.ACL) *ACL {
+	if aclData == nil {
+		return nil
+	}
+
+	grants := make([]Grant, len(aclData.Grants))
+	for i, g := range aclData.Grants {
+		grants[i] = Grant{
+			Grantee: Grantee{
+				Type:         string(g.Grantee.Type),
+				ID:           g.Grantee.ID,
+				DisplayName:  g.Grantee.DisplayName,
+				EmailAddress: g.Grantee.EmailAddress,
+				URI:          g.Grantee.URI,
+			},
+			Permission: string(g.Permission),
+		}
+	}
+
+	return &ACL{
+		Owner: Owner{
+			ID:          aclData.Owner.ID,
+			DisplayName: aclData.Owner.DisplayName,
+		},
+		Grants: grants,
+	}
+}
+
+// convertToACLManagerType converts object.ACL to acl.ACL
+func (om *objectManager) convertToACLManagerType(objACL *ACL) *acl.ACL {
+	if objACL == nil {
+		return nil
+	}
+
+	grants := make([]acl.Grant, len(objACL.Grants))
+	for i, g := range objACL.Grants {
+		grants[i] = acl.Grant{
+			Grantee: acl.Grantee{
+				Type:         acl.GranteeType(g.Grantee.Type),
+				ID:           g.Grantee.ID,
+				DisplayName:  g.Grantee.DisplayName,
+				EmailAddress: g.Grantee.EmailAddress,
+				URI:          g.Grantee.URI,
+			},
+			Permission: acl.Permission(g.Permission),
+		}
+	}
+
+	return &acl.ACL{
+		Owner: acl.Owner{
+			ID:          objACL.Owner.ID,
+			DisplayName: objACL.Owner.DisplayName,
+		},
+		Grants: grants,
+	}
 }
 
 // CreateMultipartUpload creates a new multipart upload session

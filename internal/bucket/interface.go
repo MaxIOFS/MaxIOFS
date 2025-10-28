@@ -68,6 +68,10 @@ type Manager interface {
 	GetObjectLockConfig(ctx context.Context, tenantID, name string) (*ObjectLockConfig, error)
 	SetObjectLockConfig(ctx context.Context, tenantID, name string, config *ObjectLockConfig) error
 
+	// ACL operations
+	GetBucketACL(ctx context.Context, tenantID, name string) (interface{}, error)
+	SetBucketACL(ctx context.Context, tenantID, name string, acl interface{}) error
+
 	// Metrics management (for incremental updates)
 	IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 	DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error

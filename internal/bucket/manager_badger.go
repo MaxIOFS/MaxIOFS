@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	badger "github.com/dgraph-io/badger/v4"
+	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/storage"
 )
@@ -14,13 +16,23 @@ import (
 type badgerBucketManager struct {
 	storage       storage.Backend
 	metadataStore metadata.Store
+	aclManager    acl.Manager
 }
 
 // NewBadgerManager creates a new bucket manager using BadgerDB for metadata
 func NewBadgerManager(storage storage.Backend, metadataStore metadata.Store) Manager {
+	// Extract BadgerDB instance for ACL manager
+	var aclMgr acl.Manager
+	if badgerStore, ok := metadataStore.(interface{ DB() interface{} }); ok {
+		if db, ok := badgerStore.DB().(*badger.DB); ok {
+			aclMgr = acl.NewManager(db)
+		}
+	}
+
 	return &badgerBucketManager{
 		storage:       storage,
 		metadataStore: metadataStore,
+		aclManager:    aclMgr,
 	}
 }
 
@@ -47,6 +59,13 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 			return ErrBucketAlreadyExists
 		}
 		return err
+	}
+
+	// Create default private ACL for the bucket
+	defaultACL := acl.CreateDefaultACL("maxiofs", "MaxIOFS")
+	if err := bm.aclManager.SetBucketACL(ctx, tenantID, name, defaultACL); err != nil {
+		// Log error but don't fail bucket creation
+		fmt.Printf("Warning: Failed to set default ACL for bucket %s: %v\n", name, err)
 	}
 
 	// Create bucket directory in storage
@@ -389,4 +408,40 @@ func (bm *badgerBucketManager) getTenantBucketPath(tenantID, bucketName string) 
 		return bucketName
 	}
 	return fmt.Sprintf("%s/%s", tenantID, bucketName)
+}
+
+// GetBucketACL retrieves the bucket ACL
+func (bm *badgerBucketManager) GetBucketACL(ctx context.Context, tenantID, name string) (interface{}, error) {
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, tenantID, name)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrBucketNotFound
+	}
+
+	// Get ACL from ACL manager
+	return bm.aclManager.GetBucketACL(ctx, tenantID, name)
+}
+
+// SetBucketACL sets the bucket ACL
+func (bm *badgerBucketManager) SetBucketACL(ctx context.Context, tenantID, name string, aclInterface interface{}) error {
+	// Check if bucket exists
+	exists, err := bm.BucketExists(ctx, tenantID, name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrBucketNotFound
+	}
+
+	// Type assertion to convert interface{} to *acl.ACL
+	aclData, ok := aclInterface.(*acl.ACL)
+	if !ok {
+		return fmt.Errorf("invalid ACL type")
+	}
+
+	// Set ACL using ACL manager
+	return bm.aclManager.SetBucketACL(ctx, tenantID, name, aclData)
 }
