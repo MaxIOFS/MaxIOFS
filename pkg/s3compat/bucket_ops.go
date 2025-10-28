@@ -510,3 +510,133 @@ func (h *Handler) DeleteBucketCORS(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// GetBucketTagging retrieves the bucket tags
+func (h *Handler) GetBucketTagging(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	logrus.WithField("bucket", bucketName).Debug("S3 API: GetBucketTagging")
+
+	tenantID := h.getTenantIDFromRequest(r)
+	bucketData, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	// Build TagSet response
+	type Tag struct {
+		Key   string `xml:"Key"`
+		Value string `xml:"Value"`
+	}
+
+	type TagSet struct {
+		XMLName xml.Name `xml:"TagSet"`
+		Tags    []Tag    `xml:"Tag"`
+	}
+
+	type Tagging struct {
+		XMLName xml.Name `xml:"Tagging"`
+		TagSet  TagSet   `xml:"TagSet"`
+	}
+
+	response := Tagging{
+		TagSet: TagSet{
+			Tags: []Tag{},
+		},
+	}
+
+	if bucketData.Tags != nil && len(bucketData.Tags) > 0 {
+		for key, value := range bucketData.Tags {
+			response.TagSet.Tags = append(response.TagSet.Tags, Tag{
+				Key:   key,
+				Value: value,
+			})
+		}
+	}
+
+	h.writeXMLResponse(w, http.StatusOK, response)
+}
+
+// PutBucketTagging sets the bucket tags
+func (h *Handler) PutBucketTagging(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	logrus.WithField("bucket", bucketName).Debug("S3 API: PutBucketTagging")
+
+	// Read the tagging XML from request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to read request body")
+		h.writeError(w, "InvalidRequest", "Failed to read request body", bucketName, r)
+		return
+	}
+	defer r.Body.Close()
+
+	// Parse XML
+	type Tag struct {
+		Key   string `xml:"Key"`
+		Value string `xml:"Value"`
+	}
+
+	type TagSet struct {
+		Tags []Tag `xml:"Tag"`
+	}
+
+	type Tagging struct {
+		XMLName xml.Name `xml:"Tagging"`
+		TagSet  TagSet   `xml:"TagSet"`
+	}
+
+	var tagging Tagging
+	if err := xml.Unmarshal(body, &tagging); err != nil {
+		logrus.WithError(err).Error("PutBucketTagging: Failed to parse XML")
+		h.writeError(w, "MalformedXML", "The XML is not well-formed", bucketName, r)
+		return
+	}
+
+	// Convert to map
+	tags := make(map[string]string)
+	for _, tag := range tagging.TagSet.Tags {
+		tags[tag.Key] = tag.Value
+	}
+
+	// Update bucket tags
+	tenantID := h.getTenantIDFromRequest(r)
+	if err := h.bucketManager.SetBucketTags(r.Context(), tenantID, bucketName, tags); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeleteBucketTagging deletes all bucket tags
+func (h *Handler) DeleteBucketTagging(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	logrus.WithField("bucket", bucketName).Debug("S3 API: DeleteBucketTagging")
+
+	tenantID := h.getTenantIDFromRequest(r)
+	if err := h.bucketManager.SetBucketTags(r.Context(), tenantID, bucketName, nil); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

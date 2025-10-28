@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
@@ -23,7 +24,6 @@ import { File as FileIcon } from 'lucide-react';
 import { Folder as FolderIcon } from 'lucide-react';
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { HardDrive as HardDriveIcon } from 'lucide-react';
-import { MoreHorizontal as MoreHorizontalIcon } from 'lucide-react';
 import { Lock as LockIcon } from 'lucide-react';
 import { Shield as ShieldIcon } from 'lucide-react';
 import { Clock as ClockIcon } from 'lucide-react';
@@ -32,7 +32,7 @@ import { History as HistoryIcon } from 'lucide-react';
 import { Link as LinkIcon } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import { S3Object, UploadRequest } from '@/types';
+import { UploadRequest } from '@/types';
 import SweetAlert from '@/lib/sweetalert';
 import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 import { ObjectVersionsModal } from '@/components/ObjectVersionsModal';
@@ -71,7 +71,7 @@ export default function BucketDetailsPage() {
     }),
   });
 
-  const { data: sharesMap = {}, isLoading: sharesLoading } = useQuery({
+  const { data: sharesMap = {} } = useQuery({
     queryKey: ['shares', bucketName, tenantId],
     queryFn: () => APIClient.getBucketShares(bucketName, tenantId),
   });
@@ -581,8 +581,6 @@ export default function BucketDetailsPage() {
 
   const handleBulkDelete = async () => {
     if (selectedObjects.size === 0) return;
-
-    const objectNames = Array.from(selectedObjects).join(', ');
     const result = await SweetAlert.fire({
       icon: 'warning',
       title: `Delete ${selectedObjects.size} objects?`,

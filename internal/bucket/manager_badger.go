@@ -295,6 +295,21 @@ func (bm *badgerBucketManager) DeleteCORS(ctx context.Context, tenantID, name st
 	return bm.SetCORS(ctx, tenantID, name, nil)
 }
 
+// SetBucketTags sets the bucket tags
+func (bm *badgerBucketManager) SetBucketTags(ctx context.Context, tenantID, name string, tags map[string]string) error {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+
+	metaBucket.Tags = tags
+
+	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
+}
+
 // GetObjectLockConfig retrieves the bucket object lock configuration
 func (bm *badgerBucketManager) GetObjectLockConfig(ctx context.Context, tenantID, name string) (*ObjectLockConfig, error) {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)

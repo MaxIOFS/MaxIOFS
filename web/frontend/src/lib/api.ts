@@ -631,18 +631,34 @@ export class APIClient {
 
   // Bucket CORS
   static async getBucketCORS(bucketName: string): Promise<any> {
-    const response = await s3Client.get(`/${bucketName}?cors`);
+    const response = await apiClient.get(`/buckets/${bucketName}/cors`);
     return response.data;
   }
 
   static async putBucketCORS(bucketName: string, cors: string): Promise<void> {
-    await s3Client.put(`/${bucketName}?cors`, cors, {
+    await apiClient.put(`/buckets/${bucketName}/cors`, cors, {
       headers: { 'Content-Type': 'application/xml' }
     });
   }
 
   static async deleteBucketCORS(bucketName: string): Promise<void> {
-    await s3Client.delete(`/${bucketName}?cors`);
+    await apiClient.delete(`/buckets/${bucketName}/cors`);
+  }
+
+  // Bucket Tagging
+  static async getBucketTagging(bucketName: string): Promise<any> {
+    const response = await apiClient.get(`/buckets/${bucketName}/tagging`);
+    return response.data;
+  }
+
+  static async putBucketTagging(bucketName: string, tagging: string): Promise<void> {
+    await apiClient.put(`/buckets/${bucketName}/tagging`, tagging, {
+      headers: { 'Content-Type': 'application/xml' }
+    });
+  }
+
+  static async deleteBucketTagging(bucketName: string): Promise<void> {
+    await apiClient.delete(`/buckets/${bucketName}/tagging`);
   }
 
   // Bucket Lifecycle

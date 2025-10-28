@@ -1,21 +1,22 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.2.5-alpha
-**Status**: Active Development (Alpha Phase - Validated with Warp Testing)
+**Version**: 0.3.0-beta
+**Status**: Beta - S3 Core Compatibility Complete
 **License**: MIT
 
 MaxIOFS is an S3-compatible object storage system built in Go with an embedded Next.js web interface. Designed to be simple, portable, and deployable as a single binary.
 
-## ⚠️ Project Status
+## 🎉 Project Status
 
-**This project is in ALPHA phase**. This means:
-- ✅ Works for basic to intermediate use cases
-- ✅ **Successfully tested with MinIO Warp (7000+ objects, bulk operations validated)**
-- ✅ **Metadata consistency verified under load**
-- ⚠️ API may change without prior notice
-- ⚠️ Recommended for testing and development environments
-- ❌ DO NOT use in production without your own extensive testing
-- ❌ DO NOT trust as the only copy of critical data
+**This project is now in BETA phase**. This means:
+- ✅ **All core S3 features fully implemented and tested**
+- ✅ **AWS CLI compatibility validated for all major operations**
+- ✅ Successfully tested with MinIO Warp (7000+ objects, bulk operations validated)
+- ✅ Metadata consistency verified under load
+- ✅ Bucket Policy, Versioning, Lifecycle, and Delete Markers working
+- ⚠️ Suitable for testing, development, and staging environments
+- ⚠️ Production use requires your own extensive testing
+- ❌ Not yet recommended as sole storage for critical production data
 
 ## 🎯 Features
 
@@ -26,11 +27,12 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 - ✅ Presigned URLs (GET/PUT with expiration)
 - ✅ **Bulk operations (DeleteObjects - batch delete up to 1000 objects)**
 - ✅ Object Lock (COMPLIANCE/GOVERNANCE modes)
-- ✅ Bucket Versioning (Enable/Suspend/Query)
-- ✅ Bucket Policy (Get/Put/Delete JSON policies)
-- ✅ Bucket CORS (Get/Put/Delete CORS rules)
-- ✅ Bucket Lifecycle (Get/Put/Delete lifecycle configurations)
-- ✅ Object Tagging (Get/Put/Delete tags)
+- ✅ **Bucket Versioning** (Multiple versions, Delete Markers, ListObjectVersions)
+- ✅ **Bucket Policy** (Complete PUT/GET/DELETE, JSON validation, AWS CLI compatible)
+- ✅ **Bucket CORS** (Get/Put/Delete CORS rules, Visual UI editor)
+- ✅ **Bucket Tagging** (Get/Put/Delete tags, Visual UI manager)
+- ✅ **Bucket Lifecycle** (Get/Put/Delete lifecycle configurations)
+- ✅ **Object Tagging** (Get/Put/Delete tags)
 - ✅ Object ACL (Get/Put access control lists)
 - ✅ Object Retention (WORM with legal hold support)
 - ✅ CopyObject (with metadata preservation)
@@ -53,7 +55,12 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 - ✅ User management (Create, Edit, Delete, Roles)
 - ✅ Access key management (Create, Revoke, View)
 - ✅ Tenant management with quotas (Storage, Buckets, Keys)
-- ✅ Bucket configuration editor (Versioning, Policy, CORS, Lifecycle, Object Lock)
+- ✅ **Bucket configuration editors** (Visual + XML modes):
+  - **Bucket Tags**: Visual tag manager with key-value pairs
+  - **CORS**: Visual rule editor with origins, methods, headers
+  - **Policy**: Template-based editor + raw JSON mode
+  - **Versioning**: Enable/disable with one click
+  - **Lifecycle**: Rule-based configuration
 - ✅ System settings overview
 - ✅ Security audit page
 - ✅ Metrics monitoring (System, Storage, Requests, Performance)
@@ -328,10 +335,15 @@ Contributions welcome! Please:
 
 ## 🗺️ Roadmap
 
-### Short Term (v0.3.0-beta)
+### Completed (v0.3.0-beta)
+- [x] **S3 Core Compatibility Complete** (All major operations tested)
+- [x] **Bucket Tagging UI** (Visual tag manager with Console API)
+- [x] **CORS UI** (Visual rule editor with dual visual/XML modes)
 - [x] **Warp stress testing completed** (7000+ objects validated)
 - [x] **Bulk operations validated** (DeleteObjects working)
 - [x] **Metadata consistency verified** under concurrent load
+
+### Short Term (v0.4.0)
 - [ ] Comprehensive test suite (80%+ coverage)
 - [ ] Complete API documentation
 - [ ] Docker images
@@ -362,4 +374,4 @@ MIT License - See LICENSE file for details
 
 ---
 
-**⚠️ Reminder**: This is an ALPHA project. Use at your own risk. Always backup your data.
+**⚠️ Reminder**: This is a BETA project. Suitable for development, testing, and staging environments. Production use requires your own extensive testing. Always backup your data.

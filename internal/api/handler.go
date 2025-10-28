@@ -105,6 +105,11 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketCORS).Methods("PUT").Queries("cors", "")
 		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketCORS).Methods("DELETE").Queries("cors", "")
 
+		// Bucket Tagging
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketTagging).Methods("GET").Queries("tagging", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketTagging).Methods("PUT").Queries("tagging", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketTagging).Methods("DELETE").Queries("tagging", "")
+
 		// Versioning - list all object versions in bucket
 		bucketRouter.HandleFunc(path, h.s3Handler.ListBucketVersions).Methods("GET").Queries("versions", "")
 

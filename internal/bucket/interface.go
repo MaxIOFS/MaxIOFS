@@ -61,6 +61,9 @@ type Manager interface {
 	SetCORS(ctx context.Context, tenantID, name string, config *CORSConfig) error
 	DeleteCORS(ctx context.Context, tenantID, name string) error
 
+	// Bucket Tagging
+	SetBucketTags(ctx context.Context, tenantID, name string, tags map[string]string) error
+
 	// Object Lock
 	GetObjectLockConfig(ctx context.Context, tenantID, name string) (*ObjectLockConfig, error)
 	SetObjectLockConfig(ctx context.Context, tenantID, name string, config *ObjectLockConfig) error

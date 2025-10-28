@@ -237,6 +237,16 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/lifecycle", s.handlePutBucketLifecycle).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/lifecycle", s.handleDeleteBucketLifecycle).Methods("DELETE", "OPTIONS")
 
+	// Bucket tagging endpoints
+	router.HandleFunc("/buckets/{bucket}/tagging", s.handleGetBucketTagging).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/tagging", s.handlePutBucketTagging).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/tagging", s.handleDeleteBucketTagging).Methods("DELETE", "OPTIONS")
+
+	// Bucket CORS endpoints
+	router.HandleFunc("/buckets/{bucket}/cors", s.handleGetBucketCors).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/cors", s.handlePutBucketCors).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/cors", s.handleDeleteBucketCors).Methods("DELETE", "OPTIONS")
+
 	// Health check
 	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET", "OPTIONS")
 }
@@ -3108,6 +3118,333 @@ func (s *Server) handleDeleteBucketLifecycle(w http.ResponseWriter, r *http.Requ
 	tenantID := user.TenantID
 
 	if err := s.bucketManager.SetLifecycle(r.Context(), tenantID, bucketName, nil); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Bucket Tagging handlers
+func (s *Server) handleGetBucketTagging(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Build XML response
+	type Tag struct {
+		Key   string `xml:"Key"`
+		Value string `xml:"Value"`
+	}
+
+	type TagSet struct {
+		XMLName xml.Name `xml:"TagSet"`
+		Tags    []Tag    `xml:"Tag"`
+	}
+
+	type Tagging struct {
+		XMLName xml.Name `xml:"Tagging"`
+		TagSet  TagSet   `xml:"TagSet"`
+	}
+
+	response := Tagging{
+		TagSet: TagSet{
+			Tags: []Tag{},
+		},
+	}
+
+	if bucketInfo.Tags != nil && len(bucketInfo.Tags) > 0 {
+		for key, value := range bucketInfo.Tags {
+			response.TagSet.Tags = append(response.TagSet.Tags, Tag{
+				Key:   key,
+				Value: value,
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/xml")
+	xml.NewEncoder(w).Encode(response)
+}
+
+func (s *Server) handlePutBucketTagging(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	// Read request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.writeError(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Parse XML
+	type Tag struct {
+		Key   string `xml:"Key"`
+		Value string `xml:"Value"`
+	}
+
+	type TagSet struct {
+		Tags []Tag `xml:"Tag"`
+	}
+
+	type Tagging struct {
+		XMLName xml.Name `xml:"Tagging"`
+		TagSet  TagSet   `xml:"TagSet"`
+	}
+
+	var tagging Tagging
+	if err := xml.Unmarshal(body, &tagging); err != nil {
+		s.writeError(w, "Invalid XML format", http.StatusBadRequest)
+		return
+	}
+
+	// Convert to map
+	tags := make(map[string]string)
+	for _, tag := range tagging.TagSet.Tags {
+		tags[tag.Key] = tag.Value
+	}
+
+	// Set bucket tags
+	if err := s.bucketManager.SetBucketTags(r.Context(), tenantID, bucketName, tags); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDeleteBucketTagging(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	if err := s.bucketManager.SetBucketTags(r.Context(), tenantID, bucketName, nil); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Bucket CORS handlers
+func (s *Server) handleGetBucketCors(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	corsConfig, err := s.bucketManager.GetCORS(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		if err == bucket.ErrCORSNotFound {
+			s.writeError(w, "CORS configuration not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if corsConfig == nil || len(corsConfig.CORSRules) == 0 {
+		s.writeError(w, "CORS configuration not found", http.StatusNotFound)
+		return
+	}
+
+	// Build XML response
+	type CORSRule struct {
+		XMLName        xml.Name `xml:"CORSRule"`
+		ID             string   `xml:"ID,omitempty"`
+		AllowedHeaders []string `xml:"AllowedHeader,omitempty"`
+		AllowedMethods []string `xml:"AllowedMethod"`
+		AllowedOrigins []string `xml:"AllowedOrigin"`
+		ExposeHeaders  []string `xml:"ExposeHeader,omitempty"`
+		MaxAgeSeconds  int      `xml:"MaxAgeSeconds,omitempty"`
+	}
+
+	type CORSConfiguration struct {
+		XMLName   xml.Name   `xml:"CORSConfiguration"`
+		CORSRules []CORSRule `xml:"CORSRule"`
+	}
+
+	response := CORSConfiguration{
+		CORSRules: make([]CORSRule, len(corsConfig.CORSRules)),
+	}
+
+	for i, rule := range corsConfig.CORSRules {
+		xmlRule := CORSRule{
+			ID:             rule.ID,
+			AllowedOrigins: rule.AllowedOrigins,
+			AllowedMethods: rule.AllowedMethods,
+			AllowedHeaders: rule.AllowedHeaders,
+			ExposeHeaders:  rule.ExposeHeaders,
+		}
+		if rule.MaxAgeSeconds != nil {
+			xmlRule.MaxAgeSeconds = *rule.MaxAgeSeconds
+		}
+		response.CORSRules[i] = xmlRule
+	}
+
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	xml.NewEncoder(w).Encode(response)
+}
+
+func (s *Server) handlePutBucketCors(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	// Read request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.writeError(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Parse XML
+	type CORSRule struct {
+		ID             string   `xml:"ID,omitempty"`
+		AllowedHeaders []string `xml:"AllowedHeader,omitempty"`
+		AllowedMethods []string `xml:"AllowedMethod"`
+		AllowedOrigins []string `xml:"AllowedOrigin"`
+		ExposeHeaders  []string `xml:"ExposeHeader,omitempty"`
+		MaxAgeSeconds  int      `xml:"MaxAgeSeconds,omitempty"`
+	}
+
+	type CORSConfiguration struct {
+		XMLName   xml.Name   `xml:"CORSConfiguration"`
+		CORSRules []CORSRule `xml:"CORSRule"`
+	}
+
+	var xmlConfig CORSConfiguration
+	if err := xml.Unmarshal(body, &xmlConfig); err != nil {
+		s.writeError(w, "Invalid XML format", http.StatusBadRequest)
+		return
+	}
+
+	// Validate CORS configuration
+	if len(xmlConfig.CORSRules) == 0 {
+		s.writeError(w, "CORS configuration must contain at least one rule", http.StatusBadRequest)
+		return
+	}
+
+	// Convert to internal format
+	corsConfig := &bucket.CORSConfig{
+		CORSRules: make([]bucket.CORSRule, len(xmlConfig.CORSRules)),
+	}
+
+	for i, rule := range xmlConfig.CORSRules {
+		// Validate required fields
+		if len(rule.AllowedOrigins) == 0 {
+			s.writeError(w, "Each CORS rule must have at least one AllowedOrigin", http.StatusBadRequest)
+			return
+		}
+		if len(rule.AllowedMethods) == 0 {
+			s.writeError(w, "Each CORS rule must have at least one AllowedMethod", http.StatusBadRequest)
+			return
+		}
+
+		internalRule := bucket.CORSRule{
+			ID:             rule.ID,
+			AllowedOrigins: rule.AllowedOrigins,
+			AllowedMethods: rule.AllowedMethods,
+			AllowedHeaders: rule.AllowedHeaders,
+			ExposeHeaders:  rule.ExposeHeaders,
+		}
+		if rule.MaxAgeSeconds > 0 {
+			maxAge := rule.MaxAgeSeconds
+			internalRule.MaxAgeSeconds = &maxAge
+		}
+		corsConfig.CORSRules[i] = internalRule
+	}
+
+	// Set CORS configuration
+	if err := s.bucketManager.SetCORS(r.Context(), tenantID, bucketName, corsConfig); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleDeleteBucketCors(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	if err := s.bucketManager.DeleteCORS(r.Context(), tenantID, bucketName); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
 			return

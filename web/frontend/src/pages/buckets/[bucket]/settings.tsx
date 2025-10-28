@@ -33,6 +33,27 @@ export default function BucketSettingsPage() {
   const [lifecycleText, setLifecycleText] = useState('');
   const [noncurrentDays, setNoncurrentDays] = useState<number>(30);
   const [deleteExpiredMarkers, setDeleteExpiredMarkers] = useState<boolean>(true);
+  const [policyTab, setPolicyTab] = useState<'editor' | 'templates'>('editor');
+  const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
+  const [tags, setTags] = useState<Record<string, string>>({});
+  const [newTagKey, setNewTagKey] = useState('');
+  const [newTagValue, setNewTagValue] = useState('');
+
+  // CORS rules state
+  interface CORSRule {
+    id: string;
+    allowedOrigins: string[];
+    allowedMethods: string[];
+    allowedHeaders: string[];
+    exposeHeaders: string[];
+    maxAgeSeconds: number;
+  }
+  const [corsRules, setCorsRules] = useState<CORSRule[]>([]);
+  const [editingCorsRule, setEditingCorsRule] = useState<CORSRule | null>(null);
+  const [newOrigin, setNewOrigin] = useState('');
+  const [newAllowedHeader, setNewAllowedHeader] = useState('');
+  const [newExposeHeader, setNewExposeHeader] = useState('');
+  const [corsViewMode, setCorsViewMode] = useState<'visual' | 'xml'>('visual');
 
   const { data: bucketData, isLoading } = useQuery({
     queryKey: ['bucket', bucketName],
@@ -123,6 +144,30 @@ export default function BucketSettingsPage() {
     },
   });
 
+  // Tags mutations
+  const saveTagsMutation = useMutation({
+    mutationFn: (tagging: string) => APIClient.putBucketTagging(bucketName, tagging),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      setIsTagsModalOpen(false);
+      SweetAlert.toast('success', 'Bucket tags updated successfully');
+    },
+    onError: (error: any) => {
+      SweetAlert.apiError(error);
+    },
+  });
+
+  const deleteTagsMutation = useMutation({
+    mutationFn: () => APIClient.deleteBucketTagging(bucketName),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      SweetAlert.toast('success', 'Bucket tags deleted successfully');
+    },
+    onError: (error: any) => {
+      SweetAlert.apiError(error);
+    },
+  });
+
   // Handlers
   const handleToggleVersioning = () => {
     const newState = !bucketData?.versioning;
@@ -135,11 +180,24 @@ export default function BucketSettingsPage() {
 
   const handleEditPolicy = async () => {
     try {
-      const policy = await APIClient.getBucketPolicy(bucketName);
-      setPolicyText(typeof policy === 'string' ? policy : JSON.stringify(policy, null, 2));
+      const response = await APIClient.getBucketPolicy(bucketName);
+      // The response has format: { Policy: "JSON string" }
+      let policyJson;
+      if (response && response.Policy) {
+        // Parse the Policy string to get the actual policy object
+        policyJson = typeof response.Policy === 'string'
+          ? JSON.parse(response.Policy)
+          : response.Policy;
+      } else {
+        policyJson = response;
+      }
+      setPolicyText(JSON.stringify(policyJson, null, 2));
+      setPolicyTab('editor');
       setIsPolicyModalOpen(true);
     } catch (error) {
+      // No policy set, start with empty
       setPolicyText('');
+      setPolicyTab('templates');
       setIsPolicyModalOpen(true);
     }
   };
@@ -154,11 +212,33 @@ export default function BucketSettingsPage() {
 
   const handleEditCORS = async () => {
     try {
-      const cors = await APIClient.getBucketCORS(bucketName);
-      setCorsText(typeof cors === 'string' ? cors : JSON.stringify(cors, null, 2));
+      const corsXml = await APIClient.getBucketCORS(bucketName);
+      setCorsText(corsXml);
+
+      // Parse XML to extract CORS rules
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(corsXml, 'text/xml');
+      const ruleElements = xmlDoc.getElementsByTagName('CORSRule');
+
+      const parsedRules: CORSRule[] = [];
+      for (let i = 0; i < ruleElements.length; i++) {
+        const ruleEl = ruleElements[i];
+        const rule: CORSRule = {
+          id: ruleEl.getElementsByTagName('ID')[0]?.textContent || `rule-${i + 1}`,
+          allowedOrigins: Array.from(ruleEl.getElementsByTagName('AllowedOrigin')).map(el => el.textContent || ''),
+          allowedMethods: Array.from(ruleEl.getElementsByTagName('AllowedMethod')).map(el => el.textContent || ''),
+          allowedHeaders: Array.from(ruleEl.getElementsByTagName('AllowedHeader')).map(el => el.textContent || ''),
+          exposeHeaders: Array.from(ruleEl.getElementsByTagName('ExposeHeader')).map(el => el.textContent || ''),
+          maxAgeSeconds: parseInt(ruleEl.getElementsByTagName('MaxAgeSeconds')[0]?.textContent || '0'),
+        };
+        parsedRules.push(rule);
+      }
+
+      setCorsRules(parsedRules);
       setIsCORSModalOpen(true);
     } catch (error) {
       setCorsText('');
+      setCorsRules([]);
       setIsCORSModalOpen(true);
     }
   };
@@ -169,6 +249,133 @@ export default function BucketSettingsPage() {
       'This will remove all CORS rules for this bucket.',
       () => deleteCORSMutation.mutate()
     );
+  };
+
+  const handleAddCorsRule = () => {
+    const newRule: CORSRule = {
+      id: `rule-${corsRules.length + 1}`,
+      allowedOrigins: [],
+      allowedMethods: [],
+      allowedHeaders: [],
+      exposeHeaders: [],
+      maxAgeSeconds: 3600,
+    };
+    setEditingCorsRule(newRule);
+  };
+
+  const handleSaveCorsRule = () => {
+    if (!editingCorsRule) return;
+
+    if (editingCorsRule.allowedOrigins.length === 0) {
+      SweetAlert.toast('error', 'At least one allowed origin is required');
+      return;
+    }
+    if (editingCorsRule.allowedMethods.length === 0) {
+      SweetAlert.toast('error', 'At least one allowed method is required');
+      return;
+    }
+
+    const existingIndex = corsRules.findIndex(r => r.id === editingCorsRule.id);
+    if (existingIndex >= 0) {
+      const updated = [...corsRules];
+      updated[existingIndex] = editingCorsRule;
+      setCorsRules(updated);
+    } else {
+      setCorsRules([...corsRules, editingCorsRule]);
+    }
+    setEditingCorsRule(null);
+  };
+
+  const handleDeleteCorsRule = (id: string) => {
+    setCorsRules(corsRules.filter(r => r.id !== id));
+  };
+
+  const handleSaveAllCorsRules = () => {
+    // Generate XML from rules
+    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<CORSConfiguration>\n';
+
+    corsRules.forEach(rule => {
+      xml += '  <CORSRule>\n';
+      if (rule.id) xml += `    <ID>${rule.id}</ID>\n`;
+      rule.allowedOrigins.forEach(origin => {
+        xml += `    <AllowedOrigin>${origin}</AllowedOrigin>\n`;
+      });
+      rule.allowedMethods.forEach(method => {
+        xml += `    <AllowedMethod>${method}</AllowedMethod>\n`;
+      });
+      rule.allowedHeaders.forEach(header => {
+        xml += `    <AllowedHeader>${header}</AllowedHeader>\n`;
+      });
+      rule.exposeHeaders.forEach(header => {
+        xml += `    <ExposeHeader>${header}</ExposeHeader>\n`;
+      });
+      if (rule.maxAgeSeconds > 0) {
+        xml += `    <MaxAgeSeconds>${rule.maxAgeSeconds}</MaxAgeSeconds>\n`;
+      }
+      xml += '  </CORSRule>\n';
+    });
+
+    xml += '</CORSConfiguration>';
+    saveCORSMutation.mutate(xml);
+  };
+
+  const toggleCorsMethod = (method: string) => {
+    if (!editingCorsRule) return;
+    const methods = editingCorsRule.allowedMethods.includes(method)
+      ? editingCorsRule.allowedMethods.filter(m => m !== method)
+      : [...editingCorsRule.allowedMethods, method];
+    setEditingCorsRule({ ...editingCorsRule, allowedMethods: methods });
+  };
+
+  const addOriginToRule = () => {
+    if (!editingCorsRule || !newOrigin.trim()) return;
+    setEditingCorsRule({
+      ...editingCorsRule,
+      allowedOrigins: [...editingCorsRule.allowedOrigins, newOrigin.trim()]
+    });
+    setNewOrigin('');
+  };
+
+  const removeOriginFromRule = (origin: string) => {
+    if (!editingCorsRule) return;
+    setEditingCorsRule({
+      ...editingCorsRule,
+      allowedOrigins: editingCorsRule.allowedOrigins.filter(o => o !== origin)
+    });
+  };
+
+  const addAllowedHeaderToRule = () => {
+    if (!editingCorsRule || !newAllowedHeader.trim()) return;
+    setEditingCorsRule({
+      ...editingCorsRule,
+      allowedHeaders: [...editingCorsRule.allowedHeaders, newAllowedHeader.trim()]
+    });
+    setNewAllowedHeader('');
+  };
+
+  const removeAllowedHeaderFromRule = (header: string) => {
+    if (!editingCorsRule) return;
+    setEditingCorsRule({
+      ...editingCorsRule,
+      allowedHeaders: editingCorsRule.allowedHeaders.filter(h => h !== header)
+    });
+  };
+
+  const addExposeHeaderToRule = () => {
+    if (!editingCorsRule || !newExposeHeader.trim()) return;
+    setEditingCorsRule({
+      ...editingCorsRule,
+      exposeHeaders: [...editingCorsRule.exposeHeaders, newExposeHeader.trim()]
+    });
+    setNewExposeHeader('');
+  };
+
+  const removeExposeHeaderFromRule = (header: string) => {
+    if (!editingCorsRule) return;
+    setEditingCorsRule({
+      ...editingCorsRule,
+      exposeHeaders: editingCorsRule.exposeHeaders.filter(h => h !== header)
+    });
   };
 
   const handleEditLifecycle = () => {
@@ -204,6 +411,151 @@ export default function BucketSettingsPage() {
       'This will remove all lifecycle management rules for this bucket.',
       () => deleteLifecycleMutation.mutate()
     );
+  };
+
+  // Tags handlers
+  const handleManageTags = async () => {
+    try {
+      const response = await APIClient.getBucketTagging(bucketName);
+      // Parse XML response to get tags
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(response, 'text/xml');
+      const tagElements = xmlDoc.getElementsByTagName('Tag');
+      const loadedTags: Record<string, string> = {};
+      for (let i = 0; i < tagElements.length; i++) {
+        const key = tagElements[i].getElementsByTagName('Key')[0]?.textContent || '';
+        const value = tagElements[i].getElementsByTagName('Value')[0]?.textContent || '';
+        if (key) {
+          loadedTags[key] = value;
+        }
+      }
+      setTags(loadedTags);
+      setIsTagsModalOpen(true);
+    } catch (error) {
+      // No tags set, start with empty
+      setTags({});
+      setIsTagsModalOpen(true);
+    }
+  };
+
+  const handleAddTag = () => {
+    if (newTagKey && newTagValue) {
+      setTags({ ...tags, [newTagKey]: newTagValue });
+      setNewTagKey('');
+      setNewTagValue('');
+    }
+  };
+
+  const handleRemoveTag = (key: string) => {
+    const newTags = { ...tags };
+    delete newTags[key];
+    setTags(newTags);
+  };
+
+  const handleSaveTags = () => {
+    if (Object.keys(tags).length === 0) {
+      // Delete all tags
+      deleteTagsMutation.mutate();
+    } else {
+      // Build XML
+      let xml = '<Tagging><TagSet>';
+      Object.entries(tags).forEach(([key, value]) => {
+        xml += `<Tag><Key>${key}</Key><Value>${value}</Value></Tag>`;
+      });
+      xml += '</TagSet></Tagging>';
+      saveTagsMutation.mutate(xml);
+    }
+  };
+
+  const handleDeleteAllTags = () => {
+    SweetAlert.confirm(
+      'Delete all bucket tags?',
+      'This will remove all tags from this bucket.',
+      () => deleteTagsMutation.mutate()
+    );
+  };
+
+  // Policy Templates
+  const policyTemplates = {
+    publicRead: {
+      name: 'Public Read Access',
+      description: 'Allow anonymous read access to all objects',
+      policy: {
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: '*',
+            Action: 's3:GetObject',
+            Resource: `arn:aws:s3:::${bucketName}/*`,
+          },
+        ],
+      },
+    },
+    publicReadWrite: {
+      name: 'Public Read/Write Access',
+      description: 'Allow anonymous read and write access',
+      policy: {
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: '*',
+            Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
+            Resource: `arn:aws:s3:::${bucketName}/*`,
+          },
+        ],
+      },
+    },
+    listOnly: {
+      name: 'Public List Access',
+      description: 'Allow listing bucket contents only',
+      policy: {
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: '*',
+            Action: 's3:ListBucket',
+            Resource: `arn:aws:s3:::${bucketName}`,
+          },
+        ],
+      },
+    },
+    fullPublic: {
+      name: 'Full Public Access',
+      description: 'Allow all operations to everyone',
+      policy: {
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: '*',
+            Action: 's3:*',
+            Resource: [
+              `arn:aws:s3:::${bucketName}`,
+              `arn:aws:s3:::${bucketName}/*`,
+            ],
+          },
+        ],
+      },
+    },
+  };
+
+  const handleUseTemplate = (templateKey: keyof typeof policyTemplates) => {
+    const template = policyTemplates[templateKey];
+    setPolicyText(JSON.stringify(template.policy, null, 2));
+    setPolicyTab('editor');
+  };
+
+  const handleSavePolicy = () => {
+    try {
+      // Validate JSON
+      JSON.parse(policyText);
+      savePolicyMutation.mutate(policyText);
+    } catch (error) {
+      SweetAlert.error('Invalid JSON', 'Please enter a valid JSON policy document');
+    }
   };
 
   if (isLoading) {
@@ -354,12 +706,16 @@ export default function BucketSettingsPage() {
                       : 'No tags'}
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  onClick={() => SweetAlert.info('Not Implemented', 'Bucket tagging is not yet implemented in the backend')}
-                >
-                  Manage Tags
-                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={handleManageTags}>
+                    Manage Tags
+                  </Button>
+                  {bucketData?.tags && Object.keys(bucketData.tags).length > 0 && (
+                    <Button variant="destructive" size="sm" onClick={handleDeleteAllTags}>
+                      Delete All
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           </CardContent>
@@ -434,31 +790,106 @@ export default function BucketSettingsPage() {
       <Modal
         isOpen={isPolicyModalOpen}
         onClose={() => setIsPolicyModalOpen(false)}
-        title="Edit Bucket Policy"
-        size="lg"
+        title="Bucket Policy"
+        size="xl"
       >
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Policy JSON
-            </label>
-            <textarea
-              value={policyText}
-              onChange={(e) => setPolicyText(e.target.value)}
-              rows={15}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md font-mono text-sm"
-              placeholder='{"Version":"2012-10-17","Statement":[...]}'
-            />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Enter a valid S3 bucket policy in JSON format
-            </p>
+          {/* Tabs */}
+          <div className="border-b border-gray-200 dark:border-gray-700">
+            <nav className="-mb-px flex space-x-8">
+              <button
+                onClick={() => setPolicyTab('editor')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  policyTab === 'editor'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                Policy Editor
+              </button>
+              <button
+                onClick={() => setPolicyTab('templates')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  policyTab === 'templates'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                Templates
+              </button>
+            </nav>
           </div>
-          <div className="flex justify-end gap-2">
+
+          {/* Editor Tab */}
+          {policyTab === 'editor' && (
+            <div className="space-y-4">
+              <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  <strong>Tip:</strong> You can use templates as a starting point, then customize them in the editor.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Policy JSON
+                </label>
+                <textarea
+                  value={policyText}
+                  onChange={(e) => setPolicyText(e.target.value)}
+                  rows={18}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md font-mono text-sm"
+                  placeholder='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::bucket/*"}]}'
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Enter a valid S3 bucket policy in JSON format. The policy will be validated before saving.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Templates Tab */}
+          {policyTab === 'templates' && (
+            <div className="space-y-4">
+              <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+                <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                  <strong>Warning:</strong> These templates grant public access. Use carefully and only when needed.
+                </p>
+              </div>
+              <div className="space-y-3">
+                {Object.entries(policyTemplates).map(([key, template]) => (
+                  <div
+                    key={key}
+                    className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
+                          {template.name}
+                        </h4>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {template.description}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleUseTemplate(key as keyof typeof policyTemplates)}
+                      >
+                        Use Template
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
             <Button variant="outline" onClick={() => setIsPolicyModalOpen(false)}>
               Cancel
             </Button>
             <Button
-              onClick={() => savePolicyMutation.mutate(policyText)}
+              onClick={handleSavePolicy}
               disabled={savePolicyMutation.isPending || !policyText.trim()}
             >
               {savePolicyMutation.isPending ? 'Saving...' : 'Save Policy'}
@@ -470,37 +901,329 @@ export default function BucketSettingsPage() {
       {/* CORS Modal */}
       <Modal
         isOpen={isCORSModalOpen}
-        onClose={() => setIsCORSModalOpen(false)}
-        title="Edit CORS Configuration"
-        size="lg"
+        onClose={() => {
+          setIsCORSModalOpen(false);
+          setEditingCorsRule(null);
+        }}
+        title="CORS Configuration"
+        size="xl"
       >
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              CORS Configuration XML
-            </label>
-            <textarea
-              value={corsText}
-              onChange={(e) => setCorsText(e.target.value)}
-              rows={15}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md font-mono text-sm"
-              placeholder='<CORSConfiguration><CORSRule>...</CORSRule></CORSConfiguration>'
-            />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Enter valid CORS configuration in XML format
-            </p>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setIsCORSModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => saveCORSMutation.mutate(corsText)}
-              disabled={saveCORSMutation.isPending || !corsText.trim()}
+          {/* View Mode Toggle */}
+          <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
+            <button
+              onClick={() => setCorsViewMode('visual')}
+              className={`px-4 py-2 font-medium text-sm ${
+                corsViewMode === 'visual'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
             >
-              {saveCORSMutation.isPending ? 'Saving...' : 'Save CORS'}
-            </Button>
+              Visual Editor
+            </button>
+            <button
+              onClick={() => setCorsViewMode('xml')}
+              className={`px-4 py-2 font-medium text-sm ${
+                corsViewMode === 'xml'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              XML Editor
+            </button>
           </div>
+
+          {/* Visual Mode */}
+          {corsViewMode === 'visual' && !editingCorsRule && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  CORS Rules ({corsRules.length})
+                </h3>
+                <Button variant="default" size="sm" onClick={handleAddCorsRule}>
+                  Add Rule
+                </Button>
+              </div>
+
+              {corsRules.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                  No CORS rules configured. Click "Add Rule" to create one.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {corsRules.map((rule, index) => (
+                    <div
+                      key={rule.id}
+                      className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-800"
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="font-medium text-sm text-gray-900 dark:text-white">
+                          Rule {index + 1}: {rule.id}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setEditingCorsRule(rule)}
+                            className="text-blue-600 hover:text-blue-700 text-sm"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCorsRule(rule.id)}
+                            className="text-red-600 hover:text-red-700 text-sm"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <span className="font-medium text-gray-600 dark:text-gray-400">Origins:</span>{' '}
+                          {rule.allowedOrigins.join(', ')}
+                        </div>
+                        <div>
+                          <span className="font-medium text-gray-600 dark:text-gray-400">Methods:</span>{' '}
+                          {rule.allowedMethods.join(', ')}
+                        </div>
+                        {rule.allowedHeaders.length > 0 && (
+                          <div>
+                            <span className="font-medium text-gray-600 dark:text-gray-400">Allowed Headers:</span>{' '}
+                            {rule.allowedHeaders.join(', ')}
+                          </div>
+                        )}
+                        {rule.exposeHeaders.length > 0 && (
+                          <div>
+                            <span className="font-medium text-gray-600 dark:text-gray-400">Expose Headers:</span>{' '}
+                            {rule.exposeHeaders.join(', ')}
+                          </div>
+                        )}
+                        {rule.maxAgeSeconds > 0 && (
+                          <div>
+                            <span className="font-medium text-gray-600 dark:text-gray-400">Max Age:</span>{' '}
+                            {rule.maxAgeSeconds}s
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <Button variant="outline" onClick={() => setIsCORSModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSaveAllCorsRules}
+                  disabled={saveCORSMutation.isPending || corsRules.length === 0}
+                >
+                  {saveCORSMutation.isPending ? 'Saving...' : 'Save Configuration'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Edit Rule Form */}
+          {corsViewMode === 'visual' && editingCorsRule && (
+            <div className="space-y-4">
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                <h3 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">
+                  {corsRules.find(r => r.id === editingCorsRule.id) ? 'Edit' : 'Add'} CORS Rule
+                </h3>
+              </div>
+
+              {/* Rule ID */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Rule ID
+                </label>
+                <input
+                  type="text"
+                  value={editingCorsRule.id}
+                  onChange={(e) => setEditingCorsRule({ ...editingCorsRule, id: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+                  placeholder="e.g., rule-1"
+                />
+              </div>
+
+              {/* Allowed Origins */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Allowed Origins <span className="text-red-500">*</span>
+                </label>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={newOrigin}
+                    onChange={(e) => setNewOrigin(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && addOriginToRule()}
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+                    placeholder="e.g., https://example.com or *"
+                  />
+                  <Button onClick={addOriginToRule} disabled={!newOrigin.trim()}>
+                    Add
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {editingCorsRule.allowedOrigins.map(origin => (
+                    <span
+                      key={origin}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded text-sm"
+                    >
+                      {origin}
+                      <button onClick={() => removeOriginFromRule(origin)} className="hover:text-red-600">
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Allowed Methods */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Allowed Methods <span className="text-red-500">*</span>
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {['GET', 'PUT', 'POST', 'DELETE', 'HEAD'].map(method => (
+                    <label key={method} className="inline-flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={editingCorsRule.allowedMethods.includes(method)}
+                        onChange={() => toggleCorsMethod(method)}
+                        className="mr-2"
+                      />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">{method}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Allowed Headers */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Allowed Headers (Optional)
+                </label>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={newAllowedHeader}
+                    onChange={(e) => setNewAllowedHeader(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && addAllowedHeaderToRule()}
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+                    placeholder="e.g., Authorization, Content-Type, or *"
+                  />
+                  <Button onClick={addAllowedHeaderToRule} disabled={!newAllowedHeader.trim()}>
+                    Add
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {editingCorsRule.allowedHeaders.map(header => (
+                    <span
+                      key={header}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded text-sm"
+                    >
+                      {header}
+                      <button onClick={() => removeAllowedHeaderFromRule(header)} className="hover:text-red-600">
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Expose Headers */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Expose Headers (Optional)
+                </label>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={newExposeHeader}
+                    onChange={(e) => setNewExposeHeader(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && addExposeHeaderToRule()}
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+                    placeholder="e.g., ETag, x-amz-request-id"
+                  />
+                  <Button onClick={addExposeHeaderToRule} disabled={!newExposeHeader.trim()}>
+                    Add
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {editingCorsRule.exposeHeaders.map(header => (
+                    <span
+                      key={header}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded text-sm"
+                    >
+                      {header}
+                      <button onClick={() => removeExposeHeaderFromRule(header)} className="hover:text-red-600">
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Max Age Seconds */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Max Age (seconds)
+                </label>
+                <input
+                  type="number"
+                  value={editingCorsRule.maxAgeSeconds}
+                  onChange={(e) => setEditingCorsRule({ ...editingCorsRule, maxAgeSeconds: parseInt(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+                  placeholder="3600"
+                  min="0"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  How long browsers can cache preflight results (0 to disable)
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <Button variant="outline" onClick={() => setEditingCorsRule(null)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSaveCorsRule}>
+                  Save Rule
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* XML Mode */}
+          {corsViewMode === 'xml' && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  CORS Configuration XML
+                </label>
+                <textarea
+                  value={corsText}
+                  onChange={(e) => setCorsText(e.target.value)}
+                  rows={15}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md font-mono text-sm"
+                  placeholder='<CORSConfiguration><CORSRule>...</CORSRule></CORSConfiguration>'
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Enter valid CORS configuration in XML format
+                </p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setIsCORSModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => saveCORSMutation.mutate(corsText)}
+                  disabled={saveCORSMutation.isPending || !corsText.trim()}
+                >
+                  {saveCORSMutation.isPending ? 'Saving...' : 'Save CORS'}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
 
@@ -575,6 +1298,95 @@ export default function BucketSettingsPage() {
               disabled={saveLifecycleMutation.isPending}
             >
               {saveLifecycleMutation.isPending ? 'Saving...' : 'Save Rules'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Tags Modal */}
+      <Modal
+        isOpen={isTagsModalOpen}
+        onClose={() => setIsTagsModalOpen(false)}
+        title="Manage Bucket Tags"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              Tags are key-value pairs that help you organize and categorize your buckets.
+            </p>
+          </div>
+
+          {/* Existing Tags */}
+          {Object.keys(tags).length > 0 && (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Current Tags
+              </label>
+              <div className="space-y-2">
+                {Object.entries(tags).map(([key, value]) => (
+                  <div
+                    key={key}
+                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-md"
+                  >
+                    <div>
+                      <span className="font-medium text-sm text-gray-900 dark:text-white">
+                        {key}
+                      </span>
+                      <span className="text-gray-500 dark:text-gray-400 mx-2">:</span>
+                      <span className="text-sm text-gray-700 dark:text-gray-300">
+                        {value}
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => handleRemoveTag(key)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Add New Tag */}
+          <div className="space-y-3">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Add New Tag
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Key"
+                value={newTagKey}
+                onChange={(e) => setNewTagKey(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+              />
+              <input
+                type="text"
+                placeholder="Value"
+                value={newTagValue}
+                onChange={(e) => setNewTagValue(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+              />
+              <Button onClick={handleAddTag} disabled={!newTagKey || !newTagValue}>
+                Add
+              </Button>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <Button variant="outline" onClick={() => setIsTagsModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveTags}
+              disabled={saveTagsMutation.isPending}
+            >
+              {saveTagsMutation.isPending ? 'Saving...' : 'Save Tags'}
             </Button>
           </div>
         </div>
