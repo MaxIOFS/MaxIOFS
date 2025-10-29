@@ -24,8 +24,9 @@ type badgerBucketManager struct {
 func NewBadgerManager(storage storage.Backend, metadataStore metadata.Store) Manager {
 	// Extract BadgerDB instance for ACL manager
 	var aclMgr acl.Manager
-	if badgerStore, ok := metadataStore.(interface{ DB() interface{} }); ok {
-		if db, ok := badgerStore.DB().(*badger.DB); ok {
+	if badgerStore, ok := metadataStore.(interface{ DB() *badger.DB }); ok {
+		db := badgerStore.DB()
+		if db != nil {
 			aclMgr = acl.NewManager(db)
 		}
 	}

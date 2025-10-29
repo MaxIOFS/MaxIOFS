@@ -463,6 +463,11 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 			hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
 		}
 
+		// If still no permission, check if public access is allowed (authenticated users should also have public permissions)
+		if !hasPermission {
+			hasPermission = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+		}
+
 		if !hasPermission {
 			logrus.WithFields(logrus.Fields{
 				"bucket": bucketName,
@@ -721,6 +726,11 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 			hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
 		}
 
+		// If still no permission, check if public access is allowed (authenticated users should also have public permissions)
+		if !hasPermission {
+			hasPermission = h.checkPublicObjectAccess(r.Context(), bucketPath, objectKey, acl.PermissionRead)
+		}
+
 		if !hasPermission {
 			logrus.WithFields(logrus.Fields{
 				"bucket": bucketName,
@@ -886,29 +896,37 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.getTenantIDFromRequest(r)
 
-	if !userExists {
-		h.writeError(w, "AccessDenied", "Authentication required for PutObject", objectKey, r)
-		return
-	}
+	hasPermission := false
 
-	// Check bucket WRITE permission (objects inherit bucket write permissions)
-	hasPermission := h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionWrite)
+	if userExists {
+		// Check bucket WRITE permission (objects inherit bucket write permissions)
+		hasPermission = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionWrite)
 
-	// If no explicit ACL permission, check if authenticated users have write access
-	if !hasPermission {
-		hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
-	}
+		// If no explicit ACL permission, check if authenticated users have write access
+		if !hasPermission {
+			hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
+		}
 
-	// Also check FULL_CONTROL as an alternative
-	if !hasPermission {
-		hasPermission = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionFullControl)
+		// Also check FULL_CONTROL as an alternative
+		if !hasPermission {
+			hasPermission = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionFullControl)
+		}
+
+		// If still no permission, check if public access is allowed (authenticated users should also have public permissions)
+		if !hasPermission {
+			hasPermission = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
+		}
+	} else {
+		// Unauthenticated access - check if bucket allows public WRITE
+		hasPermission = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
 	}
 
 	if !hasPermission {
 		logrus.WithFields(logrus.Fields{
-			"bucket": bucketName,
-			"object": objectKey,
-			"userID": user.ID,
+			"bucket":         bucketName,
+			"object":         objectKey,
+			"userID":         getUserIDOrAnonymous(user),
+			"authenticated":  userExists,
 		}).Warn("ACL permission denied for PutObject")
 		h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
 		return
@@ -1081,37 +1099,50 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	// Permission check: Verify user has WRITE permission via ACL
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.getTenantIDFromRequest(r)
-
-	if !userExists {
-		h.writeError(w, "AccessDenied", "Authentication required for DeleteObject", objectKey, r)
-		return
-	}
-
 	bucketPath := h.getBucketPath(r, bucketName)
 
-	// Check object-level WRITE permission first, then fall back to bucket
-	hasPermission := h.checkObjectACLPermission(r.Context(), bucketPath, objectKey, user.ID, acl.PermissionWrite)
+	hasPermission := false
 
-	// If no explicit object ACL, check bucket WRITE permission
-	if !hasPermission {
-		hasPermission = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionWrite)
-	}
+	if userExists {
+		// Check object-level WRITE permission first, then fall back to bucket
+		hasPermission = h.checkObjectACLPermission(r.Context(), bucketPath, objectKey, user.ID, acl.PermissionWrite)
 
-	// Check if authenticated users have write access
-	if !hasPermission {
-		hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
-	}
+		// If no explicit object ACL, check bucket WRITE permission
+		if !hasPermission {
+			hasPermission = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionWrite)
+		}
 
-	// Also check FULL_CONTROL as an alternative
-	if !hasPermission {
-		hasPermission = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionFullControl)
+		// Check if authenticated users have write access
+		if !hasPermission {
+			hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
+		}
+
+		// Also check FULL_CONTROL as an alternative
+		if !hasPermission {
+			hasPermission = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionFullControl)
+		}
+
+		// If still no permission, check if public access is allowed (authenticated users should also have public permissions)
+		if !hasPermission {
+			hasPermission = h.checkPublicObjectAccess(r.Context(), bucketPath, objectKey, acl.PermissionWrite)
+			if !hasPermission {
+				hasPermission = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
+			}
+		}
+	} else {
+		// Unauthenticated access - check if bucket/object allows public WRITE
+		hasPermission = h.checkPublicObjectAccess(r.Context(), bucketPath, objectKey, acl.PermissionWrite)
+		if !hasPermission {
+			hasPermission = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
+		}
 	}
 
 	if !hasPermission {
 		logrus.WithFields(logrus.Fields{
-			"bucket": bucketName,
-			"object": objectKey,
-			"userID": user.ID,
+			"bucket":        bucketName,
+			"object":        objectKey,
+			"userID":        getUserIDOrAnonymous(user),
+			"authenticated": userExists,
 		}).Warn("ACL permission denied for DeleteObject")
 		h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
 		return
@@ -1593,6 +1624,14 @@ func parseRangeHeader(rangeHeader string, objectSize int64) (int64, int64, error
 
 // ACL Permission Checking Helpers
 
+// getUserIDOrAnonymous returns user ID or "anonymous" if user is nil
+func getUserIDOrAnonymous(user *auth.User) string {
+	if user == nil {
+		return "anonymous"
+	}
+	return user.ID
+}
+
 // checkBucketACLPermission checks if a user has permission on a bucket via ACL
 // Returns true if access is allowed, false otherwise
 func (h *Handler) checkBucketACLPermission(ctx context.Context, tenantID, bucketName, userID string, permission acl.Permission) bool {
@@ -1618,7 +1657,15 @@ func (h *Handler) checkBucketACLPermission(ctx context.Context, tenantID, bucket
 	}
 
 	// Check if user has permission
-	return aclManager.CheckPermission(ctx, aclData, userID, permission)
+	hasPermission := aclManager.CheckPermission(ctx, aclData, userID, permission)
+
+	// If user doesn't have explicit permission, check if AllUsers has permission
+	// (authenticated users should inherit public permissions)
+	if !hasPermission {
+		hasPermission = aclManager.CheckPublicAccess(aclData, permission)
+	}
+
+	return hasPermission
 }
 
 // checkObjectACLPermission checks if a user has permission on an object via ACL
@@ -1666,8 +1713,30 @@ func (h *Handler) checkObjectACLPermission(ctx context.Context, bucketPath, obje
 		return false
 	}
 
-	// Check if user has permission
-	return aclManager.CheckPermission(ctx, aclData, userID, permission)
+	// Check if user has permission on object ACL
+	hasPermission := aclManager.CheckPermission(ctx, aclData, userID, permission)
+
+	// If user doesn't have explicit permission, check if AllUsers has permission on object
+	if !hasPermission {
+		hasPermission = aclManager.CheckPublicAccess(aclData, permission)
+	}
+
+	// If object ACL doesn't grant permission, fall back to bucket ACL
+	// This allows objects to inherit bucket-level permissions
+	if !hasPermission {
+		parts := strings.SplitN(bucketPath, "/", 2)
+		var tenantID, bucketName string
+		if len(parts) == 2 {
+			tenantID = parts[0]
+			bucketName = parts[1]
+		} else {
+			tenantID = ""
+			bucketName = bucketPath
+		}
+		return h.checkBucketACLPermission(ctx, tenantID, bucketName, userID, permission)
+	}
+
+	return hasPermission
 }
 
 // checkPublicBucketAccess checks if a bucket allows public access via ACL
@@ -1757,8 +1826,11 @@ func (h *Handler) checkAuthenticatedBucketAccess(ctx context.Context, tenantID, 
 // This is a helper to access the internal ACL manager
 func (h *Handler) getACLManager() acl.Manager {
 	// Try to extract ACL manager from bucket manager
-	if bm, ok := h.bucketManager.(interface{ GetACLManager() acl.Manager }); ok {
-		return bm.GetACLManager()
+	if bm, ok := h.bucketManager.(interface{ GetACLManager() interface{} }); ok {
+		aclMgr := bm.GetACLManager()
+		if mgr, ok := aclMgr.(acl.Manager); ok {
+			return mgr
+		}
 	}
 	return nil
 }
