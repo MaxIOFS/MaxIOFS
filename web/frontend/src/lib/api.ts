@@ -615,18 +615,18 @@ export class APIClient {
 
   // Bucket Policy
   static async getBucketPolicy(bucketName: string): Promise<any> {
-    const response = await s3Client.get(`/${bucketName}?policy`);
+    const response = await apiClient.get(`/buckets/${bucketName}/policy`);
     return response.data;
   }
 
   static async putBucketPolicy(bucketName: string, policy: string): Promise<void> {
-    await s3Client.put(`/${bucketName}?policy`, policy, {
+    await apiClient.put(`/buckets/${bucketName}/policy`, policy, {
       headers: { 'Content-Type': 'application/json' }
     });
   }
 
   static async deleteBucketPolicy(bucketName: string): Promise<void> {
-    await s3Client.delete(`/${bucketName}?policy`);
+    await apiClient.delete(`/buckets/${bucketName}/policy`);
   }
 
   // Bucket CORS
@@ -765,12 +765,12 @@ export class APIClient {
 
   // Object Lock Configuration
   static async getObjectLockConfiguration(bucketName: string): Promise<any> {
-    const response = await s3Client.get(`/${bucketName}?object-lock`);
+    const response = await apiClient.get(`/buckets/${bucketName}/object-lock`);
     return response.data;
   }
 
   static async putObjectLockConfiguration(bucketName: string, config: string): Promise<void> {
-    await s3Client.put(`/${bucketName}?object-lock`, config, {
+    await apiClient.put(`/buckets/${bucketName}/object-lock`, config, {
       headers: { 'Content-Type': 'application/xml' }
     });
   }

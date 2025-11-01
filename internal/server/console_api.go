@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -255,6 +256,11 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Object ACL endpoints
 	router.HandleFunc("/buckets/{bucket}/objects/{object}/acl", s.handleGetObjectACL).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object}/acl", s.handlePutObjectACL).Methods("PUT", "OPTIONS")
+
+	// Bucket Policy endpoints
+	router.HandleFunc("/buckets/{bucket}/policy", s.handleGetBucketPolicy).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/policy", s.handlePutBucketPolicy).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/policy", s.handleDeleteBucketPolicy).Methods("DELETE", "OPTIONS")
 
 	// Health check
 	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET", "OPTIONS")
@@ -3047,10 +3053,10 @@ func (s *Server) handlePutBucketLifecycle(w http.ResponseWriter, r *http.Request
 	var xmlConfig struct {
 		XMLName xml.Name `xml:"LifecycleConfiguration"`
 		Rules   []struct {
-			ID                             string `xml:"ID"`
-			Status                         string `xml:"Status"`
-			Prefix                         string `xml:"Prefix"`
-			NoncurrentVersionExpiration    *struct {
+			ID                          string `xml:"ID"`
+			Status                      string `xml:"Status"`
+			Prefix                      string `xml:"Prefix"`
+			NoncurrentVersionExpiration *struct {
 				NoncurrentDays int `xml:"NoncurrentDays"`
 			} `xml:"NoncurrentVersionExpiration"`
 			Expiration *struct {
@@ -3512,18 +3518,14 @@ func (s *Server) handlePutBucketACL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get canned ACL from the ACL manager
-	aclManager := s.bucketManager.GetACLManager()
-	if aclManager == nil {
+	aclManagerInterface := s.bucketManager.GetACLManager()
+	if aclManagerInterface == nil {
 		s.writeError(w, "ACL manager not available", http.StatusInternalServerError)
 		return
 	}
 
-	// Import acl package type
-	type ACLManager interface {
-		GetCannedACL(cannedACL string, ownerID, ownerDisplayName string) (interface{}, error)
-	}
-
-	aclMgr, ok := aclManager.(ACLManager)
+	// Type assert to acl.Manager
+	aclMgr, ok := aclManagerInterface.(acl.Manager)
 	if !ok {
 		s.writeError(w, "Invalid ACL manager type", http.StatusInternalServerError)
 		return
@@ -3614,54 +3616,23 @@ func (s *Server) handlePutObjectACL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get canned ACL from the ACL manager
-	aclManager := s.bucketManager.GetACLManager()
-	if aclManager == nil {
+	aclManagerInterface := s.bucketManager.GetACLManager()
+	if aclManagerInterface == nil {
 		s.writeError(w, "ACL manager not available", http.StatusInternalServerError)
 		return
 	}
 
-	type ACLManager interface {
-		GetCannedACL(cannedACL string, ownerID, ownerDisplayName string) (interface{}, error)
-	}
-
-	aclMgr, ok := aclManager.(ACLManager)
+	// Type assert to acl.Manager
+	aclMgr, ok := aclManagerInterface.(acl.Manager)
 	if !ok {
 		s.writeError(w, "Invalid ACL manager type", http.StatusInternalServerError)
 		return
 	}
 
-	// Get canned ACL
-	aclData, err := aclMgr.GetCannedACL(cannedACL, "maxiofs", "MaxIOFS")
+	// Get canned ACL (returns *acl.ACL directly)
+	internalACL, err := aclMgr.GetCannedACL(cannedACL, "maxiofs", "MaxIOFS")
 	if err != nil {
 		s.writeError(w, fmt.Sprintf("Invalid canned ACL: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	// Convert to object.ACL
-	type Owner struct {
-		ID          string
-		DisplayName string
-	}
-	type Grantee struct {
-		Type         string
-		ID           string
-		DisplayName  string
-		EmailAddress string
-		URI          string
-	}
-	type Grant struct {
-		Grantee    Grantee
-		Permission string
-	}
-	type ACL struct {
-		Owner  Owner
-		Grants []Grant
-	}
-
-	// Type assert and convert
-	internalACL, ok := aclData.(*acl.ACL)
-	if !ok {
-		s.writeError(w, "Invalid ACL data type", http.StatusInternalServerError)
 		return
 	}
 
@@ -3697,4 +3668,122 @@ func (s *Server) handlePutObjectACL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// Bucket Policy handlers
+func (s *Server) handleGetBucketPolicy(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	policy, err := s.bucketManager.GetBucketPolicy(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		if err == bucket.ErrPolicyNotFound {
+			s.writeError(w, "Bucket policy does not exist", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if policy == nil {
+		s.writeError(w, "Bucket policy does not exist", http.StatusNotFound)
+		return
+	}
+
+	// Return policy as JSON
+	s.writeJSON(w, policy)
+}
+
+func (s *Server) handlePutBucketPolicy(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	// Read the policy document from request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to read request body")
+		s.writeError(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Strip UTF-8 BOM if present
+	body = bytes.TrimPrefix(body, []byte{0xEF, 0xBB, 0xBF})
+	body = bytes.TrimPrefix(body, []byte{0xC3, 0xAF, 0xC2, 0xBB, 0xC2, 0xBF})
+
+	// Validate JSON format
+	var policyDoc bucket.Policy
+	if err := json.Unmarshal(body, &policyDoc); err != nil {
+		logrus.WithError(err).Error("PutBucketPolicy: Failed to parse policy JSON")
+		s.writeError(w, "The policy is not valid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Validate policy structure
+	if policyDoc.Version == "" {
+		s.writeError(w, "Policy must contain a Version field", http.StatusBadRequest)
+		return
+	}
+
+	if len(policyDoc.Statement) == 0 {
+		s.writeError(w, "Policy must contain at least one Statement", http.StatusBadRequest)
+		return
+	}
+
+	// Set the bucket policy
+	if err := s.bucketManager.SetBucketPolicy(r.Context(), tenantID, bucketName, &policyDoc); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleDeleteBucketPolicy(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	// Delete the policy by setting it to nil
+	if err := s.bucketManager.SetBucketPolicy(r.Context(), tenantID, bucketName, nil); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

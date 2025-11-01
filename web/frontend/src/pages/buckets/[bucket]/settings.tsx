@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -39,10 +39,13 @@ export default function BucketSettingsPage() {
   const [tags, setTags] = useState<Record<string, string>>({});
   const [newTagKey, setNewTagKey] = useState('');
   const [newTagValue, setNewTagValue] = useState('');
+  const [currentPolicy, setCurrentPolicy] = useState<any>(null);
+  const [policyStatementCount, setPolicyStatementCount] = useState<number>(0);
 
   // ACL state
   const [isACLModalOpen, setIsACLModalOpen] = useState(false);
   const [selectedCannedACL, setSelectedCannedACL] = useState<string>('private');
+  const [currentACL, setCurrentACL] = useState<string>('private');
   const [aclViewMode, setAclViewMode] = useState<'simple' | 'advanced'>('simple');
 
   // CORS rules state
@@ -84,6 +87,7 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
       setIsPolicyModalOpen(false);
+      loadCurrentPolicy(); // Reload policy after save
       SweetAlert.toast('success', 'Bucket policy updated successfully');
     },
     onError: (error: any) => {
@@ -95,6 +99,7 @@ export default function BucketSettingsPage() {
     mutationFn: () => APIClient.deleteBucketPolicy(bucketName),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      loadCurrentPolicy(); // Reload policy after delete
       SweetAlert.toast('success', 'Bucket policy deleted successfully');
     },
     onError: (error: any) => {
@@ -180,12 +185,97 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
       setIsACLModalOpen(false);
+      loadCurrentACL(); // Reload ACL after save
       SweetAlert.toast('success', 'Bucket ACL updated successfully');
     },
     onError: (error: any) => {
       SweetAlert.apiError(error);
     },
   });
+
+  // Load current ACL and Policy on component mount
+  useEffect(() => {
+    loadCurrentACL();
+    loadCurrentPolicy();
+  }, [bucketName]);
+
+  // Helper function to detect canned ACL from grants
+  const detectCannedACL = (grants: any[]): string => {
+    const hasAllUsersRead = grants.some((g: any) =>
+      (g.Grantee?.URI?.includes('AllUsers') || g.Grantee?.uri?.includes('AllUsers')) &&
+      (g.Permission === 'READ' || g.permission === 'READ')
+    );
+
+    const hasAllUsersWrite = grants.some((g: any) =>
+      (g.Grantee?.URI?.includes('AllUsers') || g.Grantee?.uri?.includes('AllUsers')) &&
+      (g.Permission === 'WRITE' || g.permission === 'WRITE')
+    );
+
+    const hasAuthenticatedUsersRead = grants.some((g: any) =>
+      (g.Grantee?.URI?.includes('AuthenticatedUsers') || g.Grantee?.uri?.includes('AuthenticatedUsers')) &&
+      (g.Permission === 'READ' || g.permission === 'READ')
+    );
+
+    if (hasAllUsersRead && hasAllUsersWrite) {
+      return 'public-read-write';
+    } else if (hasAllUsersRead) {
+      return 'public-read';
+    } else if (hasAuthenticatedUsersRead) {
+      return 'authenticated-read';
+    } else {
+      return 'private';
+    }
+  };
+
+  // Load current ACL
+  const loadCurrentACL = async () => {
+    try {
+      const response = await APIClient.getBucketACL(bucketName);
+      console.log('ACL Response:', response); // Debug
+
+      // First, check if the backend sent the canned_acl field directly
+      const acl = response.data || response;
+
+      if (acl.canned_acl || acl.CannedACL) {
+        // Backend provided the canned ACL directly - use it!
+        const cannedACL = acl.canned_acl || acl.CannedACL;
+        console.log('Using canned_acl from backend:', cannedACL);
+        setCurrentACL(cannedACL);
+      } else {
+        // Fallback: detect from grants
+        console.log('Detecting ACL from grants');
+        const grants = acl.Grant || acl.grants || [];
+        const detectedACL = detectCannedACL(grants);
+        setCurrentACL(detectedACL);
+      }
+    } catch (error) {
+      console.error('Error loading bucket ACL:', error);
+      setCurrentACL('private');
+    }
+  };
+
+  // Load current Policy
+  const loadCurrentPolicy = async () => {
+    try {
+      const response = await APIClient.getBucketPolicy(bucketName);
+      console.log('Policy Response:', response); // Debug
+
+      const policy = response.data || response;
+
+      if (policy && policy.Statement) {
+        setCurrentPolicy(policy);
+        setPolicyStatementCount(policy.Statement.length);
+      } else {
+        setCurrentPolicy(null);
+        setPolicyStatementCount(0);
+      }
+    } catch (error: any) {
+      // Policy not found or error - this is normal if no policy is set
+      console.log('No policy set or error loading policy:', error?.response?.status);
+      setCurrentPolicy(null);
+      setPolicyStatementCount(0);
+    }
+  };
 
   // Handlers
   const handleToggleVersioning = () => {
@@ -496,30 +586,8 @@ export default function BucketSettingsPage() {
 
   // ACL handlers
   const handleManageACL = async () => {
-    try {
-      const response = await APIClient.getBucketACL(bucketName);
-      // Try to detect canned ACL from grants
-      const acl = response.AccessControlList || response;
-      const grants = acl.Grant || [];
-
-      // Simple detection: if only owner has FULL_CONTROL, it's private
-      if (grants.length === 1 && grants[0].Permission === 'FULL_CONTROL') {
-        setSelectedCannedACL('private');
-      } else {
-        // Check for public-read
-        const hasPublicRead = grants.some((g: any) =>
-          g.Grantee?.URI?.includes('AllUsers') && g.Permission === 'READ'
-        );
-        if (hasPublicRead) {
-          setSelectedCannedACL('public-read');
-        } else {
-          setSelectedCannedACL('private');
-        }
-      }
-    } catch (error) {
-      // Default to private if error
-      setSelectedCannedACL('private');
-    }
+    // Use the current loaded ACL
+    setSelectedCannedACL(currentACL);
     setIsACLModalOpen(true);
   };
 
@@ -718,17 +786,33 @@ export default function BucketSettingsPage() {
           <CardContent>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <div>
+                <div className="flex-1">
                   <p className="font-medium">Access Policy</p>
                   <p className="text-sm text-gray-500">
-                    {bucketData?.policy ? 'Custom Policy' : 'No Policy Set'}
+                    Define fine-grained permissions using JSON policy documents
                   </p>
+                  <div className="mt-2">
+                    {currentPolicy ? (
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                          ✓ Policy Active
+                        </span>
+                        <span className="text-xs text-gray-600 dark:text-gray-400">
+                          {policyStatementCount} statement{policyStatementCount !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                        No Policy Set
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={handleEditPolicy}>
-                    {bucketData?.policy ? 'Edit Policy' : 'Add Policy'}
+                    {currentPolicy ? 'Edit Policy' : 'Add Policy'}
                   </Button>
-                  {bucketData?.policy && (
+                  {currentPolicy && (
                     <Button variant="destructive" size="sm" onClick={handleDeletePolicy}>
                       Delete
                     </Button>
@@ -750,11 +834,26 @@ export default function BucketSettingsPage() {
           <CardContent>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <div>
+                <div className="flex-1">
                   <p className="font-medium">Bucket Permissions</p>
                   <p className="text-sm text-gray-500">
                     Control who can access this bucket
                   </p>
+                  <div className="mt-2">
+                    <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Current ACL: </span>
+                    <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                      currentACL === 'private' ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' :
+                      currentACL === 'public-read' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                      currentACL === 'public-read-write' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                      currentACL === 'authenticated-read' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                      'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+                    }`}>
+                      {currentACL === 'private' && '🔒 Private'}
+                      {currentACL === 'public-read' && '👁️ Public Read'}
+                      {currentACL === 'public-read-write' && '⚠️ Public Read/Write'}
+                      {currentACL === 'authenticated-read' && '🔐 Authenticated Read'}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={handleManageACL}>
