@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gorilla/handlers"
@@ -293,20 +295,37 @@ func (s *Server) setupRoutes() error {
 }
 
 func (s *Server) setupConsoleRoutes(router *mux.Router) {
-	// API endpoints for the web console (must be registered first)
-	apiRouter := router.PathPrefix("/api/v1").Subrouter()
+	// Extract base path from public_console_url
+	basePath := extractBasePathFromURL(s.config.PublicConsoleURL)
+
+	logrus.WithFields(logrus.Fields{
+		"public_console_url": s.config.PublicConsoleURL,
+		"base_path":          basePath,
+	}).Info("Setting up console routes")
+
+	// Create base router
+	var baseRouter *mux.Router
+	if basePath != "/" && basePath != "" {
+		// All routes (including API) must be under the base path
+		baseRouter = router.PathPrefix(basePath).Subrouter()
+	} else {
+		baseRouter = router
+	}
+
+	// API endpoints for the web console (under base path)
+	apiRouter := baseRouter.PathPrefix("/api/v1").Subrouter()
 	s.setupConsoleAPIRoutes(apiRouter)
 
 	// Try to serve embedded frontend, fallback to placeholder if not available
 	frontendHandler, err := s.setupEmbeddedFrontend(router)
 	if err != nil {
 		logrus.WithError(err).Warn("Failed to setup embedded frontend, using placeholder")
-		s.setupPlaceholderHandler(router)
+		s.setupPlaceholderHandler(baseRouter)
 		return
 	}
 
-	// Serve embedded frontend for all non-API routes
-	router.PathPrefix("/").Handler(frontendHandler)
+	// Serve embedded frontend for all other routes (under base path)
+	baseRouter.PathPrefix("/").Handler(frontendHandler)
 }
 
 func (s *Server) setupPlaceholderHandler(router *mux.Router) {
@@ -345,4 +364,29 @@ func (s *Server) setupPlaceholderHandler(router *mux.Router) {
 	})
 
 	router.PathPrefix("/").Handler(webHandler)
+}
+
+// extractBasePathFromURL extracts the path component from a URL
+// Example: "https://s3.accst.local/ui" -> "/ui"
+// Example: "http://localhost:8081" -> "/"
+func extractBasePathFromURL(urlStr string) string {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to parse public console URL, using / as base path")
+		return "/"
+	}
+
+	basePath := parsedURL.Path
+	if basePath == "" || basePath == "/" {
+		return "/"
+	}
+
+	// Ensure base path starts with / but does NOT end with /
+	// This is important for PathPrefix matching in mux
+	basePath = strings.TrimSuffix(basePath, "/")
+	if !strings.HasPrefix(basePath, "/") {
+		basePath = "/" + basePath
+	}
+
+	return basePath
 }

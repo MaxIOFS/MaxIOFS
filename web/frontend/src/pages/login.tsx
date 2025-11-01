@@ -11,6 +11,9 @@ export default function LoginPage() {
   });
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
+  // Get base path from window (injected by backend)
+  const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -33,7 +36,9 @@ export default function LoginPage() {
         SweetAlert.successLogin(formData.username);
 
         // Redirect to dashboard using hard redirect to ensure auth state is initialized
-        window.location.href = '/';
+        // Use BASE_PATH from window (injected by backend based on public_console_url)
+        const basePath = (window as any).BASE_PATH || '/';
+        window.location.href = basePath;
       } else {
         SweetAlert.close();
         await SweetAlert.error('Authentication error', response.error || 'Invalid credentials');
@@ -90,7 +95,7 @@ export default function LoginPage() {
         <div className="relative z-10 text-center space-y-6 px-8">
           <div className="flex justify-center">
             <img
-              src="/assets/img/logo.png"
+              src={`${basePath}/assets/img/logo.png`}
               alt="MaxIOFS"
               className="h-32 w-auto object-contain drop-shadow-2xl"
             />
@@ -108,7 +113,7 @@ export default function LoginPage() {
           <div className="lg:hidden text-center mb-8">
             <div className="flex justify-center mb-4">
               <img
-                src="/assets/img/logo.png"
+                src={`${basePath}/assets/img/logo.png`}
                 alt="MaxIOFS"
                 className="h-20 w-auto object-contain"
               />

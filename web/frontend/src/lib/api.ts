@@ -38,8 +38,16 @@ import SweetAlert from '@/lib/sweetalert';
 // API Configuration
 // For monolithic deployment: Use relative URLs so frontend works with both HTTP and HTTPS
 // The frontend is served from the same server as the API (port 8081)
+// Get base path from window (injected by backend based on public_console_url)
+const getBasePath = () => {
+  if (typeof window !== 'undefined') {
+    return ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+  }
+  return '';
+};
+
 const API_CONFIG = {
-  baseURL: '/api/v1', // Relative URL - works with both HTTP and HTTPS
+  baseURL: `${getBasePath()}/api/v1`, // Dynamic base URL based on public_console_url
   s3URL: typeof window !== 'undefined'
     ? `${window.location.protocol}//${window.location.hostname}:8080` // S3 API on port 8080 (auto-detects HTTP/HTTPS from browser)
     : 'https://localhost:8080', // Fallback to HTTPS for SSR/SSG (TLS is typically enabled in production)

@@ -26,13 +26,16 @@ export default function AboutPage() {
     day: 'numeric',
   });
 
+  // Get base path from window (injected by backend based on public_console_url)
+  const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+
   return (
     <div className="space-y-6">
       {/* Header with Logo */}
       <div className="flex flex-col items-center justify-center text-center space-y-4">
         <div className="flex justify-center px-12 py-8 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-2xl">
           <img
-            src="/assets/img/logo.png"
+            src={`${basePath}/assets/img/logo.png`}
             alt="MaxIOFS Logo"
             className="h-auto object-contain dark:opacity-90 dark:brightness-0 dark:invert"
             style={{ width: '22rem', maxHeight: '200px' }}
@@ -47,7 +50,7 @@ export default function AboutPage() {
             <div className="flex items-center space-x-3 mb-6">
               <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-brand-600">
                 <img
-                  src="/assets/img/icon.png"
+                  src={`${basePath}/assets/img/icon.png`}
                   alt="MaxIOFS"
                   className="w-8 h-8 rounded"
                 />

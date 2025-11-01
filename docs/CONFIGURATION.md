@@ -82,27 +82,47 @@ export  MAXIOFS_DATA_DIR=/var/lib/maxiofs
 
 ## Server Settings
 
-  
+
 |       Parameter      |  Type  |     Default   |     Description     |
 |----------------------|--------|---------------|---------------------|
-| `data_dir`           | string | **required**  | Data directory      |
-| `listen`             | string |    `:8080`    | S3 API address      |
-| `console_listen`     | string |    `:8081`    | Web console address |
-| `log_level`          | string |     `info`    | Log level           |
-| `public_api_url`     | string |      auto     | Public S3 URL       |
-| `public_console_url` | string |      auto     | Public console URL  |
+| `data_dir`           | string | **required**  | Data directory path |
+| `listen`             | string |    `:8080`    | **Bind address** for S3 API server |
+| `console_listen`     | string |    `:8081`    | **Bind address** for web console |
+| `log_level`          | string |     `info`    | Log level (debug/info/warn/error) |
+| `public_api_url`     | string | `http://localhost:8080` | **External URL** for S3 API (used in generated links) |
+| `public_console_url` | string | `http://localhost:8081` | **External URL** for web console (used in generated links) |
 
-  
+
+
+### Understanding Listen vs Public URLs
+
+**Important:** `listen` and `console_listen` define **where the server binds** (network interface), while `public_api_url` and `public_console_url` define **the external URLs** used for generating links, shares, and presigned URLs.
+
+**Use cases:**
+
+1. **Direct access (no proxy):**
+   - `listen: ":8080"` → Server listens on all interfaces, port 8080
+   - `public_api_url: "http://localhost:8080"` → Clients access via localhost
+
+2. **Behind reverse proxy (RECOMMENDED):**
+   - `listen: "localhost:8080"` → Server only accessible from localhost
+   - `public_api_url: "https://s3.midominio.com"` → Public domain (nginx forwards to localhost)
+   - This ensures generated share links use the public domain, not localhost
 
 **Example config.yaml:**
 
 ```yaml
 data_dir: "/var/lib/maxiofs"
-listen: ":8080"
-console_listen: ":8081"
+
+# Server binds to localhost only (not directly exposed)
+listen: "localhost:8080"
+console_listen: "localhost:8081"
+
 log_level: "info"
+
+# Public URLs (what users access via reverse proxy)
 public_api_url: "https://s3.example.com"
-public_console_url: "https://console.example.com"
+public_console_url: "https://s3.example.com/ui"
 ```
 
   
@@ -136,14 +156,50 @@ key_file: "/etc/maxiofs/tls/key.pem"
 **Reverse Proxy (Recommended):**
 
 ```yaml
-listen: "127.0.0.1:9000"
-console_listen: "127.0.0.1:9001"
-enable_tls: false
+# MaxIOFS listens on localhost only
+listen: "localhost:8080"
+console_listen: "localhost:8081"
+enable_tls: false  # nginx handles TLS
+
+# Public URLs match your nginx configuration
 public_api_url: "https://s3.example.com"
-public_console_url: "https://console.example.com"
+public_console_url: "https://s3.example.com/ui"
 ```
 
-  
+**Nginx Configuration Example:**
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name s3.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/s3.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/s3.example.com/privkey.pem;
+
+    # S3 API (root path)
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Required for large uploads
+        client_max_body_size 0;
+    }
+
+    # Web Console UI
+    location /ui {
+        proxy_pass http://localhost:8081;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+
 
 ---
 
@@ -220,8 +276,7 @@ data_dir: "./data"
 log_level: "debug"
 ```
 
-### Production
- 
+### Production (Direct TLS)
 
 ```yaml
 data_dir: "/var/lib/maxiofs"
@@ -229,25 +284,57 @@ listen: ":8080"
 console_listen: ":8081"
 log_level: "info"
 
-public_api_url: "https://s3.example.com"
-public_console_url: "https://console.example.com"
+public_api_url: "https://s3.example.com:8080"
+public_console_url: "https://console.example.com:8081"
 
 enable_tls: true
 cert_file: "/etc/letsencrypt/live/s3.example.com/fullchain.pem"
 key_file: "/etc/letsencrypt/live/s3.example.com/privkey.pem"
 
 storage:
-enable_compression: true
-compression_type: "zstd"
-compression_level: 3
+  enable_compression: true
+  compression_type: "zstd"
+  compression_level: 3
 
 auth:
-enable_auth: true
-jwt_secret: "your-secure-secret"
+  enable_auth: true
+  jwt_secret: "your-secure-secret"
 
 metrics:
-enable: true
-interval: 60
+  enable: true
+  interval: 60
+```
+
+### Production (Behind Reverse Proxy - RECOMMENDED)
+
+```yaml
+data_dir: "/var/lib/maxiofs"
+
+# Listen on localhost only (nginx handles public traffic)
+listen: "localhost:8080"
+console_listen: "localhost:8081"
+
+log_level: "info"
+
+# Public URLs (what users access)
+public_api_url: "https://s3.midominio.com"
+public_console_url: "https://s3.midominio.com/ui"
+
+# No TLS (nginx handles it)
+enable_tls: false
+
+storage:
+  enable_compression: true
+  compression_type: "zstd"
+  compression_level: 3
+
+auth:
+  enable_auth: true
+  jwt_secret: "your-secure-secret"
+
+metrics:
+  enable: true
+  interval: 60
 ```
 
 ### Docker

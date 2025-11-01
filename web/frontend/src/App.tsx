@@ -45,8 +45,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
+  // Get base path from window (injected by backend based on public_console_url)
+  const basePath = (window as any).BASE_PATH || '/';
+  const basename = basePath === '/' ? undefined : basePath.replace(/\/$/, '');
+
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <QueryProvider>
         <AuthProvider>
           <Routes>

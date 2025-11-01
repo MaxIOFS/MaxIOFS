@@ -116,13 +116,15 @@ func Load(cmd *cobra.Command) (*Config, error) {
 }
 
 func setDefaults(v *viper.Viper) {
-	// Server defaults - puertos estándar de MaxIOFS
-	v.SetDefault("listen", ":8080")         // API server
-	v.SetDefault("console_listen", ":8081") // Web console
+	// Server defaults - listen addresses (where the server binds)
+	v.SetDefault("listen", ":8080")         // API server listen address
+	v.SetDefault("console_listen", ":8081") // Web console listen address
 	// NO default for data_dir - must be explicitly configured
 	v.SetDefault("log_level", "info")
 
-	// Public URL defaults (will be auto-detected from request if not set)
+	// Public URL defaults (external URLs for reverse proxy scenarios)
+	// These are used for generating links, shares, presigned URLs, etc.
+	// If not set, they will be auto-detected from the request Host header
 	v.SetDefault("public_api_url", "http://localhost:8080")
 	v.SetDefault("public_console_url", "http://localhost:8081")
 

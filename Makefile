@@ -58,8 +58,8 @@ DIST_DIR=web/dist
 kill-processes:
 ifeq ($(DETECTED_OS),Windows)
 	@echo Stopping any running Node processes...
-	@taskkill /F /IM node.exe /T 2>nul || echo No Node processes found
-	@timeout /t 1 /nobreak >nul
+#	@taskkill /F /IM node.exe /T 2>nul || echo No Node processes found
+#	@timeout /t 1 /nobreak >nul
 endif
 
 # Default target
@@ -80,7 +80,7 @@ ifeq ($(DETECTED_OS),Windows)
 	@echo Installing dependencies...
 	@cd $(WEB_DIR) && npm install
 	@echo Building Vite production bundle...
-	@cd $(WEB_DIR) && set NODE_ENV=production && npm run build
+	@cd $(WEB_DIR) && npm run build
 	@if not exist "$(WEB_DIR)\dist" (echo Error: Build directory 'dist' was not created! && exit /b 1)
 else
 	@rm -rf $(WEB_DIR)/dist

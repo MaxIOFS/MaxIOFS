@@ -7,10 +7,14 @@
 # =============================================================================
 
 # API Server listen address (S3-compatible API)
+# This is the address where the server will bind and listen for connections
+# Use ":8080" to listen on all interfaces, or "localhost:8080" for local only
 # Default: :8080
 listen: ":8080"
 
 # Web Console listen address (Web UI)
+# This is the address where the web console will bind and listen
+# Use ":8081" to listen on all interfaces, or "localhost:8081" for local only
 # Default: :8081
 console_listen: ":8081"
 
@@ -24,28 +28,41 @@ data_dir: "./data"
 log_level: "info"
 
 # =============================================================================
-# PUBLIC URLs
+# PUBLIC URLs (for reverse proxy scenarios)
 # =============================================================================
-# These URLs are used for:
-# - Generating presigned URLs
+# IMPORTANT: These URLs are ONLY used for generating external links, NOT for binding!
+#
+# Use cases:
+# - Generating presigned URLs for object access
+# - Creating share links
 # - CORS configuration
 # - Redirects in the web console
-# - External access documentation
+# - S3 client endpoint configuration
+#
+# Reverse Proxy Example:
+# If you run MaxIOFS behind nginx:
+#   - listen: "localhost:8080"          (server binds to localhost)
+#   - public_api_url: "https://s3.mydomain.com"  (public URL users will use)
+#
+# This way:
+# - Server listens on localhost:8080 (not exposed to internet)
+# - Nginx proxies https://s3.mydomain.com to localhost:8080
+# - Generated URLs use https://s3.mydomain.com (working publicly)
 
 # Public API URL (S3 endpoint)
-# Users will use this URL to access the S3 API
+# This is the external URL that users and clients will use to access the S3 API
 # Examples:
-#   - http://localhost:8080 (development)
+#   - http://localhost:8080 (development, direct access)
 #   - https://s3.example.com (production with reverse proxy)
-#   - https://s3.mydomain.com:9000 (production with custom port)
+#   - https://s3.mydomain.com:8080 (production with custom port)
 public_api_url: "http://localhost:8080"
 
 # Public Console URL (Web UI)
-# Users will use this URL to access the web interface
+# This is the external URL that users will use to access the web interface
 # Examples:
-#   - http://localhost:8081 (development)
+#   - http://localhost:8081 (development, direct access)
 #   - https://console.example.com (production with reverse proxy)
-#   - https://maxiofs.mydomain.com (production)
+#   - https://s3.mydomain.com/ui (production, same domain with path)
 public_console_url: "http://localhost:8081"
 
 # =============================================================================
@@ -178,7 +195,7 @@ metrics:
 # =============================================================================
 # You can also set configuration using environment variables with MAXIOFS_ prefix
 # Examples:
-#   export MAXIOFS_LISTEN=":9000"
+#   export MAXIOFS_LISTEN=":8080"
 #   export MAXIOFS_DATA_DIR="/var/lib/maxiofs"
 #   export MAXIOFS_PUBLIC_API_URL="https://s3.example.com"
 #   export MAXIOFS_ENABLE_TLS=true
@@ -203,7 +220,7 @@ metrics:
 #   --tls-key               TLS private key file
 #
 # Example:
-#   ./maxiofs --data-dir /var/lib/maxiofs --listen :9000 --log-level debug
+#   ./maxiofs --data-dir /var/lib/maxiofs --listen :8080 --log-level debug
 
 # =============================================================================
 # CONFIGURATION PRIORITY (highest to lowest)
@@ -214,20 +231,22 @@ metrics:
 # 4. Default values
 
 # =============================================================================
-# PRODUCTION DEPLOYMENT EXAMPLE
+# PRODUCTION DEPLOYMENT EXAMPLES
 # =============================================================================
-# listen: ":9000"
-# console_listen: ":9001"
+
+# --- Example 1: Direct TLS (no reverse proxy) ---
+# listen: ":8080"
+# console_listen: ":8081"
 # data_dir: "/var/lib/maxiofs"
 # log_level: "info"
-# 
-# public_api_url: "https://s3.mydomain.com"
-# public_console_url: "https://console.mydomain.com"
-# 
+#
+# public_api_url: "https://s3.mydomain.com:8080"
+# public_console_url: "https://console.mydomain.com:8081"
+#
 # enable_tls: true
 # cert_file: "/etc/letsencrypt/live/s3.mydomain.com/fullchain.pem"
 # key_file: "/etc/letsencrypt/live/s3.mydomain.com/privkey.pem"
-# 
+#
 # storage:
 #   backend: "filesystem"
 #   enable_compression: true
@@ -236,16 +255,67 @@ metrics:
 #   enable_encryption: true
 #   encryption_key: "change-this-to-a-secure-32-char-key"
 #   enable_object_lock: true
-# 
+#
 # auth:
 #   enable_auth: true
 #   jwt_secret: "your-secure-random-jwt-secret"
 #   # NOTE: Access keys must be created via web console
-# 
+#
 # metrics:
 #   enable: true
 #   path: "/metrics"
 #   interval: 60
+
+# --- Example 2: Behind Nginx Reverse Proxy (RECOMMENDED) ---
+# In this setup, MaxIOFS listens on localhost only and nginx handles TLS
+#
+# listen: "localhost:8080"              # Only accessible from localhost
+# console_listen: "localhost:8081"      # Only accessible from localhost
+# data_dir: "/var/lib/maxiofs"
+# log_level: "info"
+#
+# # Public URLs must match your nginx configuration
+# public_api_url: "https://s3.midominio.com"
+# public_console_url: "https://s3.midominio.com/ui"
+#
+# enable_tls: false  # nginx handles TLS
+#
+# storage:
+#   backend: "filesystem"
+#   enable_compression: true
+#   compression_type: "zstd"
+#   enable_encryption: true
+#   encryption_key: "change-this-to-a-secure-32-char-key"
+#
+# auth:
+#   enable_auth: true
+#
+# # Nginx configuration example:
+# # server {
+# #     listen 443 ssl http2;
+# #     server_name s3.midominio.com;
+# #
+# #     ssl_certificate /etc/letsencrypt/live/s3.midominio.com/fullchain.pem;
+# #     ssl_certificate_key /etc/letsencrypt/live/s3.midominio.com/privkey.pem;
+# #
+# #     # S3 API
+# #     location / {
+# #         proxy_pass http://localhost:8080;
+# #         proxy_set_header Host $host;
+# #         proxy_set_header X-Real-IP $remote_addr;
+# #         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+# #         proxy_set_header X-Forwarded-Proto $scheme;
+# #     }
+# #
+# #     # Web Console
+# #     location /ui {
+# #         proxy_pass http://localhost:8081;
+# #         proxy_set_header Host $host;
+# #         proxy_set_header X-Real-IP $remote_addr;
+# #         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+# #         proxy_set_header X-Forwarded-Proto $scheme;
+# #     }
+# # }
 
 # =============================================================================
 # DEVELOPMENT/TESTING EXAMPLE

@@ -100,6 +100,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
   const [darkMode, setDarkMode] = useState(false);
 
+  // Get base path from window (injected by backend based on public_console_url)
+  const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+
   const isGlobalAdmin = !user?.tenantId;
 
   const { data: tenant } = useQuery({
@@ -190,7 +193,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <Link to="/" className="flex items-center space-x-3 group">
             <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-brand-600">
               <img
-                src="/assets/img/icon.png"
+                src={`${basePath}/assets/img/icon.png`}
                 alt="MaxIOFS"
                 className="w-7 h-7 rounded"
               />

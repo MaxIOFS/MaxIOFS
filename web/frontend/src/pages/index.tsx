@@ -13,6 +13,9 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { isGlobalAdmin } = useCurrentUser();
 
+  // Get base path from window (injected by backend based on public_console_url)
+  const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+
   const { data: metrics, isLoading: metricsLoading } = useQuery({
     queryKey: ['metrics'],
     queryFn: APIClient.getStorageMetrics,
@@ -32,7 +35,7 @@ export default function Dashboard() {
   const { data: healthStatus } = useQuery({
     queryKey: ['health'],
     queryFn: async () => {
-      const response = await fetch('/api/v1/health');
+      const response = await fetch(`${basePath}/api/v1/health`);
       if (!response.ok) {
         throw new Error('Health check failed');
       }
