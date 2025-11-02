@@ -80,7 +80,7 @@ func generateSystemXML() ([]byte, error) {
 
 	// Initialize inline ProtocolCapabilities
 	sysInfo.ProtocolCapabilities.CapacityInfo = true
-	sysInfo.ProtocolCapabilities.UploadSessions = true
+	sysInfo.ProtocolCapabilities.UploadSessions = false // Disabled - not fully implemented yet
 	sysInfo.ProtocolCapabilities.IAMSTS = false
 
 	// Initialize inline SystemRecommendations (ONLY KbBlockSize)

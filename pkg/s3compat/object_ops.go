@@ -1,7 +1,6 @@
 package s3compat
 
 import (
-	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -602,19 +601,6 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		"source_etag":   sourceObj.ETag,
 	}).Info("CopyObject: Starting copy operation")
 
-	// IMPORTANT: Read all data from source into memory
-	// This ensures the reader is fully consumed before passing to PutObject
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		h.writeError(w, "InternalError", fmt.Sprintf("Failed to read source object: %v", err), sourceKey, r)
-		return
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"bytes_read": len(data),
-		"expected":   sourceObj.Size,
-	}).Info("CopyObject: Read source data")
-
 	// Copy metadata
 	headers := make(http.Header)
 	headers.Set("Content-Type", sourceObj.ContentType)
@@ -623,9 +609,10 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	destBucketPath := h.getBucketPath(r, destBucket)
-	// Put object at destination with new reader from data
-	// IMPORTANT: Use bytes.NewReader to preserve binary data correctly
-	destObj, err := h.objectManager.PutObject(r.Context(), destBucketPath, destKey, bytes.NewReader(data), headers)
+	// IMPORTANT: Use streaming copy instead of loading all data into memory
+	// This prevents OOM errors and timeouts with large checkpoint files
+	// The reader is directly passed to PutObject which handles the streaming internally
+	destObj, err := h.objectManager.PutObject(r.Context(), destBucketPath, destKey, reader, headers)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The destination bucket does not exist", destBucket, r)
