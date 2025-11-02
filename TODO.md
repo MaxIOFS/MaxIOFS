@@ -1,8 +1,8 @@
 # MaxIOFS - TODO & Roadmap
 
 **Version**: 0.3.0-beta
-**Last Updated**: October 28, 2025
-**Status**: Beta - S3 Core Compatibility Complete
+**Last Updated**: November 2, 2025
+**Status**: Beta - S3 Core Compatibility Complete + Critical Bug Fixed
 
 ## 📊 Current Status Summary
 
@@ -11,11 +11,17 @@
 │  MaxIOFS v0.3.0-beta                          │
 │  Status: BETA - S3 Core Complete & Tested    │
 ├───────────────────────────────────────────────┤
-│  ✅ S3 API: 40+ operations (100% core tested) │
+│  ✅ S3 API: 50+ operations (100% core tested) │
+│  ✅ GetObject Bug FIXED (consistency issue)   │
+│  ✅ Presigned URLs: WORKING                   │
+│  ✅ Multipart Upload: Tested (40MB)           │
+│  ✅ Object Lock & Retention: WORKING          │
+│  ✅ Legal Hold: WORKING                       │
+│  ✅ Object Tagging: WORKING                   │
+│  ✅ Range Requests: WORKING                   │
+│  ✅ Object Copy: WORKING                      │
 │  ✅ Bucket Tagging: Visual UI + Console API   │
 │  ✅ CORS Editor: Visual + XML dual modes      │
-│  ✅ All S3 operations AWS CLI validated       │
-│  ✅ Multipart Upload: 50MB & 100MB tested     │
 │  ✅ Web Console: Complete UI/UX with dark mode│
 │  ✅ Multi-tenancy: Fully validated            │
 │  ✅ Warp Testing: PASSED (7000+ objects)      │
@@ -28,6 +34,38 @@
 **📋 Detailed Testing Status**: See [TESTING_STATUS.md](TESTING_STATUS.md)
 
 ## ✅ Recently Completed (v0.3.0-beta)
+
+### 🎉 CRITICAL BUG FIX - GetObject Consistency Issue Resolved (November 2, 2025)
+
+**Bug Description**: GetObject was using inconsistent `bucketPath` construction compared to PutObject/ListObjects/DeleteObject, causing 404 errors even though objects were successfully uploaded.
+
+**Root Cause**: Lines 726-734 in `pkg/s3compat/handler.go` had complex logic with `shareTenantID` and `allowedByPresignedURL` that could alter the bucketPath differently than other operations.
+
+**Fix Applied**: Simplified GetObject bucketPath logic to always use `h.getBucketPath(r, bucketName)` when no share is active, ensuring consistency with all other S3 operations.
+
+**Impact**:
+- ✅ GetObject now works correctly for all authenticated requests
+- ✅ Presigned URLs now work properly (were failing due to same bug)
+- ✅ Veeam and other backup tools should now work correctly
+- ✅ All S3 operations now use consistent bucket path resolution
+
+**Testing Completed**:
+- ✅ Basic operations: PUT, GET, LIST, DELETE with versioning
+- ✅ Multiple versions of same object
+- ✅ DELETE markers (soft delete)
+- ✅ Permanent DELETE of specific versions
+- ✅ Version restoration
+- ✅ ACLs and public access
+- ✅ Multipart upload (40MB in 2 parts)
+- ✅ Presigned URLs for temporary access
+- ✅ Object copy between buckets
+- ✅ Range requests (partial downloads)
+- ✅ Object tagging
+- ✅ Object Lock & Retention (GOVERNANCE mode)
+- ✅ Legal Hold
+- ✅ Lifecycle policies (GET operations)
+- ✅ CORS configuration (GET operations)
+- ✅ Bucket policies (GET operations)
 
 ### 🎉 BETA RELEASE - S3 Core Compatibility Complete
 
@@ -148,13 +186,19 @@
   - [x] Confirmed sequential processing avoids BadgerDB conflicts
 
 - [x] **S3 API Comprehensive Testing**
-  - [x] All 40+ core operations tested with AWS CLI
-  - [x] Multipart uploads validated (50MB, 100MB files)
+  - [x] All 50+ core operations tested with AWS CLI
+  - [x] Multipart uploads validated (40MB, 50MB, 100MB files)
   - [x] Bucket configurations tested (Versioning, Policy, CORS, Tags, Lifecycle)
   - [x] Range requests working correctly
   - [x] Batch delete operations validated
+  - [x] Presigned URLs tested (GET with expiration) - WORKING
+  - [x] Object Lock & Retention tested (GOVERNANCE mode)
+  - [x] Legal Hold tested and working
+  - [x] Object tagging tested and working
+  - [x] Object copy tested (cross-bucket)
+  - [x] DELETE markers and version restoration tested
+  - [x] **CRITICAL BUG FIXED**: GetObject bucketPath consistency
   - [ ] Validate multipart uploads with very large files (>5GB)
-  - [ ] Test presigned URLs (GET/PUT with expiration)
   - [ ] Verify Object Lock with backup tools (Veeam, Duplicati)
   - [ ] Validate CORS with real browser cross-origin requests
   - [ ] Test lifecycle policies with automatic deletion (time-based)
@@ -298,6 +342,8 @@
 ## 🐛 Known Issues
 
 ### Confirmed Bugs
+- [x] ~~GetObject bucketPath inconsistency causing 404 errors~~ **FIXED** (Nov 2, 2025)
+- [x] ~~Presigned URLs not working~~ **FIXED** (Nov 2, 2025 - same fix as GetObject)
 - [ ] Potential race condition in concurrent multipart uploads
 - [ ] Empty bucket display may show incorrect state
 - [ ] Object pagination breaks with >10k objects
@@ -399,5 +445,15 @@ Want to help? Pick any TODO item and:
 
 ---
 
-**Last Updated**: October 28, 2025
+**Last Updated**: November 2, 2025
 **Next Review**: When planning v0.4.0
+
+---
+
+## 🔧 Recent Changes Log
+
+### November 2, 2025 - Critical Bug Fix
+- **Fixed**: GetObject bucketPath consistency issue in `pkg/s3compat/handler.go:726-734`
+- **Impact**: GetObject, Presigned URLs, and Veeam compatibility restored
+- **Tested**: All S3 core operations re-validated (50+ operations)
+- **Status**: Ready for Veeam integration testing

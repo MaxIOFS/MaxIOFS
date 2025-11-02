@@ -159,12 +159,14 @@ type CommonPrefix struct {
 }
 
 type Error struct {
-	XMLName   xml.Name `xml:"Error"`
-	Code      string   `xml:"Code"`
-	Message   string   `xml:"Message"`
-	Resource  string   `xml:"Resource"`
-	RequestId string   `xml:"RequestId"`
-	HostId    string   `xml:"HostId"` // MaxIOFS includes this field
+	XMLName    xml.Name `xml:"Error"`
+	Code       string   `xml:"Code"`
+	Message    string   `xml:"Message"`
+	Key        string   `xml:"Key,omitempty"`        // For object errors (NoSuchKey, etc.)
+	BucketName string   `xml:"BucketName,omitempty"` // For bucket errors (NoSuchBucket, etc.)
+	Resource   string   `xml:"Resource,omitempty"`   // For other errors
+	RequestId  string   `xml:"RequestId"`
+	HostId     string   `xml:"HostId"`
 }
 
 // Service operations
@@ -582,6 +584,14 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	// Check if user is authenticated
 	user, userExists := auth.GetUserFromContext(r.Context())
 
+	logrus.WithFields(logrus.Fields{
+		"bucket":     bucketName,
+		"object":     objectKey,
+		"userExists": userExists,
+		"userID":     func() string { if user != nil { return user.ID } else { return "nil" } }(),
+		"hasAuth":    r.Header.Get("Authorization") != "",
+	}).Info("GetObject: User authentication status")
+
 	// Track if access is allowed via presigned URL
 	allowedByPresignedURL := false
 
@@ -733,11 +743,27 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		bucketPath = h.getBucketPath(r, bucketName)
 	}
 
+	logrus.WithFields(logrus.Fields{
+		"bucket":        bucketName,
+		"object":        objectKey,
+		"bucketPath":    bucketPath,
+		"shareTenantID": shareTenantID,
+		"tenantID":      tenantID,
+	}).Info("GetObject: Using bucketPath")
+
 	// 1. Verificar permiso de BUCKET únicamente (NO verificar ACL de objeto aún)
 	// El objeto puede no existir, así que solo verificamos permisos de bucket
 
 	var hasBucketRead bool = true
 	if userExists && !allowedByPresignedURL && shareTenantID == "" {
+		logrus.WithFields(logrus.Fields{
+			"userTenantID":     user.TenantID,
+			"bucketTenantID":   tenantID,
+			"isCrossTenant":    user.TenantID != tenantID,
+			"userID":           user.ID,
+			"bucket":           bucketName,
+		}).Info("GetObject: ACL check - comparing tenant IDs")
+
 		// Si es mismo tenant, permitir; si no, verificar permiso de bucket
 		if user.TenantID != tenantID {
 			// Cross-tenant: verificar permisos de bucket (NO de objeto específico)
@@ -851,6 +877,7 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", obj.ETag)
 	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
 	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 
 	// Add version ID if available
 	if obj.VersionID != "" {
@@ -1035,6 +1062,13 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
+
+	logrus.WithFields(logrus.Fields{
+		"bucket":     bucketName,
+		"object":     objectKey,
+		"bucketPath": bucketPath,
+	}).Info("PutObject: Using bucketPath")
+
 	obj, err := h.objectManager.PutObject(r.Context(), bucketPath, objectKey, bodyReader, r.Header)
 	if err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
@@ -1124,6 +1158,7 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("ETag", obj.ETag)
+	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 
 	// Return version ID if versioning is enabled
 	if obj.VersionID != "" {
@@ -1623,6 +1658,7 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 // Utility methods
 func (h *Handler) writeXMLResponse(w http.ResponseWriter, statusCode int, data interface{}) {
 	w.Header().Set("Content-Type", "application/xml")
+	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 	w.WriteHeader(statusCode)
 
 	if str, ok := data.(string); ok {
@@ -1706,19 +1742,42 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	// Set headers BEFORE WriteHeader
 	w.Header().Set("X-Amz-Request-Id", requestID)
 	w.Header().Set("X-Amz-Id-2", hostID)
+	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 
 	w.WriteHeader(statusCode)
 
 	// Write XML declaration (S3-compatible format)
 	w.Write([]byte(xml.Header))
 
+	// Build error response with correct field based on error type
 	errorResponse := Error{
 		Code:      code,
 		Message:   message,
-		Resource:  resource,
-		RequestId: requestID, // Use the generated ID
-		HostId:    hostID,    // Use the generated ID
+		RequestId: requestID,
+		HostId:    hostID,
 	}
+
+	// Use correct field based on error type (AWS S3 compatibility)
+	switch code {
+	case "NoSuchKey", "ObjectNotInActiveTierError":
+		// Object errors use Key field
+		errorResponse.Key = resource
+	case "NoSuchBucket", "BucketAlreadyExists", "BucketNotEmpty":
+		// Bucket errors use BucketName field
+		errorResponse.BucketName = resource
+	default:
+		// Other errors use Resource field
+		errorResponse.Resource = resource
+	}
+
+	// Debug: Log error XML for troubleshooting
+	xmlBytes, _ := xml.Marshal(errorResponse)
+	logrus.WithFields(logrus.Fields{
+		"code":       code,
+		"statusCode": statusCode,
+		"resource":   resource,
+		"xml":        string(xmlBytes),
+	}).Debug("writeError: Sending error response")
 
 	xml.NewEncoder(w).Encode(errorResponse)
 }
