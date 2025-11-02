@@ -10,8 +10,33 @@ import {
   Database,
   Zap
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { APIClient } from '@/lib/api';
+import { Loading } from '@/components/ui/Loading';
+import type { ServerConfig } from '@/types';
 
 export default function SettingsPage() {
+  const { data: config, isLoading } = useQuery<ServerConfig>({
+    queryKey: ['serverConfig'],
+    queryFn: APIClient.getServerConfig,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loading size="lg" />
+      </div>
+    );
+  }
+
+  if (!config) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-gray-500 dark:text-gray-400">No configuration available</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -51,13 +76,13 @@ export default function SettingsPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">S3 API Port</label>
               <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white">
-                8080
+                {config.server.s3ApiPort}
               </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Console API Port</label>
               <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white">
-                8081
+                {config.server.consoleApiPort}
               </div>
             </div>
           </div>
@@ -65,7 +90,7 @@ export default function SettingsPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Data Directory</label>
             <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white font-mono">
-              ./data
+              {config.server.dataDir}
             </div>
           </div>
 
@@ -89,7 +114,7 @@ export default function SettingsPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Object Storage</label>
               <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white">
-                File System (Local)
+                {config.storage.backend === 'filesystem' ? 'File System (Local)' : config.storage.backend}
               </div>
             </div>
             <div>
@@ -118,7 +143,7 @@ export default function SettingsPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Storage Path</label>
             <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white font-mono">
-              ./data
+              {config.storage.root}
             </div>
           </div>
 
@@ -280,8 +305,8 @@ export default function SettingsPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Authentication</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Enabled (JWT + S3 Signatures)
+              <div className={`px-3 py-2 ${config.auth.enableAuth ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white'} border rounded-md text-sm font-medium`}>
+                {config.auth.enableAuth ? '✓ Enabled (JWT + S3 Signatures)' : 'Disabled'}
               </div>
             </div>
             <div>
@@ -316,8 +341,8 @@ export default function SettingsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">TLS/HTTPS</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Supported (Optional)
+              <div className={`px-3 py-2 ${config.server.enableTls ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white'} border rounded-md text-sm font-medium`}>
+                {config.server.enableTls ? '✓ Enabled' : 'Not Enabled (Optional)'}
               </div>
             </div>
           </div>
@@ -384,14 +409,14 @@ export default function SettingsPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Metrics Collection</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Real-Time Tracking
+              <div className={`px-3 py-2 ${config.metrics.enable ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white'} border rounded-md text-sm font-medium`}>
+                {config.metrics.enable ? '✓ Real-Time Tracking' : 'Disabled'}
               </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Log Level</label>
               <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white">
-                Debug
+                {config.server.logLevel.charAt(0).toUpperCase() + config.server.logLevel.slice(1)}
               </div>
             </div>
           </div>
@@ -403,20 +428,26 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-              <CheckCircle className="h-4 w-4" />
-              <span>System metrics (CPU, Memory, Disk)</span>
+          {config.metrics.enable && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                <CheckCircle className="h-4 w-4" />
+                <span>System metrics (CPU, Memory, Disk)</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                <CheckCircle className="h-4 w-4" />
+                <span>Storage metrics (Buckets, Objects, Size)</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                <CheckCircle className="h-4 w-4" />
+                <span>Request metrics (Throughput, Latency, Errors)</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+                <Info className="h-4 w-4" />
+                <span>Collection interval: {config.metrics.interval} seconds</span>
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-              <CheckCircle className="h-4 w-4" />
-              <span>Storage metrics (Buckets, Objects, Size)</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-              <CheckCircle className="h-4 w-4" />
-              <span>Request metrics (Throughput, Latency, Errors)</span>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -433,7 +464,22 @@ export default function SettingsPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Version</label>
               <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white font-mono">
-                0.3.0-beta
+                {config.version}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Git Commit</label>
+              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white font-mono">
+                {config.commit || 'none'}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Build Date</label>
+              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white font-mono">
+                {config.buildDate || 'unknown'}
               </div>
             </div>
             <div>
@@ -462,8 +508,8 @@ export default function SettingsPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Multi-Tenancy</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Full Support
+              <div className={`px-3 py-2 ${config.features.multiTenancy ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white'} border rounded-md text-sm font-medium`}>
+                {config.features.multiTenancy ? '✓ Full Support' : 'Not Enabled'}
               </div>
             </div>
             <div>

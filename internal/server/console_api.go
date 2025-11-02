@@ -214,6 +214,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/metrics/history", s.handleGetHistoricalMetrics).Methods("GET", "OPTIONS")
 	router.HandleFunc("/metrics/history/stats", s.handleGetHistoryStats).Methods("GET", "OPTIONS")
 
+	// Server configuration endpoint
+	router.HandleFunc("/config", s.handleGetServerConfig).Methods("GET", "OPTIONS")
+
 	// Security endpoints
 	router.HandleFunc("/security/status", s.handleGetSecurityStatus).Methods("GET", "OPTIONS")
 
@@ -1841,6 +1844,63 @@ func (s *Server) handleGetHistoryStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, stats)
+}
+
+// handleGetServerConfig returns the server configuration (excluding sensitive data)
+func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
+	// Get version from server (set at startup from main.go)
+	version := s.version
+	if version == "" {
+		version = "unknown"
+	}
+
+	// Build config response (exclude sensitive data)
+	config := map[string]interface{}{
+		"version":   version,
+		"commit":    s.commit,
+		"buildDate": s.buildDate,
+		"server": map[string]interface{}{
+			"s3ApiPort":        s.config.Listen,
+			"consoleApiPort":   s.config.ConsoleListen,
+			"dataDir":          s.config.DataDir,
+			"publicApiUrl":     s.config.PublicAPIURL,
+			"publicConsoleUrl": s.config.PublicConsoleURL,
+			"enableTls":        s.config.EnableTLS,
+			"logLevel":         s.config.LogLevel,
+		},
+		"storage": map[string]interface{}{
+			"backend":           s.config.Storage.Backend,
+			"root":              s.config.Storage.Root,
+			"enableCompression": s.config.Storage.EnableCompression,
+			"compressionType":   s.config.Storage.CompressionType,
+			"compressionLevel":  s.config.Storage.CompressionLevel,
+			"enableEncryption":  s.config.Storage.EnableEncryption,
+			"enableObjectLock":  s.config.Storage.EnableObjectLock,
+		},
+		"auth": map[string]interface{}{
+			"enableAuth": s.config.Auth.EnableAuth,
+			// DO NOT expose: jwt_secret, encryption_key, access_key, secret_key
+		},
+		"metrics": map[string]interface{}{
+			"enable":   s.config.Metrics.Enable,
+			"path":     s.config.Metrics.Path,
+			"interval": s.config.Metrics.Interval,
+		},
+		"features": map[string]interface{}{
+			"multiTenancy":  true,
+			"objectLock":    s.config.Storage.EnableObjectLock,
+			"versioning":    true,
+			"encryption":    s.config.Storage.EnableEncryption,
+			"compression":   s.config.Storage.EnableCompression,
+			"multipart":     true,
+			"presignedUrls": true,
+			"cors":          true,
+			"lifecycle":     true,
+			"tagging":       true,
+		},
+	}
+
+	s.writeJSON(w, config)
 }
 
 func (s *Server) handleAPIHealth(w http.ResponseWriter, r *http.Request) {

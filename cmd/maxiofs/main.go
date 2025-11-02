@@ -15,9 +15,9 @@ import (
 )
 
 var (
-	version = "0.2.0-dev"
+	version = "v0.3.1-beta" // Default version, overridden by -ldflags during build
 	commit  = "none"
-	date    = "unknown"
+	date    = "20251102"
 )
 
 func main() {
@@ -88,6 +88,9 @@ func runServer(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
+
+	// Set version information
+	srv.SetVersion(version, commit, date)
 
 	// Start server
 	ctx, cancel := context.WithCancel(context.Background())

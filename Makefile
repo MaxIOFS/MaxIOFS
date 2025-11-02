@@ -34,11 +34,13 @@ endif
 
 # Build variables
 BINARY_NAME=maxiofs$(BINARY_EXT)
-# Try to get VERSION from environment, fallback to "dev"
+# Default version - update this when releasing new versions
+DEFAULT_VERSION=v0.3.1-beta
+# Try to get VERSION from environment, fallback to DEFAULT_VERSION
 ifeq ($(DETECTED_OS),Windows)
-	VERSION?=$(if $(VERSION_ENV),$(VERSION_ENV),dev)
+	VERSION?=$(if $(VERSION_ENV),$(VERSION_ENV),$(DEFAULT_VERSION))
 else
-	VERSION?=dev
+	VERSION?=$(DEFAULT_VERSION)
 endif
 COMMIT?=$(COMMIT)
 BUILD_DATE?=$(BUILD_DATE)

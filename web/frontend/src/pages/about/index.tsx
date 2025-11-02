@@ -1,5 +1,9 @@
 import React from 'react';
 import { Card } from '@/components/ui/Card';
+import { Loading } from '@/components/ui/Loading';
+import { useQuery } from '@tanstack/react-query';
+import { APIClient } from '@/lib/api';
+import type { ServerConfig } from '@/types';
 import {
   Code,
   Github,
@@ -19,15 +23,24 @@ import {
 } from 'lucide-react';
 
 export default function AboutPage() {
-  const version = '0.3.0-beta';
-  const buildDate = new Date().toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
+  const { data: config, isLoading } = useQuery<ServerConfig>({
+    queryKey: ['serverConfig'],
+    queryFn: APIClient.getServerConfig,
   });
 
   // Get base path from window (injected by backend based on public_console_url)
   const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loading size="lg" />
+      </div>
+    );
+  }
+
+  const version = config?.version || 'unknown';
+  const buildDate = config?.buildDate || 'unknown';
 
   return (
     <div className="space-y-6">

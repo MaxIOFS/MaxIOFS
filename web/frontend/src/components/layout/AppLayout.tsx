@@ -25,6 +25,7 @@ import { useLockedUsers } from '@/hooks/useLockedUsers';
 import SweetAlert from '@/lib/sweetalert';
 import { useQuery } from '@tanstack/react-query';
 import APIClient from '@/lib/api';
+import type { ServerConfig } from '@/types';
 
 interface NavItem {
   name: string;
@@ -102,6 +103,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Get base path from window (injected by backend based on public_console_url)
   const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+
+  // Get server config for version
+  const { data: serverConfig } = useQuery<ServerConfig>({
+    queryKey: ['serverConfig'],
+    queryFn: APIClient.getServerConfig,
+  });
 
   const isGlobalAdmin = !user?.tenantId;
 
@@ -293,7 +300,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-3">
-            v0.3.0-beta
+            {serverConfig?.version || 'Loading...'}
           </p>
         </div>
       </aside>

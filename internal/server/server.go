@@ -39,6 +39,9 @@ type Server struct {
 	systemMetrics   *metrics.SystemMetricsTracker
 	lifecycleWorker *lifecycle.Worker
 	startTime       time.Time // Server start time for uptime calculation
+	version         string    // Server version
+	commit          string    // Git commit hash
+	buildDate       string    // Build date
 }
 
 // New creates a new MaxIOFS server
@@ -81,12 +84,16 @@ func New(cfg *config.Config) (*Server, error) {
 	systemMetrics := metrics.NewSystemMetrics(cfg.DataDir)
 
 	// Connect system metrics to metrics manager
-	if mm, ok := metricsManager.(interface{ SetSystemMetrics(*metrics.SystemMetricsTracker) }); ok {
+	if mm, ok := metricsManager.(interface {
+		SetSystemMetrics(*metrics.SystemMetricsTracker)
+	}); ok {
 		mm.SetSystemMetrics(systemMetrics)
 	}
 
 	// Connect storage metrics provider to metrics manager
-	if mm, ok := metricsManager.(interface{ SetStorageMetricsProvider(metrics.StorageMetricsProvider) }); ok {
+	if mm, ok := metricsManager.(interface {
+		SetStorageMetricsProvider(metrics.StorageMetricsProvider)
+	}); ok {
 		mm.SetStorageMetricsProvider(func() (totalBuckets, totalObjects, totalSize int64) {
 			// Get storage metrics by listing all buckets
 			buckets, err := bucketManager.ListBuckets(context.Background(), "")
@@ -149,6 +156,13 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	return server, nil
+}
+
+// SetVersion sets the server version information
+func (s *Server) SetVersion(version, commit, date string) {
+	s.version = version
+	s.commit = commit
+	s.buildDate = date
 }
 
 // Start starts the MaxIOFS server

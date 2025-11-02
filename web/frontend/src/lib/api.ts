@@ -19,6 +19,7 @@ import type {
   StorageMetrics,
   SystemMetrics,
   S3Metrics,
+  ServerConfig,
   CreateBucketForm,
   EditBucketForm,
   CreateUserForm,
@@ -573,6 +574,12 @@ export class APIClient {
   static async getMetrics(): Promise<APIResponse<any>> {
     const response = await apiClient.get<APIResponse<any>>('/metrics');
     return response.data;
+  }
+
+  // Server Configuration
+  static async getServerConfig(): Promise<ServerConfig> {
+    const response = await apiClient.get<APIResponse<ServerConfig>>('/config');
+    return response.data.data!;
   }
 
   // Objects - Additional methods

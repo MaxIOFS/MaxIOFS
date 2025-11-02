@@ -616,5 +616,50 @@ export type LoadingState = 'idle' | 'loading' | 'succeeded' | 'failed';
 export type ActionType = 'create' | 'read' | 'update' | 'delete';
 export type PermissionLevel = 'none' | 'read' | 'write' | 'admin';
 
+// Server Configuration Types
+export interface ServerConfig {
+  version: string;
+  commit: string;
+  buildDate: string;
+  server: {
+    s3ApiPort: string;
+    consoleApiPort: string;
+    dataDir: string;
+    publicApiUrl: string;
+    publicConsoleUrl: string;
+    enableTls: boolean;
+    logLevel: string;
+  };
+  storage: {
+    backend: string;
+    root: string;
+    enableCompression: boolean;
+    compressionType: string;
+    compressionLevel: number;
+    enableEncryption: boolean;
+    enableObjectLock: boolean;
+  };
+  auth: {
+    enableAuth: boolean;
+  };
+  metrics: {
+    enable: boolean;
+    path: string;
+    interval: number;
+  };
+  features: {
+    multiTenancy: boolean;
+    objectLock: boolean;
+    versioning: boolean;
+    encryption: boolean;
+    compression: boolean;
+    multipart: boolean;
+    presignedUrls: boolean;
+    cors: boolean;
+    lifecycle: boolean;
+    tagging: boolean;
+  };
+}
+
 // Re-export common types
 export type { FC, ReactNode, ComponentProps } from 'react';
