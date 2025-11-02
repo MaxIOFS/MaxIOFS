@@ -23,6 +23,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// getObjectKey extracts object key from mux vars (already decoded by Gorilla Mux)
+func getObjectKey(r *http.Request) string {
+	vars := mux.Vars(r)
+	return vars["object"]
+}
+
 // generateRequestID generates a SHORT request ID (like MaxIOFS does)
 // MaxIOFS uses 16 character hex strings, not 32
 func generateRequestID() string {
@@ -571,7 +577,7 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	objectKey := vars["object"]
+	objectKey := getObjectKey(r)
 
 	// Add S3-compatible headers (CRITICAL for Veeam recognition)
 	addS3CompatHeaders(w)
@@ -588,8 +594,14 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		"bucket":     bucketName,
 		"object":     objectKey,
 		"userExists": userExists,
-		"userID":     func() string { if user != nil { return user.ID } else { return "nil" } }(),
-		"hasAuth":    r.Header.Get("Authorization") != "",
+		"userID": func() string {
+			if user != nil {
+				return user.ID
+			} else {
+				return "nil"
+			}
+		}(),
+		"hasAuth": r.Header.Get("Authorization") != "",
 	}).Info("GetObject: User authentication status")
 
 	// Track if access is allowed via presigned URL
@@ -757,11 +769,11 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	var hasBucketRead bool = true
 	if userExists && !allowedByPresignedURL && shareTenantID == "" {
 		logrus.WithFields(logrus.Fields{
-			"userTenantID":     user.TenantID,
-			"bucketTenantID":   tenantID,
-			"isCrossTenant":    user.TenantID != tenantID,
-			"userID":           user.ID,
-			"bucket":           bucketName,
+			"userTenantID":   user.TenantID,
+			"bucketTenantID": tenantID,
+			"isCrossTenant":  user.TenantID != tenantID,
+			"userID":         user.ID,
+			"bucket":         bucketName,
 		}).Info("GetObject: ACL check - comparing tenant IDs")
 
 		// Si es mismo tenant, permitir; si no, verificar permiso de bucket
@@ -936,7 +948,15 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	objectKey := vars["object"]
+	objectKey := getObjectKey(r)
+
+	logrus.WithFields(logrus.Fields{
+		"rawURL":        r.URL.String(),
+		"rawPath":       r.URL.Path,
+		"rawRequestURI": r.RequestURI,
+		"bucket":        bucketName,
+		"objectKey":     objectKey,
+	}).Info("PutObject: URL analysis")
 
 	// IMPORTANT: Detect CopyObject operation by x-amz-copy-source header
 	// AWS CLI sends PUT with this header for copy operations
@@ -1171,7 +1191,7 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	objectKey := vars["object"]
+	objectKey := getObjectKey(r)
 
 	// Get versionId if specified (for permanent deletion)
 	versionID := r.URL.Query().Get("versionId")
@@ -1289,7 +1309,7 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	objectKey := vars["object"]
+	objectKey := getObjectKey(r)
 
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,

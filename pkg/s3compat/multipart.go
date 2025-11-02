@@ -1,7 +1,6 @@
 package s3compat
 
 import (
-	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -527,11 +526,11 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"uploadId":    uploadID,
-		"partNumber":  partNumber,
+		"uploadId":     uploadID,
+		"partNumber":   partNumber,
 		"sourceBucket": sourceBucket,
-		"sourceKey":   sourceKey,
-		"sourceRange": copySourceRange,
+		"sourceKey":    sourceKey,
+		"sourceRange":  copySourceRange,
 	}).Info("UploadPartCopy: Processing copy part")
 
 	sourceBucketPath := h.getBucketPath(r, sourceBucket)
@@ -548,7 +547,7 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 	defer reader.Close()
 
 	// Parse range if specified
-	var data []byte
+	var partReader io.Reader
 	if copySourceRange != "" {
 		// Format: "bytes=start-end"
 		rangeStart, rangeEnd, err := parseCopySourceRange(copySourceRange, sourceObj.Size)
@@ -575,37 +574,26 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 			}
 		}
 
-		// Read only the range size
-		data = make([]byte, rangeSize)
-		n, err := io.ReadFull(reader, data)
-		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-			h.writeError(w, "InternalError", fmt.Sprintf("Failed to read range data: %v", err), uploadID, r)
-			return
-		}
-		data = data[:n] // Trim to actual bytes read
+		// Use LimitReader to read only the range size - streaming without loading into memory
+		partReader = io.LimitReader(reader, rangeSize)
 	} else {
-		// No range specified, read entire object
+		// No range specified, use entire reader - streaming without loading into memory
 		logrus.WithFields(logrus.Fields{
 			"uploadId":   uploadID,
 			"partNumber": partNumber,
 			"sourceSize": sourceObj.Size,
-		}).Info("UploadPartCopy: Reading entire object")
+		}).Info("UploadPartCopy: Streaming entire object")
 
-		data, err = io.ReadAll(reader)
-	}
-	if err != nil {
-		h.writeError(w, "InternalError", fmt.Sprintf("Failed to read source data: %v", err), uploadID, r)
-		return
+		partReader = reader
 	}
 
 	logrus.WithFields(logrus.Fields{
 		"uploadId":   uploadID,
 		"partNumber": partNumber,
-		"bytesRead":  len(data),
-	}).Info("UploadPartCopy: Read source data, uploading part")
+	}).Info("UploadPartCopy: Uploading part with streaming")
 
-	// Upload the part
-	part, err := h.objectManager.UploadPart(r.Context(), uploadID, partNumber, bytes.NewReader(data))
+	// Upload the part with streaming reader - no memory loading
+	part, err := h.objectManager.UploadPart(r.Context(), uploadID, partNumber, partReader)
 	if err != nil {
 		if err == object.ErrUploadNotFound {
 			h.writeError(w, "NoSuchUpload", "The specified multipart upload does not exist", uploadID, r)

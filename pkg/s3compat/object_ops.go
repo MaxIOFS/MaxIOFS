@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -569,6 +570,17 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 
 	sourceBucket := copySource[:slashIdx]
 	sourceKey := copySource[slashIdx+1:]
+
+	// URL decode the source key (it comes encoded in the header)
+	sourceKey, err := url.PathUnescape(sourceKey)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"sourceKey": sourceKey,
+			"error":     err,
+		}).Error("CopyObject: Failed to decode source key")
+		h.writeError(w, "InvalidArgument", "Invalid source key encoding", destKey, r)
+		return
+	}
 
 	if sourceBucket == "" || sourceKey == "" {
 		logrus.WithFields(logrus.Fields{
