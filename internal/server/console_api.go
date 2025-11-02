@@ -106,12 +106,10 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 
 			// Record request metrics
 			latencyMs := uint64(time.Since(start).Milliseconds())
-			isError := wrapped.statusCode >= 400
+			isError := wrapped.statusCode >= 500 // Only count 5xx as errors (server errors), not 4xx (client errors)
 			s.systemMetrics.RecordRequest(latencyMs, isError)
 		})
-	})
-
-	// Apply CORS middleware for API
+	}) // Apply CORS middleware for API
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -261,6 +259,10 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/policy", s.handleGetBucketPolicy).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/policy", s.handlePutBucketPolicy).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/policy", s.handleDeleteBucketPolicy).Methods("DELETE", "OPTIONS")
+
+	// Bucket versioning endpoints
+	router.HandleFunc("/buckets/{bucket}/versioning", s.handleGetBucketVersioning).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/versioning", s.handlePutBucketVersioning).Methods("PUT", "OPTIONS")
 
 	// Health check
 	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET", "OPTIONS")
@@ -3786,4 +3788,79 @@ func (s *Server) handleDeleteBucketPolicy(w http.ResponseWriter, r *http.Request
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleGetBucketVersioning handles GET /buckets/{bucket}/versioning
+func (s *Server) handleGetBucketVersioning(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	// Get versioning configuration
+	versioningConfig, err := s.bucketManager.GetVersioning(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, versioningConfig)
+}
+
+// handlePutBucketVersioning handles PUT /buckets/{bucket}/versioning
+func (s *Server) handlePutBucketVersioning(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	// Parse request body
+	var req struct {
+		Status string `json:"status"` // "Enabled" or "Suspended"
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Validate status
+	if req.Status != "Enabled" && req.Status != "Suspended" {
+		s.writeError(w, "Invalid versioning status. Must be 'Enabled' or 'Suspended'", http.StatusBadRequest)
+		return
+	}
+
+	// Create versioning config
+	versioningConfig := &bucket.VersioningConfig{
+		Status: req.Status,
+	}
+
+	// Set versioning configuration
+	if err := s.bucketManager.SetVersioning(r.Context(), tenantID, bucketName, versioningConfig); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

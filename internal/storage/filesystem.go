@@ -36,6 +36,11 @@ func NewFilesystemBackend(config Config) (*FilesystemBackend, error) {
 	return backend, nil
 }
 
+// GetRootPath returns the root path of the filesystem backend
+func (fs *FilesystemBackend) GetRootPath() string {
+	return fs.rootPath
+}
+
 // Put stores an object in the filesystem
 func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reader, metadata map[string]string) error {
 	if err := fs.validatePath(path); err != nil {

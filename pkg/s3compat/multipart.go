@@ -582,7 +582,7 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 			"uploadId":   uploadID,
 			"partNumber": partNumber,
 			"sourceSize": sourceObj.Size,
-		}).Info("UploadPartCopy: Streaming entire object")
+		}).Debug("UploadPartCopy: Streaming entire object")
 
 		partReader = reader
 	}
@@ -590,7 +590,7 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 	logrus.WithFields(logrus.Fields{
 		"uploadId":   uploadID,
 		"partNumber": partNumber,
-	}).Info("UploadPartCopy: Uploading part with streaming")
+	}).Debug("UploadPartCopy: Uploading part with streaming")
 
 	// Upload the part with streaming reader - no memory loading
 	part, err := h.objectManager.UploadPart(r.Context(), uploadID, partNumber, partReader)

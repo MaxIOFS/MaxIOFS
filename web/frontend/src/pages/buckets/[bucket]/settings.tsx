@@ -81,6 +81,9 @@ export default function BucketSettingsPage() {
     },
   });
 
+  // Helper to check if versioning is enabled
+  const isVersioningEnabled = bucketData?.versioning?.Status === 'Enabled';
+
   // Policy mutations
   const savePolicyMutation = useMutation({
     mutationFn: (policy: string) => APIClient.putBucketPolicy(bucketName, policy),
@@ -279,7 +282,7 @@ export default function BucketSettingsPage() {
 
   // Handlers
   const handleToggleVersioning = () => {
-    const newState = !bucketData?.versioning;
+    const newState = !isVersioningEnabled;
     SweetAlert.confirm(
       `${newState ? 'Enable' : 'Suspend'} versioning?`,
       `This will ${newState ? 'enable' : 'suspend'} object versioning for this bucket.`,
@@ -715,7 +718,7 @@ export default function BucketSettingsPage() {
                 <div>
                   <p className="font-medium">Version Control</p>
                   <p className="text-sm text-gray-500">
-                    {bucketData?.versioning ? 'Enabled' : 'Disabled'}
+                    {isVersioningEnabled ? 'Enabled' : 'Disabled'}
                   </p>
                 </div>
                 <Button
@@ -723,7 +726,7 @@ export default function BucketSettingsPage() {
                   onClick={handleToggleVersioning}
                   disabled={toggleVersioningMutation.isPending}
                 >
-                  {bucketData?.versioning ? 'Suspend' : 'Enable'}
+                  {isVersioningEnabled ? 'Suspend' : 'Enable'}
                 </Button>
               </div>
             </div>

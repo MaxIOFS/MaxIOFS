@@ -950,14 +950,6 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := getObjectKey(r)
 
-	logrus.WithFields(logrus.Fields{
-		"rawURL":        r.URL.String(),
-		"rawPath":       r.URL.Path,
-		"rawRequestURI": r.RequestURI,
-		"bucket":        bucketName,
-		"objectKey":     objectKey,
-	}).Info("PutObject: URL analysis")
-
 	// IMPORTANT: Detect CopyObject operation by x-amz-copy-source header
 	// AWS CLI sends PUT with this header for copy operations
 	if copySource := r.Header.Get("x-amz-copy-source"); copySource != "" {

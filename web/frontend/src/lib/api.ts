@@ -610,15 +610,13 @@ export class APIClient {
 
   // Bucket Versioning
   static async getBucketVersioning(bucketName: string): Promise<any> {
-    const response = await s3Client.get(`/${bucketName}?versioning`);
+    const response = await apiClient.get(`/buckets/${bucketName}/versioning`);
     return response.data;
   }
 
   static async putBucketVersioning(bucketName: string, enabled: boolean): Promise<void> {
-    const xml = `<VersioningConfiguration><Status>${enabled ? 'Enabled' : 'Suspended'}</Status></VersioningConfiguration>`;
-    await s3Client.put(`/${bucketName}?versioning`, xml, {
-      headers: { 'Content-Type': 'application/xml' }
-    });
+    const status = enabled ? 'Enabled' : 'Suspended';
+    await apiClient.put(`/buckets/${bucketName}/versioning`, { status });
   }
 
   // Bucket Policy

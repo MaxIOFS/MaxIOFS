@@ -126,16 +126,21 @@ export default function BucketDetailsPage() {
     mutationFn: async ({ bucket, key }: { bucket: string; key: string }) => {
       // Check if it's a folder (ends with /)
       if (key.endsWith('/')) {
-        // Check if folder has objects
+        console.log('[DELETE] Deleting folder:', key);
+
+        // List all objects in the folder (recursively)
         const folderObjects = await APIClient.getObjects({
           bucket,
           ...(tenantId && { tenantId }),
           prefix: key,
         });
 
-        // Check if there are any actual files (not just the folder marker or system files)
-        const actualObjects = folderObjects?.objects?.filter(obj => {
-          // Exclude the folder marker itself
+        console.log('[DELETE] Folder objects response:', folderObjects);
+        console.log('[DELETE] Total objects found:', folderObjects?.objects?.length || 0);
+
+        // Get all objects that need to be deleted (excluding system files and the folder marker itself)
+        const objectsToDelete = folderObjects?.objects?.filter(obj => {
+          // Exclude the folder marker itself (we'll delete it separately at the end)
           if (obj.key === key) return false;
 
           // Exclude MaxIOFS system files (.maxiofs-folder, .metadata files, etc.)
@@ -147,17 +152,47 @@ export default function BucketDetailsPage() {
           return true;
         }) || [];
 
-        if (actualObjects.length > 0) {
-          throw new Error('Cannot delete folder: it contains objects. Delete all objects first.');
+        console.log('[DELETE] Objects to delete:', objectsToDelete.map(o => o.key));
+        console.log('[DELETE] Total objects to delete:', objectsToDelete.length);
+
+        // Delete all objects in the folder (including nested objects and subfolder markers)
+        if (objectsToDelete.length > 0) {
+          console.log('[DELETE] Starting parallel deletion of', objectsToDelete.length, 'objects');
+          // Delete objects in parallel for better performance
+          await Promise.all(
+            objectsToDelete.map(obj => {
+              console.log('[DELETE] Deleting object:', obj.key);
+              return APIClient.deleteObject(bucket, obj.key, tenantId);
+            })
+          );
+          console.log('[DELETE] All objects deleted successfully');
         }
+
+        // After deleting all contents, try to delete the main folder marker
+        // (may not exist if it was only virtual)
+        console.log('[DELETE] Deleting main folder marker:', key);
+        try {
+          await APIClient.deleteObject(bucket, key, tenantId);
+          console.log('[DELETE] Folder marker deleted successfully');
+        } catch (error: any) {
+          // Ignore 404 errors - folder marker may not exist (virtual folder)
+          if (error?.response?.status === 404) {
+            console.log('[DELETE] Folder marker not found (virtual folder) - OK');
+          } else {
+            // Re-throw other errors
+            throw error;
+          }
+        }
+        return;
       }
 
+      // Single object deletion
       return APIClient.deleteObject(bucket, key, tenantId);
     },
     onSuccess: () => {
-      // Use refetchQueries instead of invalidateQueries for immediate UI update
-      queryClient.refetchQueries({ queryKey: ['objects', bucketName] });
-      queryClient.refetchQueries({ queryKey: ['bucket', bucketName] });
+      // Invalidate all object queries for this bucket to ensure UI updates
+      queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
       SweetAlert.toast('success', 'Object deleted successfully');
     },
     onError: (error: any) => {

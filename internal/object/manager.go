@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -573,11 +575,21 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 
 	if err != nil {
 		if err == metadata.ErrObjectNotFound {
-			// Try to cleanup physical file if it exists
+			// Metadata doesn't exist, but physical file might - clean it up
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucket,
+				"key":    key,
+			}).Debug("Metadata not found, cleaning up orphaned physical file if exists")
+
 			if err := om.storage.Delete(ctx, objectPath); err != nil && err != storage.ErrObjectNotFound {
-				logrus.WithError(err).Debug("Failed to delete orphaned physical file")
+				logrus.WithError(err).Warn("Failed to delete orphaned physical file")
 			}
-			return ErrObjectNotFound
+
+			// Clean up empty directories
+			om.cleanupEmptyDirectories(bucket, key)
+
+			// Return success - object is gone (idempotent delete per S3 spec)
+			return nil
 		}
 		return fmt.Errorf("failed to get object metadata: %w", err)
 	}
@@ -601,22 +613,36 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 		}
 	}
 
-	// Delete metadata from BadgerDB
-	if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil && err != metadata.ErrObjectNotFound {
-		return fmt.Errorf("failed to delete object metadata: %w", err)
-	}
-
-	// Update bucket metrics
-	if om.bucketManager != nil {
-		tenantID, bucketName := om.parseBucketPath(bucket)
-		if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objectSize); err != nil {
-			return fmt.Errorf("failed to decrement bucket object count: %w", err)
+	// Delete metadata from BadgerDB FIRST
+	// If this fails, we stop and don't touch the physical file
+	if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil {
+		if err == metadata.ErrObjectNotFound {
+			// Metadata doesn't exist, but maybe physical file is orphaned - delete it anyway
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucket,
+				"key":    key,
+			}).Debug("Metadata not found, attempting to delete orphaned physical file")
+		} else {
+			return fmt.Errorf("failed to delete object metadata: %w", err)
 		}
 	}
 
-	// Delete physical file
+	// Now delete physical file
+	// Even if metadata deletion failed with NotFound, we still try to clean up the physical file
 	if err := om.storage.Delete(ctx, objectPath); err != nil && err != storage.ErrObjectNotFound {
-		logrus.WithError(err).Warn("Failed to delete physical file")
+		logrus.WithError(err).Error("Failed to delete physical file after metadata deletion")
+		// Continue anyway - metadata is already gone
+	}
+
+	// Clean up empty parent directories
+	om.cleanupEmptyDirectories(bucket, key)
+
+	// Update bucket metrics (best effort - don't fail if this errors)
+	if om.bucketManager != nil {
+		tenantID, bucketName := om.parseBucketPath(bucket)
+		if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objectSize); err != nil {
+			logrus.WithError(err).Warn("Failed to update bucket metrics")
+		}
 	}
 
 	return nil
@@ -1592,6 +1618,63 @@ func (om *objectManager) ensureImplicitFolders(ctx context.Context, bucket, key 
 				"bucket":     bucket,
 				"folder_key": folderKey,
 			}).Debug("Created implicit folder object in BadgerDB")
+		}
+	}
+}
+
+// cleanupEmptyDirectories removes empty parent directories after object deletion
+func (om *objectManager) cleanupEmptyDirectories(bucket, key string) {
+	// Get the filesystem backend to work with directories
+	fsBackend, ok := om.storage.(*storage.FilesystemBackend)
+	if !ok {
+		return
+	}
+
+	// Get the object path
+	objectPath := om.getObjectPath(bucket, key)
+	dirPath := filepath.Dir(objectPath)
+
+	// Get the root path from filesystem backend
+	rootPath := fsBackend.GetRootPath()
+
+	// Walk up the directory tree and remove empty directories
+	for {
+		// Don't go above the root path
+		if !strings.HasPrefix(dirPath, rootPath) || dirPath == rootPath {
+			break
+		}
+
+		// Check if directory is empty (only .maxiofs-folder marker or completely empty)
+		entries, err := os.ReadDir(dirPath)
+		if err != nil {
+			break
+		}
+
+		// Count non-system files
+		nonSystemFiles := 0
+		for _, entry := range entries {
+			if entry.Name() != ".maxiofs-folder" && !strings.HasSuffix(entry.Name(), ".metadata") {
+				nonSystemFiles++
+			}
+		}
+
+		// If directory only has system files or is empty, remove it
+		if nonSystemFiles == 0 {
+			if err := os.RemoveAll(dirPath); err != nil {
+				logrus.WithError(err).WithField("path", dirPath).Debug("Failed to remove empty directory")
+				break
+			}
+			logrus.WithField("path", dirPath).Debug("Removed empty directory")
+
+			// Move to parent directory
+			parentDir := filepath.Dir(dirPath)
+			if parentDir == dirPath {
+				break
+			}
+			dirPath = parentDir
+		} else {
+			// Directory has files, stop cleanup
+			break
 		}
 	}
 }
