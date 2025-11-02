@@ -723,13 +723,13 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build bucket path: use shareTenantID if available, otherwise use auth-based tenant
+	// IMPORTANT: Use same logic as PutObject to ensure consistency
 	var bucketPath string
 	if shareTenantID != "" {
+		// Share is active - use tenant from share
 		bucketPath = shareTenantID + "/" + bucketName
-	} else if !userExists && (shareTenantID == "" || allowedByPresignedURL) {
-		// Share exists but with empty tenantID (global bucket) OR presigned URL access
-		bucketPath = bucketName
 	} else {
+		// No share - use standard bucket path (same as PutObject/ListObjects/DeleteObject)
 		bucketPath = h.getBucketPath(r, bucketName)
 	}
 
