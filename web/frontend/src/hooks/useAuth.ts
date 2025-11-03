@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, createContext, useContext } from 'rea
 import { useNavigate, useParams } from 'react-router-dom';
 import APIClient from '@/lib/api';
 import type { User, LoginRequest, APIError } from '@/types';
+import { useIdleTimer } from './useIdleTimer';
 
 // Auth Context Type
 interface AuthContextType {
@@ -70,7 +71,9 @@ export function useAuthProvider(): AuthContextType {
           // Redirect to login if not already on login page
           if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
             setTimeout(() => {
-              window.location.href = '/login';
+              // Use BASE_PATH to respect proxy reverse configuration
+              const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+              window.location.href = `${basePath}/login`;
             }, 0);
           }
         } else {
@@ -96,7 +99,9 @@ export function useAuthProvider(): AuthContextType {
         setUser(response.user);
         // Use hard redirect to ensure auth state is properly initialized
         if (typeof window !== 'undefined') {
-          window.location.href = '/';
+          // Use BASE_PATH to respect proxy reverse configuration
+          const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+          window.location.href = basePath || '/';
         }
       } else {
         throw new Error(response.error || 'Login failed');
@@ -144,6 +149,29 @@ export function useAuthProvider(): AuthContextType {
       setIsLoading(false);
     }
   }, []);
+
+  // Idle timer - logout after 30 minutes of inactivity
+  const handleIdle = useCallback(() => {
+    if (isAuthenticated && typeof window !== 'undefined') {
+      // Clear auth and redirect to login
+      APIClient.clearAuth();
+      setUser(null);
+      setError({
+        code: 'SESSION_TIMEOUT',
+        message: 'Your session has expired due to inactivity. Please log in again.',
+        details: null,
+      });
+      // Use BASE_PATH to respect proxy reverse configuration
+      const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+      window.location.href = `${basePath}/login`;
+    }
+  }, [isAuthenticated]);
+
+  // Only activate idle timer when user is authenticated
+  useIdleTimer({
+    timeout: 30 * 60 * 1000, // 30 minutes in milliseconds
+    onIdle: handleIdle,
+  });
 
   return {
     user,

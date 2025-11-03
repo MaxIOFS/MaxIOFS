@@ -111,10 +111,10 @@ class TokenManager {
         localStorage.setItem('refresh_token', refreshToken);
       }
 
-      // Also set in cookies for middleware
-      document.cookie = `auth_token=${token}; path=/; max-age=${7 * 24 * 60 * 60}`; // 7 days
+      // Also set in cookies for middleware (30 minutes = 1800 seconds)
+      document.cookie = `auth_token=${token}; path=/; max-age=${30 * 60}`; // 30 minutes
       if (refreshToken) {
-        document.cookie = `refresh_token=${refreshToken}; path=/; max-age=${7 * 24 * 60 * 60}`;
+        document.cookie = `refresh_token=${refreshToken}; path=/; max-age=${30 * 60}`;
       }
     }
   }
@@ -190,7 +190,9 @@ const handleError = async (error: AxiosError): Promise<never> => {
 
         // Use setTimeout to ensure the redirect happens after current call stack
         setTimeout(() => {
-          window.location.replace('/login');
+          // Use BASE_PATH to respect proxy reverse configuration
+          const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+          window.location.replace(`${basePath}/login`);
         }, 100);
       }
     }
