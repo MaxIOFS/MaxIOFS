@@ -1188,10 +1188,14 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	// Get versionId if specified (for permanent deletion)
 	versionID := r.URL.Query().Get("versionId")
 
+	// Check for bypass governance retention header
+	bypassGovernance := r.Header.Get("x-amz-bypass-governance-retention") == "true"
+
 	logrus.WithFields(logrus.Fields{
-		"bucket":    bucketName,
-		"object":    objectKey,
-		"versionId": versionID,
+		"bucket":           bucketName,
+		"object":           objectKey,
+		"versionId":        versionID,
+		"bypassGovernance": bypassGovernance,
 	}).Debug("S3 API: DeleteObject")
 
 	// Permission check: Verify user has WRITE permission via ACL
@@ -1251,7 +1255,29 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deleteMarkerVersionID, err := h.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, versionID)
+	// If bypass governance is requested, validate user has admin permission
+	if bypassGovernance {
+		if !userExists {
+			h.writeError(w, "AccessDenied", "Authentication required for bypass governance retention", objectKey, r)
+			return
+		}
+
+		// Verify user has permission to bypass governance
+		isAdmin := false
+		for _, role := range user.Roles {
+			if role == "admin" {
+				isAdmin = true
+				break
+			}
+		}
+
+		if !isAdmin {
+			h.writeError(w, "AccessDenied", "Only administrators can bypass governance retention", objectKey, r)
+			return
+		}
+	}
+
+	deleteMarkerVersionID, err := h.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, bypassGovernance, versionID)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)

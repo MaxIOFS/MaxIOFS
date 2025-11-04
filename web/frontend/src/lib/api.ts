@@ -628,6 +628,17 @@ export class APIClient {
     await apiClient.put(`/buckets/${bucketName}/versioning`, { status });
   }
 
+  // Object Legal Hold
+  static async getObjectLegalHold(bucketName: string, objectKey: string): Promise<{ status: string }> {
+    const response = await apiClient.get(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/legal-hold`);
+    return response.data;
+  }
+
+  static async putObjectLegalHold(bucketName: string, objectKey: string, enabled: boolean): Promise<void> {
+    const status = enabled ? 'ON' : 'OFF';
+    await apiClient.put(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/legal-hold`, { status });
+  }
+
   // Bucket Policy
   static async getBucketPolicy(bucketName: string): Promise<any> {
     const response = await apiClient.get(`/buckets/${bucketName}/policy`);

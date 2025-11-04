@@ -15,7 +15,7 @@ export function useIdleTimer({
   onIdle,
   events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'],
 }: UseIdleTimerOptions) {
-  const timeoutId = useRef<NodeJS.Timeout | null>(null);
+  const timeoutId = useRef<number | null>(null);
   const lastActivity = useRef<number>(Date.now());
 
   const resetTimer = useCallback(() => {

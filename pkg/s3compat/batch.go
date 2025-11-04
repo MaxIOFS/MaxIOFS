@@ -146,7 +146,8 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Delete object (filesystem + BadgerDB metadata + bucket metrics)
-		_, err := h.objectManager.DeleteObject(ctx, bucketPath, obj.Key)
+		// Batch delete doesn't support bypass governance
+		_, err := h.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false)
 
 		if err != nil {
 			// Log error but continue with other objects

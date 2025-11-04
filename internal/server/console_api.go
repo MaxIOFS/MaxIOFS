@@ -58,6 +58,7 @@ type ObjectResponse struct {
 	ContentType  string                  `json:"content_type"`
 	Metadata     map[string]string       `json:"metadata,omitempty"`
 	Retention    *object.RetentionConfig `json:"retention,omitempty"`
+	LegalHold    *object.LegalHoldConfig `json:"legalHold,omitempty"`
 }
 
 type UserResponse struct {
@@ -266,6 +267,10 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Bucket versioning endpoints
 	router.HandleFunc("/buckets/{bucket}/versioning", s.handleGetBucketVersioning).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/versioning", s.handlePutBucketVersioning).Methods("PUT", "OPTIONS")
+
+	// Object Legal Hold endpoints
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/legal-hold", s.handleGetObjectLegalHold).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/legal-hold", s.handlePutObjectLegalHold).Methods("PUT", "OPTIONS")
 
 	// Health check
 	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET", "OPTIONS")
@@ -852,6 +857,7 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 			ContentType:  obj.ContentType,
 			Metadata:     obj.Metadata,
 			Retention:    obj.Retention,
+			LegalHold:    obj.LegalHold,
 		}
 	}
 
@@ -920,6 +926,8 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 			ETag:         metadata.ETag,
 			ContentType:  metadata.ContentType,
 			Metadata:     metadata.Metadata,
+			Retention:    metadata.Retention,
+			LegalHold:    metadata.LegalHold,
 		}
 
 		s.writeJSON(w, response)
@@ -1276,11 +1284,12 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 	versionID := r.URL.Query().Get("versionId")
 
 	// Call DeleteObject with optional versionID
+	// Console API doesn't support bypass governance (use S3 API for that)
 	var err error
 	if versionID != "" {
-		_, err = s.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, versionID)
+		_, err = s.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, false, versionID)
 	} else {
-		_, err = s.objectManager.DeleteObject(r.Context(), bucketPath, objectKey)
+		_, err = s.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, false)
 	}
 
 	if err != nil {
@@ -3916,6 +3925,138 @@ func (s *Server) handlePutBucketVersioning(w http.ResponseWriter, r *http.Reques
 	if err := s.bucketManager.SetVersioning(r.Context(), tenantID, bucketName, versioningConfig); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleGetObjectLegalHold handles GET /buckets/{bucket}/objects/{object}/legal-hold
+func (s *Server) handleGetObjectLegalHold(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey := vars["object"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	// Construct bucket path
+	var bucketPath string
+	if tenantID != "" {
+		bucketPath = tenantID + "/" + bucketName
+	} else {
+		bucketPath = bucketName
+	}
+
+	// Get legal hold status
+	legalHold, err := s.objectManager.GetObjectLegalHold(r.Context(), bucketPath, objectKey)
+	if err != nil {
+		if err == object.ErrObjectNotFound {
+			s.writeError(w, "Object not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return legal hold status
+	response := map[string]string{
+		"status": legalHold.Status,
+	}
+	s.writeJSON(w, response)
+}
+
+// handlePutObjectLegalHold handles PUT /buckets/{bucket}/objects/{object}/legal-hold
+func (s *Server) handlePutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey := vars["object"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	// IMPORTANT: Only global admins or tenant admins can change legal hold
+	isGlobalAdmin := false
+	isTenantAdmin := false
+	for _, role := range user.Roles {
+		if role == "admin" {
+			isGlobalAdmin = true
+			break
+		}
+		if role == "tenant-admin" && user.TenantID == tenantID {
+			isTenantAdmin = true
+			break
+		}
+	}
+
+	if !isGlobalAdmin && !isTenantAdmin {
+		s.writeError(w, "Only global administrators or tenant administrators can modify legal hold status", http.StatusForbidden)
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		Status string `json:"status"` // "ON" or "OFF"
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Validate status
+	if req.Status != "ON" && req.Status != "OFF" {
+		s.writeError(w, "Invalid legal hold status. Must be 'ON' or 'OFF'", http.StatusBadRequest)
+		return
+	}
+
+	// Construct bucket path
+	var bucketPath string
+	if tenantID != "" {
+		bucketPath = tenantID + "/" + bucketName
+	} else {
+		bucketPath = bucketName
+	}
+
+	// IMPORTANT: Legal Hold can only be applied if bucket has Object Lock enabled
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if bucketInfo.ObjectLock == nil || !bucketInfo.ObjectLock.ObjectLockEnabled {
+		s.writeError(w, "Legal Hold can only be applied to objects in buckets with Object Lock enabled", http.StatusBadRequest)
+		return
+	}
+
+	// Create legal hold config
+	legalHoldConfig := &object.LegalHoldConfig{
+		Status: req.Status,
+	}
+
+	// Set legal hold
+	if err := s.objectManager.SetObjectLegalHold(r.Context(), bucketPath, objectKey, legalHoldConfig); err != nil {
+		if err == object.ErrObjectNotFound {
+			s.writeError(w, "Object not found", http.StatusNotFound)
 			return
 		}
 		s.writeError(w, err.Error(), http.StatusInternalServerError)

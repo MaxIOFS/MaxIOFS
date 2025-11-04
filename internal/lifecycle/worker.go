@@ -164,7 +164,8 @@ func (w *Worker) processNoncurrentVersionExpiration(ctx context.Context, bucketP
 			}
 
 			// Delete this noncurrent version
-			_, err := w.objectManager.DeleteObject(ctx, bucketPath, obj.Key, version.VersionID)
+			// Lifecycle rules don't support bypass governance
+			_, err := w.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false, version.VersionID)
 			if err != nil {
 				logrus.WithError(err).WithFields(logrus.Fields{
 					"key":       obj.Key,

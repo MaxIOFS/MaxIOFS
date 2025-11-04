@@ -240,8 +240,8 @@ metrics:
 # data_dir: "/var/lib/maxiofs"
 # log_level: "info"
 #
-# public_api_url: "https://s3.mydomain.com:8080"
-# public_console_url: "https://console.mydomain.com:8081"
+# public_api_url: "https://s3.mydomain.com"
+# public_console_url: "https://console.mydomain.com"
 #
 # enable_tls: true
 # cert_file: "/etc/letsencrypt/live/s3.mydomain.com/fullchain.pem"
@@ -264,7 +264,7 @@ metrics:
 # metrics:
 #   enable: true
 #   path: "/metrics"
-#   interval: 60
+#   interval: 10
 
 # --- Example 2: Behind Nginx Reverse Proxy (RECOMMENDED) ---
 # In this setup, MaxIOFS listens on localhost only and nginx handles TLS

@@ -79,8 +79,12 @@ export default function BucketDetailsPage() {
   const uploadMutation = useMutation({
     mutationFn: (data: UploadRequest) => APIClient.uploadObject(data),
     onSuccess: (response, variables) => {
+      // Invalidate ALL object queries for this bucket (any prefix)
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      // Invalidate bucket metadata with specific tenantId
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
+      // Invalidate buckets list to update counters
+      queryClient.invalidateQueries({ queryKey: ['buckets'] });
       setIsUploadModalOpen(false);
       setSelectedFiles(null);
 
@@ -111,8 +115,12 @@ export default function BucketDetailsPage() {
       });
     },
     onSuccess: () => {
+      // Invalidate ALL object queries for this bucket (any prefix)
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      // Invalidate bucket metadata with specific tenantId
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
+      // Invalidate buckets list to update counters
+      queryClient.invalidateQueries({ queryKey: ['buckets'] });
       setIsCreateFolderModalOpen(false);
       setNewFolderName('');
       SweetAlert.toast('success', `Folder "${newFolderName}" created successfully`);
@@ -190,9 +198,12 @@ export default function BucketDetailsPage() {
       return APIClient.deleteObject(bucket, key, tenantId);
     },
     onSuccess: () => {
-      // Invalidate all object queries for this bucket to ensure UI updates
+      // Invalidate ALL object queries for this bucket (any prefix)
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      // Invalidate bucket metadata with specific tenantId
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
+      // Invalidate buckets list to update counters
+      queryClient.invalidateQueries({ queryKey: ['buckets'] });
       SweetAlert.toast('success', 'Object deleted successfully');
     },
     onError: (error: any) => {
@@ -205,6 +216,19 @@ export default function BucketDetailsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shares', bucketName, tenantId] });
       SweetAlert.toast('success', 'Share deleted successfully');
+    },
+    onError: (error: any) => {
+      SweetAlert.apiError(error);
+    },
+  });
+
+  const toggleLegalHoldMutation = useMutation({
+    mutationFn: ({ key, enabled }: { key: string; enabled: boolean }) =>
+      APIClient.putObjectLegalHold(bucketName, key, enabled),
+    onSuccess: (_, variables) => {
+      // Invalidate objects to refresh Legal Hold status
+      queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
+      SweetAlert.toast('success', `Legal Hold ${variables.enabled ? 'enabled' : 'disabled'} successfully`);
     },
     onError: (error: any) => {
       SweetAlert.apiError(error);
@@ -318,8 +342,12 @@ export default function BucketDetailsPage() {
 
     // Refresh and close
     if (successCount > 0) {
+      // Invalidate ALL object queries for this bucket (any prefix)
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      // Invalidate bucket metadata with specific tenantId
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
+      // Invalidate buckets list to update counters
+      queryClient.invalidateQueries({ queryKey: ['buckets'] });
     }
 
     setIsUploadModalOpen(false);
@@ -578,6 +606,26 @@ export default function BucketDetailsPage() {
     setIsPresignedURLModalOpen(true);
   };
 
+  const handleToggleLegalHold = async (key: string, currentStatus: boolean) => {
+    const action = currentStatus ? 'disable' : 'enable';
+    const result = await SweetAlert.fire({
+      icon: 'warning',
+      title: `${action === 'enable' ? 'Enable' : 'Disable'} Legal Hold?`,
+      text: `Are you sure you want to ${action} Legal Hold on this object? ${
+        action === 'enable'
+          ? 'The object will not be deletable until Legal Hold is removed.'
+          : 'The object will become deletable again (if not under retention).'
+      }`,
+      showCancelButton: true,
+      confirmButtonText: action === 'enable' ? 'Enable' : 'Disable',
+      cancelButtonText: 'Cancel',
+    });
+
+    if (result.isConfirmed) {
+      toggleLegalHoldMutation.mutate({ key, enabled: !currentStatus });
+    }
+  };
+
   const navigateToFolder = (folderKey: string) => {
     setCurrentPrefix(folderKey);
     setSearchTerm('');
@@ -690,9 +738,12 @@ export default function BucketDetailsPage() {
 
     // Refresh and clear selections
     if (successCount > 0) {
-      // Use refetchQueries for immediate UI update
+      // Use refetchQueries for immediate UI update - invalidate ALL object queries
       queryClient.refetchQueries({ queryKey: ['objects', bucketName] });
-      queryClient.refetchQueries({ queryKey: ['bucket', bucketName] });
+      // Refetch bucket metadata with specific tenantId
+      queryClient.refetchQueries({ queryKey: ['bucket', bucketName, tenantId] });
+      // Refetch buckets list to update counters
+      queryClient.refetchQueries({ queryKey: ['buckets'] });
     }
     setSelectedObjects(new Set());
   };
@@ -1034,7 +1085,10 @@ export default function BucketDetailsPage() {
                   <TableHead>Modified</TableHead>
                   <TableHead>Type</TableHead>
                   {bucketData?.objectLock?.objectLockEnabled && (
-                    <TableHead>Retention</TableHead>
+                    <>
+                      <TableHead>Retention</TableHead>
+                      <TableHead>Legal Hold</TableHead>
+                    </>
                   )}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -1121,6 +1175,28 @@ export default function BucketDetailsPage() {
                         })()}
                       </TableCell>
                     )}
+                    {bucketData?.objectLock?.objectLockEnabled && (
+                      <TableCell>
+                        {(() => {
+                          if (isFolder(item)) {
+                            return <span className="text-gray-400">-</span>;
+                          }
+
+                          if ('legalHold' in item && item.legalHold?.status === 'ON') {
+                            return (
+                              <div className="flex items-center gap-1" title="Legal Hold is active - object cannot be deleted">
+                                <ShieldIcon className="h-3 w-3 text-yellow-600" />
+                                <span className="text-xs font-medium text-yellow-600">
+                                  ON
+                                </span>
+                              </div>
+                            );
+                          }
+
+                          return <span className="text-gray-400 text-xs">OFF</span>;
+                        })()}
+                      </TableCell>
+                    )}
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
                         {!isFolder(item) && (
@@ -1162,6 +1238,18 @@ export default function BucketDetailsPage() {
                             >
                               <LinkIcon className="h-4 w-4" />
                             </Button>
+                            {bucketData?.objectLock?.objectLockEnabled && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleToggleLegalHold(item.key, ('legalHold' in item && item.legalHold?.status === 'ON'))}
+                                disabled={toggleLegalHoldMutation.isPending}
+                                title={('legalHold' in item && item.legalHold?.status === 'ON') ? "Disable Legal Hold" : "Enable Legal Hold"}
+                                className={('legalHold' in item && item.legalHold?.status === 'ON') ? "text-yellow-600 hover:text-yellow-700" : "text-gray-600 hover:text-gray-700"}
+                              >
+                                <ShieldIcon className="h-4 w-4" />
+                              </Button>
+                            )}
                           </>
                         )}
                         <Button

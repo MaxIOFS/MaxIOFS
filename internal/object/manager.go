@@ -27,7 +27,7 @@ type Manager interface {
 	// Basic object operations
 	GetObject(ctx context.Context, bucket, key string, versionID ...string) (*Object, io.ReadCloser, error)
 	PutObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (*Object, error)
-	DeleteObject(ctx context.Context, bucket, key string, versionID ...string) (deleteMarkerVersionID string, err error)
+	DeleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (deleteMarkerVersionID string, err error)
 	ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*ListObjectsResult, error)
 
 	// Metadata operations
@@ -369,7 +369,8 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 
 // DeleteObject deletes an object or creates a delete marker
 // Returns deleteMarkerVersionID if a delete marker was created, empty string otherwise
-func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, versionID ...string) (string, error) {
+// bypassGovernance allows admins to delete objects under GOVERNANCE retention
+func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (string, error) {
 	if err := om.validateObjectName(key); err != nil {
 		return "", err
 	}
@@ -396,7 +397,7 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, v
 		return om.createDeleteMarker(ctx, bucket, key)
 	} else {
 		// DELETE without versioning → Legacy behavior (permanent delete)
-		return "", om.deletePermanently(ctx, bucket, key)
+		return "", om.deletePermanently(ctx, bucket, key, bypassGovernance)
 	}
 }
 
@@ -566,7 +567,7 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 }
 
 // deletePermanently permanently deletes an object (legacy behavior without versioning)
-func (om *objectManager) deletePermanently(ctx context.Context, bucket, key string) error {
+func (om *objectManager) deletePermanently(ctx context.Context, bucket, key string, bypassGovernance bool) error {
 	objectPath := om.getObjectPath(bucket, key)
 
 	// Get metadata
@@ -608,7 +609,14 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 				return NewComplianceRetentionError(objMetadata.Retention.RetainUntilDate)
 			}
 			if objMetadata.Retention.Mode == RetentionModeGovernance {
-				return NewGovernanceRetentionError(objMetadata.Retention.RetainUntilDate)
+				// Allow bypass if flag is set (caller must validate admin permissions)
+				if !bypassGovernance {
+					return NewGovernanceRetentionError(objMetadata.Retention.RetainUntilDate)
+				}
+				logrus.WithFields(logrus.Fields{
+					"bucket": bucket,
+					"key":    key,
+				}).Info("Bypassing GOVERNANCE retention for delete")
 			}
 		}
 	}
@@ -640,9 +648,31 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 	// Update bucket metrics (best effort - don't fail if this errors)
 	if om.bucketManager != nil {
 		tenantID, bucketName := om.parseBucketPath(bucket)
+		logrus.WithFields(logrus.Fields{
+			"bucket":      bucket,
+			"tenantID":    tenantID,
+			"bucketName":  bucketName,
+			"key":         key,
+			"objectSize":  objectSize,
+		}).Debug("Decrementing bucket metrics after delete")
+
 		if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objectSize); err != nil {
-			logrus.WithError(err).Warn("Failed to update bucket metrics")
+			logrus.WithFields(logrus.Fields{
+				"bucket":      bucket,
+				"tenantID":    tenantID,
+				"bucketName":  bucketName,
+				"objectSize":  objectSize,
+			}).WithError(err).Error("Failed to update bucket metrics after delete")
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"bucket":      bucket,
+				"tenantID":    tenantID,
+				"bucketName":  bucketName,
+				"objectSize":  objectSize,
+			}).Info("Successfully decremented bucket metrics")
 		}
+	} else {
+		logrus.Warn("BucketManager is nil, cannot update metrics")
 	}
 
 	return nil
