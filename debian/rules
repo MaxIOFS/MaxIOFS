@@ -29,7 +29,9 @@ override_dh_auto_clean:
 
 override_dh_auto_build:
 	# Build frontend
-	cd web/frontend && npm ci && npm run build
+	cd web/frontend && npm ci --legacy-peer-deps
+	chmod -R +x web/frontend/node_modules/.bin/* || true
+	cd web/frontend && npm run build
 	# Build backend with version info
 	mkdir -p build
 	go build $(GOFLAGS) $(LDFLAGS) -buildvcs=false -o build/maxiofs ./cmd/maxiofs

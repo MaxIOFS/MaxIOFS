@@ -88,19 +88,18 @@ ifeq ($(DETECTED_OS),Windows)
 	@cd $(WEB_DIR) && npm install
 	@echo Building Vite production bundle...
 	@cd $(WEB_DIR) && npm run build
-	@if not exist "$(WEB_DIR)\dist" (echo Error: Build directory 'dist' was not created! && exit /b 1)
+	@if not exist "$(WEB_DIR)\dist" echo Error: Build directory 'dist' was not created! && exit /b 1
 else
 	@rm -rf $(WEB_DIR)/dist
 	@echo Installing dependencies...
-	@cd $(WEB_DIR) && npm install
+	@cd $(WEB_DIR) && npm ci --legacy-peer-deps || npm install
+	@echo Fixing executable permissions...
+	@chmod -R +x $(WEB_DIR)/node_modules/.bin/* 2>/dev/null || true
 	@echo Building Vite production bundle...
 	@cd $(WEB_DIR) && NODE_ENV=production npm run build
-	@if [ ! -d "$(WEB_DIR)/dist" ]; then \
-		echo "Error: Build directory 'dist' was not created!"; \
-		exit 1; \
-	fi
+	@test -d "$(WEB_DIR)/dist" || exit 1
 endif
-	@echo Web frontend built successfully (static bundle in $(WEB_DIR)/dist)
+	@echo Web frontend built successfully - static bundle in $(WEB_DIR)/dist
 
 # Build the Go server
 .PHONY: build-server
@@ -381,7 +380,7 @@ ifneq ($(DETECTED_OS),Windows)
 	
 	@echo "Copying files..."
 	@cp config.example.yaml $(BUILD_DIR)/debian-package/etc/maxiofs/config.yaml
-	@cp debian/control $(BUILD_DIR)/debian-package/DEBIAN/
+	@cp debian/control $(BUILD_DIR)/debian-package/DEBIAN/control
 	@cp debian/postinst $(BUILD_DIR)/debian-package/DEBIAN/
 	@cp debian/prerm $(BUILD_DIR)/debian-package/DEBIAN/
 	@cp debian/postrm $(BUILD_DIR)/debian-package/DEBIAN/
@@ -418,6 +417,65 @@ ifneq ($(DETECTED_OS),Windows)
 	@echo "  2. Start service: sudo systemctl start maxiofs"
 	@echo "  3. Check status: sudo systemctl status maxiofs"
 	@echo "  4. View logs: sudo journalctl -u maxiofs -f"
+else
+	@echo "Error: Debian package building is only supported on Linux"
+	@echo "Please run this target on a Linux system with dpkg-dev installed"
+	@exit 1
+endif
+
+# Debian package build for ARM64
+.PHONY: deb-arm64
+deb-arm64: build-web
+	@echo "Building Debian package for ARM64..."
+ifneq ($(DETECTED_OS),Windows)
+	@echo "Checking for required tools..."
+	@which dpkg-deb >/dev/null || (echo "Error: dpkg-deb not found. Install with: sudo apt-get install dpkg-dev" && exit 1)
+	@echo "Creating package structure..."
+	@rm -rf $(BUILD_DIR)/debian-package-arm64
+	@mkdir -p $(BUILD_DIR)/debian-package-arm64/DEBIAN
+	@mkdir -p $(BUILD_DIR)/debian-package-arm64/opt/maxiofs
+	@mkdir -p $(BUILD_DIR)/debian-package-arm64/etc/maxiofs
+	@mkdir -p $(BUILD_DIR)/debian-package-arm64/lib/systemd/system
+	@mkdir -p $(BUILD_DIR)/debian-package-arm64/var/lib/maxiofs
+	@mkdir -p $(BUILD_DIR)/debian-package-arm64/var/log/maxiofs
+	
+	@echo "Building Linux ARM64 binary..."
+	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/debian-package-arm64/opt/maxiofs/maxiofs ./cmd/maxiofs
+	
+	@echo "Copying files..."
+	@cp config.example.yaml $(BUILD_DIR)/debian-package-arm64/etc/maxiofs/config.yaml
+	@cp debian/control $(BUILD_DIR)/debian-package-arm64/DEBIAN/control
+	@sed -i 's/Architecture: amd64/Architecture: arm64/' $(BUILD_DIR)/debian-package-arm64/DEBIAN/control
+	@cp debian/postinst $(BUILD_DIR)/debian-package-arm64/DEBIAN/
+	@cp debian/prerm $(BUILD_DIR)/debian-package-arm64/DEBIAN/
+	@cp debian/postrm $(BUILD_DIR)/debian-package-arm64/DEBIAN/
+	@cp debian/maxiofs.service $(BUILD_DIR)/debian-package-arm64/lib/systemd/system/
+	
+	@echo "Setting permissions..."
+	@chmod 755 $(BUILD_DIR)/debian-package-arm64/DEBIAN/postinst
+	@chmod 755 $(BUILD_DIR)/debian-package-arm64/DEBIAN/prerm
+	@chmod 755 $(BUILD_DIR)/debian-package-arm64/DEBIAN/postrm
+	@chmod 755 $(BUILD_DIR)/debian-package-arm64/opt/maxiofs/maxiofs
+	@chmod 644 $(BUILD_DIR)/debian-package-arm64/etc/maxiofs/config.yaml
+	@chmod 644 $(BUILD_DIR)/debian-package-arm64/lib/systemd/system/maxiofs.service
+	
+	@echo "Building .deb package..."
+	@dpkg-deb --build $(BUILD_DIR)/debian-package-arm64 $(BUILD_DIR)/maxiofs_$(VERSION)_arm64.deb
+	
+	@echo ""
+	@echo "=========================================="
+	@echo "Debian ARM64 package created successfully!"
+	@echo "=========================================="
+	@echo "Package: $(BUILD_DIR)/maxiofs_$(VERSION)_arm64.deb"
+	@echo ""
+	@echo "To install on ARM64 system:"
+	@echo "  sudo dpkg -i $(BUILD_DIR)/maxiofs_$(VERSION)_arm64.deb"
+	@echo ""
+	@echo "Compatible with:"
+	@echo "  - Raspberry Pi 3/4/5 (64-bit OS)"
+	@echo "  - AWS Graviton instances"
+	@echo "  - Oracle Cloud Ampere"
+	@echo "  - Any ARM64 Linux system"
 else
 	@echo "Error: Debian package building is only supported on Linux"
 	@echo "Please run this target on a Linux system with dpkg-dev installed"
@@ -498,7 +556,8 @@ help:
 	@echo "  docker-build       - Build Docker image"
 	@echo "  docker-run         - Run in Docker"
 	@echo "  release            - Create release build"
-	@echo "  deb                - Build Debian package (Linux only)"
+	@echo "  deb                - Build Debian package AMD64 (Linux only)"
+	@echo "  deb-arm64          - Build Debian package ARM64 (Linux only)"
 	@echo "  deb-install        - Build and install Debian package locally"
 	@echo "  deb-uninstall      - Uninstall Debian package"
 	@echo "  deb-clean          - Clean Debian build artifacts"
@@ -508,5 +567,6 @@ help:
 	@echo "  make build VERSION=v1.0.0           - Build with version"
 	@echo "  make build-linux                     - Cross-compile for Linux"
 	@echo "  make build-all                       - Build for all platforms"
-	@echo "  make deb VERSION=v0.3.7-beta        - Build Debian package"
+	@echo "  make deb VERSION=v0.3.1-beta        - Build Debian AMD64 package"
+	@echo "  make deb-arm64 VERSION=v0.3.1-beta  - Build Debian ARM64 package"
 	@echo "  make deb-install                     - Build and install package"

@@ -7,10 +7,11 @@ Standards-Version: 4.5.1
 Homepage: https://github.com/aluisco/maxiofs
 Vcs-Git: https://github.com/aluisco/maxiofs.git
 Vcs-Browser: https://github.com/aluisco/maxiofs
-
+ .
 Package: maxiofs
+Version: 0.3.1-beta
 Architecture: amd64
-Depends: ${shlibs:Depends}, ${misc:Depends}, adduser
+Depends: libc6, adduser
 Recommends: nginx, logrotate
 Suggests: certbot
 Description: High-Performance S3-Compatible Object Storage
