@@ -337,7 +337,7 @@ func (am *authManager) GenerateJWT(ctx context.Context, user *User) (string, err
 		TenantID:  user.TenantID,
 		AccessKey: accessKey,
 		Roles:     user.Roles,
-		ExpiresAt: now.Add(30 * time.Minute).Unix(), // 30 minute expiry for session timeout
+		ExpiresAt: now.Add(24 * time.Hour).Unix(), // 24 hour max session - idle timeout handled by frontend
 		IssuedAt:  now.Unix(),
 		NotBefore: now.Unix(),
 		Issuer:    "maxiofs",

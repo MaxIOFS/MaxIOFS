@@ -1,0 +1,78 @@
+#!/bin/bash
+# postinst script for maxiofs
+# This script runs after the package files are unpacked
+
+set -e
+
+case "$1" in
+    configure)
+        # Create maxiofs system user if it doesn't exist
+        if ! getent passwd maxiofs > /dev/null 2>&1; then
+            echo "Creating maxiofs system user..."
+            adduser --system --group --home /var/lib/maxiofs \
+                    --no-create-home --disabled-login \
+                    --gecos "MaxIOFS Server" maxiofs
+        fi
+
+        # Set ownership of directories
+        chown -R maxiofs:maxiofs /var/lib/maxiofs
+        chown -R maxiofs:maxiofs /var/log/maxiofs
+        chown maxiofs:maxiofs /etc/maxiofs/config.yaml
+
+        # Set permissions
+        chmod 0750 /var/lib/maxiofs/data
+        chmod 0750 /var/log/maxiofs
+        chmod 0640 /etc/maxiofs/config.yaml
+
+        # Reload systemd
+        if [ -d /run/systemd/system ]; then
+            systemctl --system daemon-reload >/dev/null || true
+        fi
+
+        # Enable service (but don't start it automatically)
+        if [ -d /run/systemd/system ]; then
+            systemctl enable maxiofs.service >/dev/null || true
+            echo ""
+            echo "========================================"
+            echo "MaxIOFS has been installed successfully!"
+            echo "========================================"
+            echo ""
+            echo "Configuration file: /etc/maxiofs/config.yaml"
+            echo "Data directory: /var/lib/maxiofs/data"
+            echo "Log directory: /var/log/maxiofs"
+            echo ""
+            echo "IMPORTANT: Before starting MaxIOFS, please:"
+            echo "  1. Edit /etc/maxiofs/config.yaml with your settings"
+            echo "  2. Ensure the data_dir is configured correctly"
+            echo "  3. Review security settings (TLS, authentication)"
+            echo ""
+            echo "To start MaxIOFS:"
+            echo "  sudo systemctl start maxiofs"
+            echo ""
+            echo "To enable auto-start on boot:"
+            echo "  sudo systemctl enable maxiofs"
+            echo ""
+            echo "To check status:"
+            echo "  sudo systemctl status maxiofs"
+            echo ""
+            echo "To view logs:"
+            echo "  sudo journalctl -u maxiofs -f"
+            echo ""
+            echo "Web Console: http://localhost:8081"
+            echo "S3 API: http://localhost:8080"
+            echo ""
+        fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

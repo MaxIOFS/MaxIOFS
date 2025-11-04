@@ -1,0 +1,67 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Debian package build rules for MaxIOFS
+# This file controls how the package is built and installed
+
+export DH_VERBOSE=1
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND  = -Wall -pedantic
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+
+# Get version from debian/changelog
+VERSION := $(shell dpkg-parsechangelog -S Version | cut -d- -f1)
+COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Build flags for Go
+export GOFLAGS = -mod=readonly -modcacherw
+LDFLAGS = -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_DATE)"
+
+%:
+	dh $@
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -rf build/
+	rm -rf web/frontend/dist/
+	rm -rf web/frontend/node_modules/
+
+override_dh_auto_build:
+	# Build frontend
+	cd web/frontend && npm ci && npm run build
+	# Build backend with version info
+	mkdir -p build
+	go build $(GOFLAGS) $(LDFLAGS) -buildvcs=false -o build/maxiofs ./cmd/maxiofs
+
+override_dh_auto_install:
+	# Create directories
+	mkdir -p debian/maxiofs/opt/maxiofs
+	mkdir -p debian/maxiofs/etc/maxiofs
+	mkdir -p debian/maxiofs/etc/logrotate.d
+	mkdir -p debian/maxiofs/var/lib/maxiofs
+	mkdir -p debian/maxiofs/var/log/maxiofs
+	
+	# Install binary
+	install -m 0755 build/maxiofs debian/maxiofs/opt/maxiofs/maxiofs
+	
+	# Install config
+	install -m 0644 config.example.yaml debian/maxiofs/etc/maxiofs/config.yaml
+	
+	# Install logrotate config
+	install -m 0644 debian/maxiofs.logrotate debian/maxiofs/etc/logrotate.d/maxiofs
+
+override_dh_installsystemd:
+	dh_installsystemd --name=maxiofs
+
+override_dh_auto_test:
+	# Skip tests during package build (they can be run separately)
+	@echo "Skipping tests during package build"
+
+override_dh_fixperms:
+	dh_fixperms
+	# Ensure data directory is writable by maxiofs user
+	chmod 0750 debian/maxiofs/var/lib/maxiofs
+	chmod 0750 debian/maxiofs/var/log/maxiofs
+
+.PHONY: override_dh_auto_clean override_dh_auto_build override_dh_auto_install override_dh_installsystemd override_dh_auto_test override_dh_fixperms

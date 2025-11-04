@@ -111,10 +111,10 @@ class TokenManager {
         localStorage.setItem('refresh_token', refreshToken);
       }
 
-      // Also set in cookies for middleware (30 minutes = 1800 seconds)
-      document.cookie = `auth_token=${token}; path=/; max-age=${30 * 60}`; // 30 minutes
+      // Also set in cookies for middleware (24 hours max, idle timeout handled by useIdleTimer)
+      document.cookie = `auth_token=${token}; path=/; max-age=${24 * 60 * 60}`; // 24 hours
       if (refreshToken) {
-        document.cookie = `refresh_token=${refreshToken}; path=/; max-age=${30 * 60}`;
+        document.cookie = `refresh_token=${refreshToken}; path=/; max-age=${24 * 60 * 60}`;
       }
     }
   }

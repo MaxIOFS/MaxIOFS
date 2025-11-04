@@ -1,0 +1,24 @@
+maxiofs (0.3.1-beta) unstable; urgency=medium
+
+  * Beta release with S3 core features complete
+  * Full multi-tenancy support with quotas
+  * Object Lock and versioning implemented
+  * Enhanced web console with metrics
+  * BadgerDB integration for high-performance metadata
+  * Lifecycle policies support
+  * CORS and bucket policies
+  * Fixed VEEAM backup deletion issues
+  * Improved streaming for large file operations
+  * Enhanced error handling and logging
+
+ -- MaxIOFS Team <info@maxiofs.com>  Mon, 04 Nov 2025 00:00:00 +0000
+
+maxiofs (0.3.0-beta) unstable; urgency=medium
+
+  * Initial beta release
+  * S3 API compatibility (95/98 tests passing)
+  * Basic multi-tenancy support
+  * Web console interface
+  * Object storage with filesystem backend
+
+ -- MaxIOFS Team <info@maxiofs.com>  Mon, 01 Oct 2025 00:00:00 +0000

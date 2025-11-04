@@ -1,0 +1,34 @@
+#!/bin/bash
+# prerm script for maxiofs
+# This script runs before the package is removed
+
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        # Stop the service if it's running
+        if [ -d /run/systemd/system ]; then
+            if systemctl is-active --quiet maxiofs.service; then
+                echo "Stopping MaxIOFS service..."
+                systemctl stop maxiofs.service >/dev/null || true
+            fi
+            
+            # Disable the service on removal (not on upgrade)
+            if [ "$1" = "remove" ]; then
+                systemctl disable maxiofs.service >/dev/null || true
+            fi
+        fi
+        ;;
+
+    failed-upgrade)
+        ;;
+
+    *)
+        echo "prerm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

@@ -1,0 +1,30 @@
+Source: maxiofs
+Section: net
+Priority: optional
+Maintainer: MaxIOFS Team <info@maxiofs.com>
+Build-Depends: debhelper (>= 10), golang-go (>= 1.21), nodejs (>= 18), npm
+Standards-Version: 4.5.1
+Homepage: https://github.com/aluisco/maxiofs
+Vcs-Git: https://github.com/aluisco/maxiofs.git
+Vcs-Browser: https://github.com/aluisco/maxiofs
+
+Package: maxiofs
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, adduser
+Recommends: nginx, logrotate
+Suggests: certbot
+Description: High-Performance S3-Compatible Object Storage
+ MaxIOFS is a high-performance, S3-compatible object storage system
+ built in Go with an embedded Next.js web interface.
+ .
+ Features:
+  * Full S3 API compatibility (97%+ tests passing)
+  * Multi-tenancy with resource isolation and quotas
+  * Object Lock (WORM) and versioning support
+  * Built-in web console for management
+  * BadgerDB metadata store for high performance
+  * Support for multipart uploads and presigned URLs
+  * Lifecycle policies and CORS configuration
+  * JWT and S3 signature authentication
+  * Real-time metrics and monitoring
+  * Single binary deployment

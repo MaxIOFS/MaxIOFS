@@ -360,6 +360,113 @@ release: clean test lint build-all
 	cd $(BUILD_DIR)/release && sha256sum * > checksums.txt
 	@echo "Release created in $(BUILD_DIR)/release/"
 
+# Debian package build
+.PHONY: deb
+deb: build-web
+	@echo "Building Debian package..."
+ifneq ($(DETECTED_OS),Windows)
+	@echo "Checking for required tools..."
+	@which dpkg-deb >/dev/null || (echo "Error: dpkg-deb not found. Install with: sudo apt-get install dpkg-dev" && exit 1)
+	@echo "Creating package structure..."
+	@rm -rf $(BUILD_DIR)/debian-package
+	@mkdir -p $(BUILD_DIR)/debian-package/DEBIAN
+	@mkdir -p $(BUILD_DIR)/debian-package/opt/maxiofs
+	@mkdir -p $(BUILD_DIR)/debian-package/etc/maxiofs
+	@mkdir -p $(BUILD_DIR)/debian-package/lib/systemd/system
+	@mkdir -p $(BUILD_DIR)/debian-package/var/lib/maxiofs
+	@mkdir -p $(BUILD_DIR)/debian-package/var/log/maxiofs
+	
+	@echo "Building Linux AMD64 binary..."
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/debian-package/opt/maxiofs/maxiofs ./cmd/maxiofs
+	
+	@echo "Copying files..."
+	@cp config.example.yaml $(BUILD_DIR)/debian-package/etc/maxiofs/config.yaml
+	@cp debian/control $(BUILD_DIR)/debian-package/DEBIAN/
+	@cp debian/postinst $(BUILD_DIR)/debian-package/DEBIAN/
+	@cp debian/prerm $(BUILD_DIR)/debian-package/DEBIAN/
+	@cp debian/postrm $(BUILD_DIR)/debian-package/DEBIAN/
+	@cp debian/maxiofs.service $(BUILD_DIR)/debian-package/lib/systemd/system/
+	
+	@echo "Setting permissions..."
+	@chmod 755 $(BUILD_DIR)/debian-package/DEBIAN/postinst
+	@chmod 755 $(BUILD_DIR)/debian-package/DEBIAN/prerm
+	@chmod 755 $(BUILD_DIR)/debian-package/DEBIAN/postrm
+	@chmod 755 $(BUILD_DIR)/debian-package/opt/maxiofs/maxiofs
+	@chmod 644 $(BUILD_DIR)/debian-package/etc/maxiofs/config.yaml
+	@chmod 644 $(BUILD_DIR)/debian-package/lib/systemd/system/maxiofs.service
+	
+	@echo "Building .deb package..."
+	@dpkg-deb --build $(BUILD_DIR)/debian-package $(BUILD_DIR)/maxiofs_$(VERSION)_amd64.deb
+	
+	@echo ""
+	@echo "=========================================="
+	@echo "Debian package created successfully!"
+	@echo "=========================================="
+	@echo "Package: $(BUILD_DIR)/maxiofs_$(VERSION)_amd64.deb"
+	@echo ""
+	@echo "To install:"
+	@echo "  sudo dpkg -i $(BUILD_DIR)/maxiofs_$(VERSION)_amd64.deb"
+	@echo ""
+	@echo "To remove:"
+	@echo "  sudo apt-get remove maxiofs"
+	@echo ""
+	@echo "To purge (remove data):"
+	@echo "  sudo apt-get purge maxiofs"
+	@echo ""
+	@echo "After installation:"
+	@echo "  1. Edit /etc/maxiofs/config.yaml"
+	@echo "  2. Start service: sudo systemctl start maxiofs"
+	@echo "  3. Check status: sudo systemctl status maxiofs"
+	@echo "  4. View logs: sudo journalctl -u maxiofs -f"
+else
+	@echo "Error: Debian package building is only supported on Linux"
+	@echo "Please run this target on a Linux system with dpkg-dev installed"
+	@exit 1
+endif
+
+# Install Debian package locally (for testing)
+.PHONY: deb-install
+deb-install: deb
+	@echo "Installing Debian package locally..."
+ifneq ($(DETECTED_OS),Windows)
+	sudo dpkg -i $(BUILD_DIR)/maxiofs_$(VERSION)_amd64.deb || sudo apt-get install -f -y
+	@echo ""
+	@echo "Package installed! Service status:"
+	sudo systemctl status maxiofs --no-pager || true
+	@echo ""
+	@echo "Configuration file: /etc/maxiofs/config.yaml"
+	@echo "Data directory: /var/lib/maxiofs"
+	@echo "Logs: /var/log/maxiofs or 'sudo journalctl -u maxiofs -f'"
+	@echo ""
+	@echo "To start: sudo systemctl start maxiofs"
+	@echo "To enable on boot: sudo systemctl enable maxiofs"
+else
+	@echo "Error: Installation is only supported on Linux"
+	@exit 1
+endif
+
+# Uninstall Debian package (for testing)
+.PHONY: deb-uninstall
+deb-uninstall:
+	@echo "Uninstalling MaxIOFS..."
+ifneq ($(DETECTED_OS),Windows)
+	sudo systemctl stop maxiofs || true
+	sudo apt-get remove maxiofs -y || true
+	@echo "MaxIOFS uninstalled (data preserved in /var/lib/maxiofs)"
+	@echo "To completely remove data: sudo apt-get purge maxiofs -y"
+else
+	@echo "Error: Uninstallation is only supported on Linux"
+	@exit 1
+endif
+
+# Clean Debian build artifacts
+.PHONY: deb-clean
+deb-clean:
+	@echo "Cleaning Debian package artifacts..."
+	@rm -rf $(BUILD_DIR)/debian-package
+	@rm -f $(BUILD_DIR)/maxiofs_*.deb
+	@echo "Debian artifacts cleaned"
+
 # Help target
 .PHONY: help
 help:
@@ -391,9 +498,15 @@ help:
 	@echo "  docker-build       - Build Docker image"
 	@echo "  docker-run         - Run in Docker"
 	@echo "  release            - Create release build"
+	@echo "  deb                - Build Debian package (Linux only)"
+	@echo "  deb-install        - Build and install Debian package locally"
+	@echo "  deb-uninstall      - Uninstall Debian package"
+	@echo "  deb-clean          - Clean Debian build artifacts"
 	@echo "  help               - Show this help message"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make build VERSION=v1.0.0           - Build with version"
 	@echo "  make build-linux                     - Cross-compile for Linux"
 	@echo "  make build-all                       - Build for all platforms"
+	@echo "  make deb VERSION=v0.3.7-beta        - Build Debian package"
+	@echo "  make deb-install                     - Build and install package"

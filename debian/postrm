@@ -1,0 +1,48 @@
+#!/bin/bash
+# postrm script for maxiofs
+# This script runs after the package is removed
+
+set -e
+
+case "$1" in
+    purge)
+        # Remove data directory and logs on purge
+        echo "Purging MaxIOFS data and logs..."
+        rm -rf /var/lib/maxiofs
+        rm -rf /var/log/maxiofs
+        rm -rf /etc/maxiofs
+        
+        # Remove user and group
+        if getent passwd maxiofs > /dev/null 2>&1; then
+            echo "Removing maxiofs system user..."
+            deluser --quiet maxiofs > /dev/null || true
+        fi
+        
+        echo "MaxIOFS has been completely removed."
+        ;;
+
+    remove)
+        # On remove (not purge), keep data but remove service file
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload >/dev/null || true
+        fi
+        
+        echo ""
+        echo "MaxIOFS has been removed."
+        echo "Data directory /var/lib/maxiofs has been preserved."
+        echo "To completely remove all data, run: sudo apt-get purge maxiofs"
+        echo ""
+        ;;
+
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0
