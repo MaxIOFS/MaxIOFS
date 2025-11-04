@@ -11,6 +11,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/storage"
+	"github.com/sirupsen/logrus"
 )
 
 // badgerBucketManager implements Manager using BadgerDB for metadata
@@ -406,15 +407,47 @@ func (bm *badgerBucketManager) isBucketEmpty(ctx context.Context, tenantID, name
 		return false, err
 	}
 
-	// Filter out the bucket marker file
+	bucketPath := bm.getTenantBucketPath(tenantID, name)
+	hasValidObjects := false
+
+	// Check each physical file
 	for _, obj := range objects {
-		if !strings.HasSuffix(obj.Path, ".maxiofs-bucket") &&
-			!strings.Contains(obj.Path, "/.maxiofs-") {
-			return false, nil
+		// Skip bucket marker and internal files
+		if strings.HasSuffix(obj.Path, ".maxiofs-bucket") || strings.Contains(obj.Path, "/.maxiofs-") {
+			continue
 		}
+
+		// Extract object key from path
+		objectKey := strings.TrimPrefix(obj.Path, prefix)
+		if objectKey == "" {
+			continue
+		}
+
+		// Check if metadata exists in BadgerDB
+		_, err := bm.metadataStore.GetObject(ctx, bucketPath, objectKey)
+		if err != nil {
+			if err == metadata.ErrObjectNotFound {
+				// Orphaned physical file - delete it
+				logrus.WithFields(logrus.Fields{
+					"bucket": bucketPath,
+					"key":    objectKey,
+					"path":   obj.Path,
+				}).Warn("Found orphaned physical file without metadata - deleting")
+
+				if delErr := bm.storage.Delete(ctx, obj.Path); delErr != nil {
+					logrus.WithError(delErr).Error("Failed to delete orphaned file")
+				}
+				continue
+			}
+			// Other error - assume file is valid to be safe
+			return false, err
+		}
+
+		// Valid object with metadata
+		hasValidObjects = true
 	}
 
-	return true, nil
+	return !hasValidObjects, nil
 }
 
 // getTenantBucketPath returns the storage path for a tenant's bucket

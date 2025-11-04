@@ -621,25 +621,38 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 		}
 	}
 
-	// Delete metadata from BadgerDB FIRST
-	// If this fails, we stop and don't touch the physical file
-	if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil {
-		if err == metadata.ErrObjectNotFound {
-			// Metadata doesn't exist, but maybe physical file is orphaned - delete it anyway
-			logrus.WithFields(logrus.Fields{
-				"bucket": bucket,
-				"key":    key,
-			}).Debug("Metadata not found, attempting to delete orphaned physical file")
-		} else {
-			return fmt.Errorf("failed to delete object metadata: %w", err)
+	// Delete object: physical file AND metadata together
+	// Step 1: Delete physical file
+	physicalDeleted := false
+	if err := om.storage.Delete(ctx, objectPath); err != nil {
+		if err != storage.ErrObjectNotFound {
+			return fmt.Errorf("failed to delete physical file: %w", err)
 		}
+	} else {
+		physicalDeleted = true
 	}
 
-	// Now delete physical file
-	// Even if metadata deletion failed with NotFound, we still try to clean up the physical file
-	if err := om.storage.Delete(ctx, objectPath); err != nil && err != storage.ErrObjectNotFound {
-		logrus.WithError(err).Error("Failed to delete physical file after metadata deletion")
-		// Continue anyway - metadata is already gone
+	// Step 2: Delete metadata from BadgerDB
+	if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil {
+		if err != metadata.ErrObjectNotFound {
+			// Metadata delete failed but physical file was deleted
+			// This creates inconsistency - need to update bucket counters
+			if physicalDeleted {
+				logrus.WithFields(logrus.Fields{
+					"bucket": bucket,
+					"key":    key,
+				}).Error("Physical file deleted but metadata deletion failed - bucket counters may be incorrect")
+
+				// Decrement bucket counter since physical file is gone
+				if om.bucketManager != nil {
+					tenantID, bucketName := om.parseBucketPath(bucket)
+					if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objectSize); err != nil {
+						logrus.WithError(err).Error("Failed to update bucket counters after inconsistent delete")
+					}
+				}
+			}
+			return fmt.Errorf("failed to delete metadata: %w", err)
+		}
 	}
 
 	// Clean up empty parent directories
