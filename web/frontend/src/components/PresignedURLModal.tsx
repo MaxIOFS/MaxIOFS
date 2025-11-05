@@ -41,7 +41,7 @@ export function PresignedURLModal({
       setExpiresAt(data.expiresAt);
       SweetAlert.toast('success', 'Presigned URL generated successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });

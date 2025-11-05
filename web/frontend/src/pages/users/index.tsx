@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
@@ -72,7 +71,7 @@ export default function UsersPage() {
       setNewUser({ roles: ['read'], status: 'active' });
       SweetAlert.successUserCreated(variables.username);
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -85,7 +84,7 @@ export default function UsersPage() {
       queryClient.refetchQueries({ queryKey: ['tenants'] });
       SweetAlert.toast('success', 'User updated successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -98,7 +97,7 @@ export default function UsersPage() {
       queryClient.refetchQueries({ queryKey: ['tenants'] });
       SweetAlert.toast('success', 'User deleted successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.close();
       SweetAlert.apiError(error);
     },
@@ -111,7 +110,7 @@ export default function UsersPage() {
       queryClient.refetchQueries({ queryKey: ['locked-users'] });
       SweetAlert.toast('success', 'User unlocked successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });

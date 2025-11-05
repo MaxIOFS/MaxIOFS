@@ -8,19 +8,59 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  TooltipProps,
 } from 'recharts';
 import { Card } from '@/components/ui/Card';
 
+interface DataPoint {
+  [key: string]: string | number | null;
+}
+
 interface MetricLineChartProps {
-  data: any[];
+  data: DataPoint[];
   title: string;
   dataKeys: { key: string; name: string; color: string }[];
   xAxisKey?: string;
   height?: number;
-  formatYAxis?: (value: any) => string;
-  formatTooltip?: (value: any) => string;
+  formatYAxis?: (value: number) => string;
+  formatTooltip?: (value: number) => string;
   timeRange?: { start: number; end: number }; // Unix timestamps in seconds
 }
+
+interface TooltipPayload {
+  name: string;
+  value: number;
+  color: string;
+}
+
+// Custom tooltip component moved outside to prevent re-creation on each render
+const CustomTooltip: React.FC<
+  TooltipProps<number, string> & { formatTooltip?: (value: number) => string }
+> = (props) => {
+  const { active, payload, label, formatTooltip } = props as {
+    active?: boolean;
+    payload?: TooltipPayload[];
+    label?: number;
+    formatTooltip?: (value: number) => string;
+  };
+  if (active && payload && payload.length) {
+    const date = new Date((label as number) * 1000);
+    return (
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3">
+        <p className="text-sm font-medium text-gray-900 dark:text-white mb-2">
+          {date.toLocaleString()}
+        </p>
+        {payload.map((entry: TooltipPayload, index: number) => (
+          <p key={index} className="text-sm" style={{ color: entry.color }}>
+            {entry.name}:{' '}
+            {formatTooltip ? formatTooltip(entry.value) : entry.value.toFixed(2)}
+          </p>
+        ))}
+      </div>
+    );
+  }
+  return null;
+};
 
 export const MetricLineChart: React.FC<MetricLineChartProps> = ({
   data,
@@ -39,8 +79,8 @@ export const MetricLineChart: React.FC<MetricLineChartProps> = ({
     const { start, end } = timeRange;
 
     // Create boundary markers with null values (invisible but fix axis domain)
-    const startMarker: any = { [xAxisKey]: start };
-    const endMarker: any = { [xAxisKey]: end };
+    const startMarker: DataPoint = { [xAxisKey]: start };
+    const endMarker: DataPoint = { [xAxisKey]: end };
 
     dataKeys.forEach(dk => {
       startMarker[dk.key] = null;
@@ -49,8 +89,8 @@ export const MetricLineChart: React.FC<MetricLineChartProps> = ({
 
     // Add boundaries only if data doesn't already cover them
     const result = [...data];
-    const firstTimestamp = data.length > 0 ? data[0][xAxisKey] : Number.MAX_VALUE;
-    const lastTimestamp = data.length > 0 ? data[data.length - 1][xAxisKey] : 0;
+    const firstTimestamp = data.length > 0 ? (data[0][xAxisKey] as number) : Number.MAX_VALUE;
+    const lastTimestamp = data.length > 0 ? (data[data.length - 1][xAxisKey] as number) : 0;
 
     if (start < firstTimestamp) {
       result.unshift(startMarker);
@@ -69,27 +109,6 @@ export const MetricLineChart: React.FC<MetricLineChartProps> = ({
       hour: '2-digit',
       minute: '2-digit',
     });
-  };
-
-  // Custom tooltip
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      const date = new Date(label * 1000);
-      return (
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3">
-          <p className="text-sm font-medium text-gray-900 dark:text-white mb-2">
-            {date.toLocaleString()}
-          </p>
-          {payload.map((entry: any, index: number) => (
-            <p key={index} className="text-sm" style={{ color: entry.color }}>
-              {entry.name}:{' '}
-              {formatTooltip ? formatTooltip(entry.value) : entry.value.toFixed(2)}
-            </p>
-          ))}
-        </div>
-      );
-    }
-    return null;
   };
 
   // Determine X axis domain (fixed to requested time range)
@@ -121,7 +140,7 @@ export const MetricLineChart: React.FC<MetricLineChartProps> = ({
               domain={[0, 'auto']}
               allowDataOverflow={false}
             />
-            <Tooltip content={<CustomTooltip />} />
+            <Tooltip content={<CustomTooltip formatTooltip={formatTooltip} />} />
             <Legend wrapperStyle={{ fontSize: '12px' }} />
             {dataKeys.map((dk) => (
               <Line

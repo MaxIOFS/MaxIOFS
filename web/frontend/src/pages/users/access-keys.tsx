@@ -49,7 +49,7 @@ export default function AccessKeysPage() {
 
       SweetAlert.toast('success', 'Access key deleted successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.close();
       SweetAlert.apiError(error);
     },

@@ -6,15 +6,30 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  TooltipProps,
 } from 'recharts';
 import { Card } from '@/components/ui/Card';
 
+interface PieDataPoint {
+  name: string;
+  value: number;
+  [key: string]: string | number;
+}
+
 interface MetricPieChartProps {
-  data: { name: string; value: number }[];
+  data: PieDataPoint[];
   title: string;
   colors?: string[];
   height?: number;
-  formatTooltip?: (value: any) => string;
+  formatTooltip?: (value: number) => string;
+}
+
+interface TooltipPayload {
+  name: string;
+  value: number;
+  payload: {
+    fill: string;
+  };
 }
 
 const DEFAULT_COLORS = [
@@ -28,6 +43,39 @@ const DEFAULT_COLORS = [
   '#f97316', // orange
 ];
 
+// Custom tooltip component moved outside to prevent re-creation on each render
+const CustomTooltip: React.FC<
+  TooltipProps<number, string> & {
+    formatTooltip?: (value: number) => string;
+    data: PieDataPoint[];
+  }
+> = (props) => {
+  const { active, payload, formatTooltip, data } = props as {
+    active?: boolean;
+    payload?: TooltipPayload[];
+    formatTooltip?: (value: number) => string;
+    data: PieDataPoint[];
+  };
+  if (active && payload && payload.length) {
+    const entry = payload[0] as unknown as TooltipPayload;
+    const totalValue = data.reduce((acc, item) => acc + item.value, 0);
+    const percentage = ((entry.value / totalValue) * 100).toFixed(1);
+
+    return (
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3">
+        <p className="text-sm font-medium text-gray-900 dark:text-white">{entry.name}</p>
+        <p className="text-sm" style={{ color: entry.payload.fill }}>
+          Value: {formatTooltip ? formatTooltip(entry.value) : entry.value.toFixed(2)}
+        </p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          {percentage}%
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
+
 export const MetricPieChart: React.FC<MetricPieChartProps> = ({
   data,
   title,
@@ -35,30 +83,15 @@ export const MetricPieChart: React.FC<MetricPieChartProps> = ({
   height = 300,
   formatTooltip,
 }) => {
-  // Custom tooltip
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const entry = payload[0];
-      return (
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3">
-          <p className="text-sm font-medium text-gray-900 dark:text-white">{entry.name}</p>
-          <p className="text-sm" style={{ color: entry.payload.fill }}>
-            Value: {formatTooltip ? formatTooltip(entry.value) : entry.value.toFixed(2)}
-          </p>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            {((entry.value / data.reduce((acc, item) => acc + item.value, 0)) * 100).toFixed(1)}%
-          </p>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  // Custom label
-  const renderLabel = (entry: any) => {
-    const percent = ((entry.value / data.reduce((acc, item) => acc + item.value, 0)) * 100).toFixed(0);
+  // Custom label using useCallback to prevent re-creation
+  // Note: recharts PieLabelRenderProps type is complex, so we use a flexible type here
+  const renderLabel = React.useCallback((entry: Record<string, unknown>) => {
+    const value = entry.value as number | undefined;
+    if (!value) return '';
+    const totalValue = data.reduce((acc, item) => acc + item.value, 0);
+    const percent = ((value / totalValue) * 100).toFixed(0);
     return `${percent}%`;
-  };
+  }, [data]);
 
   return (
     <Card>
@@ -80,7 +113,7 @@ export const MetricPieChart: React.FC<MetricPieChartProps> = ({
                 <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
               ))}
             </Pie>
-            <Tooltip content={<CustomTooltip />} />
+            <Tooltip content={<CustomTooltip formatTooltip={formatTooltip} data={data} />} />
             <Legend wrapperStyle={{ fontSize: '12px' }} />
           </PieChart>
         </ResponsiveContainer>

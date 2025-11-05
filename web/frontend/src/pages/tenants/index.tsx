@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import {
   Table,
@@ -18,10 +17,8 @@ import {
   Search,
   Settings,
   Trash2,
-  Users,
   Database,
   HardDrive,
-  Key,
   CheckCircle,
   XCircle,
 } from 'lucide-react';
@@ -57,7 +54,7 @@ export default function TenantsPage() {
       setNewTenant({ maxAccessKeys: 10, maxStorageBytes: 107374182400, maxBuckets: 100 });
       SweetAlert.toast('success', `Tenant "${variables.displayName}" created successfully`);
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -71,7 +68,7 @@ export default function TenantsPage() {
       setSelectedTenant(null);
       SweetAlert.toast('success', 'Tenant updated successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -84,7 +81,7 @@ export default function TenantsPage() {
       queryClient.refetchQueries({ queryKey: ['buckets'] });
       SweetAlert.toast('success', 'Tenant deleted successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.close();
       SweetAlert.apiError(error);
     },

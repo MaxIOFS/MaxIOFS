@@ -4,6 +4,13 @@ import { QueryProvider } from '@/components/providers/QueryProvider';
 import { useAuth } from '@/hooks/useAuth';
 import { AppLayout } from '@/components/layout/AppLayout';
 
+// Extend Window interface to include BASE_PATH
+declare global {
+  interface Window {
+    BASE_PATH?: string;
+  }
+}
+
 // Pages
 import Dashboard from '@/pages/index';
 import Login from '@/pages/login';
@@ -46,7 +53,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   // Get base path from window (injected by backend based on public_console_url)
-  const basePath = (window as any).BASE_PATH || '/';
+  const basePath = window.BASE_PATH || '/';
   const basename = basePath === '/' ? undefined : basePath.replace(/\/$/, '');
 
   return (

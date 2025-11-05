@@ -38,7 +38,7 @@ export default function BucketsPage() {
       queryClient.refetchQueries({ queryKey: ['tenants'] });
       SweetAlert.successBucketDeleted(bucketName);
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });

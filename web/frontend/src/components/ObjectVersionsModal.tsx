@@ -53,7 +53,7 @@ export function ObjectVersionsModal({
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
       SweetAlert.toast('success', 'Version deleted successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });

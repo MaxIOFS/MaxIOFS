@@ -92,7 +92,7 @@ export default function BucketDetailsPage() {
       const fileName = variables.key.split('/').pop() || variables.key;
       SweetAlert.successUpload(fileName);
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -125,7 +125,7 @@ export default function BucketDetailsPage() {
       setNewFolderName('');
       SweetAlert.toast('success', `Folder "${newFolderName}" created successfully`);
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -206,7 +206,7 @@ export default function BucketDetailsPage() {
       queryClient.invalidateQueries({ queryKey: ['buckets'] });
       SweetAlert.toast('success', 'Object deleted successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -217,7 +217,7 @@ export default function BucketDetailsPage() {
       queryClient.invalidateQueries({ queryKey: ['shares', bucketName, tenantId] });
       SweetAlert.toast('success', 'Share deleted successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -230,7 +230,7 @@ export default function BucketDetailsPage() {
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
       SweetAlert.toast('success', `Legal Hold ${variables.enabled ? 'enabled' : 'disabled'} successfully`);
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });

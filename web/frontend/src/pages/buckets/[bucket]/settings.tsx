@@ -76,7 +76,7 @@ export default function BucketSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
       SweetAlert.toast('success', 'Versioning updated successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -93,7 +93,7 @@ export default function BucketSettingsPage() {
       loadCurrentPolicy(); // Reload policy after save
       SweetAlert.toast('success', 'Bucket policy updated successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -105,7 +105,7 @@ export default function BucketSettingsPage() {
       loadCurrentPolicy(); // Reload policy after delete
       SweetAlert.toast('success', 'Bucket policy deleted successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -118,7 +118,7 @@ export default function BucketSettingsPage() {
       setIsCORSModalOpen(false);
       SweetAlert.toast('success', 'CORS configuration updated successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -129,7 +129,7 @@ export default function BucketSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
       SweetAlert.toast('success', 'CORS configuration deleted successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -142,7 +142,7 @@ export default function BucketSettingsPage() {
       setIsLifecycleModalOpen(false);
       SweetAlert.toast('success', 'Lifecycle rules updated successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -153,7 +153,7 @@ export default function BucketSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
       SweetAlert.toast('success', 'Lifecycle rules deleted successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -166,7 +166,7 @@ export default function BucketSettingsPage() {
       setIsTagsModalOpen(false);
       SweetAlert.toast('success', 'Bucket tags updated successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -177,7 +177,7 @@ export default function BucketSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
       SweetAlert.toast('success', 'Bucket tags deleted successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -191,44 +191,11 @@ export default function BucketSettingsPage() {
       loadCurrentACL(); // Reload ACL after save
       SweetAlert.toast('success', 'Bucket ACL updated successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
 
-  // Load current ACL and Policy on component mount
-  useEffect(() => {
-    loadCurrentACL();
-    loadCurrentPolicy();
-  }, [bucketName]);
-
-  // Helper function to detect canned ACL from grants
-  const detectCannedACL = (grants: any[]): string => {
-    const hasAllUsersRead = grants.some((g: any) =>
-      (g.Grantee?.URI?.includes('AllUsers') || g.Grantee?.uri?.includes('AllUsers')) &&
-      (g.Permission === 'READ' || g.permission === 'READ')
-    );
-
-    const hasAllUsersWrite = grants.some((g: any) =>
-      (g.Grantee?.URI?.includes('AllUsers') || g.Grantee?.uri?.includes('AllUsers')) &&
-      (g.Permission === 'WRITE' || g.permission === 'WRITE')
-    );
-
-    const hasAuthenticatedUsersRead = grants.some((g: any) =>
-      (g.Grantee?.URI?.includes('AuthenticatedUsers') || g.Grantee?.uri?.includes('AuthenticatedUsers')) &&
-      (g.Permission === 'READ' || g.permission === 'READ')
-    );
-
-    if (hasAllUsersRead && hasAllUsersWrite) {
-      return 'public-read-write';
-    } else if (hasAllUsersRead) {
-      return 'public-read';
-    } else if (hasAuthenticatedUsersRead) {
-      return 'authenticated-read';
-    } else {
-      return 'private';
-    }
-  };
 
   // Load current ACL
   const loadCurrentACL = async () => {
@@ -277,6 +244,41 @@ export default function BucketSettingsPage() {
       console.log('No policy set or error loading policy:', error?.response?.status);
       setCurrentPolicy(null);
       setPolicyStatementCount(0);
+    }
+  };
+
+
+  // Load current ACL and Policy on component mount
+  useEffect(() => {
+    loadCurrentACL();
+    loadCurrentPolicy();
+  }, [bucketName]);
+
+  // Helper function to detect canned ACL from grants
+  const detectCannedACL = (grants: any[]): string => {
+    const hasAllUsersRead = grants.some((g: any) =>
+      (g.Grantee?.URI?.includes('AllUsers') || g.Grantee?.uri?.includes('AllUsers')) &&
+      (g.Permission === 'READ' || g.permission === 'READ')
+    );
+
+    const hasAllUsersWrite = grants.some((g: any) =>
+      (g.Grantee?.URI?.includes('AllUsers') || g.Grantee?.uri?.includes('AllUsers')) &&
+      (g.Permission === 'WRITE' || g.permission === 'WRITE')
+    );
+
+    const hasAuthenticatedUsersRead = grants.some((g: any) =>
+      (g.Grantee?.URI?.includes('AuthenticatedUsers') || g.Grantee?.uri?.includes('AuthenticatedUsers')) &&
+      (g.Permission === 'READ' || g.permission === 'READ')
+    );
+
+    if (hasAllUsersRead && hasAllUsersWrite) {
+      return 'public-read-write';
+    } else if (hasAllUsersRead) {
+      return 'public-read';
+    } else if (hasAuthenticatedUsersRead) {
+      return 'authenticated-read';
+    } else {
+      return 'private';
     }
   };
 

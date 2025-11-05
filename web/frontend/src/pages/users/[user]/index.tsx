@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import SweetAlert from '@/lib/sweetalert';
 import {
@@ -11,15 +10,12 @@ import {
   User as UserIcon,
   Mail,
   Shield,
-  Settings,
   Edit,
   CheckCircle,
   XCircle,
   Key,
   Plus,
   Trash2,
-  Eye,
-  EyeOff,
   Copy,
   Download,
   Calendar
@@ -34,7 +30,7 @@ import {
 } from '@/components/ui/Table';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import { User as UserType, AccessKey, EditUserForm } from '@/types';
+import { AccessKey, EditUserForm } from '@/types';
 
 export default function UserDetailsPage() {
   const { user } = useParams<{ user: string }>();

@@ -75,7 +75,7 @@ export function BucketPermissionsModal({
       setNewPermission({ permissionLevel: 'read', grantedBy: 'admin' });
       SweetAlert.toast('success', 'Permission granted successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });
@@ -88,7 +88,7 @@ export function BucketPermissionsModal({
       queryClient.invalidateQueries({ queryKey: ['bucketPermissions', bucketName] });
       SweetAlert.toast('success', 'Permission revoked successfully');
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       SweetAlert.apiError(error);
     },
   });

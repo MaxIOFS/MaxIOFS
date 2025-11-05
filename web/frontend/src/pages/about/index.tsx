@@ -145,13 +145,13 @@ export default function AboutPage() {
                   <span>aluisco2005@gmail.com</span>
                 </a>
                 <a
-                  href="https://github.com/aluisco/MaxIOFS"
+                  href="https://github.com/MaxioFS/MaxioFS"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center space-x-3 text-sm text-gray-600 dark:text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
                 >
                   <Github className="h-4 w-4" />
-                  <span>github.com/aluisco/MaxIOFS</span>
+                  <span>github.com/MaxioFS/MaxioFS</span>
                 </a>
                 <a
                 href="https://t.me/aluisco"
@@ -312,58 +312,60 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New Features in v0.3.0-beta (Beta Release)
+            New Features in v0.3.1-beta (Production Stability & Cross-Platform)
           </h2>
           <div className="space-y-4">
             <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                🎉 Beta Achievement - 97% S3 Compatibility
+                🛠️ Production Bug Fixes & Stability
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                MaxIOFS has achieved Beta status with 97% S3 compatibility (95/98 tests passed). All core S3 operations
-                fully tested and validated with AWS CLI. Zero critical bugs in core functionality.
+                Fixed critical bugs in object deletion, GOVERNANCE mode enforcement, session timeout configuration,
+                and URL redirection for reverse proxy deployments. Object count synchronization issues resolved.
+                All fixes validated and tested for production readiness.
               </p>
             </div>
 
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Bucket Tagging Visual UI
+                🚀 Cross-Platform Support
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Complete visual tag manager with key-value pairs interface. Add, edit, and delete tags without XML editing.
-                Console API integration with automatic XML generation for S3 compatibility. Real-time updates with user-friendly UI.
+                Full ARM64 architecture support added. Builds successfully on Windows (x64), Linux (x64/ARM64), and macOS.
+                Optimized for ARM-based servers including Raspberry Pi and AWS Graviton instances. Debian packaging available
+                for easy installation on Debian/Ubuntu systems.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                CORS Visual Editor
+                🔒 Enhanced Session Management
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Dual-mode interface (Visual + XML) for CORS configuration. Visual rule builder with forms for origins, methods,
-                headers, and expiration. No XML knowledge required for basic configurations. Multiple CORS rules support.
+                Idle timer implementation for automatic session expiration. Configurable session timeout settings.
+                Improved security through automatic session cleanup and better authentication token lifecycle management.
+                Reduces exposure window for abandoned sessions.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Comprehensive S3 Testing Complete
+                📦 Debian Package Distribution
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                All bucket operations (10/10), object operations (10/10), and multipart uploads (6/6) tested at 100%.
-                Validated with AWS CLI: 50MB @ ~126 MiB/s, 100MB @ ~105 MiB/s. Batch operations, versioning, and
-                lifecycle policies all working correctly.
+                Debian packaging files added for .deb distribution. Installation scripts for Debian/Ubuntu systems.
+                Systemd service templates included. Simplified deployment process with native package management support.
               </p>
             </div>
 
             <div className="border-l-4 border-yellow-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Production-Ready Features
+                🌐 Improved Reverse Proxy Support
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Complete bucket policy implementation with UTF-8 BOM handling. Object versioning with delete markers.
-                Range requests, batch delete, and all bucket configurations (Tags, CORS, Policy, Lifecycle) validated.
-                Suitable for testing, development, and staging environments.
+                Fixed all URL redirects to properly use base path. Console UI now correctly handles base path in all routes.
+                Improved handling of custom path prefixes. Better compatibility with Nginx, Apache, and other reverse proxies.
+                Production-ready for complex deployment scenarios.
               </p>
             </div>
           </div>
