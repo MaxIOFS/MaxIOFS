@@ -1,10 +1,10 @@
 # MaxIOFS Security Guide
 
-**Version**: 0.2.4-alpha
+**Version**: 0.3.1-beta
 
-> **ALPHA SOFTWARE DISCLAIMER**
+> **BETA SOFTWARE DISCLAIMER**
 >
-> MaxIOFS is in **alpha stage**. Core security features are implemented but this software has not undergone comprehensive security audits or extensive penetration testing. Use in production at your own risk.
+> MaxIOFS is in **beta stage**. Core security features are implemented and production bugs have been fixed, but this software has not undergone comprehensive third-party security audits or extensive penetration testing. Use in production requires thorough testing in your environment.
 
 ## Overview
 
@@ -329,17 +329,17 @@ journalctl -u maxiofs | grep -i "failed\|locked\|denied"
 
 ## Known Limitations
 
-### Alpha Security Limitations
+### Beta Security Limitations
 
-1. **No Built-in TLS** - Use reverse proxy
+1. **No Built-in TLS** - Use reverse proxy (recommended approach)
 2. **Basic Password Policy** - Only minimum length enforced
 3. **No Multi-Factor Authentication** - Password-only
 4. **Limited Audit Logging** - Basic auth events only
-5. **No Encryption at Rest** - Use filesystem encryption
+5. **No Encryption at Rest** - Use filesystem encryption (LUKS, BitLocker, etc.)
 6. **Simple Rate Limiting** - Login endpoint only
-7. **No Security Audits** - Not professionally audited
-8. **No Session Invalidation** - Old tokens valid until expiry
-9. **No Key Management** - Secrets in config files
+7. **No Security Audits** - Not professionally audited by third parties
+8. **Session Management** - Improved with idle timer and timeout enforcement (v0.3.1-beta)
+9. **No Key Management System** - Secrets in config files
 10. **SQLite Database** - No at-rest encryption
 
 ### Mitigations
@@ -391,9 +391,9 @@ Response time: Within 48 hours
 
 ---
 
-**Note**: This is alpha software. Conduct security assessment before production use.
+**Note**: This is beta software. Conduct thorough security assessment and testing before production use.
 
 ---
 
-**Version**: 0.2.4-alpha
-**Last Updated**: October 2025
+**Version**: 0.3.1-beta
+**Last Updated**: November 2025

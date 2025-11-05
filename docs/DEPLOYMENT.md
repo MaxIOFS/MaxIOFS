@@ -1,12 +1,12 @@
 # MaxIOFS Deployment Guide
 
-**Version**: 0.2.4-alpha
+**Version**: 0.3.1-beta
 
 ## Overview
 
-MaxIOFS is an S3-compatible object storage system currently in **alpha development** with validated stress testing. This guide covers basic deployment methods suitable for testing and development environments.
+MaxIOFS is an S3-compatible object storage system currently in **beta development** with validated stress testing and production bug fixes. This guide covers deployment methods suitable for testing, development, and staging environments.
 
-**Testing Status**: Successfully validated with MinIO Warp (7000+ objects, bulk operations working correctly).
+**Testing Status**: Successfully validated with MinIO Warp (7000+ objects, bulk operations working correctly). Cross-platform support for Windows, Linux (x64/ARM64), and macOS.
 
 **Default Credentials:**
 - Web Console: `admin` / `admin` - **⚠️ Change password after first login**
@@ -353,39 +353,42 @@ ls -t $BACKUP_DIR/maxiofs_*.tar.gz | tail -n +8 | xargs rm -f
 
 ---
 
-## Alpha Software Notice
+## Beta Software Notice
 
-**MaxIOFS is currently in alpha development.**
+**MaxIOFS is currently in beta development.**
 
 **This means:**
-- ❌ Not production-ready
-- ❌ APIs may change
-- ❌ Limited testing at scale
-- ❌ Potential data loss risk
-- ❌ No guarantees or SLA
+- ✅ Core S3 functionality validated
+- ✅ Production bug fixes implemented
+- ✅ Cross-platform support (Windows, Linux x64/ARM64, macOS)
+- ✅ Debian packaging available
+- ⚠️ Suitable for staging and testing environments
+- ⚠️ Production use requires extensive testing
+- ⚠️ Limited testing at high scale (100+ concurrent users)
+- ⚠️ No official SLA or support guarantees
 
 **Current Limitations:**
 - Single-instance only (no clustering)
-- Limited S3 API compatibility
-- No built-in monitoring
-- Basic authentication only
-- SQLite database (not for high concurrency)
-- No data replication
+- Filesystem backend only
+- No built-in replication
+- Basic monitoring
+- SQLite database (not optimized for extreme concurrency)
 
 **Recommended Use Cases:**
 - Development and testing
+- Staging environments
+- Internal file storage
+- Backup storage (with external redundancy)
 - Learning S3 APIs
-- Proof-of-concept
 
 **Not Recommended For:**
-- Production workloads
-- Critical data storage
+- Mission-critical production workloads (without thorough testing)
 - High-availability requirements
-- High-concurrency scenarios
+- Extreme high-concurrency scenarios (1000+ concurrent users)
 
-**Always maintain backups** and test thoroughly.
+**Always maintain backups** and test thoroughly in your environment before production use.
 
 ---
 
-**Version**: 0.2.4-alpha
-**Last Updated**: October 2025
+**Version**: 0.3.1-beta
+**Last Updated**: November 2025

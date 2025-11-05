@@ -1,6 +1,6 @@
 # MaxIOFS API Reference
 
-**Version**: 0.2.4-alpha
+**Version**: 0.3.1-beta
 
 ## Overview
 
@@ -331,4 +331,4 @@ curl http://localhost:8080/metrics
 
 ---
 
-**Note**: This is an alpha API. Endpoints and responses may change without notice.
+**Note**: This is a beta API. Core endpoints are stable, but minor changes may occur based on feedback.

@@ -1,18 +1,22 @@
 # MaxIOFS - TODO & Roadmap
 
-**Version**: 0.3.0-beta
-**Last Updated**: November 2, 2025
-**Status**: Beta - S3 Core Compatibility Complete + Critical Bug Fixed
+**Version**: 0.3.1-beta
+**Last Updated**: November 5, 2025
+**Status**: Beta - Production Stability & Cross-Platform Support
 
 ## 📊 Current Status Summary
 
 ```
 ┌───────────────────────────────────────────────┐
-│  MaxIOFS v0.3.0-beta                          │
-│  Status: BETA - S3 Core Complete & Tested    │
+│  MaxIOFS v0.3.1-beta                          │
+│  Status: BETA - Production Stable             │
 ├───────────────────────────────────────────────┤
 │  ✅ S3 API: 50+ operations (100% core tested) │
-│  ✅ GetObject Bug FIXED (consistency issue)   │
+│  ✅ Production Bug Fixes: COMPLETE            │
+│  ✅ Cross-Platform Builds: Windows/Linux/macOS│
+│  ✅ ARM64 Support: COMPLETE                   │
+│  ✅ Debian Packaging: AVAILABLE               │
+│  ✅ Session Management: Improved              │
 │  ✅ Presigned URLs: WORKING                   │
 │  ✅ Multipart Upload: Tested (40MB)           │
 │  ✅ Object Lock & Retention: WORKING          │
@@ -33,7 +37,32 @@
 
 **📋 Detailed Testing Status**: See [TESTING_STATUS.md](TESTING_STATUS.md)
 
-## ✅ Recently Completed (v0.3.0-beta)
+## ✅ Recently Completed (v0.3.1-beta - November 5, 2025)
+
+### 🛠️ Production Stability & Bug Fixes
+
+**Critical Bug Fixes**:
+- ✅ **Object Deletion** - Fixed critical bug in delete operations and metadata cleanup
+- ✅ **GOVERNANCE Mode** - Fixed Object Lock GOVERNANCE mode enforcement issues
+- ✅ **Session Timeout** - Fixed session timeout configuration and enforcement
+- ✅ **URL Redirection** - Fixed all URL redirects to properly use base path (reverse proxy support)
+- ✅ **Object Counting** - Fixed object count synchronization and interface bugs
+
+**Cross-Platform Support**:
+- ✅ **Windows (x64)** - Full build and runtime support
+- ✅ **Linux (x64)** - Full build and runtime support
+- ✅ **Linux (ARM64)** - Cross-compilation and runtime support (Raspberry Pi, AWS Graviton)
+- ✅ **macOS** - Full build and runtime support
+- ✅ **Debian Packaging** - Added .deb package support for easy installation
+
+**Session Management**:
+- ✅ **Idle Timer** - Automatic session expiration on inactivity
+- ✅ **Timeout Enforcement** - Configurable session timeout settings
+- ✅ **Security Improvements** - Better authentication token lifecycle management
+
+---
+
+## ✅ Previously Completed (v0.3.0-beta)
 
 ### 🎉 CRITICAL BUG FIX - GetObject Consistency Issue Resolved (November 2, 2025)
 

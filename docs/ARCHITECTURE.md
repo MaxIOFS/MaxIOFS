@@ -1,12 +1,12 @@
 # MaxIOFS Architecture
 
-**Version**: 0.2.4-alpha
+**Version**: 0.3.1-beta
 
 ## Overview
 
 MaxIOFS is a single-binary S3-compatible object storage system built in Go with an embedded React (Vite) frontend. The architecture emphasizes simplicity, portability, and ease of deployment with tenant-scoped bucket namespaces.
 
-**Testing Status**: Successfully validated with MinIO Warp stress testing (7000+ objects, bulk operations, metadata consistency under load).
+**Testing Status**: Successfully validated with MinIO Warp stress testing (7000+ objects, bulk operations, metadata consistency under load). Production-ready for beta testing environments.
 
 ## System Architecture
 
@@ -230,10 +230,10 @@ Global Admin (No tenant)
 
 ## Current Limitations
 
-**Alpha Status**
+**Beta Status**
 - ⚠️ Single-node only (no clustering)
 - ⚠️ Filesystem backend only
-- ⚠️ No object versioning (placeholder only)
+- ⚠️ Object versioning (basic implementation, not fully validated)
 - ⚠️ No automatic compression
 - ⚠️ No encryption at rest
 - ⚠️ No data replication
@@ -245,7 +245,9 @@ Global Admin (No tenant)
   - Bulk delete operations working correctly
   - BadgerDB transaction conflicts resolved with retry logic
   - Metadata consistency maintained under load
-- ⚠️ Not validated in production environments
+- ✅ **Cross-platform support** (Windows, Linux x64/ARM64, macOS)
+- ✅ **Production bug fixes** (Object deletion, GOVERNANCE mode, session management)
+- ⚠️ Not validated in high-scale production environments (100+ concurrent users)
 - Local benchmarks: ~374 MB/s writes, ~1703 MB/s reads
 
 ## Deployment Options
@@ -297,4 +299,4 @@ See [TODO.md](../TODO.md) for roadmap.
 
 ---
 
-**Note**: This is an alpha project. Architecture may change based on feedback and requirements.
+**Note**: This is a beta project. Architecture is stable but may evolve based on production feedback and requirements.

@@ -1,8 +1,8 @@
 # MaxIOFS Multi-Tenancy Guide
 
-**Version**: 0.2.4-alpha
+**Version**: 0.3.1-beta
 
-> **ALPHA WARNING**: Multi-tenancy is functional and has been tested with warp stress testing. Features show stability under load but need more real-world production validation. Not recommended for production without thorough testing in your specific environment.
+> **BETA STATUS**: Multi-tenancy is functional and has been tested with warp stress testing. Features show stability under load and production bugs have been fixed. Suitable for staging and testing environments. Production use requires thorough validation in your specific environment.
 
 ## Overview
 
@@ -448,9 +448,9 @@ Planned for beta and beyond:
 
 ---
 
-**Remember**: Multi-tenancy is functional but experimental. Test thoroughly before production use.
+**Remember**: Multi-tenancy is functional and stable in beta. Test thoroughly in your environment before production use.
 
 ---
 
-**Version**: 0.2.4-alpha
-**Last Updated**: October 2025
+**Version**: 0.3.1-beta
+**Last Updated**: November 2025

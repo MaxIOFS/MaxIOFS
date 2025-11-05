@@ -5,6 +5,84 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1-beta] - 2025-11-05
+
+### 🛠️ Bug Fixes & Stability Improvements
+
+This maintenance release focuses on bug fixes, cross-platform compilation support, and production stability enhancements.
+
+### Added
+- **Debian Package Support**
+  - Added debian packaging files for .deb distribution
+  - Debian-compatible build configuration
+  - Installation scripts for Debian/Ubuntu systems
+
+- **ARM64 Architecture Support**
+  - Full ARM64 (aarch64) compilation support
+  - Cross-platform build compatibility
+  - Optimized for ARM-based servers and devices
+
+- **Session Management Enhancements**
+  - Idle timer implementation for automatic session expiration
+  - Configurable session timeout settings
+  - Improved security through automatic session cleanup
+
+### Fixed
+- **Object Deletion Issues**
+  - Fixed critical bug in delete object operations
+  - Improved error handling during batch deletions
+  - Resolved metadata cleanup issues on object removal
+
+- **Object Lock GOVERNANCE Mode**
+  - Fixed bug preventing proper GOVERNANCE mode enforcement
+  - Corrected retention policy validation
+  - Improved legal hold handling
+
+- **Interface & Counting Bugs**
+  - Fixed object count synchronization issues
+  - Resolved interface inconsistencies in bucket statistics
+  - Improved real-time counter accuracy
+
+- **Session Timeout**
+  - Fixed session timeout configuration not being applied
+  - Resolved timeout edge cases
+  - Improved session cleanup on timeout
+
+- **URL Redirection**
+  - Fixed all URL redirects to properly use base path
+  - Resolved issues with reverse proxy deployments
+  - Improved handling of custom path prefixes
+  - Console UI now correctly handles base path in all routes
+
+- **Build System**
+  - Fixed Debian compilation errors
+  - Resolved ARM64 cross-compilation issues
+  - Improved Makefile compatibility across platforms
+
+### Enhanced
+- **Cross-Platform Compatibility**
+  - Builds successfully on Windows, Linux (x64/ARM64), and macOS
+  - Improved platform detection in build system
+  - Better handling of platform-specific dependencies
+
+- **Security**
+  - Session timeout enforcement reduces exposure window
+  - Idle timer prevents abandoned session vulnerabilities
+  - Improved authentication token lifecycle management
+
+### Technical Improvements
+- Enhanced build scripts with ARM64 target support
+- Added Debian control files and systemd service templates
+- Improved Makefile with architecture detection
+- Better error messages for debugging build issues
+
+### Deployment
+- Debian/Ubuntu packages now available for easy installation
+- Simplified deployment on ARM64 servers (Raspberry Pi, AWS Graviton, etc.)
+- Improved reverse proxy compatibility with base path support
+
+---
+
 ## [0.3.0-beta] - 2025-10-28
 
 ### 🎉 Beta Release - S3 Core Compatibility Complete

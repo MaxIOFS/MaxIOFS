@@ -1,7 +1,7 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.3.0-beta
-**Status**: Beta - S3 Core Compatibility Complete
+**Version**: 0.3.1-beta
+**Status**: Beta - Production Stability & Cross-Platform Support
 **License**: MIT
 
 MaxIOFS is an S3-compatible object storage system built in Go with an embedded Next.js web interface. Designed to be simple, portable, and deployable as a single binary.
@@ -335,13 +335,17 @@ Contributions welcome! Please:
 
 ## 🗺️ Roadmap
 
-### Completed (v0.3.0-beta)
+### Completed (v0.3.1-beta)
 - [x] **S3 Core Compatibility Complete** (All major operations tested)
 - [x] **Bucket Tagging UI** (Visual tag manager with Console API)
 - [x] **CORS UI** (Visual rule editor with dual visual/XML modes)
 - [x] **Warp stress testing completed** (7000+ objects validated)
 - [x] **Bulk operations validated** (DeleteObjects working)
 - [x] **Metadata consistency verified** under concurrent load
+- [x] **Cross-platform builds** (Windows, Linux x64/ARM64, macOS)
+- [x] **Debian packaging support** (.deb packages for easy installation)
+- [x] **Session management** (Idle timer and timeout enforcement)
+- [x] **Production bug fixes** (Object deletion, GOVERNANCE mode, URL redirects)
 
 ### Short Term (v0.4.0)
 - [ ] Comprehensive test suite (80%+ coverage)

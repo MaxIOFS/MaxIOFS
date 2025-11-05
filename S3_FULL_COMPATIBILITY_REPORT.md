@@ -1,7 +1,7 @@
 # MaxIOFS - S3 Full Compatibility Report
 
-**Date**: October 28, 2025
-**Version Tested**: 0.3.0-beta
+**Date**: November 5, 2025
+**Version Tested**: 0.3.1-beta
 **Environment**: Windows, HTTP (localhost:8080)
 **AWS CLI Version**: aws-cli/2.x
 **Test Duration**: ~45 minutes
