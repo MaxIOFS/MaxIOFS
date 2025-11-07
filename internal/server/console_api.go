@@ -4171,7 +4171,11 @@ func (s *Server) handleEnable2FA(w http.ResponseWriter, r *http.Request) {
 
 // handleDisable2FA disables 2FA for a user
 func (s *Server) handleDisable2FA(w http.ResponseWriter, r *http.Request) {
-	user := r.Context().Value("user").(*auth.User)
+	user, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
 
 	var req struct {
 		UserID string `json:"user_id,omitempty"`
@@ -4189,13 +4193,8 @@ func (s *Server) handleDisable2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if user is trying to disable 2FA for another user
-	isGlobalAdmin := false
-	for _, role := range user.Roles {
-		if role == "global_admin" {
-			isGlobalAdmin = true
-			break
-		}
-	}
+	// Global admin = admin role AND no tenant assignment
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 
 	// If targeting another user, must be global admin
 	if targetUserID != user.ID && !isGlobalAdmin {
@@ -4315,11 +4314,30 @@ func (s *Server) handleRegenerateBackupCodes(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-// handleGet2FAStatus returns the 2FA status for the current user
+// handleGet2FAStatus returns the 2FA status for a user
 func (s *Server) handleGet2FAStatus(w http.ResponseWriter, r *http.Request) {
-	user := r.Context().Value("user").(*auth.User)
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
 
-	enabled, setupAt, err := s.authManager.Get2FAStatus(r.Context(), user.ID)
+	// Get user_id from query param, if not provided use current user
+	targetUserID := r.URL.Query().Get("user_id")
+	if targetUserID == "" {
+		targetUserID = currentUser.ID
+	}
+
+	// Check permissions: user can only see their own 2FA status unless they are global admin
+	// Global admin = admin role AND no tenant assignment
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
+
+	if targetUserID != currentUser.ID && !isGlobalAdmin {
+		s.writeError(w, "Forbidden: cannot view other user's 2FA status", http.StatusForbidden)
+		return
+	}
+
+	enabled, setupAt, err := s.authManager.Get2FAStatus(r.Context(), targetUserID)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to get 2FA status")
 		s.writeError(w, "Failed to get 2FA status", http.StatusInternalServerError)

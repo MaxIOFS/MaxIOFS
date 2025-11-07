@@ -96,7 +96,7 @@ export default function UserDetailsPage() {
   // Fetch 2FA status for this user
   const { data: twoFactorStatus, isLoading: is2FALoading, refetch: refetch2FAStatus } = useQuery({
     queryKey: ['twoFactorStatus', userId],
-    queryFn: APIClient.get2FAStatus,
+    queryFn: () => APIClient.get2FAStatus(userId),
     enabled: !!userId,
   });
 
@@ -273,7 +273,8 @@ export default function UserDetailsPage() {
   };
 
   // 2FA Handlers
-  const isGlobalAdmin = currentUser?.roles?.includes('global_admin');
+  // Global admin = admin role AND no tenant assignment
+  const isGlobalAdmin = currentUser?.roles?.includes('admin') && !currentUser?.tenantId;
   const isCurrentUser = currentUser?.id === userId;
 
   const handleSetup2FASuccess = (codes: string[]) => {

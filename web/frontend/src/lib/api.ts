@@ -926,8 +926,9 @@ export class APIClient {
     return response.data.data;
   }
 
-  static async get2FAStatus(): Promise<any> {
-    const response = await apiClient.get<APIResponse<any>>('/auth/2fa/status');
+  static async get2FAStatus(userId?: string): Promise<any> {
+    const url = userId ? `/auth/2fa/status?user_id=${userId}` : '/auth/2fa/status';
+    const response = await apiClient.get<APIResponse<any>>(url);
     return response.data.data;
   }
 
