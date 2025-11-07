@@ -130,7 +130,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip authentication for public endpoints
-			publicPaths := []string{"/auth/login", "/health"}
+			publicPaths := []string{"/auth/login", "/auth/2fa/verify", "/health"}
 			for _, path := range publicPaths {
 				if strings.Contains(r.URL.Path, path) || r.Method == "OPTIONS" {
 					next.ServeHTTP(w, r)
@@ -367,7 +367,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			"ip":       clientIP,
 		}).Info("Login credentials validated, 2FA required")
 
-		s.writeJSON(w, map[string]interface{}{
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":      true,
 			"requires_2fa": true,
 			"user_id":      user.ID,
 			"message":      "Two-factor authentication required",
@@ -391,8 +394,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"ip":       clientIP,
 	}).Info("Successful login")
 
-	s.writeJSON(w, map[string]interface{}{
-		"token": token,
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"token":   token,
 		"user": UserResponse{
 			ID:          user.ID,
 			Username:    user.Username,
@@ -4268,8 +4274,11 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 		"username": user.Username,
 	}).Info("2FA verification successful")
 
-	s.writeJSON(w, map[string]interface{}{
-		"token": token,
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"token":   token,
 		"user": UserResponse{
 			ID:          user.ID,
 			Username:    user.Username,

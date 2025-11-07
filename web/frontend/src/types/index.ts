@@ -52,6 +52,9 @@ export interface LoginResponse {
   refreshToken?: string;
   user?: User;
   error?: string;
+  requires_2fa?: boolean;
+  user_id?: string;
+  message?: string;
 }
 
 export interface CreateUserRequest {
@@ -659,6 +662,45 @@ export interface ServerConfig {
     lifecycle: boolean;
     tagging: boolean;
   };
+}
+
+// Two-Factor Authentication types
+export interface TwoFactorSetupResponse {
+  secret: string;
+  qr_code: string; // Base64 encoded QR code image
+  url: string; // otpauth:// URL
+}
+
+export interface TwoFactorEnableRequest {
+  code: string;
+  secret: string;
+}
+
+export interface TwoFactorEnableResponse {
+  success: boolean;
+  backup_codes: string[];
+  message: string;
+}
+
+export interface TwoFactorVerifyRequest {
+  user_id: string;
+  code: string;
+}
+
+export interface TwoFactorVerifyResponse {
+  success: boolean;
+  token?: string;
+  user?: User;
+  error?: string;
+}
+
+export interface TwoFactorStatusResponse {
+  enabled: boolean;
+  setup_at: number;
+}
+
+export interface TwoFactorDisableRequest {
+  user_id?: string; // Optional - for admin to disable other user's 2FA
 }
 
 // Re-export common types

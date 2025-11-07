@@ -1,6 +1,7 @@
 import { useState, FormEvent } from 'react';
 import APIClient from '@/lib/api';
 import SweetAlert from '@/lib/sweetalert';
+import { TwoFactorInput } from '@/components/TwoFactorInput';
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
@@ -10,6 +11,8 @@ export default function LoginPage() {
     password: '',
   });
   const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [show2FA, setShow2FA] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
   // Get base path from window (injected by backend)
   const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
@@ -28,10 +31,17 @@ export default function LoginPage() {
         password: formData.password,
       });
 
-      if (response.success && response.token) {
-        // Close loading modal
-        SweetAlert.close();
+      SweetAlert.close();
 
+      // Check if 2FA is required
+      if (response.requires_2fa && response.user_id) {
+        setUserId(response.user_id);
+        setShow2FA(true);
+        setLoading(false);
+        return;
+      }
+
+      if (response.success && response.token) {
         // Show welcome message (don't await - let it show while redirecting)
         SweetAlert.successLogin(formData.username);
 
@@ -40,7 +50,6 @@ export default function LoginPage() {
         const basePath = (window as any).BASE_PATH || '/';
         window.location.href = basePath;
       } else {
-        SweetAlert.close();
         await SweetAlert.error('Authentication error', response.error || 'Invalid credentials');
         setError(response.error || 'Login failed');
       }
@@ -52,6 +61,44 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleVerify2FA = async (code: string) => {
+    if (!userId) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      SweetAlert.loading('Verifying...', 'Checking 2FA code');
+
+      const response = await APIClient.verify2FA(userId, code);
+
+      SweetAlert.close();
+
+      if (response.success && response.token) {
+        // Show welcome message (don't await - let it show while redirecting)
+        SweetAlert.successLogin(formData.username);
+
+        // Redirect to dashboard
+        const basePath = (window as any).BASE_PATH || '/';
+        window.location.href = basePath;
+      } else {
+        setError(response.error || 'Invalid 2FA code');
+      }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      SweetAlert.close();
+      setError(err.message || 'Invalid 2FA code. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancel2FA = () => {
+    setShow2FA(false);
+    setUserId(null);
+    setError(null);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -120,18 +167,28 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Header */}
-          <div className="text-center">
-            <h1 className="text-4xl font-light text-gray-900 dark:text-white mb-2">
-              Web Console
-            </h1>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Sign in to access your object storage
-            </p>
-          </div>
+          {/* Show 2FA Input if required */}
+          {show2FA ? (
+            <TwoFactorInput
+              onSubmit={handleVerify2FA}
+              onCancel={handleCancel2FA}
+              loading={loading}
+              error={error}
+            />
+          ) : (
+            <>
+              {/* Header */}
+              <div className="text-center">
+                <h1 className="text-4xl font-light text-gray-900 dark:text-white mb-2">
+                  Web Console
+                </h1>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Sign in to access your object storage
+                </p>
+              </div>
 
-          {/* Login Form */}
-          <form onSubmit={handleSubmit} className="space-y-6 mt-8">
+              {/* Login Form */}
+              <form onSubmit={handleSubmit} className="space-y-6 mt-8">
             {error && (
               <div className="rounded-lg bg-red-50 dark:bg-red-900/20 p-4 border-l-4 border-red-500">
                 <div className="text-sm text-red-800 dark:text-red-200">{error}</div>
@@ -240,19 +297,21 @@ export default function LoginPage() {
                 )}
               </button>
             </div>
-          </form>
+              </form>
 
-          {/* Footer */}
-          <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
-            <div className="text-center">
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                © {new Date().getFullYear()} MaxIOFS. All rights reserved.
-              </p>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                High-Performance Object Storage Solution
-              </p>
-            </div>
-          </div>
+              {/* Footer */}
+              <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    © {new Date().getFullYear()} MaxIOFS. All rights reserved.
+                  </p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                    High-Performance Object Storage Solution
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

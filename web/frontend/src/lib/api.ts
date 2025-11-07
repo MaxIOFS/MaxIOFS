@@ -143,8 +143,10 @@ const tokenManager = TokenManager.getInstance();
 // Request interceptors
 apiClient.interceptors.request.use(
   (config) => {
-    // Don't add Authorization header to login/register requests
-    const isAuthRequest = config.url?.includes('/auth/login') || config.url?.includes('/auth/register');
+    // Don't add Authorization header to login/register/2fa-verify requests
+    const isAuthRequest = config.url?.includes('/auth/login') ||
+                         config.url?.includes('/auth/register') ||
+                         config.url?.includes('/auth/2fa/verify');
 
     if (!isAuthRequest) {
       const token = tokenManager.getToken();
@@ -227,14 +229,17 @@ export class APIClient {
       password: credentials.password,
     };
 
-    const response = await apiClient.post<APIResponse<any>>('/auth/login', payload);
+    const response = await apiClient.post<any>('/auth/login', payload);
 
     const result: LoginResponse = {
       success: response.data.success,
-      token: response.data.data?.token,
-      refreshToken: response.data.data?.refreshToken,
-      user: response.data.data?.user,
+      token: response.data.token,
+      refreshToken: response.data.refreshToken,
+      user: response.data.user,
       error: response.data.error,
+      requires_2fa: response.data.requires_2fa,
+      user_id: response.data.user_id,
+      message: response.data.message,
     };
 
     if (result.success && result.token) {
@@ -881,6 +886,49 @@ export class APIClient {
 
   static async updateBucketOwner(bucketName: string, ownerId: string, ownerType: 'user' | 'tenant'): Promise<void> {
     await apiClient.put(`/buckets/${bucketName}/owner`, { ownerId, ownerType });
+  }
+
+  // Two-Factor Authentication methods
+  static async setup2FA(): Promise<any> {
+    const response = await apiClient.post<APIResponse<any>>('/auth/2fa/setup');
+    return response.data.data;
+  }
+
+  static async enable2FA(code: string, secret: string): Promise<any> {
+    const response = await apiClient.post<APIResponse<any>>('/auth/2fa/enable', { code, secret });
+    return response.data.data;
+  }
+
+  static async disable2FA(userId?: string): Promise<any> {
+    const response = await apiClient.post<APIResponse<any>>('/auth/2fa/disable', { user_id: userId });
+    return response.data.data;
+  }
+
+  static async verify2FA(userId: string, code: string): Promise<LoginResponse> {
+    const response = await apiClient.post<any>('/auth/2fa/verify', { user_id: userId, code });
+
+    const result: LoginResponse = {
+      success: response.data.success,
+      token: response.data.token,
+      user: response.data.user,
+      error: response.data.error,
+    };
+
+    if (result.success && result.token) {
+      tokenManager.setTokens(result.token);
+    }
+
+    return result;
+  }
+
+  static async regenerateBackupCodes(): Promise<any> {
+    const response = await apiClient.post<APIResponse<any>>('/auth/2fa/backup-codes');
+    return response.data.data;
+  }
+
+  static async get2FAStatus(): Promise<any> {
+    const response = await apiClient.get<APIResponse<any>>('/auth/2fa/status');
+    return response.data.data;
   }
 
   // Utility methods

@@ -18,7 +18,8 @@ import {
   Trash2,
   Copy,
   Download,
-  Calendar
+  Calendar,
+  KeyRound
 } from 'lucide-react';
 import {
   Table,
@@ -31,6 +32,8 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { AccessKey, EditUserForm } from '@/types';
+import Setup2FAModal, { BackupCodesModal } from '@/components/Setup2FAModal';
+import { ConfirmModal } from '@/components/ui/Modal';
 
 export default function UserDetailsPage() {
   const { user } = useParams<{ user: string }>();
@@ -57,6 +60,11 @@ export default function UserDetailsPage() {
     newPassword: '',
     confirmPassword: '',
   });
+  const [showSetup2FAModal, setShowSetup2FAModal] = useState(false);
+  const [showBackupCodesModal, setShowBackupCodesModal] = useState(false);
+  const [showDisable2FAModal, setShowDisable2FAModal] = useState(false);
+  const [backupCodes, setBackupCodes] = useState<string[]>([]);
+  const [disabling2FA, setDisabling2FA] = useState(false);
   const queryClient = useQueryClient();
 
   // Fetch user data
@@ -77,6 +85,19 @@ export default function UserDetailsPage() {
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
     queryFn: APIClient.getTenants,
+  });
+
+  // Fetch current user to check if they're an admin
+  const { data: currentUser } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: APIClient.getCurrentUser,
+  });
+
+  // Fetch 2FA status for this user
+  const { data: twoFactorStatus, isLoading: is2FALoading, refetch: refetch2FAStatus } = useQuery({
+    queryKey: ['twoFactorStatus', userId],
+    queryFn: APIClient.get2FAStatus,
+    enabled: !!userId,
   });
 
   // Update user mutation
@@ -251,6 +272,64 @@ export default function UserDetailsPage() {
     });
   };
 
+  // 2FA Handlers
+  const isGlobalAdmin = currentUser?.roles?.includes('global_admin');
+  const isCurrentUser = currentUser?.id === userId;
+
+  const handleSetup2FASuccess = (codes: string[]) => {
+    setBackupCodes(codes);
+    setShowBackupCodesModal(true);
+    refetch2FAStatus();
+  };
+
+  const handleDisable2FA = async () => {
+    setDisabling2FA(true);
+    try {
+      await APIClient.disable2FA(userId);
+      await SweetAlert.success(
+        '2FA Disabled',
+        'Two-factor authentication has been disabled for this user.'
+      );
+      setShowDisable2FAModal(false);
+      refetch2FAStatus();
+    } catch (error: any) {
+      await SweetAlert.apiError(error);
+    } finally {
+      setDisabling2FA(false);
+    }
+  };
+
+  const handleRegenerateBackupCodes = async () => {
+    try {
+      const result = await SweetAlert.confirm(
+        'Regenerate Backup Codes',
+        'This will invalidate all existing backup codes and generate new ones. Continue?',
+        undefined,
+        {
+          confirmButtonText: 'Regenerate',
+          icon: 'warning'
+        }
+      );
+
+      if (result.isConfirmed) {
+        SweetAlert.loading('Regenerating...', 'Generating new backup codes');
+        const data = await APIClient.regenerateBackupCodes();
+        SweetAlert.close();
+
+        setBackupCodes(data.backup_codes);
+        setShowBackupCodesModal(true);
+
+        await SweetAlert.success(
+          'Backup Codes Regenerated',
+          'Your new backup codes are ready. Please save them in a secure location.'
+        );
+      }
+    } catch (error: any) {
+      SweetAlert.close();
+      await SweetAlert.apiError(error);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active':
@@ -410,6 +489,127 @@ export default function UserDetailsPage() {
               <Shield className="h-7 w-7 text-purple-600 dark:text-purple-400" />
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Two-Factor Authentication Section */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <KeyRound className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Two-Factor Authentication (2FA)
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  Add an extra layer of security by requiring a verification code from an authenticator app
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6">
+          {is2FALoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loading size="sm" />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Status:</span>
+                    {twoFactorStatus?.enabled ? (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
+                        <CheckCircle className="h-3 w-3 mr-1" />
+                        Enabled
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300">
+                        Disabled
+                      </span>
+                    )}
+                  </div>
+                  {twoFactorStatus?.enabled && twoFactorStatus?.setup_at && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Enabled on {new Date(twoFactorStatus.setup_at * 1000).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  {twoFactorStatus?.enabled ? (
+                    <>
+                      {isCurrentUser && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleRegenerateBackupCodes}
+                        >
+                          Regenerate Backup Codes
+                        </Button>
+                      )}
+                      {(isCurrentUser || isGlobalAdmin) && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => setShowDisable2FAModal(true)}
+                        >
+                          Disable 2FA
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {isCurrentUser && (
+                        <Button
+                          size="sm"
+                          onClick={() => setShowSetup2FAModal(true)}
+                        >
+                          <KeyRound className="h-4 w-4 mr-2" />
+                          Enable 2FA
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {!twoFactorStatus?.enabled && isCurrentUser && (
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-500 p-3 rounded">
+                  <div className="flex">
+                    <div className="flex-shrink-0">
+                      <svg className="h-4 w-4 text-yellow-600 dark:text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-xs text-yellow-800 dark:text-yellow-200">
+                        <strong className="font-medium">Recommended:</strong> Enable 2FA to protect your account from unauthorized access.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!isCurrentUser && !isGlobalAdmin && twoFactorStatus?.enabled && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-3 rounded">
+                  <div className="flex">
+                    <div className="flex-shrink-0">
+                      <Shield className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-xs text-blue-800 dark:text-blue-200">
+                        This user has 2FA enabled. Only global administrators can disable it.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -786,6 +986,32 @@ export default function UserDetailsPage() {
           </div>
         </Modal>
       )}
+      {/* 2FA Modals */}
+      <Setup2FAModal
+        isOpen={showSetup2FAModal}
+        onClose={() => setShowSetup2FAModal(false)}
+        onSuccess={handleSetup2FASuccess}
+      />
+
+      <BackupCodesModal
+        isOpen={showBackupCodesModal}
+        onClose={() => setShowBackupCodesModal(false)}
+        backupCodes={backupCodes}
+      />
+
+      <ConfirmModal
+        isOpen={showDisable2FAModal}
+        onClose={() => setShowDisable2FAModal(false)}
+        onConfirm={handleDisable2FA}
+        title="Disable Two-Factor Authentication"
+        message={isCurrentUser
+          ? "Are you sure you want to disable 2FA? This will make your account less secure."
+          : "Are you sure you want to disable 2FA for this user? This will make their account less secure."}
+        confirmText="Disable 2FA"
+        cancelText="Cancel"
+        variant="danger"
+        loading={disabling2FA}
+      />
     </div>
   );
 }
