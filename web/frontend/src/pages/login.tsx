@@ -97,18 +97,18 @@ export default function LoginPage() {
             <img
               src={`${basePath}/assets/img/logo.png`}
               alt="MaxIOFS"
-              className="h-32 w-auto object-contain drop-shadow-2xl"
+              className="h-32 3xl:h-40 4xl:h-48 w-auto object-contain drop-shadow-2xl"
             />
           </div>
           <div className="text-white space-y-2">
-            <p className="text-xl text-blue-200">High-Performance Object Storage</p>
+            <p className="text-xl 3xl:text-2xl 4xl:text-3xl text-blue-200">High-Performance Object Storage</p>
           </div>
         </div>
       </div>
 
       {/* Right Side - Login Form */}
       <div className="flex items-center justify-center bg-white dark:bg-gray-900 p-8">
-        <div className="w-full max-w-md space-y-8">
+        <div className="w-full max-w-md 3xl:max-w-lg 4xl:max-w-xl space-y-8">
           {/* Mobile Logo */}
           <div className="lg:hidden text-center mb-8">
             <div className="flex justify-center mb-4">

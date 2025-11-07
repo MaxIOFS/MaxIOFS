@@ -38,6 +38,15 @@ import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 import { ObjectVersionsModal } from '@/components/ObjectVersionsModal';
 import { PresignedURLModal } from '@/components/PresignedURLModal';
 
+// Helper function for responsive modal widths
+const getResponsiveModalWidth = (baseWidth: number = 650): string => {
+  const width = window.innerWidth;
+  if (width >= 3840) return `${baseWidth * 1.4}px`; // 4K
+  if (width >= 2560) return `${baseWidth * 1.2}px`; // 2K
+  if (width >= 1920) return `${baseWidth * 1.1}px`; // Full HD+
+  return `${baseWidth}px`;
+};
+
 export default function BucketDetailsPage() {
   const { bucket, tenantId } = useParams<{ bucket: string; tenantId?: string }>();
   const navigate = useNavigate();
@@ -468,7 +477,7 @@ export default function BucketDetailsPage() {
           confirmButtonText: 'Copy Link',
           denyButtonText: 'Unshare',
           cancelButtonText: 'Close',
-          width: '650px',
+          width: getResponsiveModalWidth(650),
         });
 
         if (result.isConfirmed) {
@@ -720,7 +729,7 @@ export default function BucketDetailsPage() {
                  <p class="font-semibold mb-2">Errors:</p>
                  <ul class="text-sm">${errorList}</ul>
                </div>`,
-        width: '600px',
+        width: getResponsiveModalWidth(600),
       });
     } else {
       const errorList = errors.map(e => `<li><strong>${e.key}</strong>: ${e.error}</li>`).join('');
@@ -732,7 +741,7 @@ export default function BucketDetailsPage() {
                  <p class="font-semibold mb-2">Errors:</p>
                  <ul class="text-sm">${errorList}</ul>
                </div>`,
-        width: '600px',
+        width: getResponsiveModalWidth(600),
       });
     }
 

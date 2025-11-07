@@ -9,7 +9,7 @@ export interface ModalProps {
   onClose: () => void;
   title?: string;
   description?: string;
-  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'full';
   closeOnOverlay?: boolean;
   closeOnEscape?: boolean;
   showCloseButton?: boolean;
@@ -19,11 +19,12 @@ export interface ModalProps {
 }
 
 const sizeClasses = {
-  sm: 'max-w-md',
-  md: 'max-w-lg',
-  lg: 'max-w-2xl',
-  xl: 'max-w-4xl',
-  full: 'max-w-screen-xl mx-4',
+  sm: 'max-w-md 3xl:max-w-lg 4xl:max-w-xl',
+  md: 'max-w-lg 3xl:max-w-xl 4xl:max-w-2xl',
+  lg: 'max-w-2xl 3xl:max-w-3xl 4xl:max-w-4xl',
+  xl: 'max-w-4xl 3xl:max-w-5xl 4xl:max-w-6xl',
+  '2xl': 'max-w-6xl 3xl:max-w-7xl 4xl:max-w-[90vw]',
+  full: 'max-w-screen-xl 3xl:max-w-screen-2xl 4xl:max-w-[90vw] mx-4',
 };
 
 export function Modal({

@@ -50,8 +50,7 @@ export default function AboutPage() {
           <img
             src={`${basePath}/assets/img/logo.png`}
             alt="MaxIOFS Logo"
-            className="h-auto object-contain dark:opacity-90 dark:brightness-0 dark:invert"
-            style={{ width: '22rem', maxHeight: '200px' }}
+            className="w-[22rem] max-h-[200px] 3xl:w-[28rem] 3xl:max-h-[250px] 4xl:w-[32rem] 4xl:max-h-[300px] h-auto object-contain dark:opacity-90 dark:brightness-0 dark:invert"
           />
         </div>
       </div>

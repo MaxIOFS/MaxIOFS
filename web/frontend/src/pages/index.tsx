@@ -91,7 +91,7 @@ export default function Dashboard() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 3xl:grid-cols-4 4xl:grid-cols-5 gap-4 md:gap-6 3xl:gap-8">
         {/* Total Buckets Card */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
@@ -194,7 +194,7 @@ export default function Dashboard() {
       </div>
 
       {/* Quick Actions and Recent Buckets */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 3xl:grid-cols-3 gap-6 3xl:gap-8">
         {/* Quick Actions Card */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
           <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">

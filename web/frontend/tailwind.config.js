@@ -10,6 +10,16 @@ export default {
   ],
   theme: {
     extend: {
+      screens: {
+        '3xl': '1920px',   // Full HD+
+        '4xl': '2560px',   // 2K
+        '5xl': '3840px',   // 4K
+      },
+      fontSize: {
+        '3xl-responsive': ['1.875rem', { lineHeight: '2.25rem' }],
+        '4xl-responsive': ['2.25rem', { lineHeight: '2.5rem' }],
+        '5xl-responsive': ['3rem', { lineHeight: '1' }],
+      },
       colors: {
         // shadcn/ui variables
         background: 'rgb(var(--background) / <alpha-value>)',

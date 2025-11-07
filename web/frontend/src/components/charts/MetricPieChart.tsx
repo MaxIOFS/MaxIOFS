@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   PieChart,
   Pie,
@@ -83,6 +83,26 @@ export const MetricPieChart: React.FC<MetricPieChartProps> = ({
   height = 300,
   formatTooltip,
 }) => {
+  // Calculate responsive outer radius based on window width
+  const getOuterRadius = () => {
+    const width = window.innerWidth;
+    if (width >= 3840) return 180; // 4K
+    if (width >= 2560) return 140; // 2K
+    if (width >= 1920) return 120; // Full HD+
+    return 100; // Default
+  };
+
+  const [outerRadius, setOuterRadius] = useState(getOuterRadius());
+
+  useEffect(() => {
+    const handleResize = () => {
+      setOuterRadius(getOuterRadius());
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Custom label using useCallback to prevent re-creation
   // Note: recharts PieLabelRenderProps type is complex, so we use a flexible type here
   const renderLabel = React.useCallback((entry: Record<string, unknown>) => {
@@ -105,7 +125,7 @@ export const MetricPieChart: React.FC<MetricPieChartProps> = ({
               cy="50%"
               labelLine={false}
               label={renderLabel}
-              outerRadius={100}
+              outerRadius={outerRadius}
               fill="#8884d8"
               dataKey="value"
             >

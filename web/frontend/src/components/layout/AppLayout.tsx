@@ -191,18 +191,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0',
+          'fixed inset-y-0 left-0 z-50 w-72 3xl:w-80 4xl:w-96 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
         {/* Logo Header */}
         <div className="flex items-center justify-center h-20 px-6 border-b border-gray-200 dark:border-gray-800">
           <Link to="/" className="flex items-center space-x-3 group">
-            <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-brand-600">
+            <div className="flex items-center justify-center w-10 h-10 3xl:w-12 3xl:h-12 4xl:w-14 4xl:h-14 rounded-lg bg-brand-600">
               <img
                 src={`${basePath}/assets/img/icon.png`}
                 alt="MaxIOFS"
-                className="w-7 h-7 rounded"
+                className="w-7 h-7 3xl:w-8 3xl:h-8 4xl:w-10 4xl:h-10 rounded"
               />
             </div>
             <div>
@@ -336,13 +336,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               {/* Dark Mode Toggle */}
               <button
                 onClick={toggleDarkMode}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                className="flex h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                 title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
               >
                 {darkMode ? (
-                  <Sun className="h-5 w-5 text-yellow-500" />
+                  <Sun className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-yellow-500" />
                 ) : (
-                  <Moon className="h-5 w-5 text-gray-600" />
+                  <Moon className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-gray-600" />
                 )}
               </button>
 
@@ -350,9 +350,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <div className="relative">
                 <button
                   onClick={() => setShowNotifications(!showNotifications)}
-                  className="relative flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className="relative flex h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
-                  <Bell className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                  <Bell className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-gray-600 dark:text-gray-400" />
                   {lockedUsers.length > 0 && (
                     <span className="absolute -top-0.5 -right-0.5 z-1 h-5 w-5 rounded-full bg-error-600 flex items-center justify-center">
                       <span className="text-[10px] font-medium text-white">{lockedUsers.length}</span>
@@ -438,8 +438,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     </span>
                   </span>
 
-                  <span className="h-10 w-10 rounded-full bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center">
-                    <span className="text-sm font-semibold text-white">
+                  <span className="h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 rounded-full bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center">
+                    <span className="text-sm 3xl:text-base 4xl:text-lg font-semibold text-white">
                       {user?.username?.charAt(0).toUpperCase() || 'U'}
                     </span>
                   </span>
@@ -502,7 +502,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Main content */}
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 dark:bg-gray-900">
-          <div className="mx-auto max-w-screen-2xl p-4 md:p-6 2xl:p-10">
+          <div className="mx-auto max-w-screen-2xl 3xl:max-w-[1920px] 4xl:max-w-[90%] 5xl:max-w-[85%] p-4 md:p-6 2xl:p-10 3xl:p-12 4xl:p-16">
             {children}
           </div>
         </main>
