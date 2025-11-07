@@ -423,7 +423,8 @@ func (s *SQLiteStore) DeleteUser(userID string) error {
 // ListUsers returns all active users
 func (s *SQLiteStore) ListUsers() ([]*User, error) {
 	rows, err := s.db.Query(`
-		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at
+		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
+		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used
 		FROM users
 		WHERE status != 'deleted'
 		ORDER BY created_at DESC
@@ -438,10 +439,15 @@ func (s *SQLiteStore) ListUsers() ([]*User, error) {
 		var user User
 		var rolesJSON, policiesJSON, metadataJSON string
 		var tenantID sql.NullString
+		var twoFactorSecret sql.NullString
+		var twoFactorSetupAt sql.NullInt64
+		var backupCodesJSON sql.NullString
+		var backupCodesUsedJSON sql.NullString
 
 		err := rows.Scan(
 			&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
 			&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
+			&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON,
 		)
 		if err != nil {
 			return nil, err
@@ -451,10 +457,26 @@ func (s *SQLiteStore) ListUsers() ([]*User, error) {
 			user.TenantID = tenantID.String
 		}
 
+		if twoFactorSecret.Valid {
+			user.TwoFactorSecret = twoFactorSecret.String
+		}
+
+		if twoFactorSetupAt.Valid {
+			user.TwoFactorSetupAt = twoFactorSetupAt.Int64
+		}
+
 		// Deserialize JSON fields
 		json.Unmarshal([]byte(rolesJSON), &user.Roles)
 		json.Unmarshal([]byte(policiesJSON), &user.Policies)
 		json.Unmarshal([]byte(metadataJSON), &user.Metadata)
+
+		// Deserialize 2FA backup codes
+		if backupCodesJSON.Valid && backupCodesJSON.String != "" {
+			json.Unmarshal([]byte(backupCodesJSON.String), &user.BackupCodes)
+		}
+		if backupCodesUsedJSON.Valid && backupCodesUsedJSON.String != "" {
+			json.Unmarshal([]byte(backupCodesUsedJSON.String), &user.BackupCodesUsed)
+		}
 
 		users = append(users, &user)
 	}

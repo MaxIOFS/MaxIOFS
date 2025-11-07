@@ -20,6 +20,7 @@ export interface User {
   metadata?: Record<string, string>;
   lockedUntil?: number;
   failedLoginAttempts?: number;
+  twoFactorEnabled?: boolean;
 }
 
 export interface AccessKey {

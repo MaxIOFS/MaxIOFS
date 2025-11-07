@@ -62,14 +62,15 @@ type ObjectResponse struct {
 }
 
 type UserResponse struct {
-	ID          string   `json:"id"`
-	Username    string   `json:"username"`
-	DisplayName string   `json:"displayName"`
-	Email       string   `json:"email"`
-	Status      string   `json:"status"`
-	Roles       []string `json:"roles"`
-	TenantID    string   `json:"tenantId,omitempty"`
-	CreatedAt   int64    `json:"createdAt"`
+	ID               string   `json:"id"`
+	Username         string   `json:"username"`
+	DisplayName      string   `json:"displayName"`
+	Email            string   `json:"email"`
+	Status           string   `json:"status"`
+	Roles            []string `json:"roles"`
+	TenantID         string   `json:"tenantId,omitempty"`
+	TwoFactorEnabled bool     `json:"twoFactorEnabled"`
+	CreatedAt        int64    `json:"createdAt"`
 }
 
 type MetricsResponse struct {
@@ -400,14 +401,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"token":   token,
 		"user": UserResponse{
-			ID:          user.ID,
-			Username:    user.Username,
-			DisplayName: user.DisplayName,
-			Email:       user.Email,
-			Status:      user.Status,
-			Roles:       user.Roles,
-			TenantID:    user.TenantID,
-			CreatedAt:   user.CreatedAt,
+			ID:               user.ID,
+			Username:         user.Username,
+			DisplayName:      user.DisplayName,
+			Email:            user.Email,
+			Status:           user.Status,
+			Roles:            user.Roles,
+			TenantID:         user.TenantID,
+			TwoFactorEnabled: user.TwoFactorEnabled,
+			CreatedAt:        user.CreatedAt,
 		},
 	})
 }
@@ -449,14 +451,15 @@ func (s *Server) handleGetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, UserResponse{
-		ID:          user.ID,
-		Username:    user.Username,
-		DisplayName: user.DisplayName,
-		Email:       user.Email,
-		Status:      user.Status,
-		Roles:       user.Roles,
-		TenantID:    user.TenantID,
-		CreatedAt:   user.CreatedAt,
+		ID:               user.ID,
+		Username:         user.Username,
+		DisplayName:      user.DisplayName,
+		Email:            user.Email,
+		Status:           user.Status,
+		Roles:            user.Roles,
+		TenantID:         user.TenantID,
+		TwoFactorEnabled: user.TwoFactorEnabled,
+		CreatedAt:        user.CreatedAt,
 	})
 }
 
@@ -1397,14 +1400,15 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	response := make([]UserResponse, len(filteredUsers))
 	for i, u := range filteredUsers {
 		response[i] = UserResponse{
-			ID:          u.ID,
-			Username:    u.ID,
-			DisplayName: u.DisplayName,
-			Email:       u.Email,
-			Status:      u.Status,
-			Roles:       u.Roles,
-			TenantID:    u.TenantID,
-			CreatedAt:   u.CreatedAt,
+			ID:               u.ID,
+			Username:         u.ID,
+			DisplayName:      u.DisplayName,
+			Email:            u.Email,
+			Status:           u.Status,
+			Roles:            u.Roles,
+			TenantID:         u.TenantID,
+			TwoFactorEnabled: u.TwoFactorEnabled,
+			CreatedAt:        u.CreatedAt,
 		}
 	}
 
@@ -1479,14 +1483,15 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 	// Convert to response format
 	userResponse := UserResponse{
-		ID:          user.ID,
-		Username:    user.Username,
-		DisplayName: user.DisplayName,
-		Email:       user.Email,
-		Roles:       user.Roles,
-		Status:      user.Status,
-		TenantID:    user.TenantID,
-		CreatedAt:   user.CreatedAt,
+		ID:               user.ID,
+		Username:         user.Username,
+		DisplayName:      user.DisplayName,
+		Email:            user.Email,
+		Roles:            user.Roles,
+		Status:           user.Status,
+		TenantID:         user.TenantID,
+		TwoFactorEnabled: user.TwoFactorEnabled,
+		CreatedAt:        user.CreatedAt,
 	}
 
 	s.writeJSON(w, userResponse)
@@ -1508,14 +1513,15 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 
 	// Convert to response format
 	userResponse := UserResponse{
-		ID:          user.ID,
-		Username:    user.ID,
-		DisplayName: user.DisplayName,
-		Email:       user.Email,
-		Roles:       user.Roles,
-		Status:      user.Status,
-		TenantID:    user.TenantID,
-		CreatedAt:   user.CreatedAt,
+		ID:               user.ID,
+		Username:         user.ID,
+		DisplayName:      user.DisplayName,
+		Email:            user.Email,
+		Roles:            user.Roles,
+		Status:           user.Status,
+		TenantID:         user.TenantID,
+		TwoFactorEnabled: user.TwoFactorEnabled,
+		CreatedAt:        user.CreatedAt,
 	}
 
 	s.writeJSON(w, userResponse)
@@ -1570,14 +1576,15 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	// Convert to response format
 	userResponse := UserResponse{
-		ID:          user.ID,
-		Username:    user.ID,
-		DisplayName: user.DisplayName,
-		Email:       user.Email,
-		Roles:       user.Roles,
-		Status:      user.Status,
-		TenantID:    user.TenantID,
-		CreatedAt:   user.CreatedAt,
+		ID:               user.ID,
+		Username:         user.ID,
+		DisplayName:      user.DisplayName,
+		Email:            user.Email,
+		Roles:            user.Roles,
+		Status:           user.Status,
+		TenantID:         user.TenantID,
+		TwoFactorEnabled: user.TwoFactorEnabled,
+		CreatedAt:        user.CreatedAt,
 	}
 
 	s.writeJSON(w, userResponse)
@@ -4279,14 +4286,15 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"token":   token,
 		"user": UserResponse{
-			ID:          user.ID,
-			Username:    user.Username,
-			DisplayName: user.DisplayName,
-			Email:       user.Email,
-			Status:      user.Status,
-			Roles:       user.Roles,
-			TenantID:    user.TenantID,
-			CreatedAt:   user.CreatedAt,
+			ID:               user.ID,
+			Username:         user.Username,
+			DisplayName:      user.DisplayName,
+			Email:            user.Email,
+			Status:           user.Status,
+			Roles:            user.Roles,
+			TenantID:         user.TenantID,
+			TwoFactorEnabled: user.TwoFactorEnabled,
+			CreatedAt:        user.CreatedAt,
 		},
 	})
 }

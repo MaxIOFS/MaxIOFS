@@ -23,6 +23,7 @@ import {
   Calendar,
   Mail,
   Key,
+  KeyRound,
   Building2,
   Lock,
   Unlock,
@@ -365,6 +366,7 @@ export default function UsersPage() {
                   <TableHead>Tenant</TableHead>
                   <TableHead>Roles</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>2FA</TableHead>
                   <TableHead>Access Keys</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -433,6 +435,19 @@ export default function UsersPage() {
                       }`}>
                         {user.status}
                       </span>
+                    </TableCell>
+                    <TableCell>
+                      {user.twoFactorEnabled ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 border border-green-200 dark:border-green-800">
+                          <KeyRound className="h-3 w-3" />
+                          Enabled
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-600">
+                          <KeyRound className="h-3 w-3" />
+                          Disabled
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
