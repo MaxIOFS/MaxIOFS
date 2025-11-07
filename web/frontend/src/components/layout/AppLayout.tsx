@@ -502,7 +502,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Main content */}
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 dark:bg-gray-900">
-          <div className="mx-auto max-w-screen-2xl 3xl:max-w-[1920px] 4xl:max-w-[90%] 5xl:max-w-[85%] p-4 md:p-6 2xl:p-10 3xl:p-12 4xl:p-16">
+          <div className="mx-auto max-w-screen-2xl 3xl:max-w-[95%] 4xl:max-w-[90%] 5xl:max-w-[85%] p-4 md:p-6 2xl:p-10 3xl:p-12 4xl:p-16">
             {children}
           </div>
         </main>

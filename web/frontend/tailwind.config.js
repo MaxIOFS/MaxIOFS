@@ -11,7 +11,7 @@ export default {
   theme: {
     extend: {
       screens: {
-        '3xl': '1920px',   // Full HD+
+        '3xl': '1680px',   // Para pantallas 1920x1080 (Full HD)
         '4xl': '2560px',   // 2K
         '5xl': '3840px',   // 4K
       },

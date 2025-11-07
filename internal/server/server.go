@@ -330,54 +330,14 @@ func (s *Server) setupConsoleRoutes(router *mux.Router) {
 	apiRouter := baseRouter.PathPrefix("/api/v1").Subrouter()
 	s.setupConsoleAPIRoutes(apiRouter)
 
-	// Try to serve embedded frontend, fallback to placeholder if not available
+	// Serve embedded frontend for all other routes (under base path)
 	frontendHandler, err := s.setupEmbeddedFrontend(router)
 	if err != nil {
-		logrus.WithError(err).Warn("Failed to setup embedded frontend, using placeholder")
-		s.setupPlaceholderHandler(baseRouter)
+		logrus.WithError(err).Fatal("Failed to setup embedded frontend - frontend must be built and embedded")
 		return
 	}
 
-	// Serve embedded frontend for all other routes (under base path)
 	baseRouter.PathPrefix("/").Handler(frontendHandler)
-}
-
-func (s *Server) setupPlaceholderHandler(router *mux.Router) {
-	webHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`<!DOCTYPE html>
-<html>
-<head>
-	<title>MaxIOFS Console</title>
-	<style>
-		body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
-		.warning { background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 15px; margin: 20px 0; }
-		code { background: #f5f5f5; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
-	</style>
-</head>
-<body>
-	<h1>⚠️ MaxIOFS Console - Not Built</h1>
-	<div class="warning">
-		<p><strong>The web console frontend has not been compiled.</strong></p>
-		<p>To build and enable the web console:</p>
-		<ol>
-			<li>Build: <code>cd web/frontend && npm install && npm run build</code></li>
-			<li>Run: <code>go run ./cmd/maxiofs --data-dir ./data</code></li>
-		</ol>
-	</div>
-	<p><strong>API Endpoints:</strong></p>
-	<ul>
-		<li>S3 API: <a href="` + s.config.PublicAPIURL + `">` + s.config.PublicAPIURL + `</a></li>
-		<li>Console API: <a href="` + s.config.PublicConsoleURL + `/api/v1">` + s.config.PublicConsoleURL + `/api/v1</a></li>
-	</ul>
-	<p><strong>For development with hot reload:</strong></p>
-	<p><code>cd web/frontend && npm run dev</code> (opens port 3000)</p>
-</body>
-</html>`))
-	})
-
-	router.PathPrefix("/").Handler(webHandler)
 }
 
 // extractBasePathFromURL extracts the path component from a URL
