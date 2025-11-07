@@ -98,6 +98,13 @@ type User struct {
 	Metadata    map[string]string `json:"metadata,omitempty"`
 	CreatedAt   int64             `json:"created_at"`
 	UpdatedAt   int64             `json:"updated_at"`
+
+	// Two-Factor Authentication fields
+	TwoFactorEnabled  bool     `json:"two_factor_enabled"`
+	TwoFactorSecret   string   `json:"-"`                              // NEVER return in JSON - encrypted in DB
+	TwoFactorSetupAt  int64    `json:"two_factor_setup_at,omitempty"`
+	BackupCodes       []string `json:"-"`                              // NEVER return in JSON - hashed in DB
+	BackupCodesUsed   []string `json:"-"`                              // Track used backup codes
 }
 
 // Tenant represents an organizational unit for multi-tenancy
@@ -1329,4 +1336,154 @@ func containsRole(roles []string, role string) bool {
 		}
 	}
 	return false
+}
+
+// =============================================================================
+// Two-Factor Authentication (2FA) Methods
+// =============================================================================
+
+// Setup2FA initiates 2FA setup for a user
+// Returns the TOTP secret, QR code, and URL for the user to scan
+func (m *authManager) Setup2FA(ctx context.Context, userID string) (*TOTPSetup, error) {
+	// Get user to retrieve username
+	user, err := m.store.GetUserByID(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Generate TOTP secret
+	issuer := "MaxIOFS"
+	setup, err := Generate2FASecret(user.Username, issuer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate 2FA secret: %w", err)
+	}
+
+	return setup, nil
+}
+
+// Enable2FA enables 2FA for a user after verifying the TOTP code
+// Returns backup codes that the user MUST save
+func (m *authManager) Enable2FA(ctx context.Context, userID, code string, secret string) ([]string, error) {
+	// Verify the TOTP code
+	if !VerifyTOTPCode(secret, code) {
+		return nil, fmt.Errorf("invalid verification code")
+	}
+
+	// Generate backup codes
+	backupCodes, err := GenerateBackupCodes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate backup codes: %w", err)
+	}
+
+	// Hash backup codes for storage
+	hashedCodes := make([]string, len(backupCodes))
+	for i, code := range backupCodes {
+		hashed, err := HashBackupCode(code)
+		if err != nil {
+			return nil, fmt.Errorf("failed to hash backup code: %w", err)
+		}
+		hashedCodes[i] = hashed
+	}
+
+	// Update user in database
+	err = m.store.Enable2FA(ctx, userID, secret, hashedCodes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to enable 2FA: %w", err)
+	}
+
+	return backupCodes, nil
+}
+
+// Disable2FA disables 2FA for a user
+// Only global admins can disable 2FA for other users
+func (m *authManager) Disable2FA(ctx context.Context, userID, requestingUserID string, isGlobalAdmin bool) error {
+	// If disabling for another user, must be global admin
+	if userID != requestingUserID && !isGlobalAdmin {
+		return fmt.Errorf("only global administrators can disable 2FA for other users")
+	}
+
+	err := m.store.Disable2FA(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to disable 2FA: %w", err)
+	}
+
+	return nil
+}
+
+// Verify2FACode verifies a TOTP code or backup code for a user
+// Returns true if valid, false otherwise
+func (m *authManager) Verify2FACode(ctx context.Context, userID, code string) (bool, error) {
+	// Get user with 2FA data
+	user, err := m.store.GetUserWith2FA(ctx, userID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if !user.TwoFactorEnabled {
+		return false, fmt.Errorf("2FA is not enabled for this user")
+	}
+
+	// Check if it's a backup code format
+	if IsBackupCode(code) {
+		// Verify against backup codes
+		for i, hashedCode := range user.BackupCodes {
+			if VerifyBackupCode(code, hashedCode) {
+				// Check if already used
+				for _, usedCode := range user.BackupCodesUsed {
+					if usedCode == hashedCode {
+						return false, fmt.Errorf("backup code already used")
+					}
+				}
+
+				// Mark as used
+				err = m.store.MarkBackupCodeUsed(ctx, userID, i)
+				if err != nil {
+					return false, fmt.Errorf("failed to mark backup code as used: %w", err)
+				}
+
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+
+	// Verify TOTP code
+	return VerifyTOTPCode(user.TwoFactorSecret, code), nil
+}
+
+// RegenerateBackupCodes generates new backup codes for a user
+func (m *authManager) RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error) {
+	// Generate new backup codes
+	backupCodes, err := GenerateBackupCodes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate backup codes: %w", err)
+	}
+
+	// Hash backup codes
+	hashedCodes := make([]string, len(backupCodes))
+	for i, code := range backupCodes {
+		hashed, err := HashBackupCode(code)
+		if err != nil {
+			return nil, fmt.Errorf("failed to hash backup code: %w", err)
+		}
+		hashedCodes[i] = hashed
+	}
+
+	// Update user in database
+	err = m.store.UpdateBackupCodes(ctx, userID, hashedCodes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update backup codes: %w", err)
+	}
+
+	return backupCodes, nil
+}
+
+// Get2FAStatus returns the 2FA status for a user
+func (m *authManager) Get2FAStatus(ctx context.Context, userID string) (bool, int64, error) {
+	user, err := m.store.GetUserByID(userID)
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	return user.TwoFactorEnabled, user.TwoFactorSetupAt, nil
 }

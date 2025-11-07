@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -138,6 +139,12 @@ func (s *SQLiteStore) runMigrations() error {
 		`ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER DEFAULT 0`,
 		`ALTER TABLE users ADD COLUMN locked_until INTEGER DEFAULT 0`,
 		`ALTER TABLE users ADD COLUMN last_failed_login INTEGER DEFAULT 0`,
+		// Migration 2: Add 2FA columns to users table
+		`ALTER TABLE users ADD COLUMN two_factor_enabled BOOLEAN DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN two_factor_secret TEXT`,
+		`ALTER TABLE users ADD COLUMN two_factor_setup_at INTEGER`,
+		`ALTER TABLE users ADD COLUMN backup_codes TEXT`,
+		`ALTER TABLE users ADD COLUMN backup_codes_used TEXT`,
 	}
 
 	for _, migration := range migrations {
@@ -633,5 +640,187 @@ func ensureDir(dir string) error {
 		}
 		logrus.WithField("dir", dir).Debug("Created directory")
 	}
+	return nil
+}
+
+// =============================================================================
+// Two-Factor Authentication (2FA) Store Methods
+// =============================================================================
+
+// Enable2FA enables 2FA for a user
+func (s *SQLiteStore) Enable2FA(ctx context.Context, userID string, secret string, backupCodes []string) error {
+	backupCodesJSON, err := json.Marshal(backupCodes)
+	if err != nil {
+		return fmt.Errorf("failed to marshal backup codes: %w", err)
+	}
+
+	query := `
+		UPDATE users
+		SET two_factor_enabled = 1,
+			two_factor_secret = ?,
+			two_factor_setup_at = ?,
+			backup_codes = ?,
+			backup_codes_used = '[]',
+			updated_at = ?
+		WHERE id = ?
+	`
+
+	now := time.Now().Unix()
+	_, err = s.db.ExecContext(ctx, query, secret, now, string(backupCodesJSON), now, userID)
+	if err != nil {
+		return fmt.Errorf("failed to enable 2FA: %w", err)
+	}
+
+	return nil
+}
+
+// Disable2FA disables 2FA for a user
+func (s *SQLiteStore) Disable2FA(ctx context.Context, userID string) error {
+	query := `
+		UPDATE users
+		SET two_factor_enabled = 0,
+			two_factor_secret = NULL,
+			two_factor_setup_at = NULL,
+			backup_codes = NULL,
+			backup_codes_used = NULL,
+			updated_at = ?
+		WHERE id = ?
+	`
+
+	now := time.Now().Unix()
+	_, err := s.db.ExecContext(ctx, query, now, userID)
+	if err != nil {
+		return fmt.Errorf("failed to disable 2FA: %w", err)
+	}
+
+	return nil
+}
+
+// GetUserWith2FA retrieves a user with 2FA data included
+func (s *SQLiteStore) GetUserWith2FA(ctx context.Context, userID string) (*User, error) {
+	query := `
+		SELECT id, username, display_name, email, status, tenant_id,
+			   roles, policies, metadata, created_at, updated_at,
+			   two_factor_enabled, two_factor_secret, two_factor_setup_at,
+			   backup_codes, backup_codes_used
+		FROM users
+		WHERE id = ?
+	`
+
+	var user User
+	var rolesJSON, policiesJSON, metadataJSON, backupCodesJSON, backupCodesUsedJSON sql.NullString
+	var twoFactorSecret sql.NullString
+	var twoFactorSetupAt sql.NullInt64
+
+	err := s.db.QueryRowContext(ctx, query, userID).Scan(
+		&user.ID,
+		&user.Username,
+		&user.DisplayName,
+		&user.Email,
+		&user.Status,
+		&user.TenantID,
+		&rolesJSON,
+		&policiesJSON,
+		&metadataJSON,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+		&user.TwoFactorEnabled,
+		&twoFactorSecret,
+		&twoFactorSetupAt,
+		&backupCodesJSON,
+		&backupCodesUsedJSON,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Parse JSON fields
+	if rolesJSON.Valid {
+		json.Unmarshal([]byte(rolesJSON.String), &user.Roles)
+	}
+	if policiesJSON.Valid {
+		json.Unmarshal([]byte(policiesJSON.String), &user.Policies)
+	}
+	if metadataJSON.Valid {
+		json.Unmarshal([]byte(metadataJSON.String), &user.Metadata)
+	}
+
+	// Parse 2FA fields
+	if twoFactorSecret.Valid {
+		user.TwoFactorSecret = twoFactorSecret.String
+	}
+	if twoFactorSetupAt.Valid {
+		user.TwoFactorSetupAt = twoFactorSetupAt.Int64
+	}
+	if backupCodesJSON.Valid {
+		json.Unmarshal([]byte(backupCodesJSON.String), &user.BackupCodes)
+	}
+	if backupCodesUsedJSON.Valid {
+		json.Unmarshal([]byte(backupCodesUsedJSON.String), &user.BackupCodesUsed)
+	}
+
+	return &user, nil
+}
+
+// MarkBackupCodeUsed marks a backup code as used
+func (s *SQLiteStore) MarkBackupCodeUsed(ctx context.Context, userID string, codeIndex int) error {
+	// Get current backup codes
+	user, err := s.GetUserWith2FA(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	if codeIndex < 0 || codeIndex >= len(user.BackupCodes) {
+		return fmt.Errorf("invalid backup code index")
+	}
+
+	// Add to used codes
+	usedCodes := append(user.BackupCodesUsed, user.BackupCodes[codeIndex])
+	usedCodesJSON, err := json.Marshal(usedCodes)
+	if err != nil {
+		return fmt.Errorf("failed to marshal used codes: %w", err)
+	}
+
+	query := `
+		UPDATE users
+		SET backup_codes_used = ?,
+			updated_at = ?
+		WHERE id = ?
+	`
+
+	now := time.Now().Unix()
+	_, err = s.db.ExecContext(ctx, query, string(usedCodesJSON), now, userID)
+	if err != nil {
+		return fmt.Errorf("failed to mark backup code as used: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateBackupCodes updates backup codes for a user
+func (s *SQLiteStore) UpdateBackupCodes(ctx context.Context, userID string, backupCodes []string) error {
+	backupCodesJSON, err := json.Marshal(backupCodes)
+	if err != nil {
+		return fmt.Errorf("failed to marshal backup codes: %w", err)
+	}
+
+	query := `
+		UPDATE users
+		SET backup_codes = ?,
+			backup_codes_used = '[]',
+			updated_at = ?
+		WHERE id = ?
+	`
+
+	now := time.Now().Unix()
+	_, err = s.db.ExecContext(ctx, query, string(backupCodesJSON), now, userID)
+	if err != nil {
+		return fmt.Errorf("failed to update backup codes: %w", err)
+	}
+
 	return nil
 }
