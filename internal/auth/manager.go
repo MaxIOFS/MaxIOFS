@@ -80,6 +80,14 @@ type Manager interface {
 	RecordFailedLogin(ctx context.Context, userID, ip string) error
 	RecordSuccessfulLogin(ctx context.Context, userID string) error
 
+	// Two-Factor Authentication
+	Setup2FA(ctx context.Context, userID string) (*TOTPSetup, error)
+	Enable2FA(ctx context.Context, userID, code string, secret string) ([]string, error)
+	Disable2FA(ctx context.Context, userID, requestingUserID string, isGlobalAdmin bool) error
+	Verify2FACode(ctx context.Context, userID, code string) (bool, error)
+	RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error)
+	Get2FAStatus(ctx context.Context, userID string) (bool, int64, error)
+
 	// Health check
 	IsReady() bool
 }

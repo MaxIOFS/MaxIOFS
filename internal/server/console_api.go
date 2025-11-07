@@ -166,6 +166,14 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/auth/logout", s.handleLogout).Methods("POST", "OPTIONS")
 	router.HandleFunc("/auth/me", s.handleGetCurrentUser).Methods("GET", "OPTIONS")
 
+	// 2FA endpoints
+	router.HandleFunc("/auth/2fa/setup", s.handleSetup2FA).Methods("POST", "OPTIONS")
+	router.HandleFunc("/auth/2fa/enable", s.handleEnable2FA).Methods("POST", "OPTIONS")
+	router.HandleFunc("/auth/2fa/disable", s.handleDisable2FA).Methods("POST", "OPTIONS")
+	router.HandleFunc("/auth/2fa/verify", s.handleVerify2FA).Methods("POST", "OPTIONS")
+	router.HandleFunc("/auth/2fa/backup-codes", s.handleRegenerateBackupCodes).Methods("POST", "OPTIONS")
+	router.HandleFunc("/auth/2fa/status", s.handleGet2FAStatus).Methods("GET", "OPTIONS")
+
 	// Bucket endpoints
 	router.HandleFunc("/buckets", s.handleListBuckets).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets", s.handleCreateBucket).Methods("POST", "OPTIONS")
@@ -342,10 +350,35 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 4: Record successful login and reset failed attempts
+	// Step 4: Check if 2FA is enabled for this user
+	twoFactorEnabled, _, err := s.authManager.Get2FAStatus(r.Context(), user.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to check 2FA status")
+		s.writeError(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// If 2FA is enabled, don't record successful login yet
+	// Instead, return a response indicating 2FA is required
+	if twoFactorEnabled {
+		logrus.WithFields(logrus.Fields{
+			"user_id":  user.ID,
+			"username": user.Username,
+			"ip":       clientIP,
+		}).Info("Login credentials validated, 2FA required")
+
+		s.writeJSON(w, map[string]interface{}{
+			"requires_2fa": true,
+			"user_id":      user.ID,
+			"message":      "Two-factor authentication required",
+		})
+		return
+	}
+
+	// Step 5: Record successful login and reset failed attempts
 	s.authManager.RecordSuccessfulLogin(r.Context(), user.ID)
 
-	// Step 5: Generate JWT token
+	// Step 6: Generate JWT token
 	token, err := s.authManager.GenerateJWT(r.Context(), user)
 	if err != nil {
 		s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
@@ -3260,7 +3293,7 @@ func (s *Server) handleGetBucketTagging(w http.ResponseWriter, r *http.Request) 
 		},
 	}
 
-	if bucketInfo.Tags != nil && len(bucketInfo.Tags) > 0 {
+	if len(bucketInfo.Tags) > 0 {
 		for key, value := range bucketInfo.Tags {
 			response.TagSet.Tags = append(response.TagSet.Tags, Tag{
 				Key:   key,
@@ -4064,4 +4097,228 @@ func (s *Server) handlePutObjectLegalHold(w http.ResponseWriter, r *http.Request
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// ============================================================================
+// 2FA Handlers
+// ============================================================================
+
+// handleSetup2FA generates a new TOTP secret and QR code for the user
+func (s *Server) handleSetup2FA(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*auth.User)
+
+	setup, err := s.authManager.Setup2FA(r.Context(), user.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to setup 2FA")
+		s.writeError(w, "Failed to setup 2FA", http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"secret":  setup.Secret,
+		"qr_code": setup.QRCode,
+		"url":     setup.URL,
+	})
+}
+
+// handleEnable2FA verifies the TOTP code and enables 2FA for the user
+func (s *Server) handleEnable2FA(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*auth.User)
+
+	var req struct {
+		Code   string `json:"code"`
+		Secret string `json:"secret"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Code == "" || req.Secret == "" {
+		s.writeError(w, "Code and secret are required", http.StatusBadRequest)
+		return
+	}
+
+	backupCodes, err := s.authManager.Enable2FA(r.Context(), user.ID, req.Code, req.Secret)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to enable 2FA")
+		if err.Error() == "invalid TOTP code" {
+			s.writeError(w, "Invalid verification code", http.StatusBadRequest)
+			return
+		}
+		s.writeError(w, "Failed to enable 2FA", http.StatusInternalServerError)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":  user.ID,
+		"username": user.Username,
+	}).Info("2FA enabled successfully")
+
+	s.writeJSON(w, map[string]interface{}{
+		"success":      true,
+		"backup_codes": backupCodes,
+		"message":      "2FA has been enabled. Please save your backup codes in a secure location.",
+	})
+}
+
+// handleDisable2FA disables 2FA for a user
+func (s *Server) handleDisable2FA(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*auth.User)
+
+	var req struct {
+		UserID string `json:"user_id,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Determine target user
+	targetUserID := user.ID
+	if req.UserID != "" {
+		targetUserID = req.UserID
+	}
+
+	// Check if user is trying to disable 2FA for another user
+	isGlobalAdmin := false
+	for _, role := range user.Roles {
+		if role == "global_admin" {
+			isGlobalAdmin = true
+			break
+		}
+	}
+
+	// If targeting another user, must be global admin
+	if targetUserID != user.ID && !isGlobalAdmin {
+		s.writeError(w, "Only global administrators can disable 2FA for other users", http.StatusForbidden)
+		return
+	}
+
+	err := s.authManager.Disable2FA(r.Context(), targetUserID, user.ID, isGlobalAdmin)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to disable 2FA")
+		s.writeError(w, "Failed to disable 2FA", http.StatusInternalServerError)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"target_user_id": targetUserID,
+		"requesting_user": user.Username,
+		"is_global_admin": isGlobalAdmin,
+	}).Info("2FA disabled")
+
+	s.writeJSON(w, map[string]interface{}{
+		"success": true,
+		"message": "2FA has been disabled",
+	})
+}
+
+// handleVerify2FA verifies a 2FA code (used during login flow)
+func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		UserID string `json:"user_id"`
+		Code   string `json:"code"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.UserID == "" || req.Code == "" {
+		s.writeError(w, "User ID and code are required", http.StatusBadRequest)
+		return
+	}
+
+	valid, err := s.authManager.Verify2FACode(r.Context(), req.UserID, req.Code)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to verify 2FA code")
+		s.writeError(w, "Failed to verify 2FA code", http.StatusInternalServerError)
+		return
+	}
+
+	if !valid {
+		s.writeError(w, "Invalid 2FA code", http.StatusUnauthorized)
+		return
+	}
+
+	// Get user to generate final JWT token
+	user, err := s.authManager.GetUser(r.Context(), req.UserID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get user after 2FA verification")
+		s.writeError(w, "Failed to complete authentication", http.StatusInternalServerError)
+		return
+	}
+
+	// Record successful login now that 2FA is verified
+	s.authManager.RecordSuccessfulLogin(r.Context(), user.ID)
+
+	// Generate JWT token
+	token, err := s.authManager.GenerateJWT(r.Context(), user)
+	if err != nil {
+		s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":  user.ID,
+		"username": user.Username,
+	}).Info("2FA verification successful")
+
+	s.writeJSON(w, map[string]interface{}{
+		"token": token,
+		"user": UserResponse{
+			ID:          user.ID,
+			Username:    user.Username,
+			DisplayName: user.DisplayName,
+			Email:       user.Email,
+			Status:      user.Status,
+			Roles:       user.Roles,
+			TenantID:    user.TenantID,
+			CreatedAt:   user.CreatedAt,
+		},
+	})
+}
+
+// handleRegenerateBackupCodes generates new backup codes for the user
+func (s *Server) handleRegenerateBackupCodes(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*auth.User)
+
+	backupCodes, err := s.authManager.RegenerateBackupCodes(r.Context(), user.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to regenerate backup codes")
+		s.writeError(w, "Failed to regenerate backup codes", http.StatusInternalServerError)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":  user.ID,
+		"username": user.Username,
+	}).Info("Backup codes regenerated")
+
+	s.writeJSON(w, map[string]interface{}{
+		"success":      true,
+		"backup_codes": backupCodes,
+		"message":      "New backup codes generated. Please save them in a secure location.",
+	})
+}
+
+// handleGet2FAStatus returns the 2FA status for the current user
+func (s *Server) handleGet2FAStatus(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*auth.User)
+
+	enabled, setupAt, err := s.authManager.Get2FAStatus(r.Context(), user.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get 2FA status")
+		s.writeError(w, "Failed to get 2FA status", http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"enabled":  enabled,
+		"setup_at": setupAt,
+	})
 }
