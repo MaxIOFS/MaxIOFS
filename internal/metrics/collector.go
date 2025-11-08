@@ -274,7 +274,7 @@ func (c *collector) collectAndReport(ctx context.Context, manager Manager) {
 	// Collect system metrics
 	sysMetrics, err := c.CollectSystemMetrics()
 	if err == nil {
-		manager.UpdateSystemMetrics(sysMetrics.CPUUsagePercent, sysMetrics.MemoryUsagePercent)
+		manager.UpdateSystemMetrics(sysMetrics.CPUUsagePercent, sysMetrics.MemoryUsagePercent, sysMetrics.DiskUsagePercent)
 		manager.RecordSystemEvent("metrics_collection", map[string]string{
 			"type": "system",
 		})

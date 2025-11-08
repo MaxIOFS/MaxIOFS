@@ -236,7 +236,7 @@ configs:
             },
             "gridPos": {
               "h": 8,
-              "w": 6,
+              "w": 4,
               "x": 0,
               "y": 0
             },
@@ -293,8 +293,8 @@ configs:
             },
             "gridPos": {
               "h": 8,
-              "w": 6,
-              "x": 6,
+              "w": 4,
+              "x": 4,
               "y": 0
             },
             "id": 3,
@@ -332,6 +332,177 @@ configs:
                   "mode": "absolute",
                   "steps": [
                     {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 70
+                    },
+                    {
+                      "color": "red",
+                      "value": 85
+                    }
+                  ]
+                },
+                "unit": "percent"
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 4,
+              "x": 8,
+              "y": 0
+            },
+            "id": 10,
+            "options": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "reduceOptions": {
+                "calcs": ["lastNotNull"],
+                "fields": "",
+                "values": false
+              },
+              "textMode": "auto"
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [
+              {
+                "expr": "maxiofs_system_disk_usage_percent",
+                "refId": "A"
+              }
+            ],
+            "title": "Disk Usage",
+            "type": "stat"
+          },
+          {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 500000000000
+                    },
+                    {
+                      "color": "red",
+                      "value": 800000000000
+                    }
+                  ]
+                },
+                "unit": "bytes"
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 4,
+              "x": 12,
+              "y": 0
+            },
+            "id": 11,
+            "options": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "reduceOptions": {
+                "calcs": ["lastNotNull"],
+                "fields": "",
+                "values": false
+              },
+              "textMode": "auto"
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [
+              {
+                "expr": "maxiofs_system_disk_used_bytes",
+                "refId": "A"
+              }
+            ],
+            "title": "Disk Used",
+            "type": "stat"
+          },
+          {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 100000000000
+                    },
+                    {
+                      "color": "green",
+                      "value": 200000000000
+                    }
+                  ]
+                },
+                "unit": "bytes"
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 4,
+              "x": 16,
+              "y": 0
+            },
+            "id": 12,
+            "options": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "reduceOptions": {
+                "calcs": ["lastNotNull"],
+                "fields": "",
+                "values": false
+              },
+              "textMode": "auto"
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [
+              {
+                "expr": "maxiofs_system_disk_total_bytes - maxiofs_system_disk_used_bytes",
+                "refId": "A"
+              }
+            ],
+            "title": "Disk Free",
+            "type": "stat"
+          },
+          {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
                       "color": "blue",
                       "value": null
                     }
@@ -342,8 +513,8 @@ configs:
             },
             "gridPos": {
               "h": 8,
-              "w": 6,
-              "x": 12,
+              "w": 4,
+              "x": 20,
               "y": 0
             },
             "id": 4,
@@ -377,6 +548,117 @@ configs:
                   "mode": "thresholds"
                 },
                 "mappings": [],
+                "max": 100,
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 70
+                    },
+                    {
+                      "color": "red",
+                      "value": 85
+                    }
+                  ]
+                },
+                "unit": "percent"
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 8,
+              "x": 0,
+              "y": 8
+            },
+            "id": 13,
+            "options": {
+              "orientation": "auto",
+              "reduceOptions": {
+                "calcs": ["lastNotNull"],
+                "fields": "",
+                "values": false
+              },
+              "showThresholdLabels": true,
+              "showThresholdMarkers": true,
+              "text": {}
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [
+              {
+                "expr": "maxiofs_system_disk_usage_percent",
+                "refId": "A"
+              }
+            ],
+            "title": "Disk Usage Gauge",
+            "type": "gauge"
+          },
+          {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "hideFrom": {
+                    "tooltip": false,
+                    "viz": false,
+                    "legend": false
+                  }
+                },
+                "mappings": [],
+                "unit": "bytes"
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 8,
+              "x": 8,
+              "y": 8
+            },
+            "id": 14,
+            "options": {
+              "displayLabels": ["name", "percent"],
+              "legend": {
+                "displayMode": "table",
+                "placement": "right",
+                "values": ["value"]
+              },
+              "pieType": "pie",
+              "reduceOptions": {
+                "calcs": ["lastNotNull"],
+                "fields": "",
+                "values": false
+              },
+              "tooltip": {
+                "mode": "single"
+              }
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [
+              {
+                "expr": "maxiofs_bucket_bytes_total",
+                "legendFormat": "{{bucket}}",
+                "refId": "A"
+              }
+            ],
+            "title": "Storage Distribution by Bucket",
+            "type": "piechart"
+          },
+          {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [],
                 "thresholds": {
                   "mode": "absolute",
                   "steps": [
@@ -391,9 +673,9 @@ configs:
             },
             "gridPos": {
               "h": 8,
-              "w": 6,
-              "x": 18,
-              "y": 0
+              "w": 8,
+              "x": 16,
+              "y": 8
             },
             "id": 5,
             "options": {
@@ -463,7 +745,7 @@ configs:
               "h": 9,
               "w": 12,
               "x": 0,
-              "y": 8
+              "y": 16
             },
             "id": 6,
             "options": {
@@ -487,6 +769,11 @@ configs:
                 "expr": "maxiofs_system_memory_usage_percent",
                 "legendFormat": "Memory Usage %",
                 "refId": "B"
+              },
+              {
+                "expr": "maxiofs_system_disk_usage_percent",
+                "legendFormat": "Disk Usage %",
+                "refId": "C"
               }
             ],
             "title": "System Resources",
@@ -554,7 +841,7 @@ configs:
               "h": 9,
               "w": 12,
               "x": 12,
-              "y": 8
+              "y": 16
             },
             "id": 7,
             "options": {
@@ -628,7 +915,7 @@ configs:
               "h": 9,
               "w": 12,
               "x": 0,
-              "y": 17
+              "y": 25
             },
             "id": 8,
             "options": {
@@ -702,7 +989,7 @@ configs:
               "h": 9,
               "w": 12,
               "x": 12,
-              "y": 17
+              "y": 25
             },
             "id": 9,
             "options": {
@@ -718,17 +1005,17 @@ configs:
             "pluginVersion": "9.0.0",
             "targets": [
               {
-                "expr": "100 * (1 - avg(rate(process_cpu_seconds_total[5m])))",
-                "legendFormat": "CPU Usage",
+                "expr": "maxiofs_system_disk_used_bytes",
+                "legendFormat": "Used Bytes",
                 "refId": "A"
               },
               {
-                "expr": "100 * (process_resident_memory_bytes / process_virtual_memory_max_bytes)",
-                "legendFormat": "Memory Usage",
+                "expr": "maxiofs_system_disk_total_bytes",
+                "legendFormat": "Total Bytes",
                 "refId": "B"
               }
             ],
-            "title": "System Resources",
+            "title": "Disk Space (Bytes)",
             "type": "timeseries"
           }
         ],

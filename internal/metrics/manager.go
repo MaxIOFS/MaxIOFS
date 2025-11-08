@@ -35,7 +35,7 @@ type Manager interface {
 	RecordAuthFailure(method, reason string)
 
 	// System Metrics
-	UpdateSystemMetrics(cpuUsage, memoryUsage float64)
+	UpdateSystemMetrics(cpuUsage, memoryUsage, diskUsage float64)
 	RecordSystemEvent(eventType string, details map[string]string)
 
 	// Bucket Metrics
@@ -107,9 +107,12 @@ type metricsManager struct {
 	authFailuresTotal *prometheus.CounterVec
 
 	// System Metrics
-	systemCPUUsage    prometheus.Gauge
-	systemMemoryUsage prometheus.Gauge
-	systemEventsTotal *prometheus.CounterVec
+	systemCPUUsage         prometheus.Gauge
+	systemMemoryUsage      prometheus.Gauge
+	systemDiskUsagePercent prometheus.Gauge
+	systemDiskUsedBytes    prometheus.Gauge
+	systemDiskTotalBytes   prometheus.Gauge
+	systemEventsTotal      *prometheus.CounterVec
 
 	// Bucket Metrics
 	bucketObjectsTotal *prometheus.GaugeVec
@@ -431,6 +434,33 @@ func (m *metricsManager) initializeMetrics() {
 		},
 	)
 
+	m.systemDiskUsagePercent = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "system",
+			Name:      "disk_usage_percent",
+			Help:      "System disk usage percentage",
+		},
+	)
+
+	m.systemDiskUsedBytes = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "system",
+			Name:      "disk_used_bytes",
+			Help:      "System disk used bytes",
+		},
+	)
+
+	m.systemDiskTotalBytes = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "system",
+			Name:      "disk_total_bytes",
+			Help:      "System disk total bytes",
+		},
+	)
+
 	m.systemEventsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: namespace,
@@ -569,6 +599,9 @@ func (m *metricsManager) registerMetrics() {
 		// System
 		m.systemCPUUsage,
 		m.systemMemoryUsage,
+		m.systemDiskUsagePercent,
+		m.systemDiskUsedBytes,
+		m.systemDiskTotalBytes,
 		m.systemEventsTotal,
 
 		// Bucket
@@ -670,9 +703,10 @@ func (m *metricsManager) RecordAuthFailure(method, reason string) {
 
 // System Metrics Implementation
 
-func (m *metricsManager) UpdateSystemMetrics(cpuUsage, memoryUsage float64) {
+func (m *metricsManager) UpdateSystemMetrics(cpuUsage, memoryUsage, diskUsage float64) {
 	m.systemCPUUsage.Set(cpuUsage)
 	m.systemMemoryUsage.Set(memoryUsage)
+	m.systemDiskUsagePercent.Set(diskUsage)
 }
 
 func (m *metricsManager) RecordSystemEvent(eventType string, details map[string]string) {
@@ -967,6 +1001,11 @@ func (m *metricsManager) collectAndStoreMetrics() {
 		if memStats, err := m.systemMetrics.GetMemoryUsage(); err == nil {
 			m.systemMemoryUsage.Set(memStats.UsedPercent)
 		}
+		if diskStats, err := m.systemMetrics.GetDiskUsage(); err == nil {
+			m.systemDiskUsagePercent.Set(diskStats.UsedPercent)
+			m.systemDiskUsedBytes.Set(float64(diskStats.UsedBytes))
+			m.systemDiskTotalBytes.Set(float64(diskStats.TotalBytes))
+		}
 	}
 
 	// Collect system metrics
@@ -1053,7 +1092,7 @@ func (n *noopManager) RecordObjectOperation(operation, bucket string, objectSize
 }
 func (n *noopManager) RecordAuthAttempt(method string, success bool)                    {}
 func (n *noopManager) RecordAuthFailure(method, reason string)                          {}
-func (n *noopManager) UpdateSystemMetrics(cpuUsage, memoryUsage float64)                {}
+func (n *noopManager) UpdateSystemMetrics(cpuUsage, memoryUsage, diskUsage float64) {}
 func (n *noopManager) RecordSystemEvent(eventType string, details map[string]string)    {}
 func (n *noopManager) UpdateBucketMetrics(bucket string, objects, bytes int64)          {}
 func (n *noopManager) RecordBucketOperation(operation, bucket string, success bool)     {}
