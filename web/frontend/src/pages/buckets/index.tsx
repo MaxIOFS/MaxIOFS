@@ -1,17 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Loading } from '@/components/ui/Loading';
-import { Database, Plus, Search, Settings, Trash2, Calendar, HardDrive, Lock, Shield, Building2, Users } from 'lucide-react';
+import { Database, Plus, Search, Settings, Trash2, Calendar, HardDrive, Lock, Shield, Building2, Users, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Bucket } from '@/types';
 import SweetAlert from '@/lib/sweetalert';
 
+type SortField = 'name' | 'creationDate' | 'objectCount' | 'size';
+type SortOrder = 'asc' | 'desc';
+
 export default function BucketsPage() {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [sortField, setSortField] = useState<SortField>('creationDate');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const queryClient = useQueryClient();
 
   const { data: buckets, isLoading, error } = useQuery({
@@ -43,9 +50,66 @@ export default function BucketsPage() {
     },
   });
 
-  const filteredBuckets = buckets?.filter(bucket =>
-    bucket.name.toLowerCase().includes(searchTerm.toLowerCase())
-  ) || [];
+  // Filtrar buckets por término de búsqueda
+  const filteredBuckets = useMemo(() => {
+    return buckets?.filter(bucket =>
+      bucket.name.toLowerCase().includes(searchTerm.toLowerCase())
+    ) || [];
+  }, [buckets, searchTerm]);
+
+  // Ordenar buckets
+  const sortedBuckets = useMemo(() => {
+    const sorted = [...filteredBuckets];
+    sorted.sort((a, b) => {
+      let comparison = 0;
+      switch (sortField) {
+        case 'name':
+          comparison = a.name.localeCompare(b.name);
+          break;
+        case 'creationDate':
+          comparison = new Date(a.creation_date || a.creationDate || '').getTime() - 
+                      new Date(b.creation_date || b.creationDate || '').getTime();
+          break;
+        case 'objectCount':
+          comparison = (a.object_count || a.objectCount || 0) - (b.object_count || b.objectCount || 0);
+          break;
+        case 'size':
+          comparison = (a.size || a.totalSize || 0) - (b.size || b.totalSize || 0);
+          break;
+      }
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+    return sorted;
+  }, [filteredBuckets, sortField, sortOrder]);
+
+  // Calcular paginación
+  const totalPages = Math.ceil(sortedBuckets.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedBuckets = sortedBuckets.slice(startIndex, endIndex);
+
+  // Reset a página 1 cuando cambia la búsqueda
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="h-3 w-3 text-gray-400" />;
+    }
+    return sortOrder === 'asc' ? 
+      <ArrowUp className="h-3 w-3 text-brand-600 dark:text-brand-400" /> : 
+      <ArrowDown className="h-3 w-3 text-brand-600 dark:text-brand-400" />;
+  };
 
   const handleDeleteBucket = async (bucketName: string) => {
     try {
@@ -146,7 +210,7 @@ export default function BucketsPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Buckets</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{filteredBuckets.length}</h3>
+              <h3 className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{sortedBuckets.length}</h3>
             </div>
             <div className="flex items-center justify-center w-14 h-14 rounded-full bg-brand-50 dark:bg-brand-900/30">
               <Database className="h-7 w-7 text-brand-600 dark:text-brand-400" />
@@ -159,7 +223,7 @@ export default function BucketsPage() {
             <div>
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Objects</p>
               <h3 className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
-                {filteredBuckets.reduce((sum, bucket) => sum + (bucket.object_count || bucket.objectCount || 0), 0).toLocaleString()}
+                {sortedBuckets.reduce((sum, bucket) => sum + (bucket.object_count || bucket.objectCount || 0), 0).toLocaleString()}
               </h3>
             </div>
             <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-light-50 dark:bg-blue-light-900/30">
@@ -173,7 +237,7 @@ export default function BucketsPage() {
             <div>
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Size</p>
               <h3 className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
-                {formatSize(filteredBuckets.reduce((sum, bucket) => sum + (bucket.size || bucket.totalSize || 0), 0))}
+                {formatSize(sortedBuckets.reduce((sum, bucket) => sum + (bucket.size || bucket.totalSize || 0), 0))}
               </h3>
             </div>
             <div className="flex items-center justify-center w-14 h-14 rounded-full bg-orange-50 dark:bg-orange-900/30">
@@ -200,12 +264,12 @@ export default function BucketsPage() {
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            All Buckets ({filteredBuckets.length})
+            All Buckets ({sortedBuckets.length})
           </h3>
         </div>
 
         <div className="overflow-x-auto">
-          {filteredBuckets.length === 0 ? (
+          {paginatedBuckets.length === 0 ? (
             <div className="text-center py-12 px-4">
               <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-gray-100 dark:bg-gray-700 mb-4">
                 <Database className="h-8 w-8 text-gray-400 dark:text-gray-500" />
@@ -228,8 +292,14 @@ export default function BucketsPage() {
             <table className="w-full">
               <thead className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                    Name
+                  <th className="px-6 py-3 text-left">
+                    <button
+                      onClick={() => handleSort('name')}
+                      className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
+                    >
+                      Name
+                      {getSortIcon('name')}
+                    </button>
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                     Region
@@ -237,14 +307,32 @@ export default function BucketsPage() {
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                     Owner
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                    Objects
+                  <th className="px-6 py-3 text-left">
+                    <button
+                      onClick={() => handleSort('objectCount')}
+                      className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
+                    >
+                      Objects
+                      {getSortIcon('objectCount')}
+                    </button>
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                    Size
+                  <th className="px-6 py-3 text-left">
+                    <button
+                      onClick={() => handleSort('size')}
+                      className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
+                    >
+                      Size
+                      {getSortIcon('size')}
+                    </button>
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                    Created
+                  <th className="px-6 py-3 text-left">
+                    <button
+                      onClick={() => handleSort('creationDate')}
+                      className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
+                    >
+                      Created
+                      {getSortIcon('creationDate')}
+                    </button>
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                     Actions
@@ -252,7 +340,7 @@ export default function BucketsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {filteredBuckets.map((bucket) => {
+                {paginatedBuckets.map((bucket) => {
                   const tenantId = bucket.tenant_id || bucket.tenantId;
                   const bucketPath = tenantId ? `/buckets/${tenantId}/${bucket.name}` : `/buckets/${bucket.name}`;
                   const owner = getOwnerDisplay(bucket);
@@ -336,6 +424,67 @@ export default function BucketsPage() {
             </table>
           )}
         </div>
+
+        {/* Paginación */}
+        {sortedBuckets.length > 0 && (
+          <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <div className="text-sm text-gray-700 dark:text-gray-300">
+              Showing {startIndex + 1} to {Math.min(endIndex, sortedBuckets.length)} of {sortedBuckets.length} buckets
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setCurrentPage(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="inline-flex items-center gap-1"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              
+              <div className="flex items-center gap-1">
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(page => {
+                    // Mostrar primera, última, actual y 2 páginas adyacentes
+                    return page === 1 || 
+                           page === totalPages || 
+                           (page >= currentPage - 1 && page <= currentPage + 1);
+                  })
+                  .map((page, index, array) => {
+                    // Agregar "..." si hay salto
+                    const showEllipsis = index > 0 && page - array[index - 1] > 1;
+                    return (
+                      <React.Fragment key={page}>
+                        {showEllipsis && (
+                          <span className="px-2 text-gray-500 dark:text-gray-400">...</span>
+                        )}
+                        <button
+                          onClick={() => setCurrentPage(page)}
+                          className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+                            currentPage === page
+                              ? 'bg-brand-600 text-white'
+                              : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      </React.Fragment>
+                    );
+                  })}
+              </div>
+
+              <Button
+                variant="outline"
+                onClick={() => setCurrentPage(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className="inline-flex items-center gap-1"
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
