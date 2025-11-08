@@ -33,7 +33,6 @@ import type {
   BucketPermission,
   GrantPermissionRequest,
 } from '@/types';
-import SweetAlert from '@/lib/sweetalert';
 
 // API Configuration
 // For monolithic deployment: Use relative URLs so frontend works with both HTTP and HTTPS
@@ -803,6 +802,14 @@ export class APIClient {
     await apiClient.put(`/buckets/${bucketName}/object-lock`, config, {
       headers: { 'Content-Type': 'application/xml' }
     });
+  }
+
+  static async updateObjectLockConfiguration(
+    bucketName: string,
+    config: { mode: string; days?: number; years?: number }
+  ): Promise<void> {
+    // Enviar JSON directamente a la Console API
+    await apiClient.put(`/buckets/${bucketName}/object-lock`, config);
   }
 
   // Tenant Management

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
+import { ObjectLockConfigModal } from '@/components/ObjectLockConfigModal';
 import {
   ArrowLeft,
   Shield,
@@ -47,6 +48,9 @@ export default function BucketSettingsPage() {
   const [selectedCannedACL, setSelectedCannedACL] = useState<string>('private');
   const [currentACL, setCurrentACL] = useState<string>('private');
   const [aclViewMode, setAclViewMode] = useState<'simple' | 'advanced'>('simple');
+
+  // Object Lock state
+  const [isObjectLockModalOpen, setIsObjectLockModalOpen] = useState(false);
 
   // CORS rules state
   interface CORSRule {
@@ -753,7 +757,9 @@ export default function BucketSettingsPage() {
                   </p>
                 </div>
                 {bucketData?.objectLock?.objectLockEnabled && (
-                  <Button variant="outline">Configure</Button>
+                  <Button variant="outline" onClick={() => setIsObjectLockModalOpen(true)}>
+                    Configure
+                  </Button>
                 )}
               </div>
               {bucketData?.objectLock?.objectLockEnabled && bucketData?.objectLock?.rule && (
@@ -1694,6 +1700,16 @@ export default function BucketSettingsPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Object Lock Configuration Modal */}
+      <ObjectLockConfigModal
+        isOpen={isObjectLockModalOpen}
+        onClose={() => setIsObjectLockModalOpen(false)}
+        bucketName={bucketName}
+        currentMode={bucketData?.objectLock?.rule?.defaultRetention?.mode || 'GOVERNANCE'}
+        currentDays={bucketData?.objectLock?.rule?.defaultRetention?.days}
+        currentYears={bucketData?.objectLock?.rule?.defaultRetention?.years}
+      />
     </div>
   );
 }

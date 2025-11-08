@@ -1740,6 +1740,161 @@ func (h *Handler) GetObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			logrus.WithFields(logrus.Fields{
+				"panic": rec,
+			}).Error("PANIC in PutObjectLockConfiguration")
+			h.writeError(w, "InternalError", "Internal server error", "", r)
+		}
+	}()
+
+	bucketName := mux.Vars(r)["bucket"]
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
+	}).Info("S3 API: PutObjectLockConfiguration - START")
+
+	// Obtener tenantID del usuario autenticado
+	tenantID := h.getTenantIDFromRequest(r)
+	logrus.WithFields(logrus.Fields{
+		"tenantID": tenantID,
+		"bucket":   bucketName,
+	}).Info("PutObjectLockConfiguration - Got tenantID")
+
+	// Verificar permisos
+	user, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		logrus.Warn("PutObjectLockConfiguration - No user in context")
+		h.writeError(w, "AccessDenied", "Access denied", bucketName, r)
+		return
+	}
+
+	// Verificar acceso cross-tenant (si no es global admin)
+	if user.TenantID != "" && user.TenantID != tenantID {
+		logrus.Warn("PutObjectLockConfiguration - Cross-tenant access denied")
+		h.writeError(w, "AccessDenied", "Access denied", bucketName, r)
+		return
+	}
+
+	// Obtener información del bucket
+	bucketInfo, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err.Error() == "bucket not found" || err == bucket.ErrBucketNotFound {
+			logrus.Info("PutObjectLockConfiguration - Bucket not found")
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		logrus.WithError(err).Error("PutObjectLockConfiguration - Failed to get bucket info")
+		h.writeError(w, "InternalError", "Failed to retrieve bucket info", bucketName, r)
+		return
+	}
+
+	// Verificar que Object Lock esté habilitado
+	if bucketInfo.ObjectLock == nil || !bucketInfo.ObjectLock.ObjectLockEnabled {
+		logrus.Warn("PutObjectLockConfiguration - Object Lock not enabled")
+		h.writeError(w, "ObjectLockConfigurationNotFoundError",
+			"Object Lock configuration does not exist for this bucket", bucketName, r)
+		return
+	}
+
+	// Leer la nueva configuración del body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		logrus.WithError(err).Error("PutObjectLockConfiguration - Failed to read request body")
+		h.writeError(w, "InvalidRequest", "Failed to read request body", bucketName, r)
+		return
+	}
+	defer r.Body.Close()
+
+	var newConfig ObjectLockConfiguration
+	if err := xml.Unmarshal(body, &newConfig); err != nil {
+		logrus.WithError(err).Error("PutObjectLockConfiguration - Failed to unmarshal XML")
+		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
+		return
+	}
+
+	// Validar que el modo no haya cambiado (inmutable)
+	currentMode := ""
+	if bucketInfo.ObjectLock.Rule != nil && bucketInfo.ObjectLock.Rule.DefaultRetention != nil {
+		currentMode = bucketInfo.ObjectLock.Rule.DefaultRetention.Mode
+	}
+
+	newMode := newConfig.Rule.DefaultRetention.Mode
+	if currentMode != "" && newMode != currentMode {
+		logrus.WithFields(logrus.Fields{
+			"currentMode": currentMode,
+			"newMode":     newMode,
+		}).Warn("PutObjectLockConfiguration - Attempt to change mode")
+		h.writeError(w, "InvalidRequest",
+			fmt.Sprintf("Object Lock mode cannot be changed (current: %s)", currentMode),
+			bucketName, r)
+		return
+	}
+
+	// Calcular días actuales
+	var currentDays int
+	if bucketInfo.ObjectLock.Rule != nil && bucketInfo.ObjectLock.Rule.DefaultRetention != nil {
+		if bucketInfo.ObjectLock.Rule.DefaultRetention.Years != nil && *bucketInfo.ObjectLock.Rule.DefaultRetention.Years > 0 {
+			currentDays = *bucketInfo.ObjectLock.Rule.DefaultRetention.Years * 365
+		} else if bucketInfo.ObjectLock.Rule.DefaultRetention.Days != nil {
+			currentDays = *bucketInfo.ObjectLock.Rule.DefaultRetention.Days
+		}
+	}
+
+	// Calcular días nuevos
+	var newDays int
+	if newConfig.Rule.DefaultRetention.Years > 0 {
+		newDays = newConfig.Rule.DefaultRetention.Years * 365
+	} else {
+		newDays = newConfig.Rule.DefaultRetention.Days
+	}
+
+	// Validar que solo se aumente el período de retención (nunca disminuir)
+	if newDays < currentDays {
+		logrus.WithFields(logrus.Fields{
+			"currentDays": currentDays,
+			"newDays":     newDays,
+		}).Warn("PutObjectLockConfiguration - Attempt to decrease retention period")
+		h.writeError(w, "InvalidRequest",
+			fmt.Sprintf("Retention period can only be increased (current: %d days, requested: %d days)",
+				currentDays, newDays),
+			bucketName, r)
+		return
+	}
+
+	// Actualizar configuración de Object Lock en el bucket
+	if bucketInfo.ObjectLock.Rule == nil {
+		bucketInfo.ObjectLock.Rule = &bucket.ObjectLockRule{}
+	}
+	if bucketInfo.ObjectLock.Rule.DefaultRetention == nil {
+		bucketInfo.ObjectLock.Rule.DefaultRetention = &bucket.DefaultRetention{}
+	}
+
+	bucketInfo.ObjectLock.Rule.DefaultRetention.Mode = newMode
+	if newConfig.Rule.DefaultRetention.Years > 0 {
+		years := newConfig.Rule.DefaultRetention.Years
+		bucketInfo.ObjectLock.Rule.DefaultRetention.Years = &years
+		bucketInfo.ObjectLock.Rule.DefaultRetention.Days = nil
+	} else {
+		days := newConfig.Rule.DefaultRetention.Days
+		bucketInfo.ObjectLock.Rule.DefaultRetention.Days = &days
+		bucketInfo.ObjectLock.Rule.DefaultRetention.Years = nil
+	}
+
+	// Guardar cambios en el bucket
+	if err := h.bucketManager.UpdateBucket(r.Context(), tenantID, bucketName, bucketInfo); err != nil {
+		logrus.WithError(err).Error("PutObjectLockConfiguration - Failed to update bucket")
+		h.writeError(w, "InternalError", "Failed to update Object Lock configuration", bucketName, r)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket":      bucketName,
+		"currentDays": currentDays,
+		"newDays":     newDays,
+		"mode":        newMode,
+	}).Info("PutObjectLockConfiguration - Configuration updated successfully")
+
 	w.WriteHeader(http.StatusOK)
 }
 

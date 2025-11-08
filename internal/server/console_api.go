@@ -277,6 +277,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/versioning", s.handleGetBucketVersioning).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/versioning", s.handlePutBucketVersioning).Methods("PUT", "OPTIONS")
 
+	// Bucket Object Lock endpoints
+	router.HandleFunc("/buckets/{bucket}/object-lock", s.handlePutObjectLockConfiguration).Methods("PUT", "OPTIONS")
+
 	// Object Legal Hold endpoints
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/legal-hold", s.handleGetObjectLegalHold).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/legal-hold", s.handlePutObjectLegalHold).Methods("PUT", "OPTIONS")
@@ -3980,6 +3983,126 @@ func (s *Server) handlePutBucketVersioning(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusOK)
 }
 
+// handlePutObjectLockConfiguration handles PUT /buckets/{bucket}/object-lock
+func (s *Server) handlePutObjectLockConfiguration(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	// Parse request body
+	var req struct {
+		Mode  string `json:"mode"`  // GOVERNANCE or COMPLIANCE
+		Days  int    `json:"days"`  // Retention period in days
+		Years int    `json:"years"` // Retention period in years
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Validate mode
+	if req.Mode != "GOVERNANCE" && req.Mode != "COMPLIANCE" {
+		s.writeError(w, "Invalid mode. Must be 'GOVERNANCE' or 'COMPLIANCE'", http.StatusBadRequest)
+		return
+	}
+
+	// Validate that either days or years is provided (not both)
+	if (req.Days > 0 && req.Years > 0) || (req.Days == 0 && req.Years == 0) {
+		s.writeError(w, "Must specify either 'days' or 'years', not both", http.StatusBadRequest)
+		return
+	}
+
+	// Get bucket info to verify Object Lock is enabled and get current config
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Verify Object Lock is enabled
+	if bucketInfo.ObjectLock == nil || !bucketInfo.ObjectLock.ObjectLockEnabled {
+		s.writeError(w, "Object Lock is not enabled for this bucket", http.StatusBadRequest)
+		return
+	}
+
+	// Calculate current total days
+	var currentTotalDays int
+	if bucketInfo.ObjectLock.Rule != nil && bucketInfo.ObjectLock.Rule.DefaultRetention != nil {
+		if bucketInfo.ObjectLock.Rule.DefaultRetention.Years != nil {
+			currentTotalDays = *bucketInfo.ObjectLock.Rule.DefaultRetention.Years * 365
+		} else if bucketInfo.ObjectLock.Rule.DefaultRetention.Days != nil {
+			currentTotalDays = *bucketInfo.ObjectLock.Rule.DefaultRetention.Days
+		}
+
+		// Verify mode hasn't changed (immutable)
+		if bucketInfo.ObjectLock.Rule.DefaultRetention.Mode != req.Mode {
+			s.writeError(w, fmt.Sprintf("Object Lock mode cannot be changed (current: %s)",
+				bucketInfo.ObjectLock.Rule.DefaultRetention.Mode), http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Calculate new total days
+	newTotalDays := req.Days
+	if req.Years > 0 {
+		newTotalDays = req.Years * 365
+	}
+
+	// Validate that retention period only increases
+	if newTotalDays < currentTotalDays {
+		s.writeError(w, fmt.Sprintf("Retention period can only be increased (current: %d days, requested: %d days)",
+			currentTotalDays, newTotalDays), http.StatusBadRequest)
+		return
+	}
+
+	// Update bucket's Object Lock configuration
+	if bucketInfo.ObjectLock.Rule == nil {
+		bucketInfo.ObjectLock.Rule = &bucket.ObjectLockRule{}
+	}
+	if bucketInfo.ObjectLock.Rule.DefaultRetention == nil {
+		bucketInfo.ObjectLock.Rule.DefaultRetention = &bucket.DefaultRetention{}
+	}
+
+	bucketInfo.ObjectLock.Rule.DefaultRetention.Mode = req.Mode
+	if req.Years > 0 {
+		bucketInfo.ObjectLock.Rule.DefaultRetention.Years = &req.Years
+		bucketInfo.ObjectLock.Rule.DefaultRetention.Days = nil
+	} else {
+		bucketInfo.ObjectLock.Rule.DefaultRetention.Days = &req.Days
+		bucketInfo.ObjectLock.Rule.DefaultRetention.Years = nil
+	}
+
+	// Save updated bucket
+	if err := s.bucketManager.UpdateBucket(r.Context(), tenantID, bucketName, bucketInfo); err != nil {
+		s.writeError(w, "Failed to update Object Lock configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return success
+	s.writeJSON(w, map[string]interface{}{
+		"success": true,
+		"message": "Object Lock configuration updated successfully",
+		"config": map[string]interface{}{
+			"mode":  req.Mode,
+			"days":  req.Days,
+			"years": req.Years,
+		},
+	})
+}
+
 // handleGetObjectLegalHold handles GET /buckets/{bucket}/objects/{object}/legal-hold
 func (s *Server) handleGetObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -4217,7 +4340,7 @@ func (s *Server) handleDisable2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"target_user_id": targetUserID,
+		"target_user_id":  targetUserID,
 		"requesting_user": user.Username,
 		"is_global_admin": isGlobalAdmin,
 	}).Info("2FA disabled")
