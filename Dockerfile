@@ -1,7 +1,10 @@
 # Multi-stage build for MaxIOFS
 
-# Stage 1: Build web frontend
-FROM node:18-alpine AS web-builder
+# Stage 1: Build frontend
+FROM node:24-alpine AS web-builder
+
+# Install build dependencies for native modules
+RUN apk add --no-cache python3 make g++
 
 WORKDIR /app/web/frontend
 
@@ -9,16 +12,16 @@ WORKDIR /app/web/frontend
 COPY web/frontend/package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production
+RUN npm ci
 
-# Copy source code
+# Copy frontend source
 COPY web/frontend/ ./
 
-# Build the frontend
+# Build frontend
 RUN npm run build
 
 # Stage 2: Build Go application
-FROM golang:1.21-alpine AS go-builder
+FROM golang:1.24-alpine AS go-builder
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
@@ -35,7 +38,7 @@ RUN go mod download
 COPY . .
 
 # Copy built web assets from previous stage
-COPY --from=web-builder /app/web/dist ./web/dist
+COPY --from=web-builder /app/web/frontend/dist ./web/frontend/dist
 
 # Build the application
 ARG VERSION=docker
@@ -75,7 +78,7 @@ EXPOSE 8080 8081
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD curl -f http://localhost:8081/api/v1/health || exit 1
 
 # Default configuration
 ENV MAXIOFS_LISTEN=":8080"

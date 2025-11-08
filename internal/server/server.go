@@ -279,6 +279,15 @@ func (s *Server) setupRoutes() error {
 	// Setup API routes (S3 compatible)
 	apiRouter := mux.NewRouter()
 
+	// Prometheus metrics endpoint (no auth, no middleware)
+	if s.config.Metrics.Enable {
+		apiRouter.Handle("/metrics", s.metricsManager.GetMetricsHandler()).Methods("GET")
+		logrus.Info("Prometheus metrics endpoint enabled at /metrics on S3 API")
+	}
+
+	// Create subrouter for authenticated S3 API routes
+	s3Router := apiRouter.PathPrefix("/").Subrouter()
+
 	// Create a wrapper for shareManager to match the interface expected by api.NewHandler
 	shareManagerWrapper := &shareManagerAdapter{mgr: s.shareManager}
 
@@ -293,20 +302,20 @@ func (s *Server) setupRoutes() error {
 		s.config.DataDir,
 	)
 
-	// Apply middleware
+	// Apply middleware only to S3 subrouter (not to /metrics)
 	// VERBOSE LOGGING - logs EVERY request with full details
-	apiRouter.Use(middleware.VerboseLogging())
-	apiRouter.Use(middleware.CORS())
-	apiRouter.Use(middleware.Logging())
+	s3Router.Use(middleware.VerboseLogging())
+	s3Router.Use(middleware.CORS())
+	s3Router.Use(middleware.Logging())
 	if s.config.Auth.EnableAuth {
-		apiRouter.Use(s.authManager.Middleware())
+		s3Router.Use(s.authManager.Middleware())
 	}
 	if s.config.Metrics.Enable {
-		apiRouter.Use(s.metricsManager.Middleware())
+		s3Router.Use(s.metricsManager.Middleware())
 	}
 
-	// Register API routes
-	apiHandler.RegisterRoutes(apiRouter)
+	// Register API routes on the authenticated subrouter
+	apiHandler.RegisterRoutes(s3Router)
 
 	// Setup CORS and other middleware
 	s.httpServer.Handler = handlers.RecoveryHandler()(apiRouter)

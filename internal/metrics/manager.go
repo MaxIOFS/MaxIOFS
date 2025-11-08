@@ -207,9 +207,9 @@ func NewManagerWithStore(cfg config.MetricsConfig, dataDir string, metadataStore
 
 	// Initialize BadgerDB history store if metadata store is provided
 	logrus.WithFields(logrus.Fields{
-		"metadataStore_nil": metadataStore == nil,
+		"metadataStore_nil":  metadataStore == nil,
 		"metadataStore_type": fmt.Sprintf("%T", metadataStore),
-		"dataDir": dataDir,
+		"dataDir":            dataDir,
 	}).Info("Initializing metrics history store")
 
 	if metadataStore != nil {
@@ -957,6 +957,16 @@ func (m *metricsManager) collectAndStoreMetrics() {
 	if m.historyStore == nil {
 		logrus.Debug("historyStore is nil, skipping metrics collection")
 		return
+	}
+
+	// Update Prometheus system metrics from system metrics tracker
+	if m.systemMetrics != nil {
+		if cpuUsage, err := m.systemMetrics.GetCPUUsage(); err == nil {
+			m.systemCPUUsage.Set(cpuUsage)
+		}
+		if memStats, err := m.systemMetrics.GetMemoryUsage(); err == nil {
+			m.systemMemoryUsage.Set(memStats.UsedPercent)
+		}
 	}
 
 	// Collect system metrics

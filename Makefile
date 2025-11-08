@@ -563,6 +563,15 @@ help:
 	@echo "  deb-clean          - Clean Debian build artifacts"
 	@echo "  help               - Show this help message"
 	@echo ""
+	@echo "Docker Commands:"
+	@echo "  docker-build       - Build Docker image"
+	@echo "  docker-run         - Run MaxIOFS in Docker"
+	@echo "  docker-up          - Start services with docker-compose"
+	@echo "  docker-down        - Stop services with docker-compose"
+	@echo "  docker-logs        - View MaxIOFS logs"
+	@echo "  docker-monitoring  - Start with Prometheus + Grafana"
+	@echo "  docker-clean       - Remove containers, images and volumes"
+	@echo ""
 	@echo "Examples:"
 	@echo "  make build VERSION=v1.0.0           - Build with version"
 	@echo "  make build-linux                     - Cross-compile for Linux"
@@ -570,3 +579,37 @@ help:
 	@echo "  make deb VERSION=v0.3.1-beta        - Build Debian AMD64 package"
 	@echo "  make deb-arm64 VERSION=v0.3.1-beta  - Build Debian ARM64 package"
 	@echo "  make deb-install                     - Build and install package"
+	@echo "  make docker-up                       - Start MaxIOFS in Docker"
+	@echo "  make docker-monitoring               - Start with monitoring stack"
+
+# Docker targets
+.PHONY: docker-build docker-run docker-up docker-down docker-logs docker-monitoring docker-clean
+
+docker-build:
+	@echo "Building Docker image..."
+	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1
+
+docker-run:
+	@echo "Building and starting MaxIOFS in Docker..."
+	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -Up
+
+docker-up:
+	@echo "Starting MaxIOFS with docker-compose..."
+	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -NoBuild -Up
+
+docker-down:
+	@echo "Stopping MaxIOFS..."
+	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -Down
+
+docker-logs:
+	@echo "Viewing MaxIOFS logs (Ctrl+C to exit)..."
+	docker-compose logs -f maxiofs
+
+docker-monitoring:
+	@echo "Starting MaxIOFS with monitoring stack..."
+	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -ProfileName monitoring -Up
+
+docker-clean:
+	@echo "Cleaning Docker resources..."
+	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -Clean
+

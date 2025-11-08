@@ -1,0 +1,752 @@
+services:
+  maxiofs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-0.3.1-beta}
+        COMMIT: ${GIT_COMMIT:-dev}
+        BUILD_DATE: ${BUILD_DATE}
+    image: maxiofs:${VERSION:-0.3.1-beta}
+    container_name: maxiofs
+    restart: unless-stopped
+    
+    ports:
+      - "8080:8080"  # S3 API
+      - "8081:8081"  # Web Console
+    
+    volumes:
+      - maxiofs-data:/data
+      # Uncomment to use custom config (create config.yaml first):
+      # - ./config.yaml:/app/config.yaml:ro
+    
+    environment:
+      # Server configuration
+      MAXIOFS_LISTEN: ":8080"
+      MAXIOFS_CONSOLE_LISTEN: ":8081"
+      MAXIOFS_DATA_DIR: "/data"
+      MAXIOFS_LOG_LEVEL: "info"
+      
+      # Public URLs (adjust to your domain/IP)
+      MAXIOFS_PUBLIC_API_URL: "http://localhost:8080"
+      MAXIOFS_PUBLIC_CONSOLE_URL: "http://localhost:8081"
+      
+      # Security
+      MAXIOFS_ENABLE_AUTH: "true"
+      MAXIOFS_JWT_SECRET: "change-this-secret-key-in-production"
+      
+      # Optional: Metrics
+      MAXIOFS_ENABLE_METRICS: "true"
+      MAXIOFS_METRICS_PORT: "9090"
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    
+    networks:
+      - maxiofs-network
+    
+    labels:
+      - "com.maxiofs.version=0.3.1-beta"
+      - "com.maxiofs.description=S3-compatible object storage server"
+
+  # Optional: Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    container_name: maxiofs-prometheus
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    
+    ports:
+      - "9091:9090"
+    
+    volumes:
+      - prometheus-data:/prometheus
+    
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    
+    configs:
+      - source: prometheus_config
+        target: /etc/prometheus/prometheus.yml
+    
+    networks:
+      - maxiofs-network
+    
+    depends_on:
+      - maxiofs
+
+  # Optional: Grafana for monitoring dashboards
+  grafana:
+    image: grafana/grafana:11.5.0
+    container_name: maxiofs-grafana
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    
+    ports:
+      - "3000:3000"
+    
+    volumes:
+      - grafana-data:/var/lib/grafana
+    
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: ""
+    
+    configs:
+      - source: grafana_datasource
+        target: /etc/grafana/provisioning/datasources/prometheus.yml
+      - source: grafana_dashboard_config
+        target: /etc/grafana/provisioning/dashboards/dashboard.yml
+      - source: grafana_maxiofs_dashboard
+        target: /var/lib/grafana/dashboards/maxiofs.json
+    
+    networks:
+      - maxiofs-network
+    
+    depends_on:
+      - prometheus
+
+volumes:
+  maxiofs-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  maxiofs-network:
+    driver: bridge
+
+configs:
+  prometheus_config:
+    content: |
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+        external_labels:
+          cluster: 'maxiofs'
+          environment: 'docker'
+
+      scrape_configs:
+        - job_name: 'maxiofs'
+          static_configs:
+            - targets: ['maxiofs:8080']
+              labels:
+                service: 'maxiofs'
+                instance: 'maxiofs-main'
+          
+          metrics_path: '/metrics'
+          scrape_interval: 30s
+          scrape_timeout: 10s
+
+        - job_name: 'prometheus'
+          static_configs:
+            - targets: ['localhost:9090']
+              labels:
+                service: 'prometheus'
+  
+  grafana_datasource:
+    content: |
+      apiVersion: 1
+      
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus:9090
+          isDefault: true
+          editable: true
+  
+  grafana_dashboard_config:
+    content: |
+      apiVersion: 1
+      
+      providers:
+        - name: 'MaxIOFS Dashboards'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          updateIntervalSeconds: 10
+          allowUiUpdates: true
+          options:
+            path: /var/lib/grafana/dashboards
+  
+  grafana_maxiofs_dashboard:
+    content: |
+      {
+        "annotations": {
+          "list": [
+            {
+              "builtIn": 1,
+              "datasource": "-- Grafana --",
+              "enable": true,
+              "hide": true,
+              "iconColor": "rgba(0, 211, 255, 1)",
+              "name": "Annotations & Alerts",
+              "type": "dashboard"
+            }
+          ]
+        },
+        "editable": true,
+        "gnetId": null,
+        "graphTooltip": 0,
+        "id": null,
+        "links": [],
+        "panels": [
+          {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 70
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                },
+                "unit": "percent"
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 6,
+              "x": 0,
+              "y": 0
+            },
+            "id": 2,
+            "options": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "reduceOptions": {
+                "calcs": ["lastNotNull"],
+                "fields": "",
+                "values": false
+              },
+              "textMode": "auto"
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [
+              {
+                "expr": "maxiofs_system_cpu_usage_percent",
+                "refId": "A"
+              }
+            ],
+            "title": "CPU Usage",
+            "type": "stat"
+          },
+          {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 80
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                },
+                "unit": "percent"
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 6,
+              "x": 6,
+              "y": 0
+            },
+            "id": 3,
+            "options": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "reduceOptions": {
+                "calcs": ["lastNotNull"],
+                "fields": "",
+                "values": false
+              },
+              "textMode": "auto"
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [
+              {
+                "expr": "maxiofs_system_memory_usage_percent",
+                "refId": "A"
+              }
+            ],
+            "title": "Memory Usage",
+            "type": "stat"
+          },
+          {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                },
+                "unit": "percent"
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 6,
+              "x": 12,
+              "y": 0
+            },
+            "id": 4,
+            "options": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "reduceOptions": {
+                "calcs": ["lastNotNull"],
+                "fields": "",
+                "values": false
+              },
+              "textMode": "auto"
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [
+              {
+                "expr": "maxiofs_cache_hit_rate",
+                "refId": "A"
+              }
+            ],
+            "title": "Cache Hit Rate",
+            "type": "stat"
+          },
+          {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "purple",
+                      "value": null
+                    }
+                  ]
+                },
+                "unit": "bytes"
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 6,
+              "x": 18,
+              "y": 0
+            },
+            "id": 5,
+            "options": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "reduceOptions": {
+                "calcs": ["lastNotNull"],
+                "fields": "",
+                "values": false
+              },
+              "textMode": "auto"
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [
+              {
+                "expr": "maxiofs_cache_size_bytes",
+                "refId": "A"
+              }
+            ],
+            "title": "Cache Size",
+            "type": "stat"
+          },
+          {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "drawStyle": "line",
+                  "fillOpacity": 10,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "tooltip": false,
+                    "viz": false,
+                    "legend": false
+                  },
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "never",
+                  "spanNulls": true
+                },
+                "mappings": [],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    }
+                  ]
+                },
+                "unit": "reqps"
+              }
+            },
+            "gridPos": {
+              "h": 9,
+              "w": 12,
+              "x": 0,
+              "y": 8
+            },
+            "id": 6,
+            "options": {
+              "legend": {
+                "calcs": [],
+                "displayMode": "list",
+                "placement": "bottom"
+              },
+              "tooltip": {
+                "mode": "single"
+              }
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [
+              {
+                "expr": "maxiofs_system_cpu_usage_percent",
+                "legendFormat": "CPU Usage %",
+                "refId": "A"
+              },
+              {
+                "expr": "maxiofs_system_memory_usage_percent",
+                "legendFormat": "Memory Usage %",
+                "refId": "B"
+              }
+            ],
+            "title": "System Resources",
+            "type": "timeseries"
+          }
+        ],
+        "refresh": "5s",
+        "schemaVersion": 36,
+        "style": "dark",
+        "tags": ["maxiofs", "s3", "storage"],
+        "templating": {
+          "list": []
+        },
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "timepicker": {},
+        "timezone": "",
+        "title": "MaxIOFS Overview",
+        "uid": "maxiofs-overview",
+        "version": 1,
+        "weekStart": ""
+      }
+
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "drawStyle": "line",
+                  "fillOpacity": 10,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "tooltip": false,
+                    "viz": false,
+                    "legend": false
+                  },
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "never",
+                  "spanNulls": true
+                },
+                "mappings": [],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    }
+                  ]
+                },
+                "unit": "s"
+              }
+            },
+            "gridPos": {
+              "h": 9,
+              "w": 12,
+              "x": 12,
+              "y": 8
+            },
+            "id": 7,
+            "options": {
+              "legend": {
+                "calcs": ["mean", "max"],
+                "displayMode": "table",
+                "placement": "bottom"
+              },
+              "tooltip": {
+                "mode": "single"
+              }
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, rate(maxiofs_http_request_duration_seconds_bucket[5m]))",
+                "legendFormat": "p95",
+                "refId": "A"
+              },
+              {
+                "expr": "histogram_quantile(0.99, rate(maxiofs_http_request_duration_seconds_bucket[5m]))",
+                "legendFormat": "p99",
+                "refId": "B"
+              }
+            ],
+            "title": "Request Duration (p95, p99)",
+            "type": "timeseries"
+          },
+          {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "drawStyle": "line",
+                  "fillOpacity": 10,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "tooltip": false,
+                    "viz": false,
+                    "legend": false
+                  },
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "never",
+                  "spanNulls": true
+                },
+                "mappings": [],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    }
+                  ]
+                },
+                "unit": "Bps"
+              }
+            },
+            "gridPos": {
+              "h": 9,
+              "w": 12,
+              "x": 0,
+              "y": 17
+            },
+            "id": 8,
+            "options": {
+              "legend": {
+                "calcs": ["mean", "max"],
+                "displayMode": "table",
+                "placement": "bottom"
+              },
+              "tooltip": {
+                "mode": "single"
+              }
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [
+              {
+                "expr": "rate(maxiofs_http_request_size_bytes_sum[5m])",
+                "legendFormat": "Request",
+                "refId": "A"
+              },
+              {
+                "expr": "rate(maxiofs_http_response_size_bytes_sum[5m])",
+                "legendFormat": "Response",
+                "refId": "B"
+              }
+            ],
+            "title": "Network Traffic",
+            "type": "timeseries"
+          },
+          {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "drawStyle": "line",
+                  "fillOpacity": 10,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "tooltip": false,
+                    "viz": false,
+                    "legend": false
+                  },
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "never",
+                  "spanNulls": true
+                },
+                "mappings": [],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    }
+                  ]
+                },
+                "unit": "percent"
+              }
+            },
+            "gridPos": {
+              "h": 9,
+              "w": 12,
+              "x": 12,
+              "y": 17
+            },
+            "id": 9,
+            "options": {
+              "legend": {
+                "calcs": ["mean", "max"],
+                "displayMode": "table",
+                "placement": "bottom"
+              },
+              "tooltip": {
+                "mode": "single"
+              }
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [
+              {
+                "expr": "100 * (1 - avg(rate(process_cpu_seconds_total[5m])))",
+                "legendFormat": "CPU Usage",
+                "refId": "A"
+              },
+              {
+                "expr": "100 * (process_resident_memory_bytes / process_virtual_memory_max_bytes)",
+                "legendFormat": "Memory Usage",
+                "refId": "B"
+              }
+            ],
+            "title": "System Resources",
+            "type": "timeseries"
+          }
+        ],
+        "refresh": "5s",
+        "schemaVersion": 36,
+        "style": "dark",
+        "tags": ["maxiofs", "s3", "storage"],
+        "templating": {
+          "list": []
+        },
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "timepicker": {},
+        "timezone": "",
+        "title": "MaxIOFS Overview",
+        "uid": "maxiofs-overview",
+        "version": 1,
+        "weekStart": ""
+      }

@@ -1,8 +1,74 @@
-node_modules
+# Git
 .git
 .gitignore
+.gitattributes
+
+# Documentation (keep README.md for reference)
 *.md
-.env*
-dist
-backend/ui/dist
-build
+!README.md
+docs/
+
+# Build artifacts
+build/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+maxiofs
+maxiofs-*
+
+# Testing
+tests/
+*.test
+coverage.txt
+coverage.html
+
+# Debian packaging
+debian/
+*.deb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+.Spotlight-V100
+.Trashes
+
+# Dependencies (downloaded during build)
+node_modules/
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.local
+
+# Logs
+*.log
+logs/
+
+# Data directories
+data/
+tmp/
+
+# Docker
+docker-compose*.yml
+docker-compose*.yaml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Temporary files
+*.tmp
+*.bak
+*.cache
