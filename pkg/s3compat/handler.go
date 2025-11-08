@@ -346,6 +346,32 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tenantID := h.getTenantIDFromRequest(r)
+
+	// Check tenant bucket quota before creation
+	user, userExists := auth.GetUserFromContext(r.Context())
+	if userExists && user.TenantID != "" {
+		tenant, err := h.authManager.GetTenant(r.Context(), user.TenantID)
+		if err != nil {
+			logrus.WithError(err).WithField("tenantID", user.TenantID).Error("Failed to get tenant for quota check")
+			h.writeError(w, "InternalError", "Failed to verify tenant quota", bucketName, r)
+			return
+		}
+
+		// Check if tenant has reached max buckets
+		if tenant.MaxBuckets > 0 && tenant.CurrentBuckets >= tenant.MaxBuckets {
+			logrus.WithFields(logrus.Fields{
+				"bucket":         bucketName,
+				"tenantID":       user.TenantID,
+				"currentBuckets": tenant.CurrentBuckets,
+				"maxBuckets":     tenant.MaxBuckets,
+			}).Warn("Tenant bucket quota exceeded")
+			h.writeError(w, "QuotaExceeded",
+				fmt.Sprintf("Tenant bucket quota exceeded (%d/%d). Cannot create more buckets.",
+					tenant.CurrentBuckets, tenant.MaxBuckets), bucketName, r)
+			return
+		}
+	}
+
 	if err := h.bucketManager.CreateBucket(r.Context(), tenantID, bucketName); err != nil {
 		if err == bucket.ErrBucketAlreadyExists {
 			h.writeError(w, "BucketAlreadyExists", "The requested bucket name is not available", bucketName, r)
@@ -978,6 +1004,30 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	// Permission check: Verify user has WRITE permission via ACL
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.getTenantIDFromRequest(r)
+
+	// Check tenant storage quota before accepting upload
+	if userExists && user.TenantID != "" {
+		// Get content length for quota check
+		contentLength := r.ContentLength
+		if decodedContentLength != "" {
+			if size, err := strconv.ParseInt(decodedContentLength, 10, 64); err == nil {
+				contentLength = size
+			}
+		}
+
+		if contentLength > 0 {
+			if err := h.authManager.CheckTenantStorageQuota(r.Context(), user.TenantID, contentLength); err != nil {
+				logrus.WithFields(logrus.Fields{
+					"bucket":        bucketName,
+					"object":        objectKey,
+					"tenantID":      user.TenantID,
+					"contentLength": contentLength,
+				}).Warn("Tenant storage quota exceeded")
+				h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
+				return
+			}
+		}
+	}
 
 	hasPermission := false
 

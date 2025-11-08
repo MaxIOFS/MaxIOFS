@@ -101,6 +101,10 @@ type objectManager struct {
 		IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 		DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 	}
+	authManager interface {
+		IncrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
+		DecrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
+	}
 }
 
 // NewManager creates a new object manager
@@ -129,6 +133,14 @@ func (om *objectManager) SetBucketManager(bm interface {
 	DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 }) {
 	om.bucketManager = bm
+}
+
+// SetAuthManager sets the auth manager for tenant quota updates
+func (om *objectManager) SetAuthManager(am interface {
+	IncrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
+	DecrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
+}) {
+	om.authManager = am
 }
 
 // parseBucketPath extracts tenantID and bucketName from a bucket path
@@ -361,6 +373,16 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 					"size":        size,
 				}).Warn("Failed to increment bucket object count")
 			}
+		}
+	}
+
+	// Update tenant storage quota
+	if om.authManager != nil && tenantID != "" {
+		if err := om.authManager.IncrementTenantStorage(ctx, tenantID, size); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"tenant_id": tenantID,
+				"size":      size,
+			}).Warn("Failed to increment tenant storage quota")
 		}
 	}
 
@@ -662,30 +684,43 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 	if om.bucketManager != nil {
 		tenantID, bucketName := om.parseBucketPath(bucket)
 		logrus.WithFields(logrus.Fields{
-			"bucket":      bucket,
-			"tenantID":    tenantID,
-			"bucketName":  bucketName,
-			"key":         key,
-			"objectSize":  objectSize,
+			"bucket":     bucket,
+			"tenantID":   tenantID,
+			"bucketName": bucketName,
+			"key":        key,
+			"objectSize": objectSize,
 		}).Debug("Decrementing bucket metrics after delete")
 
 		if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objectSize); err != nil {
 			logrus.WithFields(logrus.Fields{
-				"bucket":      bucket,
-				"tenantID":    tenantID,
-				"bucketName":  bucketName,
-				"objectSize":  objectSize,
+				"bucket":     bucket,
+				"tenantID":   tenantID,
+				"bucketName": bucketName,
+				"objectSize": objectSize,
 			}).WithError(err).Error("Failed to update bucket metrics after delete")
 		} else {
 			logrus.WithFields(logrus.Fields{
-				"bucket":      bucket,
-				"tenantID":    tenantID,
-				"bucketName":  bucketName,
-				"objectSize":  objectSize,
+				"bucket":     bucket,
+				"tenantID":   tenantID,
+				"bucketName": bucketName,
+				"objectSize": objectSize,
 			}).Info("Successfully decremented bucket metrics")
 		}
 	} else {
 		logrus.Warn("BucketManager is nil, cannot update metrics")
+	}
+
+	// Update tenant storage quota
+	if om.authManager != nil {
+		tenantID, _ := om.parseBucketPath(bucket)
+		if tenantID != "" {
+			if err := om.authManager.DecrementTenantStorage(ctx, tenantID, objectSize); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"tenant_id":  tenantID,
+					"objectSize": objectSize,
+				}).Warn("Failed to decrement tenant storage quota")
+			}
+		}
 	}
 
 	return nil

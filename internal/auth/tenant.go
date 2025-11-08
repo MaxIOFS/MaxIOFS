@@ -394,3 +394,80 @@ func (s *SQLiteStore) DecrementTenantBucketCount(tenantID string) error {
 
 	return tx.Commit()
 }
+
+// IncrementTenantStorage increments the current storage usage for a tenant
+func (s *SQLiteStore) IncrementTenantStorage(tenantID string, bytes int64) error {
+	if bytes <= 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		UPDATE tenants
+		SET current_storage_bytes = current_storage_bytes + ?, updated_at = ?
+		WHERE id = ?
+	`, bytes, time.Now().Unix(), tenantID)
+
+	if err != nil {
+		return fmt.Errorf("failed to increment storage: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// DecrementTenantStorage decrements the current storage usage for a tenant
+func (s *SQLiteStore) DecrementTenantStorage(tenantID string, bytes int64) error {
+	if bytes <= 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		UPDATE tenants
+		SET current_storage_bytes = CASE
+			WHEN current_storage_bytes > ? THEN current_storage_bytes - ?
+			ELSE 0
+		END, updated_at = ?
+		WHERE id = ?
+	`, bytes, bytes, time.Now().Unix(), tenantID)
+
+	if err != nil {
+		return fmt.Errorf("failed to decrement storage: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// CheckTenantStorageQuota checks if adding bytes would exceed tenant storage quota
+func (s *SQLiteStore) CheckTenantStorageQuota(tenantID string, additionalBytes int64) error {
+	if tenantID == "" {
+		// Global admin has no quota
+		return nil
+	}
+
+	tenant, err := s.GetTenant(tenantID)
+	if err != nil {
+		return fmt.Errorf("failed to get tenant: %w", err)
+	}
+
+	// Check if adding these bytes would exceed quota
+	if tenant.MaxStorageBytes > 0 {
+		newTotal := tenant.CurrentStorageBytes + additionalBytes
+		if newTotal > tenant.MaxStorageBytes {
+			return fmt.Errorf("storage quota exceeded: %d/%d bytes (attempting to add %d bytes)",
+				tenant.CurrentStorageBytes, tenant.MaxStorageBytes, additionalBytes)
+		}
+	}
+
+	return nil
+}

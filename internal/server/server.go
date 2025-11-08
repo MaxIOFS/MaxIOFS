@@ -78,6 +78,17 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	authManager := auth.NewManager(cfg.Auth, cfg.DataDir)
+
+	// Connect object manager to auth manager for tenant quota updates
+	if om, ok := objectManager.(interface {
+		SetAuthManager(interface {
+			IncrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
+			DecrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
+		})
+	}); ok {
+		om.SetAuthManager(authManager)
+	}
+
 	metricsManager := metrics.NewManagerWithStore(cfg.Metrics, cfg.DataDir, metadataStore)
 
 	// Initialize system metrics

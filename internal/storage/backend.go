@@ -39,5 +39,3 @@ func NewBackend(config Config) (Backend, error) {
 	// For now, return filesystem backend
 	return NewFilesystemBackend(config)
 }
-
-// TODO: Implement in Fase 1.1 - Storage Backend Implementation

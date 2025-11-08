@@ -61,6 +61,9 @@ type Manager interface {
 	ListTenantUsers(ctx context.Context, tenantID string) ([]*User, error)
 	IncrementTenantBucketCount(ctx context.Context, tenantID string) error
 	DecrementTenantBucketCount(ctx context.Context, tenantID string) error
+	IncrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
+	DecrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
+	CheckTenantStorageQuota(ctx context.Context, tenantID string, additionalBytes int64) error
 
 	// Bucket permission management
 	GrantBucketAccess(ctx context.Context, bucketName, userID, tenantID, permissionLevel, grantedBy string, expiresAt int64) error
@@ -108,11 +111,11 @@ type User struct {
 	UpdatedAt   int64             `json:"updated_at"`
 
 	// Two-Factor Authentication fields
-	TwoFactorEnabled  bool     `json:"two_factor_enabled"`
-	TwoFactorSecret   string   `json:"-"`                              // NEVER return in JSON - encrypted in DB
-	TwoFactorSetupAt  int64    `json:"two_factor_setup_at,omitempty"`
-	BackupCodes       []string `json:"-"`                              // NEVER return in JSON - hashed in DB
-	BackupCodesUsed   []string `json:"-"`                              // Track used backup codes
+	TwoFactorEnabled bool     `json:"two_factor_enabled"`
+	TwoFactorSecret  string   `json:"-"` // NEVER return in JSON - encrypted in DB
+	TwoFactorSetupAt int64    `json:"two_factor_setup_at,omitempty"`
+	BackupCodes      []string `json:"-"` // NEVER return in JSON - hashed in DB
+	BackupCodesUsed  []string `json:"-"` // Track used backup codes
 }
 
 // Tenant represents an organizational unit for multi-tenancy
@@ -720,6 +723,18 @@ func (am *authManager) IncrementTenantBucketCount(ctx context.Context, tenantID 
 
 func (am *authManager) DecrementTenantBucketCount(ctx context.Context, tenantID string) error {
 	return am.store.DecrementTenantBucketCount(tenantID)
+}
+
+func (am *authManager) IncrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error {
+	return am.store.IncrementTenantStorage(tenantID, bytes)
+}
+
+func (am *authManager) DecrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error {
+	return am.store.DecrementTenantStorage(tenantID, bytes)
+}
+
+func (am *authManager) CheckTenantStorageQuota(ctx context.Context, tenantID string, additionalBytes int64) error {
+	return am.store.CheckTenantStorageQuota(tenantID, additionalBytes)
 }
 
 // Bucket permission management methods
