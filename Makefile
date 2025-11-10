@@ -324,14 +324,14 @@ else
 endif
 	@echo macOS ARM64 binary created: $(BUILD_DIR)/maxiofs-darwin-arm64-$(VERSION)
 
-# Docker build
+# Docker build (basic)
 .PHONY: docker-build
 docker-build:
 	@echo "Building Docker image..."
 	docker build -t maxiofs:$(VERSION) .
 	docker tag maxiofs:$(VERSION) maxiofs:latest
 
-# Docker run
+# Docker run (basic)
 .PHONY: docker-run
 docker-run:
 	@echo "Running MaxIOFS in Docker..."
@@ -582,24 +582,43 @@ help:
 	@echo "  make docker-up                       - Start MaxIOFS in Docker"
 	@echo "  make docker-monitoring               - Start with monitoring stack"
 
-# Docker targets
-.PHONY: docker-build docker-run docker-up docker-down docker-logs docker-monitoring docker-clean
+# Docker targets (PowerShell-based for Windows)
+.PHONY: docker-build-ps docker-run-ps docker-up-ps docker-down-ps docker-monitoring-ps docker-clean-ps
 
-docker-build:
-	@echo "Building Docker image..."
+docker-build-ps:
+	@echo "Building Docker image with PowerShell script..."
 	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1
 
-docker-run:
+docker-run-ps:
 	@echo "Building and starting MaxIOFS in Docker..."
 	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -Up
 
-docker-up:
+docker-up-ps:
 	@echo "Starting MaxIOFS with docker-compose..."
 	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -NoBuild -Up
 
-docker-down:
+docker-down-ps:
 	@echo "Stopping MaxIOFS..."
 	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -Down
+
+docker-monitoring-ps:
+	@echo "Starting MaxIOFS with monitoring stack..."
+	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -ProfileName monitoring -Up
+
+docker-clean-ps:
+	@echo "Cleaning Docker resources..."
+	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -Clean
+
+# Docker Compose targets (cross-platform)
+.PHONY: docker-up docker-down docker-logs docker-monitoring docker-clean
+
+docker-up:
+	@echo "Starting MaxIOFS with docker-compose..."
+	docker-compose up -d
+
+docker-down:
+	@echo "Stopping MaxIOFS..."
+	docker-compose down
 
 docker-logs:
 	@echo "Viewing MaxIOFS logs (Ctrl+C to exit)..."
@@ -607,9 +626,10 @@ docker-logs:
 
 docker-monitoring:
 	@echo "Starting MaxIOFS with monitoring stack..."
-	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -ProfileName monitoring -Up
+	docker-compose --profile monitoring up -d
 
 docker-clean:
 	@echo "Cleaning Docker resources..."
-	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -Clean
+	docker-compose down -v
+	docker system prune -f
 

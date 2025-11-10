@@ -88,6 +88,37 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 
 ## 🚀 Quick Start
 
+### Option 1: Docker (Recommended)
+
+**Basic deployment:**
+```bash
+make docker-build    # Build the image
+make docker-up       # Start MaxIOFS
+```
+
+**With monitoring (Prometheus + Grafana):**
+```bash
+make docker-build       # Build the image
+make docker-monitoring  # Start with monitoring stack
+```
+
+**Access:**
+- Web Console: http://localhost:8081 (admin/admin)
+- S3 API: http://localhost:8080
+- Prometheus: http://localhost:9091 (monitoring profile only)
+- Grafana: http://localhost:3000 (admin/admin, monitoring profile only)
+
+**Other commands:**
+```bash
+make docker-down     # Stop all services
+make docker-logs     # View logs
+make docker-clean    # Clean volumes and containers
+```
+
+See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for more Docker options.
+
+### Option 2: Build from Source
+
 ### Prerequisites
 - Go 1.21+ (for building)
 - Node.js 18+ (for building)
@@ -320,6 +351,49 @@ go test ./internal/... -v
 # With coverage
 go test ./internal/... -coverprofile=coverage.out
 go tool cover -html=coverage.out
+```
+
+### Available Make Targets
+
+**Build targets:**
+```bash
+make build           # Build for current platform
+make build-all       # Build for all platforms (Linux, Windows, macOS)
+make build-web       # Build frontend only
+```
+
+**Docker targets (cross-platform):**
+```bash
+make docker-build    # Build Docker image
+make docker-up       # Start with docker-compose
+make docker-down     # Stop services
+make docker-logs     # View logs
+make docker-monitoring  # Start with Prometheus/Grafana
+make docker-clean    # Clean volumes and containers
+```
+
+**Docker targets (Windows PowerShell):**
+```bash
+make docker-build-ps     # Build with PowerShell script
+make docker-run-ps       # Build and run
+make docker-up-ps        # Start containers
+make docker-down-ps      # Stop containers
+make docker-monitoring-ps # Start with monitoring
+make docker-clean-ps     # Clean with script
+```
+
+**Development targets:**
+```bash
+make dev            # Run in development mode
+make test           # Run all tests
+make lint           # Run linter
+make clean          # Clean build artifacts
+```
+
+**Package targets:**
+```bash
+make deb            # Build Debian package
+make rpm            # Build RPM package (requires alien)
 ```
 
 ## 🔒 Security Best Practices

@@ -80,7 +80,49 @@ make build
 
 ## Docker Deployment
 
-### Using Docker
+MaxIOFS includes complete Docker support with optional monitoring stack (Prometheus + Grafana).
+
+### Quick Start with Docker Compose
+
+**Option 1: Basic deployment**
+```bash
+make docker-build    # Build the Docker image
+make docker-up       # Start with docker-compose
+```
+
+**Option 2: With monitoring (Prometheus + Grafana)**
+```bash
+make docker-build       # Build the Docker image
+make docker-monitoring  # Start with monitoring stack
+```
+
+**Other commands:**
+```bash
+make docker-down     # Stop all services
+make docker-logs     # View logs (Ctrl+C to exit)
+make docker-clean    # Clean up volumes and containers
+```
+
+**Access:**
+- **Web Console**: http://localhost:8081 (admin/admin)
+- **S3 API**: http://localhost:8080
+- **Prometheus**: http://localhost:9091 (only with monitoring profile)
+- **Grafana**: http://localhost:3000 (admin/admin, only with monitoring profile)
+
+### Windows PowerShell Scripts
+
+For advanced Docker operations on Windows, use the PowerShell script targets:
+
+```powershell
+make docker-build-ps        # Build with docker-build.ps1
+make docker-run-ps          # Build and start
+make docker-up-ps           # Start existing containers
+make docker-down-ps         # Stop containers
+make docker-monitoring-ps   # Start with monitoring
+make docker-clean-ps        # Clean with PowerShell script
+```
+
+### Manual Docker Commands
 
 **Pull and run:**
 ```bash
@@ -89,34 +131,42 @@ docker run -d \
   -p 8080:8080 \
   -p 8081:8081 \
   -v $(pwd)/data:/data \
-  maxiofs/maxiofs:0.2.0-dev
+  maxiofs:latest
 ```
 
-### Docker Compose
+### Docker Compose File
 
-Create `docker-compose.yml`:
+The project includes a complete `docker-compose.yaml` with:
+- Multi-stage build (Node.js + Go + Alpine)
+- Optional monitoring profile (Prometheus + Grafana)
+- Pre-configured Grafana dashboards
+- Volume persistence for data
 
-```yaml
-version: '3.8'
-
-services:
-  maxiofs:
-    image: maxiofs/maxiofs:0.2.0-dev
-    container_name: maxiofs
-    ports:
-      - "8080:8080"
-      - "8081:8081"
-    volumes:
-      - ./data:/data
-    environment:
-      - MAXIOFS_DATA_DIR=/data
-      - MAXIOFS_LOG_LEVEL=info
-    restart: unless-stopped
-```
-
-**Run:**
+**Basic deployment:**
 ```bash
 docker-compose up -d
+```
+
+**With monitoring:**
+```bash
+docker-compose --profile monitoring up -d
+```
+
+**Stop:**
+```bash
+docker-compose down
+```
+
+### Environment Variables
+
+Available in docker-compose.yaml:
+
+```yaml
+environment:
+  - MAXIOFS_DATA_DIR=/data
+  - MAXIOFS_LOG_LEVEL=info
+  - MAXIOFS_LISTEN=:8080
+  - MAXIOFS_CONSOLE_LISTEN=:8081
 ```
 
 ---
