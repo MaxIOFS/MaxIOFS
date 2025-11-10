@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 0.3.1-beta
+**Version**: 0.3.2-beta
 
 > **BETA SOFTWARE DISCLAIMER**
 >
@@ -11,6 +11,7 @@
 MaxIOFS implements essential security features for object storage:
 
 - Dual authentication (JWT + S3 signatures)
+- **Two-Factor Authentication (2FA) with TOTP**
 - Role-Based Access Control (RBAC)
 - Bcrypt password hashing
 - Rate limiting and account lockout
@@ -53,8 +54,46 @@ Content-Type: application/json
 - Token expiration: 1 hour (default)
 - Stored in localStorage
 - Required for all console API endpoints
+- **Optional 2FA verification with TOTP codes**
 
-### 2. S3 API Authentication
+### 2. Two-Factor Authentication (2FA)
+
+MaxIOFS supports TOTP-based 2FA for enhanced account security (available since v0.3.2-beta).
+
+**Setup:**
+1. User enables 2FA in Settings → Security
+2. System generates QR code for authenticator app (Google Authenticator, Authy, etc.)
+3. User scans QR code with authenticator app
+4. User confirms setup with verification code
+5. System generates backup codes for account recovery
+
+**Login Flow with 2FA:**
+```http
+POST /api/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "your-password",
+  "totpCode": "123456"
+}
+```
+
+**Features:**
+- TOTP-based (Time-based One-Time Password)
+- Compatible with standard authenticator apps
+- Backup codes for emergency access
+- Global admin can deactivate 2FA for users if needed
+- User list shows 2FA status indicator
+- Optional - users can choose to enable it
+
+**Backup Codes:**
+- Generated during 2FA setup
+- Each code can be used once
+- Store securely offline
+- Required if authenticator device is lost
+
+### 3. S3 API Authentication
 
 S3-compatible authentication with access keys.
 
@@ -395,5 +434,5 @@ Response time: Within 48 hours
 
 ---
 
-**Version**: 0.3.1-beta
+**Version**: 0.3.2-beta
 **Last Updated**: November 2025

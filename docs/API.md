@@ -1,13 +1,22 @@
 # MaxIOFS API Reference
 
-**Version**: 0.3.1-beta
+**Version**: 0.3.2-beta
+**S3 Compatibility**: 98%
+**Last Updated**: November 10, 2025
 
 ## Overview
 
 MaxIOFS provides two APIs:
 
-1. **S3 API** (Port 8080) - AWS S3-compatible REST API
+1. **S3 API** (Port 8080) - 98% AWS S3-compatible REST API
 2. **Console API** (Port 8081) - Management REST API for web console
+
+### Recent Updates (v0.3.2)
+
+- ✅ Fixed `ListObjectVersions` - now properly shows delete markers
+- ✅ Added HTTP Conditional Requests (If-Match, If-None-Match)
+- ✅ Improved versioned bucket deletion workflow
+- ✅ Added 304 Not Modified responses for caching
 
 ---
 

@@ -1,7 +1,9 @@
 
 # MaxIOFS Configuration Guide
 
-Configuration reference for MaxIOFS v0.3.1-beta
+**Version**: 0.3.2-beta
+
+Configuration reference for MaxIOFS v0.3.2-beta
   
 ---
 

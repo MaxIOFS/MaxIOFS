@@ -1,3 +1,18 @@
+maxiofs (0.3.2-beta) unstable; urgency=medium
+
+  * Major feature release: Monitoring, 2FA, Docker & S3 fixes
+  * Two-Factor Authentication (2FA) with TOTP support
+  * Prometheus/Grafana monitoring integration
+  * Docker deployment with docker-compose
+  * Fixed ListObjectVersions S3 compatibility bug
+  * Fixed HTTP conditional requests (If-Match, If-None-Match)
+  * Bucket pagination for large bucket lists
+  * Responsive frontend design improvements
+  * Configurable Object Lock retention periods per bucket
+  * S3 compatibility now at 98%
+
+ -- MaxIOFS Team <aluisco2005@gmail.com>  Sun, 10 Nov 2025 00:00:00 +0000
+
 maxiofs (0.3.1-beta) unstable; urgency=medium
 
   * Beta release with S3 core features complete
@@ -11,7 +26,7 @@ maxiofs (0.3.1-beta) unstable; urgency=medium
   * Improved streaming for large file operations
   * Enhanced error handling and logging
 
- -- MaxIOFS Team <info@maxiofs.com>  Mon, 04 Nov 2025 00:00:00 +0000
+ -- MaxIOFS Team <aluisco2005@gmail.com>  Mon, 04 Nov 2025 00:00:00 +0000
 
 maxiofs (0.3.0-beta) unstable; urgency=medium
 
@@ -21,4 +36,4 @@ maxiofs (0.3.0-beta) unstable; urgency=medium
   * Web console interface
   * Object storage with filesystem backend
 
- -- MaxIOFS Team <info@maxiofs.com>  Mon, 01 Oct 2025 00:00:00 +0000
+ -- MaxIOFS Team <aluisco2005@gmail.com>  Mon, 01 Oct 2025 00:00:00 +0000

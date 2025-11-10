@@ -1,12 +1,14 @@
 # MaxIOFS Architecture
 
-**Version**: 0.3.1-beta
+**Version**: 0.3.2-beta
+**S3 Compatibility**: 98%
+**Last Updated**: November 10, 2025
 
 ## Overview
 
 MaxIOFS is a single-binary S3-compatible object storage system built in Go with an embedded React (Vite) frontend. The architecture emphasizes simplicity, portability, and ease of deployment with tenant-scoped bucket namespaces.
 
-**Testing Status**: Successfully validated with MinIO Warp stress testing (7000+ objects, bulk operations, metadata consistency under load). Production-ready for beta testing environments.
+**Testing Status**: Successfully validated with MinIO Warp stress testing (7000+ objects, bulk operations, metadata consistency under load). **98% S3 compatible** with all core operations fully functional. Production-ready for beta testing environments.
 
 ## System Architecture
 

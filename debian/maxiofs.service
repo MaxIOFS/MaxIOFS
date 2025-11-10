@@ -1,6 +1,6 @@
 [Unit]
 Description=MaxIOFS - High-Performance S3-Compatible Object Storage
-Documentation=https://github.com/aluisco/maxiofs
+Documentation=https://github.com/maxiofs/maxiofs
 After=network-online.target
 Wants=network-online.target
 

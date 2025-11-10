@@ -17,6 +17,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/presigned"
 	"github.com/maxiofs/maxiofs/internal/share"
@@ -82,6 +83,9 @@ type Handler struct {
 	shareManager  interface {
 		GetShareByObject(ctx context.Context, bucketName, objectKey, tenantID string) (interface{}, error)
 	}
+	metadataStore interface {
+		ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error)
+	}
 	publicAPIURL string
 	dataDir      string // For calculating disk capacity in SOSAPI
 }
@@ -115,6 +119,13 @@ func (h *Handler) SetPublicAPIURL(url string) {
 // SetDataDir sets the data directory for disk capacity calculations
 func (h *Handler) SetDataDir(dataDir string) {
 	h.dataDir = dataDir
+}
+
+// SetMetadataStore sets the metadata store for accessing object versions
+func (h *Handler) SetMetadataStore(ms interface {
+	ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error)
+}) {
+	h.metadataStore = ms
 }
 
 // S3 XML response structures
@@ -860,6 +871,26 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer reader.Close()
 
+	// Handle conditional requests (If-Match, If-None-Match)
+	ifMatch := r.Header.Get("If-Match")
+	ifNoneMatch := r.Header.Get("If-None-Match")
+
+	if ifMatch != "" {
+		// If-Match: Return 412 if ETag doesn't match
+		if obj.ETag != strings.Trim(ifMatch, "\"") {
+			w.WriteHeader(http.StatusPreconditionFailed)
+			return
+		}
+	}
+
+	if ifNoneMatch != "" {
+		// If-None-Match: Return 304 if ETag matches (resource not modified)
+		if obj.ETag == strings.Trim(ifNoneMatch, "\"") {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+
 	// 3. El objeto existe - ahora verificar ACL de objeto (solo para cross-tenant)
 	if userExists && !allowedByPresignedURL && shareTenantID == "" && user.TenantID != tenantID {
 		hasObjectACL := h.checkObjectACLPermission(r.Context(), bucketPath, objectKey, user.ID, acl.PermissionRead)
@@ -1471,6 +1502,26 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
+	}
+
+	// Handle conditional requests (If-Match, If-None-Match) for HeadObject
+	ifMatch := r.Header.Get("If-Match")
+	ifNoneMatch := r.Header.Get("If-None-Match")
+
+	if ifMatch != "" {
+		// If-Match: Return 412 if ETag doesn't match
+		if obj.ETag != strings.Trim(ifMatch, "\"") {
+			w.WriteHeader(http.StatusPreconditionFailed)
+			return
+		}
+	}
+
+	if ifNoneMatch != "" {
+		// If-None-Match: Return 304 if ETag matches (resource not modified)
+		if obj.ETag == strings.Trim(ifNoneMatch, "\"") {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
 	}
 
 	// Object exists - now check object-level ACLs for cross-tenant access

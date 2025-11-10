@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: maxiofs
-Upstream-Contact: MaxIOFS Team <info@maxiofs.com>
-Source: https://github.com/aluisco/maxiofs
+Upstream-Contact: MaxIOFS Team <aluisco2005@gmail.com>
+Source: https://github.com/maxiofs/maxiofs
 
 Files: *
 Copyright: 2025 MaxIOFS Team

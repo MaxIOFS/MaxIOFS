@@ -74,8 +74,8 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// List objects to get all keys
-	listResult, err := h.objectManager.ListObjects(r.Context(), bucketPath, prefix, delimiter, "", maxKeys*10) // Get more keys since each key may have multiple versions
+	// Get all versions directly from metadata (don't rely on ListObjects which excludes deleted objects)
+	allObjectVersions, err := h.metadataStore.ListAllObjectVersions(r.Context(), bucketPath, prefix, maxKeys*10)
 	if err != nil {
 		h.writeError(w, "InternalError", err.Error(), bucketName, r)
 		return
@@ -84,89 +84,53 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 	// Collect all versions and delete markers
 	var allVersions []VersionEntry
 	var allDeleteMarkers []DeleteMarker
-	processedKeys := make(map[string]bool)
 
-	for _, obj := range listResult.Objects {
+	for _, ver := range allObjectVersions {
 		// Skip if before key marker
-		if keyMarker != "" && obj.Key < keyMarker {
+		if keyMarker != "" && ver.Key < keyMarker {
 			continue
 		}
 
-		// Avoid processing same key multiple times
-		if processedKeys[obj.Key] {
+		// Skip if we're after keyMarker but this specific version is before versionIDMarker
+		if keyMarker == ver.Key && versionIDMarker != "" && ver.VersionID < versionIDMarker {
 			continue
 		}
-		processedKeys[obj.Key] = true
 
-		// Get all versions for this key
-		objectVersions, err := h.objectManager.GetObjectVersions(r.Context(), bucketPath, obj.Key)
-		if err != nil {
-			logrus.WithError(err).WithField("key", obj.Key).Debug("Failed to get object versions, using current version only")
-			// Fall back to single version
-			versionID := obj.VersionID
-			if versionID == "" {
-				versionID = "null"
-			}
+		versionID := ver.VersionID
+		if versionID == "" {
+			versionID = "null"
+		}
 
-			allVersions = append(allVersions, VersionEntry{
-				Key:          obj.Key,
+		// Check if this is a delete marker (Size==0 and ETag=="")
+		isDeleteMarker := ver.Size == 0 && ver.ETag == ""
+
+		if isDeleteMarker {
+			// Add as DeleteMarker
+			allDeleteMarkers = append(allDeleteMarkers, DeleteMarker{
+				Key:          ver.Key,
 				VersionId:    versionID,
-				IsLatest:     true,
-				LastModified: obj.LastModified,
-				ETag:         obj.ETag,
-				Size:         obj.Size,
+				IsLatest:     ver.IsLatest,
+				LastModified: ver.LastModified,
+				Owner: Owner{
+					ID:          "maxiofs",
+					DisplayName: "MaxIOFS",
+				},
+			})
+		} else {
+			// Add as regular version
+			allVersions = append(allVersions, VersionEntry{
+				Key:          ver.Key,
+				VersionId:    versionID,
+				IsLatest:     ver.IsLatest,
+				LastModified: ver.LastModified,
+				ETag:         ver.ETag,
+				Size:         ver.Size,
 				Owner: Owner{
 					ID:          "maxiofs",
 					DisplayName: "MaxIOFS",
 				},
 				StorageClass: "STANDARD",
 			})
-			continue
-		}
-
-		// Add all versions to the list
-		for _, ver := range objectVersions {
-			// Skip if we're after keyMarker but this specific version is before versionIDMarker
-			if keyMarker == obj.Key && versionIDMarker != "" && ver.VersionID < versionIDMarker {
-				continue
-			}
-
-			versionID := ver.VersionID
-			if versionID == "" {
-				versionID = "null"
-			}
-
-			// Check if this is a delete marker (Size==0 and ETag=="")
-			isDeleteMarker := ver.Size == 0 && ver.ETag == ""
-
-			if isDeleteMarker {
-				// Add as DeleteMarker
-				allDeleteMarkers = append(allDeleteMarkers, DeleteMarker{
-					Key:          ver.Key,
-					VersionId:    versionID,
-					IsLatest:     ver.IsLatest,
-					LastModified: ver.LastModified,
-					Owner: Owner{
-						ID:          "maxiofs",
-						DisplayName: "MaxIOFS",
-					},
-				})
-			} else {
-				// Add as regular version
-				allVersions = append(allVersions, VersionEntry{
-					Key:          ver.Key,
-					VersionId:    versionID,
-					IsLatest:     ver.IsLatest,
-					LastModified: ver.LastModified,
-					ETag:         ver.ETag,
-					Size:         ver.Size,
-					Owner: Owner{
-						ID:          "maxiofs",
-						DisplayName: "MaxIOFS",
-					},
-					StorageClass: "STANDARD",
-				})
-			}
 		}
 	}
 

@@ -68,6 +68,9 @@ type Store interface {
 	// GetObjectVersions retrieves all versions of an object
 	GetObjectVersions(ctx context.Context, bucket, key string) ([]*ObjectVersion, error)
 
+	// ListAllObjectVersions lists all versions of all objects in a bucket (for versioning support)
+	ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*ObjectVersion, error)
+
 	// DeleteObjectVersion deletes a specific version of an object
 	DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error
 

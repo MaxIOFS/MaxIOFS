@@ -1,43 +1,79 @@
 # MaxIOFS - TODO & Roadmap
 
-**Version**: 0.3.1-beta
-**Last Updated**: November 5, 2025
-**Status**: Beta - Production Stability & Cross-Platform Support
+**Version**: 0.3.2-beta
+**Last Updated**: November 10, 2025
+**Status**: Beta - 98% S3 Compatible
 
 ## 📊 Current Status Summary
 
 ```
 ┌───────────────────────────────────────────────┐
-│  MaxIOFS v0.3.1-beta                          │
-│  Status: BETA - Production Stable             │
+│  MaxIOFS v0.3.2-beta                          │
+│  Status: BETA - 98% S3 Compatible             │
 ├───────────────────────────────────────────────┤
-│  ✅ S3 API: 50+ operations (100% core tested) │
-│  ✅ Production Bug Fixes: COMPLETE            │
+│  ✅ S3 API: 98% Compatible with AWS S3        │
+│  ✅ Versioning + Delete Markers: FIXED        │
+│  ✅ Conditional Requests: IMPLEMENTED         │
 │  ✅ Cross-Platform Builds: Windows/Linux/macOS│
 │  ✅ ARM64 Support: COMPLETE                   │
 │  ✅ Debian Packaging: AVAILABLE               │
-│  ✅ Session Management: Improved              │
 │  ✅ Presigned URLs: WORKING                   │
-│  ✅ Multipart Upload: Tested (40MB)           │
+│  ✅ Multipart Upload: Tested (100MB)          │
 │  ✅ Object Lock & Retention: WORKING          │
-│  ✅ Legal Hold: WORKING                       │
 │  ✅ Object Tagging: WORKING                   │
 │  ✅ Range Requests: WORKING                   │
-│  ✅ Object Copy: WORKING                      │
+│  ✅ Cross-Bucket Copy: WORKING                │
 │  ✅ Bucket Tagging: Visual UI + Console API   │
 │  ✅ CORS Editor: Visual + XML dual modes      │
 │  ✅ Web Console: Complete UI/UX with dark mode│
 │  ✅ Multi-tenancy: Fully validated            │
 │  ✅ Warp Testing: PASSED (7000+ objects)      │
+│  ✅ HTTP Caching: ETags + 304 responses       │
 │  🟡 Test Coverage: ~70% (improving)           │
 │  ⚠️  Security Audit: 0% (pending)             │
-│  ⚠️  Performance: Basic benchmarks only       │
 └───────────────────────────────────────────────┘
 ```
 
-**📋 Detailed Testing Status**: See [TESTING_STATUS.md](TESTING_STATUS.md)
+## ✅ Recently Completed (v0.3.2-beta - November 10, 2025)
 
-## ✅ Recently Completed (v0.3.1-beta - November 5, 2025)
+### 🐛 Critical Bug Fixes
+
+**1. Versioned Bucket Deletion Bug** - **FIXED**
+- Issue: `ListObjectVersions` was not showing delete markers
+- Root cause: Dependency on `ListObjects` which excludes deleted objects
+- Solution: Added `ListAllObjectVersions` that queries metadata directly
+- Impact: Versioned buckets can now be properly cleaned and deleted
+
+**2. HTTP Conditional Requests** - **IMPLEMENTED**
+- Added: `If-Match` header support (412 Precondition Failed on mismatch)
+- Added: `If-None-Match` header support (304 Not Modified on match)
+- Applied to: GetObject and HeadObject operations
+- Benefits: HTTP caching, CDN compatibility, bandwidth savings
+
+**Files Modified**:
+- `internal/metadata/store.go` - New interface method
+- `internal/metadata/badger_objects.go` - Implementation
+- `pkg/s3compat/versioning.go` - Direct metadata query
+- `pkg/s3compat/handler.go` - Conditional request handling
+- `internal/api/handler.go` - MetadataStore integration
+- `internal/server/server.go` - Dependency wiring
+
+**S3 Compatibility**: Improved from 97% to 98%
+
+---
+
+**Additional Features** (November 6-10, 2025):
+- ✅ **Two-Factor Authentication (2FA)** - Complete TOTP implementation
+- ✅ **Prometheus Monitoring** - Metrics endpoint with pre-built Grafana dashboard
+- ✅ **Docker Support** - Docker Compose with Grafana/Prometheus integration
+- ✅ **UI Improvements** - Bucket pagination, responsive design
+- ✅ **Configuration** - Configurable Object Lock retention days
+- ✅ **Bug Fixes** - Tenant quota, ESLint warnings
+- ✅ **Dependency Updates** - All Go modules upgraded
+
+---
+
+## ✅ Previously Completed (v0.3.1-beta - November 5, 2025)
 
 ### 🛠️ Production Stability & Bug Fixes
 

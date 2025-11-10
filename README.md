@@ -1,7 +1,7 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.3.1-beta
-**Status**: Beta - Production Stability & Cross-Platform Support
+**Version**: 0.3.2-beta
+**Status**: Beta - 98% S3 Compatible
 **License**: MIT
 
 MaxIOFS is an S3-compatible object storage system built in Go with an embedded Next.js web interface. Designed to be simple, portable, and deployable as a single binary.
@@ -20,14 +20,14 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 
 ## 🎯 Features
 
-### S3 API Compatibility
+### S3 API Compatibility (98%)
 - ✅ Core operations (PutObject, GetObject, DeleteObject, ListObjects)
 - ✅ Bucket management (Create, List, Delete, GetBucketInfo)
 - ✅ Multipart uploads (complete workflow)
 - ✅ Presigned URLs (GET/PUT with expiration)
 - ✅ **Bulk operations (DeleteObjects - batch delete up to 1000 objects)**
 - ✅ Object Lock (COMPLIANCE/GOVERNANCE modes)
-- ✅ **Bucket Versioning** (Multiple versions, Delete Markers, ListObjectVersions)
+- ✅ **Bucket Versioning** (Multiple versions, Delete Markers, ListObjectVersions) - *Fixed in 0.3.2*
 - ✅ **Bucket Policy** (Complete PUT/GET/DELETE, JSON validation, AWS CLI compatible)
 - ✅ **Bucket CORS** (Get/Put/Delete CORS rules, Visual UI editor)
 - ✅ **Bucket Tagging** (Get/Put/Delete tags, Visual UI manager)
@@ -35,9 +35,12 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 - ✅ **Object Tagging** (Get/Put/Delete tags)
 - ✅ Object ACL (Get/Put access control lists)
 - ✅ Object Retention (WORM with legal hold support)
-- ✅ CopyObject (with metadata preservation)
+- ✅ CopyObject (with metadata preservation, cross-bucket support)
+- ✅ **Conditional Requests** (If-Match, If-None-Match for HTTP caching) - *New in 0.3.2*
+- ✅ **Range Requests** (Partial downloads with bytes=start-end)
 
 ### Authentication & Security
+- ✅ **Two-Factor Authentication (2FA)** - TOTP-based with QR codes, backup codes - *New in 0.3.2*
 - ✅ Dual authentication (JWT for Console, S3 Signature v2/v4 for API)
 - ✅ Bcrypt password hashing
 - ✅ Access keys with secret key management
@@ -73,11 +76,15 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 - ✅ Atomic write operations with rollback
 - ✅ SQLite for authentication and user management
 
-### Deployment
+### Deployment & Monitoring
 - ✅ Single binary with embedded frontend
+- ✅ **Docker & Docker Compose support** - *New in 0.3.2*
+- ✅ **Prometheus metrics endpoint** - *New in 0.3.2*
+- ✅ **Pre-built Grafana dashboard** (System, Storage, Requests, Performance) - *New in 0.3.2*
 - ✅ HTTP and HTTPS support
 - ✅ Configurable via CLI flags
 - ✅ Production-ready with proper error handling
+- ✅ ARM64 and Debian packaging support
 
 ## 🚀 Quick Start
 

@@ -8,6 +8,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/metrics"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/pkg/s3compat"
@@ -30,6 +31,7 @@ func NewHandler(
 	objectManager object.Manager,
 	authManager auth.Manager,
 	metricsManager metrics.Manager,
+	metadataStore metadata.Store,
 	shareManager interface {
 		GetShareByObject(ctx context.Context, bucketName, objectKey, tenantID string) (interface{}, error)
 	},
@@ -41,6 +43,11 @@ func NewHandler(
 
 	// Configure auth manager for permission checking
 	s3Handler.SetAuthManager(authManager)
+
+	// Configure metadata store for versioning support
+	if metadataStore != nil {
+		s3Handler.SetMetadataStore(metadataStore)
+	}
 
 	// Configure share manager for presigned URL validation
 	if shareManager != nil {

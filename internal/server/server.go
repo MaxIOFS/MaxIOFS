@@ -296,6 +296,7 @@ func (s *Server) setupRoutes() error {
 		s.objectManager,
 		s.authManager,
 		s.metricsManager,
+		s.metadataStore,
 		shareManagerWrapper,
 		s.config.PublicAPIURL,
 		s.config.PublicConsoleURL,

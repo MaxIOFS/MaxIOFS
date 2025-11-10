@@ -410,6 +410,62 @@ func (s *BadgerStore) GetObjectVersions(ctx context.Context, bucket, key string)
 	return versions, nil
 }
 
+// ListAllObjectVersions lists all versions of all objects in a bucket
+func (s *BadgerStore) ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*ObjectVersion, error) {
+	var allVersions []*ObjectVersion
+
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		// Iterate over all version keys for this bucket
+		versionPrefix := []byte(fmt.Sprintf("version:%s:", bucket))
+		opts.Prefix = versionPrefix
+
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		for it.Rewind(); it.Valid(); it.Next() {
+			item := it.Item()
+
+			var version ObjectVersion
+			err := item.Value(func(val []byte) error {
+				return json.Unmarshal(val, &version)
+			})
+			if err != nil {
+				s.logger.WithError(err).Warn("Failed to unmarshal version metadata")
+				continue
+			}
+
+			// Apply prefix filter if specified
+			if prefix != "" && !strings.HasPrefix(version.Key, prefix) {
+				continue
+			}
+
+			allVersions = append(allVersions, &version)
+
+			// Apply maxKeys limit if specified
+			if maxKeys > 0 && len(allVersions) >= maxKeys {
+				break
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Sort versions by Key, then by LastModified descending
+	sort.Slice(allVersions, func(i, j int) bool {
+		if allVersions[i].Key != allVersions[j].Key {
+			return allVersions[i].Key < allVersions[j].Key
+		}
+		return allVersions[i].LastModified.After(allVersions[j].LastModified)
+	})
+
+	return allVersions, nil
+}
+
 // DeleteObjectVersion deletes a specific version of an object
 func (s *BadgerStore) DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error {
 	versionKey := objectVersionKey(bucket, key, versionID)
