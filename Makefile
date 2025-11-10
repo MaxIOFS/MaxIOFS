@@ -35,7 +35,7 @@ endif
 # Build variables
 BINARY_NAME=maxiofs$(BINARY_EXT)
 # Default version - update this when releasing new versions
-DEFAULT_VERSION=v0.3.1-beta
+DEFAULT_VERSION=v0.3.2-beta
 # Try to get VERSION from environment, fallback to DEFAULT_VERSION
 ifeq ($(DETECTED_OS),Windows)
 	VERSION?=$(if $(VERSION_ENV),$(VERSION_ENV),$(DEFAULT_VERSION))
@@ -573,11 +573,11 @@ help:
 	@echo "  docker-clean       - Remove containers, images and volumes"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make build VERSION=v1.0.0           - Build with version"
+	@echo "  make build VERSION=v1.0.0            - Build with version"
 	@echo "  make build-linux                     - Cross-compile for Linux"
 	@echo "  make build-all                       - Build for all platforms"
-	@echo "  make deb VERSION=v0.3.1-beta        - Build Debian AMD64 package"
-	@echo "  make deb-arm64 VERSION=v0.3.1-beta  - Build Debian ARM64 package"
+	@echo "  make deb VERSION=v0.3.2-beta         - Build Debian AMD64 package"
+	@echo "  make deb-arm64 VERSION=v0.3.2-beta   - Build Debian ARM64 package"
 	@echo "  make deb-install                     - Build and install package"
 	@echo "  make docker-up                       - Start MaxIOFS in Docker"
 	@echo "  make docker-monitoring               - Start with monitoring stack"
