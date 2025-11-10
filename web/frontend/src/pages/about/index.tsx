@@ -311,60 +311,59 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New Features in v0.3.1-beta (Production Stability & Cross-Platform)
+            New Features in v0.3.2-beta (Monitoring, 2FA & Docker)
           </h2>
           <div className="space-y-4">
             <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                🛠️ Production Bug Fixes & Stability
+                � Two-Factor Authentication (2FA)
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Fixed critical bugs in object deletion, GOVERNANCE mode enforcement, session timeout configuration,
-                and URL redirection for reverse proxy deployments. Object count synchronization issues resolved.
-                All fixes validated and tested for production readiness.
+                Complete TOTP-based 2FA implementation with QR code generation for authenticator apps. 
+                Backup codes for account recovery. Optional per-user setting with admin management capabilities.
+                Enhanced security for all user accounts.
               </p>
             </div>
 
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                🚀 Cross-Platform Support
+                � Prometheus & Grafana Monitoring
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Full ARM64 architecture support added. Builds successfully on Windows (x64), Linux (x64/ARM64), and macOS.
-                Optimized for ARM-based servers including Raspberry Pi and AWS Graviton instances. Debian packaging available
-                for easy installation on Debian/Ubuntu systems.
+                Full monitoring stack integration with Prometheus metrics endpoint and pre-built Grafana dashboards.
+                System metrics (CPU, Memory, Disk), storage metrics, request rates, latency tracking, and cache performance.
+                Docker Compose setup for easy monitoring deployment.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                🔒 Enhanced Session Management
+                � Docker Support
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Idle timer implementation for automatic session expiration. Configurable session timeout settings.
-                Improved security through automatic session cleanup and better authentication token lifecycle management.
-                Reduces exposure window for abandoned sessions.
+                Complete Docker configuration with multi-stage build. Docker Compose for multi-container setup.
+                Production-ready containerization integrated with Prometheus and Grafana. Build scripts and
+                automated deployment workflows included.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                📦 Debian Package Distribution
+                � Critical S3 Compatibility Fixes
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Debian packaging files added for .deb distribution. Installation scripts for Debian/Ubuntu systems.
-                Systemd service templates included. Simplified deployment process with native package management support.
+                Fixed ListObjectVersions endpoint (was returning 501). Fixed HTTP conditional requests (If-Match, If-None-Match).
+                Improved S3 compatibility from 96% to 98%. Better integration with S3 clients and backup tools.
               </p>
             </div>
 
             <div className="border-l-4 border-yellow-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                🌐 Improved Reverse Proxy Support
+                ✨ UI/UX Improvements
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Fixed all URL redirects to properly use base path. Console UI now correctly handles base path in all routes.
-                Improved handling of custom path prefixes. Better compatibility with Nginx, Apache, and other reverse proxies.
-                Production-ready for complex deployment scenarios.
+                Bucket pagination for large bucket lists. Responsive frontend design for mobile and tablet devices.
+                Fixed layout resolution issues. Cleaned up unused functions for better performance and maintainability.
               </p>
             </div>
           </div>

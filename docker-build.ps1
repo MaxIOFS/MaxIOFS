@@ -16,7 +16,7 @@ function Write-Success { Write-Host $args -ForegroundColor Green }
 function Write-Error { Write-Host $args -ForegroundColor Red }
 
 # Get version from go.mod or default
-$VERSION = "0.3.1-beta"
+$VERSION = "0.3.2-beta"
 if (Test-Path "go.mod") {
     $goMod = Get-Content "go.mod" -Raw
     if ($goMod -match 'module.*v(\d+\.\d+\.\d+)') {
