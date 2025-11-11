@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Loading } from '@/components/ui/Loading';
+import { MetricCard } from '@/components/ui/MetricCard';
 import { Database, FolderOpen, Users, Activity, HardDrive, TrendingUp, ArrowUpRight, Shield } from 'lucide-react';
 import { formatBytes } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
@@ -92,111 +93,59 @@ export default function Dashboard() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 4xl:grid-cols-4 5xl:grid-cols-5 gap-4 md:gap-6 4xl:gap-8">
-        {/* Total Buckets Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Buckets</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{totalBuckets}</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Active storage containers
-              </p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-brand-50 dark:bg-brand-900/30">
-              <Database className="h-7 w-7 text-brand-600 dark:text-brand-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Total Buckets"
+          value={totalBuckets}
+          icon={Database}
+          description="Active storage containers"
+          color="brand"
+        />
 
-        {/* Total Objects Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Objects</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{totalObjects.toLocaleString()}</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Stored across all buckets
-              </p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-light-50 dark:bg-blue-light-900/30">
-              <FolderOpen className="h-7 w-7 text-blue-light-600 dark:text-blue-light-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Total Objects"
+          value={totalObjects.toLocaleString()}
+          icon={FolderOpen}
+          description="Stored across all buckets"
+          color="blue-light"
+        />
 
-        {/* Storage Used Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Storage Used</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{formatBytes(totalSize)}</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Total storage consumption
-              </p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-orange-50 dark:bg-orange-900/30">
-              <HardDrive className="h-7 w-7 text-orange-600 dark:text-orange-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Storage Used"
+          value={formatBytes(totalSize)}
+          icon={HardDrive}
+          description="Total storage consumption"
+          color="warning"
+        />
 
-        {/* Active Users Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Active Users</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{activeUsers}</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Total: {users.length} users
-              </p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-success-50 dark:bg-success-900/30">
-              <Users className="h-7 w-7 text-success-600 dark:text-success-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Active Users"
+          value={activeUsers}
+          icon={Users}
+          description={`Total: ${users.length} users`}
+          color="success"
+        />
 
-        {/* System Health Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">System Health</p>
-              <h3 className={`text-3xl font-bold ${healthStatus?.status === 'healthy' ? 'text-success-600 dark:text-success-400' : 'text-error-600 dark:text-error-400'}`}>
-                {healthStatus?.status === 'healthy' ? 'Healthy' : 'Offline'}
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                {healthStatus?.status === 'healthy' ? 'S3 API operational' : 'Service unavailable'}
-              </p>
-            </div>
-            <div className={`flex items-center justify-center w-14 h-14 rounded-full ${healthStatus?.status === 'healthy' ? 'bg-success-50 dark:bg-success-900/30' : 'bg-error-50 dark:bg-error-900/30'}`}>
-              <Activity className={`h-7 w-7 ${healthStatus?.status === 'healthy' ? 'text-success-600 dark:text-success-400' : 'text-error-600 dark:text-error-400'}`} />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="System Health"
+          value={healthStatus?.status === 'healthy' ? 'Healthy' : 'Offline'}
+          icon={Activity}
+          description={healthStatus?.status === 'healthy' ? 'S3 API operational' : 'Service unavailable'}
+          color={healthStatus?.status === 'healthy' ? 'success' : 'error'}
+        />
 
-        {/* Encrypted Buckets Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Encrypted Buckets</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">
-                {buckets.filter(b => b.encryption).length}
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Out of {totalBuckets} total buckets
-              </p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-warning-50 dark:bg-warning-900/30">
-              <Shield className="h-7 w-7 text-warning-600 dark:text-warning-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Encrypted Buckets"
+          value={buckets.filter(b => b.encryption).length}
+          icon={Shield}
+          description={`Out of ${totalBuckets} total buckets`}
+          color="warning"
+        />
       </div>
 
       {/* Quick Actions and Recent Buckets */}
       <div className="grid grid-cols-1 lg:grid-cols-2 4xl:grid-cols-3 gap-6 4xl:gap-8">
         {/* Quick Actions Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card hover:shadow-card-hover transition-all duration-300 overflow-hidden">
           <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Quick Actions</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Common tasks and shortcuts</p>
@@ -205,10 +154,10 @@ export default function Dashboard() {
             <div className="space-y-3">
               <button
                 onClick={() => navigate('/buckets')}
-                className="w-full flex items-center justify-between px-4 py-3.5 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg transition-colors text-left group"
+                className="w-full flex items-center justify-between px-4 py-3.5 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-button transition-all duration-200 text-left group shadow-soft hover:shadow-soft-md"
               >
                 <div className="flex items-center space-x-3">
-                  <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-brand-100 dark:bg-brand-900/30">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-button bg-brand-100 dark:bg-brand-900/30">
                     <Database className="h-5 w-5 text-brand-600 dark:text-brand-400" />
                   </div>
                   <div>
@@ -221,10 +170,10 @@ export default function Dashboard() {
 
               <button
                 onClick={() => navigate('/users')}
-                className="w-full flex items-center justify-between px-4 py-3.5 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg transition-colors text-left group"
+                className="w-full flex items-center justify-between px-4 py-3.5 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-button transition-all duration-200 text-left group shadow-soft hover:shadow-soft-md"
               >
                 <div className="flex items-center space-x-3">
-                  <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-success-100 dark:bg-success-900/30">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-button bg-success-100 dark:bg-success-900/30">
                     <Users className="h-5 w-5 text-success-600 dark:text-success-400" />
                   </div>
                   <div>
@@ -238,10 +187,10 @@ export default function Dashboard() {
               {isGlobalAdmin && (
                 <button
                   onClick={() => navigate('/metrics')}
-                  className="w-full flex items-center justify-between px-4 py-3.5 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg transition-colors text-left group"
+                  className="w-full flex items-center justify-between px-4 py-3.5 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-button transition-all duration-200 text-left group shadow-soft hover:shadow-soft-md"
                 >
                   <div className="flex items-center space-x-3">
-                    <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-orange-100 dark:bg-orange-900/30">
+                    <div className="flex items-center justify-center w-10 h-10 rounded-button bg-orange-100 dark:bg-orange-900/30">
                       <Activity className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                     </div>
                     <div>
@@ -257,7 +206,7 @@ export default function Dashboard() {
         </div>
 
         {/* Recent Buckets Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card hover:shadow-card-hover transition-all duration-300 overflow-hidden">
           <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Buckets</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Your latest storage containers</p>
@@ -286,11 +235,11 @@ export default function Dashboard() {
                   .map((bucket) => (
                   <div
                     key={bucket.name}
-                    className="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg cursor-pointer transition-colors group"
+                    className="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-button cursor-pointer transition-all duration-200 group shadow-soft hover:shadow-soft-md"
                     onClick={() => navigate(`/buckets/${bucket.name}`)}
                   >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-brand-50 dark:bg-brand-900/30 flex-shrink-0">
+                      <div className="flex items-center justify-center w-10 h-10 rounded-button bg-brand-50 dark:bg-brand-900/30 flex-shrink-0">
                         <Database className="h-5 w-5 text-brand-600 dark:text-brand-400" />
                       </div>
                       <div className="flex-1 min-w-0">

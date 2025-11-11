@@ -93,6 +93,12 @@ export default function UserDetailsPage() {
     queryFn: APIClient.getCurrentUser,
   });
 
+  // Fetch all users from the same tenant to check if this is the last admin
+  const { data: allUsers } = useQuery({
+    queryKey: ['users'],
+    queryFn: APIClient.getUsers,
+  });
+
   // Fetch 2FA status for this user
   const { data: twoFactorStatus, isLoading: is2FALoading, refetch: refetch2FAStatus } = useQuery({
     queryKey: ['twoFactorStatus', userId],
@@ -194,9 +200,42 @@ export default function UserDetailsPage() {
     }
   }, [userData]);
 
+  // Check if user is editing their own profile
+  const isEditingSelf = currentUser?.id === userId;
+
+  // Check if current user is admin (global or tenant admin)
+  const isCurrentUserAdmin = currentUser?.roles?.includes('admin');
+
+  // Check if this is the last admin in the tenant
+  const isLastAdminInTenant = () => {
+    if (!userData?.tenantId) return false; // Global users not affected
+
+    // Get all users from the same tenant
+    const tenantUsers = allUsers?.filter(u => u.tenantId === userData.tenantId) || [];
+
+    // Count admins in this tenant
+    const adminCount = tenantUsers.filter(u => u.roles?.includes('admin')).length;
+
+    // Check if current user is admin and would be removed
+    const isCurrentlyAdmin = userData.roles?.includes('admin');
+    const willRemoveAdmin = isCurrentlyAdmin && !editForm.roles.includes('admin');
+
+    return adminCount === 1 && willRemoveAdmin;
+  };
+
   // Handlers
   const handleEditUser = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validate: Cannot remove last admin from tenant
+    if (isLastAdminInTenant()) {
+      SweetAlert.error(
+        'Cannot Remove Admin Role',
+        'Every tenant must have at least one admin. This is the last admin in the tenant.'
+      );
+      return;
+    }
+
     updateUserMutation.mutate(editForm);
   };
 
@@ -837,18 +876,38 @@ export default function UserDetailsPage() {
 
           <div>
             <label htmlFor="roles" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Roles (comma separated)
+              Role
             </label>
-            <Input
+            <select
               id="roles"
-              value={editForm.roles.join(', ')}
+              value={editForm.roles[0] || 'user'}
               onChange={(e) => setEditForm(prev => ({
                 ...prev,
-                roles: e.target.value.split(',').map(r => r.trim()).filter(r => r)
+                roles: [e.target.value]
               }))}
-              placeholder="admin, user, guest"
-              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
-            />
+              disabled={!isCurrentUserAdmin || (isCurrentUserAdmin && isEditingSelf)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <option value="admin">Admin - Full access to manage the system</option>
+              <option value="user">User - Standard user with normal access</option>
+              <option value="readonly">Read Only - Can only view, cannot modify</option>
+              <option value="guest">Guest - Limited access</option>
+            </select>
+            {!isCurrentUserAdmin && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Only administrators can change user roles.
+              </p>
+            )}
+            {isCurrentUserAdmin && isEditingSelf && (
+              <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                You cannot change your own role.
+              </p>
+            )}
+            {isCurrentUserAdmin && !isEditingSelf && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Select the role for this user.
+              </p>
+            )}
           </div>
 
           <div className="flex justify-end space-x-2 pt-4">

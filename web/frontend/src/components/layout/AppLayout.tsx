@@ -191,14 +191,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 w-72 3xl:w-80 4xl:w-96 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0',
+          'fixed inset-y-0 left-0 z-50 w-64 lg:w-60 xl:w-64 2xl:w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col transform transition-all duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 shadow-soft-lg',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
         {/* Logo Header */}
         <div className="flex items-center justify-center h-20 px-6 border-b border-gray-200 dark:border-gray-800">
           <Link to="/" className="flex items-center space-x-3 group">
-            <div className="flex items-center justify-center w-10 h-10 3xl:w-12 3xl:h-12 4xl:w-14 4xl:h-14 rounded-lg bg-brand-600">
+            <div className="flex items-center justify-center w-10 h-10 3xl:w-12 3xl:h-12 4xl:w-14 4xl:h-14 rounded-button bg-brand-600 shadow-glow">
               <img
                 src={`${basePath}/assets/img/icon.png`}
                 alt="MaxIOFS"
@@ -232,10 +232,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     <button
                       onClick={() => toggleMenu(item.name)}
                       className={cn(
-                        'flex items-center justify-between w-full px-4 py-3 rounded-lg text-sm font-medium transition-all',
+                        'flex items-center justify-between w-full px-4 py-3 rounded-button text-sm font-medium transition-all duration-200',
                         hasActiveChild || isExpanded
-                          ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
-                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                          ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white shadow-soft'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white hover:shadow-soft'
                       )}
                     >
                       <div className="flex items-center space-x-3">
@@ -256,10 +256,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                             key={child.name}
                             to={child.href}
                             className={cn(
-                              'flex items-center space-x-3 px-4 py-2.5 rounded-lg text-sm transition-all',
+                              'flex items-center space-x-3 px-4 py-2.5 rounded-button text-sm transition-all duration-200',
                               isActiveRoute(child.href, true)
-                                ? 'bg-brand-600 text-white font-medium'
-                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                                ? 'bg-brand-600 text-white font-medium shadow-glow-sm'
+                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white hover:shadow-soft'
                             )}
                           >
                             <child.icon className="h-4 w-4" />
@@ -273,10 +273,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   <Link
                     to={item.href}
                     className={cn(
-                      'flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all group',
+                      'flex items-center space-x-3 px-4 py-3 rounded-button text-sm font-medium transition-all duration-200 group',
                       isActive
-                        ? 'bg-brand-600 text-white'
-                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                        ? 'bg-brand-600 text-white shadow-glow-sm'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white hover:shadow-soft'
                     )}
                   >
                     <item.icon className="h-5 w-5" />
@@ -290,7 +290,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Sidebar Footer */}
         <div className="p-4 border-t border-gray-200 dark:border-gray-800">
-          <div className="flex items-center space-x-3 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-800">
+          <div className="flex items-center space-x-3 px-4 py-3 rounded-button bg-gray-100 dark:bg-gray-800 shadow-soft">
             <div className="flex items-center justify-center w-2 h-2">
               <div className="w-2 h-2 bg-success-500 rounded-full animate-pulse"></div>
             </div>
@@ -316,13 +316,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 flex w-full h-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-sm">
+        <header className="sticky top-0 z-30 flex w-full h-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-soft-md backdrop-blur-sm bg-white/95 dark:bg-gray-900/95">
           <div className="flex flex-grow items-center justify-between px-6">
             {/* Left side */}
             <div className="flex items-center gap-2 sm:gap-4 lg:hidden">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="z-50 block rounded-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1.5 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 lg:hidden"
+                className="z-50 block rounded-button border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1.5 shadow-soft hover:shadow-soft-md hover:bg-gray-50 dark:hover:bg-gray-700 lg:hidden transition-all duration-200"
               >
                 <Menu className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               </button>
@@ -336,7 +336,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               {/* Dark Mode Toggle */}
               <button
                 onClick={toggleDarkMode}
-                className="flex h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                className="flex h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 shadow-soft hover:shadow-soft-md"
                 title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
               >
                 {darkMode ? (
@@ -350,7 +350,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <div className="relative">
                 <button
                   onClick={() => setShowNotifications(!showNotifications)}
-                  className="relative flex h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className="relative flex h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 shadow-soft hover:shadow-soft-md"
                 >
                   <Bell className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-gray-600 dark:text-gray-400" />
                   {lockedUsers.length > 0 && (
@@ -366,7 +366,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       className="fixed inset-0 z-40"
                       onClick={() => setShowNotifications(false)}
                     />
-                    <div className="absolute -right-16 sm:right-0 mt-2.5 w-80 sm:w-96 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+                    <div className="absolute -right-16 sm:right-0 mt-2.5 w-80 sm:w-96 bg-white dark:bg-gray-800 rounded-card shadow-soft-xl border border-gray-200 dark:border-gray-700 z-50">
                       <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
                         <h5 className="text-sm font-semibold text-gray-900 dark:text-white">
                           Notifications
@@ -427,7 +427,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <div className="relative">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex items-center gap-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 px-2 py-2"
+                  className="flex items-center gap-3 rounded-button hover:bg-gray-50 dark:hover:bg-gray-800 px-2 py-2 transition-all duration-200 hover:shadow-soft"
                 >
                   <span className="hidden text-right lg:block">
                     <span className="block text-sm font-medium text-gray-900 dark:text-white">
@@ -453,7 +453,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       className="fixed inset-0 z-40"
                       onClick={() => setShowUserMenu(false)}
                     />
-                    <div className="absolute right-0 mt-2.5 w-56 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg z-50">
+                    <div className="absolute right-0 mt-2.5 w-56 rounded-card border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-soft-xl z-50">
                       <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 px-4 py-4">
                         <span className="h-12 w-12 rounded-full bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center flex-shrink-0">
                           <span className="text-base font-semibold text-white">
@@ -476,7 +476,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                             setShowUserMenu(false);
                             navigate(`/users/${user?.id}`);
                           }}
-                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                          className="flex w-full items-center gap-3 rounded-button px-3 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-200"
                         >
                           <User className="h-4 w-4" />
                           My Profile
@@ -486,7 +486,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                             setShowUserMenu(false);
                             handleLogout();
                           }}
-                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-error-600 hover:bg-error-50 dark:hover:bg-error-900/30"
+                          className="flex w-full items-center gap-3 rounded-button px-3 py-2.5 text-sm font-medium text-error-600 hover:bg-error-50 dark:hover:bg-error-900/30 transition-all duration-200"
                         >
                           <LogOut className="h-4 w-4" />
                           Log Out

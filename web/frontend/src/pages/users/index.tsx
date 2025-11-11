@@ -41,7 +41,7 @@ export default function UsersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newUser, setNewUser] = useState<Partial<CreateUserRequest>>({
-    roles: ['read'],
+    roles: ['user'],
     status: 'active',
   });
   const queryClient = useQueryClient();
@@ -69,7 +69,7 @@ export default function UsersPage() {
       queryClient.refetchQueries({ queryKey: ['users'] });
       queryClient.refetchQueries({ queryKey: ['tenants'] });
       setIsCreateModalOpen(false);
-      setNewUser({ roles: ['read'], status: 'active' });
+      setNewUser({ roles: ['user'], status: 'active' });
       SweetAlert.successUserCreated(variables.username);
     },
     onError: (error: Error) => {
@@ -212,6 +212,35 @@ export default function UsersPage() {
   const getUserAccessKeysCount = (userId: string) => {
     if (!allAccessKeys) return 0;
     return allAccessKeys.filter((key: any) => key.userId === userId).length;
+  };
+
+  // Badge color helpers
+  const getRoleBadgeClasses = (role: string) => {
+    switch (role) {
+      case 'admin':
+        return 'bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-500/20 dark:text-purple-300 dark:border-purple-500/30';
+      case 'user':
+        return 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/30';
+      case 'readonly':
+        return 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-500/20 dark:text-orange-300 dark:border-orange-500/30';
+      case 'guest':
+        return 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-500/20 dark:text-gray-300 dark:border-gray-500/30';
+      default:
+        return 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-500/20 dark:text-gray-300 dark:border-gray-500/30';
+    }
+  };
+
+  const getStatusBadgeClasses = (status: string) => {
+    switch (status) {
+      case 'active':
+        return 'bg-green-100 text-green-700 border-green-300 dark:bg-green-500/20 dark:text-green-300 dark:border-green-500/30';
+      case 'suspended':
+        return 'bg-red-100 text-red-700 border-red-300 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30';
+      case 'inactive':
+        return 'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-500/20 dark:text-yellow-300 dark:border-yellow-500/30';
+      default:
+        return 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-500/20 dark:text-gray-300 dark:border-gray-500/30';
+    }
   };
 
 
@@ -380,7 +409,7 @@ export default function UsersPage() {
                         <Users className="h-4 w-4 text-muted-foreground" />
                         {user.username}
                         {isUserLocked(user) && (
-                          <span className="flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border bg-red-100 text-red-700 border-red-300 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30">
                             <Lock className="h-3 w-3" />
                             Locked
                           </span>
@@ -412,13 +441,7 @@ export default function UsersPage() {
                         {user.roles.map((role: string) => (
                           <span
                             key={role}
-                            className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                              role === 'admin'
-                                ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400 border border-red-200 dark:border-red-800'
-                                : role === 'write'
-                                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
-                                : 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 border border-green-200 dark:border-green-800'
-                            }`}
+                            className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getRoleBadgeClasses(role)}`}
                           >
                             {role}
                           </span>
@@ -426,24 +449,18 @@ export default function UsersPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        user.status === 'active'
-                          ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 border border-green-200 dark:border-green-800'
-                          : user.status === 'suspended'
-                          ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400 border border-red-200 dark:border-red-800'
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-400 border border-gray-200 dark:border-gray-600'
-                      }`}>
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getStatusBadgeClasses(user.status)}`}>
                         {user.status}
                       </span>
                     </TableCell>
                     <TableCell>
                       {user.twoFactorEnabled ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 border border-green-200 dark:border-green-800">
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border bg-cyan-100 text-cyan-700 border-cyan-300 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/30">
                           <KeyRound className="h-3 w-3" />
                           Enabled
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-600">
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border bg-gray-100 text-gray-600 border-gray-300 dark:bg-gray-500/20 dark:text-gray-400 dark:border-gray-500/30">
                           <KeyRound className="h-3 w-3" />
                           Disabled
                         </span>
@@ -602,29 +619,23 @@ export default function UsersPage() {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Roles
+            <label htmlFor="role" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Role
             </label>
-            <div className="space-y-2">
-              {['read', 'write', 'admin'].map((role) => (
-                <label key={role} className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={newUser.roles?.includes(role) || false}
-                    onChange={(e) => {
-                      const currentRoles = newUser.roles || [];
-                      if (e.target.checked) {
-                        updateNewUser('roles', [...currentRoles, role]);
-                      } else {
-                        updateNewUser('roles', currentRoles.filter((r: string) => r !== role));
-                      }
-                    }}
-                    className="rounded border-gray-300 dark:border-gray-600"
-                  />
-                  <span className="text-sm capitalize text-gray-700 dark:text-gray-300">{role}</span>
-                </label>
-              ))}
-            </div>
+            <select
+              id="role"
+              value={newUser.roles?.[0] || 'user'}
+              onChange={(e) => updateNewUser('roles', [e.target.value])}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="admin">Admin - Full access to manage the system</option>
+              <option value="user">User - Standard user with normal access</option>
+              <option value="readonly">Read Only - Can only view, cannot modify</option>
+              <option value="guest">Guest - Limited access</option>
+            </select>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Select the role for this user.
+            </p>
           </div>
 
           <div>

@@ -153,15 +153,37 @@
 @layer components {
   /* Card Styles */
   .card {
-    @apply bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm;
+    @apply bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card hover:shadow-card-hover transition-all duration-300;
   }
-  
+
+  /* Glass Card Styles */
+  .glass-card {
+    @apply bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-card border border-gray-200/50 dark:border-gray-700/50 shadow-soft-lg hover:shadow-soft-xl transition-all duration-300;
+  }
+
   /* Button Styles */
   .btn-primary {
-    @apply bg-brand-600 hover:bg-brand-700 text-white font-medium px-4 py-2 rounded-lg transition-colors;
+    @apply bg-brand-600 hover:bg-brand-700 text-white font-medium px-4 py-2 rounded-button transition-all duration-200 shadow-soft hover:shadow-soft-md active:shadow-soft;
   }
-  
+
   .btn-secondary {
-    @apply bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 font-medium px-4 py-2 rounded-lg transition-colors;
+    @apply bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 font-medium px-4 py-2 rounded-button transition-all duration-200 shadow-soft hover:shadow-soft-md;
+  }
+
+  /* Gradient Backgrounds */
+  .gradient-brand {
+    background: linear-gradient(135deg, rgb(var(--color-brand-500)) 0%, rgb(var(--color-brand-700)) 100%);
+  }
+
+  .gradient-success {
+    background: linear-gradient(135deg, rgb(var(--color-success-500)) 0%, rgb(var(--color-success-700)) 100%);
+  }
+
+  .gradient-error {
+    background: linear-gradient(135deg, rgb(var(--color-error-500)) 0%, rgb(var(--color-error-700)) 100%);
+  }
+
+  .gradient-warning {
+    background: linear-gradient(135deg, rgb(var(--color-warning-400)) 0%, rgb(var(--color-warning-600)) 100%);
   }
 }
