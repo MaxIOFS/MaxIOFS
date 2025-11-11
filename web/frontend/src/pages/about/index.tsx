@@ -352,8 +352,8 @@ export default function AboutPage() {
                 � Critical S3 Compatibility Fixes
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Fixed ListObjectVersions endpoint (was returning 501). Fixed HTTP conditional requests (If-Match, If-None-Match).
-                Improved S3 compatibility from 96% to 98%. Better integration with S3 clients and backup tools.
+                Fixed versioned bucket deletion bug and ListObjectVersions. Implemented HTTP conditional requests (If-Match, If-None-Match).
+                Improved S3 compatibility from 96% to <strong className="text-green-600 dark:text-green-400">98%</strong>. Better integration with S3 clients, CDNs, and backup tools.
               </p>
             </div>
 

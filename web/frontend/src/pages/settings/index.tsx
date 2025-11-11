@@ -334,6 +334,21 @@ export default function SettingsPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Two-Factor Authentication</label>
+              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
+                ✓ TOTP-Based (Optional)
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Session Timeout</label>
+              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
+                ✓ 24 Hours (Idle Detection)
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">CORS</label>
               <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
                 ✓ Configurable Per Bucket
@@ -408,9 +423,9 @@ export default function SettingsPage() {
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Metrics Collection</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Prometheus Metrics</label>
               <div className={`px-3 py-2 ${config.metrics.enable ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white'} border rounded-md text-sm font-medium`}>
-                {config.metrics.enable ? '✓ Real-Time Tracking' : 'Disabled'}
+                {config.metrics.enable ? '✓ Enabled (Real-Time)' : 'Disabled'}
               </div>
             </div>
             <div>
@@ -421,10 +436,18 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Log Format</label>
-            <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white">
-              Structured (logrus with fields)
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Grafana Dashboard</label>
+              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
+                ✓ Pre-built (Docker Compose)
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Log Format</label>
+              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white">
+                Structured (logrus with fields)
+              </div>
             </div>
           </div>
 
@@ -485,7 +508,7 @@ export default function SettingsPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
               <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                Beta (S3 Core Complete - 97%)
+                Beta (S3 Core Complete - 98%)
               </div>
             </div>
           </div>
@@ -494,7 +517,7 @@ export default function SettingsPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">S3 API Compatibility</label>
               <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ 97% Compatible (95/98 tests)
+                ✓ 98% Compatible (40+ operations)
               </div>
             </div>
             <div>
