@@ -3130,7 +3130,15 @@ func (s *Server) handleGetBucketLifecycle(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	lifecycle, err := s.bucketManager.GetLifecycle(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -3159,7 +3167,15 @@ func (s *Server) handlePutBucketLifecycle(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	// Read XML body
 	body, err := io.ReadAll(r.Body)
@@ -3250,7 +3266,15 @@ func (s *Server) handleDeleteBucketLifecycle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	if err := s.bucketManager.SetLifecycle(r.Context(), tenantID, bucketName, nil); err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -3275,7 +3299,15 @@ func (s *Server) handleGetBucketTagging(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -3332,7 +3364,15 @@ func (s *Server) handlePutBucketTagging(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	// Read request body
 	body, err := io.ReadAll(r.Body)
@@ -3392,7 +3432,15 @@ func (s *Server) handleDeleteBucketTagging(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	if err := s.bucketManager.SetBucketTags(r.Context(), tenantID, bucketName, nil); err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -3417,7 +3465,15 @@ func (s *Server) handleGetBucketCors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	corsConfig, err := s.bucketManager.GetCORS(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -3487,7 +3543,15 @@ func (s *Server) handlePutBucketCors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	// Read request body
 	body, err := io.ReadAll(r.Body)
@@ -3577,7 +3641,15 @@ func (s *Server) handleDeleteBucketCors(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	if err := s.bucketManager.DeleteCORS(r.Context(), tenantID, bucketName); err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -3602,7 +3674,15 @@ func (s *Server) handleGetBucketACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	aclData, err := s.bucketManager.GetBucketACL(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -3628,7 +3708,15 @@ func (s *Server) handlePutBucketACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	// Check for canned ACL header
 	cannedACL := r.Header.Get("x-amz-acl")
@@ -3801,7 +3889,15 @@ func (s *Server) handleGetBucketPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	policy, err := s.bucketManager.GetBucketPolicy(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -3836,7 +3932,15 @@ func (s *Server) handlePutBucketPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	// Read the policy document from request body
 	body, err := io.ReadAll(r.Body)
@@ -3893,7 +3997,15 @@ func (s *Server) handleDeleteBucketPolicy(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	// Delete the policy by setting it to nil
 	if err := s.bucketManager.SetBucketPolicy(r.Context(), tenantID, bucketName, nil); err != nil {
@@ -3919,7 +4031,15 @@ func (s *Server) handleGetBucketVersioning(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	// Get versioning configuration
 	versioningConfig, err := s.bucketManager.GetVersioning(r.Context(), tenantID, bucketName)
@@ -3946,7 +4066,15 @@ func (s *Server) handlePutBucketVersioning(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
+	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
+
+	// Global admins can access buckets from any tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	// Parse request body
 	var req struct {

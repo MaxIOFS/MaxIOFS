@@ -37,6 +37,7 @@ import SweetAlert from '@/lib/sweetalert';
 import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 import { ObjectVersionsModal } from '@/components/ObjectVersionsModal';
 import { PresignedURLModal } from '@/components/PresignedURLModal';
+import { useAuth } from '@/hooks/useAuth';
 
 // Helper function for responsive modal widths
 const getResponsiveModalWidth = (baseWidth: number = 650): string => {
@@ -50,6 +51,7 @@ const getResponsiveModalWidth = (baseWidth: number = 650): string => {
 export default function BucketDetailsPage() {
   const { bucket, tenantId } = useParams<{ bucket: string; tenantId?: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const bucketName = bucket as string;
   const bucketPath = tenantId ? `/buckets/${tenantId}/${bucketName}` : `/buckets/${bucketName}`;
   const [searchTerm, setSearchTerm] = useState('');
@@ -64,6 +66,10 @@ export default function BucketDetailsPage() {
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [selectedObjects, setSelectedObjects] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
+
+  // Check if user is global admin (no tenantId) accessing a tenant bucket
+  // Global admins should only have read-only access to tenant buckets
+  const isGlobalAdminInTenantBucket = user && !user.tenantId && !!tenantId;
 
   const { data: bucketData, isLoading: bucketLoading } = useQuery({
     queryKey: ['bucket', bucketName, tenantId],
@@ -881,6 +887,8 @@ export default function BucketDetailsPage() {
             onClick={() => setIsCreateFolderModalOpen(true)}
             variant="outline"
             className="gap-2"
+            disabled={isGlobalAdminInTenantBucket}
+            title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant buckets" : "Create a new folder"}
           >
             <FolderIcon className="h-4 w-4" />
             New Folder
@@ -889,6 +897,8 @@ export default function BucketDetailsPage() {
             onClick={() => setIsUploadModalOpen(true)}
             variant="outline"
             className="gap-2"
+            disabled={isGlobalAdminInTenantBucket}
+            title={isGlobalAdminInTenantBucket ? "Global admins cannot upload to tenant buckets" : "Upload files to this bucket"}
           >
             <UploadIcon className="h-4 w-4" />
             Upload Files
@@ -1025,7 +1035,7 @@ export default function BucketDetailsPage() {
               Objects ({filteredItems.length})
               {currentPrefix && ` in ${currentPrefix}`}
             </h3>
-            {selectedObjects.size > 0 && (
+            {selectedObjects.size > 0 && !isGlobalAdminInTenantBucket && (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-500 dark:text-gray-400">
                   {selectedObjects.size} selected
@@ -1057,7 +1067,7 @@ export default function BucketDetailsPage() {
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                 {searchTerm ? 'Try adjusting your search terms' : 'Create folders or upload files to get started'}
               </p>
-              {!searchTerm && (
+              {!searchTerm && !isGlobalAdminInTenantBucket && (
                 <div className="flex gap-2 justify-center mt-4">
                   <Button
                     onClick={() => setIsCreateFolderModalOpen(true)}
@@ -1076,19 +1086,26 @@ export default function BucketDetailsPage() {
                   </Button>
                 </div>
               )}
+              {!searchTerm && isGlobalAdminInTenantBucket && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  Global admins have read-only access to tenant buckets
+                </p>
+              )}
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-12">
-                    <input
-                      type="checkbox"
-                      checked={selectedObjects.size === filteredItems.length && filteredItems.length > 0}
-                      onChange={toggleSelectAll}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                  </TableHead>
+                  {!isGlobalAdminInTenantBucket && (
+                    <TableHead className="w-12">
+                      <input
+                        type="checkbox"
+                        checked={selectedObjects.size === filteredItems.length && filteredItems.length > 0}
+                        onChange={toggleSelectAll}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                    </TableHead>
+                  )}
                   <TableHead>Name</TableHead>
                   <TableHead>Size</TableHead>
                   <TableHead>Modified</TableHead>
@@ -1105,15 +1122,17 @@ export default function BucketDetailsPage() {
               <TableBody>
                 {filteredItems.map((item) => (
                   <TableRow key={item.key}>
-                    <TableCell>
-                      <input
-                        type="checkbox"
-                        checked={selectedObjects.has(item.key)}
-                        onChange={() => toggleObjectSelection(item.key)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                    </TableCell>
+                    {!isGlobalAdminInTenantBucket && (
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          checked={selectedObjects.has(item.key)}
+                          onChange={() => toggleObjectSelection(item.key)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         {isFolder(item) ? (
@@ -1214,7 +1233,8 @@ export default function BucketDetailsPage() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleDownloadObject(item.key)}
-                              title="Download"
+                              disabled={isGlobalAdminInTenantBucket}
+                              title={isGlobalAdminInTenantBucket ? "Global admins cannot download from tenant buckets" : "Download"}
                             >
                               <DownloadIcon className="h-4 w-4" />
                             </Button>
@@ -1222,7 +1242,8 @@ export default function BucketDetailsPage() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleShareObject(item.key)}
-                              title={sharesMap[item.key] ? "View/Copy share link" : "Share (Public Link)"}
+                              disabled={isGlobalAdminInTenantBucket}
+                              title={isGlobalAdminInTenantBucket ? "Global admins cannot share objects from tenant buckets" : (sharesMap[item.key] ? "View/Copy share link" : "Share (Public Link)")}
                               className={sharesMap[item.key] ? "text-green-600 hover:text-green-700" : ""}
                             >
                               <Share2Icon className="h-4 w-4" />
@@ -1242,7 +1263,8 @@ export default function BucketDetailsPage() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleGeneratePresignedURL(item.key)}
-                              title="Generate Presigned URL"
+                              disabled={isGlobalAdminInTenantBucket}
+                              title={isGlobalAdminInTenantBucket ? "Global admins cannot create presigned URLs for tenant buckets" : "Generate Presigned URL"}
                               className="text-purple-600 hover:text-purple-700"
                             >
                               <LinkIcon className="h-4 w-4" />
@@ -1252,8 +1274,8 @@ export default function BucketDetailsPage() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleToggleLegalHold(item.key, ('legalHold' in item && item.legalHold?.status === 'ON'))}
-                                disabled={toggleLegalHoldMutation.isPending}
-                                title={('legalHold' in item && item.legalHold?.status === 'ON') ? "Disable Legal Hold" : "Enable Legal Hold"}
+                                disabled={isGlobalAdminInTenantBucket || toggleLegalHoldMutation.isPending}
+                                title={isGlobalAdminInTenantBucket ? "Global admins cannot modify legal hold on tenant buckets" : (('legalHold' in item && item.legalHold?.status === 'ON') ? "Disable Legal Hold" : "Enable Legal Hold")}
                                 className={('legalHold' in item && item.legalHold?.status === 'ON') ? "text-yellow-600 hover:text-yellow-700" : "text-gray-600 hover:text-gray-700"}
                               >
                                 <ShieldIcon className="h-4 w-4" />
@@ -1265,8 +1287,8 @@ export default function BucketDetailsPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDeleteObject(item.key, isFolder(item))}
-                          disabled={deleteObjectMutation.isPending}
-                          title="Delete"
+                          disabled={isGlobalAdminInTenantBucket || deleteObjectMutation.isPending}
+                          title={isGlobalAdminInTenantBucket ? "Global admins cannot delete from tenant buckets" : "Delete"}
                         >
                           <Trash2Icon className="h-4 w-4" />
                         </Button>
@@ -1403,6 +1425,8 @@ export default function BucketDetailsPage() {
         isOpen={isPermissionsModalOpen}
         onClose={() => setIsPermissionsModalOpen(false)}
         bucketName={bucketName}
+        tenantId={tenantId}
+        readOnly={isGlobalAdminInTenantBucket}
       />
 
       {/* Object Versions Modal */}

@@ -18,13 +18,19 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import SweetAlert from '@/lib/sweetalert';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function BucketSettingsPage() {
   const { bucket, tenantId } = useParams<{ bucket: string; tenantId?: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const bucketName = bucket as string;
   const bucketPath = tenantId ? `/buckets/${tenantId}/${bucketName}` : `/buckets/${bucketName}`;
+
+  // Check if user is global admin (no tenantId) accessing a tenant bucket
+  // Global admins should only have read-only access to tenant buckets
+  const isGlobalAdminInTenantBucket = user && !user.tenantId && !!tenantId;
 
   // Modal states
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
@@ -69,15 +75,15 @@ export default function BucketSettingsPage() {
   const [corsViewMode, setCorsViewMode] = useState<'visual' | 'xml'>('visual');
 
   const { data: bucketData, isLoading } = useQuery({
-    queryKey: ['bucket', bucketName],
-    queryFn: () => APIClient.getBucket(bucketName),
+    queryKey: ['bucket', bucketName, tenantId],
+    queryFn: () => APIClient.getBucket(bucketName, tenantId || undefined),
   });
 
   // Versioning mutation
   const toggleVersioningMutation = useMutation({
-    mutationFn: (enabled: boolean) => APIClient.putBucketVersioning(bucketName, enabled),
+    mutationFn: (enabled: boolean) => APIClient.putBucketVersioning(bucketName, enabled, tenantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       SweetAlert.toast('success', 'Versioning updated successfully');
     },
     onError: (error: Error) => {
@@ -90,9 +96,9 @@ export default function BucketSettingsPage() {
 
   // Policy mutations
   const savePolicyMutation = useMutation({
-    mutationFn: (policy: string) => APIClient.putBucketPolicy(bucketName, policy),
+    mutationFn: (policy: string) => APIClient.putBucketPolicy(bucketName, policy, tenantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsPolicyModalOpen(false);
       loadCurrentPolicy(); // Reload policy after save
       SweetAlert.toast('success', 'Bucket policy updated successfully');
@@ -103,9 +109,9 @@ export default function BucketSettingsPage() {
   });
 
   const deletePolicyMutation = useMutation({
-    mutationFn: () => APIClient.deleteBucketPolicy(bucketName),
+    mutationFn: () => APIClient.deleteBucketPolicy(bucketName, tenantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       loadCurrentPolicy(); // Reload policy after delete
       SweetAlert.toast('success', 'Bucket policy deleted successfully');
     },
@@ -116,9 +122,9 @@ export default function BucketSettingsPage() {
 
   // CORS mutations
   const saveCORSMutation = useMutation({
-    mutationFn: (cors: string) => APIClient.putBucketCORS(bucketName, cors),
+    mutationFn: (cors: string) => APIClient.putBucketCORS(bucketName, cors, tenantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsCORSModalOpen(false);
       SweetAlert.toast('success', 'CORS configuration updated successfully');
     },
@@ -128,9 +134,9 @@ export default function BucketSettingsPage() {
   });
 
   const deleteCORSMutation = useMutation({
-    mutationFn: () => APIClient.deleteBucketCORS(bucketName),
+    mutationFn: () => APIClient.deleteBucketCORS(bucketName, tenantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       SweetAlert.toast('success', 'CORS configuration deleted successfully');
     },
     onError: (error: Error) => {
@@ -140,9 +146,9 @@ export default function BucketSettingsPage() {
 
   // Lifecycle mutations
   const saveLifecycleMutation = useMutation({
-    mutationFn: (lifecycle: string) => APIClient.putBucketLifecycle(bucketName, lifecycle),
+    mutationFn: (lifecycle: string) => APIClient.putBucketLifecycle(bucketName, lifecycle, tenantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsLifecycleModalOpen(false);
       SweetAlert.toast('success', 'Lifecycle rules updated successfully');
     },
@@ -152,9 +158,9 @@ export default function BucketSettingsPage() {
   });
 
   const deleteLifecycleMutation = useMutation({
-    mutationFn: () => APIClient.deleteBucketLifecycle(bucketName),
+    mutationFn: () => APIClient.deleteBucketLifecycle(bucketName, tenantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       SweetAlert.toast('success', 'Lifecycle rules deleted successfully');
     },
     onError: (error: Error) => {
@@ -164,9 +170,9 @@ export default function BucketSettingsPage() {
 
   // Tags mutations
   const saveTagsMutation = useMutation({
-    mutationFn: (tagging: string) => APIClient.putBucketTagging(bucketName, tagging),
+    mutationFn: (tagging: string) => APIClient.putBucketTagging(bucketName, tagging, tenantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsTagsModalOpen(false);
       SweetAlert.toast('success', 'Bucket tags updated successfully');
     },
@@ -176,9 +182,9 @@ export default function BucketSettingsPage() {
   });
 
   const deleteTagsMutation = useMutation({
-    mutationFn: () => APIClient.deleteBucketTagging(bucketName),
+    mutationFn: () => APIClient.deleteBucketTagging(bucketName, tenantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       SweetAlert.toast('success', 'Bucket tags deleted successfully');
     },
     onError: (error: Error) => {
@@ -188,9 +194,9 @@ export default function BucketSettingsPage() {
 
   // ACL mutations
   const saveACLMutation = useMutation({
-    mutationFn: (cannedACL: string) => APIClient.putBucketACL(bucketName, '', cannedACL),
+    mutationFn: (cannedACL: string) => APIClient.putBucketACL(bucketName, '', cannedACL, tenantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsACLModalOpen(false);
       loadCurrentACL(); // Reload ACL after save
       SweetAlert.toast('success', 'Bucket ACL updated successfully');
@@ -204,7 +210,7 @@ export default function BucketSettingsPage() {
   // Load current ACL
   const loadCurrentACL = async () => {
     try {
-      const response = await APIClient.getBucketACL(bucketName);
+      const response = await APIClient.getBucketACL(bucketName, tenantId);
       console.log('ACL Response:', response); // Debug
 
       // First, check if the backend sent the canned_acl field directly
@@ -231,7 +237,7 @@ export default function BucketSettingsPage() {
   // Load current Policy
   const loadCurrentPolicy = async () => {
     try {
-      const response = await APIClient.getBucketPolicy(bucketName);
+      const response = await APIClient.getBucketPolicy(bucketName, tenantId);
       console.log('Policy Response:', response); // Debug
 
       const policy = response.data || response;
@@ -256,7 +262,7 @@ export default function BucketSettingsPage() {
   useEffect(() => {
     loadCurrentACL();
     loadCurrentPolicy();
-  }, [bucketName]);
+  }, [bucketName, tenantId]);
 
   // Helper function to detect canned ACL from grants
   const detectCannedACL = (grants: any[]): string => {
@@ -298,7 +304,7 @@ export default function BucketSettingsPage() {
 
   const handleEditPolicy = async () => {
     try {
-      const response = await APIClient.getBucketPolicy(bucketName);
+      const response = await APIClient.getBucketPolicy(bucketName, tenantId);
       // The response has format: { Policy: "JSON string" }
       let policyJson;
       if (response && response.Policy) {
@@ -330,7 +336,7 @@ export default function BucketSettingsPage() {
 
   const handleEditCORS = async () => {
     try {
-      const corsXml = await APIClient.getBucketCORS(bucketName);
+      const corsXml = await APIClient.getBucketCORS(bucketName, tenantId);
       setCorsText(corsXml);
 
       // Parse XML to extract CORS rules
@@ -534,7 +540,7 @@ export default function BucketSettingsPage() {
   // Tags handlers
   const handleManageTags = async () => {
     try {
-      const response = await APIClient.getBucketTagging(bucketName);
+      const response = await APIClient.getBucketTagging(bucketName, tenantId);
       // Parse XML response to get tags
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(response, 'text/xml');
@@ -730,7 +736,8 @@ export default function BucketSettingsPage() {
                 <Button
                   variant="outline"
                   onClick={handleToggleVersioning}
-                  disabled={toggleVersioningMutation.isPending}
+                  disabled={isGlobalAdminInTenantBucket || toggleVersioningMutation.isPending}
+                  title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
                 >
                   {isVersioningEnabled ? 'Suspend' : 'Enable'}
                 </Button>
@@ -757,8 +764,13 @@ export default function BucketSettingsPage() {
                   </p>
                 </div>
                 {bucketData?.objectLock?.objectLockEnabled && (
-                  <Button variant="outline" onClick={() => setIsObjectLockModalOpen(true)}>
-                    Configure
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsObjectLockModalOpen(true)}
+                    disabled={isGlobalAdminInTenantBucket}
+                    title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                  >
+                    {isGlobalAdminInTenantBucket ? 'View' : 'Configure'}
                   </Button>
                 )}
               </div>
@@ -820,11 +832,22 @@ export default function BucketSettingsPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={handleEditPolicy}>
-                    {currentPolicy ? 'Edit Policy' : 'Add Policy'}
+                  <Button
+                    variant="outline"
+                    onClick={handleEditPolicy}
+                    disabled={isGlobalAdminInTenantBucket}
+                    title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                  >
+                    {isGlobalAdminInTenantBucket ? 'View Policy' : (currentPolicy ? 'Edit Policy' : 'Add Policy')}
                   </Button>
                   {currentPolicy && (
-                    <Button variant="destructive" size="sm" onClick={handleDeletePolicy}>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleDeletePolicy}
+                      disabled={isGlobalAdminInTenantBucket}
+                      title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                    >
                       Delete
                     </Button>
                   )}
@@ -867,8 +890,13 @@ export default function BucketSettingsPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={handleManageACL}>
-                    Manage ACL
+                  <Button
+                    variant="outline"
+                    onClick={handleManageACL}
+                    disabled={isGlobalAdminInTenantBucket}
+                    title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                  >
+                    {isGlobalAdminInTenantBucket ? 'View ACL' : 'Manage ACL'}
                   </Button>
                 </div>
               </div>
@@ -896,11 +924,22 @@ export default function BucketSettingsPage() {
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={handleManageTags}>
-                    Manage Tags
+                  <Button
+                    variant="outline"
+                    onClick={handleManageTags}
+                    disabled={isGlobalAdminInTenantBucket}
+                    title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                  >
+                    {isGlobalAdminInTenantBucket ? 'View Tags' : 'Manage Tags'}
                   </Button>
                   {bucketData?.tags && Object.keys(bucketData.tags).length > 0 && (
-                    <Button variant="destructive" size="sm" onClick={handleDeleteAllTags}>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleDeleteAllTags}
+                      disabled={isGlobalAdminInTenantBucket}
+                      title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                    >
                       Delete All
                     </Button>
                   )}
@@ -928,11 +967,22 @@ export default function BucketSettingsPage() {
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={handleEditCORS}>
-                    {bucketData?.cors ? 'Edit CORS' : 'Add CORS'}
+                  <Button
+                    variant="outline"
+                    onClick={handleEditCORS}
+                    disabled={isGlobalAdminInTenantBucket}
+                    title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                  >
+                    {isGlobalAdminInTenantBucket ? 'View CORS' : (bucketData?.cors ? 'Edit CORS' : 'Add CORS')}
                   </Button>
                   {bucketData?.cors && (
-                    <Button variant="destructive" size="sm" onClick={handleDeleteCORS}>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleDeleteCORS}
+                      disabled={isGlobalAdminInTenantBucket}
+                      title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                    >
                       Delete
                     </Button>
                   )}
@@ -960,11 +1010,22 @@ export default function BucketSettingsPage() {
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={handleEditLifecycle}>
-                    {bucketData?.lifecycle ? 'Manage Rules' : 'Add Rule'}
+                  <Button
+                    variant="outline"
+                    onClick={handleEditLifecycle}
+                    disabled={isGlobalAdminInTenantBucket}
+                    title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                  >
+                    {isGlobalAdminInTenantBucket ? 'View Rules' : (bucketData?.lifecycle ? 'Manage Rules' : 'Add Rule')}
                   </Button>
                   {bucketData?.lifecycle && (
-                    <Button variant="destructive" size="sm" onClick={handleDeleteLifecycle}>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleDeleteLifecycle}
+                      disabled={isGlobalAdminInTenantBucket}
+                      title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                    >
                       Delete
                     </Button>
                   )}
@@ -1079,7 +1140,7 @@ export default function BucketSettingsPage() {
             </Button>
             <Button
               onClick={handleSavePolicy}
-              disabled={savePolicyMutation.isPending || !policyText.trim()}
+              disabled={isGlobalAdminInTenantBucket || savePolicyMutation.isPending || !policyText.trim()}
             >
               {savePolicyMutation.isPending ? 'Saving...' : 'Save Policy'}
             </Button>
@@ -1203,7 +1264,7 @@ export default function BucketSettingsPage() {
                 </Button>
                 <Button
                   onClick={handleSaveAllCorsRules}
-                  disabled={saveCORSMutation.isPending || corsRules.length === 0}
+                  disabled={isGlobalAdminInTenantBucket || saveCORSMutation.isPending || corsRules.length === 0}
                 >
                   {saveCORSMutation.isPending ? 'Saving...' : 'Save Configuration'}
                 </Button>
@@ -1406,7 +1467,7 @@ export default function BucketSettingsPage() {
                 </Button>
                 <Button
                   onClick={() => saveCORSMutation.mutate(corsText)}
-                  disabled={saveCORSMutation.isPending || !corsText.trim()}
+                  disabled={isGlobalAdminInTenantBucket || saveCORSMutation.isPending || !corsText.trim()}
                 >
                   {saveCORSMutation.isPending ? 'Saving...' : 'Save CORS'}
                 </Button>
@@ -1484,7 +1545,7 @@ export default function BucketSettingsPage() {
 </LifecycleConfiguration>`;
                 saveLifecycleMutation.mutate(xml);
               }}
-              disabled={saveLifecycleMutation.isPending}
+              disabled={isGlobalAdminInTenantBucket || saveLifecycleMutation.isPending}
             >
               {saveLifecycleMutation.isPending ? 'Saving...' : 'Save Rules'}
             </Button>
@@ -1573,7 +1634,7 @@ export default function BucketSettingsPage() {
             </Button>
             <Button
               onClick={handleSaveTags}
-              disabled={saveTagsMutation.isPending}
+              disabled={isGlobalAdminInTenantBucket || saveTagsMutation.isPending}
             >
               {saveTagsMutation.isPending ? 'Saving...' : 'Save Tags'}
             </Button>
@@ -1693,7 +1754,7 @@ export default function BucketSettingsPage() {
             </Button>
             <Button
               onClick={handleSaveACL}
-              disabled={saveACLMutation.isPending}
+              disabled={isGlobalAdminInTenantBucket || saveACLMutation.isPending}
             >
               {saveACLMutation.isPending ? 'Saving...' : 'Save ACL'}
             </Button>

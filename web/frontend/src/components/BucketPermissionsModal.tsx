@@ -29,12 +29,16 @@ interface BucketPermissionsModalProps {
   isOpen: boolean;
   onClose: () => void;
   bucketName: string;
+  tenantId?: string;
+  readOnly?: boolean;
 }
 
 export function BucketPermissionsModal({
   isOpen,
   onClose,
   bucketName,
+  tenantId,
+  readOnly = false,
 }: BucketPermissionsModalProps) {
   const [isAddPermissionOpen, setIsAddPermissionOpen] = useState(false);
   const [newPermission, setNewPermission] = useState<Partial<GrantPermissionRequest>>({
@@ -46,8 +50,8 @@ export function BucketPermissionsModal({
 
   // Fetch bucket permissions
   const { data: permissions, isLoading } = useQuery({
-    queryKey: ['bucketPermissions', bucketName],
-    queryFn: () => APIClient.getBucketPermissions(bucketName),
+    queryKey: ['bucketPermissions', bucketName, tenantId],
+    queryFn: () => APIClient.getBucketPermissions(bucketName, tenantId),
     enabled: isOpen,
   });
 
@@ -68,7 +72,7 @@ export function BucketPermissionsModal({
   // Grant permission mutation
   const grantPermissionMutation = useMutation({
     mutationFn: (data: GrantPermissionRequest) =>
-      APIClient.grantBucketPermission(bucketName, data),
+      APIClient.grantBucketPermission(bucketName, data, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucketPermissions', bucketName] });
       setIsAddPermissionOpen(false);
@@ -82,8 +86,8 @@ export function BucketPermissionsModal({
 
   // Revoke permission mutation
   const revokePermissionMutation = useMutation({
-    mutationFn: ({ userId, tenantId }: { userId?: string; tenantId?: string }) =>
-      APIClient.revokeBucketPermission(bucketName, userId, tenantId),
+    mutationFn: ({ userId, permissionTenantId }: { userId?: string; permissionTenantId?: string }) =>
+      APIClient.revokeBucketPermission(bucketName, userId, permissionTenantId, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucketPermissions', bucketName] });
       SweetAlert.toast('success', 'Permission revoked successfully');
@@ -133,7 +137,7 @@ export function BucketPermissionsModal({
       `Are you sure you want to revoke ${permission.permissionLevel} access for ${targetType} "${targetName}"?`,
       () => revokePermissionMutation.mutate({
         userId: permission.userId || undefined,
-        tenantId: permission.tenantId || undefined,
+        permissionTenantId: permission.tenantId || undefined,
       })
     );
   };
@@ -184,16 +188,18 @@ export function BucketPermissionsModal({
           {/* Header with Add Button */}
           <div className="flex items-center justify-between">
             <div className="text-sm text-gray-600">
-              Manage access permissions for this bucket
+              {readOnly ? 'View access permissions for this bucket' : 'Manage access permissions for this bucket'}
             </div>
-            <Button
-              onClick={() => setIsAddPermissionOpen(true)}
-              size="sm"
-              className="gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              Grant Permission
-            </Button>
+            {!readOnly && (
+              <Button
+                onClick={() => setIsAddPermissionOpen(true)}
+                size="sm"
+                className="gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                Grant Permission
+              </Button>
+            )}
           </div>
 
           {/* Permissions Table */}
@@ -206,15 +212,19 @@ export function BucketPermissionsModal({
               <Shield className="mx-auto h-12 w-12 text-gray-400" />
               <h3 className="mt-4 text-lg font-semibold">No permissions set</h3>
               <p className="text-gray-500 mt-1">
-                Grant permissions to users or tenants to control access to this bucket.
+                {readOnly
+                  ? 'No custom permissions have been granted for this bucket.'
+                  : 'Grant permissions to users or tenants to control access to this bucket.'}
               </p>
-              <Button
-                onClick={() => setIsAddPermissionOpen(true)}
-                className="mt-4 gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                Grant First Permission
-              </Button>
+              {!readOnly && (
+                <Button
+                  onClick={() => setIsAddPermissionOpen(true)}
+                  className="mt-4 gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  Grant First Permission
+                </Button>
+              )}
             </div>
           ) : (
             <Table>
@@ -279,14 +289,17 @@ export function BucketPermissionsModal({
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleRevokePermission(permission)}
-                        disabled={revokePermissionMutation.isPending}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {!readOnly && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRevokePermission(permission)}
+                          disabled={revokePermissionMutation.isPending}
+                          title="Revoke permission"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
