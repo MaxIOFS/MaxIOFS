@@ -282,7 +282,13 @@ export default function TenantsPage() {
                         {formatBytes(tenant.currentStorageBytes || 0)} / {formatBytes(tenant.maxStorageBytes)}
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">
-                        {formatBytes(tenant.maxStorageBytes - (tenant.currentStorageBytes || 0))} free
+                        {(() => {
+                          const remaining = tenant.maxStorageBytes - (tenant.currentStorageBytes || 0);
+                          if (remaining < 0) {
+                            return `${formatBytes(Math.abs(remaining))} over quota`;
+                          }
+                          return `${formatBytes(remaining)} free`;
+                        })()}
                       </div>
                       <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                         <div
