@@ -356,14 +356,28 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		}).Info("Veeam normal bucket creation - allowing")
 	}
 
-	tenantID := h.getTenantIDFromRequest(r)
-
-	// Check tenant bucket quota before creation
+	// CRITICAL: Bucket creation requires authentication
+	// Get authenticated user from context
 	user, userExists := auth.GetUserFromContext(r.Context())
-	if userExists && user.TenantID != "" {
-		tenant, err := h.authManager.GetTenant(r.Context(), user.TenantID)
+	if !userExists {
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucketName,
+			"method": "CreateBucket",
+		}).Warn("Unauthenticated bucket creation attempt")
+		h.writeError(w, "AccessDenied", "Authentication required to create buckets", bucketName, r)
+		return
+	}
+
+	// Determine tenantID - use user's tenantID
+	// Global admins (TenantID="") can create global buckets
+	// Tenant users/admins create buckets within their tenant
+	tenantID := user.TenantID
+
+	// Check tenant bucket quota before creation (for tenant users)
+	if tenantID != "" {
+		tenant, err := h.authManager.GetTenant(r.Context(), tenantID)
 		if err != nil {
-			logrus.WithError(err).WithField("tenantID", user.TenantID).Error("Failed to get tenant for quota check")
+			logrus.WithError(err).WithField("tenantID", tenantID).Error("Failed to get tenant for quota check")
 			h.writeError(w, "InternalError", "Failed to verify tenant quota", bucketName, r)
 			return
 		}
@@ -372,7 +386,7 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		if tenant.MaxBuckets > 0 && tenant.CurrentBuckets >= tenant.MaxBuckets {
 			logrus.WithFields(logrus.Fields{
 				"bucket":         bucketName,
-				"tenantID":       user.TenantID,
+				"tenantID":       tenantID,
 				"currentBuckets": tenant.CurrentBuckets,
 				"maxBuckets":     tenant.MaxBuckets,
 			}).Warn("Tenant bucket quota exceeded")
@@ -1250,6 +1264,9 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Note: Bucket metrics and tenant storage are updated by objectManager.PutObject()
+	// No need to increment here to avoid double-counting on overwrites
+
 	w.Header().Set("ETag", obj.ETag)
 	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 
@@ -1358,6 +1375,16 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Get object info before deletion to track size for metrics
+	var objectSize int64
+	objInfo, reader, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
+	if err == nil && objInfo != nil {
+		objectSize = objInfo.Size
+		if reader != nil {
+			reader.Close() // Close immediately, we only need the size
+		}
+	}
+
 	deleteMarkerVersionID, err := h.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, bypassGovernance, versionID)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
@@ -1389,6 +1416,29 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
+	}
+
+	// Update bucket metrics after successful deletion
+	// Only decrement if we actually deleted an object (not just created delete marker)
+	if objectSize > 0 && deleteMarkerVersionID == "" {
+		if err := h.bucketManager.DecrementObjectCount(r.Context(), tenantID, bucketName, objectSize); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"bucket":   bucketName,
+				"object":   objectKey,
+				"size":     objectSize,
+				"tenantID": tenantID,
+			}).Warn("Failed to update bucket metrics after DeleteObject")
+		}
+	}
+
+	// Update tenant storage usage for quota tracking
+	if userExists && user.TenantID != "" && objectSize > 0 && deleteMarkerVersionID == "" {
+		if err := h.authManager.DecrementTenantStorage(r.Context(), user.TenantID, objectSize); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"tenantID": user.TenantID,
+				"size":     objectSize,
+			}).Warn("Failed to decrement tenant storage usage")
+		}
 	}
 
 	// Set response headers

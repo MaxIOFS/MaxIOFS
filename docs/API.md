@@ -2,7 +2,7 @@
 
 **Version**: 0.3.2-beta
 **S3 Compatibility**: 98%
-**Last Updated**: November 10, 2025
+**Last Updated**: November 12, 2025
 
 ## Overview
 
@@ -11,12 +11,16 @@ MaxIOFS provides two APIs:
 1. **S3 API** (Port 8080) - 98% AWS S3-compatible REST API
 2. **Console API** (Port 8081) - Management REST API for web console
 
-### Recent Updates (v0.3.2)
+### Recent Updates (v0.3.2-beta)
 
+- ✅ **Two-Factor Authentication (2FA)** - TOTP-based with backup codes
+- ✅ **Prometheus Metrics** - Comprehensive monitoring endpoint
+- ✅ **Grafana Dashboard** - Pre-built dashboard for visualization
 - ✅ Fixed `ListObjectVersions` - now properly shows delete markers
 - ✅ Added HTTP Conditional Requests (If-Match, If-None-Match)
 - ✅ Improved versioned bucket deletion workflow
 - ✅ Added 304 Not Modified responses for caching
+- ✅ Session timeout (24h) with idle detection
 
 ---
 
@@ -179,9 +183,13 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 ### Available Endpoints
 
 #### Authentication
-- `POST /api/auth/login` - Login with username/password
+- `POST /api/auth/login` - Login with username/password (with optional TOTP code)
 - `GET /api/auth/me` - Get current user info
 - `POST /api/auth/logout` - Logout
+- `POST /api/auth/2fa/enable` - Enable 2FA for current user
+- `POST /api/auth/2fa/verify` - Verify 2FA setup
+- `POST /api/auth/2fa/disable` - Disable 2FA for current user
+- `GET /api/auth/2fa/backup-codes` - Get backup codes
 
 #### User Management
 - `GET /api/users` - List users
@@ -218,6 +226,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 #### Metrics
 - `GET /api/metrics` - Dashboard metrics
 - `GET /api/metrics/system` - System metrics (CPU, memory, disk)
+- `GET /metrics` - Prometheus metrics endpoint (comprehensive monitoring)
 
 ### Example Usage
 
@@ -328,6 +337,21 @@ curl http://localhost:8080/ready
 **Prometheus Metrics:**
 ```bash
 curl http://localhost:8080/metrics
+```
+
+**Response (sample):**
+```prometheus
+# HELP maxiofs_api_requests_total Total number of API requests
+# TYPE maxiofs_api_requests_total counter
+maxiofs_api_requests_total{method="GET",endpoint="/buckets"} 42
+
+# HELP maxiofs_storage_used_bytes Current storage usage in bytes
+# TYPE maxiofs_storage_used_bytes gauge
+maxiofs_storage_used_bytes{tenant="tenant-abc123"} 1073741824
+
+# HELP maxiofs_api_request_duration_seconds API request duration in seconds
+# TYPE maxiofs_api_request_duration_seconds histogram
+maxiofs_api_request_duration_seconds_bucket{endpoint="/objects",le="0.1"} 95
 ```
 
 ---

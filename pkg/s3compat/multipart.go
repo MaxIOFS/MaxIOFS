@@ -455,6 +455,9 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Note: Bucket metrics and tenant storage are updated by objectManager.CompleteMultipartUpload()
+	// No need to increment here to avoid double-counting on overwrites
+
 	result := CompleteMultipartUploadResult{
 		Location: "/" + bucketName + "/" + objectKey,
 		Bucket:   bucketName,

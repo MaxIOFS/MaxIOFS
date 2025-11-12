@@ -16,9 +16,8 @@ MaxIOFS provides basic multi-tenancy with resource isolation and quota enforceme
 - Web console and API management
 
 **What's Limited:**
-- Storage tracking (checked on upload, not on delete)
 - High-scale scenarios (100+ tenants untested)
-- S3 API with tenant keys (basic implementation)
+- Advanced per-tenant rate limiting
 
 ---
 
@@ -161,13 +160,11 @@ All endpoints automatically filter by tenant:
 **Maximum total size** of tenant's objects.
 
 **Enforcement:**
-- Checked before upload (web console)
-- Returns 403 if exceeded
+- ✅ Checked before upload (web console and S3 API)
+- ✅ Returns 403 if exceeded
+- ✅ Real-time tracking (v0.3.2-beta)
 
-**Limitations:**
-- Not decremented on delete (alpha)
-- Requires manual recalculation
-- Not enforced on S3 API (alpha)
+**Status:** ✅ **Fully implemented and fixed** (v0.3.2-beta)
 
 **Error Example:**
 ```json
@@ -352,16 +349,13 @@ Examples:
 
 - Creating tenants via API
 - Tenant isolation in console
+- ✅ **Storage quota enforcement** (frontend + S3 API, v0.3.2-beta)
 - Bucket quota enforcement
 - Access key quota enforcement
 - Bucket count tracking
 - User authentication with tenant
-
-### ⚠️ Partially Tested
-
-- Storage quota (upload only, not delete)
 - S3 API with tenant keys
-- Tenant deletion (soft delete)
+- Tenant deletion with validation
 
 ### ❌ Not Tested
 
@@ -372,15 +366,14 @@ Examples:
 
 ---
 
-## Alpha Limitations
+## Beta Limitations
 
 ### Known Issues
 
-1. **Storage Tracking** - Not updated on delete
-2. **S3 API** - Quota enforcement incomplete
+1. ~~**Storage Tracking**~~ - ✅ **FIXED** (v0.3.2-beta)
+2. ~~**S3 API Quota**~~ - ✅ **FIXED** (v0.3.2-beta)
 3. **No Alerts** - No notifications for quota limits
-4. **No Billing** - Usage tracked but no billing
-5. **Soft Delete** - Tenant deletion doesn't cascade
+4. **No Billing** - Usage tracked but no billing integration
 
 ### Not Implemented
 
@@ -416,9 +409,9 @@ FROM tenants
 WHERE id = 'tenant-abc123';
 ```
 
-### Storage Inaccurate
+### Storage Tracking
 
-Storage may drift in alpha. Manual recalculation required.
+✅ Storage tracking is now accurate in v0.3.2-beta (fixed at frontend and S3 API level).
 
 ---
 
@@ -437,10 +430,10 @@ Storage may drift in alpha. Manual recalculation required.
 
 ## Future Roadmap
 
-Planned for beta and beyond:
+Planned for future releases:
 
-1. Accurate storage tracking
-2. Usage dashboards
+1. ~~Accurate storage tracking~~ - ✅ **COMPLETED** (v0.3.2-beta)
+2. Usage dashboards (partially complete with Prometheus/Grafana)
 3. Quota alerts
 4. Bandwidth quotas
 5. API rate limits per tenant

@@ -82,3 +82,4 @@ web/frontend/.next
 build/
 test-files/
 test-files-s3/
+test*.bin

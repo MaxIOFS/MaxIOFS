@@ -2,7 +2,7 @@
 
 **Version**: 0.3.2-beta
 **S3 Compatibility**: 98%
-**Last Updated**: November 10, 2025
+**Last Updated**: November 12, 2025
 
 ## Overview
 
@@ -134,9 +134,10 @@ type Manager interface {
 
 ### Console Authentication
 - Username/password login
-- JWT tokens (1 hour expiration)
+- **Two-Factor Authentication (2FA)** with TOTP (optional, v0.3.2-beta)
+- JWT tokens (24 hour expiration with idle timeout)
 - Stored in localStorage
-- Role-based access control (RBAC)
+- Role-based access control (RBAC) with 4 roles: admin, user, readonly, guest
 
 ### S3 API Authentication
 - Access Key / Secret Key
@@ -279,7 +280,13 @@ ExecStart=/usr/local/bin/maxiofs --data-dir /var/lib/maxiofs
 **Health Endpoints**
 - `GET /health` - Basic health check
 - `GET /ready` - Readiness probe
-- `GET /metrics` - Prometheus metrics (basic)
+- `GET /metrics` - Prometheus metrics (comprehensive, v0.3.2-beta)
+
+**Prometheus Integration** (v0.3.2-beta)
+- Real-time metrics export for monitoring and alerting
+- Pre-built Grafana dashboard included
+- Docker Compose support with monitoring stack
+- Metrics include: API requests, storage usage, error rates, latency
 
 **Logs**
 - Structured logging with logrus

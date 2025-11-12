@@ -356,33 +356,84 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	// This ensures folders are listable even when created implicitly by S3 clients
 	om.ensureImplicitFolders(ctx, bucket, key)
 
-	// Update bucket metrics (increment object count only for first version)
+	// Update bucket metrics
+	// Note: For non-versioned buckets, we don't increment on overwrite
+	// For versioned buckets, each version counts as storage but only one object in count
 	if om.bucketManager != nil {
-		// Only increment if this is a new object (not a new version of existing)
-		// Check if object existed before
-		existingVersions, err := om.metadataStore.GetObjectVersions(ctx, bucket, key)
-		shouldIncrement := err != nil || len(existingVersions) <= 1 // New object or first version
+		// Check if this is a new object (not an overwrite)
+		// For non-versioned buckets: check if object existed before
+		// For versioned buckets: only count the first version
+		if !versioningEnabled {
+			// Check if object existed before this PUT
+			existingObj, err := om.metadataStore.GetObject(ctx, bucket, key)
+			isNewObject := err != nil || existingObj == nil
 
-		if shouldIncrement {
-			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
-				logrus.WithError(err).WithFields(logrus.Fields{
-					"bucket_path": bucket,
-					"tenant_id":   tenantID,
-					"bucket_name": bucketName,
-					"key":         key,
-					"size":        size,
-				}).Warn("Failed to increment bucket object count")
+			if isNewObject {
+				// New object - increment count and size
+				if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
+					logrus.WithError(err).WithFields(logrus.Fields{
+						"bucket_path": bucket,
+						"tenant_id":   tenantID,
+						"bucket_name": bucketName,
+						"key":         key,
+						"size":        size,
+					}).Warn("Failed to increment bucket object count")
+				}
+			} else {
+				// Overwrite - adjust size difference only
+				sizeDiff := size - existingObj.Size
+				if sizeDiff != 0 {
+					if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, sizeDiff); err != nil {
+						logrus.WithError(err).WithFields(logrus.Fields{
+							"bucket_path": bucket,
+							"key":         key,
+							"old_size":    existingObj.Size,
+							"new_size":    size,
+							"size_diff":   sizeDiff,
+						}).Warn("Failed to adjust bucket size on overwrite")
+					}
+				}
+			}
+		} else {
+			// Versioned bucket - only increment count on first version
+			existingVersions, err := om.metadataStore.GetObjectVersions(ctx, bucket, key)
+			if err != nil || len(existingVersions) == 1 {
+				// First version - increment count
+				if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
+					logrus.WithError(err).Warn("Failed to increment bucket object count for first version")
+				}
+			} else {
+				// Additional version - only increment size, not count
+				if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
+					logrus.WithError(err).Warn("Failed to increment bucket size for additional version")
+				}
 			}
 		}
 	}
 
 	// Update tenant storage quota
+	// For non-versioned: only adjust diff, for versioned: always add
 	if om.authManager != nil && tenantID != "" {
-		if err := om.authManager.IncrementTenantStorage(ctx, tenantID, size); err != nil {
-			logrus.WithError(err).WithFields(logrus.Fields{
-				"tenant_id": tenantID,
-				"size":      size,
-			}).Warn("Failed to increment tenant storage quota")
+		var sizeToAdd int64
+		if !versioningEnabled {
+			// Non-versioned: check if overwrite
+			existingObj, err := om.metadataStore.GetObject(ctx, bucket, key)
+			if err != nil || existingObj == nil {
+				sizeToAdd = size // New object
+			} else {
+				sizeToAdd = size - existingObj.Size // Size difference
+			}
+		} else {
+			sizeToAdd = size // Versioned: always add new version size
+		}
+
+		if sizeToAdd != 0 {
+			if err := om.authManager.IncrementTenantStorage(ctx, tenantID, sizeToAdd); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"tenant_id": tenantID,
+					"size":      sizeToAdd,
+				}).Warn("Failed to increment tenant storage quota")
+			}
 		}
 	}
 
@@ -1386,10 +1437,48 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 		StorageClass: multipart.StorageClass,
 	}
 
+	// Check if this overwrites an existing object (before saving)
+	existingObj, _ := om.metadataStore.GetObject(ctx, multipart.Bucket, multipart.Key)
+	isNewObject := existingObj == nil
+
 	// Save object metadata to BadgerDB
 	metaObj := toMetadataObject(object)
 	if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
 		logrus.WithError(err).Warn("Failed to save final object metadata to BadgerDB")
+	}
+
+	// Update bucket metrics
+	if om.bucketManager != nil {
+		tenantID, bucketName := om.parseBucketPath(multipart.Bucket)
+		if isNewObject {
+			// New object - increment count and size
+			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
+				logrus.WithError(err).Warn("Failed to increment bucket metrics after multipart upload")
+			}
+		} else {
+			// Overwrite - adjust size difference only
+			sizeDiff := size - existingObj.Size
+			if sizeDiff != 0 {
+				if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, sizeDiff); err != nil {
+					logrus.WithError(err).Warn("Failed to adjust bucket size after multipart overwrite")
+				}
+			}
+		}
+
+		// Update tenant storage quota
+		if om.authManager != nil && tenantID != "" {
+			var sizeToAdd int64
+			if isNewObject {
+				sizeToAdd = size
+			} else {
+				sizeToAdd = size - existingObj.Size
+			}
+			if sizeToAdd != 0 {
+				if err := om.authManager.IncrementTenantStorage(ctx, tenantID, sizeToAdd); err != nil {
+					logrus.WithError(err).Warn("Failed to increment tenant storage after multipart upload")
+				}
+			}
+		}
 	}
 
 	// Clean up multipart upload from BadgerDB

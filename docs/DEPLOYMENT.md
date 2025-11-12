@@ -108,6 +108,9 @@ make docker-clean    # Clean up volumes and containers
 - **S3 API**: http://localhost:8080
 - **Prometheus**: http://localhost:9091 (only with monitoring profile)
 - **Grafana**: http://localhost:3000 (admin/admin, only with monitoring profile)
+  - Pre-configured MaxIOFS dashboard included
+  - Real-time metrics visualization
+  - API requests, storage usage, error rates, latency tracking
 
 ### Windows PowerShell Scripts
 
@@ -139,7 +142,10 @@ docker run -d \
 The project includes a complete `docker-compose.yaml` with:
 - Multi-stage build (Node.js + Go + Alpine)
 - Optional monitoring profile (Prometheus + Grafana)
-- Pre-configured Grafana dashboards
+- **Pre-configured Grafana dashboards** for MaxIOFS monitoring
+  - Dashboard automatically provisioned on startup
+  - Located in `docker/grafana/dashboards/maxiofs.json`
+  - Includes panels for: API requests, storage usage, error rates, latency percentiles
 - Volume persistence for data
 
 **Basic deployment:**
@@ -380,11 +386,13 @@ sudo systemctl start maxiofs
 ## Security Recommendations
 
 1. **Change default credentials** immediately
-2. **Use HTTPS** via reverse proxy
-3. **Configure firewall** rules
-4. **Secure data directory** permissions (750 or 700)
-5. **Regular backups** of data directory
-6. **Don't expose directly** to internet
+2. **Enable 2FA** for admin accounts
+3. **Use HTTPS** via reverse proxy
+4. **Configure firewall** rules
+5. **Secure data directory** permissions (750 or 700)
+6. **Regular backups** of data directory
+7. **Don't expose directly** to internet
+8. **Monitor with Prometheus/Grafana** (use monitoring profile)
 
 ### Basic Backup Script
 

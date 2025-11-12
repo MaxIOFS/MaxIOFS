@@ -46,10 +46,22 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 		return err
 	}
 
+	// Determine ownership based on tenantID
+	// If tenantID is set, the bucket is owned by the tenant
+	// Otherwise it's a global bucket (no owner)
+	ownerType := ""
+	ownerID := ""
+	if tenantID != "" {
+		ownerType = "tenant"
+		ownerID = tenantID
+	}
+
 	// Create bucket metadata
 	bucket := &Bucket{
 		Name:      name,
 		TenantID:  tenantID,
+		OwnerType: ownerType,
+		OwnerID:   ownerID,
 		CreatedAt: time.Now(),
 		Region:    "us-east-1", // Default region
 		Metadata:  make(map[string]string),
@@ -57,6 +69,7 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 
 	// Store in BadgerDB
 	metaBucket := toMetadataBucket(bucket)
+
 	if err := bm.metadataStore.CreateBucket(ctx, metaBucket); err != nil {
 		if err == metadata.ErrBucketAlreadyExists {
 			return ErrBucketAlreadyExists

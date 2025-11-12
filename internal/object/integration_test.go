@@ -235,7 +235,7 @@ func TestObjectManagerBasicOperations(t *testing.T) {
 	})
 
 	t.Run("DeleteObject", func(t *testing.T) {
-		err := om.DeleteObject(ctx, bucketName, objectKey)
+		_, err := om.DeleteObject(ctx, bucketName, objectKey, false)
 		if err != nil {
 			t.Fatalf("Failed to delete object: %v", err)
 		}
@@ -421,7 +421,7 @@ func TestObjectManagerObjectLock(t *testing.T) {
 
 	t.Run("DeleteObjectWithLegalHold", func(t *testing.T) {
 		// Try to delete object with legal hold - should fail
-		err := om.DeleteObject(ctx, bucketName, objectKey)
+		_, err := om.DeleteObject(ctx, bucketName, objectKey, false)
 		if err == nil {
 			t.Error("Expected error when deleting object with legal hold")
 		}
@@ -628,7 +628,7 @@ func TestObjectManagerBucketMetricsIntegration(t *testing.T) {
 	}
 
 	// Delete an object
-	err = om.DeleteObject(ctx, tenantID+"/"+bucketName, "file-3.txt")
+	_, err = om.DeleteObject(ctx, tenantID+"/"+bucketName, "file-3.txt", false)
 	if err != nil {
 		t.Fatalf("Failed to delete object: %v", err)
 	}

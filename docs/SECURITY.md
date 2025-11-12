@@ -372,18 +372,19 @@ journalctl -u maxiofs | grep -i "failed\|locked\|denied"
 
 1. **No Built-in TLS** - Use reverse proxy (recommended approach)
 2. **Basic Password Policy** - Only minimum length enforced
-3. **No Multi-Factor Authentication** - Password-only
+3. ~~**No Multi-Factor Authentication**~~ - ✅ **2FA IMPLEMENTED** (v0.3.2-beta with TOTP)
 4. **Limited Audit Logging** - Basic auth events only
 5. **No Encryption at Rest** - Use filesystem encryption (LUKS, BitLocker, etc.)
 6. **Simple Rate Limiting** - Login endpoint only
 7. **No Security Audits** - Not professionally audited by third parties
-8. **Session Management** - Improved with idle timer and timeout enforcement (v0.3.1-beta)
+8. ✅ **Session Management** - Improved with idle timer and timeout enforcement (v0.3.1-beta)
 9. **No Key Management System** - Secrets in config files
 10. **SQLite Database** - No at-rest encryption
 
 ### Mitigations
 
 - Use strong passwords
+- ✅ Enable 2FA for all users (especially admins)
 - Enable account lockout
 - Configure firewall rules
 - Use reverse proxy with TLS
@@ -413,6 +414,7 @@ Response time: Within 48 hours
 
 **Initial Setup:**
 - [ ] Change default credentials
+- [ ] Enable 2FA for admin accounts
 - [ ] Configure HTTPS (reverse proxy)
 - [ ] Set up firewall rules
 - [ ] Run as non-root user
