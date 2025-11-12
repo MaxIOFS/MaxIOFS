@@ -452,22 +452,43 @@ func (s *SQLiteStore) DecrementTenantStorage(tenantID string, bytes int64) error
 func (s *SQLiteStore) CheckTenantStorageQuota(tenantID string, additionalBytes int64) error {
 	if tenantID == "" {
 		// Global admin has no quota
+		logrus.Debug("CheckTenantStorageQuota: empty tenantID, no quota check")
 		return nil
 	}
 
 	tenant, err := s.GetTenant(tenantID)
 	if err != nil {
+		logrus.WithError(err).WithField("tenantID", tenantID).Error("CheckTenantStorageQuota: failed to get tenant")
 		return fmt.Errorf("failed to get tenant: %w", err)
 	}
+
+	logrus.WithFields(logrus.Fields{
+		"tenantID":           tenantID,
+		"currentStorage":     tenant.CurrentStorageBytes,
+		"maxStorage":         tenant.MaxStorageBytes,
+		"additionalBytes":    additionalBytes,
+		"projectedTotal":     tenant.CurrentStorageBytes + additionalBytes,
+		"wouldExceed":        tenant.CurrentStorageBytes+additionalBytes > tenant.MaxStorageBytes,
+		"hasQuotaConfigured": tenant.MaxStorageBytes > 0,
+	}).Info("CheckTenantStorageQuota: validating quota")
 
 	// Check if adding these bytes would exceed quota
 	if tenant.MaxStorageBytes > 0 {
 		newTotal := tenant.CurrentStorageBytes + additionalBytes
 		if newTotal > tenant.MaxStorageBytes {
+			logrus.WithFields(logrus.Fields{
+				"currentStorage":  tenant.CurrentStorageBytes,
+				"maxStorage":      tenant.MaxStorageBytes,
+				"additionalBytes": additionalBytes,
+				"newTotal":        newTotal,
+			}).Warn("CheckTenantStorageQuota: QUOTA EXCEEDED")
 			return fmt.Errorf("storage quota exceeded: %d/%d bytes (attempting to add %d bytes)",
 				tenant.CurrentStorageBytes, tenant.MaxStorageBytes, additionalBytes)
 		}
+	} else {
+		logrus.WithField("tenantID", tenantID).Debug("CheckTenantStorageQuota: no quota configured (maxStorage = 0)")
 	}
 
+	logrus.Debug("CheckTenantStorageQuota: quota check passed")
 	return nil
 }

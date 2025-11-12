@@ -454,6 +454,11 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 			h.writeError(w, "InvalidPart", "One or more of the specified parts could not be found", objectKey, r)
 			return
 		}
+		// Check if it's a quota exceeded error
+		if strings.Contains(err.Error(), "storage quota exceeded") || strings.Contains(err.Error(), "quota exceeded") {
+			h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
+			return
+		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}

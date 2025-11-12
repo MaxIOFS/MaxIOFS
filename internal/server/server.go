@@ -84,6 +84,7 @@ func New(cfg *config.Config) (*Server, error) {
 		SetAuthManager(interface {
 			IncrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
 			DecrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
+			CheckTenantStorageQuota(ctx context.Context, tenantID string, additionalBytes int64) error
 		})
 	}); ok {
 		om.SetAuthManager(authManager)

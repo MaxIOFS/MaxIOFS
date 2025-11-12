@@ -349,6 +349,13 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		logrus.WithError(err).Debug("Failed to apply default retention")
 	}
 
+	// CRITICAL: Get existing object BEFORE overwriting in metadata store
+	// This is needed for correct size calculations in metrics and quotas
+	var existingObjBeforeSave *metadata.ObjectMetadata
+	if !versioningEnabled {
+		existingObjBeforeSave, _ = om.metadataStore.GetObject(ctx, bucket, key)
+	}
+
 	// If versioning is enabled, store as version
 	if versioningEnabled {
 
@@ -388,9 +395,8 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		// For non-versioned buckets: check if object existed before
 		// For versioned buckets: only count the first version
 		if !versioningEnabled {
-			// Check if object existed before this PUT
-			existingObj, err := om.metadataStore.GetObject(ctx, bucket, key)
-			isNewObject := err != nil || existingObj == nil
+			// Use the existing object we captured BEFORE saving
+			isNewObject := existingObjBeforeSave == nil
 
 			if isNewObject {
 				// New object - increment count and size
@@ -405,13 +411,13 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 				}
 			} else {
 				// Overwrite - adjust size difference only
-				sizeDiff := size - existingObj.Size
+				sizeDiff := size - existingObjBeforeSave.Size
 				if sizeDiff != 0 {
 					if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, sizeDiff); err != nil {
 						logrus.WithError(err).WithFields(logrus.Fields{
 							"bucket_path": bucket,
 							"key":         key,
-							"old_size":    existingObj.Size,
+							"old_size":    existingObjBeforeSave.Size,
 							"new_size":    size,
 							"size_diff":   sizeDiff,
 						}).Warn("Failed to adjust bucket size on overwrite")
@@ -440,16 +446,29 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	if om.authManager != nil && tenantID != "" {
 		var sizeToAdd int64
 		if !versioningEnabled {
-			// Non-versioned: check if overwrite
-			existingObj, err := om.metadataStore.GetObject(ctx, bucket, key)
-			if err != nil || existingObj == nil {
+			// Use the existing object we captured BEFORE saving
+			if existingObjBeforeSave == nil {
 				sizeToAdd = size // New object
 			} else {
-				sizeToAdd = size - existingObj.Size // Size difference
+				sizeToAdd = size - existingObjBeforeSave.Size // Size difference
 			}
 		} else {
 			sizeToAdd = size // Versioned: always add new version size
 		}
+
+		logrus.WithFields(logrus.Fields{
+			"tenantID": tenantID,
+			"key":      key,
+			"newSize":  size,
+			"existingSize": func() int64 {
+				if existingObjBeforeSave != nil {
+					return existingObjBeforeSave.Size
+				}
+				return 0
+			}(),
+			"sizeToAdd":   sizeToAdd,
+			"isNewObject": existingObjBeforeSave == nil,
+		}).Info("Updating tenant storage quota after PutObject")
 
 		if sizeToAdd != 0 {
 			if err := om.authManager.IncrementTenantStorage(ctx, tenantID, sizeToAdd); err != nil {
@@ -457,7 +476,14 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 					"tenant_id": tenantID,
 					"size":      sizeToAdd,
 				}).Warn("Failed to increment tenant storage quota")
+			} else {
+				logrus.WithFields(logrus.Fields{
+					"tenantID":  tenantID,
+					"sizeAdded": sizeToAdd,
+				}).Info("Successfully incremented tenant storage")
 			}
+		} else {
+			logrus.WithField("tenantID", tenantID).Debug("No storage change needed (sizeToAdd = 0)")
 		}
 	}
 
@@ -1421,8 +1447,9 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 		return parts[i].PartNumber < parts[j].PartNumber
 	})
 
-	// Validate parts exist in storage
+	// Validate parts exist in storage and calculate total size
 	// Note: S3 does NOT require consecutive part numbers
+	var totalSize int64
 	for _, part := range parts {
 		partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
 		exists, err := om.storage.Exists(ctx, partPath)
@@ -1431,6 +1458,61 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 		}
 		if !exists {
 			return nil, fmt.Errorf("part %d not found", part.PartNumber)
+		}
+
+		// Get part metadata to get the actual size
+		// Client only sends PartNumber and ETag, not Size
+		partMeta, err := om.metadataStore.GetPart(ctx, uploadID, part.PartNumber)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get part %d metadata: %w", part.PartNumber, err)
+		}
+		totalSize += partMeta.Size
+	}
+
+	// Check if this overwrites an existing object (before combining parts)
+	existingObj, _ := om.metadataStore.GetObject(ctx, multipart.Bucket, multipart.Key)
+	isNewObject := existingObj == nil
+
+	// Validate tenant storage quota BEFORE combining parts (early rejection to avoid wasted work)
+	if om.authManager != nil {
+		tenantID, _ := om.parseBucketPath(multipart.Bucket)
+		if tenantID != "" {
+			var sizeIncrement int64
+			if isNewObject {
+				sizeIncrement = totalSize
+			} else {
+				sizeIncrement = totalSize - existingObj.Size
+			}
+
+			// Only check quota if adding storage
+			if sizeIncrement > 0 {
+				logrus.WithFields(logrus.Fields{
+					"tenantID":  tenantID,
+					"uploadID":  uploadID,
+					"totalSize": totalSize,
+					"existingSize": func() int64 {
+						if existingObj != nil {
+							return existingObj.Size
+						}
+						return 0
+					}(),
+					"sizeIncrement": sizeIncrement,
+				}).Info("Validating quota before completing multipart upload")
+
+				if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
+					// Quota exceeded - return error WITHOUT aborting upload
+					// This allows the client to see the correct error message
+					logrus.WithFields(logrus.Fields{
+						"tenantID":      tenantID,
+						"uploadID":      uploadID,
+						"sizeIncrement": sizeIncrement,
+						"error":         err,
+					}).Warn("Multipart upload quota validation failed")
+
+					// Return quota error - DO NOT abort upload so client gets correct error
+					return nil, fmt.Errorf("storage quota exceeded: %w", err)
+				}
+			}
 		}
 	}
 
@@ -1459,38 +1541,6 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 		ContentType:  multipart.Metadata["content-type"],
 		Metadata:     multipart.Metadata,
 		StorageClass: multipart.StorageClass,
-	}
-
-	// Check if this overwrites an existing object (before saving)
-	existingObj, _ := om.metadataStore.GetObject(ctx, multipart.Bucket, multipart.Key)
-	isNewObject := existingObj == nil
-
-	// Validate tenant storage quota before saving
-	if om.authManager != nil {
-		tenantID, _ := om.parseBucketPath(multipart.Bucket)
-		if tenantID != "" {
-			var sizeIncrement int64
-			if isNewObject {
-				sizeIncrement = size
-			} else {
-				sizeIncrement = size - existingObj.Size
-			}
-
-			// Only check quota if adding storage
-			if sizeIncrement > 0 {
-				if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
-					// Quota exceeded - abort the upload and clean up
-					om.metadataStore.AbortMultipartUpload(ctx, uploadID)
-					for _, part := range parts {
-						partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
-						om.storage.Delete(ctx, partPath)
-					}
-					// Also delete the combined object file
-					om.storage.Delete(ctx, objectPath)
-					return nil, fmt.Errorf("storage quota exceeded: %w", err)
-				}
-			}
-		}
 	}
 
 	// Save object metadata to BadgerDB

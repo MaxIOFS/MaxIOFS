@@ -1051,7 +1051,7 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	tenantID := h.getTenantIDFromRequest(r)
 
 	// Check tenant storage quota before accepting upload
-	if userExists && user.TenantID != "" {
+	if h.authManager != nil && userExists && user.TenantID != "" {
 		// Get content length for quota check
 		contentLength := r.ContentLength
 		if decodedContentLength != "" {
@@ -1059,6 +1059,14 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 				contentLength = size
 			}
 		}
+
+		logrus.WithFields(logrus.Fields{
+			"bucket":        bucketName,
+			"object":        objectKey,
+			"tenantID":      user.TenantID,
+			"contentLength": contentLength,
+			"hasAuthMgr":    h.authManager != nil,
+		}).Debug("Starting quota validation")
 
 		// For quota validation, we need to check the actual storage increment
 		// If overwriting an existing object, only validate the size difference
@@ -1072,11 +1080,23 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 			if err == nil && existingObj != nil {
 				// Object exists - calculate size difference for quota check
 				sizeIncrement = contentLength - existingObj.Size
+				logrus.WithFields(logrus.Fields{
+					"existingSize":  existingObj.Size,
+					"newSize":       contentLength,
+					"sizeIncrement": sizeIncrement,
+				}).Debug("Object exists, calculating size increment")
+			} else {
+				logrus.WithField("sizeIncrement", sizeIncrement).Debug("New object, using full content length")
 			}
 
 			// Only check quota if we're adding storage (sizeIncrement > 0)
 			// If sizeIncrement is negative or zero, we're not adding storage
 			if sizeIncrement > 0 {
+				logrus.WithFields(logrus.Fields{
+					"tenantID":      user.TenantID,
+					"sizeIncrement": sizeIncrement,
+				}).Info("Checking tenant storage quota")
+
 				if err := h.authManager.CheckTenantStorageQuota(r.Context(), user.TenantID, sizeIncrement); err != nil {
 					logrus.WithFields(logrus.Fields{
 						"bucket":        bucketName,
@@ -1090,12 +1110,22 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 							return 0
 						}(),
 						"sizeIncrement": sizeIncrement,
+						"error":         err,
 					}).Warn("Tenant storage quota exceeded")
 					h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
 					return
 				}
+				logrus.Info("Quota check passed")
+			} else {
+				logrus.WithField("sizeIncrement", sizeIncrement).Debug("Skipping quota check (not adding storage)")
 			}
 		}
+	} else {
+		logrus.WithFields(logrus.Fields{
+			"hasAuthMgr":  h.authManager != nil,
+			"userExists":  userExists,
+			"hasTenantID": userExists && user.TenantID != "",
+		}).Debug("Skipping quota validation")
 	}
 
 	hasPermission := false
