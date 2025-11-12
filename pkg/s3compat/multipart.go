@@ -440,6 +440,9 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	// Note: For multipart uploads, quota validation happens in objectManager.CompleteMultipartUpload
+	// which has access to the actual final object size
+
 	// Complete the multipart upload
 	obj, err := h.objectManager.CompleteMultipartUpload(r.Context(), uploadID, parts)
 	if err != nil {

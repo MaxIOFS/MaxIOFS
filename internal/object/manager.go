@@ -104,6 +104,7 @@ type objectManager struct {
 	authManager interface {
 		IncrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
 		DecrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
+		CheckTenantStorageQuota(ctx context.Context, tenantID string, additionalBytes int64) error
 	}
 }
 
@@ -139,6 +140,7 @@ func (om *objectManager) SetBucketManager(bm interface {
 func (om *objectManager) SetAuthManager(am interface {
 	IncrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
 	DecrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
+	CheckTenantStorageQuota(ctx context.Context, tenantID string, additionalBytes int64) error
 }) {
 	om.authManager = am
 }
@@ -307,6 +309,28 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	// Create object info
 	size, _ := strconv.ParseInt(finalStorageMetadata["size"], 10, 64)
 	lastModified, _ := strconv.ParseInt(finalStorageMetadata["last_modified"], 10, 64)
+
+	// Validate tenant storage quota before committing
+	// If quota is exceeded, delete the stored object and return error
+	if om.authManager != nil && tenantID != "" && !versioningEnabled {
+		// Check if overwriting existing object
+		existingObj, _ := om.metadataStore.GetObject(ctx, bucket, key)
+		var sizeIncrement int64
+		if existingObj == nil {
+			sizeIncrement = size
+		} else {
+			sizeIncrement = size - existingObj.Size
+		}
+
+		// Only validate if adding storage
+		if sizeIncrement > 0 {
+			if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
+				// Quota exceeded - delete the stored object file
+				om.storage.Delete(ctx, objectPath)
+				return nil, fmt.Errorf("storage quota exceeded: %w", err)
+			}
+		}
+	}
 
 	object := &Object{
 		Key:          key,
@@ -1440,6 +1464,34 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 	// Check if this overwrites an existing object (before saving)
 	existingObj, _ := om.metadataStore.GetObject(ctx, multipart.Bucket, multipart.Key)
 	isNewObject := existingObj == nil
+
+	// Validate tenant storage quota before saving
+	if om.authManager != nil {
+		tenantID, _ := om.parseBucketPath(multipart.Bucket)
+		if tenantID != "" {
+			var sizeIncrement int64
+			if isNewObject {
+				sizeIncrement = size
+			} else {
+				sizeIncrement = size - existingObj.Size
+			}
+
+			// Only check quota if adding storage
+			if sizeIncrement > 0 {
+				if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
+					// Quota exceeded - abort the upload and clean up
+					om.metadataStore.AbortMultipartUpload(ctx, uploadID)
+					for _, part := range parts {
+						partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
+						om.storage.Delete(ctx, partPath)
+					}
+					// Also delete the combined object file
+					om.storage.Delete(ctx, objectPath)
+					return nil, fmt.Errorf("storage quota exceeded: %w", err)
+				}
+			}
+		}
+	}
 
 	// Save object metadata to BadgerDB
 	metaObj := toMetadataObject(object)

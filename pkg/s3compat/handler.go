@@ -1060,16 +1060,40 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// For quota validation, we need to check the actual storage increment
+		// If overwriting an existing object, only validate the size difference
 		if contentLength > 0 {
-			if err := h.authManager.CheckTenantStorageQuota(r.Context(), user.TenantID, contentLength); err != nil {
-				logrus.WithFields(logrus.Fields{
-					"bucket":        bucketName,
-					"object":        objectKey,
-					"tenantID":      user.TenantID,
-					"contentLength": contentLength,
-				}).Warn("Tenant storage quota exceeded")
-				h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
-				return
+			// Check if object exists to calculate actual storage increment
+			var sizeIncrement int64 = contentLength
+
+			// Try to get existing object metadata (use bucketPath for proper tenant isolation)
+			bucketPath := h.getBucketPath(r, bucketName)
+			existingObj, _, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey)
+			if err == nil && existingObj != nil {
+				// Object exists - calculate size difference for quota check
+				sizeIncrement = contentLength - existingObj.Size
+			}
+
+			// Only check quota if we're adding storage (sizeIncrement > 0)
+			// If sizeIncrement is negative or zero, we're not adding storage
+			if sizeIncrement > 0 {
+				if err := h.authManager.CheckTenantStorageQuota(r.Context(), user.TenantID, sizeIncrement); err != nil {
+					logrus.WithFields(logrus.Fields{
+						"bucket":        bucketName,
+						"object":        objectKey,
+						"tenantID":      user.TenantID,
+						"contentLength": contentLength,
+						"existingSize": func() int64 {
+							if existingObj != nil {
+								return existingObj.Size
+							}
+							return 0
+						}(),
+						"sizeIncrement": sizeIncrement,
+					}).Warn("Tenant storage quota exceeded")
+					h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
+					return
+				}
 			}
 		}
 	}
