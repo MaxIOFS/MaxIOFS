@@ -10,8 +10,8 @@ export function useCurrentUser() {
     retry: false,
   });
 
-  const isGlobalAdmin = user?.roles?.includes('admin') && !user?.tenantId;
-  const isTenantAdmin = user?.roles?.includes('admin') && !!user?.tenantId;
+  const isGlobalAdmin = (user?.roles?.includes('admin') ?? false) && !user?.tenantId;
+  const isTenantAdmin = (user?.roles?.includes('admin') ?? false) && !!user?.tenantId;
   const isTenantUser = !!user?.tenantId;
 
   return {

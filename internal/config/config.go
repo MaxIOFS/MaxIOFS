@@ -33,6 +33,9 @@ type Config struct {
 	// Auth configuration
 	Auth AuthConfig `mapstructure:"auth"`
 
+	// Audit configuration
+	Audit AuditConfig `mapstructure:"audit"`
+
 	// Metrics configuration
 	Metrics MetricsConfig `mapstructure:"metrics"`
 }
@@ -75,6 +78,13 @@ type MetricsConfig struct {
 	Enable   bool   `mapstructure:"enable"`
 	Path     string `mapstructure:"path"`
 	Interval int    `mapstructure:"interval"`
+}
+
+// AuditConfig defines audit logging configuration
+type AuditConfig struct {
+	Enable        bool   `mapstructure:"enable"`
+	RetentionDays int    `mapstructure:"retention_days"`
+	DBPath        string `mapstructure:"db_path"`
 }
 
 // Load loads configuration from various sources
@@ -145,6 +155,11 @@ func setDefaults(v *viper.Viper) {
 	// access_key and secret_key must be explicitly configured
 	// or created through the web console on first setup
 
+	// Audit defaults
+	v.SetDefault("audit.enable", true)
+	v.SetDefault("audit.retention_days", 90) // Keep audit logs for 90 days
+	// audit.db_path will be set based on data_dir in validate()
+
 	// Metrics defaults
 	v.SetDefault("metrics.enable", true)
 	v.SetDefault("metrics.path", "/metrics")
@@ -211,6 +226,11 @@ func validate(cfg *Config) error {
 	// Generate JWT secret if not provided
 	if cfg.Auth.EnableAuth && cfg.Auth.JWTSecret == "" {
 		cfg.Auth.JWTSecret = generateRandomString(32)
+	}
+
+	// Setup audit DB path if not specified
+	if cfg.Audit.Enable && cfg.Audit.DBPath == "" {
+		cfg.Audit.DBPath = filepath.Join(cfg.DataDir, "audit.db")
 	}
 
 	return nil

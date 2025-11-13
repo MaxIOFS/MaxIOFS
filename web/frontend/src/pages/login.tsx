@@ -56,8 +56,15 @@ export default function LoginPage() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       SweetAlert.close();
-      await SweetAlert.apiError(err);
-      setError(err.message || 'Failed to login. Please check your credentials.');
+      
+      // Handle 401 specifically for login - invalid credentials
+      if (err.response?.status === 401 || err.message?.includes('401')) {
+        await SweetAlert.error('Invalid Credentials', 'Username or password is incorrect. Please try again.');
+        setError('Username or password is incorrect');
+      } else {
+        await SweetAlert.apiError(err);
+        setError(err.message || 'Failed to login. Please check your credentials.');
+      }
     } finally {
       setLoading(false);
     }

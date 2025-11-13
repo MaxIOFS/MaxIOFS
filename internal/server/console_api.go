@@ -16,6 +16,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/acl"
+	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -70,7 +71,7 @@ type UserResponse struct {
 	Roles            []string `json:"roles"`
 	TenantID         string   `json:"tenantId,omitempty"`
 	TwoFactorEnabled bool     `json:"twoFactorEnabled"`
-	LockedUntil      int64    `json:"locked_until,omitempty"`
+	LockedUntil      int64    `json:"lockedUntil,omitempty"`
 	CreatedAt        int64    `json:"createdAt"`
 }
 
@@ -239,6 +240,10 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/tenants/{tenant}", s.handleDeleteTenant).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/tenants/{tenant}/users", s.handleListTenantUsers).Methods("GET", "OPTIONS")
 
+	// Audit logs endpoints
+	router.HandleFunc("/audit-logs", s.handleListAuditLogs).Methods("GET", "OPTIONS")
+	router.HandleFunc("/audit-logs/{id}", s.handleGetAuditLog).Methods("GET", "OPTIONS")
+
 	// Bucket permissions endpoints
 	router.HandleFunc("/buckets/{bucket}/permissions", s.handleListBucketPermissions).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/permissions", s.handleGrantBucketPermission).Methods("POST", "OPTIONS")
@@ -304,6 +309,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Get client IP address
 	clientIP := getClientIP(r)
 
+	// Log login attempt
+	logrus.WithFields(logrus.Fields{
+		"username": loginReq.Username,
+		"ip":       clientIP,
+		"method":   r.Method,
+	}).Debug("Login attempt received")
+
 	// Step 1: Check IP-based rate limiting (5 attempts per minute)
 	if !s.authManager.CheckRateLimit(clientIP) {
 		logrus.WithFields(logrus.Fields{
@@ -314,23 +326,16 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 2: Validate credentials to get user (needed to check account lock)
-	user, err := s.authManager.ValidateConsoleCredentials(r.Context(), loginReq.Username, loginReq.Password)
+	// Step 2: Get user by username first (don't validate password yet)
+	userByName, err := s.authManager.GetUser(r.Context(), loginReq.Username)
 	if err != nil {
-		// Try to get user by username to record failed attempt
-		// We need to do this even if credentials are invalid
-		userByName, userErr := s.authManager.GetUser(r.Context(), loginReq.Username)
-		if userErr == nil && userByName != nil {
-			// Record failed login attempt
-			s.authManager.RecordFailedLogin(r.Context(), userByName.ID, clientIP)
-		}
-
+		// User doesn't exist - return generic error to avoid username enumeration
 		s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
-	// Step 3: Check if account is locked
-	isLocked, lockedUntil, err := s.authManager.IsAccountLocked(r.Context(), user.ID)
+	// Step 3: Check if account is locked BEFORE validating password
+	isLocked, lockedUntil, err := s.authManager.IsAccountLocked(r.Context(), userByName.ID)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to check account lock status")
 		s.writeError(w, "Internal server error", http.StatusInternalServerError)
@@ -340,22 +345,32 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if isLocked {
 		remainingTime := time.Until(time.Unix(lockedUntil, 0))
 		logrus.WithFields(logrus.Fields{
-			"user_id":        user.ID,
-			"username":       user.Username,
+			"user_id":        userByName.ID,
+			"username":       userByName.Username,
 			"locked_until":   time.Unix(lockedUntil, 0).Format(time.RFC3339),
 			"remaining_time": remainingTime.String(),
 		}).Warn("Login attempt on locked account")
 
-		s.writeJSON(w, map[string]interface{}{
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":        "Account is locked due to multiple failed login attempts",
 			"locked_until": lockedUntil,
 			"locked":       true,
 		})
-		w.WriteHeader(http.StatusForbidden)
 		return
 	}
 
-	// Step 4: Check if 2FA is enabled for this user
+	// Step 4: Now validate credentials
+	user, err := s.authManager.ValidateConsoleCredentials(r.Context(), loginReq.Username, loginReq.Password)
+	if err != nil {
+		// Record failed login attempt
+		s.authManager.RecordFailedLogin(r.Context(), userByName.ID, clientIP)
+		s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	// Step 5: Check if 2FA is enabled for this user
 	twoFactorEnabled, _, err := s.authManager.Get2FAStatus(r.Context(), user.ID)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to check 2FA status")
@@ -383,10 +398,30 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 5: Record successful login and reset failed attempts
+	// Step 6: Record successful login and reset failed attempts
 	s.authManager.RecordSuccessfulLogin(r.Context(), user.ID)
 
-	// Step 6: Generate JWT token
+	// Log audit event for successful login with IP and User Agent
+	if s.auditManager != nil {
+		s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+			TenantID:     user.TenantID,
+			UserID:       user.ID,
+			Username:     user.Username,
+			EventType:    audit.EventTypeLoginSuccess,
+			ResourceType: audit.ResourceTypeUser,
+			ResourceID:   user.ID,
+			ResourceName: user.Username,
+			Action:       audit.ActionLogin,
+			Status:       audit.StatusSuccess,
+			IPAddress:    clientIP,
+			UserAgent:    r.Header.Get("User-Agent"),
+			Details: map[string]interface{}{
+				"method": "password",
+			},
+		})
+	}
+
+	// Step 7: Generate JWT token
 	token, err := s.authManager.GenerateJWT(r.Context(), user)
 	if err != nil {
 		s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
@@ -444,6 +479,26 @@ func getClientIP(r *http.Request) string {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// Get user from context
+	user, userExists := auth.GetUserFromContext(r.Context())
+	if userExists && s.auditManager != nil {
+		// Log audit event for logout
+		clientIP := getClientIP(r)
+		s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+			TenantID:     user.TenantID,
+			UserID:       user.ID,
+			Username:     user.Username,
+			EventType:    audit.EventTypeLogout,
+			ResourceType: audit.ResourceTypeUser,
+			ResourceID:   user.ID,
+			ResourceName: user.Username,
+			Action:       audit.ActionLogout,
+			Status:       audit.StatusSuccess,
+			IPAddress:    clientIP,
+			UserAgent:    r.Header.Get("User-Agent"),
+		})
+	}
+
 	s.writeJSON(w, map[string]string{"message": "Logged out successfully"})
 }
 
@@ -2137,12 +2192,44 @@ func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: accessKey.CreatedAt,
 	}
 
+	// Log audit event for access key created
+	if s.auditManager != nil {
+		_ = s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+			TenantID:     user.TenantID,
+			UserID:       user.ID,
+			Username:     user.Username,
+			EventType:    audit.EventTypeAccessKeyCreated,
+			ResourceType: audit.ResourceTypeAccessKey,
+			ResourceID:   accessKey.AccessKeyID,
+			ResourceName: accessKey.AccessKeyID,
+			Action:       audit.ActionCreate,
+			Status:       audit.StatusSuccess,
+			Details: map[string]interface{}{
+				"owner_user_id": userID,
+			},
+		})
+	}
+
 	s.writeJSON(w, response)
 }
 
 func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	accessKeyID := vars["accessKey"]
+
+	// Get access key info before deleting for audit log
+	accessKey, err := s.authManager.GetAccessKey(r.Context(), accessKeyID)
+	if err != nil {
+		if err == auth.ErrUserNotFound {
+			s.writeError(w, "Access key not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Get user info for audit log
+	user, _ := s.authManager.GetUser(r.Context(), accessKey.UserID)
 
 	if err := s.authManager.RevokeAccessKey(r.Context(), accessKeyID); err != nil {
 		if err == auth.ErrUserNotFound {
@@ -2151,6 +2238,27 @@ func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
+	}
+
+	// Log audit event for access key deleted
+	if s.auditManager != nil && user != nil {
+		currentUser, _ := auth.GetUserFromContext(r.Context())
+		if currentUser != nil {
+			_ = s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+				TenantID:     user.TenantID,
+				UserID:       currentUser.ID,
+				Username:     currentUser.Username,
+				EventType:    audit.EventTypeAccessKeyDeleted,
+				ResourceType: audit.ResourceTypeAccessKey,
+				ResourceID:   accessKeyID,
+				ResourceName: accessKeyID,
+				Action:       audit.ActionDelete,
+				Status:       audit.StatusSuccess,
+				Details: map[string]interface{}{
+					"owner_user_id": accessKey.UserID,
+				},
+			})
+		}
 	}
 
 	s.writeJSON(w, map[string]string{"message": "Access key deleted successfully"})
@@ -2214,6 +2322,21 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	if err := s.authManager.UpdateUser(r.Context(), user); err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Log audit event for password changed
+	if s.auditManager != nil {
+		_ = s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+			TenantID:     user.TenantID,
+			UserID:       user.ID,
+			Username:     user.Username,
+			EventType:    audit.EventTypePasswordChanged,
+			ResourceType: audit.ResourceTypeUser,
+			ResourceID:   user.ID,
+			ResourceName: user.Username,
+			Action:       audit.ActionUpdate,
+			Status:       audit.StatusSuccess,
+		})
 	}
 
 	s.writeJSON(w, map[string]string{"message": "Password changed successfully"})
@@ -2458,6 +2581,27 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Log audit event for tenant created
+	if s.auditManager != nil {
+		_ = s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+			TenantID:     "", // Tenant operations are global
+			UserID:       currentUser.ID,
+			Username:     currentUser.Username,
+			EventType:    audit.EventTypeTenantCreated,
+			ResourceType: audit.ResourceTypeTenant,
+			ResourceID:   tenant.ID,
+			ResourceName: tenant.Name,
+			Action:       audit.ActionCreate,
+			Status:       audit.StatusSuccess,
+			Details: map[string]interface{}{
+				"display_name":      tenant.DisplayName,
+				"max_access_keys":   tenant.MaxAccessKeys,
+				"max_storage_bytes": tenant.MaxStorageBytes,
+				"max_buckets":       tenant.MaxBuckets,
+			},
+		})
+	}
+
 	s.writeJSON(w, tenant)
 }
 
@@ -2558,6 +2702,25 @@ func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Log audit event for tenant updated
+	if s.auditManager != nil {
+		_ = s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+			TenantID:     "", // Tenant operations are global
+			UserID:       currentUser.ID,
+			Username:     currentUser.Username,
+			EventType:    audit.EventTypeTenantUpdated,
+			ResourceType: audit.ResourceTypeTenant,
+			ResourceID:   tenant.ID,
+			ResourceName: tenant.Name,
+			Action:       audit.ActionUpdate,
+			Status:       audit.StatusSuccess,
+			Details: map[string]interface{}{
+				"display_name": tenant.DisplayName,
+				"status":       tenant.Status,
+			},
+		})
+	}
+
 	s.writeJSON(w, tenant)
 }
 
@@ -2578,6 +2741,17 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	tenantID := vars["tenant"]
 
+	// Get tenant info before deleting for audit log
+	tenant, err := s.authManager.GetTenant(r.Context(), tenantID)
+	if err != nil {
+		if err == auth.ErrUserNotFound {
+			s.writeError(w, "Tenant not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
 	// Validate that tenant has no buckets before allowing deletion
 	buckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
 	if err != nil {
@@ -2593,6 +2767,21 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 	if err := s.authManager.DeleteTenant(r.Context(), tenantID); err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Log audit event for tenant deleted
+	if s.auditManager != nil {
+		_ = s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+			TenantID:     "", // Tenant operations are global
+			UserID:       currentUser.ID,
+			Username:     currentUser.Username,
+			EventType:    audit.EventTypeTenantDeleted,
+			ResourceType: audit.ResourceTypeTenant,
+			ResourceID:   tenant.ID,
+			ResourceName: tenant.Name,
+			Action:       audit.ActionDelete,
+			Status:       audit.StatusSuccess,
+		})
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -4609,4 +4798,166 @@ func (s *Server) handleGet2FAStatus(w http.ResponseWriter, r *http.Request) {
 		"enabled":  enabled,
 		"setup_at": setupAt,
 	})
+}
+
+// Audit logs handlers
+func (s *Server) handleListAuditLogs(w http.ResponseWriter, r *http.Request) {
+	// Check if audit is enabled
+	if s.auditManager == nil {
+		s.writeError(w, "Audit logging is not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get current user
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if user is admin (global or tenant)
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
+	isTenantAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID != ""
+
+	if !isGlobalAdmin && !isTenantAdmin {
+		s.writeError(w, "Forbidden: only administrators can view audit logs", http.StatusForbidden)
+		return
+	}
+
+	// Parse query parameters
+	filters := &audit.AuditLogFilters{
+		Page:     1,
+		PageSize: 50,
+	}
+
+	// Parse filters from query params
+	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
+		if page, err := strconv.Atoi(pageStr); err == nil && page > 0 {
+			filters.Page = page
+		}
+	}
+
+	if pageSizeStr := r.URL.Query().Get("page_size"); pageSizeStr != "" {
+		if pageSize, err := strconv.Atoi(pageSizeStr); err == nil && pageSize > 0 {
+			filters.PageSize = pageSize
+			if filters.PageSize > 100 {
+				filters.PageSize = 100 // Max page size
+			}
+		}
+	}
+
+	if tenantID := r.URL.Query().Get("tenant_id"); tenantID != "" {
+		filters.TenantID = tenantID
+	}
+
+	if userID := r.URL.Query().Get("user_id"); userID != "" {
+		filters.UserID = userID
+	}
+
+	if eventType := r.URL.Query().Get("event_type"); eventType != "" {
+		filters.EventType = eventType
+	}
+
+	if resourceType := r.URL.Query().Get("resource_type"); resourceType != "" {
+		filters.ResourceType = resourceType
+	}
+
+	if action := r.URL.Query().Get("action"); action != "" {
+		filters.Action = action
+	}
+
+	if status := r.URL.Query().Get("status"); status != "" {
+		filters.Status = status
+	}
+
+	if startDateStr := r.URL.Query().Get("start_date"); startDateStr != "" {
+		if startDate, err := strconv.ParseInt(startDateStr, 10, 64); err == nil {
+			filters.StartDate = startDate
+		}
+	}
+
+	if endDateStr := r.URL.Query().Get("end_date"); endDateStr != "" {
+		if endDate, err := strconv.ParseInt(endDateStr, 10, 64); err == nil {
+			filters.EndDate = endDate
+		}
+	}
+
+	// Get logs based on user role
+	var logs []*audit.AuditLog
+	var total int
+	var err error
+
+	if isGlobalAdmin {
+		// Global admins see all logs
+		logs, total, err = s.auditManager.GetLogs(r.Context(), filters)
+	} else {
+		// Tenant admins see only their tenant's logs
+		logs, total, err = s.auditManager.GetLogsByTenant(r.Context(), currentUser.TenantID, filters)
+	}
+
+	if err != nil {
+		logrus.WithError(err).Error("Failed to retrieve audit logs")
+		s.writeError(w, "Failed to retrieve audit logs", http.StatusInternalServerError)
+		return
+	}
+
+	// Return response
+	response := map[string]interface{}{
+		"logs":      logs,
+		"total":     total,
+		"page":      filters.Page,
+		"page_size": filters.PageSize,
+	}
+
+	s.writeJSON(w, response)
+}
+
+func (s *Server) handleGetAuditLog(w http.ResponseWriter, r *http.Request) {
+	// Check if audit is enabled
+	if s.auditManager == nil {
+		s.writeError(w, "Audit logging is not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get current user
+	currentUser, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if user is admin (global or tenant)
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
+	isTenantAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID != ""
+
+	if !isGlobalAdmin && !isTenantAdmin {
+		s.writeError(w, "Forbidden: only administrators can view audit logs", http.StatusForbidden)
+		return
+	}
+
+	// Get log ID from URL
+	vars := mux.Vars(r)
+	idStr := vars["id"]
+
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		s.writeError(w, "Invalid log ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get the log
+	log, err := s.auditManager.GetLogByID(r.Context(), id)
+	if err != nil {
+		logrus.WithError(err).WithField("log_id", id).Error("Failed to retrieve audit log")
+		s.writeError(w, "Audit log not found", http.StatusNotFound)
+		return
+	}
+
+	// Check permissions: tenant admins can only see their tenant's logs
+	if isTenantAdmin && log.TenantID != currentUser.TenantID {
+		s.writeError(w, "Forbidden: cannot view audit logs from other tenants", http.StatusForbidden)
+		return
+	}
+
+	s.writeJSON(w, log)
 }

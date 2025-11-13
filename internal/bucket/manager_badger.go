@@ -9,6 +9,8 @@ import (
 
 	badger "github.com/dgraph-io/badger/v4"
 	"github.com/maxiofs/maxiofs/internal/acl"
+	"github.com/maxiofs/maxiofs/internal/audit"
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
@@ -19,6 +21,7 @@ type badgerBucketManager struct {
 	storage       storage.Backend
 	metadataStore metadata.Store
 	aclManager    acl.Manager
+	auditManager  *audit.Manager
 }
 
 // NewBadgerManager creates a new bucket manager using BadgerDB for metadata
@@ -37,6 +40,21 @@ func NewBadgerManager(storage storage.Backend, metadataStore metadata.Store) Man
 		metadataStore: metadataStore,
 		aclManager:    aclMgr,
 	}
+}
+
+// SetAuditManager sets the audit manager for logging events
+func (bm *badgerBucketManager) SetAuditManager(auditMgr *audit.Manager) {
+	bm.auditManager = auditMgr
+}
+
+// logAuditEvent is a helper function to log audit events
+// It safely checks if audit manager is available before logging
+func (bm *badgerBucketManager) logAuditEvent(ctx context.Context, event *audit.AuditEvent) {
+	if bm.auditManager == nil {
+		return
+	}
+
+	_ = bm.auditManager.LogEvent(ctx, event)
 }
 
 // CreateBucket creates a new bucket
@@ -99,11 +117,35 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 
 	// Create bucket directory in storage
 	bucketPath := bm.getTenantBucketPath(tenantID, name) + "/"
-	return bm.storage.Put(ctx, bucketPath+".maxiofs-bucket",
+	err := bm.storage.Put(ctx, bucketPath+".maxiofs-bucket",
 		strings.NewReader(""), map[string]string{
 			"bucket-created": bucket.CreatedAt.Format(time.RFC3339),
 			"tenant-id":      tenantID,
 		})
+	if err != nil {
+		return err
+	}
+
+	// Log audit event for bucket created
+	user, _ := auth.GetUserFromContext(ctx)
+	if user != nil {
+		bm.logAuditEvent(ctx, &audit.AuditEvent{
+			TenantID:     tenantID,
+			UserID:       user.ID,
+			Username:     user.Username,
+			EventType:    audit.EventTypeBucketCreated,
+			ResourceType: audit.ResourceTypeBucket,
+			ResourceID:   name,
+			ResourceName: name,
+			Action:       audit.ActionCreate,
+			Status:       audit.StatusSuccess,
+			Details: map[string]interface{}{
+				"region": bucket.Region,
+			},
+		})
+	}
+
+	return nil
 }
 
 // UpdateBucket updates an existing bucket's metadata
@@ -159,6 +201,22 @@ func (bm *badgerBucketManager) DeleteBucket(ctx context.Context, tenantID, name 
 	if fsBackend, ok := bm.storage.(interface{ RemoveDirectory(string) error }); ok {
 		tenantBucketPath := bm.getTenantBucketPath(tenantID, name)
 		_ = fsBackend.RemoveDirectory(tenantBucketPath) // Ignore errors
+	}
+
+	// Log audit event for bucket deleted
+	user, _ := auth.GetUserFromContext(ctx)
+	if user != nil {
+		bm.logAuditEvent(ctx, &audit.AuditEvent{
+			TenantID:     tenantID,
+			UserID:       user.ID,
+			Username:     user.Username,
+			EventType:    audit.EventTypeBucketDeleted,
+			ResourceType: audit.ResourceTypeBucket,
+			ResourceID:   name,
+			ResourceName: name,
+			Action:       audit.ActionDelete,
+			Status:       audit.StatusSuccess,
+		})
 	}
 
 	return nil

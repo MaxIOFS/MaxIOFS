@@ -704,5 +704,61 @@ export interface TwoFactorDisableRequest {
   user_id?: string; // Optional - for admin to disable other user's 2FA
 }
 
+// Audit Log Types
+export interface AuditLog {
+  id: number;
+  timestamp: number;
+  tenant_id?: string;
+  tenantId?: string; // Alias
+  user_id: string;
+  userId?: string; // Alias
+  username: string;
+  event_type: string;
+  eventType?: string; // Alias
+  resource_type?: string;
+  resourceType?: string; // Alias
+  resource_id?: string;
+  resourceId?: string; // Alias
+  resource_name?: string;
+  resourceName?: string; // Alias
+  action: string;
+  status: 'success' | 'failed';
+  ip_address?: string;
+  ipAddress?: string; // Alias
+  user_agent?: string;
+  userAgent?: string; // Alias
+  details?: Record<string, any>;
+  created_at: number;
+  createdAt?: number; // Alias
+}
+
+export interface AuditLogFilters {
+  tenant_id?: string;
+  tenantId?: string;
+  user_id?: string;
+  userId?: string;
+  event_type?: string;
+  eventType?: string;
+  resource_type?: string;
+  resourceType?: string;
+  action?: string;
+  status?: 'success' | 'failed' | '';
+  start_date?: number;
+  startDate?: number;
+  end_date?: number;
+  endDate?: number;
+  page?: number;
+  page_size?: number;
+  pageSize?: number;
+}
+
+export interface AuditLogsResponse {
+  logs: AuditLog[];
+  total: number;
+  page: number;
+  page_size: number;
+  pageSize?: number; // Alias
+}
+
 // Re-export common types
 export type { FC, ReactNode, ComponentProps } from 'react';

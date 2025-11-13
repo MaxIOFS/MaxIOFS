@@ -21,6 +21,7 @@ import BucketCreate from '@/pages/buckets/create';
 import Users from '@/pages/users/index';
 import UserDetail from '@/pages/users/[user]/index';
 import AccessKeys from '@/pages/users/access-keys';
+import AuditLogs from '@/pages/audit-logs/index';
 import Metrics from '@/pages/metrics/index';
 import Security from '@/pages/security/index';
 import Settings from '@/pages/settings/index';
@@ -183,6 +184,16 @@ function App() {
                 <ProtectedRoute>
                   <AppLayout>
                     <Tenants />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/audit-logs"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <AuditLogs />
                   </AppLayout>
                 </ProtectedRoute>
               }
