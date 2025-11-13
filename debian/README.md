@@ -451,9 +451,9 @@ The package preserves:
 
 ## Support
 
-- GitHub: https://github.com/yourusername/maxiofs
+- GitHub: https://github.com/maxiofs/maxiofs
 - Documentation: See `/docs` directory
-- Issues: https://github.com/yourusername/maxiofs/issues
+- Issues: https://github.com/maxiofs/maxiofs/issues
 
 ## License
 

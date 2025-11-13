@@ -137,11 +137,11 @@ export default function AboutPage() {
 
               <div className="space-y-3 pt-4 border-t border-gray-200 dark:border-gray-700">
                 <a
-                  href="mailto:aluisco2005@gmail.com"
+                  href="mailto:aluisco@maxiofs.com"
                   className="flex items-center space-x-3 text-sm text-gray-600 dark:text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
                 >
                   <Mail className="h-4 w-4" />
-                  <span>aluisco2005@gmail.com</span>
+                  <span>aluisco@maxiofs.com</span>
                 </a>
                 <a
                   href="https://github.com/MaxioFS/MaxioFS"

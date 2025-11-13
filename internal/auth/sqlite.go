@@ -424,7 +424,7 @@ func (s *SQLiteStore) DeleteUser(userID string) error {
 func (s *SQLiteStore) ListUsers() ([]*User, error) {
 	rows, err := s.db.Query(`
 		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
-		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used
+		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used, locked_until
 		FROM users
 		WHERE status != 'deleted'
 		ORDER BY created_at DESC
@@ -443,11 +443,12 @@ func (s *SQLiteStore) ListUsers() ([]*User, error) {
 		var twoFactorSetupAt sql.NullInt64
 		var backupCodesJSON sql.NullString
 		var backupCodesUsedJSON sql.NullString
+		var lockedUntil sql.NullInt64
 
 		err := rows.Scan(
 			&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
 			&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
-			&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON,
+			&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON, &lockedUntil,
 		)
 		if err != nil {
 			return nil, err
@@ -463,6 +464,10 @@ func (s *SQLiteStore) ListUsers() ([]*User, error) {
 
 		if twoFactorSetupAt.Valid {
 			user.TwoFactorSetupAt = twoFactorSetupAt.Int64
+		}
+
+		if lockedUntil.Valid {
+			user.LockedUntil = lockedUntil.Int64
 		}
 
 		// Deserialize JSON fields

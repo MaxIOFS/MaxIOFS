@@ -116,6 +116,9 @@ type User struct {
 	TwoFactorSetupAt int64    `json:"two_factor_setup_at,omitempty"`
 	BackupCodes      []string `json:"-"` // NEVER return in JSON - hashed in DB
 	BackupCodesUsed  []string `json:"-"` // Track used backup codes
+
+	// Account lockout fields
+	LockedUntil int64 `json:"locked_until,omitempty"`
 }
 
 // Tenant represents an organizational unit for multi-tenancy

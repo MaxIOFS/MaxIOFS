@@ -1,7 +1,7 @@
 Source: maxiofs
 Section: net
 Priority: optional
-Maintainer: MaxIOFS Team <aluisco2005@gmail.com>
+Maintainer: Aluisco Ricardo <aluisco@maxiofs.com>
 Build-Depends: debhelper (>= 10), golang-go (>= 1.21), nodejs (>= 18), npm
 Standards-Version: 4.5.1
 Homepage: https://github.com/maxiofs/maxiofs

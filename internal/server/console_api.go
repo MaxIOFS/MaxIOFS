@@ -70,6 +70,7 @@ type UserResponse struct {
 	Roles            []string `json:"roles"`
 	TenantID         string   `json:"tenantId,omitempty"`
 	TwoFactorEnabled bool     `json:"twoFactorEnabled"`
+	LockedUntil      int64    `json:"locked_until,omitempty"`
 	CreatedAt        int64    `json:"createdAt"`
 }
 
@@ -1411,6 +1412,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 			Roles:            u.Roles,
 			TenantID:         u.TenantID,
 			TwoFactorEnabled: u.TwoFactorEnabled,
+			LockedUntil:      u.LockedUntil,
 			CreatedAt:        u.CreatedAt,
 		}
 	}

@@ -19,7 +19,8 @@ export default function SecurityPage() {
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users'],
     queryFn: APIClient.getUsers,
-    staleTime: 30000, // Consider data fresh for 30 seconds
+    refetchInterval: 5000, // Poll every 5 seconds to detect locked accounts
+    staleTime: 5000, // Consider data fresh for 5 seconds
   });
 
   if (isLoading) {
