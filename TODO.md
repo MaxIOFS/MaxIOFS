@@ -369,14 +369,17 @@
   - [ ] Validate CORS with real browser cross-origin requests
   - [ ] Test lifecycle policies with automatic deletion (time-based)
 
-- [x] **Multi-Tenancy Validation** - ✅ COMPLETED
+- [x] **Multi-Tenancy Validation** - ✅ COMPLETED (Nov 13, 2025)
   - [x] Verify complete resource isolation between tenants
   - [x] Global admin can see all buckets across tenants
   - [x] Tenant deletion validates no buckets exist
   - [x] Cascading delete removes users and access keys
-  - [x] Test quota enforcement (storage, buckets, access keys) - ✅ FIXED
+  - [x] Test quota enforcement (storage, buckets, access keys) - ✅ TESTED & WORKING
   - [x] Validate permission system works correctly
   - [x] Test edge cases (empty tenant, exceeded limits, concurrent operations)
+  - [x] Test quota with small files (500KB) - ✅ WORKING
+  - [x] Test quota with large files (600MB) - ✅ WORKING
+  - [x] Verify bucket metrics update correctly - ✅ FIXED & TESTED
 
 - [x] **Web Console Testing** - ✅ COMPLETED
   - [x] Complete user flow testing (all pages, all features)
@@ -388,8 +391,8 @@
   - [x] Modern UI design validated and working
 
 - [ ] **Security Audit**
+  - [x] Test account lockout mechanism (15 min after 5 failed attempts) - ✅ WORKING
   - [ ] Verify rate limiting prevents brute force
-  - [ ] Test account lockout mechanism
   - [ ] Validate JWT token expiration and refresh
   - [ ] Check for credential leaks in logs
   - [ ] Test CORS policies prevent unauthorized access
@@ -646,6 +649,42 @@ Want to help? Pick any TODO item and:
 ---
 
 ## 🔧 Recent Changes Log
+
+### November 13, 2025 - Bug Fixes & Feature Testing
+- **Fixed**: Critical bug - Buckets created via S3 API were missing OwnerType/OwnerID fields
+  - Root cause: CreateBucket in `internal/bucket/manager.go` wasn't setting owner information
+  - Impact: Caused issues with bucket ownership tracking and permissions
+  - Files modified: `internal/bucket/manager.go:242-245`
+- **Fixed**: Critical bug - Bucket metrics not updating on PutObject/DeleteObject operations
+  - Root cause: Metadata operations weren't updating bucket-level object count and size
+  - Impact: Dashboard and metrics showing incorrect bucket statistics
+  - Files modified: `internal/metadata/badger_objects.go:171-185, 249-263`
+- **Fixed**: Bug - UserResponse missing `locked_until` field in API responses
+  - Root cause: Field existed in User struct but not in UserResponse or SQL query
+  - Impact: Frontend couldn't detect locked users for account lockout notifications
+  - Files modified: `internal/auth/manager.go:122`, `internal/server/console_api.go:73,1415`, `internal/auth/sqlite.go:427,446,451,469-471`
+- **Tested**: Quota Enforcement feature (working correctly)
+  - Small files (500KB): Correctly denied when quota exceeded
+  - Large files (600MB): Correctly denied when quota exceeded
+  - Dashboard metrics: Correctly showing current usage
+- **Tested**: Lifecycle Policy feature (working correctly)
+  - Successfully created lifecycle policy via Console API
+  - Policy correctly applied to bucket
+  - GET operation returns policy configuration
+- **Tested**: Account Lockout feature (working correctly)
+  - After 5 failed login attempts, user account locks for 15 minutes
+  - Locked users cannot login during lockout period
+  - Account automatically unlocks after timeout
+  - Frontend Security page shows locked user count
+- **Tested**: Bucket Tagging via AWS CLI (working correctly)
+  - Successfully applied tags via `aws s3api put-bucket-tagging`
+  - Tags correctly retrieved via `aws s3api get-bucket-tagging`
+  - Frontend displays bucket tags correctly
+- **Tested**: Prometheus Metrics Accuracy (working correctly)
+  - `/metrics` endpoint responding correctly
+  - Metrics include: requests, errors, latency, system stats
+  - Grafana dashboard displaying metrics correctly
+- **Status**: v0.3.2-beta stable with all critical bugs fixed
 
 ### November 12, 2025 - Frontend UI Complete Redesign
 - **Completed**: Modern, soft design system implemented across entire application

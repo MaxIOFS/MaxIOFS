@@ -18,6 +18,7 @@ import {
   Moon,
   Sun,
   Info,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -66,6 +67,11 @@ const navigation: NavItem[] = [
         icon: Building2,
       },
     ],
+  },
+  {
+    name: 'Audit Logs',
+    href: '/audit-logs',
+    icon: FileText,
   },
   {
     name: 'Metrics',
@@ -122,7 +128,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const tenantDisplayName = (tenant as any)?.display_name || tenant?.displayName || tenant?.name || user?.tenantId;
 
   const filteredNavigation = navigation.filter(item => {
+    // Hide admin-only pages from non-admin users
     if ((item.name === 'Metrics' || item.name === 'Security' || item.name === 'Settings') && !isGlobalAdmin) {
+      return false;
+    }
+    // Hide Audit Logs from non-admin users
+    const isTenantAdmin = (user?.roles?.includes('admin') ?? false) || (user?.roles?.includes('tenant_admin') ?? false);
+    if (item.name === 'Audit Logs' && !isGlobalAdmin && !isTenantAdmin) {
       return false;
     }
     return true;

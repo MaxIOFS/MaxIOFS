@@ -32,6 +32,9 @@ import type {
   UpdateTenantRequest,
   BucketPermission,
   GrantPermissionRequest,
+  AuditLog,
+  AuditLogFilters,
+  AuditLogsResponse,
 } from '@/types';
 
 // API Configuration
@@ -956,6 +959,29 @@ export class APIClient {
     const url = userId ? `/auth/2fa/status?user_id=${userId}` : '/auth/2fa/status';
     const response = await apiClient.get<APIResponse<any>>(url);
     return response.data.data;
+  }
+
+  // Audit Logs
+  static async getAuditLogs(filters?: AuditLogFilters): Promise<AuditLogsResponse> {
+    const params = new URLSearchParams();
+    if (filters?.tenantId) params.append('tenant_id', filters.tenantId);
+    if (filters?.userId) params.append('user_id', filters.userId);
+    if (filters?.eventType) params.append('event_type', filters.eventType);
+    if (filters?.resourceType) params.append('resource_type', filters.resourceType);
+    if (filters?.action) params.append('action', filters.action);
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.startDate) params.append('start_date', filters.startDate.toString());
+    if (filters?.endDate) params.append('end_date', filters.endDate.toString());
+    if (filters?.page) params.append('page', filters.page.toString());
+    if (filters?.pageSize) params.append('page_size', filters.pageSize.toString());
+
+    const response = await apiClient.get<APIResponse<AuditLogsResponse>>(`/audit-logs?${params.toString()}`);
+    return response.data.data!;
+  }
+
+  static async getAuditLog(id: number): Promise<AuditLog> {
+    const response = await apiClient.get<APIResponse<AuditLog>>(`/audit-logs/${id}`);
+    return response.data.data!;
   }
 
   // Utility methods

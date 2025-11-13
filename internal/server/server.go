@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/api"
+	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/config"
@@ -34,6 +35,7 @@ type Server struct {
 	bucketManager   bucket.Manager
 	objectManager   object.Manager
 	authManager     auth.Manager
+	auditManager    *audit.Manager
 	metricsManager  metrics.Manager
 	shareManager    share.Manager
 	systemMetrics   *metrics.SystemMetricsTracker
@@ -78,6 +80,26 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	authManager := auth.NewManager(cfg.Auth, cfg.DataDir)
+
+	// Initialize audit manager
+	var auditManager *audit.Manager
+	if cfg.Audit.Enable {
+		auditStore, err := audit.NewSQLiteStore(cfg.Audit.DBPath, logrus.StandardLogger())
+		if err != nil {
+			return nil, fmt.Errorf("failed to create audit store: %w", err)
+		}
+		auditManager = audit.NewManager(auditStore, logrus.StandardLogger())
+	}
+
+	// Connect audit manager to auth manager
+	if am, ok := authManager.(interface{ SetAuditManager(*audit.Manager) }); ok && auditManager != nil {
+		am.SetAuditManager(auditManager)
+	}
+
+	// Connect audit manager to bucket manager
+	if bm, ok := bucketManager.(interface{ SetAuditManager(*audit.Manager) }); ok && auditManager != nil {
+		bm.SetAuditManager(auditManager)
+	}
 
 	// Connect object manager to auth manager for tenant quota updates
 	if om, ok := objectManager.(interface {
@@ -155,6 +177,7 @@ func New(cfg *config.Config) (*Server, error) {
 		bucketManager:   bucketManager,
 		objectManager:   objectManager,
 		authManager:     authManager,
+		auditManager:    auditManager,
 		metricsManager:  metricsManager,
 		shareManager:    shareManager,
 		systemMetrics:   systemMetrics,
@@ -188,6 +211,11 @@ func (s *Server) Start(ctx context.Context) error {
 	// Start metrics collection
 	if s.config.Metrics.Enable {
 		s.metricsManager.Start(ctx)
+	}
+
+	// Start audit log retention job
+	if s.config.Audit.Enable && s.auditManager != nil {
+		s.auditManager.StartRetentionJob(ctx, s.config.Audit.RetentionDays)
 	}
 
 	// Start lifecycle worker (runs every 1 hour)
@@ -257,6 +285,13 @@ func (s *Server) shutdown() error {
 	// Stop lifecycle worker
 	if s.lifecycleWorker != nil {
 		s.lifecycleWorker.Stop()
+	}
+
+	// Close audit manager
+	if s.auditManager != nil {
+		if err := s.auditManager.Close(); err != nil {
+			logrus.WithError(err).Error("Failed to close audit manager")
+		}
 	}
 
 	// Close storage backend

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/sirupsen/logrus"
 )
@@ -163,9 +164,10 @@ type AccessKey struct {
 
 // authManager implements the Manager interface
 type authManager struct {
-	config      config.AuthConfig
-	store       *SQLiteStore
-	rateLimiter *LoginRateLimiter
+	config       config.AuthConfig
+	store        *SQLiteStore
+	rateLimiter  *LoginRateLimiter
+	auditManager *audit.Manager
 }
 
 // NewManager creates a new authentication manager with SQLite backend
@@ -512,7 +514,29 @@ func (am *authManager) CreateUser(ctx context.Context, user *User) error {
 	}
 
 	// Create user in database (password will be hashed by SQLiteStore)
-	return am.store.CreateUser(user)
+	err := am.store.CreateUser(user)
+	if err != nil {
+		return err
+	}
+
+	// Log audit event for user created
+	am.logAuditEvent(ctx, &audit.AuditEvent{
+		TenantID:     user.TenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    audit.EventTypeUserCreated,
+		ResourceType: audit.ResourceTypeUser,
+		ResourceID:   user.ID,
+		ResourceName: user.Username,
+		Action:       audit.ActionCreate,
+		Status:       audit.StatusSuccess,
+		Details: map[string]interface{}{
+			"roles":  user.Roles,
+			"status": user.Status,
+		},
+	})
+
+	return nil
 }
 
 func (am *authManager) UpdateUser(ctx context.Context, user *User) error {
@@ -520,7 +544,29 @@ func (am *authManager) UpdateUser(ctx context.Context, user *User) error {
 	user.UpdatedAt = time.Now().Unix()
 
 	// Update user in database
-	return am.store.UpdateUser(user)
+	err := am.store.UpdateUser(user)
+	if err != nil {
+		return err
+	}
+
+	// Log audit event for user updated
+	am.logAuditEvent(ctx, &audit.AuditEvent{
+		TenantID:     user.TenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    audit.EventTypeUserUpdated,
+		ResourceType: audit.ResourceTypeUser,
+		ResourceID:   user.ID,
+		ResourceName: user.Username,
+		Action:       audit.ActionUpdate,
+		Status:       audit.StatusSuccess,
+		Details: map[string]interface{}{
+			"roles":  user.Roles,
+			"status": user.Status,
+		},
+	})
+
+	return nil
 }
 
 func (am *authManager) DeleteUser(ctx context.Context, userID string) error {
@@ -529,8 +575,32 @@ func (am *authManager) DeleteUser(ctx context.Context, userID string) error {
 		return fmt.Errorf("cannot delete admin user")
 	}
 
+	// Get user info before deleting
+	user, err := am.store.GetUserByID(userID)
+	if err != nil {
+		return err
+	}
+
 	// Soft delete user in database (also soft deletes associated access keys)
-	return am.store.DeleteUser(userID)
+	err = am.store.DeleteUser(userID)
+	if err != nil {
+		return err
+	}
+
+	// Log audit event for user deleted
+	am.logAuditEvent(ctx, &audit.AuditEvent{
+		TenantID:     user.TenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    audit.EventTypeUserDeleted,
+		ResourceType: audit.ResourceTypeUser,
+		ResourceID:   user.ID,
+		ResourceName: user.Username,
+		Action:       audit.ActionDelete,
+		Status:       audit.StatusSuccess,
+	})
+
+	return nil
 }
 
 func (am *authManager) GetUser(ctx context.Context, userID string) (*User, error) {
@@ -542,6 +612,13 @@ func (am *authManager) ListUsers(ctx context.Context) ([]User, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// NOTE: Filtering is handled by the HTTP handler (console_api.go)
+	// This method returns all users from the database
+	// The handler will filter based on:
+	// - Global admin (admin role + no tenantID): sees all users
+	// - Tenant admin (admin role + tenantID): sees users from their tenant
+	// - Regular user: sees only themselves
 
 	// Convert []*User to []User
 	users := make([]User, len(usersPtrs))
@@ -689,6 +766,12 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 func (am *authManager) IsReady() bool {
 	// TODO: Implement readiness check
 	return true
+}
+
+// SetAuditManager sets the audit manager for logging events
+// This is called after initialization to inject the audit dependency
+func (am *authManager) SetAuditManager(auditMgr *audit.Manager) {
+	am.auditManager = auditMgr
 }
 
 // Tenant management methods
@@ -1234,24 +1317,9 @@ func (am *authManager) IsAccountLocked(ctx context.Context, userID string) (bool
 		return false, 0, nil
 	}
 
-	// Check if account should be locked due to failed attempts
-	if failedAttempts >= 5 {
-		// Lock for 15 minutes
-		lockDuration := int64(15 * 60) // 15 minutes in seconds
-		err := am.store.LockAccount(userID, lockDuration)
-		if err != nil {
-			return false, 0, err
-		}
-
-		newLockedUntil := now + lockDuration
-		logrus.WithFields(logrus.Fields{
-			"user_id":      userID,
-			"attempts":     failedAttempts,
-			"locked_until": time.Unix(newLockedUntil, 0).Format(time.RFC3339),
-		}).Warn("Account locked due to failed login attempts")
-
-		return true, newLockedUntil, nil
-	}
+	// Note: Account locking due to failed attempts is now handled in RecordFailedLogin
+	// to ensure accurate attempt counting
+	_ = failedAttempts // Silence unused variable warning
 
 	return false, 0, nil
 }
@@ -1268,6 +1336,25 @@ func (am *authManager) LockAccount(ctx context.Context, userID string) error {
 		"user_id":          userID,
 		"duration_minutes": 15,
 	}).Info("Account manually locked")
+
+	// Log audit event for user blocked
+	user, _ := am.store.GetUserByID(userID)
+	if user != nil {
+		am.logAuditEvent(ctx, &audit.AuditEvent{
+			TenantID:     user.TenantID,
+			UserID:       user.ID,
+			Username:     user.Username,
+			EventType:    audit.EventTypeUserBlocked,
+			ResourceType: audit.ResourceTypeUser,
+			ResourceID:   user.ID,
+			ResourceName: user.Username,
+			Action:       audit.ActionBlock,
+			Status:       audit.StatusSuccess,
+			Details: map[string]interface{}{
+				"duration_minutes": 15,
+			},
+		})
+	}
 
 	return nil
 }
@@ -1307,11 +1394,32 @@ func (am *authManager) UnlockAccount(ctx context.Context, adminUserID, targetUse
 		"is_global_admin": isGlobalAdmin,
 	}).Info("Account unlocked by admin")
 
+	// Log audit event for user unblocked
+	am.logAuditEvent(ctx, &audit.AuditEvent{
+		TenantID:     target.TenantID,
+		UserID:       admin.ID,
+		Username:     admin.Username,
+		EventType:    audit.EventTypeUserUnblocked,
+		ResourceType: audit.ResourceTypeUser,
+		ResourceID:   target.ID,
+		ResourceName: target.Username,
+		Action:       audit.ActionUnblock,
+		Status:       audit.StatusSuccess,
+		Details: map[string]interface{}{
+			"unlocked_by_admin": admin.Username,
+		},
+	})
+
 	return nil
 }
 
 // RecordFailedLogin records a failed login attempt
 func (am *authManager) RecordFailedLogin(ctx context.Context, userID, ip string) error {
+	logrus.WithFields(logrus.Fields{
+		"user_id": userID,
+		"ip":      ip,
+	}).Debug("RecordFailedLogin called")
+
 	// Record in rate limiter
 	if ip != "" {
 		am.rateLimiter.RecordFailedAttempt(ip)
@@ -1336,6 +1444,40 @@ func (am *authManager) RecordFailedLogin(ctx context.Context, userID, ip string)
 		"locked_until":    lockedUntil,
 	}).Warn("Failed login attempt recorded")
 
+	// Check if account should be locked due to failed attempts (5 attempts = lock)
+	if failedAttempts >= 5 {
+		// Lock for 15 minutes
+		lockDuration := int64(15 * 60) // 15 minutes in seconds
+		lockErr := am.store.LockAccount(userID, lockDuration)
+		if lockErr != nil {
+			logrus.WithError(lockErr).Error("Failed to lock account")
+		} else {
+			newLockedUntil := time.Now().Unix() + lockDuration
+			logrus.WithFields(logrus.Fields{
+				"user_id":      userID,
+				"attempts":     failedAttempts,
+				"locked_until": time.Unix(newLockedUntil, 0).Format(time.RFC3339),
+			}).Warn("Account locked due to failed login attempts")
+		}
+	}
+
+	// Log audit event for failed login
+	user, _ := am.store.GetUserByID(userID)
+	if user != nil {
+		am.logAuditEvent(ctx, &audit.AuditEvent{
+			TenantID:  user.TenantID,
+			UserID:    user.ID,
+			Username:  user.Username,
+			EventType: audit.EventTypeLoginFailed,
+			Action:    audit.ActionLogin,
+			Status:    audit.StatusFailed,
+			IPAddress: ip,
+			Details: map[string]interface{}{
+				"failed_attempts": failedAttempts,
+			},
+		})
+	}
+
 	return nil
 }
 
@@ -1350,6 +1492,9 @@ func (am *authManager) RecordSuccessfulLogin(ctx context.Context, userID string)
 	logrus.WithFields(logrus.Fields{
 		"user_id": userID,
 	}).Info("Successful login - failed attempts reset")
+
+	// Note: Audit logging is now handled by the HTTP handler (console_api.go)
+	// which has access to IP address and User Agent from the HTTP request
 
 	return nil
 }
@@ -1417,6 +1562,22 @@ func (m *authManager) Enable2FA(ctx context.Context, userID, code string, secret
 		return nil, fmt.Errorf("failed to enable 2FA: %w", err)
 	}
 
+	// Log audit event for 2FA enabled
+	user, _ := m.store.GetUserByID(userID)
+	if user != nil {
+		m.logAuditEvent(ctx, &audit.AuditEvent{
+			TenantID:     user.TenantID,
+			UserID:       user.ID,
+			Username:     user.Username,
+			EventType:    audit.EventType2FAEnabled,
+			ResourceType: audit.ResourceTypeUser,
+			ResourceID:   user.ID,
+			ResourceName: user.Username,
+			Action:       audit.ActionEnable,
+			Status:       audit.StatusSuccess,
+		})
+	}
+
 	return backupCodes, nil
 }
 
@@ -1428,10 +1589,38 @@ func (m *authManager) Disable2FA(ctx context.Context, userID, requestingUserID s
 		return fmt.Errorf("only global administrators can disable 2FA for other users")
 	}
 
-	err := m.store.Disable2FA(ctx, userID)
+	// Get user info before disabling
+	user, err := m.store.GetUserByID(userID)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	err = m.store.Disable2FA(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("failed to disable 2FA: %w", err)
 	}
+
+	// Log audit event for 2FA disabled
+	details := make(map[string]interface{})
+	if userID != requestingUserID {
+		requestingUser, _ := m.store.GetUserByID(requestingUserID)
+		if requestingUser != nil {
+			details["disabled_by_admin"] = requestingUser.Username
+		}
+	}
+
+	m.logAuditEvent(ctx, &audit.AuditEvent{
+		TenantID:     user.TenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    audit.EventType2FADisabled,
+		ResourceType: audit.ResourceTypeUser,
+		ResourceID:   user.ID,
+		ResourceName: user.Username,
+		Action:       audit.ActionDisable,
+		Status:       audit.StatusSuccess,
+		Details:      details,
+	})
 
 	return nil
 }
