@@ -11,6 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: builds
     env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_S3_BUCKET: ${{ secrets.NIGHTLY_S3_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_AWS_SECRET_ACCESS_KEY }}
       S3_PREFIX: nightly/${{ github.run_id }}
     steps:
       - name: Checkout code
@@ -29,15 +33,18 @@ jobs:
           echo "commit_hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "Nightly version: ${NIGHTLY_VERSION}"
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Download last built commit hash from S3
         id: get_last_commit
         run: |
           mkdir -p s3-latest
-          aws s3 cp s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest/LAST_COMMIT s3-latest/LAST_COMMIT || echo "none" > s3-latest/LAST_COMMIT
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
+          aws s3 cp s3://${{ env.AWS_S3_BUCKET }}/nightly/latest/LAST_COMMIT s3-latest/LAST_COMMIT || echo "none" > s3-latest/LAST_COMMIT
 
       - name: Compare commit hashes and skip if no changes
         id: check_skip
@@ -129,29 +136,7 @@ jobs:
           echo "${{ steps.nightly_version.outputs.commit_hash }}" > nightly-artifacts/LAST_COMMIT
 
       - name: Upload to S3
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        with:
-          args: --acl public-read --follow-symlinks --delete
-        env:
-          AWS_S3_BUCKET: ${{ secrets.NIGHTLY_S3_BUCKET }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-          SOURCE_DIR: nightly-artifacts
-          DEST_DIR: ${{ env.S3_PREFIX }}
+        run: aws s3 sync ./nightly-artifacts s3://${{ env.AWS_S3_BUCKET }}/${{ env.S3_PREFIX }} --delete --acl public-read
 
-      - name: Save latest pointer
-        run: |
-          echo ${{ github.run_id }} > nightly-artifacts/LATEST_BUILD
-        shell: bash
       - name: Upload latest pointer
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        with:
-          args: --acl public-read
-        env:
-          AWS_S3_BUCKET: ${{ secrets.NIGHTLY_S3_BUCKET }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-          SOURCE_DIR: nightly-artifacts
-          DEST_DIR: nightly/latest
+        run: aws s3 sync ./nightly-artifacts s3://${{ env.AWS_S3_BUCKET }}/nightly/latest --acl public-read
