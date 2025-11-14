@@ -37,7 +37,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
 
       - name: Compare commit hashes and skip if no changes
         id: check_skip
@@ -149,7 +149,7 @@ jobs:
         with:
           args: --acl public-read
         env:
-          AWS_S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          AWS_S3_BUCKET: ${{ secrets.NIGHTLY_S3_BUCKET }}
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
