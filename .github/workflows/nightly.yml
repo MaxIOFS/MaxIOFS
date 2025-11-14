@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: nightly
     env:
-      AWS_REGION: us-east-1
+      AWS_REGION: us-east-2
       S3_BUCKET: ${{ secrets.NIGHTLY_S3_BUCKET }}
       S3_PREFIX: nightly/${{ github.run_id }}
     steps:
