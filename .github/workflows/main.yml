@@ -130,6 +130,7 @@ jobs:
       - name: Prepare artifacts
         run: |
           mkdir -p nightly-artifacts
+          rm -rf build/debian-package build/debian-package-arm64
           cp -r build/* nightly-artifacts/
           echo "Artifacts prepared with version ${{ steps.nightly_version.outputs.version }}"
           ls -lah nightly-artifacts/
