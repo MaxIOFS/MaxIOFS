@@ -9,10 +9,8 @@ jobs:
   nightly:
     name: Nightly Build & Upload
     runs-on: ubuntu-latest
-    environment: nightly
+    environment: builds
     env:
-      AWS_REGION: us-east-2
-      S3_BUCKET: ${{ secrets.NIGHTLY_S3_BUCKET }}
       S3_PREFIX: nightly/${{ github.run_id }}
     steps:
       - name: Checkout code
@@ -35,11 +33,11 @@ jobs:
         id: get_last_commit
         run: |
           mkdir -p s3-latest
-          aws s3 cp s3://${{ env.S3_BUCKET }}/nightly/latest/LAST_COMMIT s3-latest/LAST_COMMIT || echo "none" > s3-latest/LAST_COMMIT
+          aws s3 cp s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest/LAST_COMMIT s3-latest/LAST_COMMIT || echo "none" > s3-latest/LAST_COMMIT
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
 
       - name: Compare commit hashes and skip if no changes
         id: check_skip
@@ -135,10 +133,10 @@ jobs:
         with:
           args: --acl public-read --follow-symlinks --delete
         env:
-          AWS_S3_BUCKET: ${{ env.S3_BUCKET }}
+          AWS_S3_BUCKET: ${{ secrets.NIGHTLY_S3_BUCKET }}
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ env.AWS_REGION }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
           SOURCE_DIR: nightly-artifacts
           DEST_DIR: ${{ env.S3_PREFIX }}
 
@@ -151,9 +149,9 @@ jobs:
         with:
           args: --acl public-read
         env:
-          AWS_S3_BUCKET: ${{ env.S3_BUCKET }}
+          AWS_S3_BUCKET: ${{ secrets.S3_BUCKET }}
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ env.AWS_REGION }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
           SOURCE_DIR: nightly-artifacts
           DEST_DIR: nightly/latest
