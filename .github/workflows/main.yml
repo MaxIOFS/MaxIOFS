@@ -140,7 +140,4 @@ jobs:
           echo "${{ steps.nightly_version.outputs.commit_hash }}" > nightly-artifacts/LAST_COMMIT
 
       - name: Upload to S3
-        run: aws s3 sync ./nightly-artifacts s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/${{ github.run_id }} --delete
-
-      - name: Upload latest pointer
-        run: aws s3 sync ./nightly-artifacts s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest
+        run: aws s3 sync ./nightly-artifacts s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest --delete
