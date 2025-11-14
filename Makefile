@@ -111,6 +111,7 @@ else
 	@mkdir -p $(BUILD_DIR)
 endif
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/maxiofs
+ifeq ($(DETECTED_OS),Windows)
 	@echo.
 	@echo ========================================
 	@echo Build successful!
@@ -120,25 +121,36 @@ endif
 	@echo Frontend: Embedded in binary
 	@echo.
 	@echo Usage:
-ifeq ($(DETECTED_OS),Windows)
 	@echo   .\$(BUILD_DIR)\$(BINARY_NAME) --data-dir .\data
 	@echo   .\$(BUILD_DIR)\$(BINARY_NAME) --version
 	@echo   .\$(BUILD_DIR)\$(BINARY_NAME) --help
-else
-	@echo   ./$(BUILD_DIR)/$(BINARY_NAME) --data-dir ./data
-	@echo   ./$(BUILD_DIR)/$(BINARY_NAME) --version
-	@echo   ./$(BUILD_DIR)/$(BINARY_NAME) --help
-endif
 	@echo.
 	@echo Endpoints:
 	@echo   Web Console: http://localhost:8081
 	@echo   S3 API:      http://localhost:8080
 	@echo.
 	@echo TLS Support (optional):
-ifeq ($(DETECTED_OS),Windows)
 	@echo   .\$(BUILD_DIR)\$(BINARY_NAME) --data-dir .\data --tls-cert cert.pem --tls-key key.pem
 else
-	@echo   ./$(BUILD_DIR)/$(BINARY_NAME) --data-dir ./data --tls-cert cert.pem --tls-key key.pem
+	@echo ""
+	@echo "========================================"
+	@echo "Build successful!"
+	@echo "========================================"
+	@echo "Binary: $(BUILD_DIR)/$(BINARY_NAME)"
+	@echo "Version: $(VERSION) (commit: $(COMMIT))"
+	@echo "Frontend: Embedded in binary"
+	@echo ""
+	@echo "Usage:"
+	@echo "  ./$(BUILD_DIR)/$(BINARY_NAME) --data-dir ./data"
+	@echo "  ./$(BUILD_DIR)/$(BINARY_NAME) --version"
+	@echo "  ./$(BUILD_DIR)/$(BINARY_NAME) --help"
+	@echo ""
+	@echo "Endpoints:"
+	@echo "  Web Console: http://localhost:8081"
+	@echo "  S3 API:      http://localhost:8080"
+	@echo ""
+	@echo "TLS Support (optional):"
+	@echo "  ./$(BUILD_DIR)/$(BINARY_NAME) --data-dir ./data --tls-cert cert.pem --tls-key key.pem"
 endif
 
 # Development build (without optimizations)
@@ -252,16 +264,16 @@ else
 	@echo "Building macOS ARM64..."
 	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-arm64-$(VERSION) ./cmd/maxiofs
 endif
-	@echo.
-	@echo ========================================
-	@echo Multi-platform build complete!
-	@echo ========================================
-	@echo Binaries created in $(BUILD_DIR)/:
-	@echo   - maxiofs-linux-amd64-$(VERSION)
-	@echo   - maxiofs-linux-arm64-$(VERSION)
-	@echo   - maxiofs-windows-amd64-$(VERSION).exe
-	@echo   - maxiofs-darwin-amd64-$(VERSION)
-	@echo   - maxiofs-darwin-arm64-$(VERSION)
+	@echo ""
+	@echo "========================================"
+	@echo "Multi-platform build complete!"
+	@echo "========================================"
+	@echo "Binaries created in $(BUILD_DIR)/:"
+	@echo "  - maxiofs-linux-amd64-$(VERSION)"
+	@echo "  - maxiofs-linux-arm64-$(VERSION)"
+	@echo "  - maxiofs-windows-amd64-$(VERSION).exe"
+	@echo "  - maxiofs-darwin-amd64-$(VERSION)"
+	@echo "  - maxiofs-darwin-arm64-$(VERSION)"
 
 # Build for specific platforms (cross-compilation)
 .PHONY: build-linux
