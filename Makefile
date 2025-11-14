@@ -251,6 +251,16 @@ ifeq ($(DETECTED_OS),Windows)
 	@set GOOS=darwin&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-amd64-$(VERSION) ./cmd/maxiofs
 	@echo Building macOS ARM64...
 	@set GOOS=darwin&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-arm64-$(VERSION) ./cmd/maxiofs
+	@echo.
+	@echo ========================================
+	@echo Multi-platform build complete!
+	@echo ========================================
+	@echo Binaries created in $(BUILD_DIR)/:
+	@echo   - maxiofs-linux-amd64-$(VERSION)
+	@echo   - maxiofs-linux-arm64-$(VERSION)
+	@echo   - maxiofs-windows-amd64-$(VERSION).exe
+	@echo   - maxiofs-darwin-amd64-$(VERSION)
+	@echo   - maxiofs-darwin-arm64-$(VERSION)
 else
 	@mkdir -p $(BUILD_DIR)
 	@echo "Building Linux AMD64..."
@@ -263,7 +273,6 @@ else
 	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-amd64-$(VERSION) ./cmd/maxiofs
 	@echo "Building macOS ARM64..."
 	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-arm64-$(VERSION) ./cmd/maxiofs
-endif
 	@echo ""
 	@echo "========================================"
 	@echo "Multi-platform build complete!"
@@ -274,6 +283,7 @@ endif
 	@echo "  - maxiofs-windows-amd64-$(VERSION).exe"
 	@echo "  - maxiofs-darwin-amd64-$(VERSION)"
 	@echo "  - maxiofs-darwin-arm64-$(VERSION)"
+endif
 
 # Build for specific platforms (cross-compilation)
 .PHONY: build-linux
