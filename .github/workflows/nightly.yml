@@ -35,7 +35,7 @@ jobs:
         id: get_last_commit
         run: |
           mkdir -p s3-latest
-          aws s3 cp s3://${{ env.NIGHTLY_S3_BUCKET }}/nightly/latest/LAST_COMMIT s3-latest/LAST_COMMIT || echo "none" > s3-latest/LAST_COMMIT
+          aws s3 cp s3://${{ env.S3_BUCKET }}/nightly/latest/LAST_COMMIT s3-latest/LAST_COMMIT || echo "none" > s3-latest/LAST_COMMIT
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_AWS_SECRET_ACCESS_KEY }}
