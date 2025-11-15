@@ -139,11 +139,26 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     if (item.name === 'Audit Logs' && !isAnyAdmin) {
       return false;
     }
-    // Tenants and Users: only for admins (global or tenant)
-    if ((item.name === 'Tenants' || item.name === 'Users') && !isAnyAdmin) {
+    // Tenants: only for admins (global or tenant)
+    if (item.name === 'Tenants' && !isAnyAdmin) {
       return false;
     }
+    // Users: everyone can see it (admins see list, users get redirected to their profile)
     return true;
+  }).map(item => {
+    // Filter children of Users menu to hide Tenants for non-admins
+    if (item.name === 'Users' && item.children) {
+      return {
+        ...item,
+        children: item.children.filter(child => {
+          if (child.name === 'Tenants' && !isAnyAdmin) {
+            return false;
+          }
+          return true;
+        })
+      };
+    }
+    return item;
   });
 
   // Dark Mode Toggle
