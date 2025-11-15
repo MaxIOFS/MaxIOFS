@@ -62,7 +62,7 @@ const CustomTooltip: React.FC<
   return null;
 };
 
-export const MetricLineChart: React.FC<MetricLineChartProps> = ({
+export const MetricLineChart: React.FC<MetricLineChartProps> = React.memo(({
   data,
   title,
   dataKeys,
@@ -72,9 +72,33 @@ export const MetricLineChart: React.FC<MetricLineChartProps> = ({
   formatTooltip,
   timeRange,
 }) => {
+  // Adaptive downsampling based on data size for optimal performance
+  const processedData = React.useMemo(() => {
+    // Calculate max points based on time range
+    const calculateMaxPoints = () => {
+      if (!timeRange) return 500;
+      const hours = (timeRange.end - timeRange.start) / 3600;
+      
+      if (hours <= 1) return 500;         // 1h: 500 points
+      if (hours <= 6) return 400;         // 6h: 400 points
+      if (hours <= 24) return 300;        // 24h: 300 points
+      if (hours <= 168) return 250;       // 7d: 250 points
+      if (hours <= 720) return 200;       // 30d: 200 points
+      return 150;                         // 1y: 150 points (aggressive downsampling)
+    };
+    
+    const maxPoints = calculateMaxPoints();
+    
+    if (data.length <= maxPoints) return data;
+    
+    // Downsample by taking every nth point
+    const step = Math.ceil(data.length / maxPoints);
+    return data.filter((_, index) => index % step === 0);
+  }, [data, timeRange]);
+
   // Add boundary markers to ensure full time range is displayed
   const dataWithBoundaries = React.useMemo(() => {
-    if (!timeRange) return data;
+    if (!timeRange) return processedData;
 
     const { start, end } = timeRange;
 
@@ -88,9 +112,9 @@ export const MetricLineChart: React.FC<MetricLineChartProps> = ({
     });
 
     // Add boundaries only if data doesn't already cover them
-    const result = [...data];
-    const firstTimestamp = data.length > 0 ? (data[0][xAxisKey] as number) : Number.MAX_VALUE;
-    const lastTimestamp = data.length > 0 ? (data[data.length - 1][xAxisKey] as number) : 0;
+    const result = [...processedData];
+    const firstTimestamp = processedData.length > 0 ? (processedData[0][xAxisKey] as number) : Number.MAX_VALUE;
+    const lastTimestamp = processedData.length > 0 ? (processedData[processedData.length - 1][xAxisKey] as number) : 0;
 
     if (start < firstTimestamp) {
       result.unshift(startMarker);
@@ -100,7 +124,7 @@ export const MetricLineChart: React.FC<MetricLineChartProps> = ({
     }
 
     return result;
-  }, [data, timeRange, xAxisKey, dataKeys]);
+  }, [processedData, timeRange, xAxisKey, dataKeys]);
 
   // Format timestamp for display
   const formatXAxis = (timestamp: number) => {
@@ -160,4 +184,4 @@ export const MetricLineChart: React.FC<MetricLineChartProps> = ({
       </div>
     </Card>
   );
-};
+});
