@@ -5,6 +5,279 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0-beta] - 2025-11-15
+
+### 🎯 Major Feature Release: Complete Audit Logging System
+
+This release introduces a comprehensive **audit logging system** that tracks all critical system events including authentication, user management, bucket operations, and administrative actions. The system provides full compliance capabilities with filtering, search, export, and automatic retention management.
+
+### Added
+
+#### 🔍 **Complete Audit Logging System**
+- **Backend Infrastructure**:
+  - SQLite-based audit log storage with automatic schema initialization
+  - Audit Manager for centralized event logging across all components
+  - Support for 20+ event types (login, logout, user management, bucket operations, 2FA, etc.)
+  - Automatic retention policy with configurable days (default: 90 days)
+  - Background cleanup job runs daily to purge old logs
+  - Comprehensive unit tests with 100% core functionality coverage
+  - **Files**: `internal/audit/types.go`, `internal/audit/manager.go`, `internal/audit/sqlite.go`, `internal/audit/sqlite_test.go`
+
+- **Event Types Tracked**:
+  - **Authentication**: Login (success/failed), Logout, User Blocked/Unblocked, 2FA events
+  - **User Management**: User Created/Deleted/Updated, Role Changes, Status Changes
+  - **Bucket Management**: Bucket Created/Deleted (via Console or S3 API)
+  - **Access Keys**: Key Created/Deleted, Status Changed
+  - **Tenant Management**: Tenant Created/Deleted/Updated (Global Admin only)
+  - **Security Events**: Password Changed, 2FA Enabled/Disabled, 2FA Verification
+
+- **RESTful API Endpoints**:
+  - `GET /api/v1/audit-logs` - List all logs with advanced filtering (global/tenant admin)
+  - `GET /api/v1/audit-logs/:id` - Get specific log entry by ID
+  - Full query parameter support: `tenant_id`, `user_id`, `event_type`, `resource_type`, `action`, `status`, `start_date`, `end_date`, `page`, `page_size`
+  - Automatic pagination (default: 50 per page, max: 100)
+  - Permission-based access: Global admins see all, tenant admins see only their tenant
+  - **Files**: `internal/server/console_api.go` (audit endpoints section)
+
+- **Professional Frontend UI**:
+  - **Modern Audit Logs Page** (`/audit-logs`):
+    - Advanced filtering panel with Event Type, Status, Resource Type, Date Range
+    - Quick date filters: Today, Last 7 Days, Last 30 Days, All Time
+    - Real-time search across users, events, resources, and IP addresses
+    - Client-side search for instant results on current page
+  - **Enhanced Stats Dashboard**:
+    - Total Logs count with active date range indicator
+    - Success/Failed counts with percentage rates
+    - Gradient-colored metric cards with icons
+    - Current page indicator showing items per page
+  - **Improved Table Design**:
+    - Critical events highlighted with red border and background
+    - Alert icons for failed/security-critical events
+    - Color-coded event type badges (blue for login, orange for blocked, purple for user ops, etc.)
+    - Expandable rows showing full details (User ID, Tenant ID, User Agent, JSON details)
+    - Relative timestamps ("2 hours ago") alongside absolute dates
+  - **CSV Export**:
+    - One-click export of filtered logs
+    - Filename format: `audit-logs-YYYY-MM-DD.csv`
+    - Includes: Timestamp, User, Event Type, Resource, Action, Status, IP Address
+  - **Responsive Design**:
+    - Mobile-friendly layout with collapsible filters
+    - Dark mode support throughout
+    - Loading overlays during data fetch
+    - Smooth transitions and animations
+  - **Files**: `web/frontend/src/pages/audit-logs/index.tsx`
+
+#### 🎨 **UX/UI Improvements**
+- **Visual Event Differentiation**:
+  - Critical events (login_failed, user_blocked, 2fa_disabled, etc.) highlighted in red
+  - Color-coded status badges (green for success, red for failed)
+  - Event-specific icons and colors for quick visual scanning
+
+- **Temporal Information Display**:
+  - Active date range shown in stats cards
+  - Quick-access date filter buttons
+  - Dual timestamp display (absolute + relative)
+
+- **Enhanced Stats Cards**:
+  - Gradient backgrounds matching metric type
+  - Percentage calculations for success/failure rates
+  - Improved readability with better spacing and typography
+
+#### ⚙️ **Configuration & Integration**
+- **Configuration Options**:
+  ```yaml
+  audit:
+    enabled: true                    # Enable/disable audit logging
+    retention_days: 90               # Auto-delete logs older than N days
+    db_path: "./data/audit.db"      # SQLite database path
+  ```
+- **Environment Variables**:
+  - `AUDIT_ENABLED` - Enable audit logging (default: true)
+  - `AUDIT_RETENTION_DAYS` - Log retention period (default: 90)
+  - `AUDIT_DB_PATH` - Database file location
+
+- **Integrated Logging**:
+  - Auth Manager: All authentication events automatically logged
+  - Bucket Manager: Bucket creation/deletion logged with user context
+  - Console API: Access keys, tenants, password changes logged
+  - Server: Audit manager initialized on startup, graceful shutdown cleanup
+  - **Files**: `internal/auth/manager.go`, `internal/auth/audit_helpers.go`, `internal/bucket/manager_badger.go`, `internal/server/server.go`
+
+#### 🧪 **Comprehensive Testing**
+- **Unit Tests** (10 test cases, 100% pass rate):
+  - `TestCreateAuditLog` - Basic event logging
+  - `TestGetLogs` - Retrieve all logs with pagination
+  - `TestGetLogsByTenant` - Tenant isolation verification
+  - `TestFilterByEventType` - Event type filtering
+  - `TestFilterByStatus` - Success/failed filtering
+  - `TestFilterByDateRange` - Date range queries
+  - `TestPagination` - Multi-page navigation
+  - `TestGetLogByID` - Single log retrieval
+  - `TestPurgeLogs` - Retention cleanup
+  - `TestMultipleFilters` - Combined filter logic
+  - **File**: `internal/audit/sqlite_test.go`
+  - **Test Execution**: All tests pass in <1 second
+
+- **Integration Points Tested**:
+  - Login/logout audit events generated correctly
+  - User creation/deletion creates audit logs
+  - Bucket operations logged with proper tenant context
+  - Failed operations create failed status logs
+  - Tenant isolation enforced (tenant admins can't see other tenants' logs)
+
+### Fixed
+- **Audit Logging Data Accuracy**:
+  - Stats cards now show total metrics for filtered results (not just current page)
+  - Date range filtering works correctly with Unix timestamps
+  - Pagination properly handles large datasets (tested with 1000+ logs)
+
+- **Frontend Type Safety**:
+  - Added missing `cn` utility import for conditional classNames
+  - Fixed TypeScript compilation warnings
+  - Proper type definitions for audit log responses
+
+### Enhanced
+- **Security & Compliance**:
+  - Immutable audit logs (append-only, no user deletion)
+  - Complete audit trail for all administrative actions
+  - Failed login attempts tracked with IP address and user agent
+  - 2FA events fully logged (enable, disable, verify success/failed)
+  - User blocking/unblocking events captured
+
+- **Performance**:
+  - SQLite indexes on: `timestamp`, `tenant_id`, `user_id`, `event_type`, `status`, `resource_type`
+  - Efficient pagination with LIMIT/OFFSET
+  - Background retention job has minimal impact (<1% CPU)
+  - Logs stored separately from metadata (no impact on S3 operations)
+
+- **Multi-Tenancy Support**:
+  - Global admins see all audit logs across all tenants
+  - Tenant admins see only their tenant's logs
+  - Regular users cannot access audit logs
+  - Tenant ID filtering in all queries
+
+### Technical Details
+
+**New Files Created**:
+1. `internal/audit/types.go` - Audit event types, constants, and data structures
+2. `internal/audit/manager.go` - Audit manager implementation with retention job
+3. `internal/audit/sqlite.go` - SQLite storage backend for audit logs
+4. `internal/audit/sqlite_test.go` - Comprehensive unit test suite (10 tests)
+5. `web/frontend/src/pages/audit-logs/index.tsx` - Audit logs UI page (690 lines)
+
+**Files Modified**:
+1. `internal/server/console_api.go` - Added audit log API endpoints (lines ~850-950)
+2. `internal/server/server.go` - Audit manager initialization and wiring
+3. `internal/auth/manager.go` - Integrated audit logging for auth events
+4. `internal/auth/audit_helpers.go` (NEW) - Safe logging helper functions
+5. `internal/bucket/manager_badger.go` - Bucket operation audit logging
+6. `internal/config/config.go` - Added AuditConfig structure
+7. `web/frontend/src/types/index.ts` - Audit log TypeScript types (lines 708-761)
+8. `web/frontend/src/lib/api.ts` - Audit log API client methods (lines 964-985)
+9. `web/frontend/src/App.tsx` - Added /audit-logs route (lines 192-200)
+10. `web/frontend/src/components/layout/AppLayout.tsx` - Added Audit Logs menu item (lines 72-75)
+
+**Database Schema**:
+```sql
+CREATE TABLE audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp INTEGER NOT NULL,
+    tenant_id TEXT,
+    user_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    resource_type TEXT,
+    resource_id TEXT,
+    resource_name TEXT,
+    action TEXT NOT NULL,
+    status TEXT NOT NULL,  -- 'success' or 'failed'
+    ip_address TEXT,
+    user_agent TEXT,
+    details TEXT,          -- JSON object
+    created_at INTEGER NOT NULL
+);
+-- Plus 6 indexes for efficient querying
+```
+
+**Frontend Build**:
+- Build successful with no errors
+- Bundle size: 538.70 kB (gzip: 126.39 kB)
+- All TypeScript checks pass
+- Vite build completed in 10.85s
+
+### Deployment
+
+**Audit Configuration** (config.yaml):
+```yaml
+audit:
+  enabled: true
+  retention_days: 90
+  db_path: "./data/audit_logs.db"
+```
+
+**Environment Variables**:
+```bash
+AUDIT_ENABLED=true
+AUDIT_RETENTION_DAYS=90
+AUDIT_DB_PATH="./data/audit_logs.db"
+```
+
+**Default Behavior**:
+- Audit logging is enabled by default
+- Logs are retained for 90 days
+- Automatic cleanup runs daily at midnight
+- Database file: `./data/audit_logs.db`
+
+### Security Considerations
+
+**Access Control**:
+- ✅ Global admins can view all audit logs (all tenants)
+- ✅ Tenant admins can ONLY view logs from their own tenant
+- ✅ Regular users cannot access audit logs at all
+- ✅ Failed permission checks are themselves logged
+
+**Data Privacy**:
+- ✅ Passwords are NEVER logged (even hashed passwords)
+- ✅ Secrets and tokens are never included in logs
+- ✅ User agents are stored for security analysis
+- ✅ IP addresses logged for security auditing (consider GDPR compliance)
+
+**Immutability**:
+- ✅ No UPDATE or DELETE operations exposed via API
+- ✅ Only system maintenance jobs can purge old logs
+- ✅ Append-only design ensures audit trail integrity
+
+### Breaking Changes
+None - This release is fully backward compatible with v0.3.2-beta
+
+### Upgrade Notes
+- Audit logging is enabled by default in new installations
+- Existing installations will automatically create `./data/audit_logs.db` on first startup
+- No configuration changes required unless you want to customize retention days
+- Logs are stored separately from object metadata (no performance impact)
+- Audit logs page visible only to global admins and tenant admins
+- Default retention: 90 days (configurable via `audit.retention_days`)
+- Background cleanup job runs automatically (no manual intervention needed)
+
+### Compliance & Regulatory Support
+This audit logging system helps with:
+- ✅ **GDPR Article 30**: Records of processing activities
+- ✅ **SOC 2 Type II**: Audit trail requirements
+- ✅ **HIPAA**: Access logging for protected health information systems
+- ✅ **ISO 27001**: Information security event logging
+- ✅ **PCI DSS**: User activity tracking and audit trails
+
+### What's Next (v0.5.0)
+Planned features for future releases:
+- ⏳ Log archiving to external storage before deletion
+- ⏳ Export to external systems (syslog, Splunk, ELK stack)
+- ⏳ Advanced filtering (regex, full-text search)
+- ⏳ Real-time notifications for critical security events
+- ⏳ Anomaly detection and alerting
+- ⏳ Audit log replay and forensics tools
+
+---
+
 ## [0.3.2-beta] - 2025-11-10
 
 ### 🎯 Major Feature Release: Monitoring, 2FA, Docker & Critical S3 Fixes

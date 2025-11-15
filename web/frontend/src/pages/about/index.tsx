@@ -195,8 +195,8 @@ export default function AboutPage() {
             />
             <FeatureCard
               icon={Lock}
-              title="Security"
-              description="JWT authentication, AWS Signature v2/v4, bcrypt password hashing, rate limiting, account lockout, and granular access control"
+              title="Security & Audit"
+              description="JWT + 2FA authentication, AWS Signature v2/v4, comprehensive audit logging (20+ event types), compliance-ready (GDPR, SOC 2, HIPAA, ISO 27001)"
             />
             <FeatureCard
               icon={Zap}
@@ -226,7 +226,7 @@ export default function AboutPage() {
             <FeatureCard
               icon={Layers}
               title="Dual Storage"
-              description="BadgerDB v4 for high-performance object metadata, SQLite for authentication, filesystem for object storage with atomic operations"
+              description="BadgerDB v4 for high-performance object metadata, SQLite for authentication & audit logs, filesystem for object storage with atomic operations"
             />
           </div>
         </div>
@@ -259,7 +259,7 @@ export default function AboutPage() {
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
-                  SQLite (Authentication)
+                  SQLite (Authentication & Audit Logs)
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
@@ -311,59 +311,60 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New Features in v0.3.2-beta (Monitoring, 2FA & Docker)
+            New Features in v0.4.0-beta (Audit Logging & Compliance)
           </h2>
           <div className="space-y-4">
             <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                � Two-Factor Authentication (2FA)
+                Comprehensive Audit Logging System
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Complete TOTP-based 2FA implementation with QR code generation for authenticator apps. 
-                Backup codes for account recovery. Optional per-user setting with admin management capabilities.
-                Enhanced security for all user accounts.
+                Complete audit logging system with SQLite-based storage tracking 20+ event types (authentication, user management,
+                buckets, 2FA, access keys, etc.). Automatic retention management with configurable period (default 90 days).
+                Multi-tenant isolation with global/tenant admin access controls.
               </p>
             </div>
 
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                � Prometheus & Grafana Monitoring
+                Professional Audit Logs UI
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Full monitoring stack integration with Prometheus metrics endpoint and pre-built Grafana dashboards.
-                System metrics (CPU, Memory, Disk), storage metrics, request rates, latency tracking, and cache performance.
-                Docker Compose setup for easy monitoring deployment.
+                Modern web interface with quick date filters (Today, Last 7 Days, Last 30 Days, All Time). Real-time search
+                across users, events, resources, and IPs. Color-coded critical events with visual alerts. Expandable rows with
+                full event metadata. Enhanced stats dashboard with gradient cards and CSV export functionality.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                � Docker Support
+                RESTful Audit API
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Complete Docker configuration with multi-stage build. Docker Compose for multi-container setup.
-                Production-ready containerization integrated with Prometheus and Grafana. Build scripts and
-                automated deployment workflows included.
+                Complete programmatic access via GET /api/v1/audit-logs with advanced filtering. Pagination support
+                (default: 50, max: 100 per page). Query by event type, status, resource type, date range.
+                Full integration with frontend UI for real-time audit trail monitoring.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                � Critical S3 Compatibility Fixes
+                Compliance Ready
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Fixed versioned bucket deletion bug and ListObjectVersions. Implemented HTTP conditional requests (If-Match, If-None-Match).
-                Improved S3 compatibility from 96% to <strong className="text-green-600 dark:text-green-400">98%</strong>. Better integration with S3 clients, CDNs, and backup tools.
+                Audit logging designed to meet compliance requirements for GDPR Article 30, SOC 2 Type II, HIPAA,
+                ISO 27001, and PCI DSS. Immutable audit trail with tamper-evident storage. Complete event tracking
+                for security monitoring and forensic analysis.
               </p>
             </div>
 
             <div className="border-l-4 border-yellow-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                ✨ UI/UX Improvements
+                Persistent Metrics with BadgerDB
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Bucket pagination for large bucket lists. Responsive frontend design for mobile and tablet devices.
-                Fixed layout resolution issues. Cleaned up unused functions for better performance and maintainability.
+                Metrics now persisted in BadgerDB instead of in-memory storage. System metrics survive restarts.
+                Historical data retention for trend analysis. Improved reliability and consistency of monitoring data.
               </p>
             </div>
           </div>

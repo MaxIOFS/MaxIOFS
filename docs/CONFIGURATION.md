@@ -1,14 +1,14 @@
 
 # MaxIOFS Configuration Guide
 
-**Version**: 0.3.2-beta
+**Version**: 0.4.0-beta
 
-Configuration reference for MaxIOFS v0.3.2-beta
+Configuration reference for MaxIOFS v0.4.0-beta
   
 ---
 
 ## Table of Contents
-  
+
 - [Configuration Methods](#configuration-methods)
 
 - [Required Settings](#required-settings)
@@ -20,6 +20,8 @@ Configuration reference for MaxIOFS v0.3.2-beta
 - [Storage](#storage)
 
 - [Authentication](#authentication)
+
+- [Audit Logging](#audit-logging)
 
 - [Examples](#examples)
 
@@ -266,6 +268,53 @@ auth:
 enable_auth: true
 jwt_secret: "your-secure-secret-min-32-chars"
 ```
+
+---
+
+## Audit Logging
+
+**New in v0.4.0-beta**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `audit.enabled` | bool | `true` | Enable audit logging |
+| `audit.retention_days` | int | `90` | Auto-delete logs older than N days |
+| `audit.db_path` | string | `./data/audit_logs.db` | SQLite database path |
+
+**Features:**
+- Tracks 20+ event types (authentication, user management, buckets, 2FA, etc.)
+- Automatic retention management with daily cleanup
+- Multi-tenant isolation (global/tenant admin access)
+- Compliance-ready (GDPR, SOC 2, HIPAA, ISO 27001, PCI DSS)
+
+**Example:**
+
+```yaml
+audit:
+  enabled: true
+  retention_days: 90
+  db_path: "./data/audit_logs.db"
+```
+
+**Environment Variables:**
+
+```bash
+export AUDIT_ENABLED=true
+export AUDIT_RETENTION_DAYS=90
+export AUDIT_DB_PATH="./data/audit_logs.db"
+```
+
+**Disable Audit Logging:**
+
+```yaml
+audit:
+  enabled: false
+```
+
+**Web Console Access:**
+- Audit logs available at: `/audit-logs`
+- Access restricted to global admins and tenant admins
+- Features: advanced filtering, search, CSV export, quick date filters
 
 ---
 

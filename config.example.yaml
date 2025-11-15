@@ -191,6 +191,35 @@ metrics:
   interval: 60
 
 # =============================================================================
+# AUDIT LOGGING CONFIGURATION (v0.4.0+)
+# =============================================================================
+audit:
+  # Enable audit logging
+  # Tracks all critical system events (authentication, user management, buckets, 2FA, etc.)
+  # Default: true
+  enable: true
+
+  # Audit log retention period (days)
+  # Logs older than this will be automatically purged
+  # Default: 90
+  retention_days: 90
+
+  # Audit database path
+  # If empty, will be set to {data_dir}/audit.db
+  # Default: {data_dir}/audit.db
+  db_path: ""
+
+  # NOTE: Audit logs are accessible via the web console at /audit-logs
+  #       Only global admins and tenant admins can view audit logs
+  #       Tracked events include:
+  #       - Authentication: login (success/failed), logout, user blocked/unblocked
+  #       - User Management: user created/deleted/updated, password changed
+  #       - 2FA Events: enabled, disabled, verification (success/failed)
+  #       - Bucket Operations: bucket created/deleted (Console + S3 API)
+  #       - Access Keys: created, deleted, status changed
+  #       - Tenant Management: created, deleted, updated (global admin only)
+
+# =============================================================================
 # ENVIRONMENT VARIABLES
 # =============================================================================
 # You can also set configuration using environment variables with MAXIOFS_ prefix
@@ -206,6 +235,9 @@ metrics:
 #   export MAXIOFS_STORAGE_ENABLE_COMPRESSION=true
 #   export MAXIOFS_STORAGE_ENABLE_ENCRYPTION=true
 #   export MAXIOFS_STORAGE_ENCRYPTION_KEY="your-secret-key"
+#   export MAXIOFS_AUDIT_ENABLE=true
+#   export MAXIOFS_AUDIT_RETENTION_DAYS=90
+#   export MAXIOFS_AUDIT_DB_PATH="/var/lib/maxiofs/audit.db"
 
 # =============================================================================
 # COMMAND LINE FLAGS

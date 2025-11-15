@@ -1,6 +1,6 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.3.2-beta
+**Version**: 0.4.0-beta
 **Status**: Beta - 98% S3 Compatible
 **License**: MIT
 
@@ -40,6 +40,12 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 - ✅ **Range Requests** (Partial downloads with bytes=start-end)
 
 ### Authentication & Security
+- ✅ **Comprehensive Audit Logging System** - Track all system events with compliance-ready logs - *New in 0.4.0*
+  - 20+ event types (authentication, user management, bucket operations, 2FA events)
+  - Advanced filtering (event type, status, date range, resource type)
+  - CSV export for compliance reporting
+  - Automatic retention management (configurable, default 90 days)
+  - Multi-tenant isolation (global/tenant admin access control)
 - ✅ **Two-Factor Authentication (2FA)** - TOTP-based with QR codes, backup codes - *New in 0.3.2*
 - ✅ Dual authentication (JWT for Console, S3 Signature v2/v4 for API)
 - ✅ Bcrypt password hashing
@@ -66,6 +72,13 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
   - **Lifecycle**: Rule-based configuration
 - ✅ System settings overview
 - ✅ Security audit page
+- ✅ **Audit Logs Page** (Global/Tenant Admins only) - *New in 0.4.0*
+  - Real-time event tracking with advanced filters
+  - Quick date filters (Today, Last 7 Days, Last 30 Days)
+  - Search across users, events, resources, and IPs
+  - Color-coded critical events with visual alerts
+  - Expandable row details with full event metadata
+  - CSV export functionality
 - ✅ Metrics monitoring (System, Storage, Requests, Performance)
 
 ### Storage & Performance

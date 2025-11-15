@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 0.3.2-beta
+**Version**: 0.4.0-beta
 
 > **BETA SOFTWARE DISCLAIMER**
 >
@@ -10,6 +10,7 @@
 
 MaxIOFS implements essential security features for object storage:
 
+- **Comprehensive Audit Logging** (v0.4.0+)
 - Dual authentication (JWT + S3 signatures)
 - **Two-Factor Authentication (2FA) with TOTP**
 - Role-Based Access Control (RBAC)
@@ -228,6 +229,159 @@ Authorization: Bearer <admin-token>
 **Permissions:**
 - Global Admin: Can unlock any account
 - Tenant Admin: Can unlock tenant users only
+
+---
+
+## Audit Logging
+
+**New in v0.4.0-beta**
+
+MaxIOFS includes a comprehensive audit logging system that tracks all critical security and administrative events for compliance and forensic analysis.
+
+### Features
+
+**Event Tracking:**
+- **Authentication Events**: Login (success/failed), Logout, User Blocked/Unblocked
+- **User Management**: User Created/Deleted/Updated, Role Changes, Status Changes
+- **Bucket Operations**: Bucket Created/Deleted (via Console or S3 API)
+- **Access Keys**: Key Created/Deleted, Status Changed
+- **Tenant Management**: Tenant Created/Deleted/Updated (Global Admin only)
+- **Security Events**: Password Changed, 2FA Enabled/Disabled, 2FA Verification
+
+**Access Control:**
+- Global admins can view all audit logs across all tenants
+- Tenant admins can ONLY view logs from their own tenant
+- Regular users cannot access audit logs
+- All access attempts are themselves logged
+
+**Data Retention:**
+- Configurable retention period (default: 90 days)
+- Automatic cleanup via daily background job
+- Logs older than retention period are purged automatically
+- No manual intervention required
+
+### Configuration
+
+**config.yaml:**
+```yaml
+audit:
+  enabled: true                    # Enable/disable audit logging
+  retention_days: 90               # Auto-delete logs older than N days
+  db_path: "./data/audit_logs.db"  # SQLite database path
+```
+
+**Environment Variables:**
+```bash
+AUDIT_ENABLED=true
+AUDIT_RETENTION_DAYS=90
+AUDIT_DB_PATH="./data/audit_logs.db"
+```
+
+### API Access
+
+**List Audit Logs:**
+```http
+GET /api/v1/audit-logs?page=1&page_size=50
+Authorization: Bearer <admin-token>
+```
+
+**Query Parameters:**
+- `tenant_id` - Filter by tenant (global admin only)
+- `user_id` - Filter by user
+- `event_type` - Filter by event type (login_success, user_created, etc.)
+- `resource_type` - Filter by resource (system, user, bucket, etc.)
+- `action` - Filter by action (login, create, delete, etc.)
+- `status` - Filter by status (success, failed)
+- `start_date` - Unix timestamp start range
+- `end_date` - Unix timestamp end range
+- `page` - Page number (default: 1)
+- `page_size` - Results per page (default: 50, max: 100)
+
+**Example Response:**
+```json
+{
+  "logs": [
+    {
+      "id": 1,
+      "timestamp": 1700000000,
+      "tenant_id": "tenant-123",
+      "user_id": "user-456",
+      "username": "admin",
+      "event_type": "login_success",
+      "resource_type": "system",
+      "action": "login",
+      "status": "success",
+      "ip_address": "192.168.1.100",
+      "user_agent": "Mozilla/5.0...",
+      "details": "{}"
+    }
+  ],
+  "total": 150,
+  "page": 1,
+  "page_size": 50
+}
+```
+
+### Web Console Access
+
+Audit logs are accessible via the Web Console at `/audit-logs` (admin only).
+
+**Features:**
+- Advanced filtering (event type, status, resource type, date range)
+- Quick date filters (Today, Last 7 Days, Last 30 Days, All Time)
+- Real-time search across users, events, resources, and IP addresses
+- Color-coded critical events (login failures, security events)
+- Expandable rows with full event details
+- CSV export for compliance reporting
+
+### Security Considerations
+
+**Data Privacy:**
+- ✅ Passwords are NEVER logged (even hashed passwords)
+- ✅ Secrets and tokens are never included in logs
+- ✅ User agents stored for security analysis
+- ✅ IP addresses logged for security auditing
+- ⚠️ Consider GDPR compliance for IP address logging
+
+**Immutability:**
+- ✅ No UPDATE or DELETE operations via API
+- ✅ Only system maintenance jobs can purge old logs
+- ✅ Append-only design ensures audit trail integrity
+- ✅ Logs stored in separate SQLite database
+
+### Compliance Support
+
+This audit logging system helps with:
+- ✅ **GDPR Article 30**: Records of processing activities
+- ✅ **SOC 2 Type II**: Audit trail requirements
+- ✅ **HIPAA**: Access logging for protected health information systems
+- ✅ **ISO 27001**: Information security event logging
+- ✅ **PCI DSS**: User activity tracking and audit trails
+
+### Event Types Reference
+
+| Event Type | Description | Example Trigger |
+|-----------|-------------|-----------------|
+| `login_success` | Successful login | User logs in with correct credentials |
+| `login_failed` | Failed login attempt | Wrong password or username |
+| `logout` | User logout | User clicks logout |
+| `user_blocked` | Account locked | Too many failed login attempts |
+| `user_unblocked` | Account unlocked | Admin unlocks user |
+| `user_created` | New user created | Admin creates user |
+| `user_deleted` | User removed | Admin deletes user |
+| `user_updated` | User modified | Admin changes user settings |
+| `password_changed` | Password updated | User changes password |
+| `2fa_enabled` | 2FA activated | User enables 2FA |
+| `2fa_disabled` | 2FA deactivated | User or admin disables 2FA |
+| `2fa_verify_success` | 2FA code valid | Correct TOTP code entered |
+| `2fa_verify_failed` | 2FA code invalid | Wrong TOTP code entered |
+| `bucket_created` | Bucket created | Via Console or S3 API |
+| `bucket_deleted` | Bucket deleted | Via Console or S3 API |
+| `access_key_created` | Access key created | Admin creates key for user |
+| `access_key_deleted` | Access key revoked | Admin or user deletes key |
+| `tenant_created` | Tenant created | Global admin creates tenant |
+| `tenant_deleted` | Tenant deleted | Global admin deletes tenant |
+| `tenant_updated` | Tenant modified | Global admin updates tenant |
 
 ---
 

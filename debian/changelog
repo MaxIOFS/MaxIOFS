@@ -1,3 +1,20 @@
+maxiofs (0.4.0-beta) unstable; urgency=medium
+
+  * Major feature release: Comprehensive Audit Logging System
+  * Complete audit logging for all system events (20+ event types)
+  * SQLite-based audit storage with automatic retention management
+  * Audit logs API with advanced filtering and pagination
+  * Professional audit logs UI with search and CSV export
+  * Event tracking: authentication, user management, buckets, 2FA
+  * Multi-tenant isolation for audit logs (global/tenant admin access)
+  * Compliance-ready (GDPR, SOC 2, HIPAA, ISO 27001, PCI DSS)
+  * Enhanced UI with gradient stats cards and critical event alerts
+  * Quick date filters (Today, Last 7 Days, Last 30 Days)
+  * Comprehensive unit tests (10 tests, 100% pass rate)
+  * Updated documentation (SECURITY.md, README.md, API docs)
+
+ -- MaxIOFS Team <info@maxiofs.com>  Fri, 15 Nov 2025 00:00:00 +0000
+
 maxiofs (0.3.2-beta) unstable; urgency=medium
 
   * Major feature release: Monitoring, 2FA, Docker & S3 fixes

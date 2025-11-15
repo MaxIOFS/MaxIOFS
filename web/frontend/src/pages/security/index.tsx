@@ -321,7 +321,21 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Access Audit Trail</p>
+                  <p className="font-medium text-gray-900 dark:text-white">Comprehensive Audit Logging</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">20+ event types tracked with automatic retention (90 days)</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Compliance Ready</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">GDPR, SOC 2, HIPAA, ISO 27001, PCI DSS support</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Audit Trail Access</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Login attempts and access key usage logging</p>
                 </div>
               </div>
@@ -331,6 +345,14 @@ export default function SecurityPage() {
                   <p className="font-medium text-gray-900 dark:text-white">Read-Only Audit Mode</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Global admins can audit tenant buckets without modification</p>
                 </div>
+              </div>
+              <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                <Link
+                  to="/audit-logs"
+                  className="text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium"
+                >
+                  View Audit Logs →
+                </Link>
               </div>
             </div>
           </div>

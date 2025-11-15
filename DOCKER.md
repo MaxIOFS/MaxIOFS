@@ -59,7 +59,7 @@ Si prefieres usar docker-compose directamente, primero configura las variables d
 
 ```powershell
 # PowerShell
-$env:VERSION = "0.3.1-beta"
+$env:VERSION = "0.4.0-beta"
 $env:GIT_COMMIT = (git rev-parse --short HEAD)
 $env:BUILD_DATE = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
@@ -69,7 +69,7 @@ docker-compose up -d
 
 ```bash
 # Linux/macOS
-export VERSION="0.3.1-beta"
+export VERSION="0.4.0-beta"
 export GIT_COMMIT=$(git rev-parse --short HEAD)
 export BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
 
@@ -132,7 +132,7 @@ volumes:
 
 ### Build con versión específica:
 ```bash
-docker-compose build --build-arg VERSION=0.3.1-beta
+docker-compose build --build-arg VERSION=0.4.0-beta
 ```
 
 ### Build sin cache:

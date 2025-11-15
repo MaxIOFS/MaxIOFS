@@ -1,8 +1,8 @@
 # MaxIOFS Documentation
 
-**Version**: 0.3.2-beta
+**Version**: 0.4.0-beta
 **S3 Compatibility**: 98%
-**Last Updated**: November 12, 2025
+**Last Updated**: November 15, 2025
 
 ---
 
@@ -107,33 +107,43 @@ Start here if you're new to MaxIOFS:
 
 ---
 
-## 🆕 What's New in v0.3.2-beta
+## 🆕 What's New in v0.4.0-beta
 
 ### Major Features
+
+- ✅ **Comprehensive Audit Logging System** - Track all critical system events
+  - 20+ event types (authentication, user management, buckets, 2FA, etc.)
+  - SQLite-based storage with automatic retention management (default: 90 days)
+  - Advanced filtering, search, and CSV export
+  - Multi-tenant isolation (global/tenant admin access)
+  - Compliance-ready (GDPR, SOC 2, HIPAA, ISO 27001, PCI DSS)
+
+- ✅ **Professional Audit Logs UI** - Modern web interface for audit logs
+  - Quick date filters (Today, Last 7 Days, Last 30 Days, All Time)
+  - Real-time search across users, events, resources, and IPs
+  - Color-coded critical events with visual alerts
+  - Expandable rows with full event metadata
+  - Enhanced stats dashboard with gradient cards
+
+- ✅ **RESTful Audit API** - Programmatic access to audit logs
+  - `GET /api/v1/audit-logs` with advanced filtering
+  - Pagination support (default: 50, max: 100 per page)
+  - Query by event type, status, resource type, date range
+
+### Previous Features (v0.3.2-beta)
 
 - ✅ **Two-Factor Authentication (2FA)** - TOTP-based with backup codes
 - ✅ **Prometheus Monitoring** - Comprehensive metrics export
 - ✅ **Grafana Dashboard** - Pre-configured dashboard for visualization
-- ✅ **Quota System Fixed** - Storage quota enforcement at frontend and S3 API level
 - ✅ **Docker Support** - Complete docker-compose with monitoring stack
-- ✅ **Session Management** - 24-hour timeout with idle detection
 - ✅ **HTTP Conditional Requests** - If-Match, If-None-Match for caching
-- ✅ **Fixed Versioned Bucket Deletion** - ListObjectVersions now shows delete markers
-
-### UI Improvements
-
-- ✅ **Modern Design System** - Soft shadows, rounded corners, consistent styling
-- ✅ **Redesigned Dashboard** - New MetricCard components with gradients
-- ✅ **Improved Badges** - Better colors for dark mode
-- ✅ **Role Management** - Select dropdowns with proper validation
-- ✅ **Updated Pages** - Security, About, and Settings pages reflect all new features
 
 ### S3 Compatibility
 
-- **98% S3 Compatible** (improved from 97%)
+- **98% S3 Compatible**
 - All core operations fully functional
 - Validated with MinIO Warp stress testing (7000+ objects)
-- Production bug fixes implemented
+- Production-ready for S3 workloads
 
 ---
 

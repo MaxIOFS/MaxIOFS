@@ -1,17 +1,18 @@
 # MaxIOFS - TODO & Roadmap
 
-**Version**: 0.3.2-beta
-**Last Updated**: November 12, 2025
+**Version**: 0.4.0-beta
+**Last Updated**: November 15, 2025
 **Status**: Beta - 98% S3 Compatible
 
 ## 📊 Current Status Summary
 
 ```
 ┌───────────────────────────────────────────────┐
-│  MaxIOFS v0.3.2-beta                          │
+│  MaxIOFS v0.4.0-beta                          │
 │  Status: BETA - 98% S3 Compatible             │
 ├───────────────────────────────────────────────┤
 │  ✅ S3 API: 98% Compatible with AWS S3        │
+│  ✅ Audit Logging: COMPLETE (v0.4.0)          │
 │  ✅ Versioning + Delete Markers: FIXED        │
 │  ✅ Conditional Requests: IMPLEMENTED         │
 │  ✅ Cross-Platform Builds: Windows/Linux/macOS│
@@ -32,14 +33,91 @@
 │  ✅ Frontend UI: Complete Modern Redesign     │
 │  ✅ User Management: Role-based with validation│
 │  ✅ Quota System: Fixed (Frontend + S3 API)   │
-│  🟡 Test Coverage: ~70% (improving)           │
+│  ✅ 2FA: TOTP with QR codes + backup codes    │
+│  ✅ Prometheus/Grafana: Monitoring stack ready│
+│  🟡 Test Coverage: ~75% (improving)           │
 │  ⚠️  Security Audit: 0% (pending)             │
 └───────────────────────────────────────────────┘
 ```
 
-## ✅ Recently Completed (v0.3.2-beta - November 12, 2025)
+## ✅ Recently Completed
 
-### 🧪 Integration Tests Cleanup (November 12, 2025)
+### 🔍 Audit Logging System (v0.4.0-beta - November 15, 2025)
+
+**Complete Audit Logging Implementation**:
+- ✅ **Backend Infrastructure**:
+  - SQLite-based audit log storage with automatic schema initialization
+  - Audit Manager for centralized event logging across all components
+  - Support for 20+ event types (authentication, user management, bucket operations, 2FA, etc.)
+  - Automatic retention policy with configurable days (default: 90 days)
+  - Background cleanup job runs daily to purge old logs
+  - Comprehensive unit tests (10 test cases, 100% pass rate)
+  - **Files**: `internal/audit/types.go`, `internal/audit/manager.go`, `internal/audit/sqlite.go`, `internal/audit/sqlite_test.go`
+
+- ✅ **RESTful API Endpoints**:
+  - `GET /api/v1/audit-logs` - List all logs with advanced filtering
+  - `GET /api/v1/audit-logs/:id` - Get specific log entry by ID
+  - Full query parameter support: event_type, status, resource_type, date range, pagination
+  - Permission-based access: Global admins see all, tenant admins see only their tenant
+  - **Files**: `internal/server/console_api.go` (audit endpoints section)
+
+- ✅ **Professional Frontend UI**:
+  - Modern Audit Logs Page at `/audit-logs` (admin only)
+  - Advanced filtering panel with Event Type, Status, Resource Type, Date Range
+  - Quick date filters: Today, Last 7 Days, Last 30 Days, All Time (with active state tracking)
+  - Real-time search across users, events, resources, and IP addresses
+  - Enhanced Stats Dashboard with gradient-colored metric cards
+  - Critical events highlighted with red border and alert icons
+  - Color-coded event type badges for quick visual scanning
+  - Expandable rows showing full details (User ID, Tenant ID, User Agent, JSON details)
+  - CSV export functionality with formatted filename
+  - Responsive design with dark mode support
+  - **Files**: `web/frontend/src/pages/audit-logs/index.tsx`
+
+- ✅ **Configuration & Integration**:
+  - Configuration options via config.yaml and environment variables
+  - Integrated logging in Auth Manager, Bucket Manager, Console API
+  - Audit manager initialized on server startup with graceful shutdown
+  - **Files**: `internal/config/config.go`, `internal/auth/manager.go`, `internal/bucket/manager_badger.go`, `internal/server/server.go`
+
+- ✅ **Documentation**:
+  - Comprehensive CHANGELOG entry for v0.4.0-beta
+  - Updated SECURITY.md with complete audit logging section
+  - Updated README.md with audit logging features
+  - API documentation with examples and event types reference
+  - Compliance support information (GDPR, SOC 2, HIPAA, ISO 27001, PCI DSS)
+
+- ✅ **Testing**:
+  - 10 comprehensive unit tests covering all core functionality
+  - Test coverage for filtering, pagination, tenant isolation, date ranges
+  - Integration testing with auth and bucket managers
+  - All tests passing in <1 second
+
+- ✅ **UI/UX Improvements**:
+  - Fixed time filter buttons to show active state correctly
+  - Stats cards show total metrics (not just current page)
+  - Dual timestamp display (absolute + relative)
+  - Percentage calculations for success/failure rates
+  - Gradient backgrounds and improved visual hierarchy
+
+**Event Types Tracked**:
+- Authentication: login_success, login_failed, logout, user_blocked, user_unblocked
+- User Management: user_created, user_deleted, user_updated, password_changed
+- 2FA Events: 2fa_enabled, 2fa_disabled, 2fa_verify_success, 2fa_verify_failed
+- Bucket Operations: bucket_created, bucket_deleted (Console + S3 API)
+- Access Keys: access_key_created, access_key_deleted, access_key_status_changed
+- Tenant Management: tenant_created, tenant_deleted, tenant_updated (Global Admin only)
+
+**Compliance Ready**:
+- ✅ Immutable append-only logs
+- ✅ Automatic retention management
+- ✅ Multi-tenant isolation enforced
+- ✅ GDPR Article 30, SOC 2 Type II, HIPAA, ISO 27001, PCI DSS support
+- ✅ CSV export for compliance reporting
+
+---
+
+### 🧪 Integration Tests Cleanup (v0.3.2-beta - November 12, 2025)
 
 **Test Infrastructure Improvements**:
 - ✅ **Removed Obsolete Tests**: Deleted entire `tests/` directory containing outdated unit tests

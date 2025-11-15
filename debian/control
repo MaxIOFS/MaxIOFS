@@ -9,7 +9,7 @@ Vcs-Git: https://github.com/maxiofs/maxiofs.git
 Vcs-Browser: https://github.com/maxiofs/maxiofs
  .
 Package: maxiofs
-Version: 0.3.1-beta
+Version: 0.4.0-beta
 Architecture: amd64
 Depends: libc6, adduser
 Recommends: nginx, logrotate
@@ -19,7 +19,9 @@ Description: High-Performance S3-Compatible Object Storage
  built in Go with an embedded Next.js web interface.
  .
  Features:
-  * Full S3 API compatibility (97%+ tests passing)
+  * Full S3 API compatibility (98% tests passing)
+  * Comprehensive audit logging system (v0.4.0+)
+  * Two-Factor Authentication (2FA) with TOTP
   * Multi-tenancy with resource isolation and quotas
   * Object Lock (WORM) and versioning support
   * Built-in web console for management
@@ -27,5 +29,7 @@ Description: High-Performance S3-Compatible Object Storage
   * Support for multipart uploads and presigned URLs
   * Lifecycle policies and CORS configuration
   * JWT and S3 signature authentication
+  * Prometheus/Grafana monitoring integration
   * Real-time metrics and monitoring
+  * Compliance-ready (GDPR, SOC 2, HIPAA, ISO 27001)
   * Single binary deployment

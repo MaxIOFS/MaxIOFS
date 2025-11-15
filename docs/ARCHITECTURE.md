@@ -1,6 +1,6 @@
 # MaxIOFS Architecture
 
-**Version**: 0.3.2-beta
+**Version**: 0.4.0-beta
 **S3 Compatibility**: 98%
 **Last Updated**: November 12, 2025
 
@@ -90,6 +90,13 @@ type Manager interface {
 - Quota enforcement (storage, buckets, keys)
 - Resource accounting
 
+**Audit Manager** (v0.4.0+)
+- Event logging for compliance and security
+- SQLite-based storage for audit logs
+- Automatic retention management
+- Multi-tenant isolation (global/tenant admin access)
+- Tracks 20+ event types (authentication, user management, buckets, 2FA, etc.)
+
 ### 3. Storage Layer
 
 **Filesystem Backend** (Tenant-Scoped)
@@ -110,25 +117,28 @@ type Manager interface {
   │   ├── tenant-xyz789/
   │   │   └── backups/file3.txt    ← Same bucket name, different tenant
   │   └── global-bucket/admin.dat  ← Global admin bucket
-  └── .maxiofs/
-      ├── buckets/
-      │   ├── tenant-abc123/
-      │   │   ├── backups.json     ← Bucket metadata
-      │   │   └── archives.json
-      │   ├── tenant-xyz789/
-      │   │   └── backups.json     ← Same name, different tenant
-      │   └── global/
-      │       └── global-bucket.json
-      └── maxiofs.db               ← SQLite database
+  ├── db/                          ← BadgerDB metadata store
+  │   ├── MANIFEST
+  │   ├── 000001.vlog
+  │   └── 000001.sst
+  └── audit.db                     ← SQLite audit logs (v0.4.0+)
 ```
 
-**SQLite Database**
-- Metadata storage
-- Bucket information (tenant-scoped primary key)
+**BadgerDB Metadata Store**
+- High-performance key-value store for metadata
+- Object metadata (versioning, lock, retention, tags)
+- Bucket information (tenant-scoped)
 - User credentials (bcrypt hashed)
 - Tenant quotas and real-time usage tracking
 - Access keys with tenant associations
-- Path: `{data_dir}/.maxiofs/maxiofs.db`
+- Path: `{data_dir}/db/`
+
+**SQLite Audit Database** (v0.4.0+)
+- Audit log storage (separate from operational metadata)
+- Immutable append-only logs
+- Tracks all system events (authentication, user management, buckets, 2FA)
+- Automatic retention management (default: 90 days)
+- Path: `{data_dir}/audit.db`
 
 ## Authentication
 

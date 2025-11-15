@@ -22,12 +22,15 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  Calendar,
+  Clock,
 } from 'lucide-react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { AuditLogFilters, AuditLogsResponse } from '@/types';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { formatDistanceToNow } from 'date-fns';
+import { cn } from '@/lib/utils';
 
 // Event type badges color mapping
 const getEventTypeColor = (eventType: string | undefined): string => {
@@ -51,6 +54,21 @@ const formatEventType = (eventType: string | undefined): string => {
     .join(' ');
 };
 
+// Check if event is critical (security-related)
+const isCriticalEvent = (eventType: string | undefined, status: string): boolean => {
+  if (!eventType) return false;
+  const criticalEvents = [
+    'login_failed',
+    'user_blocked',
+    '2fa_disabled',
+    '2fa_verify_failed',
+    'user_deleted',
+    'tenant_deleted',
+    'access_key_deleted',
+  ];
+  return criticalEvents.includes(eventType) || status === 'failed';
+};
+
 // Format timestamp
 const formatTimestamp = (timestamp: number): string => {
   const date = new Date(timestamp * 1000);
@@ -64,6 +82,7 @@ export default function AuditLogsPage() {
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [activeTimeFilter, setActiveTimeFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [filters, setFilters] = useState<AuditLogFilters>({
     page: 1,
     pageSize: 50,
@@ -83,6 +102,21 @@ export default function AuditLogsPage() {
   const logs = auditLogsData?.logs || [];
   const totalLogs = auditLogsData?.total || 0;
   const totalPages = Math.ceil(totalLogs / pageSize);
+
+  // Fetch overall stats (without pagination, just counts)
+  const { data: statsData } = useQuery<AuditLogsResponse>({
+    queryKey: ['auditLogsStats', filters.eventType, filters.status, filters.resourceType, filters.startDate, filters.endDate],
+    queryFn: () => APIClient.getAuditLogs({
+      ...filters,
+      page: 1,
+      pageSize: 1000, // Get enough to calculate stats
+    }),
+    enabled: canViewAuditLogs,
+  });
+
+  const allLogs = statsData?.logs || [];
+  const totalSuccessCount = allLogs.filter((l) => l.status === 'success').length;
+  const totalFailedCount = allLogs.filter((l) => l.status === 'failed').length;
 
   // Filter logs by search term (client-side for current page)
   const filteredLogs = logs.filter((log) => {
@@ -117,6 +151,55 @@ export default function AuditLogsPage() {
     setPageSize(size);
     setCurrentPage(1);
     setFilters((prev) => ({ ...prev, pageSize: size, page: 1 }));
+  };
+
+  // Quick date filter helpers
+  const setQuickDateFilter = (range: 'today' | 'week' | 'month' | 'all') => {
+    const now = Math.floor(Date.now() / 1000);
+    let startDate: number | undefined;
+
+    switch (range) {
+      case 'today':
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        startDate = Math.floor(todayStart.getTime() / 1000);
+        break;
+      case 'week':
+        startDate = now - (7 * 24 * 60 * 60);
+        break;
+      case 'month':
+        startDate = now - (30 * 24 * 60 * 60);
+        break;
+      case 'all':
+        startDate = undefined;
+        break;
+    }
+
+    setActiveTimeFilter(range);
+    setFilters((prev) => ({
+      ...prev,
+      startDate,
+      endDate: range === 'all' ? undefined : now,
+      page: 1,
+    }));
+    setCurrentPage(1);
+  };
+
+  // Get active date range description
+  const getDateRangeDescription = (): string => {
+    if (!filters.startDate && !filters.endDate) return 'All time';
+
+    const formatDate = (timestamp: number) => new Date(timestamp * 1000).toLocaleDateString();
+
+    if (filters.startDate && filters.endDate) {
+      return `${formatDate(filters.startDate)} - ${formatDate(filters.endDate)}`;
+    } else if (filters.startDate) {
+      return `From ${formatDate(filters.startDate)}`;
+    } else if (filters.endDate) {
+      return `Until ${formatDate(filters.endDate)}`;
+    }
+
+    return 'All time';
   };
 
   // Export to CSV
@@ -202,6 +285,46 @@ export default function AuditLogsPage() {
 
       {/* Search and Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 space-y-4">
+        {/* Quick Date Filters */}
+        <div className="flex items-center gap-3 pb-4 border-b border-gray-200 dark:border-gray-700">
+          <Clock className="w-5 h-5 text-gray-400" />
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Time Range:</span>
+          <div className="flex gap-2">
+            <Button
+              variant={activeTimeFilter === 'all' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setQuickDateFilter('all')}
+            >
+              All Time
+            </Button>
+            <Button
+              variant={activeTimeFilter === 'today' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setQuickDateFilter('today')}
+            >
+              Today
+            </Button>
+            <Button
+              variant={activeTimeFilter === 'week' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setQuickDateFilter('week')}
+            >
+              Last 7 Days
+            </Button>
+            <Button
+              variant={activeTimeFilter === 'month' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setQuickDateFilter('month')}
+            >
+              Last 30 Days
+            </Button>
+          </div>
+          <div className="ml-auto flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+            <Calendar className="w-4 h-4" />
+            <span>{getDateRangeDescription()}</span>
+          </div>
+        </div>
+
         <div className="flex gap-4">
           <div className="flex-1">
             <div className="relative">
@@ -352,49 +475,69 @@ export default function AuditLogsPage() {
 
       {/* Stats Summary */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 rounded-lg shadow p-5 border border-blue-200 dark:border-blue-800">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Total Logs</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalLogs}</p>
-            </div>
-            <FileText className="w-8 h-8 text-blue-500" />
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Success</p>
-              <p className="text-2xl font-bold text-green-600">
-                {logs.filter((l) => l.status === 'success').length}
+              <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Total Logs</p>
+              <p className="text-3xl font-bold text-blue-900 dark:text-blue-100 mt-1">{totalLogs.toLocaleString()}</p>
+              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                {getDateRangeDescription()}
               </p>
             </div>
-            <CheckCircle className="w-8 h-8 text-green-500" />
+            <div className="bg-blue-200 dark:bg-blue-800/50 p-3 rounded-full">
+              <FileText className="w-6 h-6 text-blue-600 dark:text-blue-300" />
+            </div>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 rounded-lg shadow p-5 border border-green-200 dark:border-green-800">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Failed</p>
-              <p className="text-2xl font-bold text-red-600">
-                {logs.filter((l) => l.status === 'failed').length}
+              <p className="text-sm font-medium text-green-700 dark:text-green-300">Successful</p>
+              <p className="text-3xl font-bold text-green-900 dark:text-green-100 mt-1">
+                {totalSuccessCount.toLocaleString()}
+              </p>
+              <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                {totalLogs > 0 ? `${Math.round((totalSuccessCount / totalLogs) * 100)}%` : '0%'} success rate
               </p>
             </div>
-            <XCircle className="w-8 h-8 text-red-500" />
+            <div className="bg-green-200 dark:bg-green-800/50 p-3 rounded-full">
+              <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-300" />
+            </div>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <div className="bg-gradient-to-br from-red-50 to-red-100 dark:from-red-900/20 dark:to-red-800/20 rounded-lg shadow p-5 border border-red-200 dark:border-red-800">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Current Page</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+              <p className="text-sm font-medium text-red-700 dark:text-red-300">Failed</p>
+              <p className="text-3xl font-bold text-red-900 dark:text-red-100 mt-1">
+                {totalFailedCount.toLocaleString()}
+              </p>
+              <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                {totalLogs > 0 ? `${Math.round((totalFailedCount / totalLogs) * 100)}%` : '0%'} failure rate
+              </p>
+            </div>
+            <div className="bg-red-200 dark:bg-red-800/50 p-3 rounded-full">
+              <XCircle className="w-6 h-6 text-red-600 dark:text-red-300" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 rounded-lg shadow p-5 border border-purple-200 dark:border-purple-800">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Viewing</p>
+              <p className="text-3xl font-bold text-purple-900 dark:text-purple-100 mt-1">
                 {currentPage} / {totalPages}
               </p>
+              <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">
+                {pageSize} items per page
+              </p>
             </div>
-            <Activity className="w-8 h-8 text-purple-500" />
+            <div className="bg-purple-200 dark:bg-purple-800/50 p-3 rounded-full">
+              <Activity className="w-6 h-6 text-purple-600 dark:text-purple-300" />
+            </div>
           </div>
         </div>
       </div>
@@ -435,9 +578,14 @@ export default function AuditLogsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredLogs.map((log) => (
+              filteredLogs.map((log) => {
+                const isCritical = isCriticalEvent(log.event_type, log.status);
+                return (
                 <React.Fragment key={log.id}>
-                  <TableRow className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                  <TableRow className={cn(
+                    "hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors",
+                    isCritical && "bg-red-50/50 dark:bg-red-900/10 border-l-4 border-red-500"
+                  )}>
                     <TableCell>
                       <div className="flex flex-col">
                         <span className="text-sm font-medium text-gray-900 dark:text-white">
@@ -457,13 +605,18 @@ export default function AuditLogsPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getEventTypeColor(
-                          log.event_type
-                        )}`}
-                      >
-                        {formatEventType(log.event_type)}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {isCritical && (
+                          <AlertCircle className="w-4 h-4 text-red-500" />
+                        )}
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getEventTypeColor(
+                            log.event_type
+                          )}`}
+                        >
+                          {formatEventType(log.event_type)}
+                        </span>
+                      </div>
                     </TableCell>
                     <TableCell>
                       {log.resource_name || log.resource_id ? (
@@ -566,7 +719,7 @@ export default function AuditLogsPage() {
                     </TableRow>
                   )}
                 </React.Fragment>
-              ))
+              )})
             )}
           </TableBody>
         </Table>

@@ -1,6 +1,6 @@
 # MaxIOFS API Reference
 
-**Version**: 0.3.2-beta
+**Version**: 0.4.0-beta
 **S3 Compatibility**: 98%
 **Last Updated**: November 12, 2025
 
@@ -227,6 +227,27 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 - `GET /api/metrics` - Dashboard metrics
 - `GET /api/metrics/system` - System metrics (CPU, memory, disk)
 - `GET /metrics` - Prometheus metrics endpoint (comprehensive monitoring)
+
+#### Audit Logs (v0.4.0+)
+- `GET /api/v1/audit-logs` - List audit logs with filtering
+- `GET /api/v1/audit-logs/{id}` - Get specific audit log entry
+
+**Query Parameters for GET /api/v1/audit-logs:**
+- `tenant_id` - Filter by tenant (global admin only)
+- `user_id` - Filter by user
+- `event_type` - Filter by event type (login_success, user_created, etc.)
+- `resource_type` - Filter by resource (system, user, bucket, etc.)
+- `action` - Filter by action (login, create, delete, etc.)
+- `status` - Filter by status (success, failed)
+- `start_date` - Unix timestamp start range
+- `end_date` - Unix timestamp end range
+- `page` - Page number (default: 1)
+- `page_size` - Results per page (default: 50, max: 100)
+
+**Access Control:**
+- Global admins: Can view all audit logs across all tenants
+- Tenant admins: Can view only their tenant's logs
+- Regular users: Cannot access audit logs
 
 ### Example Usage
 
