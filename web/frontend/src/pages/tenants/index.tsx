@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -29,7 +30,8 @@ import SweetAlert from '@/lib/sweetalert';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 export default function TenantsPage() {
-  const { isGlobalAdmin } = useCurrentUser();
+  const navigate = useNavigate();
+  const { isGlobalAdmin, user: currentUser } = useCurrentUser();
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -41,9 +43,18 @@ export default function TenantsPage() {
   });
   const queryClient = useQueryClient();
 
+  // Only global admins can access tenant management
+  useEffect(() => {
+    if (currentUser && !isGlobalAdmin) {
+      // Redirect non-global-admins to home
+      navigate('/');
+    }
+  }, [currentUser, isGlobalAdmin, navigate]);
+
   const { data: tenants, isLoading, error } = useQuery({
     queryKey: ['tenants'],
     queryFn: APIClient.getTenants,
+    enabled: isGlobalAdmin, // Only fetch if user is global admin
   });
 
   const createTenantMutation = useMutation({

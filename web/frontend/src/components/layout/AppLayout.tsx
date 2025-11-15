@@ -116,7 +116,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     queryFn: APIClient.getServerConfig,
   });
 
-  const isGlobalAdmin = !user?.tenantId;
+  // Check if user is global admin (admin role + no tenant)
+  const isGlobalAdmin = (user?.roles?.includes('admin') ?? false) && !user?.tenantId;
+  const isTenantAdmin = (user?.roles?.includes('admin') ?? false) && !!user?.tenantId;
+  const isAnyAdmin = isGlobalAdmin || isTenantAdmin;
 
   const { data: tenant } = useQuery({
     queryKey: ['tenant', user?.tenantId],
@@ -128,13 +131,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const tenantDisplayName = (tenant as any)?.display_name || tenant?.displayName || tenant?.name || user?.tenantId;
 
   const filteredNavigation = navigation.filter(item => {
-    // Hide admin-only pages from non-admin users
+    // Admin-only pages: Metrics, Security, Settings (only for global admins)
     if ((item.name === 'Metrics' || item.name === 'Security' || item.name === 'Settings') && !isGlobalAdmin) {
       return false;
     }
-    // Hide Audit Logs from non-admin users
-    const isTenantAdmin = (user?.roles?.includes('admin') ?? false) || (user?.roles?.includes('tenant_admin') ?? false);
-    if (item.name === 'Audit Logs' && !isGlobalAdmin && !isTenantAdmin) {
+    // Audit Logs: visible for global admins and tenant admins
+    if (item.name === 'Audit Logs' && !isAnyAdmin) {
+      return false;
+    }
+    // Tenants and Users: only for admins (global or tenant)
+    if ((item.name === 'Tenants' || item.name === 'Users') && !isAnyAdmin) {
       return false;
     }
     return true;

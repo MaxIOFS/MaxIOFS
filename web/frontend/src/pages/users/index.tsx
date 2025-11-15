@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -37,7 +37,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 export default function UsersPage() {
   const navigate = useNavigate();
-  const { isGlobalAdmin, user: currentUser } = useCurrentUser();
+  const { isGlobalAdmin, isTenantAdmin, user: currentUser } = useCurrentUser();
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newUser, setNewUser] = useState<Partial<CreateUserRequest>>({
@@ -46,9 +46,20 @@ export default function UsersPage() {
   });
   const queryClient = useQueryClient();
 
+  // Only admins (global or tenant) can access this page
+  const isAnyAdmin = isGlobalAdmin || isTenantAdmin;
+  
+  // Redirect non-admins to their profile page
+  useEffect(() => {
+    if (currentUser && !isAnyAdmin) {
+      navigate(`/users/${currentUser.id}`);
+    }
+  }, [currentUser, isAnyAdmin, navigate]);
+
   const { data: users, isLoading, error } = useQuery({
     queryKey: ['users'],
     queryFn: APIClient.getUsers,
+    enabled: isAnyAdmin, // Only fetch if user is admin
   });
 
   // Fetch access keys for all users

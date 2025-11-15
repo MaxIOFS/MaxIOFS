@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Server,
   Shield,
@@ -13,12 +14,24 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Loading } from '@/components/ui/Loading';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import type { ServerConfig } from '@/types';
 
 export default function SettingsPage() {
+  const navigate = useNavigate();
+  const { isGlobalAdmin, user: currentUser } = useCurrentUser();
+  
+  // Only global admins can access settings
+  useEffect(() => {
+    if (currentUser && !isGlobalAdmin) {
+      navigate('/');
+    }
+  }, [currentUser, isGlobalAdmin, navigate]);
+
   const { data: config, isLoading } = useQuery<ServerConfig>({
     queryKey: ['serverConfig'],
     queryFn: APIClient.getServerConfig,
+    enabled: isGlobalAdmin,
   });
 
   if (isLoading) {
