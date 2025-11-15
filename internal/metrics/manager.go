@@ -2,13 +2,16 @@ package metrics
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/dgraph-io/badger/v4"
 	"github.com/maxiofs/maxiofs/internal/config"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
@@ -135,6 +138,7 @@ type metricsManager struct {
 	totalLatencyMs    uint64
 	latencyCount      uint64
 	requestsStartTime time.Time
+	serverStartTime   time.Time // Actual server start time (persisted)
 
 	// Historical metrics storage
 	historyStore HistoryStoreInterface
@@ -205,6 +209,7 @@ func NewManagerWithStore(cfg config.MetricsConfig, dataDir string, metadataStore
 		config:            metricsConfig,
 		registry:          registry,
 		requestsStartTime: time.Now(),
+		serverStartTime:   time.Now(), // Will be updated from persisted value if available
 		dataDir:           dataDir,
 	}
 
@@ -223,6 +228,11 @@ func NewManagerWithStore(cfg config.MetricsConfig, dataDir string, metadataStore
 		} else {
 			manager.historyStore = badgerHistory
 			logrus.Info("Metrics history store using BadgerDB")
+
+			// Restore persisted counters from BadgerDB
+			if err := manager.restorePersistedCounters(); err != nil {
+				logrus.WithError(err).Warn("Failed to restore persisted counters, starting fresh")
+			}
 		}
 	} else if dataDir != "" {
 		// Fallback to SQLite for backward compatibility
@@ -832,7 +842,7 @@ func (m *metricsManager) GetS3MetricsSnapshot() (map[string]interface{}, error) 
 	}
 
 	// Calculate requests per second
-	uptime := time.Since(m.requestsStartTime).Seconds()
+	uptime := time.Since(m.serverStartTime).Seconds()
 	var requestsPerSec float64
 	if uptime > 0 {
 		requestsPerSec = float64(totalReqs) / uptime
@@ -902,6 +912,116 @@ func (m *metricsManager) Middleware() func(http.Handler) http.Handler {
 
 // Lifecycle Implementation
 
+// restorePersistedCounters loads persisted counter values from BadgerDB
+func (m *metricsManager) restorePersistedCounters() error {
+	if m.historyStore == nil {
+		return fmt.Errorf("history store not available")
+	}
+
+	// Try to get the last persisted state
+	badgerHistory, ok := m.historyStore.(*BadgerHistoryStore)
+	if !ok {
+		return fmt.Errorf("history store is not BadgerDB-backed")
+	}
+
+	// Restore counters using a special key
+	var persistedState struct {
+		TotalRequests   uint64    `json:"total_requests"`
+		TotalErrors     uint64    `json:"total_errors"`
+		TotalLatencyMs  uint64    `json:"total_latency_ms"`
+		LatencyCount    uint64    `json:"latency_count"`
+		ServerStartTime time.Time `json:"server_start_time"`
+	}
+
+	// Cast to BadgerStore to access DB
+	badgerStore, ok := badgerHistory.store.(*metadata.BadgerStore)
+	if !ok {
+		return fmt.Errorf("underlying store is not BadgerStore")
+	}
+
+	key := []byte("metrics:persisted_state")
+	err := badgerStore.DB().View(func(txn *badger.Txn) error {
+		item, err := txn.Get(key)
+		if err != nil {
+			return err
+		}
+		return item.Value(func(val []byte) error {
+			return json.Unmarshal(val, &persistedState)
+		})
+	})
+
+	if err == badger.ErrKeyNotFound {
+		// First run, no persisted state
+		logrus.Info("No persisted metrics counters found, starting fresh")
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to restore persisted counters: %w", err)
+	}
+
+	// Restore the values
+	atomic.StoreUint64(&m.totalRequests, persistedState.TotalRequests)
+	atomic.StoreUint64(&m.totalErrors, persistedState.TotalErrors)
+	atomic.StoreUint64(&m.totalLatencyMs, persistedState.TotalLatencyMs)
+	atomic.StoreUint64(&m.latencyCount, persistedState.LatencyCount)
+	m.serverStartTime = persistedState.ServerStartTime
+
+	logrus.WithFields(logrus.Fields{
+		"total_requests":    persistedState.TotalRequests,
+		"total_errors":      persistedState.TotalErrors,
+		"server_start_time": persistedState.ServerStartTime,
+	}).Info("Restored persisted metrics counters")
+
+	return nil
+}
+
+// persistCounters saves current counter values to BadgerDB
+func (m *metricsManager) persistCounters() error {
+	if m.historyStore == nil {
+		return nil // Not an error, just skip
+	}
+
+	badgerHistory, ok := m.historyStore.(*BadgerHistoryStore)
+	if !ok {
+		return nil // Not using BadgerDB, skip
+	}
+
+	persistedState := struct {
+		TotalRequests   uint64    `json:"total_requests"`
+		TotalErrors     uint64    `json:"total_errors"`
+		TotalLatencyMs  uint64    `json:"total_latency_ms"`
+		LatencyCount    uint64    `json:"latency_count"`
+		ServerStartTime time.Time `json:"server_start_time"`
+	}{
+		TotalRequests:   atomic.LoadUint64(&m.totalRequests),
+		TotalErrors:     atomic.LoadUint64(&m.totalErrors),
+		TotalLatencyMs:  atomic.LoadUint64(&m.totalLatencyMs),
+		LatencyCount:    atomic.LoadUint64(&m.latencyCount),
+		ServerStartTime: m.serverStartTime,
+	}
+
+	data, err := json.Marshal(persistedState)
+	if err != nil {
+		return fmt.Errorf("failed to marshal persisted state: %w", err)
+	}
+
+	// Cast to BadgerStore to access DB
+	badgerStore, ok := badgerHistory.store.(*metadata.BadgerStore)
+	if !ok {
+		return fmt.Errorf("underlying store is not BadgerStore")
+	}
+
+	key := []byte("metrics:persisted_state")
+	err = badgerStore.DB().Update(func(txn *badger.Txn) error {
+		return txn.Set(key, data)
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to persist counters: %w", err)
+	}
+
+	return nil
+}
+
 func (m *metricsManager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -931,6 +1051,11 @@ func (m *metricsManager) Stop() error {
 
 	if !m.started {
 		return fmt.Errorf("metrics manager not started")
+	}
+
+	// Persist counters before stopping
+	if err := m.persistCounters(); err != nil {
+		logrus.WithError(err).Warn("Failed to persist counters on stop")
 	}
 
 	// Cancel context to stop background goroutines
@@ -968,10 +1093,19 @@ func (m *metricsManager) metricsMaintenanceLoop() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
+	// Also persist counters every 5 minutes
+	persistTicker := time.NewTicker(5 * time.Minute)
+	defer persistTicker.Stop()
+
 	for {
 		select {
 		case <-m.ctx.Done():
 			return
+		case <-persistTicker.C:
+			// Persist counters periodically
+			if err := m.persistCounters(); err != nil {
+				logrus.WithError(err).Debug("Failed to persist counters")
+			}
 		case <-ticker.C:
 			// Aggregate old metrics
 			if err := m.historyStore.AggregateHourlyMetrics(); err != nil {
@@ -1092,7 +1226,7 @@ func (n *noopManager) RecordObjectOperation(operation, bucket string, objectSize
 }
 func (n *noopManager) RecordAuthAttempt(method string, success bool)                    {}
 func (n *noopManager) RecordAuthFailure(method, reason string)                          {}
-func (n *noopManager) UpdateSystemMetrics(cpuUsage, memoryUsage, diskUsage float64) {}
+func (n *noopManager) UpdateSystemMetrics(cpuUsage, memoryUsage, diskUsage float64)     {}
 func (n *noopManager) RecordSystemEvent(eventType string, details map[string]string)    {}
 func (n *noopManager) UpdateBucketMetrics(bucket string, objects, bytes int64)          {}
 func (n *noopManager) RecordBucketOperation(operation, bucket string, success bool)     {}
