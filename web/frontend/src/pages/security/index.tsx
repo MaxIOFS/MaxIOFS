@@ -1,7 +1,8 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { Loading } from '@/components/ui/Loading';
 import { MetricCard } from '@/components/ui/MetricCard';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import {
   Shield,
   Lock,
@@ -16,11 +17,22 @@ import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 
 export default function SecurityPage() {
+  const navigate = useNavigate();
+  const { isGlobalAdmin, user: currentUser } = useCurrentUser();
+  
+  // Only global admins can access security page
+  useEffect(() => {
+    if (currentUser && !isGlobalAdmin) {
+      navigate('/');
+    }
+  }, [currentUser, isGlobalAdmin, navigate]);
+
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users'],
     queryFn: APIClient.getUsers,
     refetchInterval: 5000, // Poll every 5 seconds to detect locked accounts
     staleTime: 5000, // Consider data fresh for 5 seconds
+    enabled: isGlobalAdmin,
   });
 
   if (isLoading) {

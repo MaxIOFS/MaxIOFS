@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import {
   BarChart3,
   Activity,
@@ -18,14 +20,24 @@ import type { StorageMetrics, SystemMetrics, S3Metrics } from '@/types';
 import { MetricLineChart, MetricPieChart, TimeRangeSelector, TIME_RANGES, type TimeRange } from '@/components/charts';
 
 export default function MetricsPage() {
+  const navigate = useNavigate();
+  const { isGlobalAdmin, user: currentUser } = useCurrentUser();
   const [activeTab, setActiveTab] = React.useState<'system' | 'storage' | 'requests' | 'performance'>('system');
   const [timeRange, setTimeRange] = React.useState<TimeRange>(TIME_RANGES[0]); // Default: Real-time (5 min)
+
+  // Only global admins can access metrics
+  useEffect(() => {
+    if (currentUser && !isGlobalAdmin) {
+      navigate('/');
+    }
+  }, [currentUser, isGlobalAdmin, navigate]);
 
   // Fetch current storage metrics
   const { data: storageMetricsData, isLoading: storageLoading } = useQuery<StorageMetrics>({
     queryKey: ['storageMetrics'],
     queryFn: APIClient.getStorageMetrics,
     refetchInterval: 30000,
+    enabled: isGlobalAdmin,
   });
 
   // Fetch current system metrics
@@ -33,6 +45,7 @@ export default function MetricsPage() {
     queryKey: ['systemMetrics'],
     queryFn: APIClient.getSystemMetrics,
     refetchInterval: 30000,
+    enabled: isGlobalAdmin,
   });
 
   // Fetch current S3 metrics
@@ -40,6 +53,7 @@ export default function MetricsPage() {
     queryKey: ['s3Metrics'],
     queryFn: APIClient.getS3Metrics,
     refetchInterval: 30000,
+    enabled: isGlobalAdmin,
   });
 
   // Fetch historical metrics based on active tab and time range
