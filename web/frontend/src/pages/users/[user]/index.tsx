@@ -290,8 +290,16 @@ export default function UserDetailsPage() {
   };
 
   const handleChangePassword = () => {
-    if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
-      SweetAlert.toast('error', 'All password fields are required');
+    // Admin changing another user's password doesn't need current password
+    const isAdminChangingOtherUser = isCurrentUserAdmin && !isEditingSelf;
+    
+    if (!isAdminChangingOtherUser && !passwordForm.currentPassword) {
+      SweetAlert.toast('error', 'Current password is required');
+      return;
+    }
+
+    if (!passwordForm.newPassword || !passwordForm.confirmPassword) {
+      SweetAlert.toast('error', 'New password fields are required');
       return;
     }
 
@@ -306,7 +314,7 @@ export default function UserDetailsPage() {
     }
 
     changePasswordMutation.mutate({
-      currentPassword: passwordForm.currentPassword,
+      currentPassword: isAdminChangingOtherUser ? '' : passwordForm.currentPassword,
       newPassword: passwordForm.newPassword,
     });
   };
@@ -663,16 +671,26 @@ export default function UserDetailsPage() {
         title="Change Password"
       >
         <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">Current Password</label>
-            <Input
-              type="password"
-              placeholder="Enter current password"
-              value={passwordForm.currentPassword}
-              onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
-              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
-            />
-          </div>
+          {/* Only show current password field when user is changing their own password */}
+          {isEditingSelf && (
+            <div>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">Current Password</label>
+              <Input
+                type="password"
+                placeholder="Enter current password"
+                value={passwordForm.currentPassword}
+                onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              />
+            </div>
+          )}
+          {!isEditingSelf && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-4">
+              <p className="text-sm text-blue-800 dark:text-blue-300">
+                As an admin, you can reset this user's password without knowing their current password.
+              </p>
+            </div>
+          )}
           <div>
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">New Password</label>
             <Input
