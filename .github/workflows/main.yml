@@ -53,13 +53,15 @@ jobs:
       - name: Compare commit hashes and skip if no changes
         id: check_skip
         run: |
-          CUR=$(cat <<<'${{ steps.nightly_version.outputs.commit_hash }}')
-          LAST=$(cat s3-latest/LAST_COMMIT || echo none)
-          echo "Current: $CUR, Last: $LAST"
+          CUR="${{ steps.nightly_version.outputs.commit_hash }}"
+          LAST=$(cat s3-latest/LAST_COMMIT 2>/dev/null || echo "none")
+          echo "Current commit: $CUR"
+          echo "Last built commit: $LAST"
           if [ "$CUR" = "$LAST" ]; then
             echo "No new commits since last nightly. Skipping build."
             echo "skip_build=true" >> $GITHUB_OUTPUT
           else
+            echo "New commits detected. Proceeding with build."
             echo "skip_build=false" >> $GITHUB_OUTPUT
           fi
 
