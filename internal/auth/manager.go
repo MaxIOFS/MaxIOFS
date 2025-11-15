@@ -519,20 +519,30 @@ func (am *authManager) CreateUser(ctx context.Context, user *User) error {
 		return err
 	}
 
+	// Get the user performing the action from context
+	actingUser, actingUserExists := GetUserFromContext(ctx)
+	actingUserID := ""
+	actingUsername := "system"
+	if actingUserExists {
+		actingUserID = actingUser.ID
+		actingUsername = actingUser.Username
+	}
+
 	// Log audit event for user created
 	am.logAuditEvent(ctx, &audit.AuditEvent{
 		TenantID:     user.TenantID,
-		UserID:       user.ID,
-		Username:     user.Username,
+		UserID:       actingUserID,   // Who performed the action
+		Username:     actingUsername, // Who performed the action
 		EventType:    audit.EventTypeUserCreated,
 		ResourceType: audit.ResourceTypeUser,
-		ResourceID:   user.ID,
-		ResourceName: user.Username,
+		ResourceID:   user.ID,       // The created user
+		ResourceName: user.Username, // The created user
 		Action:       audit.ActionCreate,
 		Status:       audit.StatusSuccess,
 		Details: map[string]interface{}{
-			"roles":  user.Roles,
-			"status": user.Status,
+			"created_user": user.Username,
+			"roles":        user.Roles,
+			"status":       user.Status,
 		},
 	})
 
@@ -549,11 +559,20 @@ func (am *authManager) UpdateUser(ctx context.Context, user *User) error {
 		return err
 	}
 
+	// Get the user performing the action from context
+	actingUser, actingUserExists := GetUserFromContext(ctx)
+	actingUserID := ""
+	actingUsername := "system"
+	if actingUserExists {
+		actingUserID = actingUser.ID
+		actingUsername = actingUser.Username
+	}
+
 	// Log audit event for user updated
 	am.logAuditEvent(ctx, &audit.AuditEvent{
 		TenantID:     user.TenantID,
-		UserID:       user.ID,
-		Username:     user.Username,
+		UserID:       actingUserID,
+		Username:     actingUsername,
 		EventType:    audit.EventTypeUserUpdated,
 		ResourceType: audit.ResourceTypeUser,
 		ResourceID:   user.ID,
@@ -561,8 +580,9 @@ func (am *authManager) UpdateUser(ctx context.Context, user *User) error {
 		Action:       audit.ActionUpdate,
 		Status:       audit.StatusSuccess,
 		Details: map[string]interface{}{
-			"roles":  user.Roles,
-			"status": user.Status,
+			"updated_user": user.Username,
+			"roles":        user.Roles,
+			"status":       user.Status,
 		},
 	})
 
@@ -587,17 +607,29 @@ func (am *authManager) DeleteUser(ctx context.Context, userID string) error {
 		return err
 	}
 
+	// Get the user performing the action from context
+	actingUser, actingUserExists := GetUserFromContext(ctx)
+	actingUserID := ""
+	actingUsername := "system"
+	if actingUserExists {
+		actingUserID = actingUser.ID
+		actingUsername = actingUser.Username
+	}
+
 	// Log audit event for user deleted
 	am.logAuditEvent(ctx, &audit.AuditEvent{
 		TenantID:     user.TenantID,
-		UserID:       user.ID,
-		Username:     user.Username,
+		UserID:       actingUserID,
+		Username:     actingUsername,
 		EventType:    audit.EventTypeUserDeleted,
 		ResourceType: audit.ResourceTypeUser,
 		ResourceID:   user.ID,
 		ResourceName: user.Username,
 		Action:       audit.ActionDelete,
 		Status:       audit.StatusSuccess,
+		Details: map[string]interface{}{
+			"deleted_user": user.Username,
+		},
 	})
 
 	return nil
