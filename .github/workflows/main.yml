@@ -37,11 +37,10 @@ jobs:
         id: nightly_version
         run: |
           BASE_VERSION="0.3.3"
-          DATE=$(date +%Y%m%d)
           COMMIT_SHORT=$(git rev-parse --short HEAD)
-          NIGHTLY_VERSION="${BASE_VERSION}-nightly-${DATE}-${COMMIT_SHORT}"
+          NIGHTLY_VERSION="${BASE_VERSION}-nightly-${COMMIT_SHORT}"
           echo "version=${NIGHTLY_VERSION}" >> $GITHUB_OUTPUT
-          echo "commit_hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "commit_short=${COMMIT_SHORT}" >> $GITHUB_OUTPUT
           echo "Nightly version: ${NIGHTLY_VERSION}"
 
       - name: Download last built commit hash from S3
@@ -53,15 +52,17 @@ jobs:
       - name: Compare commit hashes and skip if no changes
         id: check_skip
         run: |
-          CUR="${{ steps.nightly_version.outputs.commit_hash }}"
-          LAST=$(cat s3-latest/LAST_COMMIT 2>/dev/null || echo "none")
-          echo "Current commit: $CUR"
-          echo "Last built commit: $LAST"
+          CUR="${{ steps.nightly_version.outputs.commit_short }}"
+          LAST=$(cat s3-latest/LAST_COMMIT 2>/dev/null | tr -d '[:space:]' || echo "none")
+          echo "Current commit: '$CUR'"
+          echo "Last built commit: '$LAST'"
+          echo "Current length: ${#CUR}"
+          echo "Last length: ${#LAST}"
           if [ "$CUR" = "$LAST" ]; then
-            echo "No new commits since last nightly. Skipping build."
+            echo "✅ Commits match. No new commits since last nightly. Skipping build."
             echo "skip_build=true" >> $GITHUB_OUTPUT
           else
-            echo "New commits detected. Proceeding with build."
+            echo "🆕 Commits differ. New commits detected. Proceeding with build."
             echo "skip_build=false" >> $GITHUB_OUTPUT
           fi
 
@@ -139,7 +140,7 @@ jobs:
 
       - name: Save current commit hash
         run: |
-          echo "${{ steps.nightly_version.outputs.commit_hash }}" > nightly-artifacts/LAST_COMMIT
+          echo "${{ steps.nightly_version.outputs.commit_short }}" > nightly-artifacts/LAST_COMMIT
 
       - name: Upload to S3
         run: aws s3 sync ./nightly-artifacts s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest --delete
