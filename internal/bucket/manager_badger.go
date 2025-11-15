@@ -83,6 +83,10 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 		CreatedAt: time.Now(),
 		Region:    "us-east-1", // Default region
 		Metadata:  make(map[string]string),
+		// Enable encryption by default for security
+		Encryption: &EncryptionConfig{
+			Type: "AES256",
+		},
 	}
 
 	// Store in BadgerDB
