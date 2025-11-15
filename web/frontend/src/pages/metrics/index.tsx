@@ -81,8 +81,16 @@ export default function MetricsPage() {
       // Store time range for gap filling
       return { ...result, requestedRange: { start, end } };
     },
-    refetchInterval: 10000, // Update every 10 seconds to match backend collection
-    staleTime: 0, // Always consider data stale, so it refetches on time range change
+    // Adaptive refetch based on time range - longer periods need less frequent updates
+    refetchInterval: 
+      timeRange.hours <= 1 ? 10000 :      // ≤1h: every 10s (real-time)
+      timeRange.hours <= 6 ? 30000 :      // ≤6h: every 30s
+      timeRange.hours <= 24 ? 60000 :     // ≤24h: every 1min
+      timeRange.hours <= 168 ? 300000 :   // ≤7d: every 5min
+      timeRange.hours <= 720 ? 600000 :   // ≤30d: every 10min
+      1800000,                             // >30d (year): every 30min
+    staleTime: 5000, // Consider data fresh for 5 seconds
+    enabled: isGlobalAdmin,
   });
 
   const isLoading = storageLoading || systemLoading || s3Loading;
