@@ -2279,9 +2279,41 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get current user from context
+	currentUser, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if current user is admin
+	isAdmin := false
+	for _, role := range currentUser.Roles {
+		if role == "admin" {
+			isAdmin = true
+			break
+		}
+	}
+
+	// Check if user is changing their own password
+	isChangingSelf := currentUser.ID == userID
+
 	// Validate required fields
-	if changeRequest.CurrentPassword == "" || changeRequest.NewPassword == "" {
-		s.writeError(w, "Current password and new password are required", http.StatusBadRequest)
+	// Admins changing other users' passwords don't need current password
+	if changeRequest.NewPassword == "" {
+		s.writeError(w, "New password is required", http.StatusBadRequest)
+		return
+	}
+
+	// If user is changing their own password, current password is required
+	if isChangingSelf && changeRequest.CurrentPassword == "" {
+		s.writeError(w, "Current password is required", http.StatusBadRequest)
+		return
+	}
+
+	// Non-admins can only change their own password
+	if !isAdmin && !isChangingSelf {
+		s.writeError(w, "Insufficient permissions", http.StatusForbidden)
 		return
 	}
 
@@ -2302,10 +2334,12 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify current password
-	if !auth.VerifyPassword(changeRequest.CurrentPassword, user.Password) {
-		s.writeError(w, "Current password is incorrect", http.StatusUnauthorized)
-		return
+	// Verify current password only if user is changing their own password
+	if isChangingSelf {
+		if !auth.VerifyPassword(changeRequest.CurrentPassword, user.Password) {
+			s.writeError(w, "Current password is incorrect", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	// Hash new password
@@ -2326,17 +2360,28 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	// Log audit event for password changed
 	if s.auditManager != nil {
-		_ = s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+		auditEvent := &audit.AuditEvent{
 			TenantID:     user.TenantID,
-			UserID:       user.ID,
-			Username:     user.Username,
+			UserID:       currentUser.ID,
+			Username:     currentUser.Username,
 			EventType:    audit.EventTypePasswordChanged,
 			ResourceType: audit.ResourceTypeUser,
 			ResourceID:   user.ID,
 			ResourceName: user.Username,
 			Action:       audit.ActionUpdate,
 			Status:       audit.StatusSuccess,
-		})
+		}
+
+		// Add details about who changed the password
+		if !isChangingSelf {
+			auditEvent.Details = map[string]interface{}{
+				"changed_by":    currentUser.Username,
+				"changed_by_id": currentUser.ID,
+				"target_user":   user.Username,
+			}
+		}
+
+		_ = s.auditManager.LogEvent(r.Context(), auditEvent)
 	}
 
 	s.writeJSON(w, map[string]string{"message": "Password changed successfully"})
