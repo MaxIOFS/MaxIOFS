@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Loading } from '@/components/ui/Loading';
+import { MetricCard } from '@/components/ui/MetricCard';
 import {
   Table,
   TableBody,
@@ -32,17 +33,17 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 
-// Event type badges color mapping
+// Event type badges color mapping - soft colors matching the app design
 const getEventTypeColor = (eventType: string | undefined): string => {
-  if (!eventType) return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300';
-  if (eventType.includes('login') || eventType.includes('logout')) return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
-  if (eventType.includes('blocked') || eventType.includes('unblocked')) return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300';
-  if (eventType.includes('user_created') || eventType.includes('user_deleted')) return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300';
-  if (eventType.includes('bucket')) return 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-300';
-  if (eventType.includes('access_key')) return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
-  if (eventType.includes('tenant')) return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300';
-  if (eventType.includes('2fa')) return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300';
-  return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300';
+  if (!eventType) return 'bg-gray-50 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300';
+  if (eventType.includes('login') || eventType.includes('logout')) return 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
+  if (eventType.includes('blocked') || eventType.includes('unblocked')) return 'bg-orange-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300';
+  if (eventType.includes('user_created') || eventType.includes('user_deleted')) return 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300';
+  if (eventType.includes('bucket')) return 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300';
+  if (eventType.includes('access_key')) return 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300';
+  if (eventType.includes('tenant')) return 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300';
+  if (eventType.includes('2fa')) return 'bg-yellow-50 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300';
+  return 'bg-gray-50 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300';
 };
 
 // Format event type for display
@@ -474,72 +475,38 @@ export default function AuditLogsPage() {
       </div>
 
       {/* Stats Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 rounded-lg shadow p-5 border border-blue-200 dark:border-blue-800">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Total Logs</p>
-              <p className="text-3xl font-bold text-blue-900 dark:text-blue-100 mt-1">{totalLogs.toLocaleString()}</p>
-              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                {getDateRangeDescription()}
-              </p>
-            </div>
-            <div className="bg-blue-200 dark:bg-blue-800/50 p-3 rounded-full">
-              <FileText className="w-6 h-6 text-blue-600 dark:text-blue-300" />
-            </div>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        <MetricCard
+          title="Total Logs"
+          value={totalLogs.toLocaleString()}
+          icon={FileText}
+          description={getDateRangeDescription()}
+          color="brand"
+        />
 
-        <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 rounded-lg shadow p-5 border border-green-200 dark:border-green-800">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-green-700 dark:text-green-300">Successful</p>
-              <p className="text-3xl font-bold text-green-900 dark:text-green-100 mt-1">
-                {totalSuccessCount.toLocaleString()}
-              </p>
-              <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                {totalLogs > 0 ? `${Math.round((totalSuccessCount / totalLogs) * 100)}%` : '0%'} success rate
-              </p>
-            </div>
-            <div className="bg-green-200 dark:bg-green-800/50 p-3 rounded-full">
-              <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-300" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Successful"
+          value={totalSuccessCount.toLocaleString()}
+          icon={CheckCircle}
+          description={totalLogs > 0 ? `${Math.round((totalSuccessCount / totalLogs) * 100)}% success rate` : '0% success rate'}
+          color="success"
+        />
 
-        <div className="bg-gradient-to-br from-red-50 to-red-100 dark:from-red-900/20 dark:to-red-800/20 rounded-lg shadow p-5 border border-red-200 dark:border-red-800">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-red-700 dark:text-red-300">Failed</p>
-              <p className="text-3xl font-bold text-red-900 dark:text-red-100 mt-1">
-                {totalFailedCount.toLocaleString()}
-              </p>
-              <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                {totalLogs > 0 ? `${Math.round((totalFailedCount / totalLogs) * 100)}%` : '0%'} failure rate
-              </p>
-            </div>
-            <div className="bg-red-200 dark:bg-red-800/50 p-3 rounded-full">
-              <XCircle className="w-6 h-6 text-red-600 dark:text-red-300" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Failed"
+          value={totalFailedCount.toLocaleString()}
+          icon={XCircle}
+          description={totalLogs > 0 ? `${Math.round((totalFailedCount / totalLogs) * 100)}% failure rate` : '0% failure rate'}
+          color="error"
+        />
 
-        <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 rounded-lg shadow p-5 border border-purple-200 dark:border-purple-800">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Viewing</p>
-              <p className="text-3xl font-bold text-purple-900 dark:text-purple-100 mt-1">
-                {currentPage} / {totalPages}
-              </p>
-              <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">
-                {pageSize} items per page
-              </p>
-            </div>
-            <div className="bg-purple-200 dark:bg-purple-800/50 p-3 rounded-full">
-              <Activity className="w-6 h-6 text-purple-600 dark:text-purple-300" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Viewing"
+          value={`${currentPage} / ${totalPages}`}
+          icon={Activity}
+          description={`${pageSize} items per page`}
+          color="blue-light"
+        />
       </div>
 
       {/* Audit Logs Table */}

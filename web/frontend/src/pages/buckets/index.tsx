@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Loading } from '@/components/ui/Loading';
+import { MetricCard } from '@/components/ui/MetricCard';
 import { Database, Plus, Search, Settings, Trash2, Calendar, HardDrive, Lock, Shield, Building2, Users, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -205,46 +206,30 @@ export default function BucketsPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Buckets</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{sortedBuckets.length}</h3>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-brand-50 dark:bg-brand-900/30">
-              <Database className="h-7 w-7 text-brand-600 dark:text-brand-400" />
-            </div>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+        <MetricCard
+          title="Total Buckets"
+          value={sortedBuckets.length}
+          icon={Database}
+          description="Active storage containers"
+          color="brand"
+        />
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Objects</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
-                {sortedBuckets.reduce((sum, bucket) => sum + (bucket.object_count || bucket.objectCount || 0), 0).toLocaleString()}
-              </h3>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-light-50 dark:bg-blue-light-900/30">
-              <HardDrive className="h-7 w-7 text-blue-light-600 dark:text-blue-light-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Total Objects"
+          value={sortedBuckets.reduce((sum, bucket) => sum + (bucket.object_count || bucket.objectCount || 0), 0).toLocaleString()}
+          icon={HardDrive}
+          description="Stored across all buckets"
+          color="blue-light"
+        />
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Size</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
-                {formatSize(sortedBuckets.reduce((sum, bucket) => sum + (bucket.size || bucket.totalSize || 0), 0))}
-              </h3>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-orange-50 dark:bg-orange-900/30">
-              <HardDrive className="h-7 w-7 text-orange-600 dark:text-orange-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Total Size"
+          value={formatSize(sortedBuckets.reduce((sum, bucket) => sum + (bucket.size || bucket.totalSize || 0), 0))}
+          icon={HardDrive}
+          description="Storage consumption"
+          color="warning"
+        />
       </div>
 
       {/* Search Bar */}

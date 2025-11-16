@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Loading } from '@/components/ui/Loading';
+import { MetricCard } from '@/components/ui/MetricCard';
 import {
   Table,
   TableBody,
@@ -291,75 +292,37 @@ export default function UsersPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-        {/* Total Users Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Users</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{filteredUsers.length}</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Across all tenants
-              </p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-brand-50 dark:bg-brand-900/30">
-              <Users className="h-7 w-7 text-brand-600 dark:text-brand-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Total Users"
+          value={filteredUsers.length}
+          icon={Users}
+          description="Across all tenants"
+          color="brand"
+        />
 
-        {/* Active Users Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Active Users</p>
-              <h3 className="text-3xl font-bold text-success-600 dark:text-success-400">
-                {filteredUsers.filter((user: User) => user.status === 'active').length}
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Ready to use the system
-              </p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-success-50 dark:bg-success-900/30">
-              <UserCheck className="h-7 w-7 text-success-600 dark:text-success-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Active Users"
+          value={filteredUsers.filter((user: User) => user.status === 'active').length}
+          icon={UserCheck}
+          description="Ready to use the system"
+          color="success"
+        />
 
-        {/* Admin Users Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Admin Users</p>
-              <h3 className="text-3xl font-bold text-blue-light-600 dark:text-blue-light-400">
-                {filteredUsers.filter((user: User) => user.roles.includes('admin')).length}
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Users with admin access
-              </p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-light-50 dark:bg-blue-light-900/30">
-              <Shield className="h-7 w-7 text-blue-light-600 dark:text-blue-light-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Admin Users"
+          value={filteredUsers.filter((user: User) => user.roles.includes('admin')).length}
+          icon={Shield}
+          description="Users with admin access"
+          color="blue-light"
+        />
 
-        {/* Inactive Users Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Inactive Users</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">
-                {filteredUsers.filter((user: User) => user.status !== 'active').length}
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Suspended or inactive
-              </p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-gray-100 dark:bg-gray-700">
-              <UserX className="h-7 w-7 text-gray-600 dark:text-gray-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Inactive Users"
+          value={filteredUsers.filter((user: User) => user.status !== 'active').length}
+          icon={UserX}
+          description="Suspended or inactive"
+          color="warning"
+        />
       </div>
 
       {/* Users Table */}

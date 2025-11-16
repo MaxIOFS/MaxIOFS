@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Loading } from '@/components/ui/Loading';
+import { MetricCard } from '@/components/ui/MetricCard';
 import {
   Table,
   TableBody,
@@ -164,68 +165,38 @@ export default function TenantsPage() {
       </div>
 
       {/* Statistics Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {/* Total Tenants */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Tenants</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{tenants?.length || 0}</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">All registered tenants</p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-50 dark:bg-blue-900/30">
-              <Building2 className="h-7 w-7 text-blue-600 dark:text-blue-400" />
-            </div>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        <MetricCard
+          title="Total Tenants"
+          value={tenants?.length || 0}
+          icon={Building2}
+          description="All registered tenants"
+          color="brand"
+        />
 
-        {/* Active Tenants */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Active Tenants</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">
-                {tenants?.filter((t: Tenant) => t.status === 'active').length || 0}
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Currently active</p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-green-50 dark:bg-green-900/30">
-              <CheckCircle className="h-7 w-7 text-green-600 dark:text-green-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Active Tenants"
+          value={tenants?.filter((t: Tenant) => t.status === 'active').length || 0}
+          icon={CheckCircle}
+          description="Currently active"
+          color="success"
+        />
 
-        {/* Total Storage Used */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Storage</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">
-                {formatBytes(tenants?.reduce((acc: number, t: Tenant) => acc + (t.currentStorageBytes || 0), 0) || 0)}
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Across all tenants</p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-purple-50 dark:bg-purple-900/30">
-              <HardDrive className="h-7 w-7 text-purple-600 dark:text-purple-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Total Storage"
+          value={formatBytes(tenants?.reduce((acc: number, t: Tenant) => acc + (t.currentStorageBytes || 0), 0) || 0)}
+          icon={HardDrive}
+          description="Across all tenants"
+          color="blue-light"
+        />
 
-        {/* Total Buckets */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Buckets</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">
-                {tenants?.reduce((acc: number, t: Tenant) => acc + (t.currentBuckets || 0), 0) || 0}
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Across all tenants</p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-orange-50 dark:bg-orange-900/30">
-              <Database className="h-7 w-7 text-orange-600 dark:text-orange-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Total Buckets"
+          value={tenants?.reduce((acc: number, t: Tenant) => acc + (t.currentBuckets || 0), 0) || 0}
+          icon={Database}
+          description="Across all tenants"
+          color="warning"
+        />
       </div>
 
       {/* Search */}
