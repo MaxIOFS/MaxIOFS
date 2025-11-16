@@ -21,6 +21,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/presigned"
+	"github.com/maxiofs/maxiofs/internal/settings"
 	"github.com/sirupsen/logrus"
 )
 
@@ -243,6 +244,13 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Audit logs endpoints
 	router.HandleFunc("/audit-logs", s.handleListAuditLogs).Methods("GET", "OPTIONS")
 	router.HandleFunc("/audit-logs/{id}", s.handleGetAuditLog).Methods("GET", "OPTIONS")
+
+	// Settings endpoints
+	router.HandleFunc("/settings", s.handleListSettings).Methods("GET", "OPTIONS")
+	router.HandleFunc("/settings/categories", s.handleListCategories).Methods("GET", "OPTIONS")
+	router.HandleFunc("/settings/{key}", s.handleGetSetting).Methods("GET", "OPTIONS")
+	router.HandleFunc("/settings/{key}", s.handleUpdateSetting).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/settings/bulk", s.handleBulkUpdateSettings).Methods("POST", "OPTIONS")
 
 	// Bucket permissions endpoints
 	router.HandleFunc("/buckets/{bucket}/permissions", s.handleListBucketPermissions).Methods("GET", "OPTIONS")
@@ -5005,4 +5013,261 @@ func (s *Server) handleGetAuditLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, log)
+}
+
+// Settings API Handlers
+
+// handleListSettings lists all settings or settings by category
+// GET /api/v1/settings
+// GET /api/v1/settings?category=security
+func (s *Server) handleListSettings(w http.ResponseWriter, r *http.Request) {
+	// Verify user is authenticated
+	currentUser := r.Context().Value("user")
+	if currentUser == nil {
+		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Only global admins can view/edit settings
+	user := currentUser.(*auth.User)
+	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
+
+	if !isGlobalAdmin {
+		s.writeError(w, "Forbidden: only global admins can access settings", http.StatusForbidden)
+		return
+	}
+
+	// Get category filter from query params
+	category := r.URL.Query().Get("category")
+
+	var settingsList []settings.Setting
+	var err error
+
+	if category != "" {
+		// List settings by category
+		settingsList, err = s.settingsManager.ListByCategory(category)
+		if err != nil {
+			logrus.WithError(err).WithField("category", category).Error("Failed to list settings by category")
+			s.writeError(w, "Failed to retrieve settings", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// List all settings
+		settingsList, err = s.settingsManager.ListAll()
+		if err != nil {
+			logrus.WithError(err).Error("Failed to list all settings")
+			s.writeError(w, "Failed to retrieve settings", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	s.writeJSON(w, settingsList)
+}
+
+// handleListCategories lists all available setting categories
+// GET /api/v1/settings/categories
+func (s *Server) handleListCategories(w http.ResponseWriter, r *http.Request) {
+	// Verify user is authenticated
+	currentUser := r.Context().Value("user")
+	if currentUser == nil {
+		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Only global admins can view/edit settings
+	user := currentUser.(*auth.User)
+	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
+
+	if !isGlobalAdmin {
+		s.writeError(w, "Forbidden: only global admins can access settings", http.StatusForbidden)
+		return
+	}
+
+	categories, err := s.settingsManager.GetCategories()
+	if err != nil {
+		logrus.WithError(err).Error("Failed to list categories")
+		s.writeError(w, "Failed to retrieve categories", http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"categories": categories,
+	})
+}
+
+// handleGetSetting retrieves a specific setting
+// GET /api/v1/settings/:key
+func (s *Server) handleGetSetting(w http.ResponseWriter, r *http.Request) {
+	// Verify user is authenticated
+	currentUser := r.Context().Value("user")
+	if currentUser == nil {
+		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Only global admins can view/edit settings
+	user := currentUser.(*auth.User)
+	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
+
+	if !isGlobalAdmin {
+		s.writeError(w, "Forbidden: only global admins can access settings", http.StatusForbidden)
+		return
+	}
+
+	// Get key from URL
+	vars := mux.Vars(r)
+	key := vars["key"]
+
+	setting, err := s.settingsManager.GetSetting(key)
+	if err != nil {
+		logrus.WithError(err).WithField("key", key).Error("Failed to get setting")
+		s.writeError(w, "Setting not found", http.StatusNotFound)
+		return
+	}
+
+	s.writeJSON(w, setting)
+}
+
+// handleUpdateSetting updates a specific setting
+// PUT /api/v1/settings/:key
+// Body: { "value": "new_value" }
+func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
+	// Verify user is authenticated
+	currentUser := r.Context().Value("user")
+	if currentUser == nil {
+		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Only global admins can view/edit settings
+	user := currentUser.(*auth.User)
+	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
+
+	if !isGlobalAdmin {
+		s.writeError(w, "Forbidden: only global admins can modify settings", http.StatusForbidden)
+		return
+	}
+
+	// Get key from URL
+	vars := mux.Vars(r)
+	key := vars["key"]
+
+	// Parse request body
+	var req settings.UpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate value is not empty
+	if req.Value == "" {
+		s.writeError(w, "Value cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	// Update the setting
+	if err := s.settingsManager.Set(key, req.Value); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"key":   key,
+			"value": req.Value,
+		}).Error("Failed to update setting")
+		s.writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Log audit event
+	if s.auditManager != nil {
+		s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+			EventType:    "setting_updated",
+			UserID:       user.ID,
+			Username:     user.Username,
+			TenantID:     user.TenantID,
+			ResourceType: "setting",
+			ResourceID:   key,
+			Action:       "update",
+			Status:       "success",
+			IPAddress:    r.RemoteAddr,
+			UserAgent:    r.UserAgent(),
+			Details: map[string]interface{}{
+				"key":   key,
+				"value": req.Value,
+			},
+		})
+	}
+
+	// Return the updated setting
+	setting, err := s.settingsManager.GetSetting(key)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to retrieve updated setting")
+		s.writeError(w, "Failed to retrieve updated setting", http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, setting)
+}
+
+// handleBulkUpdateSettings updates multiple settings at once
+// POST /api/v1/settings/bulk
+// Body: { "settings": { "key1": "value1", "key2": "value2" } }
+func (s *Server) handleBulkUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	// Verify user is authenticated
+	currentUser := r.Context().Value("user")
+	if currentUser == nil {
+		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Only global admins can view/edit settings
+	user := currentUser.(*auth.User)
+	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
+
+	if !isGlobalAdmin {
+		s.writeError(w, "Forbidden: only global admins can modify settings", http.StatusForbidden)
+		return
+	}
+
+	// Parse request body
+	var req settings.BulkUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate settings map is not empty
+	if len(req.Settings) == 0 {
+		s.writeError(w, "No settings provided", http.StatusBadRequest)
+		return
+	}
+
+	// Update settings
+	if err := s.settingsManager.BulkUpdate(req.Settings); err != nil {
+		logrus.WithError(err).WithField("count", len(req.Settings)).Error("Failed to bulk update settings")
+		s.writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Log audit event
+	if s.auditManager != nil {
+		s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+			EventType:    "settings_bulk_updated",
+			UserID:       user.ID,
+			Username:     user.Username,
+			TenantID:     user.TenantID,
+			ResourceType: "settings",
+			Action:       "bulk_update",
+			Status:       "success",
+			IPAddress:    r.RemoteAddr,
+			UserAgent:    r.UserAgent(),
+			Details: map[string]interface{}{
+				"count":    len(req.Settings),
+				"settings": req.Settings,
+			},
+		})
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"success": true,
+		"message": "Settings updated successfully",
+		"count":   len(req.Settings),
+	})
 }

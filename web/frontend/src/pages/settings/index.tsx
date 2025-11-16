@@ -1,26 +1,63 @@
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Server,
   Shield,
   HardDrive,
-  Monitor,
-  Info,
+  Activity,
+  Server,
+  FileText,
+  Save,
+  RotateCcw,
   CheckCircle,
-  Package,
-  Database,
-  Zap
+  AlertCircle,
+  Info,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Loading } from '@/components/ui/Loading';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
-import type { ServerConfig } from '@/types';
+import type { Setting, SettingCategory } from '@/types';
+
+// Category metadata
+const categoryInfo: Record<SettingCategory, { icon: React.ComponentType<any>; title: string; description: string }> = {
+  security: {
+    icon: Shield,
+    title: 'Security',
+    description: 'Authentication, password policies, and rate limiting settings',
+  },
+  audit: {
+    icon: FileText,
+    title: 'Audit',
+    description: 'Audit logging and retention configuration',
+  },
+  storage: {
+    icon: HardDrive,
+    title: 'Storage',
+    description: 'Default storage behavior and compression settings',
+  },
+  metrics: {
+    icon: Activity,
+    title: 'Metrics',
+    description: 'Prometheus metrics and collection settings',
+  },
+  system: {
+    icon: Server,
+    title: 'System',
+    description: 'System-wide settings and maintenance mode',
+  },
+};
 
 export default function SettingsPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { isGlobalAdmin, user: currentUser } = useCurrentUser();
-  
+
+  const [activeCategory, setActiveCategory] = useState<SettingCategory>('security');
+  const [editedValues, setEditedValues] = useState<Record<string, string>>({});
+  const [hasChanges, setHasChanges] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   // Only global admins can access settings
   useEffect(() => {
     if (currentUser && !isGlobalAdmin) {
@@ -28,11 +65,133 @@ export default function SettingsPage() {
     }
   }, [currentUser, isGlobalAdmin, navigate]);
 
-  const { data: config, isLoading } = useQuery<ServerConfig>({
-    queryKey: ['serverConfig'],
-    queryFn: APIClient.getServerConfig,
+  // Fetch all settings
+  const { data: settings, isLoading } = useQuery<Setting[]>({
+    queryKey: ['settings'],
+    queryFn: () => APIClient.listSettings(),
     enabled: isGlobalAdmin,
   });
+
+  // Group settings by category
+  const settingsByCategory = React.useMemo(() => {
+    if (!settings) return {};
+    return settings.reduce((acc, setting) => {
+      if (!acc[setting.category]) {
+        acc[setting.category] = [];
+      }
+      acc[setting.category].push(setting);
+      return acc;
+    }, {} as Record<SettingCategory, Setting[]>);
+  }, [settings]);
+
+  // Update mutation
+  const updateMutation = useMutation({
+    mutationFn: (updates: Record<string, string>) => APIClient.bulkUpdateSettings(updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
+      setEditedValues({});
+      setHasChanges(false);
+      setSaveSuccess(true);
+      setSaveError(null);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    },
+    onError: (error: any) => {
+      setSaveError(error.response?.data?.error || 'Failed to save settings');
+      setTimeout(() => setSaveError(null), 5000);
+    },
+  });
+
+  // Handle value change
+  const handleValueChange = (key: string, value: string, originalValue: string) => {
+    const newEditedValues = { ...editedValues };
+
+    if (value === originalValue) {
+      // If value matches original, remove from edited values
+      delete newEditedValues[key];
+    } else {
+      newEditedValues[key] = value;
+    }
+
+    setEditedValues(newEditedValues);
+    setHasChanges(Object.keys(newEditedValues).length > 0);
+  };
+
+  // Handle save
+  const handleSave = () => {
+    if (Object.keys(editedValues).length === 0) return;
+    updateMutation.mutate(editedValues);
+  };
+
+  // Handle reset
+  const handleReset = () => {
+    setEditedValues({});
+    setHasChanges(false);
+    setSaveError(null);
+  };
+
+  // Get current value (edited or original)
+  const getCurrentValue = (setting: Setting): string => {
+    return editedValues[setting.key] !== undefined ? editedValues[setting.key] : setting.value;
+  };
+
+  // Format setting label from key
+  const formatLabel = (key: string): string => {
+    return key
+      .split('.')
+      .pop()
+      ?.replace(/_/g, ' ')
+      .replace(/\b\w/g, l => l.toUpperCase()) || key;
+  };
+
+  // Get status indicator for boolean settings
+  const getStatusBadge = (value: string, type: string) => {
+    if (type !== 'bool') return null;
+
+    const isEnabled = value === 'true' || value === '1';
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+        isEnabled
+          ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
+          : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300'
+      }`}>
+        {isEnabled ? '● Enabled' : '○ Disabled'}
+      </span>
+    );
+  };
+
+  // Format value display for read-only fields
+  const formatValueDisplay = (setting: Setting): string => {
+    const value = getCurrentValue(setting);
+
+    if (setting.type === 'bool') {
+      return value === 'true' || value === '1' ? 'Enabled' : 'Disabled';
+    }
+
+    if (setting.type === 'int') {
+      // Add units based on key
+      if (setting.key.includes('timeout') || setting.key.includes('duration')) {
+        const seconds = parseInt(value);
+        if (seconds >= 86400) return `${Math.floor(seconds / 86400)} days`;
+        if (seconds >= 3600) return `${Math.floor(seconds / 3600)} hours`;
+        if (seconds >= 60) return `${Math.floor(seconds / 60)} minutes`;
+        return `${seconds} seconds`;
+      }
+      if (setting.key.includes('size') && setting.key.includes('mb')) {
+        return `${value} MB`;
+      }
+      if (setting.key.includes('days')) {
+        return `${value} days`;
+      }
+      if (setting.key.includes('per_minute')) {
+        return `${value} per minute`;
+      }
+      if (setting.key.includes('per_second')) {
+        return `${value} per second`;
+      }
+    }
+
+    return value;
+  };
 
   if (isLoading) {
     return (
@@ -42,535 +201,265 @@ export default function SettingsPage() {
     );
   }
 
-  if (!config) {
+  if (!settings) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-gray-500 dark:text-gray-400">No configuration available</p>
+        <p className="text-gray-500 dark:text-gray-400">No settings available</p>
       </div>
     );
   }
 
+  const currentSettings = settingsByCategory[activeCategory] || [];
+  const tabs = (Object.keys(categoryInfo) as SettingCategory[]).map(cat => ({
+    id: cat,
+    label: categoryInfo[cat].title,
+    icon: categoryInfo[cat].icon,
+  }));
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">System Settings</h1>
           <p className="text-gray-500 dark:text-gray-400">
-            View current MaxIOFS configuration
+            Configure MaxIOFS runtime settings stored in database
           </p>
         </div>
+
+        {/* Save/Reset Buttons */}
+        {hasChanges && (
+          <div className="flex gap-2">
+            <button
+              onClick={handleReset}
+              disabled={updateMutation.isPending}
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors flex items-center gap-2"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Reset
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={updateMutation.isPending}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 transition-colors"
+            >
+              <Save className="h-4 w-4" />
+              {updateMutation.isPending ? 'Saving...' : `Save ${Object.keys(editedValues).length} Change${Object.keys(editedValues).length !== 1 ? 's' : ''}`}
+            </button>
+          </div>
+        )}
       </div>
 
+      {/* Success/Error Messages */}
+      {saveSuccess && (
+        <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-green-900 dark:text-green-300">Settings saved successfully</p>
+              <p className="text-sm text-green-700 dark:text-green-400 mt-1">Changes have been applied and are now active</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-red-900 dark:text-red-300">Error saving settings</p>
+              <p className="text-sm text-red-700 dark:text-red-400 mt-1">{saveError}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Info Banner */}
-      <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md p-4">
+      <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+          <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
           <div>
-            <p className="text-sm font-medium text-blue-900 dark:text-blue-300">Read-Only Configuration</p>
-            <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
-              These settings are configured via command-line flags and configuration files.
-              To modify them, please update your server configuration and restart MaxIOFS.
+            <p className="text-sm font-medium text-blue-900 dark:text-blue-300">Database-Backed Configuration</p>
+            <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
+              These settings are stored in SQLite and take effect immediately. Static infrastructure settings (ports, paths, TLS) remain in config.yaml.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Server Configuration */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-            <Server className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            Server Configuration
-          </h3>
-        </div>
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">S3 API Port</label>
-              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white">
-                {config.server.s3ApiPort}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Console API Port</label>
-              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white">
-                {config.server.consoleApiPort}
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Data Directory</label>
-            <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white font-mono">
-              {config.server.dataDir}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-            <CheckCircle className="h-4 w-4" />
-            <span>Server running and accepting connections</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Storage Backend */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-            <HardDrive className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            Storage Architecture
-          </h3>
-        </div>
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Object Storage</label>
-              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white">
-                {config.storage.backend === 'filesystem' ? 'File System (Local)' : config.storage.backend}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Metadata Store</label>
-              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white">
-                BadgerDB v4
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Authentication DB</label>
-              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white">
-                SQLite
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Transaction Mode</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Retry with Backoff
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Storage Path</label>
-            <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white font-mono">
-              {config.storage.root}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-              <CheckCircle className="h-4 w-4" />
-              <span>BadgerDB metadata store operational (high-performance KV store)</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-              <CheckCircle className="h-4 w-4" />
-              <span>Metadata-first deletion enabled (ensures consistency)</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-              <CheckCircle className="h-4 w-4" />
-              <span>Atomic write operations with automatic rollback</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* S3 API Features */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-            <Database className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            S3 API Features
-          </h3>
-        </div>
+      {/* Tabs and Content */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
         <div className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Core Operations</h4>
-              <div className="space-y-1.5 text-sm text-gray-600 dark:text-gray-400">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>PutObject / GetObject</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>DeleteObject / ListObjects</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>HeadObject / CopyObject</span>
-                </div>
-              </div>
-            </div>
+          {/* Tabs Navigation - Same style as Metrics */}
+          <div className="flex space-x-1 bg-gray-100 dark:bg-gray-900 rounded-lg p-1 mb-6">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const categorySettings = settingsByCategory[tab.id] || [];
+              const hasEditsInCategory = categorySettings.some(s => editedValues[s.key] !== undefined);
 
-            <div className="space-y-2">
-              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Bucket Operations</h4>
-              <div className="space-y-1.5 text-sm text-gray-600 dark:text-gray-400">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>Versioning (Enable/Suspend)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>Bucket Policy (JSON)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>CORS Configuration</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>Lifecycle Policies</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Advanced Features</h4>
-              <div className="space-y-1.5 text-sm text-gray-600 dark:text-gray-400">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>Multipart Uploads</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>Presigned URLs (GET/PUT)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>Object Lock (WORM)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>Object Tagging</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Bulk Operations</h4>
-              <div className="space-y-1.5 text-sm text-gray-600 dark:text-gray-400">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>DeleteObjects (up to 1000)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>Sequential Processing</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>Conflict-Free Execution</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Authentication</h4>
-              <div className="space-y-1.5 text-sm text-gray-600 dark:text-gray-400">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>AWS Signature v2</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>AWS Signature v4</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>Path & Virtual-Hosted Style</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Testing & Validation</h4>
-              <div className="space-y-1.5 text-sm text-gray-600 dark:text-gray-400">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>Warp Stress Tested</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>7000+ Objects Validated</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  <span>AWS CLI Compatible</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Security Configuration */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-            <Shield className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            Security Settings
-          </h3>
-        </div>
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Authentication</label>
-              <div className={`px-3 py-2 ${config.auth.enableAuth ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white'} border rounded-md text-sm font-medium`}>
-                {config.auth.enableAuth ? '✓ Enabled (JWT + S3 Signatures)' : 'Disabled'}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Rate Limiting</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Enabled (Per Endpoint)
-              </div>
-            </div>
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveCategory(tab.id as SettingCategory)}
+                  className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 font-medium text-sm rounded-md transition-all duration-200 relative ${
+                    activeCategory === tab.id
+                      ? 'bg-white dark:bg-gray-800 text-brand-600 dark:text-brand-400 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span>{tab.label}</span>
+                  {hasEditsInCategory && (
+                    <span className="absolute top-2 right-2 h-2 w-2 bg-yellow-500 rounded-full"></span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Account Lockout</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Enabled (5 attempts / 15 min)
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password Hashing</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Bcrypt (Strong)
-              </div>
-            </div>
+          {/* Category Description */}
+          <div className="mb-6 pb-6 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+              {categoryInfo[activeCategory].title} Settings
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {categoryInfo[activeCategory].description}
+            </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Two-Factor Authentication</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ TOTP-Based (Optional)
-              </div>
+          {/* Settings List */}
+          {currentSettings.length === 0 ? (
+            <div className="text-center py-12">
+              <Server className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+              <p className="text-gray-500 dark:text-gray-400">No settings in this category</p>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Session Timeout</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ 24 Hours (Idle Detection)
-              </div>
-            </div>
-          </div>
+          ) : (
+            <div className="space-y-6">
+              {currentSettings.map((setting) => {
+                const currentValue = getCurrentValue(setting);
+                const isEdited = editedValues[setting.key] !== undefined;
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Audit Logging</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Enabled (90 day retention)
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Compliance</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ GDPR, SOC 2, HIPAA, ISO 27001
-              </div>
-            </div>
-          </div>
+                return (
+                  <div
+                    key={setting.key}
+                    className={`pb-6 border-b border-gray-100 dark:border-gray-700 last:border-0 last:pb-0 transition-all ${
+                      isEdited ? 'bg-yellow-50 dark:bg-yellow-900/10 -mx-6 px-6 py-4 rounded-lg' : ''
+                    }`}
+                  >
+                    {/* Setting Header */}
+                    <div className="flex items-start justify-between gap-4 mb-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <label className="text-sm font-semibold text-gray-900 dark:text-white">
+                            {formatLabel(setting.key)}
+                          </label>
+                          {getStatusBadge(currentValue, setting.type)}
+                          {isEdited && (
+                            <span className="text-xs font-medium text-yellow-600 dark:text-yellow-400 bg-yellow-100 dark:bg-yellow-900/30 px-2 py-0.5 rounded">
+                              Modified
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                          {setting.description}
+                        </p>
+                      </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">CORS</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Configurable Per Bucket
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">TLS/HTTPS</label>
-              <div className={`px-3 py-2 ${config.server.enableTls ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white'} border rounded-md text-sm font-medium`}>
-                {config.server.enableTls ? '✓ Enabled' : 'Not Enabled (Optional)'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                        <span className={`px-2 py-1 text-xs font-medium rounded ${
+                          setting.editable
+                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                        }`}>
+                          {setting.type}
+                        </span>
+                        {!setting.editable && (
+                          <span className="text-xs text-gray-400 dark:text-gray-500">
+                            Read-only
+                          </span>
+                        )}
+                      </div>
+                    </div>
 
-      {/* Multi-Tenancy */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-            <Zap className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            Multi-Tenancy Features
-          </h3>
-        </div>
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Resource Isolation</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Complete Separation
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Quota Management</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Storage, Buckets, Keys
-              </div>
-            </div>
-          </div>
+                    {/* Setting Control */}
+                    {setting.editable ? (
+                      <div className="mt-3">
+                        {setting.type === 'bool' ? (
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => handleValueChange(setting.key, 'true', setting.value)}
+                              className={`px-6 py-2.5 text-sm font-medium rounded-lg transition-all ${
+                                currentValue === 'true'
+                                  ? 'bg-green-600 text-white shadow-sm'
+                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                              }`}
+                            >
+                              <CheckCircle className="h-4 w-4 inline-block mr-2" />
+                              Enabled
+                            </button>
+                            <button
+                              onClick={() => handleValueChange(setting.key, 'false', setting.value)}
+                              className={`px-6 py-2.5 text-sm font-medium rounded-lg transition-all ${
+                                currentValue === 'false'
+                                  ? 'bg-gray-600 text-white shadow-sm'
+                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                              }`}
+                            >
+                              <span className="h-4 w-4 inline-block mr-2">○</span>
+                              Disabled
+                            </button>
+                          </div>
+                        ) : setting.type === 'int' ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              value={currentValue}
+                              onChange={(e) => handleValueChange(setting.key, e.target.value, setting.value)}
+                              className="w-full max-w-xs px-4 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                            />
+                            <span className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                              Current: {formatValueDisplay(setting)}
+                            </span>
+                          </div>
+                        ) : (
+                          <input
+                            type="text"
+                            value={currentValue}
+                            onChange={(e) => handleValueChange(setting.key, e.target.value, setting.value)}
+                            className="w-full max-w-md px-4 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      <div className="mt-3">
+                        <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-700 dark:text-gray-300 max-w-md font-medium">
+                          {formatValueDisplay(setting)}
+                        </div>
+                      </div>
+                    )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cascading Delete</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Tenant → Users → Keys
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Deletion Validation</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Prevents Data Loss
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Global Admin</label>
-            <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-              ✓ Cross-Tenant Management & Visibility
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Monitoring & Logging */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-            <Monitor className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            Monitoring & Logging
-          </h3>
-        </div>
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Prometheus Metrics</label>
-              <div className={`px-3 py-2 ${config.metrics.enable ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white'} border rounded-md text-sm font-medium`}>
-                {config.metrics.enable ? '✓ Enabled (Real-Time)' : 'Disabled'}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Log Level</label>
-              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white">
-                {config.server.logLevel.charAt(0).toUpperCase() + config.server.logLevel.slice(1)}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Grafana Dashboard</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Pre-built (Docker Compose)
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Log Format</label>
-              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white">
-                Structured (logrus with fields)
-              </div>
-            </div>
-          </div>
-
-          {config.metrics.enable && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-                <CheckCircle className="h-4 w-4" />
-                <span>System metrics (CPU, Memory, Disk)</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-                <CheckCircle className="h-4 w-4" />
-                <span>Storage metrics (Buckets, Objects, Size)</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-                <CheckCircle className="h-4 w-4" />
-                <span>Request metrics (Throughput, Latency, Errors)</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
-                <Info className="h-4 w-4" />
-                <span>Collection interval: {config.metrics.interval} seconds</span>
-              </div>
+                    {/* Setting Metadata */}
+                    <div className="mt-3 flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
+                      <span>Key: <code className="text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{setting.key}</code></span>
+                      {isEdited && (
+                        <span className="text-yellow-600 dark:text-yellow-400">
+                          Original: {formatValueDisplay({ ...setting, value: setting.value } as Setting)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
       </div>
 
-      {/* System Information */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-            <Package className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            System Information
-          </h3>
-        </div>
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Version</label>
-              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white font-mono">
-                {config.version}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Git Commit</label>
-              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white font-mono">
-                {config.commit || 'none'}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Build Date</label>
-              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white font-mono">
-                {config.buildDate || 'unknown'}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                Beta (S3 Core Complete - 98%)
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">S3 API Compatibility</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ 98% Compatible (40+ operations)
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Deployment</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Single Binary
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Multi-Tenancy</label>
-              <div className={`px-3 py-2 ${config.features.multiTenancy ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white'} border rounded-md text-sm font-medium`}>
-                {config.features.multiTenancy ? '✓ Full Support' : 'Not Enabled'}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dark Mode</label>
-              <div className="px-3 py-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-700 dark:text-green-400 font-medium">
-                ✓ Supported
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* Footer Info */}
+      <div className="text-sm text-gray-500 dark:text-gray-400 text-center space-y-1">
+        <p>Settings are stored in SQLite database • Changes take effect immediately</p>
+        <p className="text-xs">Total settings: {settings.length} • Editable: {settings.filter(s => s.editable).length} • Read-only: {settings.filter(s => !s.editable).length}</p>
       </div>
     </div>
   );

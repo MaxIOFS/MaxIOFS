@@ -760,5 +760,32 @@ export interface AuditLogsResponse {
   pageSize?: number; // Alias
 }
 
+// Settings Types
+export type SettingType = 'string' | 'int' | 'bool' | 'json';
+export type SettingCategory = 'security' | 'audit' | 'storage' | 'metrics' | 'system';
+
+export interface Setting {
+  key: string;
+  value: string;
+  type: SettingType;
+  category: SettingCategory;
+  description: string;
+  editable: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpdateSettingRequest {
+  value: string;
+}
+
+export interface BulkUpdateSettingsRequest {
+  settings: Record<string, string>; // key -> value
+}
+
+export interface SettingsCategoriesResponse {
+  categories: string[];
+}
+
 // Re-export common types
 export type { FC, ReactNode, ComponentProps } from 'react';

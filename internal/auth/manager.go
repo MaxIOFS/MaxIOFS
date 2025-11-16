@@ -94,6 +94,9 @@ type Manager interface {
 
 	// Health check
 	IsReady() bool
+
+	// Database access (for sharing with other managers)
+	GetDB() interface{}
 }
 
 // User represents a user in the system
@@ -804,6 +807,12 @@ func (am *authManager) IsReady() bool {
 // This is called after initialization to inject the audit dependency
 func (am *authManager) SetAuditManager(auditMgr *audit.Manager) {
 	am.auditManager = auditMgr
+}
+
+// GetDB returns the underlying SQLite database connection
+// This allows other managers (like settings) to share the same database
+func (am *authManager) GetDB() interface{} {
+	return am.store.db
 }
 
 // Tenant management methods

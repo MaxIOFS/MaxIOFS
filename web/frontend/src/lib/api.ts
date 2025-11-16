@@ -35,6 +35,10 @@ import type {
   AuditLog,
   AuditLogFilters,
   AuditLogsResponse,
+  Setting,
+  UpdateSettingRequest,
+  BulkUpdateSettingsRequest,
+  SettingsCategoriesResponse,
 } from '@/types';
 
 // API Configuration
@@ -981,6 +985,35 @@ export class APIClient {
 
   static async getAuditLog(id: number): Promise<AuditLog> {
     const response = await apiClient.get<APIResponse<AuditLog>>(`/audit-logs/${id}`);
+    return response.data.data!;
+  }
+
+  // Settings API
+  static async listSettings(category?: string): Promise<Setting[]> {
+    const params = category ? { category } : {};
+    const response = await apiClient.get<APIResponse<Setting[]>>('/settings', { params });
+    return response.data.data!;
+  }
+
+  static async getSettingCategories(): Promise<string[]> {
+    const response = await apiClient.get<APIResponse<SettingsCategoriesResponse>>('/settings/categories');
+    return response.data.data!.categories;
+  }
+
+  static async getSetting(key: string): Promise<Setting> {
+    const response = await apiClient.get<APIResponse<Setting>>(`/settings/${key}`);
+    return response.data.data!;
+  }
+
+  static async updateSetting(key: string, value: string): Promise<Setting> {
+    const request: UpdateSettingRequest = { value };
+    const response = await apiClient.put<APIResponse<Setting>>(`/settings/${key}`, request);
+    return response.data.data!;
+  }
+
+  static async bulkUpdateSettings(settings: Record<string, string>): Promise<{ success: boolean; message: string; count: number }> {
+    const request: BulkUpdateSettingsRequest = { settings };
+    const response = await apiClient.post<APIResponse<{ success: boolean; message: string; count: number }>>('/settings/bulk', request);
     return response.data.data!;
   }
 

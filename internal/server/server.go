@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -20,6 +21,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/metrics"
 	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/settings"
 	"github.com/maxiofs/maxiofs/internal/share"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
@@ -37,6 +39,7 @@ type Server struct {
 	authManager     auth.Manager
 	auditManager    *audit.Manager
 	metricsManager  metrics.Manager
+	settingsManager *settings.Manager
 	shareManager    share.Manager
 	systemMetrics   *metrics.SystemMetricsTracker
 	lifecycleWorker *lifecycle.Worker
@@ -80,6 +83,16 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	authManager := auth.NewManager(cfg.Auth, cfg.DataDir)
+
+	// Initialize settings manager (uses same SQLite DB as auth)
+	db, ok := authManager.GetDB().(*sql.DB)
+	if !ok {
+		return nil, fmt.Errorf("failed to get SQLite database from auth manager")
+	}
+	settingsManager, err := settings.NewManager(db, logrus.StandardLogger())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create settings manager: %w", err)
+	}
 
 	// Initialize audit manager
 	var auditManager *audit.Manager
@@ -179,6 +192,7 @@ func New(cfg *config.Config) (*Server, error) {
 		authManager:     authManager,
 		auditManager:    auditManager,
 		metricsManager:  metricsManager,
+		settingsManager: settingsManager,
 		shareManager:    shareManager,
 		systemMetrics:   systemMetrics,
 		lifecycleWorker: lifecycleWorker,

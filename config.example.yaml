@@ -3,7 +3,89 @@
 # Usage: ./maxiofs --config config.yaml
 
 # =============================================================================
-# SERVER CONFIGURATION
+# CONFIGURATION ARCHITECTURE (v0.4.0+)
+# =============================================================================
+#
+# MaxIOFS uses a dual-configuration system:
+#
+# 1. STATIC CONFIGURATION (this file - config.yaml)
+#    - Infrastructure settings that require server restart
+#    - Server ports, data directories, TLS certificates
+#    - Storage backend selection, encryption keys
+#    - Cannot be changed at runtime
+#    - Set via: config.yaml, environment variables, or CLI flags
+#
+# 2. DYNAMIC CONFIGURATION (Database - SQLite)
+#    - Runtime settings that take effect immediately
+#    - Security policies, audit settings, metrics intervals
+#    - Password requirements, session timeouts, rate limits
+#    - Editable via Web Console (Settings page)
+#    - No server restart required
+#    - Stored in: {data_dir}/auth.db (same DB as authentication)
+#
+# This separation ensures:
+# - Infrastructure changes are deliberate (require restart)
+# - Security policies can be adjusted on-the-fly
+# - Settings are version-controlled (config.yaml) or user-managed (DB)
+#
+# =============================================================================
+# STATIC SETTINGS (config.yaml)
+# =============================================================================
+# These settings are defined below in this file and require server restart.
+#
+# Categories:
+# - Server: listen addresses, ports, log level, data directory
+# - Public URLs: external URLs for reverse proxy scenarios
+# - TLS/SSL: certificates and encryption for HTTPS
+# - Storage: backend type, compression, encryption keys, object locking
+# - Authentication: JWT secrets (initial setup)
+# - Metrics: enable/disable, endpoint path, collection interval (initial)
+# - Audit: enable/disable, retention days (initial), database path
+#
+# =============================================================================
+# DYNAMIC SETTINGS (Web Console > Settings)
+# =============================================================================
+# These settings are editable at runtime via the Web Console.
+# Access: http://localhost:8081/settings (global admins only)
+#
+# Security (9 settings):
+# - session_timeout: JWT session duration (default: 24 hours)
+# - max_failed_attempts: Login lockout threshold (default: 5)
+# - lockout_duration: Account lockout time (default: 15 minutes)
+# - require_2fa_admin: Force 2FA for all admins (default: false)
+# - password_min_length: Minimum password length (default: 8)
+# - password_require_uppercase: Require uppercase letters (default: true)
+# - password_require_numbers: Require numbers (default: true)
+# - password_require_special: Require special characters (default: false)
+# - ratelimit_enabled: Enable rate limiting (default: true)
+# - ratelimit_login_per_minute: Login attempts limit (default: 5)
+# - ratelimit_api_per_second: API requests limit (default: 100)
+#
+# Audit (4 settings):
+# - enabled: Enable audit logging (default: true)
+# - retention_days: Log retention period (default: 90 days)
+# - log_s3_operations: Log S3 API operations (default: true)
+# - log_console_operations: Log Console API operations (default: true)
+#
+# Storage (4 settings):
+# - default_bucket_versioning: Auto-enable versioning (default: false)
+# - default_object_lock_days: Default object lock period (default: 7 days)
+# - enable_compression: Transparent compression (default: false)
+# - compression_level: Compression level 1-9 (default: 6)
+#
+# Metrics (2 settings):
+# - enabled: Enable metrics collection (default: true)
+# - collection_interval: Collection frequency in seconds (default: 10)
+#
+# System (2 settings):
+# - maintenance_mode: Read-only mode (default: false)
+# - max_upload_size_mb: Maximum upload size (default: 5120 MB / 5GB)
+#
+# NOTE: Initial values for dynamic settings can be influenced by this config file
+#       on first startup, but subsequent changes are made via the Web Console.
+#
+# =============================================================================
+# SERVER CONFIGURATION (Static)
 # =============================================================================
 
 # API Server listen address (S3-compatible API)
