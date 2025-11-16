@@ -365,13 +365,12 @@ docker-run:
 		-v maxiofs-data:/data \
 		maxiofs:latest
 
-# Release build (optimized binaries with -s -w flags)
+# Release build (optimized binaries with -s -w flags, no compression)
 .PHONY: release
 release: clean build-web
 	@echo "Building optimized release binaries for all platforms..."
 ifeq ($(DETECTED_OS),Windows)
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
-	@if not exist "$(BUILD_DIR)\release" mkdir "$(BUILD_DIR)\release"
 	@echo Building Linux AMD64 (optimized)...
 	@set GOOS=linux&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-linux-amd64-$(VERSION) ./cmd/maxiofs
 	@echo Building Linux ARM64 (optimized)...
@@ -383,27 +382,16 @@ ifeq ($(DETECTED_OS),Windows)
 	@echo Building macOS ARM64 (optimized)...
 	@set GOOS=darwin&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-darwin-arm64-$(VERSION) ./cmd/maxiofs
 	@echo.
-	@echo Creating release archives...
-	@powershell -Command "Compress-Archive -Path '$(BUILD_DIR)\maxiofs-linux-amd64-$(VERSION)' -DestinationPath '$(BUILD_DIR)\release\maxiofs-$(VERSION)-linux-amd64.zip' -Force"
-	@powershell -Command "Compress-Archive -Path '$(BUILD_DIR)\maxiofs-linux-arm64-$(VERSION)' -DestinationPath '$(BUILD_DIR)\release\maxiofs-$(VERSION)-linux-arm64.zip' -Force"
-	@powershell -Command "Compress-Archive -Path '$(BUILD_DIR)\maxiofs-windows-amd64-$(VERSION).exe' -DestinationPath '$(BUILD_DIR)\release\maxiofs-$(VERSION)-windows-amd64.zip' -Force"
-	@powershell -Command "Compress-Archive -Path '$(BUILD_DIR)\maxiofs-darwin-amd64-$(VERSION)' -DestinationPath '$(BUILD_DIR)\release\maxiofs-$(VERSION)-darwin-amd64.zip' -Force"
-	@powershell -Command "Compress-Archive -Path '$(BUILD_DIR)\maxiofs-darwin-arm64-$(VERSION)' -DestinationPath '$(BUILD_DIR)\release\maxiofs-$(VERSION)-darwin-arm64.zip' -Force"
-	@echo.
 	@echo ========================================
 	@echo Release build complete!
 	@echo ========================================
-	@echo Optimized binaries in $(BUILD_DIR)/:
+	@echo Optimized binaries ready in $(BUILD_DIR)\:
 	@dir /b "$(BUILD_DIR)\maxiofs-*"
 	@echo.
-	@echo Release archives in $(BUILD_DIR)\release\:
-	@dir /b "$(BUILD_DIR)\release\*.zip"
-	@echo.
-	@echo Optimization: Binaries built with -s -w flags (no debug symbols)
-	@echo Note: Checksums and tar.gz are only available on Linux/macOS
+	@echo Optimization: Built with -s -w flags (20-30%% smaller, no debug symbols)
+	@echo Ready to upload to GitHub releases
 else
 	@mkdir -p $(BUILD_DIR)
-	@mkdir -p $(BUILD_DIR)/release
 	@echo "Building Linux AMD64 (optimized)..."
 	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-linux-amd64-$(VERSION) ./cmd/maxiofs
 	@echo "Building Linux ARM64 (optimized)..."
@@ -415,29 +403,14 @@ else
 	@echo "Building macOS ARM64 (optimized)..."
 	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-darwin-arm64-$(VERSION) ./cmd/maxiofs
 	@echo ""
-	@echo "Creating tar.gz archives..."
-	cd $(BUILD_DIR) && tar -czf release/maxiofs-$(VERSION)-linux-amd64.tar.gz maxiofs-linux-amd64-$(VERSION)
-	cd $(BUILD_DIR) && tar -czf release/maxiofs-$(VERSION)-linux-arm64.tar.gz maxiofs-linux-arm64-$(VERSION)
-	cd $(BUILD_DIR) && tar -czf release/maxiofs-$(VERSION)-darwin-amd64.tar.gz maxiofs-darwin-amd64-$(VERSION)
-	cd $(BUILD_DIR) && tar -czf release/maxiofs-$(VERSION)-darwin-arm64.tar.gz maxiofs-darwin-arm64-$(VERSION)
-	@echo "Creating zip archives..."
-	cd $(BUILD_DIR) && zip -q release/maxiofs-$(VERSION)-windows-amd64.zip maxiofs-windows-amd64-$(VERSION).exe
-	@echo "Creating checksums..."
-	cd $(BUILD_DIR)/release && sha256sum *.tar.gz *.zip > checksums.txt
-	@echo ""
 	@echo "========================================"
 	@echo "Release build complete!"
 	@echo "========================================"
-	@echo "Optimized binaries in $(BUILD_DIR)/:"
+	@echo "Optimized binaries ready in $(BUILD_DIR)/:"
 	@ls -lh $(BUILD_DIR)/maxiofs-*
 	@echo ""
-	@echo "Release archives in $(BUILD_DIR)/release/:"
-	@ls -lh $(BUILD_DIR)/release/
-	@echo ""
-	@echo "Optimization: Binaries built with -s -w flags (no debug symbols)"
-	@echo ""
-	@echo "Checksums:"
-	@cat $(BUILD_DIR)/release/checksums.txt
+	@echo "Optimization: Built with -s -w flags (20-30% smaller, no debug symbols)"
+	@echo "Ready to upload to GitHub releases"
 endif
 
 # Debian package build
