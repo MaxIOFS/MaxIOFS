@@ -83,10 +83,9 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 		CreatedAt: time.Now(),
 		Region:    "us-east-1", // Default region
 		Metadata:  make(map[string]string),
-		// Enable encryption by default for security
-		Encryption: &EncryptionConfig{
-			Type: "AES256",
-		},
+		// Note: Encryption is controlled globally in config.yaml, not per-bucket
+		// Bucket-level encryption metadata is for S3 API compatibility only
+		Encryption: nil, // Will be set by server config, not per-bucket
 	}
 
 	// Store in BadgerDB

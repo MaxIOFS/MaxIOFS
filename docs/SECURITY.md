@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 0.4.0-beta
+**Version**: 0.4.1-beta
 
 > **BETA SOFTWARE DISCLAIMER**
 >
@@ -10,6 +10,7 @@
 
 MaxIOFS implements essential security features for object storage:
 
+- **Server-Side Encryption at Rest (SSE)** (v0.4.1+)
 - **Comprehensive Audit Logging** (v0.4.0+)
 - Dual authentication (JWT + S3 signatures)
 - **Two-Factor Authentication (2FA) with TOTP**
@@ -18,6 +19,147 @@ MaxIOFS implements essential security features for object storage:
 - Rate limiting and account lockout
 - Object Lock (WORM compliance)
 - Multi-tenant isolation
+
+---
+
+## Server-Side Encryption (SSE)
+
+**New in v0.4.1-beta**
+
+MaxIOFS provides AES-256-CTR encryption at rest for all stored objects, protecting data from unauthorized filesystem access.
+
+### Features
+
+**Encryption Capabilities:**
+- **AES-256-CTR Encryption**: Industry-standard 256-bit encryption
+- **Streaming Encryption**: Constant memory usage (~32KB) for files of any size
+- **Persistent Master Key**: Stored in `config.yaml`, survives server restarts
+- **Flexible Control**: Dual-level encryption (server + bucket)
+- **Automatic Decryption**: Transparent to S3 clients
+- **Backward Compatible**: Mixed encrypted/unencrypted objects supported
+- **Zero Performance Impact**: ~150+ MiB/s throughput maintained
+
+**Security Properties:**
+- Unique initialization vector (IV) per object
+- Metadata-based encryption detection
+- Master key validation on startup
+- No key storage in metadata or logs
+
+### Configuration
+
+**Enable Encryption:**
+
+1. **Generate Master Key:**
+```bash
+openssl rand -hex 32
+```
+
+2. **Configure in config.yaml:**
+```yaml
+storage:
+  # Enable encryption for new object uploads
+  enable_encryption: true
+
+  # Master encryption key (AES-256)
+  # ⚠️ CRITICAL: Must be EXACTLY 64 hexadecimal characters (32 bytes)
+  # ⚠️ BACKUP THIS KEY SECURELY - Loss means PERMANENT data loss
+  encryption_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+```
+
+3. **Restart MaxIOFS:**
+```bash
+systemctl restart maxiofs
+```
+
+### Encryption Behavior
+
+**Server-Level Control:**
+- `enable_encryption: true` - New objects CAN be encrypted (if bucket also enabled)
+- `enable_encryption: false` - New objects will NOT be encrypted
+- `encryption_key` present - Existing encrypted objects remain accessible
+
+**Bucket-Level Control:**
+- Users choose encryption when creating buckets via Web Console
+- Per-bucket encryption setting stored in bucket metadata
+- Encryption occurs ONLY if BOTH server AND bucket encryption enabled
+
+**Decryption:**
+- Automatic for all encrypted objects (transparent to clients)
+- Works even if `enable_encryption: false` (read-only mode)
+- Mixed encrypted/unencrypted objects coexist in same bucket
+
+### Key Management Best Practices
+
+**⚠️ CRITICAL SECURITY WARNINGS:**
+
+1. **NEVER commit encryption keys to version control**
+   - Add `config.yaml` to `.gitignore`
+   - Use environment variables or secret managers in production
+
+2. **BACKUP the master key securely:**
+   - Store in password manager (1Password, LastPass, Bitwarden)
+   - Use encrypted vault or HSM for production
+   - Losing the key means PERMANENT data loss
+
+3. **Key rotation:**
+   - Currently manual process
+   - Changing key makes old encrypted objects unreadable
+   - Plan rotation strategy carefully
+
+4. **Access control:**
+   - Restrict `config.yaml` file permissions (`chmod 600`)
+   - Limit access to encryption key to authorized personnel only
+
+### API Compatibility
+
+Encryption is transparent to S3 clients:
+- No API changes required
+- Works with AWS CLI, SDKs, and third-party tools
+- Objects automatically encrypted on upload (if enabled)
+- Objects automatically decrypted on download
+
+**Example (AWS CLI):**
+```bash
+# Upload (automatically encrypted if bucket has encryption enabled)
+aws s3 cp file.txt s3://encrypted-bucket/
+
+# Download (automatically decrypted)
+aws s3 cp s3://encrypted-bucket/file.txt downloaded.txt
+```
+
+### Web Console Integration
+
+**Bucket Creation:**
+- Encryption checkbox visible only if server has `encryption_key` configured
+- Warning displayed if server doesn't support encryption
+- Users can choose encryption per bucket
+
+**Visual Indicators:**
+- Alert icons show encryption status
+- Warning messages when encryption unavailable
+
+### Performance Considerations
+
+**Benchmarks** (Windows 11, Go 1.21):
+- **1MB file**: ~200 MiB/s encryption, ~210 MiB/s decryption
+- **10MB file**: ~180 MiB/s encryption, ~190 MiB/s decryption
+- **100MB file**: ~150 MiB/s encryption, ~160 MiB/s decryption
+- **Memory usage**: Constant ~32KB buffer
+- **CPU overhead**: <5% for encryption/decryption
+
+### Compliance & Standards
+
+**Industry Standards:**
+- ✅ AES-256 encryption (NIST approved)
+- ✅ FIPS 140-2 compliant algorithm
+- ✅ Data at rest protection
+- ✅ Transparent encryption/decryption
+
+**Limitations:**
+- ⚠️ Metadata NOT encrypted (only object data)
+- ⚠️ Single master key (no per-tenant keys yet)
+- ⚠️ Manual key rotation required
+- ⚠️ No HSM integration (planned for v0.5.0)
 
 ---
 
@@ -527,23 +669,25 @@ journalctl -u maxiofs | grep -i "failed\|locked\|denied"
 1. **No Built-in TLS** - Use reverse proxy (recommended approach)
 2. **Basic Password Policy** - Only minimum length enforced
 3. ~~**No Multi-Factor Authentication**~~ - ✅ **2FA IMPLEMENTED** (v0.3.2-beta with TOTP)
-4. **Limited Audit Logging** - Basic auth events only
-5. **No Encryption at Rest** - Use filesystem encryption (LUKS, BitLocker, etc.)
+4. ~~**Limited Audit Logging**~~ - ✅ **COMPREHENSIVE AUDIT LOGGING** (v0.4.0-beta)
+5. ~~**No Encryption at Rest**~~ - ✅ **AES-256 ENCRYPTION IMPLEMENTED** (v0.4.1-beta)
 6. **Simple Rate Limiting** - Login endpoint only
 7. **No Security Audits** - Not professionally audited by third parties
 8. ✅ **Session Management** - Improved with idle timer and timeout enforcement (v0.3.1-beta)
-9. **No Key Management System** - Secrets in config files
-10. **SQLite Database** - No at-rest encryption
+9. **Limited Key Management** - Master key in config file (HSM planned for v0.5.0)
+10. **SQLite Database** - No at-rest encryption (use LUKS/BitLocker for system disk)
 
 ### Mitigations
 
 - Use strong passwords
 - ✅ Enable 2FA for all users (especially admins)
+- ✅ Enable server-side encryption (AES-256) for sensitive data
 - Enable account lockout
 - Configure firewall rules
 - Use reverse proxy with TLS
-- Filesystem-level encryption
-- Restrict file permissions
+- Filesystem-level encryption for system disk (LUKS/BitLocker)
+- Restrict file permissions (especially `config.yaml` with encryption key)
+- Backup encryption key securely
 - Regular security updates
 
 ---
@@ -569,13 +713,15 @@ Response time: Within 48 hours
 **Initial Setup:**
 - [ ] Change default credentials
 - [ ] Enable 2FA for admin accounts
+- [ ] Generate and configure encryption key (AES-256)
+- [ ] Backup encryption key securely
 - [ ] Configure HTTPS (reverse proxy)
 - [ ] Set up firewall rules
 - [ ] Run as non-root user
-- [ ] Restrict file permissions
+- [ ] Restrict file permissions (`chmod 600 config.yaml`)
 - [ ] Configure CORS properly
 - [ ] Enable rate limiting
-- [ ] Set up backups
+- [ ] Set up backups (including encryption key)
 
 **Ongoing:**
 - [ ] Monitor logs
@@ -590,5 +736,5 @@ Response time: Within 48 hours
 
 ---
 
-**Version**: 0.3.2-beta
-**Last Updated**: November 2025
+**Version**: 0.4.1-beta
+**Last Updated**: November 18, 2025

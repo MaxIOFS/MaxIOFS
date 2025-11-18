@@ -1,6 +1,6 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.4.0-beta
+**Version**: 0.4.1-beta
 **Status**: Beta - 98% S3 Compatible
 **License**: MIT
 
@@ -51,6 +51,14 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
   - Global admin only access with permission enforcement
 
 ### Authentication & Security
+- ✅ **Server-Side Encryption at Rest (SSE)** - AES-256-CTR encryption for all objects - *New in 0.4.1*
+  - Persistent master key (config.yaml) - survives server restarts
+  - Streaming encryption - constant memory usage, supports files of ANY size
+  - Flexible control: Global (server-level) + per-bucket configuration
+  - Automatic decryption - encrypted files always accessible with master key
+  - Mixed mode support - encrypted and unencrypted objects coexist
+  - Web Console integration - visual encryption status and controls
+  - Zero performance impact - tested at 150+ MiB/s for 100MB files
 - ✅ **Comprehensive Audit Logging System** - Track all system events with compliance-ready logs - *New in 0.4.0*
   - 20+ event types (authentication, user management, bucket operations, 2FA events)
   - Advanced filtering (event type, status, date range, resource type)

@@ -126,16 +126,42 @@ func NewManager(storage storage.Backend, metadataStore metadata.Store, config co
 	encryptionConfig := encryption.DefaultEncryptionConfig()
 	encryptionService := encryption.NewEncryptionService(encryptionConfig)
 
-	// Generate and store default encryption key
-	key, err := encryptionService.GetEncryptor().GenerateKey()
-	if err != nil {
-		logrus.WithError(err).Warn("Failed to generate default encryption key, encryption may fail")
-	} else {
-		if err := encryptionService.GetKeyManager().StoreKey("default", key); err != nil {
-			logrus.WithError(err).Warn("Failed to store default encryption key")
-		} else {
-			logrus.Info("Default AES-256-GCM encryption key generated and stored")
+	// Load master key from config if provided
+	// This key is needed for:
+	// 1. Encrypting new objects (if enable_encryption = true)
+	// 2. Decrypting existing encrypted objects (always, regardless of enable_encryption)
+	if config.EncryptionKey != "" {
+		// Validate key length (must be 32 bytes = 64 hex characters)
+		if len(config.EncryptionKey) != 64 {
+			logrus.Fatalf("Invalid encryption_key length: got %d characters, expected 64 (32 bytes in hex). "+
+				"Generate a secure key with: openssl rand -hex 32", len(config.EncryptionKey))
 		}
+
+		// Convert hex string to bytes (32 bytes for AES-256)
+		keyBytes := make([]byte, 32)
+		_, err := fmt.Sscanf(config.EncryptionKey, "%64x", &keyBytes)
+		if err != nil {
+			logrus.WithError(err).Fatal("Invalid encryption_key format: must be 64 hex characters. " +
+				"Generate a secure key with: openssl rand -hex 32")
+		}
+
+		// Store the master key as the default encryption key
+		if err := encryptionService.GetKeyManager().StoreKey("default", keyBytes); err != nil {
+			logrus.WithError(err).Fatal("Failed to store master encryption key")
+		}
+
+		if config.EnableEncryption {
+			logrus.Info("✅ Encryption enabled: New objects will be encrypted with AES-256-CTR")
+		} else {
+			logrus.Info("⚠️  Encryption disabled for new objects (existing encrypted objects remain accessible)")
+		}
+	} else {
+		// No encryption key configured
+		if config.EnableEncryption {
+			logrus.Fatal("Encryption is enabled but encryption_key is not set in config. " +
+				"Generate a secure key with: openssl rand -hex 32")
+		}
+		logrus.Info("⚠️  No encryption key configured: All objects will be stored unencrypted")
 	}
 
 	return &objectManager{
@@ -278,31 +304,38 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 		}
 	}
 
-	// Decrypt data stream
-	// Create a pipe for decryption
-	pipeReader, pipeWriter := io.Pipe()
+	// Check if object is encrypted
+	isEncrypted := storageMetadata["encrypted"] == "true"
 
-	// Create encryption metadata for decryption
-	encryptionMeta := &encryption.EncryptionMetadata{
-		Algorithm: "AES-256-GCM",
-	}
+	if isEncrypted {
+		// Object is encrypted - decrypt stream
+		pipeReader, pipeWriter := io.Pipe()
 
-	// Decrypt in a goroutine
-	go func() {
-		defer pipeWriter.Close()
-		defer encryptedReader.Close()
-
-		if err := om.encryptionService.DecryptStream(encryptedReader, pipeWriter, encryptionMeta); err != nil {
-			// Ignore "closed pipe" errors - these occur during range requests when client
-			// closes connection after receiving requested bytes, which is expected behavior
-			if err.Error() != "io: read/write on closed pipe" && !strings.Contains(err.Error(), "closed pipe") {
-				logrus.WithError(err).Error("Failed to decrypt object data")
-				pipeWriter.CloseWithError(fmt.Errorf("decryption failed: %w", err))
-			}
+		// Create encryption metadata for decryption
+		encryptionMeta := &encryption.EncryptionMetadata{
+			Algorithm: "AES-256-GCM",
 		}
-	}()
 
-	return object, pipeReader, nil
+		// Decrypt in a goroutine
+		go func() {
+			defer pipeWriter.Close()
+			defer encryptedReader.Close()
+
+			if err := om.encryptionService.DecryptStream(encryptedReader, pipeWriter, encryptionMeta); err != nil {
+				// Ignore "closed pipe" errors - these occur during range requests when client
+				// closes connection after receiving requested bytes, which is expected behavior
+				if err.Error() != "io: read/write on closed pipe" && !strings.Contains(err.Error(), "closed pipe") {
+					logrus.WithError(err).Error("Failed to decrypt object data")
+					pipeWriter.CloseWithError(fmt.Errorf("decryption failed: %w", err))
+				}
+			}
+		}()
+
+		return object, pipeReader, nil
+	} else {
+		// Object is NOT encrypted - return as-is
+		return object, encryptedReader, nil
+	}
 }
 
 // PutObject stores an object
@@ -381,35 +414,79 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		"originalETag": originalETag,
 	}).Debug("Calculated metadata from streaming upload")
 
-	// Save original metadata (size and etag are from UNENCRYPTED data)
-	storageMetadata["original-size"] = fmt.Sprintf("%d", originalSize)
-	storageMetadata["original-etag"] = originalETag
-	storageMetadata["encrypted"] = "true"
-	storageMetadata["x-amz-server-side-encryption"] = "AES256"
-	storageMetadata["x-amz-server-side-encryption-algorithm"] = "AES-256-CTR"
-
-	// Step 2: Open temp file for reading and encrypt while streaming to storage
-	tempFileRead, err := os.Open(tempPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open temp file for encryption: %w", err)
-	}
-	defer tempFileRead.Close()
-
-	// Create a pipe for streaming encryption
-	pipeReader, pipeWriter := io.Pipe()
-
-	// Encrypt in background goroutine
-	go func() {
-		defer pipeWriter.Close()
-		if _, err := om.encryptionService.EncryptStream(tempFileRead, pipeWriter); err != nil {
-			logrus.WithError(err).Error("Failed to encrypt object during upload")
-			pipeWriter.CloseWithError(fmt.Errorf("encryption failed: %w", err))
+	// Check if encryption should be applied
+	// Encryption requires BOTH:
+	// 1. Server-level encryption enabled (config.yaml)
+	// 2. Bucket-level encryption enabled (bucket metadata)
+	shouldEncrypt := false
+	if om.config.EnableEncryption {
+		// Server encryption is enabled, check bucket preference
+		bucketInfo, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
+		if err == nil && bucketInfo != nil && bucketInfo.Encryption != nil {
+			// Check if bucket has encryption rules configured
+			if len(bucketInfo.Encryption.Rules) > 0 && bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault != nil {
+				sseConfig := bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault
+				if sseConfig.SSEAlgorithm != "" {
+					// Bucket has encryption configured
+					shouldEncrypt = true
+				}
+			}
 		}
-	}()
+	}
 
-	// Step 3: Store encrypted data (streaming from pipe)
-	if err := om.storage.Put(ctx, objectPath, pipeReader, storageMetadata); err != nil {
-		return nil, fmt.Errorf("failed to store object: %w", err)
+	// Apply encryption if enabled
+	if shouldEncrypt {
+		// ENCRYPTION ENABLED: Encrypt object before storing
+
+		// Save original metadata (size and etag are from UNENCRYPTED data)
+		storageMetadata["original-size"] = fmt.Sprintf("%d", originalSize)
+		storageMetadata["original-etag"] = originalETag
+		storageMetadata["encrypted"] = "true"
+		storageMetadata["x-amz-server-side-encryption"] = "AES256"
+		storageMetadata["x-amz-server-side-encryption-algorithm"] = "AES-256-CTR"
+
+		// Step 2: Open temp file for reading and encrypt while streaming to storage
+		tempFileRead, err := os.Open(tempPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open temp file for encryption: %w", err)
+		}
+		defer tempFileRead.Close()
+
+		// Create a pipe for streaming encryption
+		pipeReader, pipeWriter := io.Pipe()
+
+		// Encrypt in background goroutine
+		go func() {
+			defer pipeWriter.Close()
+			if _, err := om.encryptionService.EncryptStream(tempFileRead, pipeWriter); err != nil {
+				logrus.WithError(err).Error("Failed to encrypt object during upload")
+				pipeWriter.CloseWithError(fmt.Errorf("encryption failed: %w", err))
+			}
+		}()
+
+		// Step 3: Store encrypted data (streaming from pipe)
+		if err := om.storage.Put(ctx, objectPath, pipeReader, storageMetadata); err != nil {
+			return nil, fmt.Errorf("failed to store object: %w", err)
+		}
+	} else {
+		// ENCRYPTION DISABLED: Store object as-is (unencrypted)
+
+		// Use original size and ETag directly
+		storageMetadata["size"] = fmt.Sprintf("%d", originalSize)
+		storageMetadata["etag"] = originalETag
+		// Do NOT set "encrypted" = "true"
+
+		// Open temp file for reading
+		tempFileRead, err := os.Open(tempPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open temp file: %w", err)
+		}
+		defer tempFileRead.Close()
+
+		// Store unencrypted data directly
+		if err := om.storage.Put(ctx, objectPath, tempFileRead, storageMetadata); err != nil {
+			return nil, fmt.Errorf("failed to store object: %w", err)
+		}
 	}
 
 	// Get final storage metadata (timestamps, etc)
@@ -1695,52 +1772,113 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 		"originalETag": originalETag,
 	}).Info("Saved original metadata to BadgerDB before encryption")
 
-	// Step 4: Open temp file for reading and encrypt while streaming to storage
-	tempFileRead, err := os.Open(tempPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open temp file for encryption: %w", err)
-	}
-	defer tempFileRead.Close()
-
-	// Create a pipe for streaming encryption
-	pipeReader, pipeWriter := io.Pipe()
-
-	// Encrypt in background goroutine
-	go func() {
-		defer pipeWriter.Close()
-		if _, err := om.encryptionService.EncryptStream(tempFileRead, pipeWriter); err != nil {
-			logrus.WithError(err).Error("Failed to encrypt multipart object")
-			pipeWriter.CloseWithError(fmt.Errorf("encryption failed: %w", err))
-		}
-	}()
-
-	// Step 5: Replace file with encrypted version (streaming from pipe)
-	// Store encryption markers in storage metadata
-	encryptionMetadata := map[string]string{
-		"original-size":                          fmt.Sprintf("%d", originalSize),
-		"original-etag":                          originalETag,
-		"encrypted":                              "true",
-		"x-amz-server-side-encryption":           "AES256",
-		"x-amz-server-side-encryption-algorithm": "AES-256-CTR",
-		"content-type":                           multipart.Metadata["content-type"],
-	}
-
-	// Copy any user metadata from multipart upload
-	for k, v := range multipart.Metadata {
-		if k != "content-type" {
-			encryptionMetadata[k] = v
+	// Check if encryption should be applied
+	// Encryption requires BOTH:
+	// 1. Server-level encryption enabled (config.yaml)
+	// 2. Bucket-level encryption enabled (bucket metadata)
+	shouldEncrypt := false
+	if om.config.EnableEncryption {
+		// Server encryption is enabled, check bucket preference
+		tenantID, bucketName := om.parseBucketPath(multipart.Bucket)
+		bucketInfo, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
+		if err == nil && bucketInfo != nil && bucketInfo.Encryption != nil {
+			// Check if bucket has encryption rules configured
+			if len(bucketInfo.Encryption.Rules) > 0 && bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault != nil {
+				sseConfig := bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault
+				if sseConfig.SSEAlgorithm != "" {
+					// Bucket has encryption configured
+					shouldEncrypt = true
+				}
+			}
 		}
 	}
 
-	if err := om.storage.Put(ctx, objectPath, pipeReader, encryptionMetadata); err != nil {
-		return nil, fmt.Errorf("failed to store encrypted multipart object: %w", err)
-	}
+	// Apply encryption if enabled
+	if shouldEncrypt {
+		// ENCRYPTION ENABLED: Encrypt multipart object before storing
 
-	logrus.WithFields(logrus.Fields{
-		"uploadID": uploadID,
-		"bucket":   multipart.Bucket,
-		"key":      multipart.Key,
-	}).Info("Multipart object encrypted and stored successfully (streaming)")
+		// Step 4: Open temp file for reading and encrypt while streaming to storage
+		tempFileRead, err := os.Open(tempPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open temp file for encryption: %w", err)
+		}
+		defer tempFileRead.Close()
+
+		// Create a pipe for streaming encryption
+		pipeReader, pipeWriter := io.Pipe()
+
+		// Encrypt in background goroutine
+		go func() {
+			defer pipeWriter.Close()
+			if _, err := om.encryptionService.EncryptStream(tempFileRead, pipeWriter); err != nil {
+				logrus.WithError(err).Error("Failed to encrypt multipart object")
+				pipeWriter.CloseWithError(fmt.Errorf("encryption failed: %w", err))
+			}
+		}()
+
+		// Step 5: Replace file with encrypted version (streaming from pipe)
+		// Store encryption markers in storage metadata
+		encryptionMetadata := map[string]string{
+			"original-size":                          fmt.Sprintf("%d", originalSize),
+			"original-etag":                          originalETag,
+			"encrypted":                              "true",
+			"x-amz-server-side-encryption":           "AES256",
+			"x-amz-server-side-encryption-algorithm": "AES-256-CTR",
+			"content-type":                           multipart.Metadata["content-type"],
+		}
+
+		// Copy any user metadata from multipart upload
+		for k, v := range multipart.Metadata {
+			if k != "content-type" {
+				encryptionMetadata[k] = v
+			}
+		}
+
+		if err := om.storage.Put(ctx, objectPath, pipeReader, encryptionMetadata); err != nil {
+			return nil, fmt.Errorf("failed to store encrypted multipart object: %w", err)
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"uploadID": uploadID,
+			"bucket":   multipart.Bucket,
+			"key":      multipart.Key,
+		}).Info("Multipart object encrypted and stored successfully (streaming)")
+	} else {
+		// ENCRYPTION DISABLED: Keep multipart object unencrypted
+		// Combined file already exists at objectPath, just update metadata without encryption
+
+		// Storage metadata for unencrypted object
+		unencryptedMetadata := map[string]string{
+			"size":         fmt.Sprintf("%d", originalSize),
+			"etag":         originalETag,
+			"content-type": multipart.Metadata["content-type"],
+		}
+
+		// Copy any user metadata from multipart upload
+		for k, v := range multipart.Metadata {
+			if k != "content-type" {
+				unencryptedMetadata[k] = v
+			}
+		}
+
+		// Open temp file to replace combined file with proper metadata
+		tempFileRead, err := os.Open(tempPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open temp file: %w", err)
+		}
+		defer tempFileRead.Close()
+
+		// Replace with unencrypted version (streaming)
+		if err := om.storage.Put(ctx, objectPath, tempFileRead, unencryptedMetadata); err != nil {
+			return nil, fmt.Errorf("failed to store multipart object: %w", err)
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"uploadID": uploadID,
+			"bucket":   multipart.Bucket,
+			"key":      multipart.Key,
+		}).Info("Multipart object stored successfully (unencrypted)")
+	}
 
 	// Use the size from the object we already created (original size)
 	size := originalSize

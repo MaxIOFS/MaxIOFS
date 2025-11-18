@@ -86,6 +86,15 @@ export default function CreateBucketPage() {
     tags: [],
   });
 
+  // Fetch server config to check if encryption is enabled
+  const { data: serverConfig } = useQuery({
+    queryKey: ['serverConfig'],
+    queryFn: APIClient.getServerConfig,
+  });
+
+  // Check if server has encryption enabled
+  const serverEncryptionEnabled = serverConfig?.storage?.enableEncryption ?? false;
+
   // Fetch users and tenants for ownership selection
   const { data: users } = useQuery({
     queryKey: ['users'],
@@ -647,23 +656,52 @@ export default function CreateBucketPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Server encryption status warning */}
+                {!serverEncryptionEnabled && (
+                  <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-md p-3 mb-4">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                          Server Encryption Disabled
+                        </p>
+                        <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                          Encryption is not enabled on the server. To enable encryption, configure <code className="bg-amber-100 dark:bg-amber-900/50 px-1 rounded">encryption_key</code> in <code className="bg-amber-100 dark:bg-amber-900/50 px-1 rounded">config.yaml</code> and restart the server.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center space-x-2">
                   <input
                     type="checkbox"
                     id="encryption"
-                    checked={config.encryptionEnabled}
+                    checked={serverEncryptionEnabled && config.encryptionEnabled}
                     onChange={(e) => updateConfig('encryptionEnabled', e.target.checked)}
-                    className="rounded border-gray-300 dark:border-gray-600"
+                    disabled={!serverEncryptionEnabled}
+                    className={`rounded border-gray-300 dark:border-gray-600 ${!serverEncryptionEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                   />
-                  <label htmlFor="encryption" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Enable Default Encryption
+                  <label
+                    htmlFor="encryption"
+                    className={`text-sm font-medium ${!serverEncryptionEnabled ? 'text-gray-400 dark:text-gray-500 cursor-not-allowed' : 'text-gray-700 dark:text-gray-300'}`}
+                  >
+                    Enable Encryption for this Bucket
                   </label>
                 </div>
 
-                {config.encryptionEnabled && (
+                {serverEncryptionEnabled && config.encryptionEnabled && (
                   <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md p-3">
                     <p className="text-sm text-blue-800 dark:text-blue-300">
-                      <strong>AES-256 Encryption</strong> - All objects will be encrypted at rest using AES-256-GCM
+                      <strong>AES-256-CTR Encryption</strong> - All objects in this bucket will be encrypted at rest using streaming AES-256-CTR encryption
+                    </p>
+                  </div>
+                )}
+
+                {serverEncryptionEnabled && !config.encryptionEnabled && (
+                  <div className="bg-gray-50 dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-md p-3">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Objects in this bucket will be stored <strong>unencrypted</strong>. You can enable encryption later if needed.
                     </p>
                   </div>
                 )}

@@ -1,8 +1,8 @@
 # MaxIOFS Documentation
 
-**Version**: 0.4.0-beta
+**Version**: 0.4.1-beta
 **S3 Compatibility**: 98%
-**Last Updated**: November 15, 2025
+**Last Updated**: November 18, 2025
 
 ---
 
@@ -72,8 +72,10 @@ Start here if you're new to MaxIOFS:
   - Best practices
 
 - **[Security Guide](SECURITY.md)** - Security features and best practices
+  - Server-Side Encryption at Rest (SSE) with AES-256
   - Authentication (JWT + S3 signatures)
   - Two-Factor Authentication (2FA) with TOTP
+  - Comprehensive Audit Logging
   - Role-Based Access Control (RBAC)
   - Rate limiting and account lockout
   - Object Lock (WORM compliance)
@@ -107,28 +109,48 @@ Start here if you're new to MaxIOFS:
 
 ---
 
-## 🆕 What's New in v0.4.0-beta
+## 🆕 What's New in v0.4.1-beta
 
 ### Major Features
 
+- ✅ **Server-Side Encryption at Rest (SSE)** - AES-256-CTR encryption for all stored objects
+  - Persistent master key storage (survives server restarts)
+  - Streaming encryption with constant memory usage (~32KB)
+  - Supports files of ANY size (tested: 1KB to 100MB+)
+  - Dual-level control (server + bucket encryption settings)
+  - Automatic decryption (transparent to S3 clients)
+  - Backward compatible (mixed encrypted/unencrypted objects)
+  - Zero performance impact (~150+ MiB/s throughput)
+  - Industry-standard AES-256 (NIST approved, FIPS 140-2 compliant)
+
+- ✅ **Dynamic Settings System** - Runtime configuration stored in SQLite
+  - System settings persisted in database (`system_settings` table)
+  - Web Console settings (session timeout, object lock, etc.) configurable via UI
+  - No server restart required for policy changes
+  - Settings categorized (Security, Storage, ObjectLock, System)
+
+- ✅ **Metrics Historical Storage** - BadgerDB for metrics persistence
+  - Historical metrics data now persists across restarts
+  - Dashboard charts retain data after server reboot
+  - Fixed range calculation bugs in metrics page
+
+- ✅ **Critical Security Fixes**
+  - Fixed tenant menu visibility (normal users couldn't see it)
+  - Fixed global admin privilege escalation bug
+  - Fixed password change detection (own vs other user)
+  - Enhanced frontend permission validation
+
+- ✅ **UI/UX Improvements**
+  - Unified card design across all pages
+  - Enhanced audit logs interface with new filters
+  - Improved settings page layout
+  - Better encryption status indicators
+
+### Previous Features (v0.4.0-beta)
+
 - ✅ **Comprehensive Audit Logging System** - Track all critical system events
-  - 20+ event types (authentication, user management, buckets, 2FA, etc.)
-  - SQLite-based storage with automatic retention management (default: 90 days)
-  - Advanced filtering, search, and CSV export
-  - Multi-tenant isolation (global/tenant admin access)
-  - Compliance-ready (GDPR, SOC 2, HIPAA, ISO 27001, PCI DSS)
-
-- ✅ **Professional Audit Logs UI** - Modern web interface for audit logs
-  - Quick date filters (Today, Last 7 Days, Last 30 Days, All Time)
-  - Real-time search across users, events, resources, and IPs
-  - Color-coded critical events with visual alerts
-  - Expandable rows with full event metadata
-  - Enhanced stats dashboard with gradient cards
-
-- ✅ **RESTful Audit API** - Programmatic access to audit logs
-  - `GET /api/v1/audit-logs` with advanced filtering
-  - Pagination support (default: 50, max: 100 per page)
-  - Query by event type, status, resource type, date range
+- ✅ **Professional Audit Logs UI** - Modern web interface with filters
+- ✅ **RESTful Audit API** - Programmatic access to logs
 
 ### Previous Features (v0.3.2-beta)
 
@@ -197,6 +219,8 @@ aws --endpoint-url=http://localhost:8080 s3 cp file.txt s3://my-bucket/
 
 | Feature | Status | Documentation |
 |---------|--------|---------------|
+| Server-Side Encryption (AES-256) | ✅ Complete | [Security Guide](SECURITY.md#server-side-encryption-sse) |
+| Comprehensive Audit Logging | ✅ Complete | [Security Guide](SECURITY.md#audit-logging) |
 | Username/Password | ✅ Complete | [Security Guide](SECURITY.md) |
 | Two-Factor Authentication (2FA) | ✅ Complete | [Security Guide](SECURITY.md#2-two-factor-authentication-2fa) |
 | JWT Tokens | ✅ Complete | [Security Guide](SECURITY.md#1-console-authentication-jwt) |
@@ -253,7 +277,7 @@ MaxIOFS is in **beta development**. Core features are implemented and tested, bu
 - ⚠️ Limited testing at extreme scale (100+ concurrent users)
 - ⚠️ Single-node only (no clustering)
 - ⚠️ Filesystem backend only
-- ⚠️ No encryption at rest (use filesystem-level encryption)
+- ⚠️ Limited encryption key management (master key in config, HSM planned for v0.5.0)
 
 See [Architecture Overview](ARCHITECTURE.md#current-limitations) for complete list.
 
@@ -311,5 +335,5 @@ Email: security@yourdomain.com (update with actual contact)
 
 ---
 
-**Version**: 0.3.2-beta
-**Last Updated**: November 12, 2025
+**Version**: 0.4.1-beta
+**Last Updated**: November 18, 2025

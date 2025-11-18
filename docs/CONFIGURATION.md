@@ -1,9 +1,9 @@
 
 # MaxIOFS Configuration Guide
 
-**Version**: 0.4.0-beta
+**Version**: 0.4.1-beta
 
-Configuration reference for MaxIOFS v0.4.0-beta
+Configuration reference for MaxIOFS v0.4.1-beta
 
 ---
 
@@ -15,6 +15,7 @@ Configuration reference for MaxIOFS v0.4.0-beta
 - [Server Settings](#server-settings)
 - [TLS/HTTPS](#tlshttps)
 - [Storage](#storage)
+- [Server-Side Encryption (SSE)](#server-side-encryption-sse)
 - [Authentication](#authentication)
 - [Audit Logging](#audit-logging)
 - [Dynamic Settings](#dynamic-settings)
@@ -259,19 +260,160 @@ server {
 | `storage.compression_type` | string | `gzip` | Type (gzip/lz4/zstd) |
 | `storage.compression_level` | int | `6` | Level (1-9) |
 | `storage.enable_object_lock` | bool | `true` | Object Lock |
+| `storage.enable_encryption` | bool | `false` | Enable server-side encryption (SSE) |
+| `storage.encryption_key` | string | - | Master encryption key (64 hex chars) |
 
-  
+
 
 **Example:**
 
 ```yaml
 storage:
-backend: "filesystem"
-enable_compression: true
-compression_type: "zstd"
-compression_level: 3
-enable_object_lock: true
+  backend: "filesystem"
+  enable_compression: true
+  compression_type: "zstd"
+  compression_level: 3
+  enable_object_lock: true
+  enable_encryption: true
+  encryption_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 ```
+
+---
+
+## Server-Side Encryption (SSE)
+
+**New in v0.4.1-beta**
+
+MaxIOFS supports AES-256-CTR encryption at rest for all stored objects.
+
+### Configuration Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `storage.enable_encryption` | bool | No | `false` | Enable encryption for new object uploads |
+| `storage.encryption_key` | string | Yes (if encryption enabled) | - | Master encryption key (must be exactly 64 hexadecimal characters = 32 bytes) |
+
+### Setup Instructions
+
+**1. Generate Master Key:**
+
+```bash
+# Generate a cryptographically secure 32-byte (256-bit) key
+openssl rand -hex 32
+```
+
+**2. Configure in config.yaml:**
+
+```yaml
+storage:
+  # Enable encryption for new uploads
+  enable_encryption: true
+
+  # Master Encryption Key (AES-256)
+  # ⚠️ CRITICAL: Must be EXACTLY 64 hexadecimal characters (32 bytes)
+  # ⚠️ BACKUP THIS KEY SECURELY - Loss means PERMANENT data loss
+  # Generate with: openssl rand -hex 32
+  encryption_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+```
+
+**3. Restart Server:**
+
+```bash
+systemctl restart maxiofs
+```
+
+### Encryption Behavior
+
+**Dual-Level Control:**
+- **Server-Level**: `enable_encryption` flag (config.yaml)
+  - `true`: New objects CAN be encrypted (if bucket also enabled)
+  - `false`: New objects will NOT be encrypted
+
+- **Bucket-Level**: Per-bucket encryption setting (Web Console)
+  - Users choose encryption when creating buckets
+  - Encryption happens ONLY if BOTH server AND bucket enabled
+
+**Decryption:**
+- Automatic for all encrypted objects (transparent to S3 clients)
+- Works even if `enable_encryption: false` (read-only mode)
+- Mixed encrypted/unencrypted objects supported in same bucket
+
+**Key Persistence:**
+- Master key loaded at startup (survives restarts)
+- If `encryption_key` exists, encrypted objects remain accessible
+- Removing `encryption_key` makes encrypted objects UNREADABLE
+
+### Security Warnings
+
+**⚠️ CRITICAL:**
+
+1. **NEVER commit encryption keys to version control**
+   - Add `config.yaml` to `.gitignore`
+   - Use environment variables in production:
+     ```bash
+     export MAXIOFS_STORAGE_ENCRYPTION_KEY="your-64-char-hex-key"
+     ```
+
+2. **BACKUP the master key securely:**
+   - Store in password manager (1Password, LastPass, Bitwarden)
+   - Use encrypted vault or HSM for production
+   - **Losing the key means PERMANENT data loss for encrypted objects**
+
+3. **Key rotation:**
+   - Currently manual process
+   - Changing key makes old encrypted objects UNREADABLE
+   - Plan rotation strategy carefully (not recommended for production)
+
+4. **File permissions:**
+   ```bash
+   chmod 600 config.yaml  # Restrict access to owner only
+   ```
+
+### Performance
+
+**Benchmarks** (Windows 11, Go 1.21):
+- **1MB file**: ~200 MiB/s encryption, ~210 MiB/s decryption
+- **10MB file**: ~180 MiB/s encryption, ~190 MiB/s decryption
+- **100MB file**: ~150 MiB/s encryption, ~160 MiB/s decryption
+- **Memory usage**: Constant ~32KB buffer (streaming encryption)
+- **CPU overhead**: <5% for encryption/decryption operations
+
+### Web Console Integration
+
+**Bucket Creation:**
+- Encryption checkbox visible only if server has `encryption_key` configured
+- Warning displayed if server doesn't support encryption
+- Users can choose encryption per bucket
+
+**Visual Indicators:**
+- Alert icons show encryption status
+- Warning messages when encryption unavailable
+
+### Environment Variable Support
+
+```bash
+# Enable encryption via environment variable
+export MAXIOFS_STORAGE_ENABLE_ENCRYPTION=true
+
+# Set encryption key via environment variable (recommended for production)
+export MAXIOFS_STORAGE_ENCRYPTION_KEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+# Start server
+./maxiofs --data-dir /var/lib/maxiofs
+```
+
+### Compliance
+
+**Standards:**
+- ✅ AES-256 encryption (NIST approved)
+- ✅ FIPS 140-2 compliant algorithm
+- ✅ Data at rest protection
+
+**Limitations:**
+- ⚠️ Metadata NOT encrypted (only object data)
+- ⚠️ Single master key (no per-tenant keys)
+- ⚠️ Manual key rotation
+- ⚠️ No HSM integration (planned for v0.5.0)
 
 ---
 

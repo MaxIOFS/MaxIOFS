@@ -1,6 +1,6 @@
 # MaxIOFS Quick Start Guide
 
-**Version**: 0.4.0-beta
+**Version**: 0.4.1-beta
 **Time to Complete**: 15-20 minutes
 
 ## Overview
@@ -417,5 +417,5 @@ aws configure list
 
 ---
 
-**Version**: 0.4.0-beta
-**Last Updated**: November 12, 2025
+**Version**: 0.4.1-beta
+**Last Updated**: November 18, 2025

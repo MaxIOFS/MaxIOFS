@@ -1,6 +1,6 @@
 # MaxIOFS Deployment Guide
 
-**Version**: 0.4.0-beta
+**Version**: 0.4.1-beta
 
 ## Overview
 
@@ -448,5 +448,5 @@ ls -t $BACKUP_DIR/maxiofs_*.tar.gz | tail -n +8 | xargs rm -f
 
 ---
 
-**Version**: 0.4.0-beta
+**Version**: 0.4.1-beta
 **Last Updated**: November 2025

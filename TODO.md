@@ -1,6 +1,6 @@
 # MaxIOFS - TODO & Roadmap
 
-**Version**: 0.4.0-beta
+**Version**: 0.4.1-beta
 **Last Updated**: November 18, 2025
 **Status**: Beta - 98% S3 Compatible
 
@@ -8,7 +8,7 @@
 
 ```
 ┌───────────────────────────────────────────────┐
-│  MaxIOFS v0.4.0-beta                          │
+│  MaxIOFS v0.4.1-beta                          │
 │  Status: BETA - 98% S3 Compatible             │
 ├───────────────────────────────────────────────┤
 │  ✅ S3 API: 98% Compatible with AWS S3        │
@@ -169,18 +169,20 @@
 
 ---
 
-### 🔐 Server-Side Encryption (v0.4.0-beta - November 18, 2025)
+### 🔐 Server-Side Encryption (v0.4.1-beta - November 18, 2025)
 
 **Complete AES-256-CTR Encryption at Rest - 100% IMPLEMENTED**:
 - ✅ **Encryption Implementation**:
   - AES-256-CTR (Counter Mode) encryption for ALL objects (small files + multipart uploads)
   - **Streaming encryption with temporary files** - constant memory usage regardless of file size
+  - **Persistent master key** - stored in config.yaml, survives server restarts
+  - **Flexible encryption control** - Server-level (config) + Bucket-level (per-bucket choice)
   - Transparent encryption/decryption - S3 clients unaware of encryption
   - Encryption service in `pkg/encryption/encryption.go` (pre-existing, now integrated)
-  - Automatic key generation and in-memory key management
-  - **Files**: `internal/object/manager.go:356-414 (PutObject)`, `internal/object/manager.go:1637-1662 (CompleteMultipartUpload)`, `pkg/encryption/encryption.go`
+  - **Files**: `internal/object/manager.go:125-165 (Key Management)`, `internal/object/manager.go:410-463 (PutObject)`, `internal/object/manager.go:1768-1851 (CompleteMultipartUpload)`, `pkg/encryption/encryption.go`
 
 - ✅ **PutObject Flow** (Small Files):
+  - **Conditional encryption**: Encrypts only if BOTH server encryption enabled AND bucket encryption enabled
   - **Streaming approach**: Client data → temp file (calculate MD5 hash) → encrypt from temp → storage
   - Uses `io.MultiWriter` to simultaneously write to temp file and MD5 hasher
   - Stores original metadata: `original-size`, `original-etag`, `encrypted=true`
@@ -190,6 +192,7 @@
   - **Memory usage**: ~32KB buffers (constant, independent of file size)
 
 - ✅ **CompleteMultipartUpload Flow** (Large Files):
+  - **Conditional encryption**: Encrypts only if BOTH server encryption enabled AND bucket encryption enabled
   - Receives and combines all uploaded parts into single file
   - **Streaming approach**: Combined file → temp file (calculate MD5 hash) → save metadata → encrypt → replace
   - File handles properly closed BEFORE replacement (Windows compatibility)
@@ -201,11 +204,13 @@
   - **Memory usage**: ~32KB buffers (constant, independent of file size)
 
 - ✅ **GetObject Flow**:
-  - Reads encrypted file from disk
+  - Reads file from disk (encrypted or unencrypted)
   - Checks metadata flag `encrypted=true`
+  - **If encrypted**: Decrypts stream automatically (regardless of enable_encryption setting)
+  - **If not encrypted**: Returns file as-is
   - Uses original metadata for client response (size, ETag)
-  - Decrypts stream transparently
   - Client receives original unencrypted data
+  - **Backward compatible**: Works with mixed encrypted/unencrypted objects
 
 - ✅ **Metadata Management**:
   - BadgerDB stores original size/ETag (before encryption)
@@ -227,32 +232,58 @@
   - **No memory issues**: Constant ~32KB buffer usage regardless of file size ✅
 
 **Security Features**:
-- ✅ ALL objects encrypted at rest with AES-256 (small + multipart)
+- ✅ **Persistent master key** - Stored in config.yaml, survives server restarts
+- ✅ **Flexible encryption control** - Global (server-level) + per-bucket configuration
+- ✅ **Automatic decryption** - Encrypted files always accessible if master key is configured
+- ✅ **Mixed mode support** - Encrypted and unencrypted objects can coexist
 - ✅ Transparent to S3 clients (no code changes needed)
 - ✅ Transparent to Web Console (automatic encryption/decryption)
 - ✅ Encryption metadata tracked per object
-- ✅ IV (Initialization Vector) unique per object
+- ✅ IV (Initialization Vector) unique per object (16 bytes)
 - ✅ **Streaming encryption**: Supports files of ANY size without memory constraints
 - ✅ **Multi-interface support**: Works seamlessly with S3 API, Console API, and Web UI
+- ✅ **Frontend UI controls**: Visual indication of encryption status, conditional checkbox
+
+**Key Management**:
+- 🔑 **Master Key Source**: config.yaml `storage.encryption_key` (64 hex characters = 32 bytes)
+- 🔑 **Key Generation**: `openssl rand -hex 32`
+- 🔑 **Key Validation**: Automatic validation at startup (length, format)
+- 🔑 **Key Backup**: Critical - if lost, encrypted data is PERMANENTLY unrecoverable
+- 🔑 **Key Rotation**: Not supported (changing key makes old encrypted files unreadable)
 
 **Known Limitations**:
-- ⚠️ **Key persistence** - Encryption keys in-memory only (regenerated on restart)
+- ⚠️ **Key rotation not supported** - Changing encryption_key makes previously encrypted objects unreadable
+- ⚠️ **Single master key** - All encrypted objects use the same key (no per-bucket keys)
 - ⚠️ **Range requests inefficiency** - Downloads with byte ranges (HTTP 206) decrypt entire file, not just requested range. Works correctly but uses extra CPU/bandwidth.
-- 💡 Future: Persistent encryption key storage (v0.5.0+)
+- 💡 Future: Key rotation with multi-versioned keys (v0.5.0+)
 - 💡 Future: Range-aware decryption to decrypt only requested byte ranges (v0.5.0+)
+- 💡 Future: Per-bucket encryption keys for better isolation (v0.5.0+)
 
 **Implementation Details**:
-- **PutObject**: Client → TempFile+Hash → Encrypt Stream → Storage
-- **Multipart**: Combined → TempFile+Hash → SaveMetadata → Encrypt Stream → Replace
-- **GetObject**: Read encrypted → decrypt stream → return original
-- Key Size: 256-bit (32 bytes)
-- IV Size: 16 bytes (AES block size)
-- Mode: CTR (Counter Mode) - streaming encryption
+- **Key Loading**: config.yaml `encryption_key` (64 hex) → bytes (32) → KeyManager
+- **Encryption Decision**: `enable_encryption=true` AND `bucket.encryption!=nil` → Encrypt
+- **PutObject**: Client → TempFile+Hash → [Conditionally Encrypt Stream] → Storage
+- **Multipart**: Combined → TempFile+Hash → SaveMetadata → [Conditionally Encrypt Stream] → Replace
+- **GetObject**: Read file → Check `encrypted=true` metadata → [Auto Decrypt if encrypted] → Return
+- **Algorithm**: AES-256-CTR (Counter Mode) - streaming encryption
+- **Key Size**: 256-bit (32 bytes)
+- **IV Size**: 16 bytes (AES block size)
 - **Memory Efficiency**: Constant ~32KB buffers, no memory limitations for large files
+
+**Configuration Example**:
+```yaml
+storage:
+  enable_encryption: true
+  encryption_key: "a1b2c3d4e5f6...64chars...abcdef" # openssl rand -hex 32
+```
+
+**Bucket-Level Control** (Web Console):
+- Server encryption ON → User can enable/disable per bucket
+- Server encryption OFF → Checkbox disabled with informative message
 
 ---
 
-### 🔒 Bucket Existence Validation (v0.4.0-beta - November 18, 2025)
+### 🔒 Bucket Existence Validation (v0.4.0-beta - November 16, 2025)
 
 **Critical Security Fix**:
 - ✅ **Problem Identified**:
@@ -984,6 +1015,40 @@ Want to help? Pick any TODO item and:
 ---
 
 ## 🔧 Recent Changes Log
+
+### November 18, 2025 - Encryption Key Persistence & Flexible Control COMPLETE
+- **Implemented**: Persistent master key with flexible encryption control
+  - **Master Key Persistence** (`internal/object/manager.go:125-165`):
+    - Master key loaded from `config.yaml` (storage.encryption_key)
+    - Key validation: 64 hex characters (32 bytes for AES-256)
+    - Key survives server restarts (no data loss)
+    - Automatic decryption of encrypted files regardless of enable_encryption setting
+    - Fatal error if encryption enabled but key missing
+  - **Flexible Encryption Control**:
+    - Server-level: `enable_encryption` in config (controls new uploads)
+    - Bucket-level: User choice per bucket (Web Console UI)
+    - Encryption only if BOTH server AND bucket enabled
+  - **Frontend Integration** (`web/frontend/src/pages/buckets/create.tsx`):
+    - Queries server encryption status from `/config` endpoint
+    - Conditionally enables/disables encryption checkbox
+    - Visual warning when server encryption disabled
+    - Informative messages for each encryption state
+  - **Backward Compatibility**:
+    - Mixed encrypted/unencrypted objects supported
+    - Disabling encryption doesn't break access to encrypted files
+    - GetObject auto-detects encryption via metadata
+  - **Documentation** (`config.example.yaml`):
+    - Critical security warnings about key loss
+    - Step-by-step setup instructions
+    - Key generation command: `openssl rand -hex 32`
+    - Clear explanation of enable_encryption behavior
+- **Files Modified**:
+  - `internal/object/manager.go` (125-165, 410-463, 1768-1851)
+  - `internal/bucket/manager_badger.go` (88: removed default encryption)
+  - `web/frontend/src/pages/buckets/create.tsx` (89-96, 660-710)
+  - `config.example.yaml` (213-245: encryption documentation)
+- **Impact**: Encryption is now production-ready with persistent keys, no data loss on restart, flexible control
+- **Status**: v0.4.1-beta encryption feature 100% COMPLETE (persistent + flexible + frontend integrated)
 
 ### November 18, 2025 - Streaming Encryption Implementation Complete
 - **Implemented**: Complete streaming encryption for ALL upload/download operations

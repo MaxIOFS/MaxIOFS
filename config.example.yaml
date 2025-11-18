@@ -211,16 +211,41 @@ storage:
   compression_type: "gzip"
 
   # --- ENCRYPTION SETTINGS ---
-  # Enable automatic object encryption at rest
-  # All objects will be encrypted before writing to disk
-  # Default: false
+  # Enable automatic object encryption at rest (AES-256-CTR)
+  # Controls whether NEW objects will be encrypted when uploaded
+  # IMPORTANT BEHAVIOR:
+  #   - enable_encryption: true  → New uploads will be encrypted
+  #   - enable_encryption: false → New uploads will NOT be encrypted
+  #   - Existing encrypted objects ALWAYS remain accessible (regardless of this setting)
+  #   - Decryption happens automatically if encryption_key is configured
+  # Default: false (for backward compatibility with existing deployments)
+  # Recommended: true (for new deployments and maximum security)
   enable_encryption: false
 
-  # Encryption key (AES-256)
-  # IMPORTANT: Keep this key secure and backed up!
-  # If you lose this key, encrypted data cannot be recovered
-  # Should be a 32-character string for AES-256
-  # Example: "your-32-character-encryption-key"
+  # Master Encryption Key (AES-256)
+  # ⚠️  CRITICAL SECURITY REQUIREMENTS:
+  #   1. Must be EXACTLY 64 hexadecimal characters (32 bytes for AES-256)
+  #   2. Generate with: openssl rand -hex 32
+  #   3. NEVER commit this key to version control
+  #   4. BACKUP this key securely (password manager, vault, encrypted storage)
+  #   5. Store in environment variable: MAXIOFS_STORAGE_ENCRYPTION_KEY
+  #
+  # ⚠️  DATA LOSS WARNING:
+  #   - If you LOSE this key, encrypted data is PERMANENTLY UNRECOVERABLE
+  #   - If you CHANGE this key, all previously encrypted objects become UNREADABLE
+  #   - This key is used for the ENTIRE LIFETIME of your MaxIOFS deployment
+  #   - There is NO way to recover data without this exact key
+  #
+  # 📋 Setup Instructions:
+  #   1. Generate key:    openssl rand -hex 32
+  #   2. Set in config:   encryption_key: "your-generated-64-character-hex-key"
+  #   3. Enable:          enable_encryption: true
+  #   4. Backup key:      Store in secure location (vault, password manager)
+  #   5. Test:            Upload and download a file to verify encryption works
+  #
+  # Example (DO NOT USE THIS KEY - GENERATE YOUR OWN):
+  #   encryption_key: "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
+  #
   encryption_key: ""
 
   # --- OBJECT LOCKING ---
