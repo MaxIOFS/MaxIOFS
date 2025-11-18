@@ -43,15 +43,23 @@ override_dh_auto_install:
 	mkdir -p debian/maxiofs/etc/logrotate.d
 	mkdir -p debian/maxiofs/var/lib/maxiofs
 	mkdir -p debian/maxiofs/var/log/maxiofs
-	
+	mkdir -p debian/maxiofs/usr/share/doc/maxiofs
+
 	# Install binary
 	install -m 0755 build/maxiofs debian/maxiofs/opt/maxiofs/maxiofs
-	
+
 	# Install config
 	install -m 0644 config.example.yaml debian/maxiofs/etc/maxiofs/config.yaml
-	
+
 	# Install logrotate config
 	install -m 0644 debian/maxiofs.logrotate debian/maxiofs/etc/logrotate.d/maxiofs
+
+	# Install documentation
+	install -m 0644 README.md debian/maxiofs/usr/share/doc/maxiofs/
+	install -m 0644 CHANGELOG.md debian/maxiofs/usr/share/doc/maxiofs/
+	install -m 0644 TODO.md debian/maxiofs/usr/share/doc/maxiofs/
+	install -m 0644 LICENSE debian/maxiofs/usr/share/doc/maxiofs/ || true
+	install -m 0644 docs/*.md debian/maxiofs/usr/share/doc/maxiofs/
 
 override_dh_installsystemd:
 	dh_installsystemd --name=maxiofs

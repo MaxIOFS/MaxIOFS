@@ -1,3 +1,22 @@
+maxiofs (0.4.1-beta) unstable; urgency=medium
+
+  * Major feature release: Server-Side Encryption (SSE)
+  * AES-256-CTR encryption at rest for all stored objects
+  * Persistent master key storage in config.yaml (survives restarts)
+  * Streaming encryption with constant memory usage (~32KB)
+  * Dual-level encryption control (server + bucket settings)
+  * Automatic decryption transparent to S3 clients
+  * Backward compatible (mixed encrypted/unencrypted objects)
+  * Industry-standard AES-256 (NIST approved, FIPS 140-2 compliant)
+  * Dynamic settings system with SQLite storage
+  * Metrics historical storage migrated to BadgerDB
+  * Fixed critical security bugs (tenant menu, admin privileges)
+  * Fixed password change detection and permission validation
+  * Enhanced UI with unified card design and encryption indicators
+  * Complete documentation updates (9+ docs files)
+
+ -- MaxIOFS Team <info@maxiofs.com>  Mon, 18 Nov 2025 00:00:00 +0000
+
 maxiofs (0.4.0-beta) unstable; urgency=medium
 
   * Major feature release: Comprehensive Audit Logging System

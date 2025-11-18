@@ -22,6 +22,20 @@ The Debian package installs MaxIOFS with the following layout:
 
 /var/log/maxiofs/         - Log files (if file logging enabled)
 
+/usr/share/doc/maxiofs/   - Documentation
+├── README.md             - Main project README
+├── CHANGELOG.md          - Version history and release notes
+├── TODO.md               - Roadmap and planned features
+├── LICENSE               - Software license
+├── API.md                - Complete API reference
+├── ARCHITECTURE.md       - System architecture overview
+├── CONFIGURATION.md      - Configuration reference
+├── DEPLOYMENT.md         - Deployment guide
+├── MULTI_TENANCY.md      - Multi-tenancy guide
+├── QUICKSTART.md         - Quick start guide
+├── SECURITY.md           - Security guide and best practices
+└── TESTING.md            - Testing guide
+
 /lib/systemd/system/      - Systemd service
 └── maxiofs.service       - Service unit file
 ```
@@ -58,7 +72,7 @@ make deb-clean
 
 ### Install the package
 ```bash
-sudo dpkg -i build/maxiofs_v0.4.0-beta_amd64.deb
+sudo dpkg -i build/maxiofs_v0.4.1-beta_amd64.deb
 ```
 
 ### Configure MaxIOFS
@@ -449,10 +463,49 @@ The package preserves:
 - `prerm`: Pre-removal script (stops service)
 - `postrm`: Post-removal script (cleanup, optional purge)
 
+## Documentation
+
+After installation, complete documentation is available locally at:
+
+```bash
+# View available documentation
+ls -lh /usr/share/doc/maxiofs/
+
+# Quick start guide
+less /usr/share/doc/maxiofs/QUICKSTART.md
+
+# Configuration reference
+less /usr/share/doc/maxiofs/CONFIGURATION.md
+
+# Security guide (including encryption setup)
+less /usr/share/doc/maxiofs/SECURITY.md
+
+# Complete API reference
+less /usr/share/doc/maxiofs/API.md
+
+# View changelog
+less /usr/share/doc/maxiofs/CHANGELOG.md
+```
+
+**Available documentation files:**
+- `README.md` - Main project overview
+- `QUICKSTART.md` - Get started in 15-20 minutes
+- `CONFIGURATION.md` - Complete configuration reference
+- `SECURITY.md` - Security features and best practices
+- `DEPLOYMENT.md` - Production deployment guide
+- `API.md` - Complete API documentation
+- `ARCHITECTURE.md` - System architecture overview
+- `MULTI_TENANCY.md` - Multi-tenancy guide
+- `TESTING.md` - Testing guide
+- `CHANGELOG.md` - Version history and release notes
+- `TODO.md` - Roadmap and planned features
+
+**No internet connection required** - All documentation is included in the package!
+
 ## Support
 
 - GitHub: https://github.com/maxiofs/maxiofs
-- Documentation: See `/docs` directory
+- Documentation: `/usr/share/doc/maxiofs/` (included in package)
 - Issues: https://github.com/maxiofs/maxiofs/issues
 
 ## License
