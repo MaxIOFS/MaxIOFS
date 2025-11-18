@@ -1,7 +1,6 @@
 package object
 
 import (
-	"bytes"
 	"context"
 	"crypto/md5"
 	"crypto/rand"
@@ -294,8 +293,12 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 		defer encryptedReader.Close()
 
 		if err := om.encryptionService.DecryptStream(encryptedReader, pipeWriter, encryptionMeta); err != nil {
-			logrus.WithError(err).Error("Failed to decrypt object data")
-			pipeWriter.CloseWithError(fmt.Errorf("decryption failed: %w", err))
+			// Ignore "closed pipe" errors - these occur during range requests when client
+			// closes connection after receiving requested bytes, which is expected behavior
+			if err.Error() != "io: read/write on closed pipe" && !strings.Contains(err.Error(), "closed pipe") {
+				logrus.WithError(err).Error("Failed to decrypt object data")
+				pipeWriter.CloseWithError(fmt.Errorf("decryption failed: %w", err))
+			}
 		}
 	}()
 
@@ -349,18 +352,34 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		objectPath = om.getObjectPath(bucket, key)
 	}
 
-	// Step 1: Read all data into memory to get original size and calculate hash
-	// This allows us to save correct metadata BEFORE encryption
-	originalData, err := io.ReadAll(data)
+	// Step 1: Stream data to temporary file while calculating hash and size
+	// This avoids loading entire file into memory
+	tempFile, err := os.CreateTemp("", "maxiofs-upload-*")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read object data: %w", err)
+		return nil, fmt.Errorf("failed to create temp file: %w", err)
 	}
+	tempPath := tempFile.Name()
+	defer os.Remove(tempPath) // Clean up temp file when done
 
-	// Calculate original size and ETag (MD5 hash)
-	originalSize := int64(len(originalData))
+	// Write to temp file while calculating MD5 hash
 	hasher := md5.New()
-	hasher.Write(originalData)
+	multiWriter := io.MultiWriter(tempFile, hasher)
+	originalSize, err := io.Copy(multiWriter, data)
+	if err != nil {
+		tempFile.Close()
+		return nil, fmt.Errorf("failed to write to temp file: %w", err)
+	}
+	tempFile.Close()
+
+	// Calculate original ETag (MD5 hash)
 	originalETag := hex.EncodeToString(hasher.Sum(nil))
+
+	logrus.WithFields(logrus.Fields{
+		"bucket":       bucket,
+		"key":          key,
+		"originalSize": originalSize,
+		"originalETag": originalETag,
+	}).Debug("Calculated metadata from streaming upload")
 
 	// Save original metadata (size and etag are from UNENCRYPTED data)
 	storageMetadata["original-size"] = fmt.Sprintf("%d", originalSize)
@@ -369,15 +388,27 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	storageMetadata["x-amz-server-side-encryption"] = "AES256"
 	storageMetadata["x-amz-server-side-encryption-algorithm"] = "AES-256-CTR"
 
-	// Step 2: Encrypt the data
-	encryptedBuffer := &bytes.Buffer{}
-	_, encryptErr := om.encryptionService.EncryptStream(bytes.NewReader(originalData), encryptedBuffer)
-	if encryptErr != nil {
-		return nil, fmt.Errorf("failed to encrypt object: %w", encryptErr)
+	// Step 2: Open temp file for reading and encrypt while streaming to storage
+	tempFileRead, err := os.Open(tempPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open temp file for encryption: %w", err)
 	}
+	defer tempFileRead.Close()
 
-	// Step 3: Store encrypted data
-	if err := om.storage.Put(ctx, objectPath, encryptedBuffer, storageMetadata); err != nil {
+	// Create a pipe for streaming encryption
+	pipeReader, pipeWriter := io.Pipe()
+
+	// Encrypt in background goroutine
+	go func() {
+		defer pipeWriter.Close()
+		if _, err := om.encryptionService.EncryptStream(tempFileRead, pipeWriter); err != nil {
+			logrus.WithError(err).Error("Failed to encrypt object during upload")
+			pipeWriter.CloseWithError(fmt.Errorf("encryption failed: %w", err))
+		}
+	}()
+
+	// Step 3: Store encrypted data (streaming from pipe)
+	if err := om.storage.Put(ctx, objectPath, pipeReader, storageMetadata); err != nil {
 		return nil, fmt.Errorf("failed to store object: %w", err)
 	}
 
@@ -1603,32 +1634,116 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 		return nil, fmt.Errorf("failed to combine parts: %w", err)
 	}
 
-	// Get final object metadata
-	storageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
+	// Step 1: Stream combined file to temp while calculating hash
+	// This avoids loading large multipart files into memory
+	combinedReader, _, err := om.storage.Get(ctx, objectPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get final object metadata: %w", err)
+		return nil, fmt.Errorf("failed to read combined object: %w", err)
 	}
 
-	size, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
+	// Create temp file for calculating metadata
+	tempFile, err := os.CreateTemp("", "maxiofs-multipart-*")
+	if err != nil {
+		combinedReader.Close()
+		return nil, fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	defer os.Remove(tempPath) // Clean up temp file when done
+
+	// Stream to temp file while calculating MD5 hash
+	hasher := md5.New()
+	multiWriter := io.MultiWriter(tempFile, hasher)
+	originalSize, err := io.Copy(multiWriter, combinedReader)
+	combinedReader.Close() // Close reader BEFORE closing temp file
+	if err != nil {
+		tempFile.Close()
+		return nil, fmt.Errorf("failed to write to temp file: %w", err)
+	}
+	tempFile.Close()
+
+	// Step 2: Calculate original ETag (MD5 hash) from UNENCRYPTED data
+	originalETag := hex.EncodeToString(hasher.Sum(nil))
+
+	// Get timestamp from storage before replacing file
+	storageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get object metadata: %w", err)
+	}
 	lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
 
-	// Create final object
+	// Step 3: Create and save object metadata to BadgerDB with ORIGINAL values
+	// This happens BEFORE encryption so BadgerDB has correct unencrypted metadata
 	object := &Object{
 		Key:          multipart.Key,
 		Bucket:       multipart.Bucket,
-		Size:         size,
+		Size:         originalSize,        // Original size (unencrypted)
 		LastModified: time.Unix(lastModified, 0),
-		ETag:         storageMetadata["etag"],
+		ETag:         originalETag,        // Original ETag (MD5 of unencrypted data)
 		ContentType:  multipart.Metadata["content-type"],
 		Metadata:     multipart.Metadata,
 		StorageClass: multipart.StorageClass,
 	}
 
-	// Save object metadata to BadgerDB
 	metaObj := toMetadataObject(object)
 	if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
 		logrus.WithError(err).Warn("Failed to save final object metadata to BadgerDB")
 	}
+
+	logrus.WithFields(logrus.Fields{
+		"uploadID":     uploadID,
+		"originalSize": originalSize,
+		"originalETag": originalETag,
+	}).Info("Saved original metadata to BadgerDB before encryption")
+
+	// Step 4: Open temp file for reading and encrypt while streaming to storage
+	tempFileRead, err := os.Open(tempPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open temp file for encryption: %w", err)
+	}
+	defer tempFileRead.Close()
+
+	// Create a pipe for streaming encryption
+	pipeReader, pipeWriter := io.Pipe()
+
+	// Encrypt in background goroutine
+	go func() {
+		defer pipeWriter.Close()
+		if _, err := om.encryptionService.EncryptStream(tempFileRead, pipeWriter); err != nil {
+			logrus.WithError(err).Error("Failed to encrypt multipart object")
+			pipeWriter.CloseWithError(fmt.Errorf("encryption failed: %w", err))
+		}
+	}()
+
+	// Step 5: Replace file with encrypted version (streaming from pipe)
+	// Store encryption markers in storage metadata
+	encryptionMetadata := map[string]string{
+		"original-size":                          fmt.Sprintf("%d", originalSize),
+		"original-etag":                          originalETag,
+		"encrypted":                              "true",
+		"x-amz-server-side-encryption":           "AES256",
+		"x-amz-server-side-encryption-algorithm": "AES-256-CTR",
+		"content-type":                           multipart.Metadata["content-type"],
+	}
+
+	// Copy any user metadata from multipart upload
+	for k, v := range multipart.Metadata {
+		if k != "content-type" {
+			encryptionMetadata[k] = v
+		}
+	}
+
+	if err := om.storage.Put(ctx, objectPath, pipeReader, encryptionMetadata); err != nil {
+		return nil, fmt.Errorf("failed to store encrypted multipart object: %w", err)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"uploadID": uploadID,
+		"bucket":   multipart.Bucket,
+		"key":      multipart.Key,
+	}).Info("Multipart object encrypted and stored successfully (streaming)")
+
+	// Use the size from the object we already created (original size)
+	size := originalSize
 
 	// Update bucket metrics
 	if om.bucketManager != nil {
