@@ -5022,14 +5022,13 @@ func (s *Server) handleGetAuditLog(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/settings?category=security
 func (s *Server) handleListSettings(w http.ResponseWriter, r *http.Request) {
 	// Verify user is authenticated
-	currentUser := r.Context().Value("user")
-	if currentUser == nil {
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	// Only global admins can view/edit settings
-	user := currentUser.(*auth.User)
 	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
 
 	if !isGlobalAdmin {
@@ -5068,14 +5067,13 @@ func (s *Server) handleListSettings(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/settings/categories
 func (s *Server) handleListCategories(w http.ResponseWriter, r *http.Request) {
 	// Verify user is authenticated
-	currentUser := r.Context().Value("user")
-	if currentUser == nil {
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	// Only global admins can view/edit settings
-	user := currentUser.(*auth.User)
 	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
 
 	if !isGlobalAdmin {
@@ -5099,14 +5097,13 @@ func (s *Server) handleListCategories(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/settings/:key
 func (s *Server) handleGetSetting(w http.ResponseWriter, r *http.Request) {
 	// Verify user is authenticated
-	currentUser := r.Context().Value("user")
-	if currentUser == nil {
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	// Only global admins can view/edit settings
-	user := currentUser.(*auth.User)
 	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
 
 	if !isGlobalAdmin {
@@ -5133,14 +5130,13 @@ func (s *Server) handleGetSetting(w http.ResponseWriter, r *http.Request) {
 // Body: { "value": "new_value" }
 func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
 	// Verify user is authenticated
-	currentUser := r.Context().Value("user")
-	if currentUser == nil {
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	// Only global admins can view/edit settings
-	user := currentUser.(*auth.User)
 	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
 
 	if !isGlobalAdmin {
@@ -5211,14 +5207,13 @@ func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
 // Body: { "settings": { "key1": "value1", "key2": "value2" } }
 func (s *Server) handleBulkUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	// Verify user is authenticated
-	currentUser := r.Context().Value("user")
-	if currentUser == nil {
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	// Only global admins can view/edit settings
-	user := currentUser.(*auth.User)
 	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
 
 	if !isGlobalAdmin {

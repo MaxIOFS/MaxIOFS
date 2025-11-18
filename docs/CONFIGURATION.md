@@ -4,34 +4,73 @@
 **Version**: 0.4.0-beta
 
 Configuration reference for MaxIOFS v0.4.0-beta
-  
+
 ---
 
 ## Table of Contents
 
+- [Configuration Architecture](#configuration-architecture)
 - [Configuration Methods](#configuration-methods)
-
 - [Required Settings](#required-settings)
-
 - [Server Settings](#server-settings)
-
 - [TLS/HTTPS](#tlshttps)
-
 - [Storage](#storage)
-
 - [Authentication](#authentication)
-
 - [Audit Logging](#audit-logging)
-
+- [Dynamic Settings](#dynamic-settings)
 - [Examples](#examples)
 
 ---
-  
+
+## Configuration Architecture
+
+**New in v0.4.0**: MaxIOFS uses a **dual-configuration system** to separate infrastructure settings from operational policies:
+
+### 1. Static Configuration (config.yaml)
+
+Infrastructure settings that require server restart:
+- Server ports and addresses (`listen`, `console_listen`)
+- Data directory paths (`data_dir`)
+- TLS certificates (`cert_file`, `key_file`)
+- Storage backend selection (`storage.backend`)
+- Encryption keys (`storage.encryption_key`)
+- JWT secrets (`auth.jwt_secret`)
+
+**Configured via**: `config.yaml`, environment variables, or CLI flags
+
+**Changes require**: Server restart
+
+### 2. Dynamic Configuration (Database)
+
+Runtime settings that take effect immediately:
+- Security policies (password requirements, session timeouts, rate limits)
+- Audit configuration (retention days, operation logging)
+- Storage defaults (versioning, compression, object lock)
+- Metrics collection (enable/disable, intervals)
+- System settings (maintenance mode, upload limits)
+
+**Configured via**: Web Console (`/settings` page) or Settings API
+
+**Changes require**: No restart (immediate effect)
+
+**Storage**: SQLite database (`{data_dir}/auth.db`)
+
+### Benefits
+
+- **Infrastructure changes are deliberate** - Require intentional restart
+- **Security policies are flexible** - Adjust on-the-fly without downtime
+- **Settings are versioned** - config.yaml in git, DB managed by admins
+- **Zero downtime configuration** - Change policies during operation
+
+See [Dynamic Settings](#dynamic-settings) section for complete list of runtime-configurable settings.
+
+---
+
 
 ## Configuration Methods
 
 
-MaxIOFS supports three configuration methods (priority order):
+MaxIOFS supports three configuration methods for **static settings** (priority order):
 
 
 1.  **Command-line flags** (highest)
@@ -405,6 +444,119 @@ environment:
 - MAXIOFS_DATA_DIR=/data
 command: ["--config", "/etc/maxiofs/config.yaml"]
 ```
+
+---
+
+## Dynamic Settings
+
+**New in v0.4.0**: Runtime-configurable settings stored in SQLite database.
+
+### Overview
+
+Dynamic settings can be modified through:
+1. **Web Console**: Navigate to `/settings` (Global Admins only)
+2. **Settings API**: RESTful endpoints for programmatic access
+
+All changes:
+- Take effect immediately (no restart required)
+- Are logged in audit system
+- Are validated by type (string, int, bool, json)
+- Require global admin permissions
+
+### Settings API Endpoints
+
+```
+GET    /api/v1/settings                     # List all settings
+GET    /api/v1/settings?category=security   # Filter by category
+GET    /api/v1/settings/categories          # List categories
+GET    /api/v1/settings/:key                # Get specific setting
+PUT    /api/v1/settings/:key                # Update single setting
+POST   /api/v1/settings/bulk                # Bulk update (transactional)
+```
+
+### Available Settings (23 total)
+
+#### Security Category (11 settings)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `security.session_timeout` | int | 86400 | JWT session duration in seconds (24 hours) |
+| `security.max_failed_attempts` | int | 5 | Login attempts before account lockout |
+| `security.lockout_duration` | int | 900 | Account lockout duration in seconds (15 minutes) |
+| `security.require_2fa_admin` | bool | false | Require 2FA for all admin users |
+| `security.password_min_length` | int | 8 | Minimum password length |
+| `security.password_require_uppercase` | bool | true | Require uppercase letters in passwords |
+| `security.password_require_numbers` | bool | true | Require numbers in passwords |
+| `security.password_require_special` | bool | false | Require special characters in passwords |
+| `security.ratelimit_enabled` | bool | true | Enable rate limiting |
+| `security.ratelimit_login_per_minute` | int | 5 | Maximum login attempts per minute per IP |
+| `security.ratelimit_api_per_second` | int | 100 | Maximum API requests per second per user |
+
+#### Audit Category (4 settings)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `audit.enabled` | bool | true | Enable audit logging |
+| `audit.retention_days` | int | 90 | Audit log retention period in days |
+| `audit.log_s3_operations` | bool | true | Log S3 API operations |
+| `audit.log_console_operations` | bool | true | Log Console API operations |
+
+#### Storage Category (4 settings)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `storage.default_bucket_versioning` | bool | false | Enable versioning by default for new buckets |
+| `storage.default_object_lock_days` | int | 7 | Default object lock retention period in days |
+| `storage.enable_compression` | bool | false | Enable transparent compression for objects |
+| `storage.compression_level` | int | 6 | Compression level (1-9, higher = better compression) |
+
+#### Metrics Category (2 settings)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `metrics.enabled` | bool | true | Enable Prometheus metrics endpoint |
+| `metrics.collection_interval` | int | 10 | Metrics collection interval in seconds |
+
+#### System Category (2 settings)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `system.maintenance_mode` | bool | false | Enable maintenance mode (read-only access) |
+| `system.max_upload_size_mb` | int | 5120 | Maximum upload size in MB (5GB default) |
+
+### Example: Update Single Setting
+
+```bash
+curl -X PUT http://localhost:8081/api/v1/settings/security.session_timeout \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"value": "7200"}'
+```
+
+### Example: Bulk Update
+
+```bash
+curl -X POST http://localhost:8081/api/v1/settings/bulk \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "settings": {
+      "security.session_timeout": "7200",
+      "security.max_failed_attempts": "3",
+      "audit.retention_days": "180"
+    }
+  }'
+```
+
+### Web Console UI
+
+Navigate to **Settings** page (`http://localhost:8081/settings`) for:
+- Category-based tabbed interface
+- Real-time editing with change tracking
+- Visual status indicators (● Enabled / ○ Disabled)
+- Human-readable value formatting (hours, days, MB, etc.)
+- Bulk save with transaction support
+- Full audit integration
 
 ---
 

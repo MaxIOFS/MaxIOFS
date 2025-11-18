@@ -1171,6 +1171,21 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// CRITICAL: Verify bucket exists before allowing object upload
+	// This prevents implicit bucket creation and ensures metadata consistency
+	_, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"bucket":   bucketName,
+			"tenantID": tenantID,
+			"error":    err,
+		}).Warn("PutObject failed: bucket does not exist")
+		h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+		return
+	}
+
+	bucketPath := h.getBucketPath(r, bucketName)
+
 	// Leer headers de Object Lock si están presentes (para Veeam)
 	lockMode := r.Header.Get("x-amz-object-lock-mode")
 	retainUntilDateStr := r.Header.Get("x-amz-object-lock-retain-until-date")
@@ -1221,8 +1236,6 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		// Remove aws-chunked from Content-Encoding for storage
 		r.Header.Del("Content-Encoding")
 	}
-
-	bucketPath := h.getBucketPath(r, bucketName)
 
 	logrus.WithFields(logrus.Fields{
 		"bucket":     bucketName,

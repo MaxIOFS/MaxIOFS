@@ -1,7 +1,9 @@
 package object
 
 import (
+	"bytes"
 	"context"
+	"crypto/md5"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -19,6 +21,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/storage"
+	"github.com/maxiofs/maxiofs/pkg/encryption"
 	"github.com/sirupsen/logrus"
 )
 
@@ -93,11 +96,12 @@ type Object struct {
 
 // objectManager implements the Manager interface
 type objectManager struct {
-	storage       storage.Backend
-	config        config.StorageConfig
-	metadataStore metadata.Store
-	aclManager    acl.Manager
-	bucketManager interface {
+	storage           storage.Backend
+	config            config.StorageConfig
+	metadataStore     metadata.Store
+	aclManager        acl.Manager
+	encryptionService *encryption.EncryptionService
+	bucketManager     interface {
 		IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 		DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 	}
@@ -119,12 +123,29 @@ func NewManager(storage storage.Backend, metadataStore metadata.Store, config co
 		}
 	}
 
+	// Initialize encryption service with AES-256-GCM
+	encryptionConfig := encryption.DefaultEncryptionConfig()
+	encryptionService := encryption.NewEncryptionService(encryptionConfig)
+
+	// Generate and store default encryption key
+	key, err := encryptionService.GetEncryptor().GenerateKey()
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to generate default encryption key, encryption may fail")
+	} else {
+		if err := encryptionService.GetKeyManager().StoreKey("default", key); err != nil {
+			logrus.WithError(err).Warn("Failed to store default encryption key")
+		} else {
+			logrus.Info("Default AES-256-GCM encryption key generated and stored")
+		}
+	}
+
 	return &objectManager{
-		storage:       storage,
-		config:        config,
-		metadataStore: metadataStore,
-		aclManager:    aclMgr,
-		bucketManager: nil, // Will be set later via SetBucketManager
+		storage:           storage,
+		config:            config,
+		metadataStore:     metadataStore,
+		aclManager:        aclMgr,
+		encryptionService: encryptionService,
+		bucketManager:     nil, // Will be set later via SetBucketManager
 	}
 }
 
@@ -208,8 +229,8 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 		objectPath = om.getObjectPath(bucket, key)
 	}
 
-	// Get object data from storage
-	reader, storageMetadata, err := om.storage.Get(ctx, objectPath)
+	// Get encrypted object data from storage
+	encryptedReader, storageMetadata, err := om.storage.Get(ctx, objectPath)
 	if err != nil {
 		if err == storage.ErrObjectNotFound {
 			return nil, nil, ErrObjectNotFound
@@ -225,12 +246,25 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 		// Delete markers should return 404
 		if object.Size == 0 && object.ETag == "" && requestedVersionID == "" {
 			// Latest version is a delete marker
-			reader.Close()
+			encryptedReader.Close()
 			return nil, nil, ErrObjectNotFound
 		}
 	} else {
-		// If metadata doesn't exist, create basic object info from storage metadata
-		size, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
+		// If metadata doesn't exist in BadgerDB, use storage metadata
+		// Check if file is encrypted
+		var size int64
+		var etag string
+
+		if storageMetadata["encrypted"] == "true" {
+			// Use original metadata (before encryption)
+			size, _ = strconv.ParseInt(storageMetadata["original-size"], 10, 64)
+			etag = storageMetadata["original-etag"]
+		} else {
+			// Unencrypted file (legacy or multipart)
+			size, _ = strconv.ParseInt(storageMetadata["size"], 10, 64)
+			etag = storageMetadata["etag"]
+		}
+
 		lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
 
 		object = &Object{
@@ -238,14 +272,34 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 			Bucket:       bucket,
 			Size:         size,
 			LastModified: time.Unix(lastModified, 0),
-			ETag:         storageMetadata["etag"],
+			ETag:         etag,
 			ContentType:  storageMetadata["content-type"],
 			Metadata:     storageMetadata,
 			StorageClass: StorageClassStandard,
 		}
 	}
 
-	return object, reader, nil
+	// Decrypt data stream
+	// Create a pipe for decryption
+	pipeReader, pipeWriter := io.Pipe()
+
+	// Create encryption metadata for decryption
+	encryptionMeta := &encryption.EncryptionMetadata{
+		Algorithm: "AES-256-GCM",
+	}
+
+	// Decrypt in a goroutine
+	go func() {
+		defer pipeWriter.Close()
+		defer encryptedReader.Close()
+
+		if err := om.encryptionService.DecryptStream(encryptedReader, pipeWriter, encryptionMeta); err != nil {
+			logrus.WithError(err).Error("Failed to decrypt object data")
+			pipeWriter.CloseWithError(fmt.Errorf("decryption failed: %w", err))
+		}
+	}()
+
+	return object, pipeReader, nil
 }
 
 // PutObject stores an object
@@ -295,19 +349,46 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		objectPath = om.getObjectPath(bucket, key)
 	}
 
-	// Store object in storage backend (ONLY storage metadata, not HTTP headers)
-	if err := om.storage.Put(ctx, objectPath, data, storageMetadata); err != nil {
+	// Step 1: Read all data into memory to get original size and calculate hash
+	// This allows us to save correct metadata BEFORE encryption
+	originalData, err := io.ReadAll(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read object data: %w", err)
+	}
+
+	// Calculate original size and ETag (MD5 hash)
+	originalSize := int64(len(originalData))
+	hasher := md5.New()
+	hasher.Write(originalData)
+	originalETag := hex.EncodeToString(hasher.Sum(nil))
+
+	// Save original metadata (size and etag are from UNENCRYPTED data)
+	storageMetadata["original-size"] = fmt.Sprintf("%d", originalSize)
+	storageMetadata["original-etag"] = originalETag
+	storageMetadata["encrypted"] = "true"
+	storageMetadata["x-amz-server-side-encryption"] = "AES256"
+	storageMetadata["x-amz-server-side-encryption-algorithm"] = "AES-256-CTR"
+
+	// Step 2: Encrypt the data
+	encryptedBuffer := &bytes.Buffer{}
+	_, encryptErr := om.encryptionService.EncryptStream(bytes.NewReader(originalData), encryptedBuffer)
+	if encryptErr != nil {
+		return nil, fmt.Errorf("failed to encrypt object: %w", encryptErr)
+	}
+
+	// Step 3: Store encrypted data
+	if err := om.storage.Put(ctx, objectPath, encryptedBuffer, storageMetadata); err != nil {
 		return nil, fmt.Errorf("failed to store object: %w", err)
 	}
 
-	// Get object metadata from storage to get size and etag
+	// Get final storage metadata (timestamps, etc)
 	finalStorageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get object metadata: %w", err)
 	}
 
-	// Create object info
-	size, _ := strconv.ParseInt(finalStorageMetadata["size"], 10, 64)
+	// Use ORIGINAL size and ETag (not encrypted ones)
+	size := originalSize
 	lastModified, _ := strconv.ParseInt(finalStorageMetadata["last_modified"], 10, 64)
 
 	// Validate tenant storage quota before committing
@@ -335,13 +416,13 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	object := &Object{
 		Key:          key,
 		Bucket:       bucket,
-		Size:         size,
+		Size:         size,                  // Original size (unencrypted)
 		LastModified: time.Unix(lastModified, 0),
-		ETag:         finalStorageMetadata["etag"],
+		ETag:         originalETag,          // Original ETag (MD5 of unencrypted data)
 		ContentType:  finalStorageMetadata["content-type"],
-		Metadata:     userMetadata, // User metadata from x-amz-meta-* headers
+		Metadata:     userMetadata,          // User metadata from x-amz-meta-* headers
 		StorageClass: StorageClassStandard,
-		VersionID:    versionID, // Set versionID (empty string if versioning disabled)
+		VersionID:    versionID,             // Set versionID (empty string if versioning disabled)
 	}
 
 	// Apply default Object Lock retention if bucket has it configured
