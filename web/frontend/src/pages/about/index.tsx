@@ -195,8 +195,8 @@ export default function AboutPage() {
             />
             <FeatureCard
               icon={Lock}
-              title="Security & Audit"
-              description="JWT + 2FA authentication, AWS Signature v2/v4, comprehensive audit logging (20+ event types), compliance-ready (GDPR, SOC 2, HIPAA, ISO 27001)"
+              title="Security & Encryption"
+              description="AES-256-CTR encryption at rest, JWT + 2FA authentication, AWS Signature v2/v4, comprehensive audit logging (20+ event types), compliance-ready (GDPR, SOC 2, HIPAA, ISO 27001)"
             />
             <FeatureCard
               icon={Zap}
@@ -311,50 +311,50 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New Features in v0.4.0-beta (Audit Logging & Compliance)
+            New Features in v0.4.1-beta (Server-Side Encryption)
           </h2>
           <div className="space-y-4">
             <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Comprehensive Audit Logging System
+                AES-256-CTR Encryption at Rest
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Complete audit logging system with SQLite-based storage tracking 20+ event types (authentication, user management,
-                buckets, 2FA, access keys, etc.). Automatic retention management with configurable period (default 90 days).
-                Multi-tenant isolation with global/tenant admin access controls.
+                Industry-standard AES-256 encryption for all stored objects with persistent master key storage.
+                Streaming encryption with constant memory usage (~32KB) supports files of any size. Transparent
+                to S3 clients with automatic decryption and backward compatibility for mixed encrypted/unencrypted objects.
               </p>
             </div>
 
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Professional Audit Logs UI
+                Flexible Encryption Control
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Modern web interface with quick date filters (Today, Last 7 Days, Last 30 Days, All Time). Real-time search
-                across users, events, resources, and IPs. Color-coded critical events with visual alerts. Expandable rows with
-                full event metadata. Enhanced stats dashboard with gradient cards and CSV export functionality.
+                Dual-level encryption control with server-level configuration (config.yaml) and per-bucket settings.
+                Users can choose encryption when creating buckets via Web Console. Master key survives server restarts,
+                ensuring encrypted data remains accessible with zero performance impact (~150+ MiB/s throughput).
               </p>
             </div>
 
             <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                RESTful Audit API
+                Dynamic Settings & Metrics Storage
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Complete programmatic access via GET /api/v1/audit-logs with advanced filtering. Pagination support
-                (default: 50, max: 100 per page). Query by event type, status, resource type, date range.
-                Full integration with frontend UI for real-time audit trail monitoring.
+                Runtime configuration stored in SQLite with settings persisted across restarts. Web Console settings
+                (session timeout, object lock defaults) configurable without server restart. Historical metrics data
+                migrated to BadgerDB for persistence, keeping dashboard charts and analytics intact after reboot.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Compliance Ready
+                Security Fixes & UI Improvements
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Audit logging designed to meet compliance requirements for GDPR Article 30, SOC 2 Type II, HIPAA,
-                ISO 27001, and PCI DSS. Immutable audit trail with tamper-evident storage. Complete event tracking
-                for security monitoring and forensic analysis.
+                Fixed critical security bugs including tenant menu visibility, admin privilege escalation, and password
+                change detection. Enhanced UI with unified card design across all pages, improved audit logs interface,
+                and better encryption status indicators. Complete documentation updates with offline docs in Debian packages.
               </p>
             </div>
 
