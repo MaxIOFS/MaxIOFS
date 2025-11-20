@@ -1,6 +1,6 @@
 # MaxIOFS Documentation
 
-**Version**: 0.4.1-beta
+**Version**: 0.4.2-beta
 **S3 Compatibility**: 98%
 **Last Updated**: November 18, 2025
 
@@ -109,7 +109,7 @@ Start here if you're new to MaxIOFS:
 
 ---
 
-## 🆕 What's New in v0.4.1-beta
+## 🆕 What's New in v0.4.2-beta
 
 ### Major Features
 
@@ -335,5 +335,5 @@ Email: security@yourdomain.com (update with actual contact)
 
 ---
 
-**Version**: 0.4.1-beta
+**Version**: 0.4.2-beta
 **Last Updated**: November 18, 2025

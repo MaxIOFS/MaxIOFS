@@ -3397,7 +3397,8 @@ func (s *Server) handleGetBucketLifecycle(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if err == bucket.ErrLifecycleNotFound {
-			s.writeError(w, "Lifecycle configuration not found", http.StatusNotFound)
+			// Lifecycle not configured is a valid state, return empty response without error logging
+			s.writeJSON(w, nil)
 			return
 		}
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
@@ -3732,7 +3733,8 @@ func (s *Server) handleGetBucketCors(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err == bucket.ErrCORSNotFound {
-			s.writeError(w, "CORS configuration not found", http.StatusNotFound)
+			// CORS not configured is a valid state, return empty response without error logging
+			s.writeJSON(w, nil)
 			return
 		}
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
@@ -3740,7 +3742,8 @@ func (s *Server) handleGetBucketCors(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if corsConfig == nil || len(corsConfig.CORSRules) == 0 {
-		s.writeError(w, "CORS configuration not found", http.StatusNotFound)
+		// CORS not configured is a valid state, return empty response without error logging
+		s.writeJSON(w, nil)
 		return
 	}
 
@@ -4156,7 +4159,8 @@ func (s *Server) handleGetBucketPolicy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err == bucket.ErrPolicyNotFound {
-			s.writeError(w, "Bucket policy does not exist", http.StatusNotFound)
+			// Policy not configured is a valid state, return empty response without error logging
+			s.writeJSON(w, nil)
 			return
 		}
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
@@ -4164,7 +4168,8 @@ func (s *Server) handleGetBucketPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if policy == nil {
-		s.writeError(w, "Bucket policy does not exist", http.StatusNotFound)
+		// Policy not configured is a valid state, return empty response without error logging
+		s.writeJSON(w, nil)
 		return
 	}
 

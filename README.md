@@ -189,8 +189,8 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for more Docker options.
 ### Option 2: Build from Source
 
 ### Prerequisites
-- Go 1.21+ (for building)
-- Node.js 18+ (for building)
+- Go 1.24+ (required)
+- Node.js 23+ (required)
 
 ### Build
 

@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 0.4.1-beta
+**Version**: 0.4.2-beta
 
 > **BETA SOFTWARE DISCLAIMER**
 >
@@ -24,7 +24,7 @@ MaxIOFS implements essential security features for object storage:
 
 ## Server-Side Encryption (SSE)
 
-**New in v0.4.1-beta**
+**New in v0.4.2-beta**
 
 MaxIOFS provides AES-256-CTR encryption at rest for all stored objects, protecting data from unauthorized filesystem access.
 
@@ -140,7 +140,7 @@ aws s3 cp s3://encrypted-bucket/file.txt downloaded.txt
 
 ### Performance Considerations
 
-**Benchmarks** (Windows 11, Go 1.21):
+**Benchmarks** (Windows 11, Go 1.24):
 - **1MB file**: ~200 MiB/s encryption, ~210 MiB/s decryption
 - **10MB file**: ~180 MiB/s encryption, ~190 MiB/s decryption
 - **100MB file**: ~150 MiB/s encryption, ~160 MiB/s decryption
@@ -670,7 +670,7 @@ journalctl -u maxiofs | grep -i "failed\|locked\|denied"
 2. **Basic Password Policy** - Only minimum length enforced
 3. ~~**No Multi-Factor Authentication**~~ - ✅ **2FA IMPLEMENTED** (v0.3.2-beta with TOTP)
 4. ~~**Limited Audit Logging**~~ - ✅ **COMPREHENSIVE AUDIT LOGGING** (v0.4.0-beta)
-5. ~~**No Encryption at Rest**~~ - ✅ **AES-256 ENCRYPTION IMPLEMENTED** (v0.4.1-beta)
+5. ~~**No Encryption at Rest**~~ - ✅ **AES-256 ENCRYPTION IMPLEMENTED** (v0.4.2-beta)
 6. **Simple Rate Limiting** - Login endpoint only
 7. **No Security Audits** - Not professionally audited by third parties
 8. ✅ **Session Management** - Improved with idle timer and timeout enforcement (v0.3.1-beta)
@@ -736,5 +736,5 @@ Response time: Within 48 hours
 
 ---
 
-**Version**: 0.4.1-beta
+**Version**: 0.4.2-beta
 **Last Updated**: November 18, 2025

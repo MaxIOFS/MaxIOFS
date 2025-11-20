@@ -12,6 +12,10 @@ import {
   UserX,
   KeyRound,
   Clock,
+  Settings,
+  HardDrive,
+  Bell,
+  FileText,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -19,7 +23,7 @@ import { APIClient } from '@/lib/api';
 export default function SecurityPage() {
   const navigate = useNavigate();
   const { isGlobalAdmin, user: currentUser } = useCurrentUser();
-  
+
   // Only global admins can access security page
   useEffect(() => {
     if (currentUser && !isGlobalAdmin) {
@@ -34,6 +38,56 @@ export default function SecurityPage() {
     staleTime: 5000, // Consider data fresh for 5 seconds
     enabled: isGlobalAdmin,
   });
+
+  // Fetch settings for dynamic values
+  const { data: settings = [] } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => APIClient.listSettings(),
+    enabled: isGlobalAdmin,
+  });
+
+  // Helper to get setting value
+  const getSetting = (key: string, defaultValue: string = 'N/A'): string => {
+    const setting = settings.find((s: any) => s.key === key);
+    return setting?.value || defaultValue;
+  };
+
+  // Parse duration settings (e.g., "24h" -> "24 hours", "15m" -> "15 minutes", "900" -> "15 minutes")
+  const formatDuration = (value: string): string => {
+    // Handle suffixed values (e.g., "24h", "15m", "90d")
+    if (value.endsWith('h')) {
+      const hours = parseInt(value);
+      return hours === 1 ? '1 hour' : `${hours} hours`;
+    }
+    if (value.endsWith('m')) {
+      const minutes = parseInt(value);
+      return minutes === 1 ? '1 minute' : `${minutes} minutes`;
+    }
+    if (value.endsWith('d')) {
+      const days = parseInt(value);
+      return days === 1 ? '1 day' : `${days} days`;
+    }
+
+    // Handle raw seconds (e.g., "900" -> "15 minutes")
+    const seconds = parseInt(value);
+    if (!isNaN(seconds)) {
+      if (seconds < 60) {
+        return seconds === 1 ? '1 second' : `${seconds} seconds`;
+      }
+      if (seconds < 3600) {
+        const minutes = Math.floor(seconds / 60);
+        return minutes === 1 ? '1 minute' : `${minutes} minutes`;
+      }
+      if (seconds < 86400) {
+        const hours = Math.floor(seconds / 3600);
+        return hours === 1 ? '1 hour' : `${hours} hours`;
+      }
+      const days = Math.floor(seconds / 86400);
+      return days === 1 ? '1 day' : `${days} days`;
+    }
+
+    return value;
+  };
 
   if (isLoading) {
     return (
@@ -65,6 +119,13 @@ export default function SecurityPage() {
             Monitor authentication and user access
           </p>
         </div>
+        <Link
+          to="/settings"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-medium transition-colors"
+        >
+          <Settings className="h-4 w-4" />
+          Configure Settings
+        </Link>
       </div>
 
       {/* Security Status */}
@@ -105,7 +166,7 @@ export default function SecurityPage() {
 
           <MetricCard
             title="Session Timeout"
-            value="24h"
+            value={formatDuration(getSetting('security.session_timeout', '86400'))}
             icon={Clock}
             description="Auto-logout idle sessions"
             color="success"
@@ -172,11 +233,11 @@ export default function SecurityPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Lockout Duration</span>
-                <span className="text-sm text-gray-600 dark:text-gray-400">15 minutes</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">{formatDuration(getSetting('security.lockout_duration', '900'))}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Max Failed Attempts</span>
-                <span className="text-sm text-gray-600 dark:text-gray-400">5 attempts</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">{getSetting('security.max_login_attempts', '5')} attempts</span>
               </div>
               {lockedUsers.length > 0 && (
                 <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
@@ -196,7 +257,7 @@ export default function SecurityPage() {
       {/* Active Security Features */}
       <div>
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Active Security Features</h2>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {/* Authentication Features */}
           <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
@@ -246,21 +307,21 @@ export default function SecurityPage() {
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Rate Limiting</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">IP-based rate limiting (5 login attempts per minute)</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">IP-based rate limiting ({getSetting('security.rate_limit_login', '5')} login attempts per minute)</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Account Lockout</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatic 15-minute lockout after 5 failed login attempts</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatic {formatDuration(getSetting('security.lockout_duration', '900'))} lockout after {getSetting('security.max_login_attempts', '5')} failed login attempts</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Session Management</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatic session timeout and idle detection (24 hours)</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatic session timeout and idle detection ({formatDuration(getSetting('security.session_timeout', '86400'))})</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -268,6 +329,44 @@ export default function SecurityPage() {
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Role-Based Access Control (RBAC)</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">4 roles: Admin, User, Read-Only, Guest with granular permissions</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Data Protection */}
+          <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <HardDrive className="h-5 w-5 text-brand-600" />
+              Data Protection
+            </h3>
+            <div className="space-y-3">
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Server-Side Encryption (SSE)</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">AES-256-CTR streaming encryption for all stored objects</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Object Versioning</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Multiple versions with delete markers for data recovery</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Object Lock (WORM)</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Write-Once-Read-Many compliance and governance modes</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Lifecycle Policies</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Automated data retention and deletion rules</p>
                 </div>
               </div>
             </div>
@@ -304,13 +403,20 @@ export default function SecurityPage() {
             </div>
           </div>
 
-          {/* Monitoring & Audit */}
+          {/* Event Monitoring */}
           <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-brand-600" />
-              Monitoring & Compliance
+              <Bell className="h-5 w-5 text-brand-600" />
+              Event Monitoring
             </h3>
             <div className="space-y-3">
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Bucket Notifications (Webhooks)</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Real-time HTTP webhooks for S3 events (ObjectCreated, ObjectRemoved)</p>
+                </div>
+              </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
@@ -322,9 +428,34 @@ export default function SecurityPage() {
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Comprehensive Audit Logging</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">20+ event types tracked with automatic retention (90 days)</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">20+ event types tracked with automatic retention ({getSetting('audit.retention_days', '90')} days)</p>
                 </div>
               </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Dynamic Settings System</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Runtime configuration management without server restarts</p>
+                </div>
+              </div>
+              <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                <Link
+                  to="/audit-logs"
+                  className="text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium"
+                >
+                  View Audit Logs →
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          {/* Compliance */}
+          <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <FileText className="h-5 w-5 text-brand-600" />
+              Compliance & Standards
+            </h3>
+            <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
@@ -336,7 +467,7 @@ export default function SecurityPage() {
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Audit Trail Access</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Login attempts and access key usage logging</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Complete logging of authentication and access events</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -346,13 +477,12 @@ export default function SecurityPage() {
                   <p className="text-sm text-gray-500 dark:text-gray-400">Global admins can audit tenant buckets without modification</p>
                 </div>
               </div>
-              <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-                <Link
-                  to="/audit-logs"
-                  className="text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium"
-                >
-                  View Audit Logs →
-                </Link>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">CSV Export</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Export audit logs for compliance reporting and analysis</p>
+                </div>
               </div>
             </div>
           </div>

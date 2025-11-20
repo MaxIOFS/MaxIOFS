@@ -1,6 +1,6 @@
 # MaxIOFS Deployment Guide
 
-**Version**: 0.4.1-beta
+**Version**: 0.4.2-beta
 
 ## Overview
 
@@ -25,8 +25,8 @@ MaxIOFS is an S3-compatible object storage system currently in **beta developmen
 - OS: Linux, Windows, or macOS
 
 ### Software Requirements
-- Go 1.21+ (for building)
-- Node.js 18+ (for building)
+- Go 1.24+ (required for building)
+- Node.js 23+ (required for building)
 - SQLite3 (embedded)
 
 ---

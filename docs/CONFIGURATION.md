@@ -1,9 +1,9 @@
 
 # MaxIOFS Configuration Guide
 
-**Version**: 0.4.1-beta
+**Version**: 0.4.2-beta
 
-Configuration reference for MaxIOFS v0.4.1-beta
+Configuration reference for MaxIOFS v0.4.2-beta
 
 ---
 
@@ -282,7 +282,7 @@ storage:
 
 ## Server-Side Encryption (SSE)
 
-**New in v0.4.1-beta**
+**New in v0.4.2-beta**
 
 MaxIOFS supports AES-256-CTR encryption at rest for all stored objects.
 
@@ -371,7 +371,7 @@ systemctl restart maxiofs
 
 ### Performance
 
-**Benchmarks** (Windows 11, Go 1.21):
+**Benchmarks** (Windows 11, Go 1.24):
 - **1MB file**: ~200 MiB/s encryption, ~210 MiB/s decryption
 - **10MB file**: ~180 MiB/s encryption, ~190 MiB/s decryption
 - **100MB file**: ~150 MiB/s encryption, ~160 MiB/s decryption
