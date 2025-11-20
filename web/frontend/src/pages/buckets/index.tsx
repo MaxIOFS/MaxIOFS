@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Bucket } from '@/types';
 import SweetAlert from '@/lib/sweetalert';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 type SortField = 'name' | 'creationDate' | 'objectCount' | 'size';
 type SortOrder = 'asc' | 'desc';
@@ -255,24 +256,14 @@ export default function BucketsPage() {
 
         <div className="overflow-x-auto">
           {paginatedBuckets.length === 0 ? (
-            <div className="text-center py-12 px-4">
-              <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-gray-100 dark:bg-gray-700 mb-4">
-                <Database className="h-8 w-8 text-gray-400 dark:text-gray-500" />
-              </div>
-              <h3 className="text-base font-medium text-gray-900 dark:text-white mb-1">No buckets found</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                {searchTerm ? 'Try adjusting your search terms' : 'Get started by creating your first bucket'}
-              </p>
-              {!searchTerm && (
-                <Button
-                  onClick={() => navigate('/buckets/create')}
-                  className="bg-brand-600 hover:bg-brand-700 text-white inline-flex items-center gap-2"
-                >
-                  <Plus className="h-4 w-4" />
-                  Create Bucket
-                </Button>
-              )}
-            </div>
+            <EmptyState
+              icon={Database}
+              title="No buckets found"
+              description={searchTerm ? "No buckets match your search criteria. Try adjusting your search terms." : "Get started by creating your first bucket to store objects."}
+              actionLabel={!searchTerm ? "Create Bucket" : undefined}
+              onAction={!searchTerm ? () => navigate('/buckets/create') : undefined}
+              showAction={!searchTerm}
+            />
           ) : (
             <table className="w-full">
               <thead className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">

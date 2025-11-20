@@ -34,6 +34,7 @@ import { APIClient } from '@/lib/api';
 import { AccessKey, EditUserForm } from '@/types';
 import Setup2FAModal, { BackupCodesModal } from '@/components/Setup2FAModal';
 import { ConfirmModal } from '@/components/ui/Modal';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 export default function UserDetailsPage() {
   const { user } = useParams<{ user: string }>();
@@ -747,21 +748,14 @@ export default function UserDetailsPage() {
               <Loading size="md" />
             </div>
           ) : !accessKeys || accessKeys.length === 0 ? (
-            <div className="text-center py-8">
-              <Key className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-semibold">No access keys</h3>
-              <p className="text-muted-foreground">
-                Create an access key to allow programmatic access
-              </p>
-              <Button
-                onClick={() => setIsCreateKeyModalOpen(true)}
-                variant="outline"
-                className="mt-4 gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                Create Access Key
-              </Button>
-            </div>
+            <EmptyState
+              icon={Key}
+              title="No access keys"
+              description="Create an access key to allow programmatic access to this user's resources."
+              actionLabel="Create Access Key"
+              onAction={() => setIsCreateKeyModalOpen(true)}
+              showAction={true}
+            />
           ) : (
             <Table>
               <TableHeader>

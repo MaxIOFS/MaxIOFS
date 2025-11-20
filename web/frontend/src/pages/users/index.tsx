@@ -35,6 +35,7 @@ import { APIClient } from '@/lib/api';
 import { User, CreateUserRequest, EditUserForm } from '@/types';
 import SweetAlert from '@/lib/sweetalert';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 export default function UsersPage() {
   const navigate = useNavigate();
@@ -344,22 +345,14 @@ export default function UsersPage() {
         </div>
         <div className="p-6">
           {filteredUsers.length === 0 ? (
-            <div className="text-center py-8">
-              <Users className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
-              <h3 className="mt-4 text-lg font-semibold text-gray-900 dark:text-white">No users found</h3>
-              <p className="text-gray-500 dark:text-gray-400">
-                {searchTerm ? 'Try adjusting your search terms' : 'Get started by creating your first user'}
-              </p>
-              {!searchTerm && (
-                <Button
-                  onClick={() => setIsCreateModalOpen(true)}
-                  className="mt-4 gap-2"
-                >
-                  <Plus className="h-4 w-4" />
-                  Create User
-                </Button>
-              )}
-            </div>
+            <EmptyState
+              icon={Users}
+              title="No users found"
+              description={searchTerm ? "No users match your search criteria. Try adjusting your search terms." : "Get started by creating your first user to manage access."}
+              actionLabel={!searchTerm ? "Create User" : undefined}
+              onAction={!searchTerm ? () => setIsCreateModalOpen(true) : undefined}
+              showAction={!searchTerm}
+            />
           ) : (
             <Table>
               <TableHeader>

@@ -32,6 +32,7 @@ import { AuditLogFilters, AuditLogsResponse } from '@/types';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 // Event type badges color mapping - soft colors matching the app design
 const getEventTypeColor = (eventType: string | undefined): string => {
@@ -540,8 +541,13 @@ export default function AuditLogsPage() {
           <TableBody>
             {filteredLogs.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-gray-500">
-                  No audit logs found
+                <TableCell colSpan={8}>
+                  <EmptyState
+                    icon={FileText}
+                    title="No audit logs found"
+                    description="No audit events match your current filters. Try adjusting your search criteria or date range."
+                    showAction={false}
+                  />
                 </TableCell>
               </TableRow>
             ) : (

@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Loading } from '@/components/ui/Loading';
 import { MetricCard } from '@/components/ui/MetricCard';
+import { EmptyState } from '@/components/ui/EmptyState';
 import {
   Table,
   TableBody,
@@ -232,7 +233,21 @@ export default function TenantsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredTenants.map((tenant: Tenant) => (
+              {filteredTenants.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-64">
+                    <EmptyState
+                      icon={Building2}
+                      title="No tenants found"
+                      description={searchTerm ? "No tenants match your search criteria. Try adjusting your filters." : "Get started by creating your first tenant to organize users and resources."}
+                      actionLabel={!searchTerm && isGlobalAdmin ? "Create Tenant" : undefined}
+                      onAction={!searchTerm && isGlobalAdmin ? () => setIsCreateModalOpen(true) : undefined}
+                      showAction={!searchTerm && isGlobalAdmin}
+                    />
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredTenants.map((tenant: Tenant) => (
                 <TableRow key={tenant.id}>
                   <TableCell>
                     <div>
@@ -337,7 +352,8 @@ export default function TenantsPage() {
                     )}
                   </TableCell>
                 </TableRow>
-              ))}
+                ))
+              )}
             </TableBody>
           </Table>
         </div>
