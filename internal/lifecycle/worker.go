@@ -192,14 +192,58 @@ func (w *Worker) processNoncurrentVersionExpiration(ctx context.Context, bucketP
 }
 
 // processExpiredDeleteMarkers removes expired delete markers
+// An expired delete marker is a delete marker that is the only remaining version of an object
 func (w *Worker) processExpiredDeleteMarkers(ctx context.Context, bucketPath string, rule bucket.LifecycleRule) {
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketPath,
 		"rule":   rule.ID,
 	}).Debug("Processing expired delete markers")
 
-	// This would need to iterate through all objects and check for delete markers
-	// that are the only version (expired)
-	// Implementation depends on how you want to handle this
-	// For now, we'll skip this as it's more complex
+	// List all objects in bucket
+	result, err := w.objectManager.ListObjects(ctx, bucketPath, rule.Filter.Prefix, "", "", 10000)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to list objects for expired delete marker cleanup")
+		return
+	}
+
+	deletedCount := 0
+
+	// For each object, check if it only has a delete marker
+	for _, obj := range result.Objects {
+		versions, err := w.objectManager.GetObjectVersions(ctx, bucketPath, obj.Key)
+		if err != nil {
+			logrus.WithError(err).WithField("key", obj.Key).Warn("Failed to get object versions for delete marker check")
+			continue
+		}
+
+		// An expired delete marker exists when:
+		// 1. There is only one version
+		// 2. That version is a delete marker
+		// 3. It is the latest version
+		if len(versions) == 1 && versions[0].IsDeleteMarker && versions[0].IsLatest {
+			// Delete this expired delete marker
+			// Use the versionID to delete it permanently
+			_, err := w.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false, versions[0].VersionID)
+			if err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"key":       obj.Key,
+					"versionID": versions[0].VersionID,
+				}).Warn("Failed to delete expired delete marker")
+			} else {
+				deletedCount++
+				logrus.WithFields(logrus.Fields{
+					"key":       obj.Key,
+					"versionID": versions[0].VersionID,
+				}).Debug("Deleted expired delete marker")
+			}
+		}
+	}
+
+	if deletedCount > 0 {
+		logrus.WithFields(logrus.Fields{
+			"bucket":       bucketPath,
+			"rule":         rule.ID,
+			"deletedCount": deletedCount,
+		}).Info("Lifecycle policy deleted expired delete markers")
+	}
 }

@@ -14,11 +14,57 @@ import {
   Globe,
   FileText,
   Users,
+  Bell,
+  Settings,
+  Plus,
+  Trash2,
+  Edit,
+  AlertCircle,
+  CheckCircle,
+  XCircle,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import SweetAlert from '@/lib/sweetalert';
 import { useAuth } from '@/hooks/useAuth';
+import type { NotificationConfiguration, NotificationRule } from '@/types';
+
+// Tab types
+type TabId = 'general' | 'security' | 'lifecycle' | 'notifications';
+
+interface TabInfo {
+  id: TabId;
+  label: string;
+  icon: React.ComponentType<any>;
+  description: string;
+}
+
+const tabs: TabInfo[] = [
+  {
+    id: 'general',
+    label: 'General',
+    icon: Settings,
+    description: 'Versioning, encryption, and bucket tags',
+  },
+  {
+    id: 'security',
+    label: 'Security & Access',
+    icon: Shield,
+    description: 'Bucket policy, ACL, and CORS configuration',
+  },
+  {
+    id: 'lifecycle',
+    label: 'Lifecycle',
+    icon: Clock,
+    description: 'Lifecycle rules and automatic deletion policies',
+  },
+  {
+    id: 'notifications',
+    label: 'Notifications',
+    icon: Bell,
+    description: 'Event notifications and webhooks',
+  },
+];
 
 export default function BucketSettingsPage() {
   const { bucket, tenantId } = useParams<{ bucket: string; tenantId?: string }>();
@@ -27,6 +73,9 @@ export default function BucketSettingsPage() {
   const { user } = useAuth();
   const bucketName = bucket as string;
   const bucketPath = tenantId ? `/buckets/${tenantId}/${bucketName}` : `/buckets/${bucketName}`;
+
+  // Active tab state
+  const [activeTab, setActiveTab] = useState<TabId>('general');
 
   // Check if user is global admin (no tenantId) accessing a tenant bucket
   // Global admins should only have read-only access to tenant buckets
@@ -73,6 +122,19 @@ export default function BucketSettingsPage() {
   const [newAllowedHeader, setNewAllowedHeader] = useState('');
   const [newExposeHeader, setNewExposeHeader] = useState('');
   const [corsViewMode, setCorsViewMode] = useState<'visual' | 'xml'>('visual');
+
+  // Notification state
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [editingNotificationRule, setEditingNotificationRule] = useState<NotificationRule | null>(null);
+  const [notificationRuleForm, setNotificationRuleForm] = useState<Partial<NotificationRule>>({
+    id: '',
+    enabled: true,
+    webhookUrl: '',
+    events: [],
+    filterPrefix: '',
+    filterSuffix: '',
+    customHeaders: {},
+  });
 
   const { data: bucketData, isLoading } = useQuery({
     queryKey: ['bucket', bucketName, tenantId],
@@ -186,6 +248,39 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       SweetAlert.toast('success', 'Bucket tags deleted successfully');
+    },
+    onError: (error: Error) => {
+      SweetAlert.apiError(error);
+    },
+  });
+
+  // Notification query
+  const { data: notificationData, refetch: refetchNotifications } = useQuery({
+    queryKey: ['bucket-notification', bucketName, tenantId],
+    queryFn: () => APIClient.getBucketNotification(bucketName, tenantId),
+    enabled: activeTab === 'notifications',
+  });
+
+  // Notification mutations
+  const saveNotificationMutation = useMutation({
+    mutationFn: (config: NotificationConfiguration) =>
+      APIClient.putBucketNotification(bucketName, config, tenantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bucket-notification', bucketName, tenantId] });
+      refetchNotifications();
+      SweetAlert.toast('success', 'Notification configuration updated successfully');
+    },
+    onError: (error: Error) => {
+      SweetAlert.apiError(error);
+    },
+  });
+
+  const deleteNotificationMutation = useMutation({
+    mutationFn: () => APIClient.deleteBucketNotification(bucketName, tenantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bucket-notification', bucketName, tenantId] });
+      refetchNotifications();
+      SweetAlert.toast('success', 'Notification configuration deleted successfully');
     },
     onError: (error: Error) => {
       SweetAlert.apiError(error);
@@ -610,6 +705,110 @@ export default function BucketSettingsPage() {
     saveACLMutation.mutate(selectedCannedACL);
   };
 
+  // Notification handlers
+  const handleAddNotificationRule = () => {
+    setEditingNotificationRule(null);
+    setNotificationRuleForm({
+      id: `rule-${Date.now()}`,
+      enabled: true,
+      webhookUrl: '',
+      events: [],
+      filterPrefix: '',
+      filterSuffix: '',
+      customHeaders: {},
+    });
+    setIsNotificationModalOpen(true);
+  };
+
+  const handleEditNotificationRule = (rule: NotificationRule) => {
+    setEditingNotificationRule(rule);
+    setNotificationRuleForm(rule);
+    setIsNotificationModalOpen(true);
+  };
+
+  const handleDeleteNotificationRule = (ruleId: string) => {
+    const currentConfig = notificationData as NotificationConfiguration | null;
+    if (!currentConfig) return;
+
+    SweetAlert.confirm(
+      'Delete notification rule?',
+      'This will remove this notification rule from the bucket.',
+      () => {
+        const updatedRules = currentConfig.rules.filter((r) => r.id !== ruleId);
+        const updatedConfig: NotificationConfiguration = {
+          ...currentConfig,
+          rules: updatedRules,
+        };
+        saveNotificationMutation.mutate(updatedConfig);
+      }
+    );
+  };
+
+  const handleToggleNotificationRule = (ruleId: string) => {
+    const currentConfig = notificationData as NotificationConfiguration | null;
+    if (!currentConfig) return;
+
+    const updatedRules = currentConfig.rules.map((r) =>
+      r.id === ruleId ? { ...r, enabled: !r.enabled } : r
+    );
+    const updatedConfig: NotificationConfiguration = {
+      ...currentConfig,
+      rules: updatedRules,
+    };
+    saveNotificationMutation.mutate(updatedConfig);
+  };
+
+  const handleSaveNotificationRule = () => {
+    if (!notificationRuleForm.webhookUrl || !notificationRuleForm.events || notificationRuleForm.events.length === 0) {
+      SweetAlert.toast('error', 'Please provide webhook URL and select at least one event');
+      return;
+    }
+
+    const currentConfig = notificationData as NotificationConfiguration | null;
+    let updatedRules: NotificationRule[];
+
+    if (editingNotificationRule) {
+      // Update existing rule
+      updatedRules = currentConfig
+        ? currentConfig.rules.map((r) =>
+            r.id === editingNotificationRule.id ? (notificationRuleForm as NotificationRule) : r
+          )
+        : [notificationRuleForm as NotificationRule];
+    } else {
+      // Add new rule
+      updatedRules = currentConfig
+        ? [...currentConfig.rules, notificationRuleForm as NotificationRule]
+        : [notificationRuleForm as NotificationRule];
+    }
+
+    const updatedConfig: NotificationConfiguration = {
+      bucketName: bucketName,
+      tenantId: tenantId || '',
+      rules: updatedRules,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user?.username || '',
+    };
+
+    saveNotificationMutation.mutate(updatedConfig);
+    setIsNotificationModalOpen(false);
+  };
+
+  const handleDeleteAllNotifications = () => {
+    SweetAlert.confirm(
+      'Delete all notification rules?',
+      'This will remove all notification rules from this bucket.',
+      () => deleteNotificationMutation.mutate()
+    );
+  };
+
+  const handleToggleEvent = (event: string) => {
+    const currentEvents = notificationRuleForm.events || [];
+    const updatedEvents = currentEvents.includes(event)
+      ? currentEvents.filter((e) => e !== event)
+      : [...currentEvents, event];
+    setNotificationRuleForm({ ...notificationRuleForm, events: updatedEvents });
+  };
+
   // Policy Templates
   const policyTemplates = {
     publicRead: {
@@ -697,8 +896,12 @@ export default function BucketSettingsPage() {
     return <Loading />;
   }
 
+  // Get current tab info
+  const currentTab = tabs.find(t => t.id === activeTab) || tabs[0];
+
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Button
@@ -709,14 +912,52 @@ export default function BucketSettingsPage() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold">{bucketName}</h1>
-            <p className="text-sm text-gray-500">Bucket Settings</p>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{bucketName}</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Bucket Settings</p>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-6">
-        {/* Versioning */}
+      {/* Tabs Container */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="p-6">
+          {/* Tabs Navigation */}
+          <div className="flex space-x-1 bg-gray-100 dark:bg-gray-900 rounded-lg p-1 mb-6">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 font-medium text-sm rounded-md transition-all duration-200 ${
+                    activeTab === tab.id
+                      ? 'bg-white dark:bg-gray-800 text-brand-600 dark:text-brand-400 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Tab Description */}
+          <div className="mb-6 pb-6 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+              {currentTab.label}
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {currentTab.description}
+            </p>
+          </div>
+
+          {/* Tab Content */}
+          <div className="space-y-6">
+            {/* GENERAL TAB */}
+            {activeTab === 'general' && (
+              <>
+                {/* Versioning */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -797,7 +1038,12 @@ export default function BucketSettingsPage() {
             </div>
           </CardContent>
         </Card>
+              </>
+            )}
 
+            {/* SECURITY TAB */}
+            {activeTab === 'security' && (
+              <>
         {/* Bucket Policy */}
         <Card>
           <CardHeader>
@@ -991,7 +1237,12 @@ export default function BucketSettingsPage() {
             </div>
           </CardContent>
         </Card>
+              </>
+            )}
 
+            {/* LIFECYCLE TAB */}
+            {activeTab === 'lifecycle' && (
+              <>
         {/* Lifecycle */}
         <Card>
           <CardHeader>
@@ -1034,6 +1285,196 @@ export default function BucketSettingsPage() {
             </div>
           </CardContent>
         </Card>
+              </>
+            )}
+
+            {/* NOTIFICATIONS TAB */}
+            {activeTab === 'notifications' && (
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Bell className="h-5 w-5" />
+                      Event Notifications
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Webhook Notifications</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                            {notificationData?.rules?.length > 0
+                              ? `${notificationData.rules.length} active rule${notificationData.rules.length > 1 ? 's' : ''}`
+                              : 'No notification rules configured'}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={handleAddNotificationRule}
+                            disabled={isGlobalAdminInTenantBucket}
+                            title={
+                              isGlobalAdminInTenantBucket
+                                ? 'Global admins cannot modify tenant bucket settings'
+                                : undefined
+                            }
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add Rule
+                          </Button>
+                          {notificationData?.rules?.length > 0 && (
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={handleDeleteAllNotifications}
+                              disabled={isGlobalAdminInTenantBucket}
+                              title={
+                                isGlobalAdminInTenantBucket
+                                  ? 'Global admins cannot modify tenant bucket settings'
+                                  : undefined
+                              }
+                            >
+                              Delete All
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Notification Rules List */}
+                      {notificationData?.rules && notificationData.rules.length > 0 ? (
+                        <div className="space-y-3">
+                          {notificationData.rules.map((rule: NotificationRule) => (
+                            <div
+                              key={rule.id}
+                              className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800"
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    {rule.enabled ? (
+                                      <CheckCircle className="h-5 w-5 text-green-500" />
+                                    ) : (
+                                      <XCircle className="h-5 w-5 text-gray-400" />
+                                    )}
+                                    <span className="font-medium text-gray-900 dark:text-white">
+                                      {rule.id}
+                                    </span>
+                                    <span
+                                      className={`text-xs px-2 py-1 rounded ${
+                                        rule.enabled
+                                          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                          : 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
+                                      }`}
+                                    >
+                                      {rule.enabled ? 'Enabled' : 'Disabled'}
+                                    </span>
+                                  </div>
+
+                                  <div className="space-y-1 text-sm">
+                                    <div>
+                                      <span className="text-gray-500 dark:text-gray-400">Webhook: </span>
+                                      <span className="text-gray-900 dark:text-white font-mono text-xs">
+                                        {rule.webhookUrl}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500 dark:text-gray-400">Events: </span>
+                                      <span className="text-gray-900 dark:text-white">
+                                        {rule.events.join(', ')}
+                                      </span>
+                                    </div>
+                                    {(rule.filterPrefix || rule.filterSuffix) && (
+                                      <div>
+                                        <span className="text-gray-500 dark:text-gray-400">Filters: </span>
+                                        {rule.filterPrefix && (
+                                          <span className="text-gray-900 dark:text-white">
+                                            Prefix: {rule.filterPrefix}
+                                          </span>
+                                        )}
+                                        {rule.filterPrefix && rule.filterSuffix && (
+                                          <span className="text-gray-500 dark:text-gray-400"> | </span>
+                                        )}
+                                        {rule.filterSuffix && (
+                                          <span className="text-gray-900 dark:text-white">
+                                            Suffix: {rule.filterSuffix}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 ml-4">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleToggleNotificationRule(rule.id)}
+                                    disabled={isGlobalAdminInTenantBucket}
+                                    title={rule.enabled ? 'Disable rule' : 'Enable rule'}
+                                  >
+                                    {rule.enabled ? 'Disable' : 'Enable'}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleEditNotificationRule(rule)}
+                                    disabled={isGlobalAdminInTenantBucket}
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => handleDeleteNotificationRule(rule.id)}
+                                    disabled={isGlobalAdminInTenantBucket}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-12 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
+                          <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                            No Notification Rules
+                          </h3>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto mb-4">
+                            Configure webhook notifications to receive real-time events when objects are created,
+                            modified, or deleted in this bucket.
+                          </p>
+                          <Button
+                            onClick={handleAddNotificationRule}
+                            disabled={isGlobalAdminInTenantBucket}
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add First Rule
+                          </Button>
+                        </div>
+                      )}
+
+                      {/* Info Box */}
+                      <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                        <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+                        <div className="text-sm text-blue-800 dark:text-blue-300">
+                          <p className="font-medium mb-1">About Bucket Notifications</p>
+                          <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-blue-400">
+                            <li>Webhook notifications are sent as HTTP POST requests</li>
+                            <li>Events follow AWS S3 notification format</li>
+                            <li>Failed webhooks are retried up to 3 times</li>
+                            <li>Use prefix/suffix filters to limit which objects trigger notifications</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Policy Modal */}
@@ -1757,6 +2198,186 @@ export default function BucketSettingsPage() {
               disabled={isGlobalAdminInTenantBucket || saveACLMutation.isPending}
             >
               {saveACLMutation.isPending ? 'Saving...' : 'Save ACL'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Notification Rule Modal */}
+      <Modal
+        isOpen={isNotificationModalOpen}
+        onClose={() => setIsNotificationModalOpen(false)}
+        title={editingNotificationRule ? 'Edit Notification Rule' : 'Add Notification Rule'}
+        size="xl"
+      >
+        <div className="space-y-4">
+          {/* Rule ID */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Rule ID
+            </label>
+            <input
+              type="text"
+              value={notificationRuleForm.id || ''}
+              onChange={(e) =>
+                setNotificationRuleForm({ ...notificationRuleForm, id: e.target.value })
+              }
+              placeholder="rule-1"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+              disabled={!!editingNotificationRule}
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Unique identifier for this notification rule
+            </p>
+          </div>
+
+          {/* Webhook URL */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Webhook URL <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="url"
+              value={notificationRuleForm.webhookUrl || ''}
+              onChange={(e) =>
+                setNotificationRuleForm({ ...notificationRuleForm, webhookUrl: e.target.value })
+              }
+              placeholder="https://example.com/webhook"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              HTTP or HTTPS endpoint that will receive event notifications
+            </p>
+          </div>
+
+          {/* Event Types */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Event Types <span className="text-red-500">*</span>
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { value: 's3:ObjectCreated:*', label: 'All Object Created Events' },
+                { value: 's3:ObjectCreated:Put', label: 'Object Created (Put)' },
+                { value: 's3:ObjectCreated:Post', label: 'Object Created (Post)' },
+                { value: 's3:ObjectCreated:Copy', label: 'Object Created (Copy)' },
+                { value: 's3:ObjectCreated:CompleteMultipartUpload', label: 'Multipart Upload Complete' },
+                { value: 's3:ObjectRemoved:*', label: 'All Object Removed Events' },
+                { value: 's3:ObjectRemoved:Delete', label: 'Object Deleted' },
+                { value: 's3:ObjectRestored:Post', label: 'Object Restored' },
+              ].map((eventType) => (
+                <label
+                  key={eventType.value}
+                  className="flex items-start gap-2 p-2 border border-gray-200 dark:border-gray-700 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  <input
+                    type="checkbox"
+                    checked={notificationRuleForm.events?.includes(eventType.value) || false}
+                    onChange={() => handleToggleEvent(eventType.value)}
+                    className="mt-1"
+                  />
+                  <div className="text-sm">
+                    <div className="font-medium text-gray-900 dark:text-white">
+                      {eventType.label}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                      {eventType.value}
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Prefix Filter (Optional)
+              </label>
+              <input
+                type="text"
+                value={notificationRuleForm.filterPrefix || ''}
+                onChange={(e) =>
+                  setNotificationRuleForm({ ...notificationRuleForm, filterPrefix: e.target.value })
+                }
+                placeholder="images/"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Only trigger for objects with this prefix
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Suffix Filter (Optional)
+              </label>
+              <input
+                type="text"
+                value={notificationRuleForm.filterSuffix || ''}
+                onChange={(e) =>
+                  setNotificationRuleForm({ ...notificationRuleForm, filterSuffix: e.target.value })
+                }
+                placeholder=".jpg"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Only trigger for objects with this suffix
+              </p>
+            </div>
+          </div>
+
+          {/* Enabled Toggle */}
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="notificationEnabled"
+              checked={notificationRuleForm.enabled || false}
+              onChange={(e) =>
+                setNotificationRuleForm({ ...notificationRuleForm, enabled: e.target.checked })
+              }
+              className="h-4 w-4"
+            />
+            <label htmlFor="notificationEnabled" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Enable this rule
+            </label>
+          </div>
+
+          {/* Info */}
+          <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+            <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+            <div className="text-sm text-blue-800 dark:text-blue-300">
+              <p className="font-medium mb-1">Webhook Format</p>
+              <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-blue-400">
+                <li>Events are sent as HTTP POST requests with JSON payload</li>
+                <li>Payload follows AWS S3 event notification format</li>
+                <li>Failed deliveries are retried up to 3 times</li>
+                <li>Timeout is set to 10 seconds per request</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <Button variant="outline" onClick={() => setIsNotificationModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveNotificationRule}
+              disabled={
+                isGlobalAdminInTenantBucket ||
+                saveNotificationMutation.isPending ||
+                !notificationRuleForm.webhookUrl ||
+                !notificationRuleForm.events ||
+                notificationRuleForm.events.length === 0
+              }
+            >
+              {saveNotificationMutation.isPending
+                ? 'Saving...'
+                : editingNotificationRule
+                ? 'Update Rule'
+                : 'Add Rule'}
             </Button>
           </div>
         </div>

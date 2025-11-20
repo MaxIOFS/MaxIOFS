@@ -211,6 +211,24 @@ export interface LifecycleTransition {
   storageClass: string;
 }
 
+export interface NotificationConfiguration {
+  bucketName: string;
+  tenantId?: string;
+  rules: NotificationRule[];
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export interface NotificationRule {
+  id: string;
+  enabled: boolean;
+  webhookUrl: string;
+  events: string[];
+  filterPrefix?: string;
+  filterSuffix?: string;
+  customHeaders?: Record<string, string>;
+}
+
 export interface ObjectLockConfig {
   objectLockEnabled: boolean;
   rule?: ObjectLockRule;

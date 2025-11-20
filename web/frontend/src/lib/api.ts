@@ -815,6 +815,23 @@ export class APIClient {
     await apiClient.delete(url);
   }
 
+  // Bucket Notification Configuration
+  static async getBucketNotification(bucketName: string, tenantId?: string): Promise<any> {
+    const url = tenantId ? `/buckets/${bucketName}/notification?tenantId=${tenantId}` : `/buckets/${bucketName}/notification`;
+    const response = await apiClient.get(url);
+    return response.data;
+  }
+
+  static async putBucketNotification(bucketName: string, config: any, tenantId?: string): Promise<void> {
+    const url = tenantId ? `/buckets/${bucketName}/notification?tenantId=${tenantId}` : `/buckets/${bucketName}/notification`;
+    await apiClient.put(url, config);
+  }
+
+  static async deleteBucketNotification(bucketName: string, tenantId?: string): Promise<void> {
+    const url = tenantId ? `/buckets/${bucketName}/notification?tenantId=${tenantId}` : `/buckets/${bucketName}/notification`;
+    await apiClient.delete(url);
+  }
+
   // Object Lock Configuration
   static async getObjectLockConfiguration(bucketName: string, tenantId?: string): Promise<any> {
     const url = tenantId ? `/buckets/${bucketName}/object-lock?tenantId=${tenantId}` : `/buckets/${bucketName}/object-lock`;

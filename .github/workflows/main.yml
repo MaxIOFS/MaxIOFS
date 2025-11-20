@@ -36,7 +36,7 @@ jobs:
       - name: Generate nightly version
         id: nightly_version
         run: |
-          BASE_VERSION="0.4.1"
+          BASE_VERSION="0.4.2"
           COMMIT_SHORT=$(git rev-parse --short HEAD)
           NIGHTLY_VERSION="${BASE_VERSION}-nightly-${COMMIT_SHORT}"
           echo "version=${NIGHTLY_VERSION}" >> $GITHUB_OUTPUT

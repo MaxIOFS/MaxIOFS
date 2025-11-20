@@ -19,6 +19,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/notifications"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/presigned"
 	"github.com/maxiofs/maxiofs/internal/settings"
@@ -290,6 +291,11 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Bucket versioning endpoints
 	router.HandleFunc("/buckets/{bucket}/versioning", s.handleGetBucketVersioning).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/versioning", s.handlePutBucketVersioning).Methods("PUT", "OPTIONS")
+
+	// Bucket notification endpoints
+	router.HandleFunc("/buckets/{bucket}/notification", s.handleGetBucketNotification).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/notification", s.handlePutBucketNotification).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/notification", s.handleDeleteBucketNotification).Methods("DELETE", "OPTIONS")
 
 	// Bucket Object Lock endpoints
 	router.HandleFunc("/buckets/{bucket}/object-lock", s.handlePutObjectLockConfiguration).Methods("PUT", "OPTIONS")
@@ -5264,5 +5270,165 @@ func (s *Server) handleBulkUpdateSettings(w http.ResponseWriter, r *http.Request
 		"success": true,
 		"message": "Settings updated successfully",
 		"count":   len(req.Settings),
+	})
+}
+
+// ============================================================================
+// Bucket Notification Handlers
+// ============================================================================
+
+// handleGetBucketNotification retrieves the notification configuration for a bucket
+func (s *Server) handleGetBucketNotification(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	// Get user from context
+	user, ok := r.Context().Value("user").(*auth.User)
+	if !ok {
+		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Determine tenant context
+	tenantID := user.TenantID
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if isGlobalAdmin {
+		// Global admin can access tenant buckets
+		tenantID = r.URL.Query().Get("tenantId")
+	}
+
+	// Get notification configuration
+	config, err := s.notificationManager.GetConfiguration(r.Context(), tenantID, bucketName)
+	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"bucket":   bucketName,
+			"tenantId": tenantID,
+		}).Error("Failed to get notification configuration")
+		s.writeError(w, "Failed to get notification configuration", http.StatusInternalServerError)
+		return
+	}
+
+	if config == nil {
+		// No configuration set, return empty
+		s.writeJSON(w, map[string]interface{}{
+			"success": true,
+			"data":    nil,
+		})
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"success": true,
+		"data":    config,
+	})
+}
+
+// handlePutBucketNotification creates or updates the notification configuration
+func (s *Server) handlePutBucketNotification(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	// Get user from context
+	user, ok := r.Context().Value("user").(*auth.User)
+	if !ok {
+		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Determine tenant context
+	tenantID := user.TenantID
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if isGlobalAdmin {
+		tenantID = r.URL.Query().Get("tenantId")
+	}
+
+	// Parse request body
+	var config notifications.NotificationConfiguration
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Set bucket name and tenant ID
+	config.BucketName = bucketName
+	config.TenantID = tenantID
+	config.UpdatedBy = user.Username
+
+	// Store configuration
+	if err := s.notificationManager.PutConfiguration(r.Context(), &config); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"bucket":   bucketName,
+			"tenantId": tenantID,
+		}).Error("Failed to put notification configuration")
+		s.writeError(w, fmt.Sprintf("Failed to save notification configuration: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Log audit event
+	if s.auditManager != nil {
+		s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+			EventType:    "bucket_notification_configured",
+			UserID:       user.ID,
+			TenantID:     tenantID,
+			ResourceType: "bucket",
+			ResourceID:   bucketName,
+			Status:       "success",
+			IPAddress:    r.RemoteAddr,
+			UserAgent:    r.UserAgent(),
+		})
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"success": true,
+		"message": "Notification configuration saved successfully",
+	})
+}
+
+// handleDeleteBucketNotification deletes the notification configuration
+func (s *Server) handleDeleteBucketNotification(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	// Get user from context
+	user, ok := r.Context().Value("user").(*auth.User)
+	if !ok {
+		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Determine tenant context
+	tenantID := user.TenantID
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if isGlobalAdmin {
+		tenantID = r.URL.Query().Get("tenantId")
+	}
+
+	// Delete configuration
+	if err := s.notificationManager.DeleteConfiguration(r.Context(), tenantID, bucketName); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"bucket":   bucketName,
+			"tenantId": tenantID,
+		}).Error("Failed to delete notification configuration")
+		s.writeError(w, "Failed to delete notification configuration", http.StatusInternalServerError)
+		return
+	}
+
+	// Log audit event
+	if s.auditManager != nil {
+		s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+			EventType:    "bucket_notification_deleted",
+			UserID:       user.ID,
+			TenantID:     tenantID,
+			ResourceType: "bucket",
+			ResourceID:   bucketName,
+			Status:       "success",
+			IPAddress:    r.RemoteAddr,
+			UserAgent:    r.UserAgent(),
+		})
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"success": true,
+		"message": "Notification configuration deleted successfully",
 	})
 }

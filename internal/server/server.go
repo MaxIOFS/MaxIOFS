@@ -20,6 +20,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/metrics"
 	"github.com/maxiofs/maxiofs/internal/middleware"
+	"github.com/maxiofs/maxiofs/internal/notifications"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/settings"
 	"github.com/maxiofs/maxiofs/internal/share"
@@ -38,15 +39,16 @@ type Server struct {
 	objectManager   object.Manager
 	authManager     auth.Manager
 	auditManager    *audit.Manager
-	metricsManager  metrics.Manager
-	settingsManager *settings.Manager
-	shareManager    share.Manager
-	systemMetrics   *metrics.SystemMetricsTracker
-	lifecycleWorker *lifecycle.Worker
-	startTime       time.Time // Server start time for uptime calculation
-	version         string    // Server version
-	commit          string    // Git commit hash
-	buildDate       string    // Build date
+	metricsManager      metrics.Manager
+	settingsManager     *settings.Manager
+	shareManager        share.Manager
+	notificationManager *notifications.Manager
+	systemMetrics       *metrics.SystemMetricsTracker
+	lifecycleWorker     *lifecycle.Worker
+	startTime           time.Time // Server start time for uptime calculation
+	version             string    // Server version
+	commit              string    // Git commit hash
+	buildDate           string    // Build date
 }
 
 // New creates a new MaxIOFS server
@@ -163,6 +165,9 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create share manager: %w", err)
 	}
 
+	// Initialize notification manager
+	notificationManager := notifications.NewManager(metadataStore)
+
 	// Initialize lifecycle worker
 	lifecycleWorker := lifecycle.NewWorker(bucketManager, objectManager, metadataStore)
 
@@ -182,21 +187,22 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	server := &Server{
-		config:          cfg,
-		httpServer:      httpServer,
-		consoleServer:   consoleServer,
-		storageBackend:  storageBackend,
-		metadataStore:   metadataStore,
-		bucketManager:   bucketManager,
-		objectManager:   objectManager,
-		authManager:     authManager,
-		auditManager:    auditManager,
-		metricsManager:  metricsManager,
-		settingsManager: settingsManager,
-		shareManager:    shareManager,
-		systemMetrics:   systemMetrics,
-		lifecycleWorker: lifecycleWorker,
-		startTime:       time.Now(), // Record server start time
+		config:              cfg,
+		httpServer:          httpServer,
+		consoleServer:       consoleServer,
+		storageBackend:      storageBackend,
+		metadataStore:       metadataStore,
+		bucketManager:       bucketManager,
+		objectManager:       objectManager,
+		authManager:         authManager,
+		auditManager:        auditManager,
+		metricsManager:      metricsManager,
+		settingsManager:     settingsManager,
+		shareManager:        shareManager,
+		notificationManager: notificationManager,
+		systemMetrics:       systemMetrics,
+		lifecycleWorker:     lifecycleWorker,
+		startTime:           time.Now(), // Record server start time
 	}
 
 	// Setup routes

@@ -3,6 +3,7 @@ package metadata
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -563,4 +564,50 @@ func extractObjectKeyFromKey(key string) string {
 		return ""
 	}
 	return parts[2]
+}
+
+// ============================================================================
+// Generic Key-Value Operations (for storing custom configurations)
+// ============================================================================
+
+var ErrNotFound = errors.New("key not found")
+
+// GetRaw retrieves a raw value from BadgerDB
+func (s *BadgerStore) GetRaw(ctx context.Context, key string) ([]byte, error) {
+	var value []byte
+	err := s.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(key))
+		if err != nil {
+			if err == badger.ErrKeyNotFound {
+				return ErrNotFound
+			}
+			return err
+		}
+
+		value, err = item.ValueCopy(nil)
+		return err
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+// PutRaw stores a raw value in BadgerDB
+func (s *BadgerStore) PutRaw(ctx context.Context, key string, value []byte) error {
+	return s.db.Update(func(txn *badger.Txn) error {
+		return txn.Set([]byte(key), value)
+	})
+}
+
+// DeleteRaw deletes a key from BadgerDB
+func (s *BadgerStore) DeleteRaw(ctx context.Context, key string) error {
+	return s.db.Update(func(txn *badger.Txn) error {
+		err := txn.Delete([]byte(key))
+		if err == badger.ErrKeyNotFound {
+			return ErrNotFound
+		}
+		return err
+	})
 }

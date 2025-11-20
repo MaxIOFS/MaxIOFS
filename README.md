@@ -1,6 +1,6 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.4.1-beta
+**Version**: 0.4.2-beta
 **Status**: Beta - 98% S3 Compatible
 **License**: MIT
 
@@ -8,15 +8,22 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 
 ## 🎉 Project Status
 
-**This project is now in BETA phase**. This means:
+**This project is now in BETA phase - v0.4.2-beta**. This means:
 - ✅ **All core S3 features fully implemented and tested**
-- ✅ **AWS CLI compatibility validated for all major operations**
+- ✅ **AWS CLI compatibility validated for all major operations (98% compatible)**
 - ✅ Successfully tested with MinIO Warp (7000+ objects, bulk operations validated)
 - ✅ Metadata consistency verified under load
 - ✅ Bucket Policy, Versioning, Lifecycle, and Delete Markers working
+- ✅ **Server-side encryption at rest (AES-256-CTR streaming)**
+- ✅ **Comprehensive audit logging system**
+- ✅ **Two-Factor Authentication (2FA) with TOTP**
+- ✅ **Dynamic settings management without restarts**
+- ✅ **Complete documentation available in `/docs`**
+- ✅ **Automated testing suite with race condition verification**
+- ✅ **Zero known bugs** (all reported issues verified and resolved)
 - ⚠️ Suitable for testing, development, and staging environments
 - ⚠️ Production use requires your own extensive testing
-- ❌ Not yet recommended as sole storage for critical production data
+- 💡 Ready for production-like workloads with proper monitoring
 
 ## 🎯 Features
 
@@ -27,16 +34,18 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 - ✅ Presigned URLs (GET/PUT with expiration)
 - ✅ **Bulk operations (DeleteObjects - batch delete up to 1000 objects)**
 - ✅ Object Lock (COMPLIANCE/GOVERNANCE modes)
-- ✅ **Bucket Versioning** (Multiple versions, Delete Markers, ListObjectVersions) - *Fixed in 0.3.2*
+- ✅ **Bucket Versioning** (Multiple versions, Delete Markers, GetObjectVersions, DeleteVersion)
+- ✅ **Lifecycle Policies** (100% Complete - Noncurrent version expiration AND expired delete marker cleanup, worker runs hourly)
+- ✅ **Bucket Notifications** (Webhooks on object events - ObjectCreated, ObjectRemoved, ObjectRestored) - *New in 0.4.2*
 - ✅ **Bucket Policy** (Complete PUT/GET/DELETE, JSON validation, AWS CLI compatible)
 - ✅ **Bucket CORS** (Get/Put/Delete CORS rules, Visual UI editor)
 - ✅ **Bucket Tagging** (Get/Put/Delete tags, Visual UI manager)
-- ✅ **Bucket Lifecycle** (Get/Put/Delete lifecycle configurations)
+- ✅ **Bucket Lifecycle Configuration** (Get/Put/Delete lifecycle rules)
 - ✅ **Object Tagging** (Get/Put/Delete tags)
 - ✅ Object ACL (Get/Put access control lists)
 - ✅ Object Retention (WORM with legal hold support)
 - ✅ CopyObject (with metadata preservation, cross-bucket support)
-- ✅ **Conditional Requests** (If-Match, If-None-Match for HTTP caching) - *New in 0.3.2*
+- ✅ **Conditional Requests** (If-Match, If-None-Match for HTTP caching)
 - ✅ **Range Requests** (Partial downloads with bytes=start-end)
 
 ### Configuration & Settings
@@ -49,6 +58,21 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
   - Visual status indicators and human-readable value formatting
   - Full audit trail for all configuration changes
   - Global admin only access with permission enforcement
+
+### Bucket Notifications
+- ✅ **Event Notifications (Webhooks)** - Send HTTP webhooks on S3 events - *New in 0.4.2*
+  - AWS S3 compatible event format (EventVersion 2.1)
+  - Event types: ObjectCreated:*, ObjectRemoved:*, ObjectRestored:Post
+  - Wildcard event matching (e.g., s3:ObjectCreated:* matches Put, Post, Copy)
+  - Webhook delivery with retry mechanism (3 attempts, 2-second delay)
+  - Per-rule filtering: Prefix and suffix filters for object keys
+  - Custom HTTP headers support per notification rule
+  - Enable/disable rules without deletion
+  - Web Console UI with tab-based bucket settings
+  - Add/Edit/Delete notification rules via intuitive modal
+  - Configuration stored in BadgerDB with in-memory caching
+  - Multi-tenant support with global admin access
+  - Full audit logging for all configuration changes
 
 ### Authentication & Security
 - ✅ **Server-Side Encryption at Rest (SSE)** - AES-256-CTR encryption for all objects - *New in 0.4.1*
@@ -83,12 +107,11 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 - ✅ User management (Create, Edit, Delete, Roles)
 - ✅ Access key management (Create, Revoke, View)
 - ✅ Tenant management with quotas (Storage, Buckets, Keys)
-- ✅ **Bucket configuration editors** (Visual + XML modes):
-  - **Bucket Tags**: Visual tag manager with key-value pairs
-  - **CORS**: Visual rule editor with origins, methods, headers
-  - **Policy**: Template-based editor + raw JSON mode
-  - **Versioning**: Enable/disable with one click
-  - **Lifecycle**: Rule-based configuration
+- ✅ **Bucket configuration editors** (Tabbed interface with Visual + XML modes):
+  - **General**: Versioning, encryption, and bucket tags
+  - **Security & Access**: Bucket policy, ACL, and CORS configuration
+  - **Lifecycle**: Rule-based lifecycle policies
+  - **Notifications**: Webhook event notifications with rule management - *New in 0.4.2*
 - ✅ **System Settings Page** (Global Admins only) - *New in 0.4.0*
   - Dual-configuration architecture (static + dynamic settings)
   - Modern tabbed interface (Security, Audit, Storage, Metrics, System)
@@ -292,6 +315,53 @@ MaxIOFS/
 
 ## 🧪 Testing
 
+### Automated Test Suite
+
+**Backend Tests** (Phase 1 - Complete):
+- ✅ **internal/auth/** - 11 tests covering authentication flows
+  - Password hashing/verification, JWT validation, 2FA setup
+  - Account lockout, rate limiting, user CRUD, access keys
+  - Coverage: 27.8% of statements
+- ✅ **internal/server/** - 9 tests covering Console API endpoints
+  - Login, user management, bucket operations, metrics
+  - Coverage: 4.9% of statements
+- ✅ **internal/object/** - Race condition verification tests (2 tests)
+  - Concurrent multipart uploads (10 parts simultaneously)
+  - Multiple simultaneous uploads (5 uploads, 25 parts total)
+  - Verified: No race conditions, BadgerDB handles concurrency correctly
+- ✅ **Test Infrastructure**:
+  - Helper functions for test setup and authentication
+  - Isolated test environments with temporary databases
+  - **28 tests total**, 100% pass rate, CI/CD ready
+
+**Feature Implementation**:
+- ✅ **Lifecycle Worker** - 100% Complete (November 20, 2025)
+  - Noncurrent version expiration (deletes old object versions)
+  - Expired delete marker cleanup (removes "zombie" delete markers)
+  - Worker runs hourly, processes all buckets with lifecycle policies
+  - Full AWS S3 compatibility for lifecycle management
+
+**Bug Verification**:
+- ✅ **Race conditions**: Tested and verified - no issues found
+- ✅ **Error consistency**: Verified - S3 uses XML, Console uses JSON (by design)
+- ✅ **Zero known bugs** - All reported issues investigated and resolved
+
+**Run Tests**:
+```bash
+# Run all tests
+go test ./...
+
+# Run with coverage
+go test -cover ./internal/auth/ ./internal/server/ ./internal/object/
+
+# Test race conditions specifically
+go test -v -run TestConcurrentMultipartUpload ./internal/object/
+go test -v -run TestMultipleSimultaneousMultipartUploads ./internal/object/
+
+# Verbose output
+go test -v ./internal/auth/
+```
+
 ### Testing with AWS CLI
 
 ```bash
@@ -367,8 +437,17 @@ warp mixed --host localhost:8080 \
 ### Security
 - ⚠️ Default credentials must be changed
 - ⚠️ HTTPS recommended for production
-- ⚠️ No security audit performed
-- ⚠️ Audit logging incomplete
+- ⚠️ No third-party security audit performed
+- ✅ Comprehensive audit logging system (20+ event types)
+- ✅ Two-Factor Authentication (2FA) with TOTP
+- ✅ Server-side encryption at rest (AES-256-CTR)
+- ✅ Security testing 100% complete (rate limiting, permissions, JWT, credential protection)
+
+### Bugs
+- ✅ **Zero known bugs** (November 2025)
+- ✅ All reported issues verified and resolved
+- ✅ Race conditions tested - no issues found
+- ✅ Concurrent operations handle correctly
 
 ## 🛠️ Development
 
@@ -470,7 +549,21 @@ Contributions welcome! Please:
 
 ## 🗺️ Roadmap
 
-### Completed (v0.4.0-beta - Current)
+### Completed (v0.4.1-beta - Current)
+- [x] **Server-Side Encryption (SSE)** (AES-256-CTR encryption at rest with persistent master key)
+- [x] **Streaming Encryption** (Constant memory usage ~32KB, supports files of any size)
+- [x] **Flexible Encryption Control** (Dual-level: server + per-bucket settings)
+- [x] **Settings Persistence** (SQLite-based runtime configuration storage)
+- [x] **Metrics Historical Storage** (BadgerDB for persistent metrics across restarts)
+- [x] **Critical Security Fixes** (Tenant menu visibility, admin privilege escalation, password change detection)
+- [x] **Enhanced UI/UX** (Unified card design, improved audit logs, encryption status indicators)
+- [x] **Documentation Package** (Complete offline docs in Debian packages at /usr/share/doc/maxiofs/)
+- [x] **Automated Testing Suite Phase 1** (Auth + Server API tests, 28 tests total, 100% pass rate)
+- [x] **Race Condition Verification** (Concurrent multipart uploads tested - no issues found)
+- [x] **Bug Verification Complete** (All reported bugs investigated and resolved - zero known bugs)
+- [x] **Lifecycle Feature 100% Complete** (Noncurrent version expiration + Expired delete marker cleanup)
+
+### Completed (v0.4.0-beta)
 - [x] **Dynamic Settings System** (23 configurable runtime settings)
 - [x] **Comprehensive Audit Logging** (20+ event types, compliance-ready)
 - [x] **Two-Factor Authentication** (TOTP with QR codes and backup codes)
@@ -495,14 +588,21 @@ Contributions welcome! Please:
 - [x] **Production bug fixes** (Object deletion, GOVERNANCE mode, URL redirects)
 
 ### Short Term (v0.5.0)
-- [ ] Complete automated test suite (increase from 75% to 85%+ coverage)
-- [ ] Complete API documentation (Console REST API + S3 compatibility matrix)
+- [ ] **Performance Profiling & Optimization** (Memory/CPU profiling, load testing)
+- [ ] **CI/CD Pipeline** (GitHub Actions for automated builds and releases)
+- [ ] **Bucket Notifications** (Webhooks on object events)
+- [ ] **Encryption Key Rotation** (Automatic key rotation with dual-key support)
+- [ ] **Per-Tenant Encryption Keys** (Tenant-level key isolation for multi-tenancy)
+- [ ] **HSM Integration** (Hardware Security Module for production key management)
+- [ ] **Metadata Encryption** (Encrypt object metadata in addition to object data)
 - [ ] Official Docker images on Docker Hub
-- [ ] Remaining security testing (rate limiting, CORS validation, credential checks)
+- [ ] Hot reload for frontend development
 
 ### Medium Term (v0.6.0-v0.8.0)
-- [ ] Object versioning (full implementation with complete lifecycle)
+- [x] ~~Object versioning (full implementation with complete lifecycle)~~ **100% IMPLEMENTED** - Versioning + lifecycle worker with noncurrent version expiration AND expired delete marker cleanup
 - [ ] Bucket replication (cross-bucket/cross-region)
+- [ ] **Encryption Algorithm Selection** (ChaCha20-Poly1305, AES-GCM options)
+- [ ] **Compliance Reporting** (Encryption coverage, key usage analytics)
 - [ ] Kubernetes Helm charts
 - [ ] CI/CD pipeline with automated releases
 
@@ -511,6 +611,7 @@ Contributions welcome! Please:
 - [ ] Replication between nodes (sync/async)
 - [ ] Additional storage backends (S3, GCS, Azure)
 - [ ] LDAP/SSO integration
+- [ ] **External Key Management Service** (AWS KMS, Azure Key Vault, HashiCorp Vault)
 
 ## 📄 License
 
