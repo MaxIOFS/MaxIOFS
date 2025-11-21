@@ -186,4 +186,45 @@
   .gradient-warning {
     background: linear-gradient(135deg, rgb(var(--color-warning-400)) 0%, rgb(var(--color-warning-600)) 100%);
   }
+
+  /* Login Wave Animation */
+  .login-wave-container {
+    @apply relative overflow-hidden;
+  }
+
+  .login-wave {
+    @apply absolute inset-0;
+    background: linear-gradient(
+      135deg,
+      transparent 0%,
+      transparent 35%,
+      rgba(255, 255, 255, 0.08) 45%,
+      rgba(255, 255, 255, 0.12) 50%,
+      rgba(255, 255, 255, 0.08) 55%,
+      transparent 65%,
+      transparent 100%
+    );
+    background-size: 200% 200%;
+    animation: wave-flow 10s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  .login-wave-2 {
+    animation: wave-flow 15s ease-in-out infinite reverse;
+    opacity: 0.6;
+  }
+
+  .login-wave-3 {
+    animation: wave-flow 12s ease-in-out infinite;
+    opacity: 0.4;
+  }
+
+  @keyframes wave-flow {
+    0%, 100% {
+      background-position: 0% 0%;
+    }
+    50% {
+      background-position: 100% 100%;
+    }
+  }
 }

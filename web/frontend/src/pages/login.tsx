@@ -127,35 +127,33 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2">
-      {/* Left Side - Brand & Waves */}
-      <div className="hidden lg:flex items-center justify-center bg-gradient-to-br from-blue-600 via-blue-700 to-gray-800 relative overflow-hidden">
-        {/* Decorative waves pattern */}
-        <div className="absolute inset-0 opacity-10">
-          <svg className="absolute bottom-0 w-full h-full" preserveAspectRatio="none" viewBox="0 0 1200 600">
-            <path
-              d="M0,300 Q300,450 600,300 T1200,300 L1200,600 L0,600 Z"
-              fill="white"
-              opacity="0.1"
-            />
-            <path
-              d="M0,350 Q300,500 600,350 T1200,350 L1200,600 L0,600 Z"
-              fill="white"
-              opacity="0.05"
-            />
-          </svg>
-        </div>
-
+      {/* Left Side - Brand & Gradient */}
+      <div className="hidden lg:flex items-center justify-center bg-gradient-to-br from-[#465fff] via-[#6207f3] to-[#0B0723] login-wave-container">
+        {/* Animated Wave Effect */}
+        <div className="login-wave" />
+        <div className="login-wave login-wave-2" />
+        <div className="login-wave login-wave-3" />
         {/* Logo */}
         <div className="relative z-10 text-center space-y-6 px-8">
           <div className="flex justify-center">
             <img
               src={`${basePath}/assets/img/logo.png`}
               alt="MaxIOFS"
-              className="h-32 3xl:h-40 4xl:h-48 w-auto object-contain drop-shadow-2xl"
+              className="h-32 3xl:h-40 4xl:h-48 w-auto object-contain"
+              style={{
+                filter: 'drop-shadow(0 8px 16px rgba(0, 0, 0, 0.4))'
+              }}
             />
           </div>
           <div className="text-white space-y-2">
-            <p className="text-xl 3xl:text-2xl 4xl:text-3xl text-blue-200">High-Performance Object Storage</p>
+            <p 
+              className="text-xl 3xl:text-2xl 4xl:text-3xl text-blue-100"
+              style={{
+                textShadow: '0 2px 8px rgba(0, 0, 0, 0.4)'
+              }}
+            >
+              High-Performance Object Storage
+            </p>
           </div>
         </div>
       </div>

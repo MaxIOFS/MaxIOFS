@@ -232,26 +232,34 @@ export default function Dashboard() {
                 {buckets
                   .sort((a, b) => new Date(b.creation_date).getTime() - new Date(a.creation_date).getTime())
                   .slice(0, 3)
-                  .map((bucket) => (
-                  <div
-                    key={bucket.name}
-                    className="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-button cursor-pointer transition-all duration-200 group shadow-soft hover:shadow-soft-md"
-                    onClick={() => navigate(`/buckets/${bucket.name}`)}
-                  >
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-button bg-brand-50 dark:bg-brand-900/30 flex-shrink-0">
-                        <Database className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+                  .map((bucket) => {
+                    // Construir la URL correcta basada en si el bucket tiene tenant_id
+                    const tenantId = bucket.tenant_id || bucket.tenantId;
+                    const bucketPath = tenantId
+                      ? `/buckets/${tenantId}/${bucket.name}`
+                      : `/buckets/${bucket.name}`;
+                    
+                    return (
+                      <div
+                        key={bucket.name}
+                        className="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-button cursor-pointer transition-all duration-200 group shadow-soft hover:shadow-soft-md"
+                        onClick={() => navigate(bucketPath)}
+                      >
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="flex items-center justify-center w-10 h-10 rounded-button bg-brand-50 dark:bg-brand-900/30 flex-shrink-0">
+                            <Database className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{bucket.name}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              {bucket.object_count || 0} objects · {formatBytes(bucket.size || 0)}
+                            </p>
+                          </div>
+                        </div>
+                        <ArrowUpRight className="h-4 w-4 text-gray-400 dark:text-gray-500 group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors flex-shrink-0" />
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{bucket.name}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {bucket.object_count || 0} objects · {formatBytes(bucket.size || 0)}
-                        </p>
-                      </div>
-                    </div>
-                    <ArrowUpRight className="h-4 w-4 text-gray-400 dark:text-gray-500 group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors flex-shrink-0" />
-                  </div>
-                ))}
+                    );
+                  })}
                 {buckets.length > 3 && (
                   <button
                     onClick={() => navigate('/buckets')}
