@@ -1,6 +1,16 @@
 maxiofs (0.4.2-beta) unstable; urgency=medium
 
-  * Major feature release: Real-Time Notifications & Dynamic Security
+  * Major feature release: S3 Compatibility, Real-Time Notifications & Dynamic Security
+  * Global bucket uniqueness - bucket names unique across all tenants (AWS S3 compatible)
+  * S3-compatible URLs - presigned URLs without tenant prefix
+  * S3-compatible share URLs - standard S3 URL format
+  * Automatic tenant resolution - backend resolves bucket ownership from name
+  * Bucket Notifications (Webhooks) - AWS S3 compatible event notifications
+  * Event types: ObjectCreated:*, ObjectRemoved:*, ObjectRestored:Post
+  * Webhook delivery with retry mechanism (3 attempts, 2-second delay)
+  * Per-rule filtering with prefix and suffix support
+  * Custom HTTP headers support per notification rule
+  * Web Console UI with tab-based bucket settings for notifications
   * Server-Sent Events (SSE) for real-time push notifications to admins
   * NotificationHub with automatic SSE client connection management
   * User locked notifications sent immediately when accounts are blocked
@@ -19,7 +29,8 @@ maxiofs (0.4.2-beta) unstable; urgency=medium
   * Fixed SSE callback not executing (type signature mismatch)
   * Fixed frontend token detection with periodic checking
   * Fixed streaming unsupported error (Flusher interface implementation)
-  * Complete documentation updates (CHANGELOG, README, TODO)
+  * Fixed presigned URL modal state persistence bug
+  * Complete documentation updates (CHANGELOG, README, TODO, SECURITY)
 
  -- MaxIOFS Team <info@maxiofs.com>  Sun, 24 Nov 2025 00:00:00 +0000
 

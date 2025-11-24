@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.4.2-beta] - 2025-11-24
 
-### 🎯 Major Feature Release: Real-Time Notifications & Dynamic Security Settings
+### 🎯 Major Feature Release: S3 Compatibility, Real-Time Notifications & Dynamic Security
 
-This release introduces **Server-Sent Events (SSE) for real-time push notifications** and **dynamic security configuration** that allows administrators to adjust rate limits and security thresholds without server restarts. Additionally, multiple critical bugs were fixed improving overall system stability.
+This release combines **AWS S3 compatibility improvements** (global bucket uniqueness, S3-compatible URLs, bucket notifications/webhooks), **Server-Sent Events (SSE) for real-time push notifications**, and **dynamic security configuration** that allows administrators to adjust rate limits and security thresholds without server restarts. Additionally, multiple critical bugs were fixed improving overall system stability.
 
 ### Added
 
@@ -87,6 +87,91 @@ This release introduces **Server-Sent Events (SSE) for real-time push notificati
   - Logging of configured values on startup
   - **Files**: `internal/auth/manager.go`, `internal/server/server.go`
 
+#### 🌐 **Global Bucket Uniqueness - AWS S3 Compatible**
+
+- **Global Bucket Name Validation**:
+  - Bucket names are now globally unique across all tenants (matching AWS S3 behavior)
+  - Prevents bucket name conflicts between different tenants
+  - Validation layer added during bucket creation
+  - Scans all existing buckets to enforce uniqueness
+  - Returns proper S3 error (BucketAlreadyExists) when name is taken
+  - **Files**: `internal/metadata/badger.go` (lines 154-170)
+
+- **Backward Compatible Implementation**:
+  - Database schema unchanged (preserves existing data)
+  - Bucket keys remain as `bucket:{tenantID}:{name}` in BadgerDB
+  - No data migration required
+  - Existing buckets continue to work without modification
+  - **Impact**: Zero downtime upgrade path
+
+- **Automatic Tenant Resolution**:
+  - New `GetBucketByName()` function for global bucket lookup
+  - Backend automatically resolves bucket's tenant from bucket name
+  - Transparent to S3 clients (no API changes)
+  - Efficient metadata scanning with early exit on match
+  - **Files**: `internal/metadata/badger.go` (lines 327-357), `internal/metadata/store.go` (lines 40-41)
+
+#### 🔗 **S3-Compatible URLs - Standard URL Format**
+
+- **Presigned URLs Without Tenant Prefix**:
+  - Presigned URLs now use standard S3 format: `/bucket/object?signature=...`
+  - Previously: `/tenant-id/bucket/object?signature=...` (non-standard)
+  - Better compatibility with S3 clients and CDNs
+  - Simplified URL structure
+  - **Files**: `internal/presigned/generator.go` (line 75)
+
+- **Share URLs Without Tenant Prefix**:
+  - Share URLs follow same standard format: `/bucket/object`
+  - Consistent URL format across all sharing mechanisms
+  - Database-backed share system continues to persist URLs
+  - **Files**: `internal/server/console_api.go` (lines 1324-1345)
+
+- **Automatic Tenant Resolution in S3 API**:
+  - All S3 operations resolve bucket's tenant automatically
+  - No `/tenant-id/` prefix needed in S3 API calls
+  - Standard S3 path format: `/{bucket}/{key}`
+  - Backward compatible with old format (still works)
+  - **Files**: `pkg/s3compat/handler.go` (lines 45-60)
+
+#### 📢 **Bucket Notifications (Webhooks) - AWS S3 Compatible**
+
+- **Event Notification System**:
+  - AWS S3 compatible event format (EventVersion 2.1)
+  - Event types: `s3:ObjectCreated:*`, `s3:ObjectRemoved:*`, `s3:ObjectRestored:Post`
+  - Wildcard event matching (e.g., `s3:ObjectCreated:*` matches Put, Post, Copy, CompleteMultipartUpload)
+  - Rich event metadata (bucket, object key, size, etag, user identity, source IP)
+  - **Files**: `internal/notifications/types.go` (new file, 111 lines)
+
+- **Webhook Delivery System**:
+  - HTTP POST to configured webhook URL
+  - Retry mechanism (3 attempts with 2-second delay between retries)
+  - Configurable custom HTTP headers per notification rule
+  - Asynchronous delivery (doesn't block S3 operations)
+  - Timeout protection (10 seconds per request)
+  - **Files**: `internal/notifications/manager.go` (new file, 359 lines)
+
+- **Per-Rule Filtering**:
+  - Prefix filters: Only notify for objects matching prefix (e.g., `logs/`)
+  - Suffix filters: Only notify for objects matching suffix (e.g., `.jpg`)
+  - Multiple rules per bucket (different URLs for different events/filters)
+  - Enable/disable rules without deletion
+  - **Implementation**: Rule-based event matching with early exit optimization
+
+- **Web Console Integration**:
+  - Tab-based bucket settings page (General, Notifications, Policy, CORS, Lifecycle)
+  - Visual notification rules management
+  - Add/Edit/Delete notification rules via intuitive modal
+  - Test webhook delivery from UI
+  - Rule status indicators (enabled/disabled)
+  - **Files**: `web/frontend/src/pages/buckets/[bucket]/settings.tsx` (notification tab)
+
+- **Configuration Storage**:
+  - Rules stored in BadgerDB at `bucket_notifications:{tenantID}:{bucketName}`
+  - In-memory caching for fast event processing
+  - Automatic cache invalidation on rule changes
+  - Multi-tenant isolation enforced
+  - **Files**: `internal/metadata/badger.go` (GetRaw/PutRaw/DeleteRaw methods)
+
 ### Fixed
 
 #### 🐛 **Critical Bug Fixes**
@@ -139,6 +224,13 @@ This release introduces **Server-Sent Events (SSE) for real-time push notificati
   - **Solution**: Added `Flush()` method to `metricsResponseWriter` that delegates to underlying writer
   - **Impact**: HIGH - SSE completely broken until fixed
   - **Files**: `internal/server/console_api.go` (lines 89-105)
+
+- **Presigned URL Modal State Persistence**:
+  - **Issue**: Modal state persisted when switching between objects in bucket view
+  - **Root Cause**: React component didn't properly clean up state on unmount
+  - **Solution**: Proper state initialization and cleanup in useEffect hooks
+  - **Impact**: MEDIUM - UI inconsistency when generating multiple presigned URLs
+  - **Files**: `web/frontend/src/components/PresignedURLModal.tsx`
 
 ### Enhanced
 
@@ -318,306 +410,6 @@ Planned features for future releases:
 - ⏳ Notification preferences per user
 - ⏳ Performance profiling and optimization
 - ⏳ CI/CD pipeline (GitHub Actions)
-
----
-
-## [0.4.2-beta] - 2025-11-23
-
-### 🎯 Major Feature Release: S3 Compatibility Improvements & Bucket Notifications
-
-This release focuses on **AWS S3 compatibility** improvements, implementing **global bucket uniqueness** (AWS S3 standard), **S3-compatible URLs** without tenant prefixes, and **bucket notifications (webhooks)** for object events. These changes significantly improve compatibility with standard S3 clients and tools.
-
-### Added
-
-#### 🌐 **Global Bucket Uniqueness - AWS S3 Compatible**
-
-- **Global Bucket Name Validation**:
-  - Bucket names are now globally unique across all tenants (matching AWS S3 behavior)
-  - Prevents bucket name conflicts between different tenants
-  - Validation layer added during bucket creation
-  - Scans all existing buckets to enforce uniqueness
-  - Returns proper S3 error (BucketAlreadyExists) when name is taken
-  - **Files**: `internal/metadata/badger.go` (lines 154-170)
-
-- **Backward Compatible Implementation**:
-  - Database schema unchanged (preserves existing data)
-  - Bucket keys remain as `bucket:{tenantID}:{name}` in BadgerDB
-  - No data migration required
-  - Existing buckets continue to work without modification
-  - **Impact**: Zero downtime upgrade path
-
-- **Automatic Tenant Resolution**:
-  - New `GetBucketByName()` function for global bucket lookup
-  - Backend automatically resolves bucket's tenant from bucket name
-  - Transparent to S3 clients (no API changes)
-  - Efficient metadata scanning with early exit on match
-  - **Files**: `internal/metadata/badger.go` (lines 327-357), `internal/metadata/store.go` (lines 40-41)
-
-#### 🔗 **S3-Compatible URLs - Standard URL Format**
-
-- **Presigned URLs Without Tenant Prefix**:
-  - Presigned URLs now use standard S3 format: `/bucket/object?signature=...`
-  - Previously: `/tenant-id/bucket/object?signature=...` (non-standard)
-  - Better compatibility with S3 clients and CDNs
-  - Simplified URL structure
-  - **Files**: `internal/presigned/generator.go` (line 75)
-
-- **Share URLs Without Tenant Prefix**:
-  - Share URLs follow same standard format: `/bucket/object`
-  - Consistent URL format across all sharing mechanisms
-  - Database-backed share system continues to persist URLs
-  - **Files**: `internal/server/console_api.go` (lines 1324-1345)
-
-- **Automatic Path Resolution**:
-  - Updated `getBucketPath()` to resolve tenant automatically
-  - First tries authenticated user's tenant
-  - Falls back to bucket lookup for presigned URLs
-  - Returns proper tenant-scoped path for storage backend
-  - **Files**: `pkg/s3compat/handler.go` (lines 2101-2117)
-
-#### 📢 **Bucket Notifications (Webhooks) - AWS S3 Compatible**
-
-- **Event Notification System**:
-  - AWS S3 compatible event format (EventVersion 2.1)
-  - Supported event types:
-    - `s3:ObjectCreated:*` (Put, Post, Copy, CompleteMultipartUpload)
-    - `s3:ObjectRemoved:*` (Delete, DeleteMarkerCreated)
-    - `s3:ObjectRestored:Post`
-  - Wildcard event matching (e.g., `s3:ObjectCreated:*` matches all create events)
-  - **Files**: Notification system implementation across multiple files
-
-- **Webhook Delivery with Retry**:
-  - HTTP POST to configured webhook endpoints
-  - Retry mechanism: 3 attempts with 2-second delay
-  - Custom HTTP headers support per notification rule
-  - Timeout handling and error logging
-  - Graceful failure (doesn't block S3 operations)
-
-- **Per-Rule Filtering**:
-  - Prefix filters (e.g., trigger only for objects in `logs/` folder)
-  - Suffix filters (e.g., trigger only for `.jpg` files)
-  - Combine prefix and suffix for precise targeting
-  - Filter validation and sanitization
-
-- **Web Console Integration**:
-  - Tab-based bucket settings UI
-  - "Notifications" tab for webhook management
-  - Add/Edit/Delete notification rules via modal
-  - Enable/disable rules without deletion
-  - Visual configuration interface (no JSON/XML editing required)
-  - Real-time validation and error feedback
-
-- **Storage and Performance**:
-  - Configuration stored in BadgerDB
-  - In-memory caching for fast lookup
-  - Multi-tenant support with global admin access
-  - Full audit logging for all configuration changes
-
-### Enhanced
-
-#### 🔧 **Frontend Improvements**
-
-- **Presigned URL Modal State Management**:
-  - Fixed bug where modal showed previous object's URL when switching objects
-  - Added `key={selectedObjectKey}` prop to force React component remount
-  - Added `useEffect` hook to reset state when object/bucket changes
-  - Improved user experience when generating multiple presigned URLs
-  - **Files**: `web/frontend/src/components/PresignedURLModal.tsx` (lines 30-36), `web/frontend/src/pages/buckets/[bucket]/index.tsx` (line 1443)
-
-- **React Component Lifecycle**:
-  - Proper cleanup of component state on unmount
-  - Better handling of prop changes
-  - Prevents stale data display in modals
-
-#### 📊 **Multi-Tenancy Architecture Updates**
-
-- **Documentation Updates**:
-  - Updated MULTI_TENANCY.md with global uniqueness explanation
-  - Added examples showing naming conventions to avoid conflicts
-  - Clarified tenant isolation (data isolation maintained despite global names)
-  - Updated database schema documentation
-
-### Fixed
-
-- **Presigned URL Modal Bug**:
-  - Issue: When generating presigned URL for object A, then opening modal for object B, it showed object A's URL
-  - Root cause: React state not resetting when switching between objects
-  - Solution: Force component remount with `key` prop + `useEffect` cleanup
-  - **Impact**: Medium - Confusing UX when sharing multiple objects
-
-### Technical Details
-
-#### **Database Schema Changes**
-
-**None** - Fully backward compatible:
-```
-Before (v0.4.1-beta):
-bucket:tenant-abc123:my-bucket  → {metadata}
-bucket:tenant-xyz789:my-bucket  → {metadata} ✅ Allowed (duplicate names)
-
-After (v0.4.2-beta):
-bucket:tenant-abc123:my-bucket  → {metadata}
-bucket:tenant-xyz789:my-bucket  → ❌ Rejected (global uniqueness enforced)
-bucket:tenant-xyz789:xyz-bucket → {metadata} ✅ Allowed (unique name)
-
-Storage format unchanged - validation layer added
-```
-
-#### **New Functions Added**
-
-1. **`GetBucketByName(ctx, name)`** - Global bucket lookup
-   ```go
-   // internal/metadata/badger.go (lines 327-357)
-   func (s *BadgerStore) GetBucketByName(ctx context.Context, name string) (*BucketMetadata, error) {
-       // Scans all buckets (prefix "bucket:")
-       // Returns first match by bucket name
-       // Used for tenant resolution in presigned URLs
-   }
-   ```
-
-2. **Updated `getBucketPath()`** - Automatic tenant resolution
-   ```go
-   // pkg/s3compat/handler.go (lines 2101-2117)
-   func (h *Handler) getBucketPath(r *http.Request, bucketName string) string {
-       // Try authenticated user's tenant first
-       // Fall back to GetBucketByName() for presigned URLs
-       // Returns: "tenant-id/bucket" or "bucket" (for global)
-   }
-   ```
-
-#### **Files Modified for S3 Compatibility**
-
-1. `internal/metadata/badger.go` - Global uniqueness validation + GetBucketByName()
-2. `internal/metadata/store.go` - Interface definition for GetBucketByName()
-3. `internal/presigned/generator.go` - Removed tenant prefix from URLs
-4. `pkg/s3compat/handler.go` - Automatic tenant resolution + interface update
-5. `internal/server/console_api.go` - Share URLs without tenant prefix
-6. `web/frontend/src/components/PresignedURLModal.tsx` - State management fix
-7. `web/frontend/src/pages/buckets/[bucket]/index.tsx` - Key prop for modal
-
-#### **Files Modified for Bucket Notifications**
-
-- Multiple files across backend for notification system implementation
-- Frontend bucket settings UI with notifications tab
-- BadgerDB integration for notification configuration storage
-
-### Deployment
-
-#### **Upgrading from v0.4.1-beta**
-
-**Zero downtime upgrade - Fully backward compatible:**
-
-1. Stop MaxIOFS server
-2. Replace binary with v0.4.2-beta
-3. Start MaxIOFS server
-4. All existing buckets remain accessible
-5. New buckets will enforce global uniqueness
-6. Presigned URLs automatically use new format
-7. No configuration changes required
-
-**Behavior Changes:**
-- **Bucket Creation**: Global uniqueness now enforced
-  - Tenant A creates "backups" → ✅ Success
-  - Tenant B creates "backups" → ❌ BucketAlreadyExists error
-  - **Recommendation**: Use tenant-prefixed names (e.g., "acme-backups", "xyz-backups")
-- **Presigned URLs**: URLs no longer contain `/tenant-id/` prefix
-  - Old format still works for existing URLs (backward compatible)
-  - New URLs follow standard S3 format
-- **Share URLs**: Follow same format as presigned URLs
-
-#### **Configuration for Bucket Notifications**
-
-No additional configuration required - notifications are configured per-bucket via Web Console:
-
-1. Navigate to Bucket Settings → Notifications tab
-2. Click "Add Notification Rule"
-3. Configure:
-   - Event types (ObjectCreated, ObjectRemoved, ObjectRestored)
-   - Webhook URL (HTTP/HTTPS endpoint)
-   - Prefix/suffix filters (optional)
-   - Custom headers (optional)
-4. Save configuration
-5. Events automatically trigger webhook deliveries
-
-### Breaking Changes
-
-**None** - This release is fully backward compatible with v0.4.1-beta
-
-**Non-Breaking Behavior Changes:**
-- Bucket names now globally unique (prevents future conflicts)
-- URL format standardized (improves S3 compatibility)
-- Both changes align with AWS S3 standards
-
-### Security Considerations
-
-#### **Bucket Enumeration**
-
-- Global bucket uniqueness allows bucket name enumeration
-- Mitigation: Use non-obvious bucket names (avoid common names like "backups")
-- Tenant isolation still enforced (users can't see/access other tenants' buckets)
-
-#### **Webhook Security**
-
-- Webhooks send HTTP POST to configured URLs
-- **Important**: Validate webhook sources in receiving application
-- Consider using HTTPS endpoints for webhook URLs
-- Custom headers can include authentication tokens
-- Failed deliveries logged in audit logs
-
-### Validated with AWS CLI
-
-**All operations tested on November 23, 2025:**
-
-**Bucket Creation with Global Uniqueness**:
-- ✅ Tenant A: `aws s3 mb s3://test-bucket` → Success
-- ✅ Tenant B: `aws s3 mb s3://test-bucket` → BucketAlreadyExists error
-- ✅ Tenant B: `aws s3 mb s3://test-bucket-2` → Success (different name)
-
-**Presigned URLs**:
-- ✅ Generated via Console UI
-- ✅ URLs work in browser (no authentication required)
-- ✅ URLs expire correctly after configured time
-- ✅ Standard S3 format: `http://endpoint/bucket/object?signature=...`
-
-**Share URLs**:
-- ✅ Created via Console UI
-- ✅ Persist in database across restarts
-- ✅ Revocable via Console UI
-- ✅ Standard S3 format: `http://endpoint/bucket/object`
-
-**S3 Operations with Global Buckets**:
-- ✅ All S3 operations work correctly
-- ✅ Multi-tenant isolation maintained
-- ✅ No performance regression
-- ✅ Automatic tenant resolution transparent to clients
-
-### Performance Impact
-
-**Global Uniqueness Validation**:
-- Adds bucket metadata scan during CreateBucket
-- Performance: O(n) where n = total bucket count
-- Impact: Minimal for typical deployments (<1000 buckets)
-- Optimization: Early exit on first match
-
-**Presigned URL Generation**:
-- Additional `GetBucketByName()` lookup for presigned URLs
-- Cached in typical S3 client usage patterns
-- Impact: <10ms per request
-
-**Webhook Delivery**:
-- Asynchronous (doesn't block S3 operations)
-- Retry logic runs in background goroutine
-- Impact: Zero on S3 API performance
-
-### What's Next (v0.5.0)
-
-Planned features for future releases:
-- ⏳ Performance profiling and optimization
-- ⏳ CI/CD pipeline (GitHub Actions)
-- ⏳ Encryption key rotation with dual-key support
-- ⏳ Per-tenant encryption keys for multi-tenancy isolation
-- ⏳ HSM integration for production key management
-- ⏳ Official Docker images on Docker Hub
 
 ---
 
