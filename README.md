@@ -28,10 +28,11 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 ## 🎯 Features
 
 ### S3 API Compatibility (98%)
+- ✅ **Global Bucket Uniqueness** - Bucket names globally unique across all tenants (AWS S3 compatible) - *New in 0.4.2*
 - ✅ Core operations (PutObject, GetObject, DeleteObject, ListObjects)
 - ✅ Bucket management (Create, List, Delete, GetBucketInfo)
 - ✅ Multipart uploads (complete workflow)
-- ✅ Presigned URLs (GET/PUT with expiration)
+- ✅ Presigned URLs (GET/PUT with expiration, S3-compatible paths without tenant prefix) - *Updated in 0.4.2*
 - ✅ **Bulk operations (DeleteObjects - batch delete up to 1000 objects)**
 - ✅ Object Lock (COMPLIANCE/GOVERNANCE modes)
 - ✅ **Bucket Versioning** (Multiple versions, Delete Markers, GetObjectVersions, DeleteVersion)
@@ -75,6 +76,21 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
   - Full audit logging for all configuration changes
 
 ### Authentication & Security
+- ✅ **Real-Time Push Notifications (SSE)** - Server-Sent Events for instant admin alerts - *New in 0.4.2*
+  - Live notifications in topbar bell icon with unread count badge
+  - User locked notifications when accounts are blocked
+  - Read/unread state tracking with localStorage persistence
+  - Limited to last 3 notifications to prevent UI clutter
+  - Tenant isolation (global admins see all, tenant admins see only their tenant)
+  - Automatic reconnection and token detection
+  - Zero polling - true push-based notifications
+- ✅ **Dynamic Security Configuration** - Adjust security settings without restart - *New in 0.4.2*
+  - Configurable IP-based rate limiting (default: 5 attempts/minute)
+  - Configurable account lockout threshold (default: 5 failed attempts)
+  - Configurable lockout duration (default: 15 minutes)
+  - Separate controls for IP rate limiting vs account lockout
+  - Changes take effect immediately via Settings page
+  - All configuration changes logged in audit trail
 - ✅ **Server-Side Encryption at Rest (SSE)** - AES-256-CTR encryption for all objects - *New in 0.4.1*
   - Persistent master key (config.yaml) - survives server restarts
   - Streaming encryption - constant memory usage, supports files of ANY size
@@ -549,7 +565,14 @@ Contributions welcome! Please:
 
 ## 🗺️ Roadmap
 
-### Completed (v0.4.1-beta - Current)
+### Completed (v0.4.2-beta - Current)
+- [x] **Global Bucket Uniqueness** (Bucket names globally unique across all tenants for AWS S3 compatibility)
+- [x] **S3-Compatible URLs** (Presigned and share URLs without tenant prefix for standard S3 client compatibility)
+- [x] **Automatic Tenant Resolution** (Backend automatically resolves bucket ownership from bucket name)
+- [x] **Frontend Modal State Management** (Fixed presigned URL modal state persistence bug)
+- [x] **Bucket Notifications (Webhooks)** (AWS S3 compatible event notifications - ObjectCreated, ObjectRemoved, ObjectRestored)
+
+### Completed (v0.4.1-beta)
 - [x] **Server-Side Encryption (SSE)** (AES-256-CTR encryption at rest with persistent master key)
 - [x] **Streaming Encryption** (Constant memory usage ~32KB, supports files of any size)
 - [x] **Flexible Encryption Control** (Dual-level: server + per-bucket settings)
@@ -590,7 +613,7 @@ Contributions welcome! Please:
 ### Short Term (v0.5.0)
 - [ ] **Performance Profiling & Optimization** (Memory/CPU profiling, load testing)
 - [ ] **CI/CD Pipeline** (GitHub Actions for automated builds and releases)
-- [ ] **Bucket Notifications** (Webhooks on object events)
+- [x] ~~**Bucket Notifications** (Webhooks on object events)~~ **IMPLEMENTED in v0.4.2-beta**
 - [ ] **Encryption Key Rotation** (Automatic key rotation with dual-key support)
 - [ ] **Per-Tenant Encryption Keys** (Tenant-level key isolation for multi-tenancy)
 - [ ] **HSM Integration** (Hardware Security Module for production key management)

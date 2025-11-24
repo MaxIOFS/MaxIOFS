@@ -418,4 +418,4 @@ aws configure list
 ---
 
 **Version**: 0.4.2-beta
-**Last Updated**: November 18, 2025
+**Last Updated**: November 23, 2025

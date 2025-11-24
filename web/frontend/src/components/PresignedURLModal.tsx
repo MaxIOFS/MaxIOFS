@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -26,6 +26,14 @@ export function PresignedURLModal({
   const [method, setMethod] = useState<string>('GET');
   const [generatedURL, setGeneratedURL] = useState<string>('');
   const [expiresAt, setExpiresAt] = useState<string>('');
+
+  // Reset state when objectKey changes (switching to different object)
+  useEffect(() => {
+    setGeneratedURL('');
+    setExpiresAt('');
+    setExpiresIn('3600');
+    setMethod('GET');
+  }, [objectKey, bucketName]);
 
   const generateMutation = useMutation({
     mutationFn: () =>

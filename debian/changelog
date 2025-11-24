@@ -1,3 +1,48 @@
+maxiofs (0.4.2-beta) unstable; urgency=medium
+
+  * Major feature release: Real-Time Notifications & Dynamic Security
+  * Server-Sent Events (SSE) for real-time push notifications to admins
+  * NotificationHub with automatic SSE client connection management
+  * User locked notifications sent immediately when accounts are blocked
+  * Topbar bell icon with unread count badge and notification dropdown
+  * Read/unread state tracking with localStorage persistence
+  * Limited to last 3 notifications to prevent UI clutter
+  * Tenant isolation in notifications (global/tenant admin filtering)
+  * Dynamic security configuration without server restart
+  * Configurable IP-based rate limiting (security.ratelimit_login_per_minute)
+  * Configurable account lockout threshold (security.max_failed_attempts)
+  * Configurable lockout duration (security.lockout_duration)
+  * Settings Manager integration with auth manager for dynamic rates
+  * Fixed critical rate limiter double-counting bug (blocking at 3 instead of 5)
+  * Fixed failed attempts counter not resetting after lockout
+  * Fixed security page not showing locked users (camelCase field)
+  * Fixed SSE callback not executing (type signature mismatch)
+  * Fixed frontend token detection with periodic checking
+  * Fixed streaming unsupported error (Flusher interface implementation)
+  * Complete documentation updates (CHANGELOG, README, TODO)
+
+ -- MaxIOFS Team <info@maxiofs.com>  Sun, 24 Nov 2025 00:00:00 +0000
+
+maxiofs (0.4.1-beta) unstable; urgency=medium
+
+  * Major feature release: S3 Compatibility Improvements
+  * Global bucket uniqueness - bucket names unique across all tenants (AWS S3 compatible)
+  * S3-compatible URLs - presigned URLs without tenant prefix
+  * S3-compatible share URLs - standard S3 URL format
+  * Automatic tenant resolution - backend resolves bucket ownership from name
+  * Bucket Notifications (Webhooks) - AWS S3 compatible event notifications
+  * Event types: ObjectCreated:*, ObjectRemoved:*, ObjectRestored:Post
+  * Webhook delivery with retry mechanism (3 attempts)
+  * Per-rule filtering with prefix and suffix support
+  * Custom HTTP headers support per notification rule
+  * Web Console UI with tab-based bucket settings for notifications
+  * Fixed presigned URL modal state persistence bug
+  * Improved React component lifecycle management
+  * Full audit logging for notification configuration changes
+  * Complete documentation updates (TODO.md, README.md, 9 docs files)
+
+ -- MaxIOFS Team <info@maxiofs.com>  Sat, 23 Nov 2025 00:00:00 +0000
+
 maxiofs (0.4.1-beta) unstable; urgency=medium
 
   * Major feature release: Server-Side Encryption (SSE)

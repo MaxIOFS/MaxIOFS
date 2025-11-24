@@ -85,6 +85,7 @@ type Handler struct {
 	}
 	metadataStore interface {
 		ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error)
+		GetBucketByName(ctx context.Context, name string) (*metadata.BucketMetadata, error)
 	}
 	publicAPIURL string
 	dataDir      string // For calculating disk capacity in SOSAPI
@@ -124,6 +125,7 @@ func (h *Handler) SetDataDir(dataDir string) {
 // SetMetadataStore sets the metadata store for accessing object versions
 func (h *Handler) SetMetadataStore(ms interface {
 	ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error)
+	GetBucketByName(ctx context.Context, name string) (*metadata.BucketMetadata, error)
 }) {
 	h.metadataStore = ms
 }
@@ -2099,7 +2101,17 @@ func (h *Handler) getTenantIDFromRequest(r *http.Request) string {
 // Format: "tenantID/bucketName" for tenant buckets, or "bucketName" for global buckets
 // This is transparent to S3 clients - they only see "bucketName"
 func (h *Handler) getBucketPath(r *http.Request, bucketName string) string {
+	// First, try to get tenant from authenticated user
 	tenantID := h.getTenantIDFromRequest(r)
+
+	// If no user context (e.g., presigned URL), look up the bucket to find its tenant
+	if tenantID == "" && h.metadataStore != nil {
+		bucketMeta, err := h.metadataStore.GetBucketByName(r.Context(), bucketName)
+		if err == nil && bucketMeta != nil {
+			tenantID = bucketMeta.TenantID
+		}
+	}
+
 	if tenantID == "" {
 		return bucketName // Global bucket
 	}

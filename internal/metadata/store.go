@@ -37,6 +37,9 @@ type Store interface {
 	// ListBuckets lists all buckets for a tenant (empty tenantID = global)
 	ListBuckets(ctx context.Context, tenantID string) ([]*BucketMetadata, error)
 
+	// GetBucketByName finds a bucket by name across all tenants (for globally unique buckets)
+	GetBucketByName(ctx context.Context, name string) (*BucketMetadata, error)
+
 	// BucketExists checks if a bucket exists
 	BucketExists(ctx context.Context, tenantID, name string) (bool, error)
 

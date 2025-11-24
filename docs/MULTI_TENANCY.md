@@ -64,15 +64,21 @@ MaxIOFS provides basic multi-tenancy with resource isolation and quota enforceme
 
 ## Resource Isolation
 
-### Tenant-Scoped Bucket Namespaces
+### Global Bucket Uniqueness (v0.4.2-beta)
 
-**Key Feature**: Each tenant has its own isolated bucket namespace.
+**Key Feature**: Bucket names are globally unique across all tenants (AWS S3 compatible).
 
 **What this means:**
+- **Bucket names must be unique across the entire system** (like AWS S3)
 - Tenant A can create a bucket named "backups"
-- Tenant B can ALSO create a bucket named "backups"
-- Both buckets are completely isolated - no naming conflicts
-- Tenants cannot see or access other tenants' buckets
+- Tenant B **CANNOT** create a bucket named "backups" (will be rejected)
+- Each bucket name is globally unique, preventing conflicts
+- Tenants still cannot see or access other tenants' buckets (isolation maintained)
+
+**Why this change:**
+- **AWS S3 Compatibility**: AWS S3 requires globally unique bucket names
+- Better S3 client compatibility (no tenant prefix in URLs)
+- Standard S3 URL format: `http://endpoint/bucket/object` (not `/tenant-id/bucket/object`)
 
 **How it works:**
 
@@ -80,33 +86,30 @@ MaxIOFS provides basic multi-tenancy with resource isolation and quota enforceme
 Physical Storage Structure:
 /data/objects/
   ├── tenant-abc123/
-  │   ├── backups/          ← Tenant A's "backups" bucket
-  │   ├── archives/
-  │   └── logs/
+  │   ├── acme-backups/        ← Tenant A's "acme-backups" bucket
+  │   ├── acme-archives/
+  │   └── acme-logs/
   ├── tenant-xyz789/
-  │   ├── backups/          ← Tenant B's "backups" bucket (same name!)
-  │   ├── media/
-  │   └── databases/
-  └── global-bucket/        ← Global admin bucket (no tenant prefix)
+  │   ├── xyz-backups/          ← Tenant B's "xyz-backups" bucket (different name!)
+  │   ├── xyz-media/
+  │   └── xyz-databases/
+  └── global-bucket/             ← Global admin bucket (no tenant prefix)
 
-Metadata Storage:
-.maxiofs/buckets/
-  ├── tenant-abc123/
-  │   ├── backups.json      ← Metadata for Tenant A's "backups"
-  │   ├── archives.json
-  │   └── logs.json
-  ├── tenant-xyz789/
-  │   ├── backups.json      ← Metadata for Tenant B's "backups"
-  │   ├── media.json
-  │   └── databases.json
-  └── global/
-      └── global-bucket.json
+Metadata Storage (BadgerDB):
+bucket:tenant-abc123:acme-backups     ← Metadata for Tenant A's "acme-backups"
+bucket:tenant-abc123:acme-archives
+bucket:tenant-abc123:acme-logs
+bucket:tenant-xyz789:xyz-backups      ← Metadata for Tenant B's "xyz-backups"
+bucket:tenant-xyz789:xyz-media
+bucket:tenant-xyz789:xyz-databases
+bucket:global:global-bucket           ← Global admin bucket
 ```
 
-**S3 API Compatibility**: 100% transparent to clients
-- Client request: `GET /backups/file.txt` with tenant credentials
-- Backend resolves: `access_key` → `user` → `tenant_id` → `tenant-abc123/backups/file.txt`
-- Client never sees or needs to know about tenant prefixes
+**Automatic Tenant Resolution**: 100% transparent to S3 clients
+- Client request: `GET /acme-backups/file.txt` with tenant credentials
+- Backend resolves: `bucket_name` → lookup in metadata → `tenant_id` → `tenant-abc123/acme-backups/file.txt`
+- Client uses standard S3 URL format (no tenant prefix)
+- Presigned URLs: `http://endpoint/acme-backups/file.txt?signature=...`
 
 ### Database Schema
 
@@ -132,14 +135,18 @@ CREATE TABLE users (
     FOREIGN KEY(tenant_id) REFERENCES tenants(id)
 );
 
--- Buckets with tenant_id (scoped per tenant)
+-- Buckets with tenant_id (globally unique names)
+-- Note: In BadgerDB, buckets are stored with keys: bucket:{tenant_id}:{name}
+-- However, bucket names are validated for global uniqueness (v0.4.2-beta)
+-- This ensures AWS S3 compatibility where bucket names are globally unique
 CREATE TABLE buckets (
     name TEXT NOT NULL,
     tenant_id TEXT NOT NULL,
     owner_id TEXT,
     owner_type TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (tenant_id, name),  -- Unique within tenant
+    PRIMARY KEY (tenant_id, name),  -- Stored per tenant
+    UNIQUE (name)  -- v0.4.2-beta: Globally unique bucket names
     FOREIGN KEY(tenant_id) REFERENCES tenants(id)
 );
 ```
@@ -149,7 +156,7 @@ CREATE TABLE buckets (
 All endpoints automatically filter by tenant:
 - Global Admins see all tenants' resources
 - Tenant Admins/Users see only their tenant's resources
-- Bucket names are scoped per tenant (same name allowed across tenants)
+- **Bucket names are globally unique** (v0.4.2-beta): No duplicate names across tenants (AWS S3 compatible)
 
 ---
 
@@ -446,4 +453,4 @@ Planned for future releases:
 ---
 
 **Version**: 0.4.2-beta
-**Last Updated**: November 2025
+**Last Updated**: November 23, 2025

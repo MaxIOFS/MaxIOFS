@@ -10,15 +10,184 @@
 
 MaxIOFS implements essential security features for object storage:
 
+- **Real-Time Security Notifications (SSE)** (v0.4.2+)
+- **Dynamic Security Configuration** (v0.4.2+)
 - **Server-Side Encryption at Rest (SSE)** (v0.4.1+)
 - **Comprehensive Audit Logging** (v0.4.0+)
 - Dual authentication (JWT + S3 signatures)
 - **Two-Factor Authentication (2FA) with TOTP**
 - Role-Based Access Control (RBAC)
 - Bcrypt password hashing
-- Rate limiting and account lockout
+- **Configurable rate limiting and account lockout**
 - Object Lock (WORM compliance)
 - Multi-tenant isolation
+
+---
+
+## Real-Time Security Notifications
+
+**New in v0.4.2-beta**
+
+MaxIOFS provides real-time push notifications using Server-Sent Events (SSE) to alert administrators immediately when security events occur.
+
+### Features
+
+**Notification Capabilities:**
+- **Real-Time Push**: Zero-latency notifications using SSE
+- **User Locked Alerts**: Immediate notification when accounts are locked
+- **Topbar Bell Icon**: Unread count badge with dropdown
+- **Read/Unread Tracking**: Visual indicators for notification status
+- **Persistent Storage**: Notifications survive page reloads (localStorage)
+- **Limited History**: Last 3 notifications to prevent UI clutter
+- **Tenant Isolation**: Global admins see all, tenant admins see only their tenant
+
+**Security Properties:**
+- JWT authentication required for SSE connection
+- Automatic disconnection on token expiration
+- No sensitive data in notifications (only event metadata)
+- Connection tracking and automatic cleanup
+
+### How It Works
+
+1. **Connection**: Admin logs in, frontend automatically connects to SSE endpoint
+2. **Event Trigger**: Security event occurs (e.g., user account locked)
+3. **Notification**: Backend broadcasts to all connected admin clients
+4. **Display**: Notification appears in topbar with unread badge
+5. **Action**: Admin clicks to view details and mark as read
+
+### Configuration
+
+No configuration required - SSE notifications are automatically enabled for all admin users (global admins and tenant admins).
+
+**Access Requirements:**
+- Must be logged in with admin role
+- Valid JWT token in localStorage
+- Browser must support Server-Sent Events (all modern browsers)
+
+**Example Notification:**
+```json
+{
+  "type": "user_locked",
+  "message": "User john has been locked due to failed login attempts",
+  "data": {
+    "userId": "user-123",
+    "username": "john",
+    "tenantId": "tenant-abc"
+  },
+  "timestamp": 1732435200
+}
+```
+
+### Best Practices
+
+1. **Monitor Regularly**: Check notifications frequently during business hours
+2. **Investigate Immediately**: User lockout may indicate brute force attack
+3. **Review Audit Logs**: Use audit logs for detailed investigation
+4. **Adjust Thresholds**: Use dynamic security configuration to tune sensitivity
+
+---
+
+## Dynamic Security Configuration
+
+**New in v0.4.2-beta**
+
+MaxIOFS allows administrators to adjust security thresholds dynamically without server restarts.
+
+### Configurable Settings
+
+**Security Settings (via Web Console `/settings`):**
+
+1. **`security.ratelimit_login_per_minute`** (Default: 5)
+   - IP-based rate limiting threshold
+   - Prevents brute force from single IP address
+   - Affects all users from that IP
+   - Recommended: Higher for users behind proxies (e.g., 15)
+
+2. **`security.max_failed_attempts`** (Default: 5)
+   - Account lockout threshold
+   - Protects individual user accounts
+   - Independent of IP rate limiting
+   - Recommended: 5-10 attempts
+
+3. **`security.lockout_duration`** (Default: 900 seconds = 15 minutes)
+   - How long accounts stay locked after exceeding max_failed_attempts
+   - Measured in seconds
+   - Recommended: 900-1800 seconds (15-30 minutes)
+
+### Key Differences
+
+**IP Rate Limiting vs Account Lockout:**
+
+| Feature | IP Rate Limiting | Account Lockout |
+|---------|------------------|-----------------|
+| **Scope** | Per IP address | Per user account |
+| **Purpose** | Prevent brute force from single source | Protect individual accounts |
+| **Affects** | All users from that IP | Single user account |
+| **Typical Value** | 15 attempts/minute | 5 failed attempts |
+| **Use Case** | Shared IP (proxy, NAT) | Individual password guessing |
+
+### Configuration via Web Console
+
+1. Navigate to `/settings` (global admin only)
+2. Select "Security" category
+3. Modify desired values
+4. Click "Save Changes"
+5. Changes take effect immediately (no restart)
+6. All changes logged in audit trail
+
+### Configuration via API
+
+```bash
+# Update rate limit
+curl -X PUT https://your-server/api/v1/settings/security.ratelimit_login_per_minute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"value": "15"}'
+
+# Update lockout threshold
+curl -X PUT https://your-server/api/v1/settings/security.max_failed_attempts \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"value": "10"}'
+
+# Update lockout duration (30 minutes)
+curl -X PUT https://your-server/api/v1/settings/security.lockout_duration \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"value": "1800"}'
+```
+
+### Best Practices
+
+1. **Separate Concerns**: Set IP rate limiting higher than account lockout
+2. **Consider Environment**: Users behind proxies need higher IP limits
+3. **Balance Security**: Too strict = legitimate users locked out, too loose = vulnerable
+4. **Monitor Effectiveness**: Review audit logs to see if thresholds are appropriate
+5. **Document Changes**: Note why thresholds were changed in your runbook
+
+### Audit Trail
+
+All security setting changes are logged with:
+- User who made the change
+- Timestamp of change
+- Old and new values
+- IP address of requester
+
+**Example Audit Entry:**
+```json
+{
+  "event_type": "setting_updated",
+  "user_id": "admin-123",
+  "username": "admin",
+  "resource_name": "security.max_failed_attempts",
+  "details": {
+    "old_value": "5",
+    "new_value": "10"
+  },
+  "timestamp": 1732435200,
+  "ip_address": "192.168.1.100"
+}
+```
 
 ---
 
@@ -737,4 +906,4 @@ Response time: Within 48 hours
 ---
 
 **Version**: 0.4.2-beta
-**Last Updated**: November 18, 2025
+**Last Updated**: November 23, 2025

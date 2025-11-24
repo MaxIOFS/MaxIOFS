@@ -661,7 +661,8 @@ func (s *SQLiteStore) LockAccount(userID string, durationSeconds int64) error {
 	_, err := s.db.Exec(`
 		UPDATE users
 		SET locked_until = ?,
-		    last_failed_login = ?
+		    last_failed_login = ?,
+		    failed_login_attempts = 0
 		WHERE id = ?
 	`, lockUntil, time.Now().Unix(), userID)
 	return err

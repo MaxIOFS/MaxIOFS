@@ -99,7 +99,7 @@ export default function SecurityPage() {
 
   // Calculate locked users directly from the users data
   const now = Math.floor(Date.now() / 1000);
-  const lockedUsers = users.filter((u: any) => u.locked_until && u.locked_until > now);
+  const lockedUsers = users.filter((u: any) => u.lockedUntil && u.lockedUntil > now);
 
   const activeUsers = users.filter((u: any) => u.status === 'active').length;
   const totalUsers = users.length;

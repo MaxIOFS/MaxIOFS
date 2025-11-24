@@ -2,7 +2,7 @@
 
 **Version**: 0.4.2-beta
 **S3 Compatibility**: 98%
-**Last Updated**: November 12, 2025
+**Last Updated**: November 23, 2025
 
 ## Overview
 
@@ -11,16 +11,13 @@ MaxIOFS provides two APIs:
 1. **S3 API** (Port 8080) - 98% AWS S3-compatible REST API
 2. **Console API** (Port 8081) - Management REST API for web console
 
-### Recent Updates (v0.3.2-beta)
+### Recent Updates (v0.4.2-beta)
 
-- ✅ **Two-Factor Authentication (2FA)** - TOTP-based with backup codes
-- ✅ **Prometheus Metrics** - Comprehensive monitoring endpoint
-- ✅ **Grafana Dashboard** - Pre-built dashboard for visualization
-- ✅ Fixed `ListObjectVersions` - now properly shows delete markers
-- ✅ Added HTTP Conditional Requests (If-Match, If-None-Match)
-- ✅ Improved versioned bucket deletion workflow
-- ✅ Added 304 Not Modified responses for caching
-- ✅ Session timeout (24h) with idle detection
+- ✅ **Global Bucket Uniqueness** - Bucket names now globally unique across all tenants (AWS S3 compatible)
+- ✅ **S3-Compatible URLs** - Presigned and share URLs without tenant prefix for standard S3 client compatibility
+- ✅ **Bucket Notifications (Webhooks)** - AWS S3 compatible event notifications (ObjectCreated, ObjectRemoved, ObjectRestored)
+- ✅ **Automatic Tenant Resolution** - Backend automatically resolves bucket ownership from bucket name
+- ✅ **Frontend Modal Improvements** - Fixed presigned URL modal state persistence
 
 ---
 
@@ -93,8 +90,13 @@ buckets = s3.list_buckets()
 - `DeleteMultipleObjects` - Delete up to 1000 objects
 
 #### Advanced Features
-- Presigned URLs (GET/PUT with expiration)
+- Presigned URLs (GET/PUT with expiration, S3-compatible paths)
 - Range requests (partial downloads)
+
+#### Bucket Notifications (v0.4.2+)
+- `PutBucketNotificationConfiguration` - Configure webhook notifications
+- `GetBucketNotificationConfiguration` - Get notification settings
+- Supported event types: ObjectCreated:*, ObjectRemoved:*, ObjectRestored:Post
 
 ### Examples
 
@@ -127,18 +129,20 @@ aws --endpoint-url=http://localhost:8080 s3 cp large-file.bin s3://my-bucket/
 
 **Supported:**
 - ✅ Standard bucket and object operations
+- ✅ Global bucket uniqueness (AWS S3 compatible)
 - ✅ Multipart uploads
 - ✅ Object Lock (COMPLIANCE/GOVERNANCE)
-- ✅ Presigned URLs
+- ✅ Presigned URLs (S3-compatible paths)
 - ✅ AWS Signature v2 and v4
 - ✅ Versioning configuration
 - ✅ CORS configuration
+- ✅ Bucket lifecycle policies (100% complete)
+- ✅ Bucket notifications (webhooks)
+- ✅ Server-Side Encryption at rest (AES-256-CTR)
 
 **Not Supported:**
-- ❌ Server-Side Encryption with KMS
-- ❌ Bucket lifecycle policies (planned)
-- ❌ Object ACLs (planned)
-- ❌ Bucket logging/notifications
+- ❌ Server-Side Encryption with KMS (uses local master key)
+- ❌ Object ACLs (basic ACL operations supported)
 
 For detailed S3 API specs, see [AWS S3 API Documentation](https://docs.aws.amazon.com/AmazonS3/latest/API/).
 

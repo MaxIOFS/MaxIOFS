@@ -20,6 +20,7 @@ export interface User {
   metadata?: Record<string, string>;
   lockedUntil?: number;
   failedLoginAttempts?: number;
+  lastFailedLogin?: number;
   twoFactorEnabled?: boolean;
 }
 

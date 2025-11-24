@@ -43,6 +43,7 @@ type Server struct {
 	settingsManager     *settings.Manager
 	shareManager        share.Manager
 	notificationManager *notifications.Manager
+	notificationHub     *NotificationHub
 	systemMetrics       *metrics.SystemMetricsTracker
 	lifecycleWorker     *lifecycle.Worker
 	startTime           time.Time // Server start time for uptime calculation
@@ -111,6 +112,15 @@ func New(cfg *config.Config) (*Server, error) {
 		am.SetAuditManager(auditManager)
 	}
 
+	// Connect settings manager to auth manager for dynamic rate limiting
+	if am, ok := authManager.(interface {
+		SetSettingsManager(interface {
+			GetInt(key string) (int, error)
+		})
+	}); ok {
+		am.SetSettingsManager(settingsManager)
+	}
+
 	// Connect audit manager to bucket manager
 	if bm, ok := bucketManager.(interface{ SetAuditManager(*audit.Manager) }); ok && auditManager != nil {
 		bm.SetAuditManager(auditManager)
@@ -168,6 +178,9 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize notification manager
 	notificationManager := notifications.NewManager(metadataStore)
 
+	// Initialize SSE notification hub
+	notificationHub := NewNotificationHub()
+
 	// Initialize lifecycle worker
 	lifecycleWorker := lifecycle.NewWorker(bucketManager, objectManager, metadataStore)
 
@@ -200,10 +213,34 @@ func New(cfg *config.Config) (*Server, error) {
 		settingsManager:     settingsManager,
 		shareManager:        shareManager,
 		notificationManager: notificationManager,
+		notificationHub:     notificationHub,
 		systemMetrics:       systemMetrics,
 		lifecycleWorker:     lifecycleWorker,
 		startTime:           time.Now(), // Record server start time
 	}
+
+	// Connect user locked callback to send SSE notifications
+	logrus.Info("Setting up user locked callback for SSE notifications")
+	authManager.SetUserLockedCallback(func(user *auth.User) {
+		// Send notification to SSE clients
+		notification := &Notification{
+			Type:      "user_locked",
+			Message:   fmt.Sprintf("User %s has been locked due to failed login attempts", user.Username),
+			Data: map[string]interface{}{
+				"userId":   user.ID,
+				"username": user.Username,
+				"tenantId": user.TenantID,
+			},
+			Timestamp: time.Now().Unix(),
+			TenantID:  user.TenantID,
+		}
+		logrus.WithFields(logrus.Fields{
+			"user_id":   user.ID,
+			"username":  user.Username,
+			"tenant_id": user.TenantID,
+		}).Info("Sending user locked notification to SSE clients")
+		server.notificationHub.SendNotification(notification)
+	})
 
 	// Setup routes
 	if err := server.setupRoutes(); err != nil {

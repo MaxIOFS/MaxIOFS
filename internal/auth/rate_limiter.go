@@ -39,31 +39,23 @@ func NewLoginRateLimiter(maxAttempts, windowSeconds int) *LoginRateLimiter {
 }
 
 // AllowLogin checks if login attempt from IP is allowed
+// Note: This only CHECKS the limit, it does NOT increment the counter
+// Use RecordFailedAttempt() to increment after a failed login
 func (l *LoginRateLimiter) AllowLogin(ip string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.mu.RLock()
+	defer l.mu.RUnlock()
 
 	now := time.Now()
 	attempt, exists := l.attempts[ip]
 
 	if !exists {
-		// First attempt from this IP
-		l.attempts[ip] = &RateLimitAttempt{
-			Count:    1,
-			FirstTry: now,
-			LastTry:  now,
-		}
+		// First attempt from this IP - allow it
 		return true
 	}
 
 	// Check if window has expired
 	if now.Sub(attempt.FirstTry) > time.Duration(l.windowSeconds)*time.Second {
-		// Reset window
-		l.attempts[ip] = &RateLimitAttempt{
-			Count:    1,
-			FirstTry: now,
-			LastTry:  now,
-		}
+		// Window expired - allow it
 		return true
 	}
 
@@ -72,9 +64,7 @@ func (l *LoginRateLimiter) AllowLogin(ip string) bool {
 		return false
 	}
 
-	// Increment counter
-	attempt.Count++
-	attempt.LastTry = now
+	// Still within limit
 	return true
 }
 

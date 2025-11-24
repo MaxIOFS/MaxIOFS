@@ -2,7 +2,7 @@
 
 **Version**: 0.4.2-beta
 **S3 Compatibility**: 98%
-**Last Updated**: November 18, 2025
+**Last Updated**: November 23, 2025
 
 ---
 
@@ -113,38 +113,39 @@ Start here if you're new to MaxIOFS:
 
 ### Major Features
 
+- ✅ **Global Bucket Uniqueness** - AWS S3 compatible bucket naming
+  - Bucket names are now globally unique across all tenants
+  - Prevents bucket name conflicts between different tenants
+  - Improves S3 client compatibility
+  - Validation layer added without changing database schema
+
+- ✅ **S3-Compatible URLs** - Standard S3 URL format without tenant prefix
+  - Presigned URLs no longer include tenant-id in path
+  - Share URLs follow standard S3 format
+  - Better compatibility with standard S3 clients
+  - Automatic tenant resolution from bucket name
+
+- ✅ **Bucket Notifications (Webhooks)** - AWS S3 compatible event notifications
+  - Event types: ObjectCreated:*, ObjectRemoved:*, ObjectRestored:Post
+  - Wildcard event matching (e.g., s3:ObjectCreated:* matches Put, Post, Copy)
+  - Webhook delivery with retry mechanism (3 attempts)
+  - Per-rule filtering with prefix and suffix filters
+  - Custom HTTP headers support per notification rule
+  - Web Console UI with tab-based bucket settings
+  - Full audit logging for all configuration changes
+
+- ✅ **Frontend Improvements**
+  - Fixed presigned URL modal state persistence bug
+  - Improved React component lifecycle management
+  - Better user experience when switching between objects
+
+### Previous Features (v0.4.1-beta)
+
 - ✅ **Server-Side Encryption at Rest (SSE)** - AES-256-CTR encryption for all stored objects
-  - Persistent master key storage (survives server restarts)
-  - Streaming encryption with constant memory usage (~32KB)
-  - Supports files of ANY size (tested: 1KB to 100MB+)
-  - Dual-level control (server + bucket encryption settings)
-  - Automatic decryption (transparent to S3 clients)
-  - Backward compatible (mixed encrypted/unencrypted objects)
-  - Zero performance impact (~150+ MiB/s throughput)
-  - Industry-standard AES-256 (NIST approved, FIPS 140-2 compliant)
-
 - ✅ **Dynamic Settings System** - Runtime configuration stored in SQLite
-  - System settings persisted in database (`system_settings` table)
-  - Web Console settings (session timeout, object lock, etc.) configurable via UI
-  - No server restart required for policy changes
-  - Settings categorized (Security, Storage, ObjectLock, System)
-
 - ✅ **Metrics Historical Storage** - BadgerDB for metrics persistence
-  - Historical metrics data now persists across restarts
-  - Dashboard charts retain data after server reboot
-  - Fixed range calculation bugs in metrics page
-
-- ✅ **Critical Security Fixes**
-  - Fixed tenant menu visibility (normal users couldn't see it)
-  - Fixed global admin privilege escalation bug
-  - Fixed password change detection (own vs other user)
-  - Enhanced frontend permission validation
-
-- ✅ **UI/UX Improvements**
-  - Unified card design across all pages
-  - Enhanced audit logs interface with new filters
-  - Improved settings page layout
-  - Better encryption status indicators
+- ✅ **Critical Security Fixes** - Tenant menu, privilege escalation, password detection
+- ✅ **UI/UX Improvements** - Unified card design, enhanced audit logs
 
 ### Previous Features (v0.4.0-beta)
 
@@ -336,4 +337,4 @@ Email: security@yourdomain.com (update with actual contact)
 ---
 
 **Version**: 0.4.2-beta
-**Last Updated**: November 18, 2025
+**Last Updated**: November 23, 2025

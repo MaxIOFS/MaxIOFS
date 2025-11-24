@@ -65,16 +65,18 @@ type ObjectResponse struct {
 }
 
 type UserResponse struct {
-	ID               string   `json:"id"`
-	Username         string   `json:"username"`
-	DisplayName      string   `json:"displayName"`
-	Email            string   `json:"email"`
-	Status           string   `json:"status"`
-	Roles            []string `json:"roles"`
-	TenantID         string   `json:"tenantId,omitempty"`
-	TwoFactorEnabled bool     `json:"twoFactorEnabled"`
-	LockedUntil      int64    `json:"lockedUntil,omitempty"`
-	CreatedAt        int64    `json:"createdAt"`
+	ID                  string   `json:"id"`
+	Username            string   `json:"username"`
+	DisplayName         string   `json:"displayName"`
+	Email               string   `json:"email"`
+	Status              string   `json:"status"`
+	Roles               []string `json:"roles"`
+	TenantID            string   `json:"tenantId,omitempty"`
+	TwoFactorEnabled    bool     `json:"twoFactorEnabled"`
+	LockedUntil         int64    `json:"lockedUntil,omitempty"`
+	FailedLoginAttempts int      `json:"failedLoginAttempts,omitempty"`
+	LastFailedLogin     int64    `json:"lastFailedLogin,omitempty"`
+	CreatedAt           int64    `json:"createdAt"`
 }
 
 type MetricsResponse struct {
@@ -93,6 +95,13 @@ type metricsResponseWriter struct {
 func (w *metricsResponseWriter) WriteHeader(statusCode int) {
 	w.statusCode = statusCode
 	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+// Flush implements http.Flusher for SSE support
+func (w *metricsResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 // setupConsoleAPIRoutes registers all console API routes
@@ -233,6 +242,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 
 	// Security endpoints
 	router.HandleFunc("/security/status", s.handleGetSecurityStatus).Methods("GET", "OPTIONS")
+
+	// Notifications SSE endpoint
+	router.HandleFunc("/notifications/stream", s.handleNotificationStream).Methods("GET", "OPTIONS")
 
 	// Tenant endpoints
 	router.HandleFunc("/tenants", s.handleListTenants).Methods("GET", "OPTIONS")
@@ -454,15 +466,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"token":   token,
 		"user": UserResponse{
-			ID:               user.ID,
-			Username:         user.Username,
-			DisplayName:      user.DisplayName,
-			Email:            user.Email,
-			Status:           user.Status,
-			Roles:            user.Roles,
-			TenantID:         user.TenantID,
-			TwoFactorEnabled: user.TwoFactorEnabled,
-			CreatedAt:        user.CreatedAt,
+			ID:                  user.ID,
+			Username:            user.Username,
+			DisplayName:         user.DisplayName,
+			Email:               user.Email,
+			Status:              user.Status,
+			Roles:               user.Roles,
+			TenantID:            user.TenantID,
+			TwoFactorEnabled:    user.TwoFactorEnabled,
+			LockedUntil:         user.LockedUntil,
+			FailedLoginAttempts: user.FailedLoginAttempts,
+			LastFailedLogin:     user.LastFailedLogin,
+			CreatedAt:           user.CreatedAt,
 		},
 	})
 }
@@ -524,15 +539,18 @@ func (s *Server) handleGetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, UserResponse{
-		ID:               user.ID,
-		Username:         user.Username,
-		DisplayName:      user.DisplayName,
-		Email:            user.Email,
-		Status:           user.Status,
-		Roles:            user.Roles,
-		TenantID:         user.TenantID,
-		TwoFactorEnabled: user.TwoFactorEnabled,
-		CreatedAt:        user.CreatedAt,
+		ID:                  user.ID,
+		Username:            user.Username,
+		DisplayName:         user.DisplayName,
+		Email:               user.Email,
+		Status:              user.Status,
+		Roles:               user.Roles,
+		TenantID:            user.TenantID,
+		TwoFactorEnabled:    user.TwoFactorEnabled,
+		LockedUntil:         user.LockedUntil,
+		FailedLoginAttempts: user.FailedLoginAttempts,
+		LastFailedLogin:     user.LastFailedLogin,
+		CreatedAt:           user.CreatedAt,
 	})
 }
 
@@ -1323,14 +1341,11 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 
 	// Generate clean S3 URL with proper protocol and host
 	// Use PublicAPIURL if configured, otherwise build from request
+	// Bucket names are globally unique, no need for tenant prefix in URL
 	var s3URL string
 	if s.config.PublicAPIURL != "" {
-		// Use configured public URL
-		if shareTenantID != "" {
-			s3URL = fmt.Sprintf("%s/%s/%s/%s", s.config.PublicAPIURL, shareTenantID, bucketName, objectKey)
-		} else {
-			s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, bucketName, objectKey)
-		}
+		// Use configured public URL (no tenant prefix)
+		s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, bucketName, objectKey)
 	} else {
 		// Build URL from request context
 		protocol := "http"
@@ -1344,11 +1359,7 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(host, ":") {
 			host = strings.Split(r.Host, ":")[0] + s.config.Listen
 		}
-		if shareTenantID != "" {
-			s3URL = fmt.Sprintf("%s://%s/%s/%s/%s", protocol, host, shareTenantID, bucketName, objectKey)
-		} else {
-			s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, bucketName, objectKey)
-		}
+		s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, bucketName, objectKey)
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -1473,16 +1484,18 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	response := make([]UserResponse, len(filteredUsers))
 	for i, u := range filteredUsers {
 		response[i] = UserResponse{
-			ID:               u.ID,
-			Username:         u.ID,
-			DisplayName:      u.DisplayName,
-			Email:            u.Email,
-			Status:           u.Status,
-			Roles:            u.Roles,
-			TenantID:         u.TenantID,
-			TwoFactorEnabled: u.TwoFactorEnabled,
-			LockedUntil:      u.LockedUntil,
-			CreatedAt:        u.CreatedAt,
+			ID:                  u.ID,
+			Username:            u.ID,
+			DisplayName:         u.DisplayName,
+			Email:               u.Email,
+			Status:              u.Status,
+			Roles:               u.Roles,
+			TenantID:            u.TenantID,
+			TwoFactorEnabled:    u.TwoFactorEnabled,
+			LockedUntil:         u.LockedUntil,
+			FailedLoginAttempts: u.FailedLoginAttempts,
+			LastFailedLogin:     u.LastFailedLogin,
+			CreatedAt:           u.CreatedAt,
 		}
 	}
 
@@ -1587,15 +1600,18 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 
 	// Convert to response format
 	userResponse := UserResponse{
-		ID:               user.ID,
-		Username:         user.ID,
-		DisplayName:      user.DisplayName,
-		Email:            user.Email,
-		Roles:            user.Roles,
-		Status:           user.Status,
-		TenantID:         user.TenantID,
-		TwoFactorEnabled: user.TwoFactorEnabled,
-		CreatedAt:        user.CreatedAt,
+		ID:                  user.ID,
+		Username:            user.ID,
+		DisplayName:         user.DisplayName,
+		Email:               user.Email,
+		Roles:               user.Roles,
+		Status:              user.Status,
+		TenantID:            user.TenantID,
+		TwoFactorEnabled:    user.TwoFactorEnabled,
+		LockedUntil:         user.LockedUntil,
+		FailedLoginAttempts: user.FailedLoginAttempts,
+		LastFailedLogin:     user.LastFailedLogin,
+		CreatedAt:           user.CreatedAt,
 	}
 
 	s.writeJSON(w, userResponse)
@@ -1650,15 +1666,18 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	// Convert to response format
 	userResponse := UserResponse{
-		ID:               user.ID,
-		Username:         user.ID,
-		DisplayName:      user.DisplayName,
-		Email:            user.Email,
-		Roles:            user.Roles,
-		Status:           user.Status,
-		TenantID:         user.TenantID,
-		TwoFactorEnabled: user.TwoFactorEnabled,
-		CreatedAt:        user.CreatedAt,
+		ID:                  user.ID,
+		Username:            user.ID,
+		DisplayName:         user.DisplayName,
+		Email:               user.Email,
+		Roles:               user.Roles,
+		Status:              user.Status,
+		TenantID:            user.TenantID,
+		TwoFactorEnabled:    user.TwoFactorEnabled,
+		LockedUntil:         user.LockedUntil,
+		FailedLoginAttempts: user.FailedLoginAttempts,
+		LastFailedLogin:     user.LastFailedLogin,
+		CreatedAt:           user.CreatedAt,
 	}
 
 	s.writeJSON(w, userResponse)
@@ -2860,14 +2879,18 @@ func (s *Server) handleListTenantUsers(w http.ResponseWriter, r *http.Request) {
 	response := make([]UserResponse, len(users))
 	for i, u := range users {
 		response[i] = UserResponse{
-			ID:          u.ID,
-			Username:    u.Username,
-			DisplayName: u.DisplayName,
-			Email:       u.Email,
-			Status:      u.Status,
-			Roles:       u.Roles,
-			TenantID:    u.TenantID,
-			CreatedAt:   u.CreatedAt,
+			ID:                  u.ID,
+			Username:            u.Username,
+			DisplayName:         u.DisplayName,
+			Email:               u.Email,
+			Status:              u.Status,
+			Roles:               u.Roles,
+			TenantID:            u.TenantID,
+			TwoFactorEnabled:    u.TwoFactorEnabled,
+			LockedUntil:         u.LockedUntil,
+			FailedLoginAttempts: u.FailedLoginAttempts,
+			LastFailedLogin:     u.LastFailedLogin,
+			CreatedAt:           u.CreatedAt,
 		}
 	}
 
@@ -4792,15 +4815,18 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"token":   token,
 		"user": UserResponse{
-			ID:               user.ID,
-			Username:         user.Username,
-			DisplayName:      user.DisplayName,
-			Email:            user.Email,
-			Status:           user.Status,
-			Roles:            user.Roles,
-			TenantID:         user.TenantID,
-			TwoFactorEnabled: user.TwoFactorEnabled,
-			CreatedAt:        user.CreatedAt,
+			ID:                  user.ID,
+			Username:            user.Username,
+			DisplayName:         user.DisplayName,
+			Email:               user.Email,
+			Status:              user.Status,
+			Roles:               user.Roles,
+			TenantID:            user.TenantID,
+			TwoFactorEnabled:    user.TwoFactorEnabled,
+			LockedUntil:         user.LockedUntil,
+			FailedLoginAttempts: user.FailedLoginAttempts,
+			LastFailedLogin:     user.LastFailedLogin,
+			CreatedAt:           user.CreatedAt,
 		},
 	})
 }

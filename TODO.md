@@ -1,7 +1,7 @@
 # MaxIOFS - TODO & Roadmap
 
 **Version**: 0.4.2-beta
-**Last Updated**: November 20, 2025
+**Last Updated**: November 24, 2025
 **Status**: Beta - 98% S3 Compatible
 
 ## 📊 Current Status Summary
@@ -46,6 +46,145 @@
 ```
 
 ## ✅ Recently Completed
+
+### 🔔 Real-Time Push Notifications & Dynamic Security (v0.4.2-beta - November 24, 2025)
+
+**Server-Sent Events (SSE) Notifications**:
+- ✅ **Complete SSE System Implementation**:
+  - NotificationHub for managing SSE client connections
+  - Automatic client registration/unregistration
+  - Asynchronous notification broadcasting to all connected clients
+  - Per-user notification filtering (global admins see all, tenant admins see only their tenant)
+  - Graceful handling of disconnected clients
+  - **Files**: `internal/server/sse_notifications.go` (new file, ~400 lines)
+
+- ✅ **User Locked Notifications**:
+  - Automatic SSE notifications when accounts are locked
+  - Callback mechanism in auth manager triggers on lockout
+  - Notification includes user ID, username, tenant ID, timestamp
+  - Integrated with existing account lockout system
+  - **Files**: `internal/auth/manager.go`, `internal/server/server.go`
+
+- ✅ **Frontend SSE Integration**:
+  - Custom React hook `useNotifications()` for SSE connection
+  - Automatic token detection with periodic checking (every 1 second)
+  - SSE connection using fetch API with ReadableStream parsing
+  - Proper buffer management for incomplete SSE messages
+  - Read/unread state tracking with localStorage persistence
+  - Limited to last 3 notifications
+  - **Files**: `web/frontend/src/hooks/useNotifications.ts` (new file, ~205 lines)
+
+- ✅ **Topbar Notification UI**:
+  - Bell icon with unread count badge
+  - Dropdown showing last 3 notifications
+  - Visual indicators for read/unread state
+  - Click notification to navigate to users page and mark as read
+  - Mark all as read functionality
+  - Connection status indicator
+  - **Files**: `web/frontend/src/components/layout/AppLayout.tsx`
+
+**Dynamic Security Configuration**:
+- ✅ **Configurable Rate Limiting**:
+  - `security.ratelimit_login_per_minute` - IP-based rate limiting (default: 5)
+  - Previously hardcoded, now dynamically configurable
+  - Changes take effect immediately when settings updated
+  - Separate from account lockout mechanism
+  - **Files**: `internal/auth/manager.go` (SetSettingsManager method)
+
+- ✅ **Configurable Account Lockout**:
+  - `security.max_failed_attempts` - Account lockout threshold (default: 5)
+  - `security.lockout_duration` - Lockout duration in seconds (default: 900)
+  - Previously hardcoded in RecordFailedLogin and LockAccount
+  - Now read from settings manager dynamically
+  - No server restart required to change thresholds
+  - **Files**: `internal/auth/manager.go` (RecordFailedLogin, LockAccount)
+
+**Critical Bug Fixes**:
+- ✅ **Rate Limiter Double-Counting**: Fixed blocking at 3 attempts instead of 5
+  - Root cause: AllowLogin() incremented counter, then RecordFailedAttempt() incremented again
+  - Solution: Changed AllowLogin() to only CHECK limit (RLock) without incrementing
+  - **Files**: `internal/auth/rate_limiter.go` (lines 41-69)
+
+- ✅ **Failed Attempts Counter Not Resetting**: Fixed counter continuing to increment after lockout
+  - Root cause: LockAccount() didn't reset failed_login_attempts to 0
+  - Solution: Added `failed_login_attempts = 0` to SQL UPDATE statement
+  - **Files**: `internal/auth/sqlite.go` (lines 659-669)
+
+- ✅ **Security Page Not Showing Locked Users**: Fixed locked users count always showing 0
+  - Root cause: Frontend used snake_case `locked_until` but API returns camelCase `lockedUntil`
+  - Solution: Changed filter to use correct camelCase field name
+  - **Files**: `web/frontend/src/pages/security/index.tsx` (line 102)
+
+- ✅ **SSE Callback Not Executing**: Fixed callback never being triggered
+  - Root cause: Type assertion failing - `UserLockedCallback` type alias didn't match interface
+  - Solution: Added SetUserLockedCallback to Manager interface, changed field type to `func(*User)`
+  - **Files**: `internal/auth/manager.go`
+
+- ✅ **Frontend Not Connecting to SSE**: Fixed SSE never connecting after login
+  - Root cause: useEffect ran once on mount, never re-executed
+  - Solution: Added setInterval to check token every 1 second + token dependency
+  - **Files**: `web/frontend/src/hooks/useNotifications.ts` (lines 31-44)
+
+- ✅ **Wrong Token localStorage Key**: Fixed token never being detected
+  - Root cause: Checked `'token'` but app stores `'auth_token'`
+  - Solution: Changed to `localStorage.getItem('auth_token')`
+  - **Files**: `web/frontend/src/hooks/useNotifications.ts` (line 33)
+
+- ✅ **Streaming Unsupported Error**: Fixed SSE endpoint 500 error
+  - Root cause: metricsResponseWriter didn't implement http.Flusher interface
+  - Solution: Added Flush() method delegating to underlying writer
+  - **Files**: `internal/server/console_api.go` (lines 89-105)
+
+**Key Benefits**:
+- 🔔 Real-time security notifications with zero polling
+- ⚙️ Dynamic security configuration without server restarts
+- 🔐 Separate IP rate limiting vs account lockout controls
+- 🐛 Multiple critical bugs fixed improving system stability
+
+---
+
+### 🔧 S3 Compatibility Improvements (v0.4.2-beta - November 23, 2025)
+
+**Global Bucket Uniqueness & URL Standardization**:
+- ✅ **Bucket Names Now Globally Unique**: Following AWS S3 standard
+  - Bucket names are unique across all tenants (like AWS S3)
+  - New validation in `CreateBucket()` checks global uniqueness
+  - Database keys remain tenant-scoped for organization
+  - Automatic tenant lookup by bucket name for routing
+  - **Files**: `internal/metadata/badger.go`, `internal/metadata/store.go`
+
+- ✅ **Presigned URLs Without Tenant Prefix**: Standard S3-compatible URLs
+  - URLs now: `/bucket/object` instead of `/tenant-id/bucket/object`
+  - Fully compatible with standard S3 clients
+  - Automatic tenant resolution via bucket name lookup
+  - **Files**: `internal/presigned/generator.go`, `pkg/s3compat/handler.go`
+
+- ✅ **Share URLs Without Tenant Prefix**: Consistent with presigned URLs
+  - Share URLs now: `/bucket/object` for clean, portable links
+  - Shares persist in database (reload-safe)
+  - Visual indicators show shared objects
+  - **Files**: `internal/server/console_api.go`
+
+- ✅ **Automatic Tenant Resolution**: Smart bucket path construction
+  - New `GetBucketByName()` function for global bucket lookup
+  - `getBucketPath()` automatically finds bucket's tenant
+  - Works seamlessly with presigned URLs (no user context needed)
+  - **Files**: `internal/metadata/badger.go`, `pkg/s3compat/handler.go`
+
+**Frontend Fixes**:
+- ✅ **Presigned URL Modal State Management**: Fixed component lifecycle
+  - Modal now properly resets when switching between objects
+  - Each object can have independent presigned URL configuration
+  - Uses React `key` prop + `useEffect` for clean state isolation
+  - **Files**: `web/frontend/src/components/PresignedURLModal.tsx`, `web/frontend/src/pages/buckets/[bucket]/index.tsx`
+
+**Benefits**:
+- 🎯 **100% AWS S3 URL Compatibility**: Works with any S3 client
+- 🔒 **Maintains Multi-tenancy Security**: Tenant isolation preserved
+- 🚀 **Cleaner URLs**: No tenant IDs exposed in public links
+- ✅ **Better User Experience**: Modal state management fixed
+
+---
 
 ### 🧪 Automated Testing Suite - Phase 1 (v0.4.2-beta - November 19-20, 2025)
 

@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
-import { useLockedUsers } from '@/hooks/useLockedUsers';
+import { useNotifications } from '@/hooks/useNotifications';
 import SweetAlert from '@/lib/sweetalert';
 import { useQuery } from '@tanstack/react-query';
 import APIClient from '@/lib/api';
@@ -100,7 +100,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = location.pathname;
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { data: lockedUsers = [] } = useLockedUsers();
+  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -386,9 +386,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   className="relative flex h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 shadow-soft hover:shadow-soft-md"
                 >
                   <Bell className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-gray-600 dark:text-gray-400" />
-                  {lockedUsers.length > 0 && (
+                  {unreadCount > 0 && (
                     <span className="absolute -top-0.5 -right-0.5 z-1 h-5 w-5 rounded-full bg-error-600 flex items-center justify-center">
-                      <span className="text-[10px] font-medium text-white">{lockedUsers.length}</span>
+                      <span className="text-[10px] font-medium text-white">{unreadCount}</span>
                     </span>
                   )}
                 </button>
@@ -404,45 +404,75 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                         <h5 className="text-sm font-semibold text-gray-900 dark:text-white">
                           Notifications
                         </h5>
-                        {lockedUsers.length > 0 && (
-                          <span className="rounded-full bg-brand-600 px-2.5 py-0.5 text-xs font-medium text-white">
-                            {lockedUsers.length} New
-                          </span>
-                        )}
+                        <div className="flex gap-2">
+                          {unreadCount > 0 && (
+                            <span className="rounded-full bg-brand-600 px-2.5 py-0.5 text-xs font-medium text-white">
+                              {unreadCount} New
+                            </span>
+                          )}
+                          {notifications.length > 0 && (
+                            <button
+                              onClick={markAllAsRead}
+                              className="text-xs text-brand-600 hover:text-brand-700 font-medium"
+                            >
+                              Mark all read
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <div className="max-h-96 overflow-y-auto">
-                        {lockedUsers.length === 0 ? (
+                        {notifications.length === 0 ? (
                           <div className="px-5 py-8 text-center">
                             <Bell className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
                             <p className="text-sm text-gray-500 dark:text-gray-400">No notifications</p>
                           </div>
                         ) : (
                           <div>
-                            {lockedUsers.map((lockedUser) => {
-                              const remainingTime = lockedUser.lockedUntil - Math.floor(Date.now() / 1000);
-                              const minutes = Math.floor(remainingTime / 60);
-                              const seconds = remainingTime % 60;
+                            {notifications.map((notification) => {
+                              const timestamp = new Date(notification.timestamp * 1000);
+                              const now = new Date();
+                              const diffMs = now.getTime() - timestamp.getTime();
+                              const diffMins = Math.floor(diffMs / 60000);
+                              const timeAgo =
+                                diffMins < 1 ? 'Just now' :
+                                diffMins < 60 ? `${diffMins}m ago` :
+                                diffMins < 1440 ? `${Math.floor(diffMins / 60)}h ago` :
+                                `${Math.floor(diffMins / 1440)}d ago`;
 
                               return (
                                 <Link
-                                  key={lockedUser.id}
+                                  key={notification.id}
                                   to="/users"
-                                  onClick={() => setShowNotifications(false)}
-                                  className="flex gap-4 border-b border-gray-200 dark:border-gray-700 px-5 py-4 hover:bg-gray-50 dark:hover:bg-gray-700"
+                                  onClick={() => {
+                                    markAsRead(notification.id);
+                                    setShowNotifications(false);
+                                  }}
+                                  className={cn(
+                                    "flex gap-4 border-b border-gray-200 dark:border-gray-700 px-5 py-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors",
+                                    !notification.read && "bg-brand-50/50 dark:bg-brand-900/10"
+                                  )}
                                 >
                                   <div className="h-12 w-12 rounded-full bg-error-50 dark:bg-error-900/30 flex items-center justify-center flex-shrink-0">
                                     <Lock className="h-6 w-6 text-error-600" />
                                   </div>
-                                  <div className="flex-1">
-                                    <h6 className="text-sm font-medium text-gray-900 dark:text-white mb-1">
-                                      Account Locked
-                                    </h6>
-                                    <p className="text-xs text-gray-600 dark:text-gray-400">
-                                      {lockedUser.displayName} - {lockedUser.failedAttempts} failed attempts
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between gap-2 mb-1">
+                                      <h6 className={cn(
+                                        "text-sm text-gray-900 dark:text-white",
+                                        !notification.read && "font-semibold"
+                                      )}>
+                                        {notification.type === 'user_locked' ? 'Account Locked' : notification.type}
+                                      </h6>
+                                      {!notification.read && (
+                                        <span className="h-2 w-2 rounded-full bg-brand-600 flex-shrink-0 mt-1.5" />
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-gray-600 dark:text-gray-400 break-words">
+                                      {notification.message}
                                     </p>
                                     <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                                      Unlocks in {minutes}m {seconds}s
+                                      {timeAgo}
                                     </p>
                                   </div>
                                 </Link>

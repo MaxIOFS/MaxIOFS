@@ -71,13 +71,8 @@ func GeneratePresignedURL(params PresignedURLParams) (string, error) {
 	credentialScope := fmt.Sprintf("%s/%s/%s/%s", dateStamp, params.Region, service, requestType)
 	credential := fmt.Sprintf("%s/%s", params.AccessKeyID, credentialScope)
 
-	// Build URL path
-	var urlPath string
-	if params.TenantID != "" {
-		urlPath = fmt.Sprintf("/%s/%s/%s", params.TenantID, params.Bucket, params.Key)
-	} else {
-		urlPath = fmt.Sprintf("/%s/%s", params.Bucket, params.Key)
-	}
+	// Build URL path - bucket names are globally unique, no need for tenant prefix
+	urlPath := fmt.Sprintf("/%s/%s", params.Bucket, params.Key)
 
 	// Build canonical query string
 	queryParams := make(map[string]string)

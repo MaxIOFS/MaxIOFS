@@ -1440,6 +1440,7 @@ export default function BucketDetailsPage() {
 
       {/* Presigned URL Modal */}
       <PresignedURLModal
+        key={selectedObjectKey} // Force remount when object changes to reset state
         isOpen={isPresignedURLModalOpen}
         onClose={() => setIsPresignedURLModalOpen(false)}
         bucketName={bucketName}

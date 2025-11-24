@@ -449,4 +449,4 @@ ls -t $BACKUP_DIR/maxiofs_*.tar.gz | tail -n +8 | xargs rm -f
 ---
 
 **Version**: 0.4.1-beta
-**Last Updated**: November 2025
+**Last Updated**: November 23, 2025

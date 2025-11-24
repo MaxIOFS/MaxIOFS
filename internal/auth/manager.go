@@ -83,6 +83,7 @@ type Manager interface {
 	UnlockAccount(ctx context.Context, adminUserID, targetUserID string) error
 	RecordFailedLogin(ctx context.Context, userID, ip string) error
 	RecordSuccessfulLogin(ctx context.Context, userID string) error
+	SetUserLockedCallback(callback func(*User))
 
 	// Two-Factor Authentication
 	Setup2FA(ctx context.Context, userID string) (*TOTPSetup, error)
@@ -122,7 +123,9 @@ type User struct {
 	BackupCodesUsed  []string `json:"-"` // Track used backup codes
 
 	// Account lockout fields
-	LockedUntil int64 `json:"locked_until,omitempty"`
+	FailedLoginAttempts int   `json:"failed_login_attempts,omitempty"`
+	LastFailedLogin     int64 `json:"last_failed_login,omitempty"`
+	LockedUntil         int64 `json:"locked_until,omitempty"`
 }
 
 // Tenant represents an organizational unit for multi-tenancy
@@ -167,10 +170,17 @@ type AccessKey struct {
 
 // authManager implements the Manager interface
 type authManager struct {
-	config       config.AuthConfig
-	store        *SQLiteStore
-	rateLimiter  *LoginRateLimiter
-	auditManager *audit.Manager
+	config             config.AuthConfig
+	store              *SQLiteStore
+	rateLimiter        *LoginRateLimiter
+	auditManager       *audit.Manager
+	userLockedCallback func(*User)
+	settingsManager    SettingsManager
+}
+
+// SettingsManager interface for retrieving system settings
+type SettingsManager interface {
+	GetInt(key string) (int, error)
 }
 
 // NewManager creates a new authentication manager with SQLite backend
@@ -809,6 +819,32 @@ func (am *authManager) SetAuditManager(auditMgr *audit.Manager) {
 	am.auditManager = auditMgr
 }
 
+// SetUserLockedCallback sets the callback to be called when a user is locked
+func (am *authManager) SetUserLockedCallback(callback func(*User)) {
+	am.userLockedCallback = callback
+}
+
+// SetSettingsManager sets the settings manager for dynamic configuration
+func (am *authManager) SetSettingsManager(settingsMgr SettingsManager) {
+	am.settingsManager = settingsMgr
+
+	// Recreate rate limiter with settings from database
+	if settingsMgr != nil {
+		maxAttempts, err := settingsMgr.GetInt("security.ratelimit_login_per_minute")
+		if err != nil {
+			logrus.WithError(err).Warn("Failed to get ratelimit_login_per_minute, using default 5")
+			maxAttempts = 5
+		}
+
+		// Window is always 60 seconds (1 minute) to match the setting name
+		am.rateLimiter = NewLoginRateLimiter(maxAttempts, 60)
+
+		logrus.WithFields(logrus.Fields{
+			"max_attempts_per_minute": maxAttempts,
+		}).Info("Rate limiter configured from settings")
+	}
+}
+
 // GetDB returns the underlying SQLite database connection
 // This allows other managers (like settings) to share the same database
 func (am *authManager) GetDB() interface{} {
@@ -1365,9 +1401,16 @@ func (am *authManager) IsAccountLocked(ctx context.Context, userID string) (bool
 	return false, 0, nil
 }
 
-// LockAccount manually locks a user account (for 15 minutes)
+// LockAccount manually locks a user account
 func (am *authManager) LockAccount(ctx context.Context, userID string) error {
-	lockDuration := int64(15 * 60) // 15 minutes in seconds
+	// Get lockout duration from settings (default: 900 seconds = 15 minutes)
+	lockDuration := int64(15 * 60) // 15 minutes in seconds (default)
+	if am.settingsManager != nil {
+		if duration, err := am.settingsManager.GetInt("security.lockout_duration"); err == nil {
+			lockDuration = int64(duration)
+		}
+	}
+
 	err := am.store.LockAccount(userID, lockDuration)
 	if err != nil {
 		return err
@@ -1375,7 +1418,7 @@ func (am *authManager) LockAccount(ctx context.Context, userID string) error {
 
 	logrus.WithFields(logrus.Fields{
 		"user_id":          userID,
-		"duration_minutes": 15,
+		"duration_minutes": lockDuration / 60,
 	}).Info("Account manually locked")
 
 	// Log audit event for user blocked
@@ -1392,7 +1435,7 @@ func (am *authManager) LockAccount(ctx context.Context, userID string) error {
 			Action:       audit.ActionBlock,
 			Status:       audit.StatusSuccess,
 			Details: map[string]interface{}{
-				"duration_minutes": 15,
+				"duration_minutes": lockDuration / 60,
 			},
 		})
 	}
@@ -1485,20 +1528,52 @@ func (am *authManager) RecordFailedLogin(ctx context.Context, userID, ip string)
 		"locked_until":    lockedUntil,
 	}).Warn("Failed login attempt recorded")
 
-	// Check if account should be locked due to failed attempts (5 attempts = lock)
-	if failedAttempts >= 5 {
-		// Lock for 15 minutes
+	// Get max failed attempts from settings (default: 5)
+	maxFailedAttempts := 5
+	if am.settingsManager != nil {
+		if max, err := am.settingsManager.GetInt("security.max_failed_attempts"); err == nil {
+			maxFailedAttempts = max
+		}
+	}
+
+	// Check if account should be locked due to failed attempts
+	if failedAttempts >= maxFailedAttempts {
+		// Get lockout duration from settings (default: 900 seconds = 15 minutes)
 		lockDuration := int64(15 * 60) // 15 minutes in seconds
+		if am.settingsManager != nil {
+			if duration, err := am.settingsManager.GetInt("security.lockout_duration"); err == nil {
+				lockDuration = int64(duration)
+			}
+		}
+
 		lockErr := am.store.LockAccount(userID, lockDuration)
 		if lockErr != nil {
 			logrus.WithError(lockErr).Error("Failed to lock account")
 		} else {
 			newLockedUntil := time.Now().Unix() + lockDuration
 			logrus.WithFields(logrus.Fields{
-				"user_id":      userID,
-				"attempts":     failedAttempts,
-				"locked_until": time.Unix(newLockedUntil, 0).Format(time.RFC3339),
+				"user_id":               userID,
+				"attempts":              failedAttempts,
+				"max_failed_attempts":   maxFailedAttempts,
+				"lockout_duration_mins": lockDuration / 60,
+				"locked_until":          time.Unix(newLockedUntil, 0).Format(time.RFC3339),
 			}).Warn("Account locked due to failed login attempts")
+
+			// Notify via callback if set
+			logrus.WithField("callback_set", am.userLockedCallback != nil).Info("Checking user locked callback")
+			if am.userLockedCallback != nil {
+				user, err := am.store.GetUserByID(userID)
+				if err != nil {
+					logrus.WithError(err).Error("Failed to get user for callback")
+				} else if user != nil {
+					logrus.WithField("user_id", userID).Info("Calling user locked callback")
+					am.userLockedCallback(user)
+				} else {
+					logrus.Warn("User is nil, cannot call callback")
+				}
+			} else {
+				logrus.Warn("User locked callback is NOT set")
+			}
 		}
 	}
 

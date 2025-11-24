@@ -142,13 +142,31 @@ func (s *BadgerStore) CreateBucket(ctx context.Context, bucket *BucketMetadata) 
 	key := bucketKey(bucket.TenantID, bucket.Name)
 
 	return s.db.Update(func(txn *badger.Txn) error {
-		// Check if bucket already exists
+		// Check if bucket already exists in this tenant
 		_, err := txn.Get(key)
 		if err == nil {
 			return ErrBucketAlreadyExists
 		}
 		if err != badger.ErrKeyNotFound {
 			return fmt.Errorf("failed to check bucket existence: %w", err)
+		}
+
+		// Check for global uniqueness - bucket names must be unique across all tenants
+		opts := badger.DefaultIteratorOptions
+		opts.Prefix = []byte("bucket:")
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		for it.Rewind(); it.Valid(); it.Next() {
+			item := it.Item()
+			var existingBucket BucketMetadata
+			if err := item.Value(func(val []byte) error {
+				return json.Unmarshal(val, &existingBucket)
+			}); err == nil {
+				if existingBucket.Name == bucket.Name {
+					return ErrBucketAlreadyExists
+				}
+			}
 		}
 
 		// Set timestamps
@@ -304,6 +322,38 @@ func (s *BadgerStore) ListBuckets(ctx context.Context, tenantID string) ([]*Buck
 	}
 
 	return buckets, nil
+}
+
+// GetBucketByName finds a bucket by name across all tenants
+// Since bucket names are globally unique, this returns the first match
+func (s *BadgerStore) GetBucketByName(ctx context.Context, name string) (*BucketMetadata, error) {
+	var result *BucketMetadata
+
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.Prefix = []byte("bucket:")
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		for it.Rewind(); it.Valid(); it.Next() {
+			item := it.Item()
+			var bucket BucketMetadata
+			if err := item.Value(func(val []byte) error {
+				return json.Unmarshal(val, &bucket)
+			}); err == nil {
+				if bucket.Name == name {
+					result = &bucket
+					return nil // Found it, stop iteration
+				}
+			}
+		}
+		return ErrBucketNotFound
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // BucketExists checks if a bucket exists

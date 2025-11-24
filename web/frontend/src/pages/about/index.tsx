@@ -311,60 +311,61 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New Features in v0.4.1-beta (Server-Side Encryption)
+            New Features in v0.4.2-beta (S3 Compatibility Improvements)
           </h2>
           <div className="space-y-4">
             <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                AES-256-CTR Encryption at Rest
+                Global Bucket Uniqueness - AWS S3 Compatible
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Industry-standard AES-256 encryption for all stored objects with persistent master key storage.
-                Streaming encryption with constant memory usage (~32KB) supports files of any size. Transparent
-                to S3 clients with automatic decryption and backward compatibility for mixed encrypted/unencrypted objects.
+                Bucket names are now globally unique across all tenants, matching AWS S3 behavior. This prevents
+                bucket name conflicts between different tenants and significantly improves compatibility with standard
+                S3 clients and tools. The change is fully backward compatible with no data migration required.
               </p>
             </div>
 
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Flexible Encryption Control
+                S3-Compatible URLs (Presigned & Share)
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Dual-level encryption control with server-level configuration (config.yaml) and per-bucket settings.
-                Users can choose encryption when creating buckets via Web Console. Master key survives server restarts,
-                ensuring encrypted data remains accessible with zero performance impact (~150+ MiB/s throughput).
+                Presigned URLs and Share URLs now use standard S3 format without tenant-id prefix. URLs follow
+                the pattern /bucket/object instead of /tenant-id/bucket/object, providing better compatibility
+                with S3 clients, CDNs, and external tools. Automatic tenant resolution happens transparently in the backend.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Dynamic Settings & Metrics Storage
+                Bucket Notifications (Webhooks)
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Runtime configuration stored in SQLite with settings persisted across restarts. Web Console settings
-                (session timeout, object lock defaults) configurable without server restart. Historical metrics data
-                migrated to BadgerDB for persistence, keeping dashboard charts and analytics intact after reboot.
+                AWS S3-compatible event notification system with webhook support. Configure HTTP webhooks for object
+                events: ObjectCreated, ObjectRemoved, and ObjectRestored. Features include retry mechanism (3 attempts),
+                prefix/suffix filtering, custom HTTP headers, and a user-friendly Web Console interface for rule management.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Security Fixes & UI Improvements
+                Automatic Tenant Resolution
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Fixed critical security bugs including tenant menu visibility, admin privilege escalation, and password
-                change detection. Enhanced UI with unified card design across all pages, improved audit logs interface,
-                and better encryption status indicators. Complete documentation updates with offline docs in Debian packages.
+                Backend automatically resolves bucket ownership from bucket name using new GetBucketByName() function.
+                This enables presigned URLs to work without tenant context and maintains multi-tenant isolation while
+                using standard S3 URL formats. All S3 operations remain transparent to clients.
               </p>
             </div>
 
             <div className="border-l-4 border-yellow-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Persistent Metrics with BadgerDB
+                Frontend Modal State Management
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Metrics now persisted in BadgerDB instead of in-memory storage. System metrics survive restarts.
-                Historical data retention for trend analysis. Improved reliability and consistency of monitoring data.
+                Fixed presigned URL modal state persistence bug. Modal now properly resets when switching between
+                objects, preventing stale data display. Improved React component lifecycle management with proper
+                key props and useEffect hooks for better user experience.
               </p>
             </div>
           </div>
