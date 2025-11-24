@@ -78,6 +78,8 @@ func (s *SQLiteStore) initSchema() error {
 		failed_login_attempts INTEGER DEFAULT 0,
 		locked_until INTEGER DEFAULT 0,
 		last_failed_login INTEGER DEFAULT 0,
+		theme_preference TEXT DEFAULT 'system',
+		language_preference TEXT DEFAULT 'en',
 		created_at INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL,
 		FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
@@ -145,6 +147,9 @@ func (s *SQLiteStore) runMigrations() error {
 		`ALTER TABLE users ADD COLUMN two_factor_setup_at INTEGER`,
 		`ALTER TABLE users ADD COLUMN backup_codes TEXT`,
 		`ALTER TABLE users ADD COLUMN backup_codes_used TEXT`,
+		// Migration 3: Add user preferences columns
+		`ALTER TABLE users ADD COLUMN theme_preference TEXT DEFAULT 'system'`,
+		`ALTER TABLE users ADD COLUMN language_preference TEXT DEFAULT 'en'`,
 	}
 
 	for _, migration := range migrations {
@@ -247,16 +252,20 @@ func (s *SQLiteStore) GetUserByUsername(username string) (*User, error) {
 	var twoFactorSetupAt sql.NullInt64
 	var backupCodesJSON sql.NullString
 	var backupCodesUsedJSON sql.NullString
+	var themePreference sql.NullString
+	var languagePreference sql.NullString
 
 	err := s.db.QueryRow(`
 		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
-		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used
+		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used,
+		       theme_preference, language_preference
 		FROM users
 		WHERE username = ? AND status != 'deleted'
 	`, username).Scan(
 		&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
 		&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 		&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON,
+		&themePreference, &languagePreference,
 	)
 
 	if tenantID.Valid {
@@ -269,6 +278,18 @@ func (s *SQLiteStore) GetUserByUsername(username string) (*User, error) {
 
 	if twoFactorSetupAt.Valid {
 		user.TwoFactorSetupAt = twoFactorSetupAt.Int64
+	}
+
+	if themePreference.Valid {
+		user.ThemePreference = themePreference.String
+	} else {
+		user.ThemePreference = "system" // Default
+	}
+
+	if languagePreference.Valid {
+		user.LanguagePreference = languagePreference.String
+	} else {
+		user.LanguagePreference = "en" // Default
 	}
 
 	if err == sql.ErrNoRows {
@@ -303,16 +324,20 @@ func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
 	var twoFactorSetupAt sql.NullInt64
 	var backupCodesJSON sql.NullString
 	var backupCodesUsedJSON sql.NullString
+	var themePreference sql.NullString
+	var languagePreference sql.NullString
 
 	err := s.db.QueryRow(`
 		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
-		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used
+		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used,
+		       theme_preference, language_preference
 		FROM users
 		WHERE id = ? AND status != 'deleted'
 	`, userID).Scan(
 		&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
 		&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 		&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON,
+		&themePreference, &languagePreference,
 	)
 
 	if tenantID.Valid {
@@ -325,6 +350,18 @@ func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
 
 	if twoFactorSetupAt.Valid {
 		user.TwoFactorSetupAt = twoFactorSetupAt.Int64
+	}
+
+	if themePreference.Valid {
+		user.ThemePreference = themePreference.String
+	} else {
+		user.ThemePreference = "system" // Default
+	}
+
+	if languagePreference.Valid {
+		user.LanguagePreference = languagePreference.String
+	} else {
+		user.LanguagePreference = "en" // Default
 	}
 
 	if err == sql.ErrNoRows {
@@ -397,6 +434,27 @@ func (s *SQLiteStore) UpdateUserPassword(userID, passwordHash string) error {
 	return tx.Commit()
 }
 
+// UpdateUserPreferences updates only the theme and language preferences for a user
+func (s *SQLiteStore) UpdateUserPreferences(userID, themePreference, languagePreference string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		UPDATE users
+		SET theme_preference = ?, language_preference = ?, updated_at = ?
+		WHERE id = ?
+	`, themePreference, languagePreference, time.Now().Unix(), userID)
+
+	if err != nil {
+		return fmt.Errorf("failed to update user preferences: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 // DeleteUser permanently deletes a user
 func (s *SQLiteStore) DeleteUser(userID string) error {
 	tx, err := s.db.Begin()
@@ -424,7 +482,8 @@ func (s *SQLiteStore) DeleteUser(userID string) error {
 func (s *SQLiteStore) ListUsers() ([]*User, error) {
 	rows, err := s.db.Query(`
 		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
-		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used, locked_until
+		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used, locked_until,
+		       theme_preference, language_preference
 		FROM users
 		WHERE status != 'deleted'
 		ORDER BY created_at DESC
@@ -444,11 +503,14 @@ func (s *SQLiteStore) ListUsers() ([]*User, error) {
 		var backupCodesJSON sql.NullString
 		var backupCodesUsedJSON sql.NullString
 		var lockedUntil sql.NullInt64
+		var themePreference sql.NullString
+		var languagePreference sql.NullString
 
 		err := rows.Scan(
 			&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
 			&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 			&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON, &lockedUntil,
+			&themePreference, &languagePreference,
 		)
 		if err != nil {
 			return nil, err
@@ -468,6 +530,18 @@ func (s *SQLiteStore) ListUsers() ([]*User, error) {
 
 		if lockedUntil.Valid {
 			user.LockedUntil = lockedUntil.Int64
+		}
+
+		if themePreference.Valid {
+			user.ThemePreference = themePreference.String
+		} else {
+			user.ThemePreference = "system" // Default
+		}
+
+		if languagePreference.Valid {
+			user.LanguagePreference = languagePreference.String
+		} else {
+			user.LanguagePreference = "en" // Default
 		}
 
 		// Deserialize JSON fields

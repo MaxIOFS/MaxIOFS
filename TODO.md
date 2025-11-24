@@ -1075,6 +1075,11 @@ storage:
 - [ ] Mock S3 client for testing
 - [ ] CI/CD pipeline (GitHub Actions)
 
+### User Experience
+- [ ] User profile theme preferences (save dark/light/system preference per user)
+- [ ] Theme sync across devices (store in user profile, not just localStorage)
+- [ ] Per-user language preferences (i18n support preparation)
+
 ## 📦 Low Priority - Nice to Have
 
 ### Deployment & Operations

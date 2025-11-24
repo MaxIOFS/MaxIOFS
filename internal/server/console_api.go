@@ -76,6 +76,8 @@ type UserResponse struct {
 	LockedUntil         int64    `json:"lockedUntil,omitempty"`
 	FailedLoginAttempts int      `json:"failedLoginAttempts,omitempty"`
 	LastFailedLogin     int64    `json:"lastFailedLogin,omitempty"`
+	ThemePreference     string   `json:"themePreference,omitempty"`
+	LanguagePreference  string   `json:"languagePreference,omitempty"`
 	CreatedAt           int64    `json:"createdAt"`
 }
 
@@ -226,6 +228,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 
 	// Password management
 	router.HandleFunc("/users/{user}/password", s.handleChangePassword).Methods("PUT", "OPTIONS")
+
+	// User preferences
+	router.HandleFunc("/users/{user}/preferences", s.handleUpdateUserPreferences).Methods("PATCH", "OPTIONS")
 
 	// Account lockout management
 	router.HandleFunc("/users/{user}/unlock", s.handleUnlockAccount).Methods("POST", "OPTIONS")
@@ -550,6 +555,8 @@ func (s *Server) handleGetCurrentUser(w http.ResponseWriter, r *http.Request) {
 		LockedUntil:         user.LockedUntil,
 		FailedLoginAttempts: user.FailedLoginAttempts,
 		LastFailedLogin:     user.LastFailedLogin,
+		ThemePreference:     user.ThemePreference,
+		LanguagePreference:  user.LanguagePreference,
 		CreatedAt:           user.CreatedAt,
 	})
 }
@@ -1495,6 +1502,8 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 			LockedUntil:         u.LockedUntil,
 			FailedLoginAttempts: u.FailedLoginAttempts,
 			LastFailedLogin:     u.LastFailedLogin,
+			ThemePreference:     u.ThemePreference,
+			LanguagePreference:  u.LanguagePreference,
 			CreatedAt:           u.CreatedAt,
 		}
 	}
@@ -1611,6 +1620,8 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		LockedUntil:         user.LockedUntil,
 		FailedLoginAttempts: user.FailedLoginAttempts,
 		LastFailedLogin:     user.LastFailedLogin,
+		ThemePreference:     user.ThemePreference,
+		LanguagePreference:  user.LanguagePreference,
 		CreatedAt:           user.CreatedAt,
 	}
 
@@ -1677,6 +1688,8 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		LockedUntil:         user.LockedUntil,
 		FailedLoginAttempts: user.FailedLoginAttempts,
 		LastFailedLogin:     user.LastFailedLogin,
+		ThemePreference:     user.ThemePreference,
+		LanguagePreference:  user.LanguagePreference,
 		CreatedAt:           user.CreatedAt,
 	}
 
@@ -2418,6 +2431,96 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, map[string]string{"message": "Password changed successfully"})
+}
+
+// handleUpdateUserPreferences updates a user's theme and language preferences
+func (s *Server) handleUpdateUserPreferences(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userID := vars["user"]
+
+	var preferencesRequest struct {
+		ThemePreference    string `json:"themePreference"`
+		LanguagePreference string `json:"languagePreference"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&preferencesRequest); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get current user from context
+	currentUser, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if current user is admin
+	isAdmin := false
+	for _, role := range currentUser.Roles {
+		if role == "admin" {
+			isAdmin = true
+			break
+		}
+	}
+
+	// Check if user is updating their own preferences
+	isUpdatingSelf := currentUser.ID == userID
+
+	// Non-admins can only update their own preferences
+	if !isAdmin && !isUpdatingSelf {
+		s.writeError(w, "Insufficient permissions", http.StatusForbidden)
+		return
+	}
+
+	// Validate required fields
+	if preferencesRequest.ThemePreference == "" {
+		s.writeError(w, "Theme preference is required", http.StatusBadRequest)
+		return
+	}
+	if preferencesRequest.LanguagePreference == "" {
+		s.writeError(w, "Language preference is required", http.StatusBadRequest)
+		return
+	}
+
+	// Update preferences
+	err := s.authManager.UpdateUserPreferences(
+		r.Context(),
+		userID,
+		preferencesRequest.ThemePreference,
+		preferencesRequest.LanguagePreference,
+	)
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get updated user to return in response
+	user, err := s.authManager.GetUser(r.Context(), userID)
+	if err != nil {
+		s.writeError(w, "Failed to retrieve updated user", http.StatusInternalServerError)
+		return
+	}
+
+	// Convert to UserResponse
+	userResponse := UserResponse{
+		ID:                  user.ID,
+		Username:            user.Username,
+		DisplayName:         user.DisplayName,
+		Email:               user.Email,
+		Status:              user.Status,
+		Roles:               user.Roles,
+		TenantID:            user.TenantID,
+		TwoFactorEnabled:    user.TwoFactorEnabled,
+		LockedUntil:         user.LockedUntil,
+		FailedLoginAttempts: user.FailedLoginAttempts,
+		LastFailedLogin:     user.LastFailedLogin,
+		ThemePreference:     user.ThemePreference,
+		LanguagePreference:  user.LanguagePreference,
+		CreatedAt:           user.CreatedAt,
+	}
+
+	s.writeJSON(w, userResponse)
 }
 
 // Security handlers

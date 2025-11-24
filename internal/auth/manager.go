@@ -42,6 +42,7 @@ type Manager interface {
 	// User management
 	CreateUser(ctx context.Context, user *User) error
 	UpdateUser(ctx context.Context, user *User) error
+	UpdateUserPreferences(ctx context.Context, userID, themePreference, languagePreference string) error
 	DeleteUser(ctx context.Context, userID string) error
 	GetUser(ctx context.Context, accessKey string) (*User, error)
 	ListUsers(ctx context.Context) ([]User, error)
@@ -126,6 +127,10 @@ type User struct {
 	FailedLoginAttempts int   `json:"failed_login_attempts,omitempty"`
 	LastFailedLogin     int64 `json:"last_failed_login,omitempty"`
 	LockedUntil         int64 `json:"locked_until,omitempty"`
+
+	// User preferences
+	ThemePreference    string `json:"themePreference,omitempty"`    // 'light', 'dark', 'system'
+	LanguagePreference string `json:"languagePreference,omitempty"` // 'en', 'es', etc.
 }
 
 // Tenant represents an organizational unit for multi-tenancy
@@ -596,6 +601,54 @@ func (am *authManager) UpdateUser(ctx context.Context, user *User) error {
 			"updated_user": user.Username,
 			"roles":        user.Roles,
 			"status":       user.Status,
+		},
+	})
+
+	return nil
+}
+
+func (am *authManager) UpdateUserPreferences(ctx context.Context, userID, themePreference, languagePreference string) error {
+	// Validate theme preference
+	validThemes := map[string]bool{"light": true, "dark": true, "system": true}
+	if !validThemes[themePreference] {
+		return fmt.Errorf("invalid theme preference: must be 'light', 'dark', or 'system'")
+	}
+
+	// Validate language preference (basic check for non-empty)
+	if languagePreference == "" {
+		return fmt.Errorf("language preference cannot be empty")
+	}
+
+	// Update preferences in database
+	err := am.store.UpdateUserPreferences(userID, themePreference, languagePreference)
+	if err != nil {
+		return err
+	}
+
+	// Get the user performing the action from context
+	actingUser, actingUserExists := GetUserFromContext(ctx)
+	actingUserID := ""
+	actingUsername := "system"
+	if actingUserExists {
+		actingUserID = actingUser.ID
+		actingUsername = actingUser.Username
+	}
+
+	// Log audit event for preferences updated
+	am.logAuditEvent(ctx, &audit.AuditEvent{
+		TenantID:     "",
+		UserID:       actingUserID,
+		Username:     actingUsername,
+		EventType:    audit.EventTypeUserUpdated,
+		ResourceType: audit.ResourceTypeUser,
+		ResourceID:   userID,
+		ResourceName: "",
+		Action:       audit.ActionUpdate,
+		Status:       audit.StatusSuccess,
+		Details: map[string]interface{}{
+			"preferences_updated": true,
+			"theme":               themePreference,
+			"language":            languagePreference,
 		},
 	})
 
