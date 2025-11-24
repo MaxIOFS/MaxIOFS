@@ -311,9 +311,32 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New Features in v0.4.2-beta (S3 Compatibility Improvements)
+            New Features in v0.4.2-beta
           </h2>
           <div className="space-y-4">
+            <div className="border-l-4 border-red-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Real-Time Push Notifications (SSE)
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Server-Sent Events deliver instant security notifications to admin users. When accounts are locked
+                due to failed login attempts, admins receive real-time alerts in the topbar bell icon with read/unread
+                tracking. Notifications persist across page reloads and respect tenant isolation (global admins see all,
+                tenant admins see only their tenant).
+              </p>
+            </div>
+
+            <div className="border-l-4 border-indigo-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Dynamic Security Configuration
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Adjust security thresholds without server restart via Settings page. Configure IP-based rate limiting
+                (default 5 attempts/minute), account lockout threshold (default 5 failed attempts), and lockout duration
+                (default 15 minutes). Separate controls allow different limits for IP rate limiting vs account lockout,
+                crucial for users behind proxies.
+              </p>
+            </div>
             <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
                 Global Bucket Uniqueness - AWS S3 Compatible
@@ -360,12 +383,13 @@ export default function AboutPage() {
 
             <div className="border-l-4 border-yellow-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Frontend Modal State Management
+                Critical Bug Fixes
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Fixed presigned URL modal state persistence bug. Modal now properly resets when switching between
-                objects, preventing stale data display. Improved React component lifecycle management with proper
-                key props and useEffect hooks for better user experience.
+                Fixed rate limiter double-counting (was blocking at 3 instead of 5 attempts), failed attempts counter
+                not resetting after lockout, security page not showing locked users, SSE callback execution, frontend
+                token detection, and presigned URL modal state persistence. All fixes improve system stability and
+                user experience.
               </p>
             </div>
           </div>
