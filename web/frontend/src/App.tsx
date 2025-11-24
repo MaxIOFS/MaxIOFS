@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from '@/components/providers/AuthProvider';
 import { QueryProvider } from '@/components/providers/QueryProvider';
+import { ThemeProvider } from '@/contexts/ThemeContext';
+import { LanguageProvider } from '@/contexts/LanguageContext';
 import { useAuth } from '@/hooks/useAuth';
 import { AppLayout } from '@/components/layout/AppLayout';
 
@@ -59,9 +61,11 @@ function App() {
 
   return (
     <BrowserRouter basename={basename}>
-      <QueryProvider>
-        <AuthProvider>
-          <Routes>
+      <ThemeProvider>
+        <LanguageProvider>
+          <QueryProvider>
+            <AuthProvider>
+              <Routes>
             {/* Public route */}
             <Route path="/login" element={<Login />} />
 
@@ -241,9 +245,11 @@ function App() {
 
             {/* Catch all - redirect to dashboard */}
             <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </AuthProvider>
-      </QueryProvider>
+              </Routes>
+            </AuthProvider>
+          </QueryProvider>
+        </LanguageProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }

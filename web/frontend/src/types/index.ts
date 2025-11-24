@@ -22,6 +22,8 @@ export interface User {
   failedLoginAttempts?: number;
   lastFailedLogin?: number;
   twoFactorEnabled?: boolean;
+  themePreference?: string;
+  languagePreference?: string;
 }
 
 export interface AccessKey {

@@ -19,8 +19,10 @@ import {
   Copy,
   Download,
   Calendar,
-  KeyRound
+  KeyRound,
+  Settings
 } from 'lucide-react';
+import { UserPreferences } from '@/components/preferences/UserPreferences';
 import {
   Table,
   TableBody,
@@ -541,8 +543,10 @@ export default function UserDetailsPage() {
         </div>
       </div>
 
-      {/* Two-Factor Authentication Section */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+      {/* Security & Preferences Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Two-Factor Authentication Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -660,6 +664,23 @@ export default function UserDetailsPage() {
             </div>
           )}
         </div>
+        </div>
+
+        {/* User Preferences - Only visible for current user */}
+        {isCurrentUser && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <Settings className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                Preferences
+              </h3>
+            </div>
+
+            <div className="p-6">
+              <UserPreferences />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Password Management - Modal */}

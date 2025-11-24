@@ -319,6 +319,14 @@ export class APIClient {
     });
   }
 
+  static async updateUserPreferences(userId: string, themePreference: string, languagePreference: string): Promise<User> {
+    const response = await apiClient.patch<User>(`/users/${userId}/preferences`, {
+      themePreference,
+      languagePreference,
+    });
+    return response.data;
+  }
+
   static async unlockUser(userId: string): Promise<void> {
     await apiClient.post(`/users/${userId}/unlock`);
   }

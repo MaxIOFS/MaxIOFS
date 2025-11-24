@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import APIClient from '@/lib/api';
 import type { User, LoginRequest, APIError } from '@/types';
 import { useIdleTimer } from './useIdleTimer';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 // Auth Context Type
 interface AuthContextType {
@@ -34,9 +36,21 @@ export function useAuthProvider(): AuthContextType {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<APIError | null>(null);
   const navigate = useNavigate();
+  const { setTheme } = useTheme();
+  const { setLanguage } = useLanguage();
 
   // Check if user is authenticated
   const isAuthenticated = !!user && APIClient.isAuthenticated();
+
+  // Apply user preferences
+  const applyUserPreferences = useCallback((userData: User) => {
+    if (userData.themePreference) {
+      setTheme(userData.themePreference as 'light' | 'dark' | 'system');
+    }
+    if (userData.languagePreference) {
+      setLanguage(userData.languagePreference as 'en' | 'es');
+    }
+  }, [setTheme, setLanguage]);
 
   // Clear error
   const clearError = useCallback(() => {
@@ -57,6 +71,7 @@ export function useAuthProvider(): AuthContextType {
         if (APIClient.isAuthenticated()) {
           const currentUser = await APIClient.getCurrentUser();
           setUser(currentUser);
+          applyUserPreferences(currentUser);
           setIsLoading(false);
         } else {
           setUser(null);
@@ -85,7 +100,7 @@ export function useAuthProvider(): AuthContextType {
     };
 
     initializeAuth();
-  }, [navigate]);
+  }, [navigate, applyUserPreferences]);
 
   // Login function
   const login = useCallback(async (credentials: LoginRequest) => {
@@ -97,6 +112,7 @@ export function useAuthProvider(): AuthContextType {
 
       if (response.success && response.user) {
         setUser(response.user);
+        applyUserPreferences(response.user);
         // Use hard redirect to ensure auth state is properly initialized
         if (typeof window !== 'undefined') {
           // Use BASE_PATH to respect proxy reverse configuration
@@ -139,6 +155,7 @@ export function useAuthProvider(): AuthContextType {
       if (APIClient.isAuthenticated()) {
         const currentUser = await APIClient.getCurrentUser();
         setUser(currentUser);
+        applyUserPreferences(currentUser);
       } else {
         setUser(null);
       }
@@ -148,7 +165,7 @@ export function useAuthProvider(): AuthContextType {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [applyUserPreferences]);
 
   // Idle timer - logout after 30 minutes of inactivity
   const handleIdle = useCallback(() => {
