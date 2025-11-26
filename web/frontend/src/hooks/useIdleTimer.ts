@@ -15,8 +15,12 @@ export function useIdleTimer({
   onIdle,
   events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'],
 }: UseIdleTimerOptions) {
-  const timeoutId = useRef<number | null>(null);
-  const lastActivity = useRef<number>(Date.now());
+  const timeoutId = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastActivity = useRef<number | null>(null);
+
+  useEffect(() => {
+    lastActivity.current = Date.now();
+  }, []);
 
   const resetTimer = useCallback(() => {
     // Clear existing timeout
@@ -54,7 +58,7 @@ export function useIdleTimer({
   }, [resetTimer, events]);
 
   return {
-    lastActivity: lastActivity.current,
+    getLastActivity: () => lastActivity.current,
     resetTimer,
   };
 }

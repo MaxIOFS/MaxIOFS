@@ -390,6 +390,10 @@ func TestRateLimiting(t *testing.T) {
 
 	testIP := "10.0.0.100"
 
+	// Type assert to access internal rate limiter
+	authMgr, ok := manager.(*authManager)
+	require.True(t, ok, "Failed to type assert Manager to *authManager")
+
 	// Make multiple rapid requests
 	allowed := 0
 	denied := 0
@@ -397,6 +401,8 @@ func TestRateLimiting(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		if manager.CheckRateLimit(testIP) {
 			allowed++
+			// Simulate a failed attempt to increment the counter
+			authMgr.rateLimiter.RecordFailedAttempt(testIP)
 		} else {
 			denied++
 		}

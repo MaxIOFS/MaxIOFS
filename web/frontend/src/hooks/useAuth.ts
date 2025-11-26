@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import APIClient from '@/lib/api';
 import type { User, LoginRequest, APIError } from '@/types';
 import { useIdleTimer } from './useIdleTimer';

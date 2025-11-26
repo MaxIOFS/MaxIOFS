@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Sun, Moon, Monitor, Globe, Save, CheckCircle } from 'lucide-react';
+import { Sun, Moon, Monitor, Save, CheckCircle } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -13,25 +13,23 @@ type Language = 'en' | 'es';
 export function UserPreferences() {
   const { t, i18n } = useTranslation();
   const { theme, setTheme } = useTheme();
-  const { language, setLanguage } = useLanguage();
+  const { language } = useLanguage();
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
 
   const [localTheme, setLocalTheme] = useState<Theme>(theme);
-  const [localLanguage, setLocalLanguage] = useState<Language>(language);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const hasChanges = localTheme !== theme || localLanguage !== language;
+  const hasChanges = localTheme !== theme;
 
   // Update preferences mutation
   const updateMutation = useMutation({
     mutationFn: (data: { themePreference: Theme; languagePreference: Language }) =>
       APIClient.updateUserPreferences(user?.id || '', data.themePreference, data.languagePreference),
     onSuccess: () => {
-      // Apply theme and language locally
+      // Apply theme locally
       setTheme(localTheme);
-      setLanguage(localLanguage);
 
       // Invalidate user query to refetch updated preferences
       queryClient.invalidateQueries({ queryKey: ['currentUser'] });
@@ -51,13 +49,12 @@ export function UserPreferences() {
 
     updateMutation.mutate({
       themePreference: localTheme,
-      languagePreference: localLanguage
+      languagePreference: language // Keep current language
     });
   };
 
   const handleReset = () => {
     setLocalTheme(theme);
-    setLocalLanguage(language);
     setSaveError(null);
   };
 
@@ -65,20 +62,6 @@ export function UserPreferences() {
     { value: 'light', icon: Sun, label: t('preferences.themeLight') },
     { value: 'dark', icon: Moon, label: t('preferences.themeDark') },
     { value: 'system', icon: Monitor, label: t('preferences.themeSystem') }
-  ];
-
-  // Language options with native names in parentheses based on current language
-  const getLanguageLabel = (lang: Language) => {
-    if (language === 'en') {
-      return lang === 'en' ? 'English' : 'Spanish (Español)';
-    } else {
-      return lang === 'en' ? 'Inglés (English)' : 'Español';
-    }
-  };
-
-  const languageOptions: { value: Language; label: string }[] = [
-    { value: 'en', label: getLanguageLabel('en') },
-    { value: 'es', label: getLanguageLabel('es') }
   ];
 
   return (
@@ -143,24 +126,6 @@ export function UserPreferences() {
             </button>
           ))}
         </div>
-      </div>
-
-      {/* Language Selection */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          {t('preferences.language')}
-        </label>
-        <select
-          value={localLanguage}
-          onChange={(e) => setLocalLanguage(e.target.value as Language)}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        >
-          {languageOptions.map(({ value, label }) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
       </div>
 
       {/* Save/Reset Buttons */}
