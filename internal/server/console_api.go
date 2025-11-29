@@ -270,6 +270,11 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/settings/{key}", s.handleUpdateSetting).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/settings/bulk", s.handleBulkUpdateSettings).Methods("POST", "OPTIONS")
 
+	// Logging endpoints
+	router.HandleFunc("/logs/frontend", s.handlePostFrontendLogs).Methods("POST", "OPTIONS")
+	router.HandleFunc("/logs/test", s.handleTestLogOutput).Methods("POST", "OPTIONS")
+	router.HandleFunc("/logs/reconfigure", s.handleReconfigureLogging).Methods("POST", "OPTIONS")
+
 	// Bucket permissions endpoints
 	router.HandleFunc("/buckets/{bucket}/permissions", s.handleListBucketPermissions).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/permissions", s.handleGrantBucketPermission).Methods("POST", "OPTIONS")

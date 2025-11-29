@@ -22,6 +22,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/notifications"
 	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/logging"
 	"github.com/maxiofs/maxiofs/internal/settings"
 	"github.com/maxiofs/maxiofs/internal/share"
 	"github.com/maxiofs/maxiofs/internal/storage"
@@ -41,6 +42,7 @@ type Server struct {
 	auditManager    *audit.Manager
 	metricsManager      metrics.Manager
 	settingsManager     *settings.Manager
+	loggingManager      *logging.Manager
 	shareManager        share.Manager
 	notificationManager *notifications.Manager
 	notificationHub     *NotificationHub
@@ -96,6 +98,10 @@ func New(cfg *config.Config) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
 	}
+
+	// Initialize logging manager
+	loggingManager := logging.NewManager(logrus.StandardLogger())
+	loggingManager.SetSettingsManager(settingsManager)
 
 	// Initialize audit manager
 	var auditManager *audit.Manager
@@ -211,6 +217,7 @@ func New(cfg *config.Config) (*Server, error) {
 		auditManager:        auditManager,
 		metricsManager:      metricsManager,
 		settingsManager:     settingsManager,
+		loggingManager:      loggingManager,
 		shareManager:        shareManager,
 		notificationManager: notificationManager,
 		notificationHub:     notificationHub,

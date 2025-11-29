@@ -1720,12 +1720,20 @@ func (h *Handler) GetBucketVersioning(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build versioning response
-	status := "Suspended"
-	if bkt.Versioning != nil && bkt.Versioning.Status == "Enabled" {
-		status = "Enabled"
+	// AWS S3 behavior:
+	// - Unversioned (never enabled): No <Status> element or empty
+	// - Enabled: <Status>Enabled</Status>
+	// - Suspended: <Status>Suspended</Status>
+	var statusXML string
+	if bkt.Versioning == nil || bkt.Versioning.Status == "" {
+		// Versioning never enabled - return empty configuration
+		statusXML = `<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></VersioningConfiguration>`
+	} else {
+		// Versioning was enabled or suspended
+		statusXML = fmt.Sprintf(`<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>%s</Status></VersioningConfiguration>`, bkt.Versioning.Status)
 	}
 
-	h.writeXMLResponse(w, http.StatusOK, fmt.Sprintf(`<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>%s</Status></VersioningConfiguration>`, status))
+	h.writeXMLResponse(w, http.StatusOK, statusXML)
 }
 
 func (h *Handler) PutBucketVersioning(w http.ResponseWriter, r *http.Request) {

@@ -413,10 +413,11 @@ func (s *BadgerStore) GetObjectVersions(ctx context.Context, bucket, key string)
 // ListAllObjectVersions lists all versions of all objects in a bucket
 func (s *BadgerStore) ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*ObjectVersion, error) {
 	var allVersions []*ObjectVersion
+	keysWithVersions := make(map[string]bool)
 
 	err := s.db.View(func(txn *badger.Txn) error {
+		// First, collect all version entries
 		opts := badger.DefaultIteratorOptions
-		// Iterate over all version keys for this bucket
 		versionPrefix := []byte(fmt.Sprintf("version:%s:", bucket))
 		opts.Prefix = versionPrefix
 
@@ -441,10 +442,59 @@ func (s *BadgerStore) ListAllObjectVersions(ctx context.Context, bucket, prefix 
 			}
 
 			allVersions = append(allVersions, &version)
+			keysWithVersions[version.Key] = true
 
 			// Apply maxKeys limit if specified
 			if maxKeys > 0 && len(allVersions) >= maxKeys {
-				break
+				return nil
+			}
+		}
+
+		// Second, collect main object entries for objects without versions (non-versioned buckets)
+		objectPrefix := []byte(fmt.Sprintf("obj:%s:", bucket))
+		opts2 := badger.DefaultIteratorOptions
+		opts2.Prefix = objectPrefix
+
+		it2 := txn.NewIterator(opts2)
+		defer it2.Close()
+
+		for it2.Rewind(); it2.Valid(); it2.Next() {
+			item := it2.Item()
+
+			var obj ObjectMetadata
+			err := item.Value(func(val []byte) error {
+				return json.Unmarshal(val, &obj)
+			})
+			if err != nil {
+				s.logger.WithError(err).Warn("Failed to unmarshal object metadata")
+				continue
+			}
+
+			// Skip if this key already has versions
+			if keysWithVersions[obj.Key] {
+				continue
+			}
+
+			// Apply prefix filter if specified
+			if prefix != "" && !strings.HasPrefix(obj.Key, prefix) {
+				continue
+			}
+
+			// Convert ObjectMetadata to ObjectVersion (for non-versioned objects)
+			version := &ObjectVersion{
+				Key:          obj.Key,
+				VersionID:    "", // Will be converted to "null" by the handler
+				IsLatest:     true,
+				LastModified: obj.LastModified,
+				ETag:         obj.ETag,
+				Size:         obj.Size,
+			}
+
+			allVersions = append(allVersions, version)
+
+			// Apply maxKeys limit if specified
+			if maxKeys > 0 && len(allVersions) >= maxKeys {
+				return nil
 			}
 		}
 

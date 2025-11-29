@@ -11,6 +11,7 @@ import {
   CheckCircle,
   AlertCircle,
   Info,
+  FileCode,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -39,6 +40,11 @@ const categoryInfo: Record<SettingCategory, { icon: React.ComponentType<any>; ti
     icon: Activity,
     title: 'Metrics',
     description: 'Prometheus metrics and collection settings',
+  },
+  logging: {
+    icon: FileCode,
+    title: 'Logging',
+    description: 'Structured logging, syslog, and HTTP endpoint configuration',
   },
   system: {
     icon: Server,
@@ -141,6 +147,14 @@ export default function SettingsPage() {
       .pop()
       ?.replace(/_/g, ' ')
       .replace(/\b\w/g, l => l.toUpperCase()) || key;
+  };
+
+  // Get options for select fields based on key
+  const getSelectOptions = (key: string): string[] | null => {
+    if (key === 'logging.format') return ['json', 'text'];
+    if (key === 'logging.level' || key === 'logging.frontend_level') return ['debug', 'info', 'warn', 'error'];
+    if (key === 'logging.syslog_protocol') return ['tcp', 'udp'];
+    return null;
   };
 
   // Get status indicator for boolean settings
@@ -334,19 +348,100 @@ export default function SettingsPage() {
               <Server className="h-12 w-12 text-gray-400 mx-auto mb-3" />
               <p className="text-gray-500 dark:text-gray-400">No settings in this category</p>
             </div>
+          ) : activeCategory === 'logging' ? (
+            // Special rendering for logging settings with clear grouping
+            <div className="space-y-8">
+              {/* Backend Logging Group */}
+              {(() => {
+                const backendSettings = currentSettings.filter(s =>
+                  ['logging.format', 'logging.level', 'logging.include_caller'].includes(s.key)
+                );
+                if (backendSettings.length === 0) return null;
+                return (
+                  <div className="border-l-4 border-blue-500 pl-4">
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Backend Logs</h4>
+                    <div className="space-y-4">
+                      {backendSettings.map((setting) => renderSetting(setting))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Syslog Group */}
+              {(() => {
+                const syslogSettings = currentSettings.filter(s => s.key.startsWith('logging.syslog_'));
+                if (syslogSettings.length === 0) return null;
+                const enabled = editedValues['logging.syslog_enabled'] ?? syslogSettings.find(s => s.key === 'logging.syslog_enabled')?.value === 'true';
+                return (
+                  <div className={`border-l-4 ${enabled ? 'border-purple-500' : 'border-gray-300'} pl-4`}>
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Syslog Server</h4>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Forward logs to external syslog (rsyslog, syslog-ng)</p>
+                    <div className="space-y-4">
+                      {syslogSettings.map((setting) => renderSetting(setting))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* HTTP Output Group */}
+              {(() => {
+                const httpSettings = currentSettings.filter(s => s.key.startsWith('logging.http_'));
+                if (httpSettings.length === 0) return null;
+                const enabled = editedValues['logging.http_enabled'] ?? httpSettings.find(s => s.key === 'logging.http_enabled')?.value === 'true';
+                return (
+                  <div className={`border-l-4 ${enabled ? 'border-green-500' : 'border-gray-300'} pl-4`}>
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">HTTP Endpoint</h4>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Send to Splunk, Elastic, Loki, or custom endpoint</p>
+                    <div className="space-y-4">
+                      {httpSettings.map((setting) => renderSetting(setting))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Frontend Logging Group */}
+              {(() => {
+                const frontendSettings = currentSettings.filter(s => s.key.startsWith('logging.frontend_'));
+                if (frontendSettings.length === 0) return null;
+                const enabled = editedValues['logging.frontend_enabled'] ?? frontendSettings.find(s => s.key === 'logging.frontend_enabled')?.value === 'true';
+                return (
+                  <div className={`border-l-4 ${enabled ? 'border-orange-500' : 'border-gray-300'} pl-4`}>
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Frontend Logs</h4>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Collect browser errors and warnings</p>
+                    <div className="space-y-4">
+                      {frontendSettings.map((setting) => renderSetting(setting))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
           ) : (
             <div className="space-y-6">
-              {currentSettings.map((setting) => {
-                const currentValue = getCurrentValue(setting);
-                const isEdited = editedValues[setting.key] !== undefined;
+              {currentSettings.map((setting) => renderSetting(setting))}
+            </div>
+          )}
+        </div>
+      </div>
 
-                return (
-                  <div
-                    key={setting.key}
-                    className={`pb-6 border-b border-gray-100 dark:border-gray-700 last:border-0 last:pb-0 transition-all ${
-                      isEdited ? 'bg-yellow-50 dark:bg-yellow-900/10 -mx-6 px-6 py-4 rounded-lg' : ''
-                    }`}
-                  >
+      {/* Footer Info */}
+      <div className="text-sm text-gray-500 dark:text-gray-400 text-center space-y-1">
+        <p>Settings are stored in SQLite database • Changes take effect immediately</p>
+        <p className="text-xs">Total settings: {settings.length} • Editable: {settings.filter(s => s.editable).length} • Read-only: {settings.filter(s => !s.editable).length}</p>
+      </div>
+    </div>
+  );
+
+  function renderSetting(setting: Setting) {
+    const currentValue = getCurrentValue(setting);
+    const isEdited = editedValues[setting.key] !== undefined;
+
+    return (
+      <div
+        key={setting.key}
+        className={`pb-6 border-b border-gray-100 dark:border-gray-700 last:border-0 last:pb-0 transition-all ${
+          isEdited ? 'bg-yellow-50 dark:bg-yellow-900/10 -mx-6 px-6 py-4 rounded-lg' : ''
+        }`}
+      >
                     {/* Setting Header */}
                     <div className="flex items-start justify-between gap-4 mb-3">
                       <div className="flex-1">
@@ -410,6 +505,18 @@ export default function SettingsPage() {
                               Disabled
                             </button>
                           </div>
+                        ) : getSelectOptions(setting.key) ? (
+                          <select
+                            value={currentValue}
+                            onChange={(e) => handleValueChange(setting.key, e.target.value, setting.value)}
+                            className="w-full max-w-xs px-4 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                          >
+                            {getSelectOptions(setting.key)!.map(option => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
                         ) : setting.type === 'int' ? (
                           <div className="flex items-center gap-2">
                             <input
@@ -439,28 +546,16 @@ export default function SettingsPage() {
                       </div>
                     )}
 
-                    {/* Setting Metadata */}
-                    <div className="mt-3 flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
-                      <span>Key: <code className="text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{setting.key}</code></span>
-                      {isEdited && (
-                        <span className="text-yellow-600 dark:text-yellow-400">
-                          Original: {formatValueDisplay({ ...setting, value: setting.value } as Setting)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+        {/* Setting Metadata */}
+        <div className="mt-3 flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
+          <span>Key: <code className="text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{setting.key}</code></span>
+          {isEdited && (
+            <span className="text-yellow-600 dark:text-yellow-400">
+              Original: {formatValueDisplay({ ...setting, value: setting.value } as Setting)}
+            </span>
           )}
         </div>
       </div>
-
-      {/* Footer Info */}
-      <div className="text-sm text-gray-500 dark:text-gray-400 text-center space-y-1">
-        <p>Settings are stored in SQLite database • Changes take effect immediately</p>
-        <p className="text-xs">Total settings: {settings.length} • Editable: {settings.filter(s => s.editable).length} • Read-only: {settings.filter(s => !s.editable).length}</p>
-      </div>
-    </div>
-  );
+    );
+  }
 }

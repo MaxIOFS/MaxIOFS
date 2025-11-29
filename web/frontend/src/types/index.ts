@@ -783,7 +783,7 @@ export interface AuditLogsResponse {
 
 // Settings Types
 export type SettingType = 'string' | 'int' | 'bool' | 'json';
-export type SettingCategory = 'security' | 'audit' | 'storage' | 'metrics' | 'system';
+export type SettingCategory = 'security' | 'audit' | 'storage' | 'metrics' | 'logging' | 'system';
 
 export interface Setting {
   key: string;

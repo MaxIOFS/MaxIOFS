@@ -155,7 +155,15 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 - ✅ Atomic write operations with rollback
 - ✅ SQLite for authentication and user management
 
-### Deployment & Monitoring
+### Logging & Monitoring
+- ✅ **Advanced Logging System** - Flexible multi-output logging infrastructure
+  - **Syslog Integration**: TCP/UDP protocol support for centralized logging
+  - **HTTP Output**: Send logs to Splunk, Elastic, Loki, or custom endpoints
+  - **Batch Processing**: Configurable batching and flush intervals for efficiency
+  - **Authentication**: Bearer token support for secure HTTP endpoints
+  - **Dynamic Configuration**: Runtime log level, format, and output changes
+  - **Multiple Formats**: JSON and text logging with caller information
+  - **Filtering**: Prefix/suffix filters for targeted log routing
 - ✅ Single binary with embedded frontend
 - ✅ **Docker & Docker Compose support** - *New in 0.3.2*
 - ✅ **Prometheus metrics endpoint** (`/metrics`) - *New in 0.3.2*
@@ -371,6 +379,16 @@ MaxIOFS/
 - ✅ **internal/server/** - 9 tests covering Console API endpoints
   - Login, user management, bucket operations, metrics
   - Coverage: 4.9% of statements
+- ✅ **pkg/s3compat/** - 18 tests covering S3 API operations
+  - Bucket operations, object operations, versioning, lifecycle
+  - Multipart uploads, range requests, batch deletes, copy operations
+  - Bucket policies, CORS, tagging, ListObjectVersions
+  - Coverage: 30.9% of statements (improved from 16.6%)
+- ✅ **internal/logging/** - 26 tests covering logging infrastructure
+  - HTTP output tests (7 tests): Batching, authentication, flush intervals, close, server errors
+  - Syslog output tests (6 tests): TCP connection, message delivery, log levels, multiple writes
+  - Manager tests (13 tests): Configuration, log levels, formats, caller info, error handling
+  - Coverage: 100% pass rate, all core logging functionality validated
 - ✅ **internal/object/** - Race condition verification tests (2 tests)
   - Concurrent multipart uploads (10 parts simultaneously)
   - Multiple simultaneous uploads (5 uploads, 25 parts total)
@@ -378,7 +396,9 @@ MaxIOFS/
 - ✅ **Test Infrastructure**:
   - Helper functions for test setup and authentication
   - Isolated test environments with temporary databases
-  - **28 backend tests**, 100% pass rate, CI/CD ready
+  - AWS SigV4 authentication for S3 API tests
+  - Mock servers for HTTP and syslog testing
+  - **66 backend tests**, 100% pass rate, CI/CD ready
 
 **Feature Implementation**:
 - ✅ **Lifecycle Worker** - 100% Complete (November 20, 2025)
@@ -398,6 +418,7 @@ MaxIOFS/
 go test ./...                    # Run all backend tests
 go test -cover ./internal/...    # Run with coverage
 go test -v ./internal/auth/      # Verbose output
+go test ./internal/logging       # Run logging tests
 
 # Frontend tests
 cd web/frontend

@@ -84,7 +84,16 @@ describe('Users Page', () => {
     {
       id: 'tenant-1',
       name: 'Main Tenant',
-      createdAt: '2024-01-01T00:00:00Z',
+      displayName: 'Main Tenant',
+      status: 'active' as const,
+      maxAccessKeys: 10,
+      currentAccessKeys: 2,
+      maxStorageBytes: 1099511627776,
+      currentStorageBytes: 1024000,
+      maxBuckets: 100,
+      currentBuckets: 3,
+      createdAt: 1704067200000,
+      updatedAt: 1704067200000,
     },
   ];
 
@@ -95,7 +104,7 @@ describe('Users Page', () => {
     vi.mocked(APIClient.getUsers).mockResolvedValue(mockUsers);
     vi.mocked(APIClient.getAccessKeys).mockResolvedValue([]);
     vi.mocked(APIClient.getTenants).mockResolvedValue(mockTenants);
-    vi.mocked(SweetAlert.confirmDelete).mockResolvedValue({ isConfirmed: true });
+    vi.mocked(SweetAlert.confirmDelete).mockResolvedValue({ isConfirmed: true, isDenied: false, isDismissed: false });
   });
 
   describe('Rendering', () => {
@@ -292,7 +301,7 @@ describe('Users Page', () => {
 
     it('should delete user after confirmation', async () => {
       const user = userEvent.setup();
-      vi.mocked(APIClient.deleteUser).mockResolvedValue({ success: true });
+      vi.mocked(APIClient.deleteUser).mockResolvedValue();
 
       render(<UsersPage />);
 
@@ -316,7 +325,7 @@ describe('Users Page', () => {
 
     it('should not delete user if confirmation is cancelled', async () => {
       const user = userEvent.setup();
-      vi.mocked(SweetAlert.confirmDelete).mockResolvedValue({ isConfirmed: false });
+      vi.mocked(SweetAlert.confirmDelete).mockResolvedValue({ isConfirmed: false, isDenied: false, isDismissed: true });
 
       render(<UsersPage />);
 

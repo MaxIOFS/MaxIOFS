@@ -39,8 +39,8 @@ describe('Dashboard Page', () => {
       tenant_id: 'tenant-1',
       object_count: 10,
       size: 1024000,
-      versioning: false,
-      created_at: '2024-01-01T00:00:00Z',
+      versioning: { Status: 'Suspended' as const },
+      creation_date: '2024-01-01T00:00:00Z',
     },
     {
       id: 'bucket-2',
@@ -48,8 +48,8 @@ describe('Dashboard Page', () => {
       tenant_id: 'tenant-1',
       object_count: 5,
       size: 512000,
-      versioning: true,
-      created_at: '2024-01-02T00:00:00Z',
+      versioning: { Status: 'Enabled' as const },
+      creation_date: '2024-01-02T00:00:00Z',
     },
   ];
 
@@ -58,27 +58,31 @@ describe('Dashboard Page', () => {
       id: '1',
       username: 'admin',
       email: 'admin@example.com',
-      role: 'admin',
-      status: 'active',
+      roles: ['admin'],
+      status: 'active' as const,
       tenant_id: 'tenant-1',
-      created_at: '2024-01-01T00:00:00Z',
+      createdAt: '2024-01-01T00:00:00Z',
     },
     {
       id: '2',
       username: 'user1',
       email: 'user1@example.com',
-      role: 'user',
-      status: 'active',
+      roles: ['user'],
+      status: 'active' as const,
       tenant_id: 'tenant-1',
-      created_at: '2024-01-02T00:00:00Z',
+      createdAt: '2024-01-02T00:00:00Z',
     },
   ];
 
   const mockMetrics = {
-    total_buckets: 2,
-    total_objects: 15,
-    total_size: 1536000,
-    active_users: 2,
+    totalBuckets: 2,
+    totalObjects: 15,
+    totalSize: 1536000,
+    bucketMetrics: {},
+    storageOperations: { upload: 0, download: 0, delete: 0 },
+    averageObjectSize: 0,
+    objectSizeDistribution: {},
+    timestamp: Date.now(),
   };
 
   beforeEach(() => {
@@ -273,10 +277,14 @@ describe('Dashboard Page', () => {
       vi.mocked(APIClient.getBuckets).mockResolvedValue([]);
       vi.mocked(APIClient.getUsers).mockResolvedValue([]);
       vi.mocked(APIClient.getStorageMetrics).mockResolvedValue({
-        total_buckets: 0,
-        total_objects: 0,
-        total_size: 0,
-        active_users: 0,
+        totalBuckets: 0,
+        totalObjects: 0,
+        totalSize: 0,
+        bucketMetrics: {},
+        storageOperations: { upload: 0, download: 0, delete: 0 },
+        averageObjectSize: 0,
+        objectSizeDistribution: {},
+        timestamp: Date.now(),
       });
 
       render(<Dashboard />);

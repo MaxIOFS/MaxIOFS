@@ -22,6 +22,7 @@ const (
 	CategoryAudit    Category = "audit"
 	CategoryStorage  Category = "storage"
 	CategoryMetrics  Category = "metrics"
+	CategoryLogging  Category = "logging"
 	CategorySystem   Category = "system"
 )
 

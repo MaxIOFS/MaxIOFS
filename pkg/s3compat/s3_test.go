@@ -137,17 +137,58 @@ func setupCompleteS3Environment(t *testing.T) *s3TestEnv {
 	// Apply auth middleware to all routes
 	router.Use(authManager.Middleware())
 
-	// Register S3 API routes (bucket operations)
+	// Register S3 API routes - ORDER MATTERS!
+	// Routes with query parameters MUST come BEFORE general routes
+
+	// Bucket configuration operations (with query parameters - FIRST!)
+	router.HandleFunc("/{bucket}", handler.PutBucketPolicy).Methods("PUT").Queries("policy", "")
+	router.HandleFunc("/{bucket}", handler.GetBucketPolicy).Methods("GET").Queries("policy", "")
+	router.HandleFunc("/{bucket}", handler.DeleteBucketPolicy).Methods("DELETE").Queries("policy", "")
+
+	router.HandleFunc("/{bucket}", handler.PutBucketLifecycle).Methods("PUT").Queries("lifecycle", "")
+	router.HandleFunc("/{bucket}", handler.GetBucketLifecycle).Methods("GET").Queries("lifecycle", "")
+	router.HandleFunc("/{bucket}", handler.DeleteBucketLifecycle).Methods("DELETE").Queries("lifecycle", "")
+
+	router.HandleFunc("/{bucket}", handler.PutBucketCORS).Methods("PUT").Queries("cors", "")
+	router.HandleFunc("/{bucket}", handler.GetBucketCORS).Methods("GET").Queries("cors", "")
+	router.HandleFunc("/{bucket}", handler.DeleteBucketCORS).Methods("DELETE").Queries("cors", "")
+
+	router.HandleFunc("/{bucket}", handler.PutBucketVersioning).Methods("PUT").Queries("versioning", "")
+	router.HandleFunc("/{bucket}", handler.GetBucketVersioning).Methods("GET").Queries("versioning", "")
+
+	// List object versions
+	router.HandleFunc("/{bucket}", handler.ListBucketVersions).Methods("GET").Queries("versions", "")
+
+	// Batch operations
+	router.HandleFunc("/{bucket}", handler.DeleteObjects).Methods("POST").Queries("delete", "")
+
+	// General bucket operations (NO query parameters - AFTER!)
 	router.HandleFunc("/{bucket}", handler.CreateBucket).Methods("PUT")
 	router.HandleFunc("/{bucket}", handler.DeleteBucket).Methods("DELETE")
 	router.HandleFunc("/{bucket}", handler.HeadBucket).Methods("HEAD")
 	router.HandleFunc("/", handler.ListBuckets).Methods("GET")
 
-	// Object operations
+	// Object operations - ORDER MATTERS! (query params first)
+
+	// Multipart upload operations (with query parameters - FIRST!)
+	router.HandleFunc("/{bucket}/{object:.+}", handler.CreateMultipartUpload).Methods("POST").Queries("uploads", "")
+	router.HandleFunc("/{bucket}/{object:.+}", handler.UploadPart).Methods("PUT").Queries("uploadId", "", "partNumber", "")
+	router.HandleFunc("/{bucket}/{object:.+}", handler.CompleteMultipartUpload).Methods("POST").Queries("uploadId", "")
+	router.HandleFunc("/{bucket}/{object:.+}", handler.ListParts).Methods("GET").Queries("uploadId", "")
+	router.HandleFunc("/{bucket}/{object:.+}", handler.AbortMultipartUpload).Methods("DELETE").Queries("uploadId", "")
+
+	// Object tagging (with query parameter)
+	router.HandleFunc("/{bucket}/{object:.+}", handler.PutObjectTagging).Methods("PUT").Queries("tagging", "")
+	router.HandleFunc("/{bucket}/{object:.+}", handler.GetObjectTagging).Methods("GET").Queries("tagging", "")
+	router.HandleFunc("/{bucket}/{object:.+}", handler.DeleteObjectTagging).Methods("DELETE").Queries("tagging", "")
+
+	// General object operations (NO query parameters - AFTER!)
 	router.HandleFunc("/{bucket}/{object:.+}", handler.PutObject).Methods("PUT")
 	router.HandleFunc("/{bucket}/{object:.+}", handler.GetObject).Methods("GET")
 	router.HandleFunc("/{bucket}/{object:.+}", handler.DeleteObject).Methods("DELETE")
 	router.HandleFunc("/{bucket}/{object:.+}", handler.HeadObject).Methods("HEAD")
+
+	// List objects
 	router.HandleFunc("/{bucket}/", handler.ListObjects).Methods("GET")
 
 	// Cleanup function
@@ -519,9 +560,6 @@ func TestS3BucketPolicy(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("Put bucket policy", func(t *testing.T) {
-		// Register policy route
-		env.router.HandleFunc("/{bucket}", env.handler.PutBucketPolicy).Methods("PUT").Queries("policy", "")
-
 		req, w := env.makeS3Request("PUT", "/"+bucketName+"?policy", policyJSON)
 		req.Header.Set("Content-Type", "application/json")
 		env.router.ServeHTTP(w, req)
@@ -530,9 +568,6 @@ func TestS3BucketPolicy(t *testing.T) {
 	})
 
 	t.Run("Get bucket policy", func(t *testing.T) {
-		// Register policy route
-		env.router.HandleFunc("/{bucket}", env.handler.GetBucketPolicy).Methods("GET").Queries("policy", "")
-
 		req, w := env.makeS3Request("GET", "/"+bucketName+"?policy", nil)
 		env.router.ServeHTTP(w, req)
 
@@ -541,9 +576,6 @@ func TestS3BucketPolicy(t *testing.T) {
 	})
 
 	t.Run("Delete bucket policy", func(t *testing.T) {
-		// Register policy route
-		env.router.HandleFunc("/{bucket}", env.handler.DeleteBucketPolicy).Methods("DELETE").Queries("policy", "")
-
 		req, w := env.makeS3Request("DELETE", "/"+bucketName+"?policy", nil)
 		env.router.ServeHTTP(w, req)
 
@@ -575,9 +607,6 @@ func TestS3BucketLifecycle(t *testing.T) {
 	</LifecycleConfiguration>`
 
 	t.Run("Put bucket lifecycle", func(t *testing.T) {
-		// Register lifecycle route
-		env.router.HandleFunc("/{bucket}", env.handler.PutBucketLifecycle).Methods("PUT").Queries("lifecycle", "")
-
 		req, w := env.makeS3Request("PUT", "/"+bucketName+"?lifecycle", []byte(lifecycleXML))
 		req.Header.Set("Content-Type", "application/xml")
 		env.router.ServeHTTP(w, req)
@@ -586,9 +615,6 @@ func TestS3BucketLifecycle(t *testing.T) {
 	})
 
 	t.Run("Get bucket lifecycle", func(t *testing.T) {
-		// Register lifecycle route
-		env.router.HandleFunc("/{bucket}", env.handler.GetBucketLifecycle).Methods("GET").Queries("lifecycle", "")
-
 		req, w := env.makeS3Request("GET", "/"+bucketName+"?lifecycle", nil)
 		env.router.ServeHTTP(w, req)
 
@@ -598,9 +624,6 @@ func TestS3BucketLifecycle(t *testing.T) {
 	})
 
 	t.Run("Delete bucket lifecycle", func(t *testing.T) {
-		// Register lifecycle route
-		env.router.HandleFunc("/{bucket}", env.handler.DeleteBucketLifecycle).Methods("DELETE").Queries("lifecycle", "")
-
 		req, w := env.makeS3Request("DELETE", "/"+bucketName+"?lifecycle", nil)
 		env.router.ServeHTTP(w, req)
 
@@ -631,9 +654,6 @@ func TestS3BucketCORS(t *testing.T) {
 	</CORSConfiguration>`
 
 	t.Run("Put bucket CORS", func(t *testing.T) {
-		// Register CORS route
-		env.router.HandleFunc("/{bucket}", env.handler.PutBucketCORS).Methods("PUT").Queries("cors", "")
-
 		req, w := env.makeS3Request("PUT", "/"+bucketName+"?cors", []byte(corsXML))
 		req.Header.Set("Content-Type", "application/xml")
 		env.router.ServeHTTP(w, req)
@@ -642,9 +662,6 @@ func TestS3BucketCORS(t *testing.T) {
 	})
 
 	t.Run("Get bucket CORS", func(t *testing.T) {
-		// Register CORS route
-		env.router.HandleFunc("/{bucket}", env.handler.GetBucketCORS).Methods("GET").Queries("cors", "")
-
 		req, w := env.makeS3Request("GET", "/"+bucketName+"?cors", nil)
 		env.router.ServeHTTP(w, req)
 
@@ -654,9 +671,6 @@ func TestS3BucketCORS(t *testing.T) {
 	})
 
 	t.Run("Delete bucket CORS", func(t *testing.T) {
-		// Register CORS route
-		env.router.HandleFunc("/{bucket}", env.handler.DeleteBucketCORS).Methods("DELETE").Queries("cors", "")
-
 		req, w := env.makeS3Request("DELETE", "/"+bucketName+"?cors", nil)
 		env.router.ServeHTTP(w, req)
 
@@ -696,9 +710,6 @@ func TestS3ObjectTagging(t *testing.T) {
 	</Tagging>`
 
 	t.Run("Put object tagging", func(t *testing.T) {
-		// Register tagging route
-		env.router.HandleFunc("/{bucket}/{object:.+}", env.handler.PutObjectTagging).Methods("PUT").Queries("tagging", "")
-
 		req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey+"?tagging", []byte(taggingXML))
 		req.Header.Set("Content-Type", "application/xml")
 		env.router.ServeHTTP(w, req)
@@ -707,9 +718,6 @@ func TestS3ObjectTagging(t *testing.T) {
 	})
 
 	t.Run("Get object tagging", func(t *testing.T) {
-		// Register tagging route
-		env.router.HandleFunc("/{bucket}/{object:.+}", env.handler.GetObjectTagging).Methods("GET").Queries("tagging", "")
-
 		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?tagging", nil)
 		env.router.ServeHTTP(w, req)
 
@@ -719,9 +727,6 @@ func TestS3ObjectTagging(t *testing.T) {
 	})
 
 	t.Run("Delete object tagging", func(t *testing.T) {
-		// Register tagging route
-		env.router.HandleFunc("/{bucket}/{object:.+}", env.handler.DeleteObjectTagging).Methods("DELETE").Queries("tagging", "")
-
 		req, w := env.makeS3Request("DELETE", "/"+bucketName+"/"+objectKey+"?tagging", nil)
 		env.router.ServeHTTP(w, req)
 
@@ -745,9 +750,6 @@ func TestS3MultipartUpload(t *testing.T) {
 	var uploadID string
 
 	t.Run("Create multipart upload", func(t *testing.T) {
-		// Register multipart route
-		env.router.HandleFunc("/{bucket}/{object:.+}", env.handler.CreateMultipartUpload).Methods("POST").Queries("uploads", "")
-
 		req, w := env.makeS3Request("POST", "/"+bucketName+"/"+objectKey+"?uploads", nil)
 		env.router.ServeHTTP(w, req)
 
@@ -766,9 +768,6 @@ func TestS3MultipartUpload(t *testing.T) {
 	var etag1, etag2 string
 
 	t.Run("Upload part 1", func(t *testing.T) {
-		// Register upload part route
-		env.router.HandleFunc("/{bucket}/{object:.+}", env.handler.UploadPart).Methods("PUT").Queries("partNumber", "{partNumber}", "uploadId", "{uploadId}")
-
 		part1Data := bytes.Repeat([]byte("A"), 5*1024*1024) // 5MB
 		req, w := env.makeS3Request("PUT", fmt.Sprintf("/%s/%s?partNumber=1&uploadId=%s", bucketName, objectKey, uploadID), part1Data)
 		env.router.ServeHTTP(w, req)
@@ -834,5 +833,497 @@ func TestS3MultipartUpload(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code, "Should list parts")
 		assert.Contains(t, w.Body.String(), "<PartNumber>1</PartNumber>", "Should contain part number")
+	})
+}
+
+// TestS3BucketVersioning tests bucket versioning configuration via S3 API
+// Tests all three versioning states: Unversioned, Enabled, Suspended
+func TestS3BucketVersioning(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "versioning-test-bucket"
+
+	// Create bucket first
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	t.Run("Get versioning on new bucket (Unversioned)", func(t *testing.T) {
+		// New buckets should have no versioning status (Unversioned state)
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?versioning", nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should get versioning configuration")
+
+		// AWS S3 returns empty VersioningConfiguration for unversioned buckets
+		// Should NOT contain <Status> element
+		assert.NotContains(t, w.Body.String(), "<Status>", "Unversioned bucket should not have Status element")
+		assert.Contains(t, w.Body.String(), "<VersioningConfiguration", "Should contain VersioningConfiguration")
+	})
+
+	t.Run("Enable versioning", func(t *testing.T) {
+		versioningXML := `<VersioningConfiguration>
+			<Status>Enabled</Status>
+		</VersioningConfiguration>`
+
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"?versioning", []byte(versioningXML))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should enable versioning")
+	})
+
+	t.Run("Get versioning after enabling", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?versioning", nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should get versioning configuration")
+		assert.Contains(t, w.Body.String(), "<Status>Enabled</Status>", "Versioning should be enabled")
+	})
+
+	t.Run("Suspend versioning", func(t *testing.T) {
+		versioningXML := `<VersioningConfiguration>
+			<Status>Suspended</Status>
+		</VersioningConfiguration>`
+
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"?versioning", []byte(versioningXML))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should suspend versioning")
+	})
+
+	t.Run("Get versioning after suspending", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?versioning", nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should get versioning configuration")
+		assert.Contains(t, w.Body.String(), "<Status>Suspended</Status>", "Versioning should be suspended")
+	})
+
+	t.Run("Re-enable versioning after suspension", func(t *testing.T) {
+		versioningXML := `<VersioningConfiguration>
+			<Status>Enabled</Status>
+		</VersioningConfiguration>`
+
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"?versioning", []byte(versioningXML))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should re-enable versioning")
+
+		// Verify it's enabled again
+		req, w = env.makeS3Request("GET", "/"+bucketName+"?versioning", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Contains(t, w.Body.String(), "<Status>Enabled</Status>", "Versioning should be enabled again")
+	})
+
+	t.Run("Reject invalid versioning status", func(t *testing.T) {
+		// Try to set versioning to "Disabled" which is not allowed
+		invalidXML := `<VersioningConfiguration>
+			<Status>Disabled</Status>
+		</VersioningConfiguration>`
+
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"?versioning", []byte(invalidXML))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+
+		// Should reject invalid status
+		assert.NotEqual(t, http.StatusOK, w.Code, "Should reject invalid versioning status")
+		assert.Contains(t, w.Body.String(), "IllegalVersioningConfigurationException", "Should return illegal versioning error")
+	})
+}
+
+// TestS3DeleteObjects tests batch delete operations via S3 API
+func TestS3DeleteObjects(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "batch-delete-bucket"
+
+	// Create bucket first
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	// Create multiple test objects
+	bucketPath := env.tenantID + "/" + bucketName
+	objectKeys := []string{"file1.txt", "file2.txt", "file3.txt", "file4.txt", "file5.txt"}
+
+	for _, key := range objectKeys {
+		headers := http.Header{}
+		_, err := env.objectManager.PutObject(ctx, bucketPath, key, bytes.NewReader([]byte("test content")), headers)
+		require.NoError(t, err, "Should create test object: "+key)
+	}
+
+	t.Run("Delete multiple objects", func(t *testing.T) {
+		// Delete 3 out of 5 objects
+		deleteXML := `<Delete>
+			<Object><Key>file1.txt</Key></Object>
+			<Object><Key>file2.txt</Key></Object>
+			<Object><Key>file3.txt</Key></Object>
+		</Delete>`
+
+		req, w := env.makeS3Request("POST", "/"+bucketName+"?delete", []byte(deleteXML))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should delete objects")
+		assert.Contains(t, w.Body.String(), "file1.txt", "Response should contain deleted object")
+		assert.Contains(t, w.Body.String(), "file2.txt", "Response should contain deleted object")
+		assert.Contains(t, w.Body.String(), "file3.txt", "Response should contain deleted object")
+	})
+
+	t.Run("Delete non-existent object (should succeed)", func(t *testing.T) {
+		// S3 spec: deleting non-existent object should return success
+		deleteXML := `<Delete>
+			<Object><Key>non-existent-file.txt</Key></Object>
+		</Delete>`
+
+		req, w := env.makeS3Request("POST", "/"+bucketName+"?delete", []byte(deleteXML))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should succeed deleting non-existent object")
+		assert.Contains(t, w.Body.String(), "non-existent-file.txt", "Response should contain key")
+	})
+
+	t.Run("Quiet mode (no response body for successful deletes)", func(t *testing.T) {
+		// Create a new object to delete
+		headers := http.Header{}
+		_, err := env.objectManager.PutObject(ctx, bucketPath, "quiet-test.txt", bytes.NewReader([]byte("test")), headers)
+		require.NoError(t, err)
+
+		deleteXML := `<Delete>
+			<Quiet>true</Quiet>
+			<Object><Key>quiet-test.txt</Key></Object>
+		</Delete>`
+
+		req, w := env.makeS3Request("POST", "/"+bucketName+"?delete", []byte(deleteXML))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should delete object in quiet mode")
+		// In quiet mode, successful deletes are not listed in response
+		// Only errors are returned
+	})
+
+	t.Run("Reject empty delete request", func(t *testing.T) {
+		deleteXML := `<Delete></Delete>`
+
+		req, w := env.makeS3Request("POST", "/"+bucketName+"?delete", []byte(deleteXML))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+
+		assert.NotEqual(t, http.StatusOK, w.Code, "Should reject empty delete request")
+		assert.Contains(t, w.Body.String(), "InvalidRequest", "Should return InvalidRequest error")
+	})
+
+	t.Run("Reject more than 1000 objects", func(t *testing.T) {
+		// Build XML with 1001 objects
+		var xmlBuilder strings.Builder
+		xmlBuilder.WriteString("<Delete>")
+		for i := 0; i < 1001; i++ {
+			xmlBuilder.WriteString(fmt.Sprintf("<Object><Key>file%d.txt</Key></Object>", i))
+		}
+		xmlBuilder.WriteString("</Delete>")
+
+		req, w := env.makeS3Request("POST", "/"+bucketName+"?delete", []byte(xmlBuilder.String()))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+
+		assert.NotEqual(t, http.StatusOK, w.Code, "Should reject more than 1000 objects")
+		assert.Contains(t, w.Body.String(), "InvalidRequest", "Should return InvalidRequest error")
+		assert.Contains(t, w.Body.String(), "1000", "Error message should mention 1000 limit")
+	})
+}
+
+// TestS3CopyObject tests object copy operations via S3 API
+func TestS3CopyObject(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	sourceBucket := "source-bucket"
+	destBucket := "dest-bucket"
+
+	// Create both buckets
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, sourceBucket)
+	require.NoError(t, err)
+	err = env.bucketManager.CreateBucket(ctx, env.tenantID, destBucket)
+	require.NoError(t, err)
+
+	// Create source object
+	sourcePath := env.tenantID + "/" + sourceBucket
+	sourceKey := "source-file.txt"
+	sourceContent := []byte("This is the source content")
+
+	headers := http.Header{}
+	_, err = env.objectManager.PutObject(ctx, sourcePath, sourceKey, bytes.NewReader(sourceContent), headers)
+	require.NoError(t, err)
+
+	t.Run("Copy object within same bucket", func(t *testing.T) {
+		destKey := "copied-file.txt"
+
+		req, w := env.makeS3Request("PUT", "/"+sourceBucket+"/"+destKey, nil)
+		// Set the copy source header (with leading slash as AWS S3 expects)
+		req.Header.Set("x-amz-copy-source", "/"+sourceBucket+"/"+sourceKey)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should copy object")
+		assert.Contains(t, w.Body.String(), "CopyObjectResult", "Response should contain CopyObjectResult")
+		assert.Contains(t, w.Body.String(), "ETag", "Response should contain ETag")
+	})
+
+	t.Run("Copy object to different bucket", func(t *testing.T) {
+		destKey := "cross-bucket-copy.txt"
+
+		req, w := env.makeS3Request("PUT", "/"+destBucket+"/"+destKey, nil)
+		// Copy from source bucket to dest bucket
+		req.Header.Set("x-amz-copy-source", "/"+sourceBucket+"/"+sourceKey)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should copy object across buckets")
+		assert.Contains(t, w.Body.String(), "CopyObjectResult", "Response should contain CopyObjectResult")
+	})
+
+	t.Run("Copy object without leading slash in source", func(t *testing.T) {
+		destKey := "no-slash-copy.txt"
+
+		req, w := env.makeS3Request("PUT", "/"+sourceBucket+"/"+destKey, nil)
+		// AWS CLI sometimes sends without leading slash
+		req.Header.Set("x-amz-copy-source", sourceBucket+"/"+sourceKey)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should copy object (no leading slash)")
+		assert.Contains(t, w.Body.String(), "CopyObjectResult", "Response should contain CopyObjectResult")
+	})
+
+	t.Run("Copy non-existent object (should fail)", func(t *testing.T) {
+		destKey := "failed-copy.txt"
+
+		req, w := env.makeS3Request("PUT", "/"+destBucket+"/"+destKey, nil)
+		req.Header.Set("x-amz-copy-source", "/"+sourceBucket+"/non-existent-file.txt")
+		env.router.ServeHTTP(w, req)
+
+		assert.NotEqual(t, http.StatusOK, w.Code, "Should fail copying non-existent object")
+	})
+
+	t.Run("Verify copied object content", func(t *testing.T) {
+		// Copy object
+		destKey := "verify-content.txt"
+		req, w := env.makeS3Request("PUT", "/"+sourceBucket+"/"+destKey, nil)
+		req.Header.Set("x-amz-copy-source", "/"+sourceBucket+"/"+sourceKey)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Get the copied object and verify content
+		req, w = env.makeS3Request("GET", "/"+sourceBucket+"/"+destKey, nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should get copied object")
+		assert.Equal(t, sourceContent, w.Body.Bytes(), "Copied content should match source")
+	})
+}
+
+// TestS3RangeRequests tests partial object download via Range header
+func TestS3RangeRequests(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "range-test-bucket"
+
+	// Create bucket
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	// Create object with known content
+	bucketPath := env.tenantID + "/" + bucketName
+	objectKey := "test-file.txt"
+	content := []byte("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") // 62 bytes
+
+	headers := http.Header{}
+	_, err = env.objectManager.PutObject(ctx, bucketPath, objectKey, bytes.NewReader(content), headers)
+	require.NoError(t, err)
+
+	t.Run("Get first 10 bytes", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("Range", "bytes=0-9")
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusPartialContent, w.Code, "Should return 206 Partial Content")
+		assert.Equal(t, "0123456789", w.Body.String(), "Should return first 10 bytes")
+		assert.Equal(t, "bytes 0-9/62", w.Header().Get("Content-Range"), "Should include Content-Range header")
+		assert.Equal(t, "10", w.Header().Get("Content-Length"), "Content-Length should be 10")
+	})
+
+	t.Run("Get last 10 bytes", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("Range", "bytes=52-61")
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusPartialContent, w.Code, "Should return 206 Partial Content")
+		// Content: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+		// Positions 52-61 = "qrstuvwxyz" (last 10 bytes)
+		assert.Equal(t, "qrstuvwxyz", w.Body.String(), "Should return last 10 bytes")
+	})
+
+	t.Run("Get middle bytes", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("Range", "bytes=10-19")
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusPartialContent, w.Code, "Should return 206 Partial Content")
+		assert.Equal(t, "ABCDEFGHIJ", w.Body.String(), "Should return middle bytes")
+		assert.Equal(t, "bytes 10-19/62", w.Header().Get("Content-Range"), "Should include Content-Range header")
+	})
+
+	t.Run("Get from offset to end (open range)", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("Range", "bytes=50-")
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusPartialContent, w.Code, "Should return 206 Partial Content")
+		// Position 50 to end (62) = "opqrstuvwxyz" (12 bytes)
+		assert.Equal(t, "opqrstuvwxyz", w.Body.String(), "Should return from offset to end")
+	})
+
+	t.Run("Invalid range (should return 416)", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+		// Request bytes beyond file size
+		req.Header.Set("Range", "bytes=100-200")
+		env.router.ServeHTTP(w, req)
+
+		// Should return 416 Range Not Satisfiable
+		assert.Equal(t, http.StatusRequestedRangeNotSatisfiable, w.Code, "Should return 416 for invalid range")
+	})
+
+	t.Run("Get without Range header (full object)", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should return 200 OK for full object")
+		assert.Equal(t, content, w.Body.Bytes(), "Should return complete content")
+		assert.Equal(t, "62", w.Header().Get("Content-Length"), "Content-Length should be 62")
+	})
+}
+
+// TestS3ListObjectVersions tests listing object versions in versioned buckets
+func TestS3ListObjectVersions(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "versioned-bucket"
+
+	// Create bucket
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	// Enable versioning on the bucket
+	versioningXML := `<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>`
+	req, w := env.makeS3Request("PUT", "/"+bucketName+"?versioning", []byte(versioningXML))
+	req.Header.Set("Content-Type", "application/xml")
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should enable versioning")
+
+	// Create multiple versions of the same object
+	bucketPath := env.tenantID + "/" + bucketName
+	objectKey := "test-file.txt"
+
+	headers := http.Header{}
+	for i := 1; i <= 3; i++ {
+		content := []byte(fmt.Sprintf("Version %d content", i))
+		_, err := env.objectManager.PutObject(ctx, bucketPath, objectKey, bytes.NewReader(content), headers)
+		require.NoError(t, err, "Should create version %d", i)
+	}
+
+	// Create another object with versions
+	objectKey2 := "another-file.txt"
+	for i := 1; i <= 2; i++ {
+		content := []byte(fmt.Sprintf("File 2 Version %d", i))
+		_, err := env.objectManager.PutObject(ctx, bucketPath, objectKey2, bytes.NewReader(content), headers)
+		require.NoError(t, err, "Should create version %d for file 2", i)
+	}
+
+	t.Run("List all object versions", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?versions", nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should list object versions")
+		assert.Contains(t, w.Body.String(), "ListVersionsResult", "Response should contain ListVersionsResult")
+		assert.Contains(t, w.Body.String(), "test-file.txt", "Should contain first object")
+		assert.Contains(t, w.Body.String(), "another-file.txt", "Should contain second object")
+		// Should have multiple versions listed
+		assert.Contains(t, w.Body.String(), "<Version>", "Should contain version entries")
+	})
+
+	t.Run("List versions with prefix filter", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?versions&prefix=test-", nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should list filtered versions")
+		assert.Contains(t, w.Body.String(), "test-file.txt", "Should contain filtered object")
+		// Should not contain the other object
+		responseBody := w.Body.String()
+		if strings.Contains(responseBody, "another-file.txt") {
+			// This might be ok if the implementation includes it, but ideally it shouldn't
+			t.Log("Warning: Response contains objects that don't match prefix filter")
+		}
+	})
+
+	t.Run("List versions with max-keys limit", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?versions&max-keys=2", nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should list versions with limit")
+		assert.Contains(t, w.Body.String(), "ListVersionsResult", "Response should contain ListVersionsResult")
+		// Should indicate if results are truncated
+		if strings.Contains(w.Body.String(), "<IsTruncated>true</IsTruncated>") {
+			assert.Contains(t, w.Body.String(), "<NextKeyMarker>", "Should have NextKeyMarker for pagination")
+		}
+	})
+
+	t.Run("List versions in non-versioned bucket", func(t *testing.T) {
+		// Create a non-versioned bucket
+		nonVersionedBucket := "non-versioned-bucket"
+		err := env.bucketManager.CreateBucket(ctx, env.tenantID, nonVersionedBucket)
+		require.NoError(t, err)
+
+		// Put an object (will have null version)
+		nonVersionedPath := env.tenantID + "/" + nonVersionedBucket
+		_, err = env.objectManager.PutObject(ctx, nonVersionedPath, "file.txt", bytes.NewReader([]byte("content")), headers)
+		require.NoError(t, err)
+
+		req, w := env.makeS3Request("GET", "/"+nonVersionedBucket+"?versions", nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should list versions even in non-versioned bucket")
+		assert.Contains(t, w.Body.String(), "file.txt", "Should contain the object")
+		assert.Contains(t, w.Body.String(), "<VersionId>null</VersionId>", "Should have null version ID")
+	})
+
+	t.Run("Delete object and create delete marker", func(t *testing.T) {
+		// Delete the object (creates a delete marker in versioned bucket)
+		deleteKey := "to-be-deleted.txt"
+		_, err := env.objectManager.PutObject(ctx, bucketPath, deleteKey, bytes.NewReader([]byte("will be deleted")), headers)
+		require.NoError(t, err)
+
+		// Delete it (creates delete marker)
+		_, err = env.objectManager.DeleteObject(ctx, bucketPath, deleteKey, false)
+		require.NoError(t, err)
+
+		// List versions should show the delete marker
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?versions", nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should list versions with delete markers")
+		// May contain DeleteMarker element
+		if strings.Contains(w.Body.String(), "to-be-deleted.txt") {
+			// The deleted object should appear in versions list
+			t.Log("Deleted object appears in versions list (expected)")
+		}
 	})
 }

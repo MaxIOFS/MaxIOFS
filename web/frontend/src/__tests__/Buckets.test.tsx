@@ -33,7 +33,7 @@ describe('Buckets Page', () => {
       tenant_id: 'tenant-1',
       object_count: 10,
       size: 1024000,
-      versioning: false,
+      versioning: { Status: 'Suspended' as const },
       creation_date: '2024-01-01T00:00:00Z',
     },
     {
@@ -42,7 +42,7 @@ describe('Buckets Page', () => {
       tenant_id: 'tenant-1',
       object_count: 5,
       size: 512000,
-      versioning: true,
+      versioning: { Status: 'Enabled' as const },
       creation_date: '2024-01-02T00:00:00Z',
     },
     {
@@ -51,7 +51,7 @@ describe('Buckets Page', () => {
       tenant_id: 'tenant-1',
       object_count: 20,
       size: 2048000,
-      versioning: false,
+      versioning: { Status: 'Suspended' as const },
       creation_date: '2024-01-03T00:00:00Z',
     },
   ];
@@ -63,7 +63,7 @@ describe('Buckets Page', () => {
     vi.mocked(APIClient.getBuckets).mockResolvedValue(mockBuckets);
     vi.mocked(APIClient.getUsers).mockResolvedValue([]);
     vi.mocked(APIClient.getTenants).mockResolvedValue([]);
-    vi.mocked(SweetAlert.confirmDelete).mockResolvedValue({ isConfirmed: true });
+    vi.mocked(SweetAlert.confirmDelete).mockResolvedValue({ isConfirmed: true, isDenied: false, isDismissed: false });
   });
 
   describe('Rendering', () => {
@@ -226,7 +226,7 @@ describe('Buckets Page', () => {
     });
 
     it('should delete bucket after confirmation', async () => {
-      vi.mocked(APIClient.deleteBucket).mockResolvedValue({ success: true });
+      vi.mocked(APIClient.deleteBucket).mockResolvedValue();
 
       render(<BucketsPage />);
 
@@ -245,7 +245,7 @@ describe('Buckets Page', () => {
     });
 
     it('should not delete bucket if confirmation is cancelled', async () => {
-      vi.mocked(SweetAlert.confirmDelete).mockResolvedValue({ isConfirmed: false });
+      vi.mocked(SweetAlert.confirmDelete).mockResolvedValue({ isConfirmed: false, isDenied: false, isDismissed: true });
 
       render(<BucketsPage />);
 
@@ -344,7 +344,7 @@ describe('Buckets Page', () => {
         tenant_id: 'tenant-1',
         object_count: i,
         size: i * 1024,
-        versioning: false,
+        versioning: { Status: 'Suspended' as const },
         creation_date: `2024-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
       }));
 
