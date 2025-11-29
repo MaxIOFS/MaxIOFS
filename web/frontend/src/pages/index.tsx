@@ -21,6 +21,8 @@ export default function Dashboard() {
     queryKey: ['metrics'],
     queryFn: APIClient.getStorageMetrics,
     refetchInterval: 30000,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 
   const { data: bucketsResponse, isLoading: bucketsLoading } = useQuery({
@@ -45,6 +47,7 @@ export default function Dashboard() {
     },
     refetchInterval: 30000,
     retry: 1,
+    refetchOnWindowFocus: false,
   });
 
   const isLoading = metricsLoading || bucketsLoading || usersLoading;

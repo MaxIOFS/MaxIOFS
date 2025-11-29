@@ -37,6 +37,8 @@ export default function SecurityPage() {
     refetchInterval: 5000, // Poll every 5 seconds to detect locked accounts
     staleTime: 5000, // Consider data fresh for 5 seconds
     enabled: isGlobalAdmin,
+    retry: false, // Don't retry on failure to prevent auth logout
+    refetchOnWindowFocus: false, // Prevent refetch on window focus
   });
 
   // Fetch settings for dynamic values

@@ -38,6 +38,8 @@ export default function MetricsPage() {
     queryFn: APIClient.getStorageMetrics,
     refetchInterval: 30000,
     enabled: isGlobalAdmin,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 
   // Fetch current system metrics
@@ -46,6 +48,8 @@ export default function MetricsPage() {
     queryFn: APIClient.getSystemMetrics,
     refetchInterval: 30000,
     enabled: isGlobalAdmin,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 
   // Fetch current S3 metrics
@@ -54,6 +58,8 @@ export default function MetricsPage() {
     queryFn: APIClient.getS3Metrics,
     refetchInterval: 30000,
     enabled: isGlobalAdmin,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 
   // Fetch historical metrics based on active tab and time range
@@ -82,7 +88,7 @@ export default function MetricsPage() {
       return { ...result, requestedRange: { start, end } };
     },
     // Adaptive refetch based on time range - longer periods need less frequent updates
-    refetchInterval: 
+    refetchInterval:
       timeRange.hours <= 1 ? 10000 :      // ≤1h: every 10s (real-time)
       timeRange.hours <= 6 ? 30000 :      // ≤6h: every 30s
       timeRange.hours <= 24 ? 60000 :     // ≤24h: every 1min
@@ -91,6 +97,8 @@ export default function MetricsPage() {
       1800000,                             // >30d (year): every 30min
     staleTime: 5000, // Consider data fresh for 5 seconds
     enabled: isGlobalAdmin,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 
   const isLoading = storageLoading || systemLoading || s3Loading;
