@@ -333,6 +333,36 @@ MaxIOFS/
 
 ### Automated Test Suite
 
+**Frontend Tests** (Complete - 100%):
+- ✅ **Login.test.tsx** - 11 tests covering authentication flows
+  - Form rendering and validation
+  - Successful login with redirection
+  - Error handling (401, network errors)
+  - Two-Factor Authentication (2FA) flow
+  - Loading states and user interactions
+- ✅ **Dashboard.test.tsx** - 12 tests covering dashboard UI
+  - Metrics display (buckets, objects, storage, users)
+  - Navigation between sections
+  - Health check integration
+  - Empty states and error handling
+- ✅ **Buckets.test.tsx** - 19 tests covering bucket management
+  - List, create, delete operations
+  - Search and filtering functionality
+  - Pagination controls
+  - Empty states and error handling
+- ✅ **Users.test.tsx** - 22 tests covering user management
+  - User list display with roles and status
+  - Search by username and email
+  - Create and delete user flows
+  - User metrics display
+  - Permission-based UI rendering
+- ✅ **Test Infrastructure**:
+  - Vitest + React Testing Library setup
+  - Custom render helpers with providers (React Query, Router)
+  - Complete mocks (API, Window, LocalStorage, SweetAlert)
+  - Test scripts: test, test:run, test:ui, test:coverage
+  - **64 tests total**, 100% pass rate, CI/CD ready
+
 **Backend Tests** (Phase 1 - Complete):
 - ✅ **internal/auth/** - 11 tests covering authentication flows
   - Password hashing/verification, JWT validation, 2FA setup
@@ -348,7 +378,7 @@ MaxIOFS/
 - ✅ **Test Infrastructure**:
   - Helper functions for test setup and authentication
   - Isolated test environments with temporary databases
-  - **28 tests total**, 100% pass rate, CI/CD ready
+  - **28 backend tests**, 100% pass rate, CI/CD ready
 
 **Feature Implementation**:
 - ✅ **Lifecycle Worker** - 100% Complete (November 20, 2025)
@@ -364,18 +394,17 @@ MaxIOFS/
 
 **Run Tests**:
 ```bash
-# Run all tests
-go test ./...
+# Backend tests
+go test ./...                    # Run all backend tests
+go test -cover ./internal/...    # Run with coverage
+go test -v ./internal/auth/      # Verbose output
 
-# Run with coverage
-go test -cover ./internal/auth/ ./internal/server/ ./internal/object/
-
-# Test race conditions specifically
-go test -v -run TestConcurrentMultipartUpload ./internal/object/
-go test -v -run TestMultipleSimultaneousMultipartUploads ./internal/object/
-
-# Verbose output
-go test -v ./internal/auth/
+# Frontend tests
+cd web/frontend
+npm run test                     # Run in watch mode (development)
+npm run test:run                 # Run once (CI/CD)
+npm run test:ui                  # Visual interface (recommended)
+npm run test:coverage            # Generate coverage report
 ```
 
 ### Testing with AWS CLI

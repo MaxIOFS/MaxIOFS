@@ -5,6 +5,122 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2025-11-28
+
+### 🧪 Frontend Testing Infrastructure - Complete Test Suite
+
+This update completes the automated testing infrastructure for the frontend web console with a comprehensive suite of 64 functional tests achieving 100% pass rate.
+
+### Added
+
+#### **Frontend Automated Test Suite**
+
+- **Complete Testing Infrastructure**:
+  - Vitest configuration with jsdom environment for DOM simulation
+  - React Testing Library integration for component testing
+  - Custom test utilities with provider wrappers (React Query, Router)
+  - Global test setup with beforeEach/afterEach hooks
+  - Coverage reporting with v8 provider
+  - **Files**: `web/frontend/vitest.config.ts`, `web/frontend/src/test/setup.ts`
+
+- **Test Utilities and Mocks**:
+  - Custom render function with all providers (QueryClient, BrowserRouter)
+  - API client mocks with pre-configured responses
+  - Window object mocks (location, BASE_PATH, localStorage, sessionStorage)
+  - SweetAlert mocks for notification testing
+  - Mock data factories for users, buckets, and API responses
+  - **Files**:
+    - `web/frontend/src/test/utils/test-utils.tsx`
+    - `web/frontend/src/test/mocks/api.ts`
+    - `web/frontend/src/test/mocks/window.ts`
+    - `web/frontend/src/test/mocks/sweetalert.ts`
+
+- **Login Page Tests** (11 tests):
+  - Form rendering and field validation
+  - Successful login flow with JWT token storage
+  - Error handling for 401 Unauthorized and network errors
+  - Two-Factor Authentication (2FA) workflow
+  - Loading states during authentication
+  - **File**: `web/frontend/src/__tests__/Login.test.tsx`
+
+- **Dashboard Page Tests** (12 tests):
+  - Rendering of title and welcome message
+  - Display of metrics (total buckets, objects, storage size, active users)
+  - Navigation buttons to other sections
+  - Health check status display
+  - Data refresh on mount
+  - Error handling for failed API calls
+  - Empty state display when no data exists
+  - **File**: `web/frontend/src/__tests__/Dashboard.test.tsx`
+
+- **Buckets Page Tests** (19 tests):
+  - Bucket list rendering with names and metadata
+  - Create bucket button availability
+  - Search and filter functionality
+  - Empty state when no buckets exist
+  - Delete bucket operations with confirmation
+  - Error handling for API failures
+  - Pagination controls
+  - Navigation to bucket details
+  - **File**: `web/frontend/src/__tests__/Buckets.test.tsx`
+
+- **Users Page Tests** (22 tests):
+  - User list display with roles and status
+  - Search by username and email
+  - Create user modal workflow
+  - Delete user operations with confirmation
+  - User metrics display (total, active, admin counts)
+  - Empty state handling
+  - Error handling for API failures
+  - Permission-based UI rendering
+  - **File**: `web/frontend/src/__tests__/Users.test.tsx`
+
+- **NPM Test Scripts**:
+  - `npm run test` - Watch mode for development
+  - `npm run test:run` - Single run for CI/CD pipelines
+  - `npm run test:ui` - Visual Vitest UI interface
+  - `npm run test:coverage` - Generate coverage reports
+  - **File**: `web/frontend/package.json`
+
+### Changed
+
+- **Enhanced Test Setup**:
+  - Improved localStorage and sessionStorage mocks with functional implementation
+  - Better window.location mock with all required properties
+  - Enhanced cleanup between tests to prevent state leakage
+  - **File**: `web/frontend/src/test/setup.ts`
+
+### Documentation
+
+- **Updated TODO.md**:
+  - Marked "Frontend Automated Tests" as complete
+  - Updated status summary to show 64 frontend tests with 100% pass rate
+  - Moved frontend testing from HIGH PRIORITY to COMPLETED section
+  - Added detailed breakdown of test coverage by file
+
+- **Updated README.md**:
+  - Added comprehensive Frontend Tests section under Testing
+  - Documented all 64 tests across 4 test files
+  - Added frontend test commands to "Run Tests" section
+  - Included test infrastructure details
+
+### Technical Details
+
+- **Test Statistics**:
+  - Total tests: 64 (100% pass rate)
+  - Test files: 4 (Login, Dashboard, Buckets, Users)
+  - Average test execution time: ~10-15 seconds
+  - All tests verified with both watch mode and CI mode
+
+- **Coverage Areas**:
+  - Authentication flows and error handling
+  - UI component rendering and interactions
+  - API integration and error states
+  - Navigation and routing
+  - Form validation and submission
+  - Loading states and empty states
+  - Permission-based UI rendering
+
 ## [0.4.2-beta] - 2025-11-24
 
 ### 🎯 Major Feature Release: S3 Compatibility, Real-Time Notifications & Dynamic Security
