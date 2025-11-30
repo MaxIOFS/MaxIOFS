@@ -1,10 +1,12 @@
 package s3compat
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"strings"
 
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/sirupsen/logrus"
 )
@@ -129,7 +131,7 @@ func generateCapacityXML(totalCapacity, availableCapacity int64) ([]byte, error)
 }
 
 // getSOSAPIVirtualObject returns the content for SOSAPI virtual objects
-func (h *Handler) getSOSAPIVirtualObject(objectKey string) ([]byte, string, error) {
+func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, objectKey string) ([]byte, string, error) {
 	// Check if it's a system.xml file (with or without prefix path)
 	if strings.HasSuffix(objectKey, systemXMLObject) || objectKey == systemXMLObject {
 		data, err := generateSystemXML()
@@ -145,20 +147,49 @@ func (h *Handler) getSOSAPIVirtualObject(objectKey string) ([]byte, string, erro
 		totalCapacity := int64(1024 * 1024 * 1024 * 1024)    // Default: 1TB
 		availableCapacity := int64(900 * 1024 * 1024 * 1024) // Default: 900GB
 
-		// Get real disk capacity if dataDir is configured
-		if h.dataDir != "" {
-			diskInfo, err := disk.Usage(h.dataDir)
+		// Get user from context to determine if we should use tenant quota
+		user, userExists := auth.GetUserFromContext(ctx)
+
+		if userExists && user.TenantID != "" && h.authManager != nil {
+			// User is from a tenant - ALWAYS use tenant quota (shared by all users in tenant)
+			tenant, err := h.authManager.GetTenant(ctx, user.TenantID)
 			if err != nil {
-				logrus.WithError(err).Warn("Failed to get disk usage, using defaults")
+				logrus.WithError(err).WithField("tenantID", user.TenantID).Error("Failed to get tenant for SOSAPI capacity")
+				// On error, fall back to defaults
 			} else {
-				totalCapacity = int64(diskInfo.Total)
-				availableCapacity = int64(diskInfo.Free)
+				// ALWAYS use tenant quota - all users in a tenant share the same quota
+				totalCapacity = tenant.MaxStorageBytes
+				usedCapacity := tenant.CurrentStorageBytes
+				availableCapacity = totalCapacity - usedCapacity
+
+				if availableCapacity < 0 {
+					availableCapacity = 0
+				}
+
 				logrus.WithFields(logrus.Fields{
-					"total_bytes": totalCapacity,
-					"free_bytes":  availableCapacity,
-					"used_bytes":  int64(diskInfo.Used),
-					"data_dir":    h.dataDir,
-				}).Info("SOSAPI capacity calculated from disk")
+					"tenant_id":    user.TenantID,
+					"quota_bytes":  totalCapacity,
+					"used_bytes":   usedCapacity,
+					"free_bytes":   availableCapacity,
+					"username":     user.Username,
+				}).Info("SOSAPI capacity calculated from tenant quota (shared by all tenant users)")
+			}
+		} else {
+			// Global user or no auth - use full disk capacity
+			if h.dataDir != "" {
+				diskInfo, err := disk.Usage(h.dataDir)
+				if err != nil {
+					logrus.WithError(err).Warn("Failed to get disk usage, using defaults")
+				} else {
+					totalCapacity = int64(diskInfo.Total)
+					availableCapacity = int64(diskInfo.Free)
+					logrus.WithFields(logrus.Fields{
+						"total_bytes": totalCapacity,
+						"free_bytes":  availableCapacity,
+						"used_bytes":  int64(diskInfo.Used),
+						"data_dir":    h.dataDir,
+					}).Info("SOSAPI capacity calculated from disk (global user)")
+				}
 			}
 		}
 

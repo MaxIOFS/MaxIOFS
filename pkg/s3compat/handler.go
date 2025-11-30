@@ -721,7 +721,7 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 			"object": objectKey,
 		}).Info("Serving VEEAM SOSAPI virtual object (authenticated)")
 
-		data, contentType, err := h.getSOSAPIVirtualObject(objectKey)
+		data, contentType, err := h.getSOSAPIVirtualObject(r.Context(), objectKey)
 		if err != nil {
 			h.writeError(w, "InternalError", err.Error(), objectKey, r)
 			return
@@ -1552,7 +1552,7 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 			"object": objectKey,
 		}).Info("HeadObject for VEEAM SOSAPI virtual object")
 
-		data, contentType, err := h.getSOSAPIVirtualObject(objectKey)
+		data, contentType, err := h.getSOSAPIVirtualObject(r.Context(), objectKey)
 		if err != nil {
 			h.writeError(w, "InternalError", err.Error(), objectKey, r)
 			return

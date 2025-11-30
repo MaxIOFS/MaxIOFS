@@ -1327,3 +1327,116 @@ func TestS3ListObjectVersions(t *testing.T) {
 		}
 	})
 }
+
+// TestSOSAPICapacityQuota tests that VEEAM SOSAPI capacity.xml respects tenant quotas
+func TestSOSAPICapacityQuota(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "sosapi-test-bucket"
+	bucketPath := env.tenantID + "/" + bucketName
+
+	// Create a bucket for testing
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err, "Should create bucket")
+
+	// Upload some test data to generate tenant usage
+	testData := bytes.Repeat([]byte("A"), 5*1024*1024) // 5MB
+	_, err = env.objectManager.PutObject(ctx, bucketPath, "test-file.bin", bytes.NewReader(testData), nil)
+	require.NoError(t, err, "Should upload test file")
+
+	// Get updated tenant to reflect usage
+	tenant, err := env.authManager.GetTenant(ctx, env.tenantID)
+	require.NoError(t, err, "Should get tenant")
+
+	t.Run("Tenant user should see quota-based capacity", func(t *testing.T) {
+		// Request SOSAPI capacity.xml as tenant user
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/.system-d26a9498-cb7c-4a87-a44a-8ae204f5ba6c/capacity.xml", nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should return capacity.xml")
+		assert.Equal(t, "application/xml", w.Header().Get("Content-Type"), "Should be XML")
+
+		// Parse the XML response
+		var capInfo CapacityInfo
+		err := xml.Unmarshal(w.Body.Bytes(), &capInfo)
+		require.NoError(t, err, "Should parse capacity XML")
+
+		// Verify capacity matches tenant quota (10GB from setupCompleteS3Environment)
+		expectedCapacity := int64(10 * 1024 * 1024 * 1024) // 10GB
+		assert.Equal(t, expectedCapacity, capInfo.Capacity, "Capacity should match tenant quota")
+
+		// Verify used space matches tenant usage
+		assert.Equal(t, tenant.CurrentStorageBytes, capInfo.Used, "Used should match tenant usage")
+
+		// Verify available = capacity - used
+		expectedAvailable := expectedCapacity - tenant.CurrentStorageBytes
+		assert.Equal(t, expectedAvailable, capInfo.Available, "Available should be capacity - used")
+
+		t.Logf("Tenant Quota - Capacity: %d bytes, Used: %d bytes, Available: %d bytes",
+			capInfo.Capacity, capInfo.Used, capInfo.Available)
+	})
+
+	t.Run("Multiple users in same tenant share quota", func(t *testing.T) {
+		// Create a second user in the same tenant
+		secondUser := &auth.User{
+			ID:          "second-user-id",
+			Username:    "seconduser",
+			DisplayName: "Second User",
+			Email:       "second@example.com",
+			Status:      "active",
+			TenantID:    env.tenantID, // Same tenant as test user
+			Roles:       []string{"user"},
+			CreatedAt:   time.Now().Unix(),
+			UpdatedAt:   time.Now().Unix(),
+		}
+		err := env.authManager.CreateUser(ctx, secondUser)
+		require.NoError(t, err, "Should create second user")
+
+		// Generate access keys for second user
+		key, err := env.authManager.GenerateAccessKey(ctx, secondUser.ID)
+		require.NoError(t, err, "Should generate access key")
+
+		// Create test environment with second user's credentials
+		envSecondUser := &s3TestEnv{
+			handler:       env.handler,
+			authManager:   env.authManager,
+			bucketManager: env.bucketManager,
+			objectManager: env.objectManager,
+			router:        env.router,
+			accessKey:     key.AccessKeyID,
+			secretKey:     key.SecretAccessKey,
+			tenantID:      env.tenantID,
+			userID:        secondUser.ID,
+			cleanup:       func() {}, // No cleanup needed
+		}
+
+		// Make request as second user (different user, same tenant)
+		req, w := envSecondUser.makeS3Request("GET", "/"+bucketName+"/.system-d26a9498-cb7c-4a87-a44a-8ae204f5ba6c/capacity.xml", nil)
+		envSecondUser.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should return capacity.xml for second user")
+
+		// Parse the XML response
+		var capInfo CapacityInfo
+		err = xml.Unmarshal(w.Body.Bytes(), &capInfo)
+		require.NoError(t, err, "Should parse capacity XML")
+
+		// Both users should see the SAME quota (it's shared at tenant level)
+		expectedCapacity := int64(10 * 1024 * 1024 * 1024) // 10GB
+		assert.Equal(t, expectedCapacity, capInfo.Capacity, "Second user should see same tenant quota")
+
+		// Get the tenant to verify usage is shared
+		tenantAfter, err := env.authManager.GetTenant(ctx, env.tenantID)
+		require.NoError(t, err)
+
+		// Verify available = capacity - used (same for all users in tenant)
+		expectedAvailable := expectedCapacity - tenantAfter.CurrentStorageBytes
+		assert.Equal(t, expectedAvailable, capInfo.Available, "Available should be shared across all tenant users")
+
+		t.Logf("Second User (Same Tenant) - Capacity: %d bytes, Used: %d bytes, Available: %d bytes",
+			capInfo.Capacity, capInfo.Used, capInfo.Available)
+		t.Logf("Quota is shared: User1 and User2 both see the same 10GB tenant quota")
+	})
+}
