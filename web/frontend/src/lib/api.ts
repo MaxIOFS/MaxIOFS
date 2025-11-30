@@ -176,10 +176,20 @@ s3Client.interceptors.request.use(
 );
 
 // Response interceptors
-const handleResponse = (response: AxiosResponse): AxiosResponse => response;
+const handleResponse = (response: AxiosResponse): AxiosResponse => {
+  // Reset 401 counter on successful response
+  consecutive401Count = 0;
+  lastSuccessfulRequest = Date.now();
+  return response;
+};
 
 // Track if we're already redirecting to prevent loops
 let isRedirectingToLogin = false;
+// Track consecutive 401 errors to avoid logout on transient errors
+let consecutive401Count = 0;
+let lastSuccessfulRequest = Date.now();
+const MAX_CONSECUTIVE_401 = 3; // Allow 3 consecutive 401s before logout
+const AUTH_ERROR_TIMEOUT = 10000; // 10 seconds - if no success in this time, consider session dead
 
 const handleError = async (error: AxiosError): Promise<never> => {
   // Handle 401 errors - session expired or invalid token
@@ -188,19 +198,34 @@ const handleError = async (error: AxiosError): Promise<never> => {
     const isLoginRequest = error.config?.url?.includes('/auth/login');
 
     if (!isLoginRequest) {
-      // IMPORTANT: Clear tokens IMMEDIATELY to prevent retry loops
-      tokenManager.clearTokens();
+      consecutive401Count++;
+      const timeSinceLastSuccess = Date.now() - lastSuccessfulRequest;
 
-      // Prevent multiple redirects
-      if (!isRedirectingToLogin && typeof window !== 'undefined') {
-        isRedirectingToLogin = true;
+      // Only logout if:
+      // 1. We've had multiple consecutive 401s (likely token expired)
+      // 2. OR it's been too long since last successful request (session likely dead)
+      const shouldLogout = consecutive401Count >= MAX_CONSECUTIVE_401 ||
+                          timeSinceLastSuccess > AUTH_ERROR_TIMEOUT;
 
-        // Use setTimeout to ensure the redirect happens after current call stack
-        setTimeout(() => {
-          // Use BASE_PATH to respect proxy reverse configuration
-          const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
-          window.location.replace(`${basePath}/login`);
-        }, 100);
+      if (shouldLogout) {
+        // Clear tokens and redirect to login
+        tokenManager.clearTokens();
+        consecutive401Count = 0; // Reset counter
+
+        // Prevent multiple redirects
+        if (!isRedirectingToLogin && typeof window !== 'undefined') {
+          isRedirectingToLogin = true;
+
+          // Use setTimeout to ensure the redirect happens after current call stack
+          setTimeout(() => {
+            // Use BASE_PATH to respect proxy reverse configuration
+            const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+            window.location.replace(`${basePath}/login`);
+          }, 100);
+        }
+      } else {
+        // Allow retry - don't logout yet
+        console.warn(`Auth error ${consecutive401Count}/${MAX_CONSECUTIVE_401} - allowing retry`);
       }
     }
 

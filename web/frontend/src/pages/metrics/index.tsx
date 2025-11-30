@@ -38,7 +38,6 @@ export default function MetricsPage() {
     queryFn: APIClient.getStorageMetrics,
     refetchInterval: 30000,
     enabled: isGlobalAdmin,
-    retry: false,
     refetchOnWindowFocus: false,
   });
 
@@ -48,7 +47,6 @@ export default function MetricsPage() {
     queryFn: APIClient.getSystemMetrics,
     refetchInterval: 30000,
     enabled: isGlobalAdmin,
-    retry: false,
     refetchOnWindowFocus: false,
   });
 
@@ -58,7 +56,6 @@ export default function MetricsPage() {
     queryFn: APIClient.getS3Metrics,
     refetchInterval: 30000,
     enabled: isGlobalAdmin,
-    retry: false,
     refetchOnWindowFocus: false,
   });
 
@@ -97,7 +94,6 @@ export default function MetricsPage() {
       1800000,                             // >30d (year): every 30min
     staleTime: 5000, // Consider data fresh for 5 seconds
     enabled: isGlobalAdmin,
-    retry: false,
     refetchOnWindowFocus: false,
   });
 

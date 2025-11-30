@@ -21,7 +21,6 @@ export default function Dashboard() {
     queryKey: ['metrics'],
     queryFn: APIClient.getStorageMetrics,
     refetchInterval: 30000,
-    retry: false,
     refetchOnWindowFocus: false,
   });
 
