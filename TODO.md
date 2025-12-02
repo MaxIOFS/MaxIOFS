@@ -1,7 +1,7 @@
 # MaxIOFS - TODO & Roadmap
 
 **Version**: 0.4.2-beta
-**Last Updated**: November 29, 2025
+**Last Updated**: December 2, 2025
 **Status**: Beta - 98% S3 Compatible
 
 ## 📊 Project Status
@@ -11,7 +11,7 @@
 │  MaxIOFS v0.4.2-beta - BETA STATUS      │
 ├─────────────────────────────────────────┤
 │  S3 API Compatibility:        98%       │
-│  Backend Test Coverage:       35.2%     │
+│  Backend Test Coverage:       48.2%     │
 │  Frontend Test Coverage:      100%      │
 │  Features Complete:           ~95%      │
 │  Production Ready:            Testing   │
@@ -20,19 +20,44 @@
 Test Coverage by Module:
   • pkg/s3compat       - 18 tests, 30.9% coverage
   • internal/auth      - 11 tests, 28.0% coverage
-  • internal/server    -  9 tests,  4.9% coverage
+  • internal/server    - 28 tests, 12.7% coverage
+  • internal/bucket    - 47 tests, 49.8% coverage ⬆️
+  • internal/object    - 83 tests, 48.4% coverage ⬆️
+  • internal/acl       - 25 tests, 77.0% coverage ⬆️ NEW
+  • internal/middleware- 30 tests, 87.4% coverage ⬆️ NEW
+  • internal/lifecycle - 12 tests, 67.9% coverage ⬆️ NEW
+  • internal/storage   - 40 tests, 79.1% coverage ⬆️
+  • internal/metadata  - 30 tests, 52.4% coverage ⬆️
   • internal/logging   - 26 tests, 100% pass rate
   • Frontend (React)   - 64 tests, 100% pass rate
 
-Total Backend Tests: 66 (100% pass rate)
+Total Backend Tests: 352 (100% pass rate)
 ```
 
 ## 📌 Pending Tasks
 
+### 🔴 HIGH PRIORITY (Test Coverage - Critical Modules)
+- [ ] **internal/metrics** (~2949 LOC, 0 tests) - CRITICAL for monitoring and observability
+  - Metrics collection, history tracking, Badger storage
+- [ ] **internal/settings** (~732 LOC, 0 tests) - CRITICAL for runtime configuration
+  - Settings manager, dynamic configuration updates
+- [ ] **internal/share** (~573 LOC, 0 tests) - IMPORTANT for presigned URL shares
+  - Share manager, SQLite persistence, URL generation
+- [ ] **internal/notifications** (~454 LOC, 0 tests) - IMPORTANT for SSE push notifications
+  - Real-time notification system
+- [ ] **internal/presigned** (~346 LOC, 0 tests) - IMPORTANT for temporary access URLs
+  - URL generator and validator
+- [ ] **internal/config** (~247 LOC, 0 tests) - IMPORTANT for initial configuration
+  - Application configuration loader
+
+### 🟡 MEDIUM PRIORITY (Test Coverage Expansion - Existing Modules)
+- [ ] **pkg/s3compat** (30.9% coverage) - Expand S3 API compatibility tests
+- [ ] **internal/auth** (28.0% coverage) - Expand authentication/authorization tests
+- [ ] **internal/server** (12.7% coverage) - Expand server/console API tests
+
 ### 🔴 HIGH PRIORITY (Features that add real value)
 - [ ] **Bucket Replication** - Cross-bucket sync (async/sync modes)
 - [ ] **Multi-Node Support** - Clustering for high availability
-- [ ] **Expand Test Coverage** - Focus on critical paths (object operations, metadata)
 - [ ] **Node-to-Node Replication** - Data sync between cluster nodes
 
 ### 🟡 MEDIUM PRIORITY (Improvements & optimization)
@@ -49,6 +74,20 @@ Total Backend Tests: 66 (100% pass rate)
 - [ ] Additional Storage Backends - S3, GCS, Azure blob
 
 ## ✅ Recently Completed (Last 30 Days)
+
+### December 2, 2025
+- ✅ **Middleware Module Test Suite** (0% → 87.4%, +30 tests) - CRITICAL (Infrastructure)
+
+### November 30, 2025
+- ✅ **ACL Module Test Suite** (0% → 77.0%, +25 tests) - CRITICAL (Security)
+- ✅ **Lifecycle Module Test Suite** (0% → 67.9%, +12 tests) - CRITICAL
+- ✅ **Bucket Module Test Suite** (0% → 49.8%, +47 tests) - CRITICAL
+- ✅ **Storage Module Test Suite** (0% → 79.1%, +40 tests) - CRITICAL
+- ✅ **Metadata Module Test Suite** (30% → 52.4%, +30 tests) - CRITICAL
+- ✅ Console API Test Coverage Expansion (4.4% → 12.7%, +19 tests)
+- ✅ Object Module Test Coverage Expansion (36.7% → 48.4%, +83 tests)
+- ✅ Bug fix: Frontend session logout on background queries
+- ✅ Bug fix: VEEAM SOSAPI capacity reporting for tenants
 
 ### November 29, 2025
 - ✅ Logging System Test Suite Complete (26 tests)
