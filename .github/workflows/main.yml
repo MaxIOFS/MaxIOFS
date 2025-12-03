@@ -107,6 +107,36 @@ jobs:
             web/frontend/node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('web/frontend/package-lock.json') }}
 
+      - name: Install Go dependencies
+        run: go mod download
+
+      - name: Run backend tests
+        run: |
+          echo "Running backend tests..."
+          go test ./... -v -coverprofile=coverage.out
+          echo "✅ All backend tests passed"
+
+      - name: Generate coverage report
+        run: |
+          echo "### Backend Test Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage.out | tail -10 >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          COVERAGE=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}')
+          echo "**Total Coverage: $COVERAGE**" >> $GITHUB_STEP_SUMMARY
+          echo "Coverage: $COVERAGE"
+
+      - name: Install frontend dependencies
+        run: |
+          cd web/frontend
+          npm ci
+
+      - name: Run frontend tests
+        run: |
+          cd web/frontend
+          echo "Running frontend tests..."
+          npm run test:run
+          echo "✅ All frontend tests passed"
 
       - name: Update frontend version
         run: |
@@ -117,7 +147,6 @@ jobs:
       - name: Build frontend
         run: |
           cd web/frontend
-          npm ci
           npm run build
 
       - name: Build backend binaries
@@ -142,5 +171,42 @@ jobs:
         run: |
           echo "${{ steps.nightly_version.outputs.commit_short }}" > nightly-artifacts/LAST_COMMIT
 
+      - name: Save test reports
+        run: |
+          mkdir -p nightly-artifacts/reports
+          cp coverage.out nightly-artifacts/reports/backend-coverage.out
+          go tool cover -html=coverage.out -o nightly-artifacts/reports/backend-coverage.html
+          echo "Test reports saved"
+
       - name: Upload to S3
         run: aws s3 sync ./nightly-artifacts s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest --delete
+
+      - name: Build summary
+        if: success()
+        run: |
+          echo "## ✅ Nightly Build Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.nightly_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ steps.nightly_version.outputs.commit_short }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Artifacts Published" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend binaries (linux-amd64, linux-arm64, darwin-amd64, darwin-arm64, windows-amd64)" >> $GITHUB_STEP_SUMMARY
+          echo "- Debian packages (.deb for amd64 and arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "- Test coverage reports" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📍 S3 Location: \`s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest/\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Build failure summary
+        if: failure()
+        run: |
+          echo "## ❌ Nightly Build Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.nightly_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ steps.nightly_version.outputs.commit_short }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ The build failed. Check the logs above for details." >> $GITHUB_STEP_SUMMARY
+          echo "Common issues:" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend tests failed" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend tests failed" >> $GITHUB_STEP_SUMMARY
+          echo "- Build compilation errors" >> $GITHUB_STEP_SUMMARY
+          echo "- Package generation errors" >> $GITHUB_STEP_SUMMARY
