@@ -196,6 +196,14 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}", s.handleGetBucket).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}", s.handleDeleteBucket).Methods("DELETE", "OPTIONS")
 
+	// Replication endpoints
+	router.HandleFunc("/buckets/{bucket}/replication/rules", s.handleListReplicationRules).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/replication/rules", s.handleCreateReplicationRule).Methods("POST", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/replication/rules/{ruleId}", s.handleGetReplicationRule).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/replication/rules/{ruleId}", s.handleUpdateReplicationRule).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/replication/rules/{ruleId}", s.handleDeleteReplicationRule).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/replication/rules/{ruleId}/metrics", s.handleGetReplicationMetrics).Methods("GET", "OPTIONS")
+
 	// Share endpoints (MUST be registered BEFORE generic object endpoints to avoid route conflicts)
 	router.HandleFunc("/buckets/{bucket}/shares", s.handleListBucketShares).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/share", s.handleShareObject).Methods("POST", "OPTIONS")

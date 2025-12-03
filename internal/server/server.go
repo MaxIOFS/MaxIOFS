@@ -23,6 +23,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/notifications"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/logging"
+	"github.com/maxiofs/maxiofs/internal/replication"
 	"github.com/maxiofs/maxiofs/internal/settings"
 	"github.com/maxiofs/maxiofs/internal/share"
 	"github.com/maxiofs/maxiofs/internal/storage"
@@ -45,6 +46,7 @@ type Server struct {
 	loggingManager      *logging.Manager
 	shareManager        share.Manager
 	notificationManager *notifications.Manager
+	replicationManager  *replication.Manager
 	notificationHub     *NotificationHub
 	systemMetrics       *metrics.SystemMetricsTracker
 	lifecycleWorker     *lifecycle.Worker
@@ -190,6 +192,24 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize lifecycle worker
 	lifecycleWorker := lifecycle.NewWorker(bucketManager, objectManager, metadataStore)
 
+	// Initialize replication manager
+	replicationConfig := replication.ReplicationConfig{
+		Enable:          false, // Disabled until object adapter is implemented
+		WorkerCount:     5,
+		QueueSize:       1000,
+		BatchSize:       10,
+		RetryInterval:   5 * time.Minute,
+		MaxRetries:      3,
+		CleanupInterval: 24 * time.Hour,
+		RetentionDays:   30,
+	}
+	// Simple no-op adapter for now
+	objectAdapter := &simpleObjectAdapter{}
+	replicationManager, err := replication.NewManager(db, replicationConfig, objectAdapter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create replication manager: %w", err)
+	}
+
 	// Create HTTP servers
 	httpServer := &http.Server{
 		Addr:         cfg.Listen,
@@ -220,6 +240,7 @@ func New(cfg *config.Config) (*Server, error) {
 		loggingManager:      loggingManager,
 		shareManager:        shareManager,
 		notificationManager: notificationManager,
+		replicationManager:  replicationManager,
 		notificationHub:     notificationHub,
 		systemMetrics:       systemMetrics,
 		lifecycleWorker:     lifecycleWorker,
@@ -484,4 +505,19 @@ func extractBasePathFromURL(urlStr string) string {
 	}
 
 	return basePath
+}
+
+// simpleObjectAdapter implements replication.ObjectAdapter (no-op)
+type simpleObjectAdapter struct{}
+
+func (s *simpleObjectAdapter) CopyObject(ctx context.Context, sourceBucket, sourceKey, destBucket, destKey, tenantID string) (int64, error) {
+	return 0, fmt.Errorf("replication not yet implemented")
+}
+
+func (s *simpleObjectAdapter) DeleteObject(ctx context.Context, bucket, key, tenantID string) error {
+	return fmt.Errorf("replication not yet implemented")
+}
+
+func (s *simpleObjectAdapter) GetObjectMetadata(ctx context.Context, bucket, key, tenantID string) (map[string]string, error) {
+	return map[string]string{}, nil
 }

@@ -42,6 +42,7 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 - ✅ **Bucket CORS** (Get/Put/Delete CORS rules, Visual UI editor)
 - ✅ **Bucket Tagging** (Get/Put/Delete tags, Visual UI manager)
 - ✅ **Bucket Lifecycle Configuration** (Get/Put/Delete lifecycle rules)
+- ✅ **Bucket Replication** (S3-compatible cross-bucket replication to AWS S3, MinIO, or other MaxIOFS instances) - *New in 0.4.3*
 - ✅ **Object Tagging** (Get/Put/Delete tags)
 - ✅ Object ACL (Get/Put access control lists)
 - ✅ Object Retention (WORM with legal hold support)
@@ -74,6 +75,25 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
   - Configuration stored in BadgerDB with in-memory caching
   - Multi-tenant support with global admin access
   - Full audit logging for all configuration changes
+
+### Bucket Replication
+- ✅ **S3-Compatible Replication** - Cross-bucket replication to AWS S3, MinIO, or other MaxIOFS instances - *New in 0.4.3*
+  - S3 protocol-level replication using standard S3 API calls
+  - Destination configuration: Endpoint URL, bucket name, access key, secret key, region
+  - Three replication modes:
+    - **Realtime**: Immediate replication on object changes
+    - **Scheduled**: Periodic batch replication at configurable intervals (minutes)
+    - **Batch**: Manual replication on demand
+  - Conflict resolution strategies: Last Write Wins, Version-Based, Primary Wins
+  - Queue-based async processing with configurable worker pools
+  - Automatic retry with exponential backoff for failed replications
+  - Selective replication: Prefix filters, delete replication, metadata replication
+  - Priority-based rule ordering for multiple replication targets
+  - Comprehensive metrics: Pending, completed, failed objects, bytes replicated
+  - SQLite-backed persistence for rules, queue items, and replication status
+  - Web Console integration in bucket settings with visual rule management
+  - Full audit logging for all replication operations
+  - 23 automated tests covering CRUD, queueing, processing, and edge cases
 
 ### Authentication & Security
 - ✅ **Real-Time Push Notifications (SSE)** - Server-Sent Events for instant admin alerts - *New in 0.4.2*
@@ -128,6 +148,7 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
   - **Security & Access**: Bucket policy, ACL, and CORS configuration
   - **Lifecycle**: Rule-based lifecycle policies
   - **Notifications**: Webhook event notifications with rule management - *New in 0.4.2*
+  - **Replication**: S3-compatible bucket replication rules with destination configuration - *New in 0.4.3*
 - ✅ **System Settings Page** (Global Admins only) - *New in 0.4.0*
   - Dual-configuration architecture (static + dynamic settings)
   - Modern tabbed interface (Security, Audit, Storage, Metrics, System)
@@ -615,7 +636,15 @@ Contributions welcome! Please:
 
 ## 🗺️ Roadmap
 
-### Completed (v0.4.2-beta - Current)
+### Completed (v0.4.3-beta - Current)
+- [x] **Bucket Replication** (S3-compatible cross-bucket replication to AWS S3, MinIO, or other MaxIOFS instances)
+  - Realtime, scheduled, and batch replication modes
+  - S3 protocol-level replication with endpoint URL, access key, secret key configuration
+  - Queue-based async processing with retry logic and conflict resolution
+  - Web Console integration with visual rule management in bucket settings
+  - 23 automated tests covering all functionality
+
+### Completed (v0.4.2-beta)
 - [x] **Global Bucket Uniqueness** (Bucket names globally unique across all tenants for AWS S3 compatibility)
 - [x] **S3-Compatible URLs** (Presigned and share URLs without tenant prefix for standard S3 client compatibility)
 - [x] **Automatic Tenant Resolution** (Backend automatically resolves bucket ownership from bucket name)
@@ -669,6 +698,8 @@ Contributions welcome! Please:
 - [ ] **Performance Profiling & Optimization** (Memory/CPU profiling, load testing)
 - [ ] **CI/CD Pipeline** (GitHub Actions for automated builds and releases)
 - [x] ~~**Bucket Notifications** (Webhooks on object events)~~ **IMPLEMENTED in v0.4.2-beta**
+- [x] ~~**Bucket Replication** (Basic S3-compatible replication)~~ **IMPLEMENTED in v0.4.3-beta**
+- [ ] **Multi-Region Replication** (Geographic replication with region health checks and automatic failover)
 - [ ] **Encryption Key Rotation** (Automatic key rotation with dual-key support)
 - [ ] **Per-Tenant Encryption Keys** (Tenant-level key isolation for multi-tenancy)
 - [ ] **HSM Integration** (Hardware Security Module for production key management)
@@ -678,7 +709,8 @@ Contributions welcome! Please:
 
 ### Medium Term (v0.6.0-v0.8.0)
 - [x] ~~Object versioning (full implementation with complete lifecycle)~~ **100% IMPLEMENTED** - Versioning + lifecycle worker with noncurrent version expiration AND expired delete marker cleanup
-- [ ] Bucket replication (cross-bucket/cross-region)
+- [x] ~~Bucket replication (cross-bucket/cross-region)~~ **BASIC IMPLEMENTATION COMPLETE in v0.4.3** - S3-compatible replication to external endpoints
+- [ ] **Advanced Replication** (Bidirectional sync, multi-region with automatic failover)
 - [ ] **Encryption Algorithm Selection** (ChaCha20-Poly1305, AES-GCM options)
 - [ ] **Compliance Reporting** (Encryption coverage, key usage analytics)
 - [ ] Kubernetes Helm charts

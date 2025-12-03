@@ -808,5 +808,61 @@ export interface SettingsCategoriesResponse {
   categories: string[];
 }
 
+// Replication Types
+export type ReplicationMode = 'realtime' | 'scheduled' | 'batch';
+export type ConflictResolution = 'last_write_wins' | 'version_based' | 'primary_wins';
+
+export interface ReplicationRule {
+  id: string;
+  tenant_id: string;
+  source_bucket: string;
+  destination_endpoint: string;           // S3 endpoint URL
+  destination_bucket: string;
+  destination_access_key: string;
+  destination_secret_key: string;
+  destination_region?: string;
+  prefix?: string;
+  enabled: boolean;
+  priority: number;
+  mode: ReplicationMode;
+  schedule_interval?: number;             // Interval in minutes for scheduled mode
+  conflict_resolution: ConflictResolution;
+  replicate_deletes: boolean;
+  replicate_metadata: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateReplicationRuleRequest {
+  destination_endpoint: string;
+  destination_bucket: string;
+  destination_access_key: string;
+  destination_secret_key: string;
+  destination_region?: string;
+  prefix?: string;
+  enabled: boolean;
+  priority: number;
+  mode: ReplicationMode;
+  schedule_interval?: number;
+  conflict_resolution: ConflictResolution;
+  replicate_deletes: boolean;
+  replicate_metadata: boolean;
+}
+
+export interface ReplicationMetrics {
+  rule_id: string;
+  total_objects: number;
+  pending_objects: number;
+  completed_objects: number;
+  failed_objects: number;
+  bytes_replicated: number;
+  last_success?: string;
+  last_failure?: string;
+}
+
+export interface ListReplicationRulesResponse {
+  rules: ReplicationRule[];
+}
+
 // Re-export common types
 export type { FC, ReactNode, ComponentProps } from 'react';

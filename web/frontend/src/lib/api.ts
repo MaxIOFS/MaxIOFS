@@ -39,6 +39,10 @@ import type {
   UpdateSettingRequest,
   BulkUpdateSettingsRequest,
   SettingsCategoriesResponse,
+  ReplicationRule,
+  CreateReplicationRuleRequest,
+  ReplicationMetrics,
+  ListReplicationRulesResponse,
 } from '@/types';
 
 // API Configuration
@@ -1065,6 +1069,36 @@ export class APIClient {
     const request: BulkUpdateSettingsRequest = { settings };
     const response = await apiClient.post<APIResponse<{ success: boolean; message: string; count: number }>>('/settings/bulk', request);
     return response.data.data!;
+  }
+
+  // Replication API
+  static async listReplicationRules(bucketName: string): Promise<ReplicationRule[]> {
+    const response = await apiClient.get<ListReplicationRulesResponse>(`/buckets/${bucketName}/replication/rules`);
+    return response.data.rules;
+  }
+
+  static async getReplicationRule(bucketName: string, ruleId: string): Promise<ReplicationRule> {
+    const response = await apiClient.get<ReplicationRule>(`/buckets/${bucketName}/replication/rules/${ruleId}`);
+    return response.data;
+  }
+
+  static async createReplicationRule(bucketName: string, request: CreateReplicationRuleRequest): Promise<ReplicationRule> {
+    const response = await apiClient.post<ReplicationRule>(`/buckets/${bucketName}/replication/rules`, request);
+    return response.data;
+  }
+
+  static async updateReplicationRule(bucketName: string, ruleId: string, request: CreateReplicationRuleRequest): Promise<ReplicationRule> {
+    const response = await apiClient.put<ReplicationRule>(`/buckets/${bucketName}/replication/rules/${ruleId}`, request);
+    return response.data;
+  }
+
+  static async deleteReplicationRule(bucketName: string, ruleId: string): Promise<void> {
+    await apiClient.delete(`/buckets/${bucketName}/replication/rules/${ruleId}`);
+  }
+
+  static async getReplicationMetrics(bucketName: string, ruleId: string): Promise<ReplicationMetrics> {
+    const response = await apiClient.get<ReplicationMetrics>(`/buckets/${bucketName}/replication/rules/${ruleId}/metrics`);
+    return response.data;
   }
 
   // Utility methods

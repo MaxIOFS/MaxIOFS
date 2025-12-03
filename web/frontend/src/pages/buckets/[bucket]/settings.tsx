@@ -22,15 +22,16 @@ import {
   AlertCircle,
   CheckCircle,
   XCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import SweetAlert from '@/lib/sweetalert';
 import { useAuth } from '@/hooks/useAuth';
-import type { NotificationConfiguration, NotificationRule } from '@/types';
+import type { NotificationConfiguration, NotificationRule, ReplicationRule, CreateReplicationRuleRequest } from '@/types';
 
 // Tab types
-type TabId = 'general' | 'security' | 'lifecycle' | 'notifications';
+type TabId = 'general' | 'security' | 'lifecycle' | 'notifications' | 'replication';
 
 interface TabInfo {
   id: TabId;
@@ -63,6 +64,12 @@ const tabs: TabInfo[] = [
     label: 'Notifications',
     icon: Bell,
     description: 'Event notifications and webhooks',
+  },
+  {
+    id: 'replication',
+    label: 'Replication',
+    icon: RefreshCw,
+    description: 'Cross-bucket and cross-region replication rules',
   },
 ];
 
@@ -134,6 +141,25 @@ export default function BucketSettingsPage() {
     filterPrefix: '',
     filterSuffix: '',
     customHeaders: {},
+  });
+
+  // Replication state
+  const [isReplicationModalOpen, setIsReplicationModalOpen] = useState(false);
+  const [editingReplicationRule, setEditingReplicationRule] = useState<ReplicationRule | null>(null);
+  const [replicationRuleForm, setReplicationRuleForm] = useState<Partial<CreateReplicationRuleRequest>>({
+    destination_endpoint: '',
+    destination_bucket: '',
+    destination_access_key: '',
+    destination_secret_key: '',
+    destination_region: '',
+    prefix: '',
+    enabled: true,
+    priority: 1,
+    mode: 'realtime',
+    schedule_interval: 60,
+    conflict_resolution: 'last_write_wins',
+    replicate_deletes: true,
+    replicate_metadata: true,
   });
 
   const { data: bucketData, isLoading } = useQuery({
@@ -261,6 +287,13 @@ export default function BucketSettingsPage() {
     enabled: activeTab === 'notifications',
   });
 
+  // Replication query
+  const { data: replicationRules, refetch: refetchReplicationRules } = useQuery({
+    queryKey: ['bucket-replication-rules', bucketName],
+    queryFn: () => APIClient.listReplicationRules(bucketName),
+    enabled: activeTab === 'replication',
+  });
+
   // Notification mutations
   const saveNotificationMutation = useMutation({
     mutationFn: (config: NotificationConfiguration) =>
@@ -281,6 +314,63 @@ export default function BucketSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['bucket-notification', bucketName, tenantId] });
       refetchNotifications();
       SweetAlert.toast('success', 'Notification configuration deleted successfully');
+    },
+    onError: (error: Error) => {
+      SweetAlert.apiError(error);
+    },
+  });
+
+  // Replication mutations
+  const createReplicationRuleMutation = useMutation({
+    mutationFn: (request: CreateReplicationRuleRequest) =>
+      APIClient.createReplicationRule(bucketName, request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName] });
+      refetchReplicationRules();
+      setIsReplicationModalOpen(false);
+      setReplicationRuleForm({
+        destination_endpoint: '',
+        destination_bucket: '',
+        destination_access_key: '',
+        destination_secret_key: '',
+        destination_region: '',
+        prefix: '',
+        enabled: true,
+        priority: 1,
+        mode: 'realtime',
+        schedule_interval: 60,
+        conflict_resolution: 'last_write_wins',
+        replicate_deletes: true,
+        replicate_metadata: true,
+      });
+      SweetAlert.toast('success', 'Replication rule created successfully');
+    },
+    onError: (error: Error) => {
+      SweetAlert.apiError(error);
+    },
+  });
+
+  const updateReplicationRuleMutation = useMutation({
+    mutationFn: ({ ruleId, request }: { ruleId: string; request: CreateReplicationRuleRequest }) =>
+      APIClient.updateReplicationRule(bucketName, ruleId, request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName] });
+      refetchReplicationRules();
+      setIsReplicationModalOpen(false);
+      setEditingReplicationRule(null);
+      SweetAlert.toast('success', 'Replication rule updated successfully');
+    },
+    onError: (error: Error) => {
+      SweetAlert.apiError(error);
+    },
+  });
+
+  const deleteReplicationRuleMutation = useMutation({
+    mutationFn: (ruleId: string) => APIClient.deleteReplicationRule(bucketName, ruleId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName] });
+      refetchReplicationRules();
+      SweetAlert.toast('success', 'Replication rule deleted successfully');
     },
     onError: (error: Error) => {
       SweetAlert.apiError(error);
@@ -807,6 +897,111 @@ export default function BucketSettingsPage() {
       ? currentEvents.filter((e) => e !== event)
       : [...currentEvents, event];
     setNotificationRuleForm({ ...notificationRuleForm, events: updatedEvents });
+  };
+
+  // Replication handlers
+  const handleAddReplicationRule = () => {
+    setEditingReplicationRule(null);
+    setReplicationRuleForm({
+      destination_endpoint: '',
+      destination_bucket: '',
+      destination_access_key: '',
+      destination_secret_key: '',
+      destination_region: '',
+      prefix: '',
+      enabled: true,
+      priority: 1,
+      mode: 'realtime',
+      schedule_interval: 60,
+      conflict_resolution: 'last_write_wins',
+      replicate_deletes: true,
+      replicate_metadata: true,
+    });
+    setIsReplicationModalOpen(true);
+  };
+
+  const handleEditReplicationRule = (rule: ReplicationRule) => {
+    setEditingReplicationRule(rule);
+    setReplicationRuleForm({
+      destination_endpoint: rule.destination_endpoint,
+      destination_bucket: rule.destination_bucket,
+      destination_access_key: rule.destination_access_key,
+      destination_secret_key: rule.destination_secret_key,
+      destination_region: rule.destination_region,
+      prefix: rule.prefix,
+      enabled: rule.enabled,
+      priority: rule.priority,
+      mode: rule.mode,
+      schedule_interval: rule.schedule_interval,
+      conflict_resolution: rule.conflict_resolution,
+      replicate_deletes: rule.replicate_deletes,
+      replicate_metadata: rule.replicate_metadata,
+    });
+    setIsReplicationModalOpen(true);
+  };
+
+  const handleSaveReplicationRule = () => {
+    if (!replicationRuleForm.destination_endpoint) {
+      SweetAlert.toast('error', 'Please provide a destination endpoint URL');
+      return;
+    }
+    if (!replicationRuleForm.destination_bucket) {
+      SweetAlert.toast('error', 'Please provide a destination bucket');
+      return;
+    }
+    if (!replicationRuleForm.destination_access_key || !replicationRuleForm.destination_secret_key) {
+      SweetAlert.toast('error', 'Please provide access key and secret key');
+      return;
+    }
+
+    const request: CreateReplicationRuleRequest = {
+      destination_endpoint: replicationRuleForm.destination_endpoint || '',
+      destination_bucket: replicationRuleForm.destination_bucket || '',
+      destination_access_key: replicationRuleForm.destination_access_key || '',
+      destination_secret_key: replicationRuleForm.destination_secret_key || '',
+      destination_region: replicationRuleForm.destination_region,
+      prefix: replicationRuleForm.prefix,
+      enabled: replicationRuleForm.enabled || true,
+      priority: replicationRuleForm.priority || 1,
+      mode: replicationRuleForm.mode || 'realtime',
+      schedule_interval: replicationRuleForm.schedule_interval,
+      conflict_resolution: replicationRuleForm.conflict_resolution || 'last_write_wins',
+      replicate_deletes: replicationRuleForm.replicate_deletes !== undefined ? replicationRuleForm.replicate_deletes : true,
+      replicate_metadata: replicationRuleForm.replicate_metadata !== undefined ? replicationRuleForm.replicate_metadata : true,
+    };
+
+    if (editingReplicationRule) {
+      updateReplicationRuleMutation.mutate({ ruleId: editingReplicationRule.id, request });
+    } else {
+      createReplicationRuleMutation.mutate(request);
+    }
+  };
+
+  const handleDeleteReplicationRule = (ruleId: string) => {
+    SweetAlert.confirm(
+      'Delete replication rule?',
+      'This will remove this replication rule. Objects will no longer be replicated to the destination.',
+      () => deleteReplicationRuleMutation.mutate(ruleId)
+    );
+  };
+
+  const handleToggleReplicationRule = (rule: ReplicationRule) => {
+    const request: CreateReplicationRuleRequest = {
+      destination_endpoint: rule.destination_endpoint,
+      destination_bucket: rule.destination_bucket,
+      destination_access_key: rule.destination_access_key,
+      destination_secret_key: rule.destination_secret_key,
+      destination_region: rule.destination_region,
+      prefix: rule.prefix,
+      enabled: !rule.enabled,
+      priority: rule.priority,
+      mode: rule.mode,
+      schedule_interval: rule.schedule_interval,
+      conflict_resolution: rule.conflict_resolution,
+      replicate_deletes: rule.replicate_deletes,
+      replicate_metadata: rule.replicate_metadata,
+    };
+    updateReplicationRuleMutation.mutate({ ruleId: rule.id, request });
   };
 
   // Policy Templates
@@ -1465,6 +1660,203 @@ export default function BucketSettingsPage() {
                             <li>Events follow AWS S3 notification format</li>
                             <li>Failed webhooks are retried up to 3 times</li>
                             <li>Use prefix/suffix filters to limit which objects trigger notifications</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            )}
+
+            {/* REPLICATION TAB */}
+            {activeTab === 'replication' && (
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <RefreshCw className="h-5 w-5" />
+                      Bucket Replication
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Replication Rules</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                            {replicationRules && replicationRules.length > 0
+                              ? `${replicationRules.length} rule${replicationRules.length > 1 ? 's' : ''} configured`
+                              : 'No replication rules configured'}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={handleAddReplicationRule}
+                            disabled={isGlobalAdminInTenantBucket}
+                            title={
+                              isGlobalAdminInTenantBucket
+                                ? 'Global admins cannot modify tenant bucket settings'
+                                : undefined
+                            }
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add Rule
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Replication Rules List */}
+                      {replicationRules && replicationRules.length > 0 ? (
+                        <div className="space-y-3">
+                          {replicationRules.map((rule: ReplicationRule) => (
+                            <div
+                              key={rule.id}
+                              className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800"
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    {rule.enabled ? (
+                                      <CheckCircle className="h-5 w-5 text-green-500" />
+                                    ) : (
+                                      <XCircle className="h-5 w-5 text-gray-400" />
+                                    )}
+                                    <span className="font-medium text-gray-900 dark:text-white">
+                                      Rule {rule.id}
+                                    </span>
+                                    <span
+                                      className={`text-xs px-2 py-1 rounded ${
+                                        rule.enabled
+                                          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                          : 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
+                                      }`}
+                                    >
+                                      {rule.enabled ? 'Enabled' : 'Disabled'}
+                                    </span>
+                                    <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                      {rule.mode}
+                                    </span>
+                                    <span className="text-xs px-2 py-1 rounded bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                                      Priority: {rule.priority}
+                                    </span>
+                                  </div>
+
+                                  <div className="space-y-1 text-sm">
+                                    <div>
+                                      <span className="text-gray-500 dark:text-gray-400">Source: </span>
+                                      <span className="text-gray-900 dark:text-white font-mono text-xs">
+                                        {rule.source_bucket}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500 dark:text-gray-400">Destination Endpoint: </span>
+                                      <span className="text-gray-900 dark:text-white font-mono text-xs">
+                                        {rule.destination_endpoint}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500 dark:text-gray-400">Destination Bucket: </span>
+                                      <span className="text-gray-900 dark:text-white font-mono text-xs">
+                                        {rule.destination_bucket}
+                                        {rule.destination_region && ` [${rule.destination_region}]`}
+                                      </span>
+                                    </div>
+                                    {rule.schedule_interval && rule.mode === 'scheduled' && (
+                                      <div>
+                                        <span className="text-gray-500 dark:text-gray-400">Schedule: </span>
+                                        <span className="text-gray-900 dark:text-white">
+                                          Every {rule.schedule_interval} minutes
+                                        </span>
+                                      </div>
+                                    )}
+                                    {rule.prefix && (
+                                      <div>
+                                        <span className="text-gray-500 dark:text-gray-400">Prefix Filter: </span>
+                                        <span className="text-gray-900 dark:text-white font-mono text-xs">
+                                          {rule.prefix}
+                                        </span>
+                                      </div>
+                                    )}
+                                    <div>
+                                      <span className="text-gray-500 dark:text-gray-400">Conflict Resolution: </span>
+                                      <span className="text-gray-900 dark:text-white">
+                                        {rule.conflict_resolution}
+                                      </span>
+                                    </div>
+                                    <div className="flex gap-4">
+                                      <span className={rule.replicate_deletes ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}>
+                                        {rule.replicate_deletes ? '✓' : '✗'} Replicate Deletes
+                                      </span>
+                                      <span className={rule.replicate_metadata ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}>
+                                        {rule.replicate_metadata ? '✓' : '✗'} Replicate Metadata
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 ml-4">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleToggleReplicationRule(rule)}
+                                    disabled={isGlobalAdminInTenantBucket}
+                                    title={rule.enabled ? 'Disable rule' : 'Enable rule'}
+                                  >
+                                    {rule.enabled ? 'Disable' : 'Enable'}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleEditReplicationRule(rule)}
+                                    disabled={isGlobalAdminInTenantBucket}
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => handleDeleteReplicationRule(rule.id)}
+                                    disabled={isGlobalAdminInTenantBucket}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-12 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
+                          <RefreshCw className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                            No Replication Rules
+                          </h3>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto mb-4">
+                            Configure replication rules to automatically copy objects to another bucket.
+                            Support for cross-bucket, cross-region, and cross-tenant replication.
+                          </p>
+                          <Button
+                            onClick={handleAddReplicationRule}
+                            disabled={isGlobalAdminInTenantBucket}
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add First Rule
+                          </Button>
+                        </div>
+                      )}
+
+                      {/* Info Box */}
+                      <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                        <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+                        <div className="text-sm text-blue-800 dark:text-blue-300">
+                          <p className="font-medium mb-1">About Bucket Replication</p>
+                          <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-blue-400">
+                            <li>Realtime mode replicates objects immediately after upload</li>
+                            <li>Scheduled mode processes replication in batches at intervals</li>
+                            <li>Batch mode processes large volumes of objects efficiently</li>
+                            <li>Use prefix filters to replicate only specific object paths</li>
+                            <li>Higher priority rules are processed first</li>
                           </ul>
                         </div>
                       </div>
@@ -2376,6 +2768,302 @@ export default function BucketSettingsPage() {
               {saveNotificationMutation.isPending
                 ? 'Saving...'
                 : editingNotificationRule
+                ? 'Update Rule'
+                : 'Add Rule'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Replication Rule Modal */}
+      <Modal
+        isOpen={isReplicationModalOpen}
+        onClose={() => setIsReplicationModalOpen(false)}
+        title={editingReplicationRule ? 'Edit Replication Rule' : 'Add Replication Rule'}
+        size="xl"
+      >
+        <div className="space-y-4">
+          {/* Destination S3 Endpoint */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Destination S3 Endpoint <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="url"
+              value={replicationRuleForm.destination_endpoint || ''}
+              onChange={(e) =>
+                setReplicationRuleForm({ ...replicationRuleForm, destination_endpoint: e.target.value })
+              }
+              placeholder="https://s3.amazonaws.com or http://localhost:8080"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              S3-compatible endpoint URL (AWS S3, MinIO, or another MaxIOFS instance)
+            </p>
+          </div>
+
+          {/* Destination Bucket */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Destination Bucket <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={replicationRuleForm.destination_bucket || ''}
+              onChange={(e) =>
+                setReplicationRuleForm({ ...replicationRuleForm, destination_bucket: e.target.value })
+              }
+              placeholder="my-destination-bucket"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              The destination bucket name where objects will be replicated
+            </p>
+          </div>
+
+          {/* Access Credentials */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Access Key <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={replicationRuleForm.destination_access_key || ''}
+                onChange={(e) =>
+                  setReplicationRuleForm({ ...replicationRuleForm, destination_access_key: e.target.value })
+                }
+                placeholder="AKIAIOSFODNN7EXAMPLE"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                S3 access key for destination
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Secret Key <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="password"
+                value={replicationRuleForm.destination_secret_key || ''}
+                onChange={(e) =>
+                  setReplicationRuleForm({ ...replicationRuleForm, destination_secret_key: e.target.value })
+                }
+                placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                S3 secret key for destination
+              </p>
+            </div>
+          </div>
+
+          {/* Region and Prefix */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Destination Region (Optional)
+              </label>
+              <input
+                type="text"
+                value={replicationRuleForm.destination_region || ''}
+                onChange={(e) =>
+                  setReplicationRuleForm({ ...replicationRuleForm, destination_region: e.target.value })
+                }
+                placeholder="us-east-1"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                S3 region (e.g., us-east-1, eu-west-1)
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Prefix Filter (Optional)
+              </label>
+              <input
+                type="text"
+                value={replicationRuleForm.prefix || ''}
+                onChange={(e) =>
+                  setReplicationRuleForm({ ...replicationRuleForm, prefix: e.target.value })
+                }
+                placeholder="images/"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Only replicate objects with this prefix
+              </p>
+            </div>
+          </div>
+
+          {/* Mode, Schedule and Priority */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Replication Mode <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={replicationRuleForm.mode || 'realtime'}
+                onChange={(e) =>
+                  setReplicationRuleForm({ ...replicationRuleForm, mode: e.target.value as 'realtime' | 'scheduled' | 'batch' })
+                }
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+              >
+                <option value="realtime">Realtime</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="batch">Batch</option>
+              </select>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Replication frequency
+              </p>
+            </div>
+
+            {replicationRuleForm.mode === 'scheduled' && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Interval (minutes) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={replicationRuleForm.schedule_interval || 60}
+                  onChange={(e) =>
+                    setReplicationRuleForm({ ...replicationRuleForm, schedule_interval: parseInt(e.target.value) || 60 })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Run every N minutes
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Priority
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={replicationRuleForm.priority || 1}
+                onChange={(e) =>
+                  setReplicationRuleForm({ ...replicationRuleForm, priority: parseInt(e.target.value) || 1 })
+                }
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Higher priority rules are processed first
+              </p>
+            </div>
+          </div>
+
+          {/* Conflict Resolution */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Conflict Resolution <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={replicationRuleForm.conflict_resolution || 'last_write_wins'}
+              onChange={(e) =>
+                setReplicationRuleForm({ ...replicationRuleForm, conflict_resolution: e.target.value as 'last_write_wins' | 'version_based' | 'primary_wins' })
+              }
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+            >
+              <option value="last_write_wins">Last Write Wins - Most recent version prevails</option>
+              <option value="version_based">Version Based - Use version numbers</option>
+              <option value="primary_wins">Primary Wins - Source always prevails</option>
+            </select>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Strategy for resolving conflicts when objects exist in both locations
+            </p>
+          </div>
+
+          {/* Options */}
+          <div className="space-y-3">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Replication Options
+            </label>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="replicateDeletes"
+                  checked={replicationRuleForm.replicate_deletes !== undefined ? replicationRuleForm.replicate_deletes : true}
+                  onChange={(e) =>
+                    setReplicationRuleForm({ ...replicationRuleForm, replicate_deletes: e.target.checked })
+                  }
+                  className="h-4 w-4"
+                />
+                <label htmlFor="replicateDeletes" className="text-sm text-gray-700 dark:text-gray-300">
+                  Replicate delete operations to destination
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="replicateMetadata"
+                  checked={replicationRuleForm.replicate_metadata !== undefined ? replicationRuleForm.replicate_metadata : true}
+                  onChange={(e) =>
+                    setReplicationRuleForm({ ...replicationRuleForm, replicate_metadata: e.target.checked })
+                  }
+                  className="h-4 w-4"
+                />
+                <label htmlFor="replicateMetadata" className="text-sm text-gray-700 dark:text-gray-300">
+                  Replicate object metadata (tags, ACLs, etc.)
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="enabled"
+                  checked={replicationRuleForm.enabled || false}
+                  onChange={(e) =>
+                    setReplicationRuleForm({ ...replicationRuleForm, enabled: e.target.checked })
+                  }
+                  className="h-4 w-4"
+                />
+                <label htmlFor="enabled" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Enable this replication rule
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Info */}
+          <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+            <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+            <div className="text-sm text-blue-800 dark:text-blue-300">
+              <p className="font-medium mb-1">Replication Requirements</p>
+              <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-blue-400">
+                <li>Destination bucket must exist and be accessible</li>
+                <li>Versioning is recommended for both source and destination</li>
+                <li>Ensure appropriate permissions for cross-tenant replication</li>
+                <li>Rules can be temporarily disabled without deleting them</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <Button variant="outline" onClick={() => setIsReplicationModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveReplicationRule}
+              disabled={
+                isGlobalAdminInTenantBucket ||
+                createReplicationRuleMutation.isPending ||
+                updateReplicationRuleMutation.isPending ||
+                !replicationRuleForm.destination_bucket
+              }
+            >
+              {createReplicationRuleMutation.isPending || updateReplicationRuleMutation.isPending
+                ? 'Saving...'
+                : editingReplicationRule
                 ? 'Update Rule'
                 : 'Add Rule'}
             </Button>

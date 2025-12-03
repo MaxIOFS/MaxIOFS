@@ -5,9 +5,37 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2025-12-02
+## [Unreleased]
 
-### Added
+No unreleased changes at this time.
+
+## [0.4.3-beta] - 2025-12-03
+
+### Added - Bucket Replication
+- **Bucket Replication System** - Complete implementation of S3-compatible bucket replication
+  - **S3 Protocol-Level Replication**: Uses standard S3 API for cross-bucket replication
+  - **Flexible Destination Configuration**:
+    - Endpoint URL (supports AWS S3, MinIO, or other MaxIOFS instances)
+    - Destination bucket name
+    - S3 access key and secret key for authentication
+    - Optional region parameter
+  - **Multiple Replication Modes**:
+    - **Realtime**: Immediate replication on object changes
+    - **Scheduled**: Periodic batch replication with configurable intervals (minutes)
+    - **Batch**: Manual replication on demand
+  - **Conflict Resolution Strategies**: Last Write Wins, Version-Based, Primary Wins
+  - **Queue-Based Processing**: Async worker pools with configurable concurrency
+  - **Retry Mechanism**: Exponential backoff for failed replications with max retries
+  - **Selective Replication**: Prefix filters, delete replication toggle, metadata replication
+  - **Priority System**: Rule ordering for multiple replication targets
+  - **Comprehensive Metrics**: Pending, completed, failed objects, bytes replicated
+  - **SQLite Persistence**: Rules, queue items, and replication status tracking
+  - **Web Console Integration**: Visual rule management in bucket settings page
+  - **Console API**: Full CRUD endpoints for replication rule management
+  - **Audit Logging**: All replication operations logged for compliance
+  - **Test Coverage**: 23 automated tests covering CRUD, queueing, processing (100% pass rate)
+
+### Added - Testing Infrastructure
 - **ACL Module Test Suite** - 25 tests covering S3-compatible canned ACLs, permissions validation, bucket/object ACL operations, and multi-tenant isolation (77.0% coverage)
 - **Middleware Module Test Suite** - 30 test functions covering logging, rate limiting, CORS, and verbose logging middleware (87.4% coverage)
 - **Lifecycle Module Test Suite** - 12 tests for lifecycle worker, policy processing, noncurrent version expiration, and delete marker cleanup (67.9% coverage)
@@ -25,8 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Console API Test Coverage** - Expanded from 4.4% to 12.7% with 19 new tests for 2FA, tenant management, access keys, and user operations
 
 ### Changed
-- **Backend Test Coverage** - Improved to 48.2% with 352 tests (100% pass rate)
+- **Backend Test Coverage** - Improved to ~53% with 504 tests (100% pass rate)
 - **Frontend Test Coverage** - Maintained at 100% with 64 tests
+- **Version**: Updated from 0.4.2-beta to 0.4.3-beta
+- **Features Complete**: Improved from ~95% to ~96%
 
 ## [Previous Releases] - 2025-11-28
 
@@ -199,7 +229,7 @@ MaxIOFS follows semantic versioning:
 - **0.x.x-rc**: Release candidates - Production-ready testing
 - **1.x.x**: Stable releases - Production-ready
 
-### Current Status: BETA (v0.4.2-beta)
+### Current Status: BETA (v0.4.3-beta)
 
 **Completed:**
 - ✅ All S3 core operations validated with AWS CLI
@@ -211,7 +241,7 @@ MaxIOFS follows semantic versioning:
 - ✅ Warp stress testing completed
 
 **In Progress:**
-- 🔄 80%+ backend test coverage (current: ~48%)
+- 🔄 80%+ backend test coverage (current: ~53%)
 - 🔄 Comprehensive API documentation
 - 🔄 Security review and audit
 - 🔄 Complete user documentation
