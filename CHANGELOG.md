@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes at this time.
 
-## [0.5.0-beta] - 2025-12-03
+## [0.5.0-beta] - 2025-12-04
 
 ### Added - Bucket Replication
 - **Bucket Replication System** - Complete implementation of S3-compatible bucket replication
@@ -35,6 +35,32 @@ No unreleased changes at this time.
   - **Audit Logging**: All replication operations logged for compliance
   - **Test Coverage**: 23 automated tests covering CRUD, queueing, processing (100% pass rate)
 
+### Added - Logging System
+- **Production-Ready Logging Infrastructure** - Complete logging system for operations and debugging
+  - **Multiple Output Targets**: Console, file, HTTP endpoints, syslog
+  - **Log Levels**: DEBUG, INFO, WARN, ERROR with configurable filtering
+  - **Structured Logging**: JSON format with contextual fields (tenant, user, bucket, object)
+  - **HTTP Output**: Batch delivery with retry mechanism and authentication
+  - **Syslog Integration**: Remote logging to syslog servers (UDP/TCP)
+  - **Performance Optimized**: Async buffering and batch processing
+  - **Test Coverage**: 26 tests covering all output types and configurations (100% pass rate)
+
+### Added - User Experience & Theming
+- **Theme System** - User-customizable interface themes with multiple modes
+  - **Theme Options**: System (auto), Dark, Light modes
+  - **User Preferences**: Per-user theme selection with persistence
+  - **Settings Page**: Dedicated user settings UI for theme management
+  - **Persistent Storage**: Theme preference saved across sessions
+
+### Added - CI/CD & Build System
+- **Nightly Build Pipeline** - Automated nightly builds with comprehensive testing
+  - **Automated Testing**: Frontend and backend tests run on every nightly build
+  - **Multi-Architecture**: Builds for linux-amd64, linux-arm64, darwin-amd64, darwin-arm64, windows-amd64
+  - **Debian Packages**: Automated .deb package generation for amd64 and arm64
+  - **S3 Distribution**: Automated upload to S3 bucket with version tracking
+  - **Smart Caching**: Commit-based build skipping to save resources
+  - **Test Reports**: Automated test execution with pass/fail reporting
+
 ### Added - Testing Infrastructure
 - **ACL Module Test Suite** - 25 tests covering S3-compatible canned ACLs, permissions validation, bucket/object ACL operations, and multi-tenant isolation (77.0% coverage)
 - **Middleware Module Test Suite** - 30 test functions covering logging, rate limiting, CORS, and verbose logging middleware (87.4% coverage)
@@ -57,8 +83,6 @@ No unreleased changes at this time.
 - **Frontend Test Coverage** - Maintained at 100% with 64 tests
 - **Version**: Updated from 0.4.2-beta to 0.5.0-beta
 - **Features Complete**: Improved from ~95% to ~96%
-
-## [Previous Releases] - 2025-11-28
 
 ### Added
 - **Frontend Testing Infrastructure** - Complete test suite with 64 tests using Vitest and React Testing Library

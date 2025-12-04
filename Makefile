@@ -434,6 +434,7 @@ ifneq ($(DETECTED_OS),Windows)
 	
 	@echo "Copying files..."
 	@cp config.example.yaml $(BUILD_DIR)/debian-package/etc/maxiofs/config.yaml
+	@sed -i 's|data_dir: "./data"|data_dir: "/var/lib/maxiofs"|' $(BUILD_DIR)/debian-package/etc/maxiofs/config.yaml
 	@cp debian/control $(BUILD_DIR)/debian-package/DEBIAN/control
 	@cp debian/postinst $(BUILD_DIR)/debian-package/DEBIAN/
 	@cp debian/prerm $(BUILD_DIR)/debian-package/DEBIAN/
@@ -498,6 +499,7 @@ ifneq ($(DETECTED_OS),Windows)
 	
 	@echo "Copying files..."
 	@cp config.example.yaml $(BUILD_DIR)/debian-package-arm64/etc/maxiofs/config.yaml
+	@sed -i 's|data_dir: "./data"|data_dir: "/var/lib/maxiofs"|' $(BUILD_DIR)/debian-package-arm64/etc/maxiofs/config.yaml
 	@cp debian/control $(BUILD_DIR)/debian-package-arm64/DEBIAN/control
 	@sed -i 's/Architecture: amd64/Architecture: arm64/' $(BUILD_DIR)/debian-package-arm64/DEBIAN/control
 	@cp debian/postinst $(BUILD_DIR)/debian-package-arm64/DEBIAN/

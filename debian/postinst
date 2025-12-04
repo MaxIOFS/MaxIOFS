@@ -20,7 +20,7 @@ case "$1" in
         chown maxiofs:maxiofs /etc/maxiofs/config.yaml
 
         # Set permissions
-        chmod 0750 /var/lib/maxiofs/data
+        chmod 0750 /var/lib/maxiofs
         chmod 0750 /var/log/maxiofs
         chmod 0640 /etc/maxiofs/config.yaml
 
@@ -38,7 +38,7 @@ case "$1" in
             echo "========================================"
             echo ""
             echo "Configuration file: /etc/maxiofs/config.yaml"
-            echo "Data directory: /var/lib/maxiofs/data"
+            echo "Data directory: /var/lib/maxiofs"
             echo "Log directory: /var/log/maxiofs"
             echo ""
             echo "IMPORTANT: Before starting MaxIOFS, please:"
