@@ -1,6 +1,6 @@
 # MaxIOFS - TODO & Roadmap
 
-**Version**: 0.4.3-beta
+**Version**: 0.5.0-beta
 **Last Updated**: December 3, 2025
 **Status**: Beta - 98% S3 Compatible
 
@@ -8,7 +8,7 @@
 
 ```
 ┌─────────────────────────────────────────┐
-│  MaxIOFS v0.4.3-beta - BETA STATUS      │
+│  MaxIOFS v0.5.0-beta - BETA STATUS      │
 ├─────────────────────────────────────────┤
 │  S3 API Compatibility:        98%       │
 │  Backend Test Coverage:       ~53%      │

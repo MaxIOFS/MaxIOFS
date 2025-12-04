@@ -1,8 +1,8 @@
 # MaxIOFS Documentation
 
-**Version**: 0.4.2-beta
+**Version**: 0.5.0-beta
 **S3 Compatibility**: 98%
-**Last Updated**: November 23, 2025
+**Last Updated**: December 3, 2025
 
 ---
 
@@ -109,35 +109,46 @@ Start here if you're new to MaxIOFS:
 
 ---
 
-## 🆕 What's New in v0.4.2-beta
+## 🆕 What's New in v0.5.0-beta
 
 ### Major Features
 
+- ✅ **Bucket Replication** - S3-compatible cross-bucket replication
+  - Support for AWS S3, MinIO, and other MaxIOFS instances
+  - Three replication modes: Realtime, Scheduled, Batch
+  - Queue-based async processing with retry logic
+  - Conflict resolution strategies (Last Write Wins, Version-Based, Primary Wins)
+  - Selective replication with prefix filters
+  - Web Console integration with visual rule management
+  - 23 automated tests covering all functionality
+
+- ✅ **Advanced Logging System** - HTTP and Syslog output
+  - HTTP output with batching and authentication
+  - Syslog integration (TCP/UDP protocols)
+  - Dynamic configuration without restart
+  - Multiple output formats (JSON, text)
+  - Prefix/suffix filtering for targeted log routing
+
+- ✅ **Comprehensive Test Coverage Expansion**
+  - 504 backend tests (~53% coverage, up from ~48%)
+  - ACL Module: 25 tests (77.0% coverage)
+  - Middleware Module: 30 tests (87.4% coverage)
+  - Lifecycle Module: 12 tests (67.9% coverage)
+  - Storage Module: 40 tests (79.1% coverage)
+  - Replication Module: 23 tests (100% pass rate)
+
+- ✅ **Bug Fixes**
+  - Frontend session management (unexpected logouts fixed)
+  - VEEAM SOSAPI capacity reporting (tenant quota respect)
+  - ListObjectVersions for non-versioned buckets
+
+### Previous Features (v0.4.2-beta)
+
 - ✅ **Global Bucket Uniqueness** - AWS S3 compatible bucket naming
-  - Bucket names are now globally unique across all tenants
-  - Prevents bucket name conflicts between different tenants
-  - Improves S3 client compatibility
-  - Validation layer added without changing database schema
-
 - ✅ **S3-Compatible URLs** - Standard S3 URL format without tenant prefix
-  - Presigned URLs no longer include tenant-id in path
-  - Share URLs follow standard S3 format
-  - Better compatibility with standard S3 clients
-  - Automatic tenant resolution from bucket name
-
 - ✅ **Bucket Notifications (Webhooks)** - AWS S3 compatible event notifications
-  - Event types: ObjectCreated:*, ObjectRemoved:*, ObjectRestored:Post
-  - Wildcard event matching (e.g., s3:ObjectCreated:* matches Put, Post, Copy)
-  - Webhook delivery with retry mechanism (3 attempts)
-  - Per-rule filtering with prefix and suffix filters
-  - Custom HTTP headers support per notification rule
-  - Web Console UI with tab-based bucket settings
-  - Full audit logging for all configuration changes
-
-- ✅ **Frontend Improvements**
-  - Fixed presigned URL modal state persistence bug
-  - Improved React component lifecycle management
-  - Better user experience when switching between objects
+- ✅ **Real-Time Push Notifications (SSE)** - Server-Sent Events for admin alerts
+- ✅ **Dynamic Security Configuration** - Runtime-adjustable rate limits
 
 ### Previous Features (v0.4.1-beta)
 
@@ -336,5 +347,5 @@ Email: security@yourdomain.com (update with actual contact)
 
 ---
 
-**Version**: 0.4.2-beta
-**Last Updated**: November 23, 2025
+**Version**: 0.5.0-beta
+**Last Updated**: December 3, 2025

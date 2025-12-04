@@ -446,7 +446,7 @@
     "technologyStack": "Technology Stack",
     "backend": "Backend",
     "frontend": "Frontend",
-    "newFeaturesTitle": "New Features in v0.4.2-beta",
+    "newFeaturesTitle": "New Features in v0.5.0-beta",
     "featureRealtimePushTitle": "Real-Time Push Notifications (SSE)",
     "featureRealtimePushDesc": "Server-Sent Events deliver instant security notifications to admin users. When accounts are locked due to failed login attempts, admins receive real-time alerts in the topbar bell icon with read/unread tracking. Notifications persist across page reloads and respect tenant isolation (global admins see all, tenant admins see only their tenant).",
     "featureDynamicSecurityTitle": "Dynamic Security Configuration",

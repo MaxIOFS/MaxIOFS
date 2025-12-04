@@ -311,85 +311,57 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New Features in v0.4.2-beta
+            New Features in v0.5.0-beta
           </h2>
           <div className="space-y-4">
-            <div className="border-l-4 border-red-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Real-Time Push Notifications (SSE)
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Server-Sent Events deliver instant security notifications to admin users. When accounts are locked
-                due to failed login attempts, admins receive real-time alerts in the topbar bell icon with read/unread
-                tracking. Notifications persist across page reloads and respect tenant isolation (global admins see all,
-                tenant admins see only their tenant).
-              </p>
-            </div>
-
-            <div className="border-l-4 border-indigo-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Dynamic Security Configuration
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Adjust security thresholds without server restart via Settings page. Configure IP-based rate limiting
-                (default 5 attempts/minute), account lockout threshold (default 5 failed attempts), and lockout duration
-                (default 15 minutes). Separate controls allow different limits for IP rate limiting vs account lockout,
-                crucial for users behind proxies.
-              </p>
-            </div>
-            <div className="border-l-4 border-green-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Global Bucket Uniqueness - AWS S3 Compatible
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Bucket names are now globally unique across all tenants, matching AWS S3 behavior. This prevents
-                bucket name conflicts between different tenants and significantly improves compatibility with standard
-                S3 clients and tools. The change is fully backward compatible with no data migration required.
-              </p>
-            </div>
-
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                S3-Compatible URLs (Presigned & Share)
+                Bucket Replication System
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Presigned URLs and Share URLs now use standard S3 format without tenant-id prefix. URLs follow
-                the pattern /bucket/object instead of /tenant-id/bucket/object, providing better compatibility
-                with S3 clients, CDNs, and external tools. Automatic tenant resolution happens transparently in the backend.
+                S3-compatible cross-bucket replication supporting AWS S3, MinIO, and other MaxIOFS instances as destinations.
+                Three replication modes: Realtime (immediate), Scheduled (interval-based), and Batch (manual). Features include
+                queue-based async processing with configurable worker pools, automatic retry with exponential backoff, conflict
+                resolution strategies (Last Write Wins, Version-Based, Primary Wins), selective replication with prefix filters,
+                and priority-based rule ordering. Complete Web Console integration with visual rule management and 23 automated
+                tests (100% pass rate).
               </p>
             </div>
 
             <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Bucket Notifications (Webhooks)
+                Advanced Logging System
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                AWS S3-compatible event notification system with webhook support. Configure HTTP webhooks for object
-                events: ObjectCreated, ObjectRemoved, and ObjectRestored. Features include retry mechanism (3 attempts),
-                prefix/suffix filtering, custom HTTP headers, and a user-friendly Web Console interface for rule management.
+                HTTP and Syslog output support with dynamic configuration without server restart. HTTP output includes batching,
+                authentication (Bearer tokens), and configurable flush intervals. Syslog integration supports TCP and UDP protocols.
+                Multiple output formats (JSON, text) with caller information, prefix/suffix filters for targeted log routing to
+                different outputs. Configure outputs, formats, and filters dynamically via Settings page.
               </p>
             </div>
 
-            <div className="border-l-4 border-orange-500 pl-4">
+            <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Automatic Tenant Resolution
+                Comprehensive Test Coverage Expansion
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Backend automatically resolves bucket ownership from bucket name using new GetBucketByName() function.
-                This enables presigned URLs to work without tenant context and maintains multi-tenant isolation while
-                using standard S3 URL formats. All S3 operations remain transparent to clients.
+                Backend test suite expanded from 458 to 504 tests (~53% coverage). New test suites include: ACL Module (25 tests,
+                77.0% coverage), Middleware Module (30 tests, 87.4% coverage), Lifecycle Module (12 tests, 67.9% coverage),
+                Storage Module (40 tests, 79.1% coverage), expanded Metadata Module (30 tests, 52.4% coverage), Bucket Module
+                (47 tests, 49.8% coverage), and Object Module (83 additional tests, 48.4% coverage). Console API test coverage
+                expanded from 4.4% to 12.7% with 19 new tests.
               </p>
             </div>
 
-            <div className="border-l-4 border-yellow-500 pl-4">
+            <div className="border-l-4 border-red-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Critical Bug Fixes
+                Bug Fixes and Improvements
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Fixed rate limiter double-counting (was blocking at 3 instead of 5 attempts), failed attempts counter
-                not resetting after lockout, security page not showing locked users, SSE callback execution, frontend
-                token detection, and presigned URL modal state persistence. All fixes improve system stability and
-                user experience.
+                Fixed frontend session management preventing unexpected logout. Fixed VEEAM SOSAPI capacity reporting to properly
+                respect tenant quotas. Fixed ListObjectVersions to work correctly for non-versioned buckets. Schema migration
+                system added for replication database (old → new S3 parameters). Complete documentation updates across README,
+                CHANGELOG, TODO, and 9 docs/ files.
               </p>
             </div>
           </div>

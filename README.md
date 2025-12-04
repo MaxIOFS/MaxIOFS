@@ -1,6 +1,6 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.4.2-beta
+**Version**: 0.5.0-beta
 **Status**: Beta - 98% S3 Compatible
 **License**: MIT
 
@@ -8,7 +8,7 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 
 ## 🎉 Project Status
 
-**This project is now in BETA phase - v0.4.2-beta**. This means:
+**This project is now in BETA phase - v0.5.0-beta**. This means:
 - ✅ **All core S3 features fully implemented and tested**
 - ✅ **AWS CLI compatibility validated for all major operations (98% compatible)**
 - ✅ Successfully tested with MinIO Warp (7000+ objects, bulk operations validated)
@@ -42,7 +42,7 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 - ✅ **Bucket CORS** (Get/Put/Delete CORS rules, Visual UI editor)
 - ✅ **Bucket Tagging** (Get/Put/Delete tags, Visual UI manager)
 - ✅ **Bucket Lifecycle Configuration** (Get/Put/Delete lifecycle rules)
-- ✅ **Bucket Replication** (S3-compatible cross-bucket replication to AWS S3, MinIO, or other MaxIOFS instances) - *New in 0.4.3*
+- ✅ **Bucket Replication** (S3-compatible cross-bucket replication to AWS S3, MinIO, or other MaxIOFS instances) - *New in 0.5.0*
 - ✅ **Object Tagging** (Get/Put/Delete tags)
 - ✅ Object ACL (Get/Put access control lists)
 - ✅ Object Retention (WORM with legal hold support)
@@ -77,7 +77,7 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
   - Full audit logging for all configuration changes
 
 ### Bucket Replication
-- ✅ **S3-Compatible Replication** - Cross-bucket replication to AWS S3, MinIO, or other MaxIOFS instances - *New in 0.4.3*
+- ✅ **S3-Compatible Replication** - Cross-bucket replication to AWS S3, MinIO, or other MaxIOFS instances - *New in 0.5.0*
   - S3 protocol-level replication using standard S3 API calls
   - Destination configuration: Endpoint URL, bucket name, access key, secret key, region
   - Three replication modes:
@@ -148,7 +148,7 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
   - **Security & Access**: Bucket policy, ACL, and CORS configuration
   - **Lifecycle**: Rule-based lifecycle policies
   - **Notifications**: Webhook event notifications with rule management - *New in 0.4.2*
-  - **Replication**: S3-compatible bucket replication rules with destination configuration - *New in 0.4.3*
+  - **Replication**: S3-compatible bucket replication rules with destination configuration - *New in 0.5.0*
 - ✅ **System Settings Page** (Global Admins only) - *New in 0.4.0*
   - Dual-configuration architecture (static + dynamic settings)
   - Modern tabbed interface (Security, Audit, Storage, Metrics, System)
@@ -636,13 +636,16 @@ Contributions welcome! Please:
 
 ## 🗺️ Roadmap
 
-### Completed (v0.4.3-beta - Current)
+### Completed (v0.5.0-beta - Current)
 - [x] **Bucket Replication** (S3-compatible cross-bucket replication to AWS S3, MinIO, or other MaxIOFS instances)
   - Realtime, scheduled, and batch replication modes
   - S3 protocol-level replication with endpoint URL, access key, secret key configuration
   - Queue-based async processing with retry logic and conflict resolution
   - Web Console integration with visual rule management in bucket settings
   - 23 automated tests covering all functionality
+- [x] **Advanced Logging System** (HTTP and Syslog output with batching)
+- [x] **Comprehensive Test Coverage Expansion** (504 backend tests, ~53% coverage)
+- [x] **Multiple Bug Fixes** (Session management, VEEAM SOSAPI, ListObjectVersions)
 
 ### Completed (v0.4.2-beta)
 - [x] **Global Bucket Uniqueness** (Bucket names globally unique across all tenants for AWS S3 compatibility)
@@ -698,7 +701,7 @@ Contributions welcome! Please:
 - [ ] **Performance Profiling & Optimization** (Memory/CPU profiling, load testing)
 - [ ] **CI/CD Pipeline** (GitHub Actions for automated builds and releases)
 - [x] ~~**Bucket Notifications** (Webhooks on object events)~~ **IMPLEMENTED in v0.4.2-beta**
-- [x] ~~**Bucket Replication** (Basic S3-compatible replication)~~ **IMPLEMENTED in v0.4.3-beta**
+- [x] ~~**Bucket Replication** (Basic S3-compatible replication)~~ **IMPLEMENTED in v0.5.0-beta**
 - [ ] **Multi-Region Replication** (Geographic replication with region health checks and automatic failover)
 - [ ] **Encryption Key Rotation** (Automatic key rotation with dual-key support)
 - [ ] **Per-Tenant Encryption Keys** (Tenant-level key isolation for multi-tenancy)
@@ -709,7 +712,7 @@ Contributions welcome! Please:
 
 ### Medium Term (v0.6.0-v0.8.0)
 - [x] ~~Object versioning (full implementation with complete lifecycle)~~ **100% IMPLEMENTED** - Versioning + lifecycle worker with noncurrent version expiration AND expired delete marker cleanup
-- [x] ~~Bucket replication (cross-bucket/cross-region)~~ **BASIC IMPLEMENTATION COMPLETE in v0.4.3** - S3-compatible replication to external endpoints
+- [x] ~~Bucket replication (cross-bucket/cross-region)~~ **BASIC IMPLEMENTATION COMPLETE in v0.5.0** - S3-compatible replication to external endpoints
 - [ ] **Advanced Replication** (Bidirectional sync, multi-region with automatic failover)
 - [ ] **Encryption Algorithm Selection** (ChaCha20-Poly1305, AES-GCM options)
 - [ ] **Compliance Reporting** (Encryption coverage, key usage analytics)

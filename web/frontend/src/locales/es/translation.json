@@ -446,7 +446,7 @@
     "technologyStack": "Stack Tecnológico",
     "backend": "Backend",
     "frontend": "Frontend",
-    "newFeaturesTitle": "Nuevas Características en v0.4.2-beta",
+    "newFeaturesTitle": "Nuevas Características en v0.5.0-beta",
     "featureRealtimePushTitle": "Notificaciones Push en Tiempo Real (SSE)",
     "featureRealtimePushDesc": "Los Server-Sent Events entregan notificaciones de seguridad instantáneas a los usuarios administradores. Cuando las cuentas se bloquean debido a intentos de inicio de sesión fallidos, los administradores reciben alertas en tiempo real en el icono de campana de la barra superior con seguimiento de leídas/no leídas. Las notificaciones persisten a través de recargas de página y respetan el aislamiento de tenants (los administradores globales ven todas, los administradores de tenant solo ven las de su tenant).",
     "featureDynamicSecurityTitle": "Configuración de Seguridad Dinámica",

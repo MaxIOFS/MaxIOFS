@@ -457,19 +457,22 @@ func TestCreateRule_WithAllFields(t *testing.T) {
 	ctx := context.Background()
 
 	rule := &ReplicationRule{
-		ID:                 "custom-id",
-		TenantID:           "tenant-1",
-		SourceBucket:       "source-bucket",
-		DestinationBucket:  "dest-bucket",
-		DestinationRegion:  "us-west-2",
-		DestinationTenant:  "tenant-2",
-		Prefix:             "logs/",
-		Enabled:            true,
-		Priority:           15,
-		Mode:               ModeScheduled,
-		ConflictResolution: ConflictVersionBased,
-		ReplicateDeletes:   false,
-		ReplicateMetadata:  true,
+		ID:                    "custom-id",
+		TenantID:              "tenant-1",
+		SourceBucket:          "source-bucket",
+		DestinationEndpoint:   "https://s3.us-west-2.amazonaws.com",
+		DestinationBucket:     "dest-bucket",
+		DestinationAccessKey:  "AKIAIOSFODNN7EXAMPLE",
+		DestinationSecretKey:  "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+		DestinationRegion:     "us-west-2",
+		Prefix:                "logs/",
+		Enabled:               true,
+		Priority:              15,
+		Mode:                  ModeScheduled,
+		ScheduleInterval:      60,
+		ConflictResolution:    ConflictVersionBased,
+		ReplicateDeletes:      false,
+		ReplicateMetadata:     true,
 	}
 
 	err := manager.CreateRule(ctx, rule)
@@ -479,11 +482,15 @@ func TestCreateRule_WithAllFields(t *testing.T) {
 	retrieved, err := manager.GetRule(ctx, "custom-id")
 	require.NoError(t, err)
 	assert.Equal(t, "custom-id", retrieved.ID)
+	assert.Equal(t, "https://s3.us-west-2.amazonaws.com", retrieved.DestinationEndpoint)
+	assert.Equal(t, "dest-bucket", retrieved.DestinationBucket)
+	assert.Equal(t, "AKIAIOSFODNN7EXAMPLE", retrieved.DestinationAccessKey)
+	assert.Equal(t, "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", retrieved.DestinationSecretKey)
 	assert.Equal(t, "us-west-2", retrieved.DestinationRegion)
-	assert.Equal(t, "tenant-2", retrieved.DestinationTenant)
 	assert.Equal(t, "logs/", retrieved.Prefix)
 	assert.Equal(t, 15, retrieved.Priority)
 	assert.Equal(t, ModeScheduled, retrieved.Mode)
+	assert.Equal(t, 60, retrieved.ScheduleInterval)
 	assert.Equal(t, ConflictVersionBased, retrieved.ConflictResolution)
 	assert.False(t, retrieved.ReplicateDeletes)
 	assert.True(t, retrieved.ReplicateMetadata)

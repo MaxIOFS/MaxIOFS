@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 0.4.2-beta
+**Version**: 0.5.0-beta
 
 > **BETA SOFTWARE DISCLAIMER**
 >
@@ -905,5 +905,5 @@ Response time: Within 48 hours
 
 ---
 
-**Version**: 0.4.2-beta
+**Version**: 0.5.0-beta
 **Last Updated**: November 23, 2025

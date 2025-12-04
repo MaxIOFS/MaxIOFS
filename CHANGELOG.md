@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes at this time.
 
-## [0.4.3-beta] - 2025-12-03
+## [0.5.0-beta] - 2025-12-03
 
 ### Added - Bucket Replication
 - **Bucket Replication System** - Complete implementation of S3-compatible bucket replication
@@ -55,7 +55,7 @@ No unreleased changes at this time.
 ### Changed
 - **Backend Test Coverage** - Improved to ~53% with 504 tests (100% pass rate)
 - **Frontend Test Coverage** - Maintained at 100% with 64 tests
-- **Version**: Updated from 0.4.2-beta to 0.4.3-beta
+- **Version**: Updated from 0.4.2-beta to 0.5.0-beta
 - **Features Complete**: Improved from ~95% to ~96%
 
 ## [Previous Releases] - 2025-11-28
@@ -229,7 +229,7 @@ MaxIOFS follows semantic versioning:
 - **0.x.x-rc**: Release candidates - Production-ready testing
 - **1.x.x**: Stable releases - Production-ready
 
-### Current Status: BETA (v0.4.3-beta)
+### Current Status: BETA (v0.5.0-beta)
 
 **Completed:**
 - ✅ All S3 core operations validated with AWS CLI

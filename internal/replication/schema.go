@@ -1,6 +1,10 @@
 package replication
 
-import "database/sql"
+import (
+	"database/sql"
+
+	"github.com/sirupsen/logrus"
+)
 
 const Schema = `
 -- Replication rules define how objects should be replicated
@@ -80,6 +84,98 @@ CREATE INDEX IF NOT EXISTS idx_replication_status_destination ON replication_sta
 
 // InitSchema initializes the replication database schema
 func InitSchema(db *sql.DB) error {
+	// First, check if we need to migrate from old schema
+	if err := migrateSchema(db); err != nil {
+		return err
+	}
+
+	// Then create/update schema
 	_, err := db.Exec(Schema)
 	return err
+}
+
+// migrateSchema handles migration from old schema to new schema
+func migrateSchema(db *sql.DB) error {
+	// Check if replication_rules table exists
+	var tableName string
+	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='replication_rules'").Scan(&tableName)
+	if err == sql.ErrNoRows {
+		// Table doesn't exist yet, no migration needed
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	// Check if destination_endpoint column exists (new schema)
+	var columnName string
+	err = db.QueryRow(`
+		SELECT name FROM pragma_table_info('replication_rules')
+		WHERE name='destination_endpoint'
+	`).Scan(&columnName)
+
+	if err == sql.ErrNoRows {
+		// Old schema detected, need to migrate
+		logrus.Info("Replication: Old schema detected, migrating to new schema with S3 parameters")
+		return migrateFromOldSchema(db)
+	}
+
+	// New schema already exists or error checking
+	return nil
+}
+
+// migrateFromOldSchema migrates from old schema (with destination_tenant) to new schema
+func migrateFromOldSchema(db *sql.DB) error {
+	// Start transaction
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Check if there are any existing rules
+	var count int
+	err = tx.QueryRow("SELECT COUNT(*) FROM replication_rules").Scan(&count)
+	if err != nil {
+		return err
+	}
+
+	if count > 0 {
+		// If there are existing rules, we need to backup and warn
+		// For now, we'll drop and recreate (safe since this is beta and likely no production data)
+		// In production, you'd want to preserve data
+		logrus.WithFields(logrus.Fields{
+			"existing_rules": count,
+		}).Warning("Replication: Dropping existing replication rules due to schema change. Please recreate your replication rules with new S3 parameters.")
+
+		_, err = tx.Exec("DROP TABLE IF EXISTS replication_status")
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec("DROP TABLE IF EXISTS replication_queue")
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec("DROP TABLE IF EXISTS replication_rules")
+		if err != nil {
+			return err
+		}
+	} else {
+		// No existing rules, safe to drop and recreate
+		logrus.Info("Replication: Creating new schema tables")
+		_, err = tx.Exec("DROP TABLE IF EXISTS replication_status")
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec("DROP TABLE IF EXISTS replication_queue")
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec("DROP TABLE IF EXISTS replication_rules")
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }

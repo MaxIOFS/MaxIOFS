@@ -1,3 +1,41 @@
+maxiofs (0.5.0-beta) unstable; urgency=medium
+
+  * Major feature release: Bucket Replication, Advanced Logging & Test Coverage
+  * Bucket Replication System - S3-compatible cross-bucket replication
+  * Support for AWS S3, MinIO, and other MaxIOFS instances as destinations
+  * Three replication modes: Realtime, Scheduled (interval-based), Batch (manual)
+  * Queue-based async processing with configurable worker pools
+  * Automatic retry with exponential backoff for failed replications
+  * Conflict resolution strategies (Last Write Wins, Version-Based, Primary Wins)
+  * Selective replication with prefix filters and delete/metadata toggles
+  * Priority-based rule ordering for multiple replication targets
+  * SQLite persistence for rules, queue items, and replication status
+  * Web Console integration with visual rule management in bucket settings tab
+  * Console API endpoints for complete replication rule CRUD operations
+  * Replication module with 23 automated tests (100% pass rate)
+  * Advanced Logging System - HTTP and Syslog output support
+  * HTTP output with batching, authentication (Bearer tokens), and flush intervals
+  * Syslog integration supporting TCP and UDP protocols
+  * Dynamic log configuration without server restart
+  * Multiple output formats (JSON, text) with caller information
+  * Prefix/suffix filters for targeted log routing to different outputs
+  * Comprehensive Test Coverage Expansion (458 → 504 backend tests, ~53% coverage)
+  * ACL Module Test Suite - 25 tests covering S3 ACLs and permissions (77.0% coverage)
+  * Middleware Module Test Suite - 30 tests for logging, rate limiting, CORS (87.4%)
+  * Lifecycle Module Test Suite - 12 tests for worker and policy processing (67.9%)
+  * Storage Module Test Suite - 40 tests for filesystem operations (79.1%)
+  * Metadata Module Test Suite - Expanded to 30 tests (52.4% coverage)
+  * Bucket Module Test Suite - 47 tests for bucket operations (49.8% coverage)
+  * Object Module Test Suite - 83 additional tests for lock and retention (48.4%)
+  * Bug Fixes - Frontend session management (unexpected logout prevention)
+  * Bug Fix - VEEAM SOSAPI capacity reporting now respects tenant quotas
+  * Bug Fix - ListObjectVersions now works correctly for non-versioned buckets
+  * Bug Fix - Console API test coverage expanded (4.4% → 12.7%, +19 tests)
+  * Schema migration system for replication database (old → new S3 parameters)
+  * Complete documentation updates (README, CHANGELOG, TODO, 9 docs/ files)
+
+ -- MaxIOFS Team <info@maxiofs.com>  Tue, 03 Dec 2025 00:00:00 +0000
+
 maxiofs (0.4.2-beta) unstable; urgency=medium
 
   * Major feature release: S3 Compatibility, Real-Time Notifications & Dynamic Security

@@ -1,6 +1,6 @@
 # MaxIOFS API Reference
 
-**Version**: 0.4.2-beta
+**Version**: 0.5.0-beta
 **S3 Compatibility**: 98%
 **Last Updated**: November 23, 2025
 

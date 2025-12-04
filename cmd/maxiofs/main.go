@@ -15,9 +15,9 @@ import (
 )
 
 var (
-	version = "v0.4.2-beta" // Default version, overridden by -ldflags during build
+	version = "v0.5.0-beta" // Default version, overridden by -ldflags during build
 	commit  = "none"
-	date    = "20251124"
+	date    = "20251203"
 )
 
 func main() {

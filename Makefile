@@ -35,7 +35,7 @@ endif
 # Build variables
 BINARY_NAME=maxiofs$(BINARY_EXT)
 # Default version - update this when releasing new versions
-DEFAULT_VERSION=v0.4.2-beta
+DEFAULT_VERSION=v0.5.0-beta
 # Try to get VERSION from environment, fallback to DEFAULT_VERSION
 ifeq ($(DETECTED_OS),Windows)
 	VERSION?=$(if $(VERSION_ENV),$(VERSION_ENV),$(DEFAULT_VERSION))
