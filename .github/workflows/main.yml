@@ -125,20 +125,9 @@ jobs:
         run: |
           echo "Running backend tests..."
           PKGS=$(go list ./... | grep -v '^github.com/maxiofs/maxiofs/web$')
-          COVERPKGS=$(echo $PKGS | tr ' ' ',')
           echo "Testing packages:" $PKGS
-          go test $PKGS -v -coverprofile=coverage.out -coverpkg=$COVERPKGS
+          go test $PKGS -v
           echo "✅ All backend tests passed"
-
-      - name: Generate coverage report
-        run: |
-          echo "### Backend Test Coverage" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          go tool cover -func=coverage.out | tail -10 >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          COVERAGE=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}')
-          echo "**Total Coverage: $COVERAGE**" >> $GITHUB_STEP_SUMMARY
-          echo "Coverage: $COVERAGE"
 
       - name: Build backend binaries
         run: |
@@ -162,13 +151,6 @@ jobs:
         run: |
           echo "${{ steps.nightly_version.outputs.commit_short }}" > nightly-artifacts/LAST_COMMIT
 
-      - name: Save test reports
-        run: |
-          mkdir -p nightly-artifacts/reports
-          cp coverage.out nightly-artifacts/reports/backend-coverage.out
-          go tool cover -html=coverage.out -o nightly-artifacts/reports/backend-coverage.html
-          echo "Test reports saved"
-
       - name: Upload to S3
         run: aws s3 sync ./nightly-artifacts s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest --delete
 
@@ -183,7 +165,6 @@ jobs:
           echo "### 📦 Artifacts Published" >> $GITHUB_STEP_SUMMARY
           echo "- Backend binaries (linux-amd64, linux-arm64, darwin-amd64, darwin-arm64, windows-amd64)" >> $GITHUB_STEP_SUMMARY
           echo "- Debian packages (.deb for amd64 and arm64)" >> $GITHUB_STEP_SUMMARY
-          echo "- Test coverage reports" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📍 S3 Location: \`s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest/\`" >> $GITHUB_STEP_SUMMARY
 
