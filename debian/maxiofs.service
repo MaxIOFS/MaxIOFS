@@ -35,8 +35,8 @@ StartLimitInterval=300s
 StartLimitBurst=5
 
 # Logging
-StandardOutput=journal
-StandardError=journal
+StandardOutput=append:/var/log/maxiofs/maxiofs.log
+StandardError=append:/var/log/maxiofs/maxiofs-error.log
 SyslogIdentifier=maxiofs
 
 # Limits

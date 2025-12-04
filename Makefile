@@ -425,6 +425,7 @@ ifneq ($(DETECTED_OS),Windows)
 	@mkdir -p $(BUILD_DIR)/debian-package/DEBIAN
 	@mkdir -p $(BUILD_DIR)/debian-package/opt/maxiofs
 	@mkdir -p $(BUILD_DIR)/debian-package/etc/maxiofs
+	@mkdir -p $(BUILD_DIR)/debian-package/etc/logrotate.d
 	@mkdir -p $(BUILD_DIR)/debian-package/lib/systemd/system
 	@mkdir -p $(BUILD_DIR)/debian-package/var/lib/maxiofs
 	@mkdir -p $(BUILD_DIR)/debian-package/var/log/maxiofs
@@ -440,7 +441,8 @@ ifneq ($(DETECTED_OS),Windows)
 	@cp debian/prerm $(BUILD_DIR)/debian-package/DEBIAN/
 	@cp debian/postrm $(BUILD_DIR)/debian-package/DEBIAN/
 	@cp debian/maxiofs.service $(BUILD_DIR)/debian-package/lib/systemd/system/
-	
+	@cp debian/maxiofs.logrotate $(BUILD_DIR)/debian-package/etc/logrotate.d/maxiofs
+
 	@echo "Setting permissions..."
 	@chmod 755 $(BUILD_DIR)/debian-package/DEBIAN/postinst
 	@chmod 755 $(BUILD_DIR)/debian-package/DEBIAN/prerm
@@ -448,7 +450,8 @@ ifneq ($(DETECTED_OS),Windows)
 	@chmod 755 $(BUILD_DIR)/debian-package/opt/maxiofs/maxiofs
 	@chmod 644 $(BUILD_DIR)/debian-package/etc/maxiofs/config.yaml
 	@chmod 644 $(BUILD_DIR)/debian-package/lib/systemd/system/maxiofs.service
-	
+	@chmod 644 $(BUILD_DIR)/debian-package/etc/logrotate.d/maxiofs
+
 	@echo "Building .deb package..."
 	@dpkg-deb --build $(BUILD_DIR)/debian-package $(BUILD_DIR)/maxiofs_$(VERSION)_amd64.deb
 	
@@ -490,6 +493,7 @@ ifneq ($(DETECTED_OS),Windows)
 	@mkdir -p $(BUILD_DIR)/debian-package-arm64/DEBIAN
 	@mkdir -p $(BUILD_DIR)/debian-package-arm64/opt/maxiofs
 	@mkdir -p $(BUILD_DIR)/debian-package-arm64/etc/maxiofs
+	@mkdir -p $(BUILD_DIR)/debian-package-arm64/etc/logrotate.d
 	@mkdir -p $(BUILD_DIR)/debian-package-arm64/lib/systemd/system
 	@mkdir -p $(BUILD_DIR)/debian-package-arm64/var/lib/maxiofs
 	@mkdir -p $(BUILD_DIR)/debian-package-arm64/var/log/maxiofs
@@ -506,7 +510,8 @@ ifneq ($(DETECTED_OS),Windows)
 	@cp debian/prerm $(BUILD_DIR)/debian-package-arm64/DEBIAN/
 	@cp debian/postrm $(BUILD_DIR)/debian-package-arm64/DEBIAN/
 	@cp debian/maxiofs.service $(BUILD_DIR)/debian-package-arm64/lib/systemd/system/
-	
+	@cp debian/maxiofs.logrotate $(BUILD_DIR)/debian-package-arm64/etc/logrotate.d/maxiofs
+
 	@echo "Setting permissions..."
 	@chmod 755 $(BUILD_DIR)/debian-package-arm64/DEBIAN/postinst
 	@chmod 755 $(BUILD_DIR)/debian-package-arm64/DEBIAN/prerm
@@ -514,7 +519,8 @@ ifneq ($(DETECTED_OS),Windows)
 	@chmod 755 $(BUILD_DIR)/debian-package-arm64/opt/maxiofs/maxiofs
 	@chmod 644 $(BUILD_DIR)/debian-package-arm64/etc/maxiofs/config.yaml
 	@chmod 644 $(BUILD_DIR)/debian-package-arm64/lib/systemd/system/maxiofs.service
-	
+	@chmod 644 $(BUILD_DIR)/debian-package-arm64/etc/logrotate.d/maxiofs
+
 	@echo "Building .deb package..."
 	@dpkg-deb --build $(BUILD_DIR)/debian-package-arm64 $(BUILD_DIR)/maxiofs_$(VERSION)_arm64.deb
 	
