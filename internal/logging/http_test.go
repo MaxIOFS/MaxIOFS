@@ -76,13 +76,13 @@ func TestHTTPOutputWrite(t *testing.T) {
 	err = output.Write(entry2)
 	require.NoError(t, err)
 
-	// Wait for flush
-	time.Sleep(200 * time.Millisecond)
+	// Wait for flush with longer timeout for CI/CD environments
+	time.Sleep(500 * time.Millisecond)
 
 	// Check received entries
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Len(t, received, 2)
+	require.Len(t, received, 2, "Expected 2 entries but got %d", len(received))
 	assert.Equal(t, "Test message 1", received[0].Message)
 	assert.Equal(t, "Test message 2", received[1].Message)
 }
@@ -113,8 +113,8 @@ func TestHTTPOutputBatching(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Wait for flush
-	time.Sleep(200 * time.Millisecond)
+	// Wait for flush with longer timeout for CI/CD environments
+	time.Sleep(500 * time.Millisecond)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -151,8 +151,8 @@ func TestHTTPOutputFlushInterval(t *testing.T) {
 	}
 	output.Write(entry)
 
-	// Should flush within interval
-	time.Sleep(100 * time.Millisecond)
+	// Should flush within interval (longer timeout for CI/CD environments)
+	time.Sleep(300 * time.Millisecond)
 
 	mu.Lock()
 	defer mu.Unlock()

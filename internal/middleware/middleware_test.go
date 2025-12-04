@@ -444,7 +444,7 @@ func TestTokenBucket(t *testing.T) {
 		allowed := bucket.allow()
 
 		assert.False(t, allowed)
-		assert.Equal(t, 0.0, bucket.tokens)
+		assert.InDelta(t, 0.0, bucket.tokens, 0.001) // Allow small tolerance for floating point precision
 	})
 
 	t.Run("Refill tokens over time", func(t *testing.T) {

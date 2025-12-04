@@ -23,6 +23,8 @@ vi.mock('@/lib/sweetalert', () => ({
     confirmDelete: vi.fn(),
     success: vi.fn(),
     apiError: vi.fn(),
+    close: vi.fn(),
+    loading: vi.fn(),
   },
 }));
 

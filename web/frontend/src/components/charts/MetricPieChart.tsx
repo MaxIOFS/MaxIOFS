@@ -7,6 +7,7 @@ import {
   Legend,
   ResponsiveContainer,
   TooltipProps,
+  PieLabelRenderProps,
 } from 'recharts';
 import { Card } from '@/components/ui/Card';
 
@@ -104,9 +105,8 @@ export const MetricPieChart: React.FC<MetricPieChartProps> = ({
   }, []);
 
   // Custom label using useCallback to prevent re-creation
-  // Note: recharts PieLabelRenderProps type is complex, so we use a flexible type here
-  const renderLabel = React.useCallback((entry: Record<string, unknown>) => {
-    const value = entry.value as number | undefined;
+  const renderLabel = React.useCallback((props: PieLabelRenderProps) => {
+    const value = props.value as number | undefined;
     if (!value) return '';
     const totalValue = data.reduce((acc, item) => acc + item.value, 0);
     const percent = ((value / totalValue) * 100).toFixed(0);

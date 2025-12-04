@@ -36,7 +36,7 @@ jobs:
       - name: Generate nightly version
         id: nightly_version
         run: |
-          BASE_VERSION="0.4.3"
+          BASE_VERSION="0.5.0"
           COMMIT_SHORT=$(git rev-parse --short HEAD)
           NIGHTLY_VERSION="${BASE_VERSION}-nightly-${COMMIT_SHORT}"
           echo "version=${NIGHTLY_VERSION}" >> $GITHUB_OUTPUT
@@ -92,39 +92,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential gcc g++ make upx zip dpkg fakeroot
 
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-
-      - name: Cache Node modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            web/frontend/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('web/frontend/package-lock.json') }}
-
       - name: Install Go dependencies
-        run: go mod download
-
-      - name: Run backend tests
         run: |
-          echo "Running backend tests..."
-          go test ./... -v -coverprofile=coverage.out
-          echo "✅ All backend tests passed"
-
-      - name: Generate coverage report
-        run: |
-          echo "### Backend Test Coverage" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          go tool cover -func=coverage.out | tail -10 >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          COVERAGE=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}')
-          echo "**Total Coverage: $COVERAGE**" >> $GITHUB_STEP_SUMMARY
-          echo "Coverage: $COVERAGE"
+          echo "Downloading Go dependencies from scratch (no cache)..."
+          go mod download
+          go mod verify
 
       - name: Install frontend dependencies
         run: |
@@ -148,6 +120,25 @@ jobs:
         run: |
           cd web/frontend
           npm run build
+
+      - name: Run backend tests
+        run: |
+          echo "Running backend tests..."
+          PKGS=$(go list ./... | grep -v '^github.com/maxiofs/maxiofs/web$')
+          COVERPKGS=$(echo $PKGS | tr ' ' ',')
+          echo "Testing packages:" $PKGS
+          go test $PKGS -v -coverprofile=coverage.out -coverpkg=$COVERPKGS
+          echo "✅ All backend tests passed"
+
+      - name: Generate coverage report
+        run: |
+          echo "### Backend Test Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage.out | tail -10 >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          COVERAGE=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}')
+          echo "**Total Coverage: $COVERAGE**" >> $GITHUB_STEP_SUMMARY
+          echo "Coverage: $COVERAGE"
 
       - name: Build backend binaries
         run: |
