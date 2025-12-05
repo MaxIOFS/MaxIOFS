@@ -151,17 +151,76 @@ aws s3 --profile maxiofs --endpoint-url http://localhost:8080 cp file.txt s3://m
 
 ## Uninstallation
 
-### Remove package (keep data)
+### Understanding Debian Package Removal
+
+MaxIOFS follows Debian packaging best practices for configuration file handling:
+
+#### Remove (apt-get remove)
 ```bash
 sudo apt-get remove maxiofs
 ```
-Data remains in `/var/lib/maxiofs` for recovery.
 
-### Remove package and data (purge)
+**What is preserved:**
+- ✅ Configuration: `/etc/maxiofs/config.yaml` (includes encryption key)
+- ✅ Data directory: `/var/lib/maxiofs/` (all your data)
+- ✅ Logs: `/var/log/maxiofs/`
+- ✅ System user: `maxiofs`
+
+**What is removed:**
+- ❌ Binary: `/opt/maxiofs/maxiofs`
+- ❌ Systemd service
+- ❌ Documentation
+
+**Why preserve config.yaml?**
+The `config.yaml` file contains your encryption key. Without it, all encrypted data becomes permanently inaccessible. Debian marks this as a "conffile" to protect it from accidental deletion.
+
+You can safely reinstall MaxIOFS and your data will be immediately accessible.
+
+#### Purge (apt-get purge)
 ```bash
 sudo apt-get purge maxiofs
 ```
-⚠️ **This permanently deletes all data!**
+
+**⚠️ WARNING: This PERMANENTLY DELETES EVERYTHING:**
+- ❌ Configuration: `/etc/maxiofs/` (including encryption key)
+- ❌ Data directory: `/var/lib/maxiofs/` (all your data)
+- ❌ Logs: `/var/log/maxiofs/`
+- ❌ System user: `maxiofs`
+- ❌ Binary and documentation
+
+**After purge, your encrypted data is PERMANENTLY INACCESSIBLE!**
+
+### Configuration File Protection (conffiles)
+
+The `/etc/maxiofs/config.yaml` file is marked as a Debian "conffile" which means:
+
+1. **Protected from accidental deletion**: Survives `apt-get remove`
+2. **Preserved during upgrades**: Your settings are never overwritten
+3. **Manual confirmation required**: If the package includes changes to config.yaml, Debian will:
+   - Keep your existing configuration by default
+   - Prompt you to choose between keeping or replacing it
+   - Show you the differences between versions
+4. **Only deleted on purge**: Explicit `apt-get purge` is required to remove it
+
+**Example upgrade scenario:**
+```bash
+# Upgrade MaxIOFS
+sudo apt-get install maxiofs
+
+# Debian detects config.yaml has changed
+Configuration file '/etc/maxiofs/config.yaml'
+ ==> Modified (by you or by a script) since installation.
+ ==> Package distributor has shipped an updated version.
+   What would you like to do about it ?  Your options are:
+    Y or I  : install the package maintainer's version
+    N or O  : keep your currently-installed version
+      D     : show the differences between the versions
+      Z     : start a shell to examine the situation
+ The default action is to keep your current version.
+*** config.yaml (Y/I/N/O/D/Z) [default=N] ? N
+
+# Your encryption key and configuration are preserved!
+```
 
 ## File Permissions
 
@@ -395,20 +454,58 @@ sudo systemctl restart maxiofs
 
 ## Backup and Recovery
 
+### ⚠️ CRITICAL: Backup Your Encryption Key
+
+**The `/etc/maxiofs/config.yaml` file contains your encryption key. Without it, all encrypted data is permanently lost.**
+
+**Best practices:**
+1. ✅ Backup `config.yaml` immediately after installation
+2. ✅ Store backups in a secure location (encrypted, off-site)
+3. ✅ Never commit `config.yaml` to version control
+4. ✅ Test restore procedures regularly
+5. ✅ Backup before any system maintenance
+
 ### Backup
+
+#### Full Backup (Recommended)
 ```bash
 # Stop service
 sudo systemctl stop maxiofs
 
-# Backup data directory
-sudo tar -czf maxiofs-backup-$(date +%Y%m%d).tar.gz \
-  -C /var/lib maxiofs
+# Create backup directory with timestamp
+BACKUP_DIR="maxiofs-backup-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUP_DIR"
 
-# Backup configuration
-sudo cp /etc/maxiofs/config.yaml config-backup.yaml
+# Backup configuration (CRITICAL - contains encryption key)
+sudo cp /etc/maxiofs/config.yaml "$BACKUP_DIR/"
+
+# Backup data directory
+sudo tar -czf "$BACKUP_DIR/data.tar.gz" -C /var/lib maxiofs
+
+# Optional: Backup logs
+sudo tar -czf "$BACKUP_DIR/logs.tar.gz" -C /var/log maxiofs
+
+# Create archive
+tar -czf "${BACKUP_DIR}.tar.gz" "$BACKUP_DIR"
+
+# Secure the backup
+chmod 600 "${BACKUP_DIR}.tar.gz"
 
 # Restart service
 sudo systemctl start maxiofs
+
+echo "Backup created: ${BACKUP_DIR}.tar.gz"
+echo "⚠️ IMPORTANT: Store this backup in a secure location!"
+```
+
+#### Quick Config Backup (Before Upgrades)
+```bash
+# Backup just the configuration file
+sudo cp /etc/maxiofs/config.yaml \
+  ~/maxiofs-config-backup-$(date +%Y%m%d).yaml
+
+# Secure it
+chmod 600 ~/maxiofs-config-backup-*.yaml
 ```
 
 ### Restore
@@ -434,22 +531,74 @@ sudo systemctl start maxiofs
 
 ## Upgrading
 
-### Manual upgrade
+### Upgrade Process
+
+MaxIOFS upgrades are safe and preserve all your data and configuration:
+
 ```bash
+# Recommended: Backup config.yaml before upgrade
+sudo cp /etc/maxiofs/config.yaml ~/config-backup.yaml
+
 # Download new package
 wget https://example.com/maxiofs_v1.0.0_amd64.deb
 
-# Install (keeps configuration and data)
+# Install upgrade
 sudo dpkg -i maxiofs_v1.0.0_amd64.deb
 
-# Restart service
-sudo systemctl restart maxiofs
+# The service is automatically restarted with your existing configuration
 ```
 
-The package preserves:
-- Configuration files in `/etc/maxiofs/`
-- Data in `/var/lib/maxiofs/`
-- Existing systemd service settings
+### What Gets Preserved During Upgrades
+
+✅ **Automatically preserved:**
+- Configuration: `/etc/maxiofs/config.yaml` (includes encryption key)
+- All settings, credentials, and encryption keys
+- Data directory: `/var/lib/maxiofs/`
+- All buckets, objects, and metadata
+- Logs: `/var/log/maxiofs/`
+- System user and permissions
+
+✅ **Updated:**
+- Binary: `/opt/maxiofs/maxiofs` (new version)
+- Systemd service file (if changed)
+- Documentation: `/usr/share/doc/maxiofs/`
+
+### Handling Configuration Changes
+
+If the new package includes changes to `config.yaml`, Debian will prompt you:
+
+```
+Configuration file '/etc/maxiofs/config.yaml'
+ ==> Modified (by you or by a script) since installation.
+ ==> Package distributor has shipped an updated version.
+   What would you like to do about it ?  Your options are:
+    Y or I  : install the package maintainer's version
+    N or O  : keep your currently-installed version
+      D     : show the differences between the versions
+      Z     : start a shell to examine the situation
+ The default action is to keep your current version.
+```
+
+**Recommended choice: N (keep your version)**
+- Your encryption key is preserved
+- Your custom settings remain intact
+- You can manually review and merge new options later
+
+### Rollback to Previous Version
+
+If you need to downgrade:
+
+```bash
+# Stop service
+sudo systemctl stop maxiofs
+
+# Install previous version
+sudo dpkg -i maxiofs_v0.4.0-beta_amd64.deb
+
+# Your config.yaml is still preserved
+# Restart service
+sudo systemctl start maxiofs
+```
 
 ## Package Files
 
@@ -458,10 +607,12 @@ The package preserves:
 - `compat`: Debhelper compatibility level
 - `copyright`: License information (MIT)
 - `rules`: Build script
+- `conffiles`: List of configuration files protected by Debian (config.yaml)
 - `maxiofs.service`: Systemd unit file
-- `postinst`: Post-installation script (creates user, sets permissions)
+- `maxiofs.logrotate`: Logrotate configuration
+- `postinst`: Post-installation script (creates user, sets permissions, detects upgrades)
 - `prerm`: Pre-removal script (stops service)
-- `postrm`: Post-removal script (cleanup, optional purge)
+- `postrm`: Post-removal script (cleanup on remove, purge all data on purge)
 
 ## Documentation
 

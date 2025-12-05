@@ -11,26 +11,39 @@ case "$1" in
         rm -rf /var/lib/maxiofs
         rm -rf /var/log/maxiofs
         rm -rf /etc/maxiofs
-        
+
         # Remove user and group
         if getent passwd maxiofs > /dev/null 2>&1; then
             echo "Removing maxiofs system user..."
             deluser --quiet maxiofs > /dev/null || true
         fi
-        
+
         echo "MaxIOFS has been completely removed."
+        echo "WARNING: All data and encryption keys have been deleted."
         ;;
 
     remove)
-        # On remove (not purge), keep data but remove service file
+        # On remove (not purge), keep all data and configuration
         if [ -d /run/systemd/system ]; then
             systemctl daemon-reload >/dev/null || true
         fi
-        
+
         echo ""
+        echo "========================================"
         echo "MaxIOFS has been removed."
-        echo "Data directory /var/lib/maxiofs has been preserved."
-        echo "To completely remove all data, run: sudo apt-get purge maxiofs"
+        echo "========================================"
+        echo ""
+        echo "IMPORTANT: Your data has been preserved:"
+        echo "  - Configuration: /etc/maxiofs/config.yaml (includes encryption key)"
+        echo "  - Data directory: /var/lib/maxiofs"
+        echo "  - Logs: /var/log/maxiofs"
+        echo ""
+        echo "You can reinstall MaxIOFS and your data will be accessible."
+        echo ""
+        echo "To completely remove all data including encryption keys:"
+        echo "  sudo apt-get purge maxiofs"
+        echo ""
+        echo "WARNING: Purging will make your encrypted data permanently inaccessible!"
         echo ""
         ;;
 

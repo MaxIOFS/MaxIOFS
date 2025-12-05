@@ -17,12 +17,16 @@ case "$1" in
         # Set ownership of directories
         chown -R maxiofs:maxiofs /var/lib/maxiofs
         chown -R maxiofs:maxiofs /var/log/maxiofs
-        chown maxiofs:maxiofs /etc/maxiofs/config.yaml
+
+        # Set ownership and permissions for config file
+        if [ -f /etc/maxiofs/config.yaml ]; then
+            chown maxiofs:maxiofs /etc/maxiofs/config.yaml
+            chmod 0640 /etc/maxiofs/config.yaml
+        fi
 
         # Set permissions
         chmod 0750 /var/lib/maxiofs
         chmod 0750 /var/log/maxiofs
-        chmod 0640 /etc/maxiofs/config.yaml
 
         # Reload systemd
         if [ -d /run/systemd/system ]; then
@@ -32,35 +36,56 @@ case "$1" in
         # Enable service (but don't start it automatically)
         if [ -d /run/systemd/system ]; then
             systemctl enable maxiofs.service >/dev/null || true
-            echo ""
-            echo "========================================"
-            echo "MaxIOFS has been installed successfully!"
-            echo "========================================"
-            echo ""
-            echo "Configuration file: /etc/maxiofs/config.yaml"
-            echo "Data directory: /var/lib/maxiofs"
-            echo "Log directory: /var/log/maxiofs"
-            echo ""
-            echo "IMPORTANT: Before starting MaxIOFS, please:"
-            echo "  1. Edit /etc/maxiofs/config.yaml with your settings"
-            echo "  2. Ensure the data_dir is configured correctly"
-            echo "  3. Review security settings (TLS, authentication)"
-            echo ""
-            echo "To start MaxIOFS:"
-            echo "  sudo systemctl start maxiofs"
-            echo ""
-            echo "To enable auto-start on boot:"
-            echo "  sudo systemctl enable maxiofs"
-            echo ""
-            echo "To check status:"
-            echo "  sudo systemctl status maxiofs"
-            echo ""
-            echo "To view logs:"
-            echo "  sudo journalctl -u maxiofs -f"
-            echo ""
-            echo "Web Console: http://localhost:8081"
-            echo "S3 API: http://localhost:8080"
-            echo ""
+
+            # Check if this is a new installation or an upgrade
+            if [ -z "$2" ]; then
+                # New installation
+                echo ""
+                echo "========================================"
+                echo "MaxIOFS has been installed successfully!"
+                echo "========================================"
+                echo ""
+                echo "Configuration file: /etc/maxiofs/config.yaml"
+                echo "Data directory: /var/lib/maxiofs"
+                echo "Log directory: /var/log/maxiofs"
+                echo ""
+                echo "IMPORTANT: Before starting MaxIOFS, please:"
+                echo "  1. Edit /etc/maxiofs/config.yaml with your settings"
+                echo "  2. Ensure the data_dir is configured correctly"
+                echo "  3. Review security settings (TLS, authentication)"
+                echo ""
+                echo "To start MaxIOFS:"
+                echo "  sudo systemctl start maxiofs"
+                echo ""
+                echo "To check status:"
+                echo "  sudo systemctl status maxiofs"
+                echo ""
+                echo "To view logs:"
+                echo "  sudo journalctl -u maxiofs -f"
+                echo ""
+                echo "Web Console: http://localhost:8081"
+                echo "S3 API: http://localhost:8080"
+                echo ""
+                echo "CRITICAL: The config.yaml contains your encryption key."
+                echo "Make regular backups of /etc/maxiofs/config.yaml"
+                echo ""
+            else
+                # Upgrade
+                echo ""
+                echo "========================================"
+                echo "MaxIOFS has been upgraded successfully!"
+                echo "========================================"
+                echo ""
+                echo "Your configuration has been preserved: /etc/maxiofs/config.yaml"
+                echo "Data directory: /var/lib/maxiofs"
+                echo ""
+                echo "To restart MaxIOFS with the new version:"
+                echo "  sudo systemctl restart maxiofs"
+                echo ""
+                echo "To check status:"
+                echo "  sudo systemctl status maxiofs"
+                echo ""
+            fi
         fi
         ;;
 
