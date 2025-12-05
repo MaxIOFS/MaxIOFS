@@ -203,6 +203,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/replication/rules/{ruleId}", s.handleUpdateReplicationRule).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/replication/rules/{ruleId}", s.handleDeleteReplicationRule).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/replication/rules/{ruleId}/metrics", s.handleGetReplicationMetrics).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/replication/rules/{ruleId}/sync", s.handleTriggerReplicationSync).Methods("POST", "OPTIONS")
 
 	// Share endpoints (MUST be registered BEFORE generic object endpoints to avoid route conflicts)
 	router.HandleFunc("/buckets/{bucket}/shares", s.handleListBucketShares).Methods("GET", "OPTIONS")

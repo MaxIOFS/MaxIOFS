@@ -3,6 +3,7 @@ package replication
 import (
 	"context"
 	"database/sql"
+	"io"
 	"path/filepath"
 	"testing"
 	"time"
@@ -40,6 +41,38 @@ func (m *MockObjectAdapter) GetObjectMetadata(ctx context.Context, bucket, key, 
 	return map[string]string{}, nil
 }
 
+// MockObjectManager for testing
+type MockObjectManager struct {
+	GetObjectFunc         func(ctx context.Context, tenantID, bucket, key string) (io.ReadCloser, int64, string, map[string]string, error)
+	GetObjectMetadataFunc func(ctx context.Context, tenantID, bucket, key string) (int64, string, map[string]string, error)
+}
+
+func (m *MockObjectManager) GetObject(ctx context.Context, tenantID, bucket, key string) (io.ReadCloser, int64, string, map[string]string, error) {
+	if m.GetObjectFunc != nil {
+		return m.GetObjectFunc(ctx, tenantID, bucket, key)
+	}
+	return nil, 0, "", map[string]string{}, nil
+}
+
+func (m *MockObjectManager) GetObjectMetadata(ctx context.Context, tenantID, bucket, key string) (int64, string, map[string]string, error) {
+	if m.GetObjectMetadataFunc != nil {
+		return m.GetObjectMetadataFunc(ctx, tenantID, bucket, key)
+	}
+	return 0, "", map[string]string{}, nil
+}
+
+// MockBucketLister for testing
+type MockBucketLister struct {
+	ListObjectsFunc func(ctx context.Context, tenantID, bucket, prefix string, maxKeys int) ([]string, error)
+}
+
+func (m *MockBucketLister) ListObjects(ctx context.Context, tenantID, bucket, prefix string, maxKeys int) ([]string, error) {
+	if m.ListObjectsFunc != nil {
+		return m.ListObjectsFunc(ctx, tenantID, bucket, prefix, maxKeys)
+	}
+	return []string{}, nil
+}
+
 func setupTestDB(t *testing.T) *sql.DB {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test_replication.db")
@@ -54,6 +87,8 @@ func setupTestManager(t *testing.T) (*Manager, *MockObjectAdapter) {
 		db.Close()
 	})
 	adapter := &MockObjectAdapter{}
+	objectManager := &MockObjectManager{}
+	bucketLister := &MockBucketLister{}
 	config := ReplicationConfig{
 		Enable:          true,
 		WorkerCount:     2,
@@ -64,7 +99,7 @@ func setupTestManager(t *testing.T) (*Manager, *MockObjectAdapter) {
 		CleanupInterval: 1 * time.Hour,
 		RetentionDays:   30,
 	}
-	manager, err := NewManager(db, config, adapter)
+	manager, err := NewManager(db, config, adapter, objectManager, bucketLister)
 	require.NoError(t, err)
 	return manager, adapter
 }
@@ -82,8 +117,10 @@ func TestNewManager_DefaultConfig(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	adapter := &MockObjectAdapter{}
+	objectManager := &MockObjectManager{}
+	bucketLister := &MockBucketLister{}
 	config := ReplicationConfig{}
-	manager, err := NewManager(db, config, adapter)
+	manager, err := NewManager(db, config, adapter, objectManager, bucketLister)
 	require.NoError(t, err)
 
 	assert.Equal(t, 5, manager.config.WorkerCount)
@@ -422,9 +459,11 @@ func TestReplicationConfig_Defaults(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	adapter := &MockObjectAdapter{}
+	objectManager := &MockObjectManager{}
+	bucketLister := &MockBucketLister{}
 	config := ReplicationConfig{}
 
-	manager, err := NewManager(db, config, adapter)
+	manager, err := NewManager(db, config, adapter, objectManager, bucketLister)
 	require.NoError(t, err)
 
 	assert.Equal(t, 5, manager.config.WorkerCount)

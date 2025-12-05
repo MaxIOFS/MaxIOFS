@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -194,18 +195,20 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize replication manager
 	replicationConfig := replication.ReplicationConfig{
-		Enable:          false, // Disabled until object adapter is implemented
+		Enable:          true, // Now enabled with AWS SDK implementation
 		WorkerCount:     5,
 		QueueSize:       1000,
-		BatchSize:       10,
+		BatchSize:       100,
 		RetryInterval:   5 * time.Minute,
 		MaxRetries:      3,
 		CleanupInterval: 24 * time.Hour,
 		RetentionDays:   30,
 	}
-	// Simple no-op adapter for now
-	objectAdapter := &simpleObjectAdapter{}
-	replicationManager, err := replication.NewManager(db, replicationConfig, objectAdapter)
+	// Create adapters for replication manager
+	objectManagerAdapted := &objectManagerAdapter{mgr: objectManager}
+	objectAdapter := replication.NewRealObjectAdapter(objectManagerAdapted)
+	bucketLister := &bucketListerAdapter{mgr: objectManager}
+	replicationManager, err := replication.NewManager(db, replicationConfig, objectAdapter, objectManagerAdapted, bucketLister)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create replication manager: %w", err)
 	}
@@ -306,6 +309,12 @@ func (s *Server) Start(ctx context.Context) error {
 	// Start lifecycle worker (runs every 1 hour)
 	s.lifecycleWorker.Start(ctx, 1*time.Hour)
 
+	// Start replication manager
+	if s.replicationManager != nil {
+		s.replicationManager.Start(ctx)
+		logrus.Info("Replication manager started")
+	}
+
 	// Start API server
 	go func() {
 		if err := s.startAPIServer(); err != nil && err != http.ErrServerClosed {
@@ -370,6 +379,12 @@ func (s *Server) shutdown() error {
 	// Stop lifecycle worker
 	if s.lifecycleWorker != nil {
 		s.lifecycleWorker.Stop()
+	}
+
+	// Stop replication manager
+	if s.replicationManager != nil {
+		s.replicationManager.Stop()
+		logrus.Info("Replication manager stopped")
 	}
 
 	// Close audit manager
@@ -507,17 +522,48 @@ func extractBasePathFromURL(urlStr string) string {
 	return basePath
 }
 
-// simpleObjectAdapter implements replication.ObjectAdapter (no-op)
-type simpleObjectAdapter struct{}
-
-func (s *simpleObjectAdapter) CopyObject(ctx context.Context, sourceBucket, sourceKey, destBucket, destKey, tenantID string) (int64, error) {
-	return 0, fmt.Errorf("replication not yet implemented")
+// objectManagerAdapter adapts object.Manager to replication.ObjectManager interface
+type objectManagerAdapter struct {
+	mgr object.Manager
 }
 
-func (s *simpleObjectAdapter) DeleteObject(ctx context.Context, bucket, key, tenantID string) error {
-	return fmt.Errorf("replication not yet implemented")
+func (oma *objectManagerAdapter) GetObject(ctx context.Context, tenantID, bucket, key string) (io.ReadCloser, int64, string, map[string]string, error) {
+	// Get object using the object manager
+	obj, reader, err := oma.mgr.GetObject(ctx, bucket, key)
+	if err != nil {
+		return nil, 0, "", nil, err
+	}
+
+	return reader, obj.Size, obj.ContentType, obj.Metadata, nil
 }
 
-func (s *simpleObjectAdapter) GetObjectMetadata(ctx context.Context, bucket, key, tenantID string) (map[string]string, error) {
-	return map[string]string{}, nil
+func (oma *objectManagerAdapter) GetObjectMetadata(ctx context.Context, tenantID, bucket, key string) (int64, string, map[string]string, error) {
+	obj, err := oma.mgr.GetObjectMetadata(ctx, bucket, key)
+	if err != nil {
+		return 0, "", nil, err
+	}
+
+	return obj.Size, obj.ContentType, obj.Metadata, nil
+}
+
+// bucketListerAdapter adapts object.Manager to replication.BucketLister interface
+type bucketListerAdapter struct {
+	mgr object.Manager
+}
+
+func (bla *bucketListerAdapter) ListObjects(ctx context.Context, tenantID, bucket, prefix string, maxKeys int) ([]string, error) {
+	// List objects using the object manager
+	// Pass empty delimiter and marker to get all objects
+	result, err := bla.mgr.ListObjects(ctx, bucket, prefix, "", "", maxKeys)
+	if err != nil {
+		return nil, err
+	}
+
+	// Extract just the keys from the result
+	keys := make([]string, 0, len(result.Objects))
+	for _, obj := range result.Objects {
+		keys = append(keys, obj.Key)
+	}
+
+	return keys, nil
 }

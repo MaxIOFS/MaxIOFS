@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -479,6 +480,62 @@ func (s *Server) handleGetReplicationMetrics(w http.ResponseWriter, r *http.Requ
 	if metrics.LastFailure != nil {
 		lastFailure := metrics.LastFailure.Format("2006-01-02T15:04:05Z07:00")
 		response.LastFailure = &lastFailure
+	}
+
+	s.writeJSON(w, response)
+}
+
+// handleTriggerReplicationSync triggers a manual replication sync for a rule
+func (s *Server) handleTriggerReplicationSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	ruleID := vars["ruleId"]
+
+	user, userExists := auth.GetUserFromContext(ctx)
+	if !userExists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := user.TenantID
+
+	// Get rule to verify tenant ownership
+	rule, err := s.replicationManager.GetRule(ctx, ruleID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get replication rule")
+		s.writeError(w, "Failed to get replication rule", http.StatusInternalServerError)
+		return
+	}
+
+	if rule == nil {
+		s.writeError(w, "Replication rule not found", http.StatusNotFound)
+		return
+	}
+
+	if rule.TenantID != tenantID {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	// Trigger manual sync
+	queuedCount, err := s.replicationManager.SyncRule(ctx, ruleID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to trigger replication sync")
+		s.writeError(w, fmt.Sprintf("Failed to trigger sync: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"rule_id":      ruleID,
+		"tenant_id":    tenantID,
+		"queued_count": queuedCount,
+	}).Info("Manual replication sync triggered")
+
+	response := map[string]interface{}{
+		"success":      true,
+		"message":      "Replication sync triggered successfully",
+		"queued_count": queuedCount,
+		"rule_id":      ruleID,
 	}
 
 	s.writeJSON(w, response)

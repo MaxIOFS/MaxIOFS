@@ -377,6 +377,17 @@ export default function BucketSettingsPage() {
     },
   });
 
+  const triggerReplicationSyncMutation = useMutation({
+    mutationFn: (ruleId: string) => APIClient.triggerReplicationSync(bucketName, ruleId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName] });
+      SweetAlert.toast('success', `Replication sync triggered! ${data.queued_count} object(s) queued for replication.`);
+    },
+    onError: (error: Error) => {
+      SweetAlert.apiError(error);
+    },
+  });
+
   // ACL mutations
   const saveACLMutation = useMutation({
     mutationFn: (cannedACL: string) => APIClient.putBucketACL(bucketName, '', cannedACL, tenantId),
@@ -1002,6 +1013,14 @@ export default function BucketSettingsPage() {
       replicate_metadata: rule.replicate_metadata,
     };
     updateReplicationRuleMutation.mutate({ ruleId: rule.id, request });
+  };
+
+  const handleTriggerReplicationSync = (ruleId: string) => {
+    SweetAlert.confirm(
+      'Trigger manual sync?',
+      'This will queue all objects in the source bucket for replication to the destination.',
+      () => triggerReplicationSyncMutation.mutate(ruleId)
+    );
   };
 
   // Policy Templates
@@ -1804,6 +1823,16 @@ export default function BucketSettingsPage() {
                                     title={rule.enabled ? 'Disable rule' : 'Enable rule'}
                                   >
                                     {rule.enabled ? 'Disable' : 'Enable'}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleTriggerReplicationSync(rule.id)}
+                                    disabled={isGlobalAdminInTenantBucket || !rule.enabled}
+                                    title="Trigger manual sync"
+                                  >
+                                    <RefreshCw className="h-4 w-4 mr-1" />
+                                    Sync Now
                                   </Button>
                                   <Button
                                     size="sm"

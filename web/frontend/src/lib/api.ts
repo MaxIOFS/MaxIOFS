@@ -1101,6 +1101,11 @@ export class APIClient {
     return response.data;
   }
 
+  static async triggerReplicationSync(bucketName: string, ruleId: string): Promise<{ success: boolean; message: string; queued_count: number; rule_id: string }> {
+    const response = await apiClient.post<{ success: boolean; message: string; queued_count: number; rule_id: string }>(`/buckets/${bucketName}/replication/rules/${ruleId}/sync`);
+    return response.data;
+  }
+
   // Utility methods
   static isAuthenticated(): boolean {
     return tokenManager.isAuthenticated();

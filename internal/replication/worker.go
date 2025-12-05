@@ -15,15 +15,17 @@ type Worker struct {
 	queue         <-chan *QueueItem
 	db            *sql.DB
 	objectAdapter ObjectAdapter
+	objectManager ObjectManager
 }
 
 // NewWorker creates a new replication worker
-func NewWorker(id int, queue <-chan *QueueItem, db *sql.DB, objectAdapter ObjectAdapter) *Worker {
+func NewWorker(id int, queue <-chan *QueueItem, db *sql.DB, objectAdapter ObjectAdapter, objectManager ObjectManager) *Worker {
 	return &Worker{
 		id:            id,
 		queue:         queue,
 		db:            db,
 		objectAdapter: objectAdapter,
+		objectManager: objectManager,
 	}
 }
 
@@ -124,26 +126,59 @@ func (w *Worker) replicateObject(ctx context.Context, rule *ReplicationRule, ite
 		"dest_key":      destKey,
 	}).Info("Replicating object")
 
-	// Note: tenantID parameter is for source tenant only
-	// Destination uses S3 credentials (endpoint, access key, secret key)
-	bytesReplicated, err := w.objectAdapter.CopyObject(
-		ctx,
-		rule.SourceBucket,
-		item.ObjectKey,
-		rule.DestinationBucket,
-		destKey,
-		item.TenantID,
+	// Create S3 client for remote destination
+	region := rule.DestinationRegion
+	if region == "" {
+		region = "us-east-1" // Default region
+	}
+
+	s3Client := NewS3RemoteClient(
+		rule.DestinationEndpoint,
+		region,
+		rule.DestinationAccessKey,
+		rule.DestinationSecretKey,
 	)
 
+	// Get object from local storage
+	reader, size, contentType, metadata, err := w.objectManager.GetObject(
+		ctx,
+		item.TenantID,
+		rule.SourceBucket,
+		item.ObjectKey,
+	)
 	if err != nil {
-		return 0, fmt.Errorf("failed to copy object: %w", err)
+		return 0, fmt.Errorf("failed to get source object from local storage: %w", err)
+	}
+	defer reader.Close()
+
+	logrus.WithFields(logrus.Fields{
+		"source_key":   item.ObjectKey,
+		"size":         size,
+		"content_type": contentType,
+	}).Debug("Retrieved object from local storage")
+
+	// Upload object to remote S3
+	err = s3Client.PutObject(
+		ctx,
+		rule.DestinationBucket,
+		destKey,
+		reader,
+		size,
+		contentType,
+		metadata,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to upload object to remote S3: %w", err)
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"bytes": bytesReplicated,
-	}).Info("Object replicated successfully")
+		"bytes":         size,
+		"dest_endpoint": rule.DestinationEndpoint,
+		"dest_bucket":   rule.DestinationBucket,
+		"dest_key":      destKey,
+	}).Info("Object replicated successfully to remote S3")
 
-	return bytesReplicated, nil
+	return size, nil
 }
 
 // replicateDelete replicates a delete operation
@@ -156,20 +191,31 @@ func (w *Worker) replicateDelete(ctx context.Context, rule *ReplicationRule, ite
 		"dest_key":      destKey,
 	}).Info("Replicating delete")
 
-	// Note: tenantID parameter is for source tenant only
-	// Destination uses S3 credentials (endpoint, access key, secret key)
-	err := w.objectAdapter.DeleteObject(
-		ctx,
-		rule.DestinationBucket,
-		destKey,
-		item.TenantID,
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to delete object: %w", err)
+	// Create S3 client for remote destination
+	region := rule.DestinationRegion
+	if region == "" {
+		region = "us-east-1" // Default region
 	}
 
-	logrus.Info("Delete replicated successfully")
+	s3Client := NewS3RemoteClient(
+		rule.DestinationEndpoint,
+		region,
+		rule.DestinationAccessKey,
+		rule.DestinationSecretKey,
+	)
+
+	// Delete object from remote S3
+	err := s3Client.DeleteObject(ctx, rule.DestinationBucket, destKey)
+	if err != nil {
+		return fmt.Errorf("failed to delete object from remote S3: %w", err)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"dest_endpoint": rule.DestinationEndpoint,
+		"dest_bucket":   rule.DestinationBucket,
+		"dest_key":      destKey,
+	}).Info("Delete replicated successfully to remote S3")
+
 	return nil
 }
 

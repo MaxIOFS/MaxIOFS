@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	_ "modernc.org/sqlite"
 )
 
@@ -23,6 +24,10 @@ type Manager struct {
 	mu            sync.RWMutex
 	running       bool
 	objectAdapter ObjectAdapter
+	objectManager ObjectManager
+	bucketLister  BucketLister
+	ruleLocks     map[string]*sync.Mutex // Locks per rule to prevent concurrent syncs
+	locksMu       sync.RWMutex           // Protects ruleLocks map
 }
 
 // ObjectAdapter provides methods to interact with objects
@@ -32,8 +37,13 @@ type ObjectAdapter interface {
 	GetObjectMetadata(ctx context.Context, bucket, key, tenantID string) (map[string]string, error)
 }
 
+// BucketLister provides methods to list objects in a bucket
+type BucketLister interface {
+	ListObjects(ctx context.Context, tenantID, bucket, prefix string, maxKeys int) ([]string, error)
+}
+
 // NewManager creates a new replication manager
-func NewManager(db *sql.DB, config ReplicationConfig, objectAdapter ObjectAdapter) (*Manager, error) {
+func NewManager(db *sql.DB, config ReplicationConfig, objectAdapter ObjectAdapter, objectManager ObjectManager, bucketLister BucketLister) (*Manager, error) {
 	if err := InitSchema(db); err != nil {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
@@ -56,6 +66,9 @@ func NewManager(db *sql.DB, config ReplicationConfig, objectAdapter ObjectAdapte
 	if config.RetentionDays == 0 {
 		config.RetentionDays = 30
 	}
+	if config.BatchSize == 0 {
+		config.BatchSize = 100
+	}
 
 	return &Manager{
 		db:            db,
@@ -63,6 +76,9 @@ func NewManager(db *sql.DB, config ReplicationConfig, objectAdapter ObjectAdapte
 		queue:         make(chan *QueueItem, config.QueueSize),
 		stopChan:      make(chan struct{}),
 		objectAdapter: objectAdapter,
+		objectManager: objectManager,
+		bucketLister:  bucketLister,
+		ruleLocks:     make(map[string]*sync.Mutex),
 	}, nil
 }
 
@@ -78,7 +94,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	// Start workers
 	m.workers = make([]*Worker, m.config.WorkerCount)
 	for i := 0; i < m.config.WorkerCount; i++ {
-		worker := NewWorker(i, m.queue, m.db, m.objectAdapter)
+		worker := NewWorker(i, m.queue, m.db, m.objectAdapter, m.objectManager)
 		m.workers[i] = worker
 		m.wg.Add(1)
 		go func(w *Worker) {
@@ -99,6 +115,13 @@ func (m *Manager) Start(ctx context.Context) error {
 	go func() {
 		defer m.wg.Done()
 		m.queueLoader(ctx)
+	}()
+
+	// Start rule scheduler
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		m.ruleScheduler(ctx)
 	}()
 
 	m.running = true
@@ -430,6 +453,88 @@ func (m *Manager) cleanupRoutine(ctx context.Context) {
 	}
 }
 
+// ruleScheduler periodically checks and executes scheduled replication rules
+func (m *Manager) ruleScheduler(ctx context.Context) {
+	// Check every minute for scheduled rules
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	// Track last sync time for each rule
+	lastSync := make(map[string]time.Time)
+
+	logrus.Info("Replication rule scheduler started")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-m.stopChan:
+			return
+		case <-ticker.C:
+			m.processScheduledRules(ctx, lastSync)
+		}
+	}
+}
+
+// processScheduledRules checks and processes rules that need to be synced
+func (m *Manager) processScheduledRules(ctx context.Context, lastSync map[string]time.Time) {
+	// Get all enabled scheduled rules
+	query := `
+		SELECT id, tenant_id, source_bucket, schedule_interval, mode
+		FROM replication_rules
+		WHERE enabled = 1 AND mode = 'scheduled' AND schedule_interval > 0
+	`
+
+	rows, err := m.db.QueryContext(ctx, query)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to query scheduled rules")
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var ruleID, tenantID, sourceBucket, mode string
+		var scheduleInterval int
+
+		err := rows.Scan(&ruleID, &tenantID, &sourceBucket, &scheduleInterval, &mode)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to scan rule")
+			continue
+		}
+
+		// Check if it's time to sync this rule
+		lastSyncTime, exists := lastSync[ruleID]
+		now := time.Now()
+
+		if !exists || now.Sub(lastSyncTime) >= time.Duration(scheduleInterval)*time.Minute {
+			logrus.WithFields(logrus.Fields{
+				"rule_id":  ruleID,
+				"bucket":   sourceBucket,
+				"interval": scheduleInterval,
+			}).Info("Triggering scheduled sync")
+
+			// Trigger sync in a goroutine to not block the scheduler
+			go func(rID string) {
+				count, err := m.SyncRule(ctx, rID)
+				if err != nil {
+					logrus.WithFields(logrus.Fields{
+						"rule_id": rID,
+					}).WithError(err).Error("Scheduled sync failed")
+					return
+				}
+
+				logrus.WithFields(logrus.Fields{
+					"rule_id": rID,
+					"objects": count,
+				}).Info("Scheduled sync completed")
+
+				// Update last sync time
+				lastSync[rID] = time.Now()
+			}(ruleID)
+		}
+	}
+}
+
 // cleanup removes old completed/failed items
 func (m *Manager) cleanup(ctx context.Context) {
 	cutoff := time.Now().AddDate(0, 0, -m.config.RetentionDays)
@@ -440,6 +545,111 @@ func (m *Manager) cleanup(ctx context.Context) {
 		AND completed_at < ?
 	`
 	m.db.ExecContext(ctx, query, cutoff)
+}
+
+// SyncBucket synchronizes all objects in a bucket according to a replication rule
+func (m *Manager) SyncBucket(ctx context.Context, ruleID string) (int, error) {
+	// Get the rule
+	rule, err := m.GetRule(ctx, ruleID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rule: %w", err)
+	}
+	if rule == nil {
+		return 0, fmt.Errorf("rule not found: %s", ruleID)
+	}
+	if !rule.Enabled {
+		return 0, fmt.Errorf("rule is disabled: %s", ruleID)
+	}
+
+	// List all objects in the source bucket
+	objects, err := m.bucketLister.ListObjects(ctx, rule.TenantID, rule.SourceBucket, rule.Prefix, 10000)
+	if err != nil {
+		return 0, fmt.Errorf("failed to list objects: %w", err)
+	}
+
+	// Queue each object for replication
+	queuedCount := 0
+	for _, objectKey := range objects {
+		// Check if object matches prefix filter
+		if !matchesPrefix(objectKey, rule.Prefix) {
+			continue
+		}
+
+		// Queue the object
+		err := m.QueueObject(ctx, rule.TenantID, rule.SourceBucket, objectKey, "PUT")
+		if err != nil {
+			logrus.WithFields(logrus.Fields{
+				"rule_id": ruleID,
+				"object":  objectKey,
+			}).WithError(err).Warn("Failed to queue object for replication")
+			continue
+		}
+		queuedCount++
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"rule_id": ruleID,
+		"bucket":  rule.SourceBucket,
+		"queued":  queuedCount,
+		"total":   len(objects),
+	}).Info("Bucket sync completed")
+
+	return queuedCount, nil
+}
+
+// SyncRule triggers a sync for a specific replication rule
+func (m *Manager) SyncRule(ctx context.Context, ruleID string) (int, error) {
+	// Try to acquire lock for this rule
+	if !m.tryLockRule(ruleID) {
+		return 0, fmt.Errorf("sync already in progress for rule: %s", ruleID)
+	}
+	defer m.unlockRule(ruleID)
+
+	logrus.WithField("rule_id", ruleID).Info("Starting rule sync")
+
+	// Perform the sync
+	count, err := m.SyncBucket(ctx, ruleID)
+	if err != nil {
+		return 0, fmt.Errorf("sync failed: %w", err)
+	}
+
+	// Update last sync timestamp in rule (optional enhancement)
+	// This would require adding last_sync_at field to the rules table
+
+	logrus.WithFields(logrus.Fields{
+		"rule_id": ruleID,
+		"objects": count,
+	}).Info("Rule sync completed successfully")
+
+	return count, nil
+}
+
+// tryLockRule attempts to acquire a lock for a rule
+func (m *Manager) tryLockRule(ruleID string) bool {
+	m.locksMu.Lock()
+	defer m.locksMu.Unlock()
+
+	// Check if lock exists for this rule
+	lock, exists := m.ruleLocks[ruleID]
+	if !exists {
+		// Create new lock for this rule
+		lock = &sync.Mutex{}
+		m.ruleLocks[ruleID] = lock
+	}
+
+	// Try to acquire the lock (non-blocking)
+	return lock.TryLock()
+}
+
+// unlockRule releases the lock for a rule
+func (m *Manager) unlockRule(ruleID string) {
+	m.locksMu.RLock()
+	lock, exists := m.ruleLocks[ruleID]
+	m.locksMu.RUnlock()
+
+	if exists {
+		lock.Unlock()
+	}
 }
 
 // matchesPrefix checks if objectKey matches the prefix
