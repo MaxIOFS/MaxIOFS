@@ -16,6 +16,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/lifecycle"
 	"github.com/maxiofs/maxiofs/internal/metadata"
@@ -48,6 +49,8 @@ type Server struct {
 	shareManager        share.Manager
 	notificationManager *notifications.Manager
 	replicationManager  *replication.Manager
+	clusterManager      *cluster.Manager
+	clusterRouter       *cluster.Router
 	notificationHub     *NotificationHub
 	systemMetrics       *metrics.SystemMetricsTracker
 	lifecycleWorker     *lifecycle.Worker
@@ -213,6 +216,28 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create replication manager: %w", err)
 	}
 
+	// Initialize cluster schema (uses same SQLite DB as auth and replication)
+	if err := cluster.InitSchema(db); err != nil {
+		return nil, fmt.Errorf("failed to initialize cluster schema: %w", err)
+	}
+
+	// Initialize cluster manager
+	clusterManager := cluster.NewManager(db, cfg.PublicAPIURL)
+
+	// Get local node ID from cluster config (if cluster is initialized)
+	localNodeID := ""
+	clusterConfig, err := clusterManager.GetConfig(context.Background())
+	if err == nil {
+		localNodeID = clusterConfig.NodeID
+	}
+
+	// Create adapters for cluster router
+	bucketManagerAdapter := &clusterBucketManagerAdapter{mgr: bucketManager}
+	replicationManagerAdapter := &clusterReplicationManagerAdapter{mgr: replicationManager}
+
+	// Initialize cluster router with adapters
+	clusterRouter := cluster.NewRouter(clusterManager, bucketManagerAdapter, replicationManagerAdapter, localNodeID)
+
 	// Create HTTP servers
 	httpServer := &http.Server{
 		Addr:         cfg.Listen,
@@ -244,6 +269,8 @@ func New(cfg *config.Config) (*Server, error) {
 		shareManager:        shareManager,
 		notificationManager: notificationManager,
 		replicationManager:  replicationManager,
+		clusterManager:      clusterManager,
+		clusterRouter:       clusterRouter,
 		notificationHub:     notificationHub,
 		systemMetrics:       systemMetrics,
 		lifecycleWorker:     lifecycleWorker,
@@ -313,6 +340,16 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.replicationManager != nil {
 		s.replicationManager.Start(ctx)
 		logrus.Info("Replication manager started")
+	}
+
+	// Start cluster health checker
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		go s.clusterManager.StartHealthChecker(ctx)
+		logrus.Info("Cluster health checker started")
+
+		// Start bucket count updater (runs every 5 minutes)
+		go s.updateBucketCountPeriodically(ctx, 5*time.Minute)
+		logrus.Info("Bucket count updater started")
 	}
 
 	// Start API server
@@ -387,6 +424,14 @@ func (s *Server) shutdown() error {
 		logrus.Info("Replication manager stopped")
 	}
 
+	// Stop cluster manager
+	if s.clusterManager != nil {
+		if err := s.clusterManager.Close(); err != nil {
+			logrus.WithError(err).Error("Failed to close cluster manager")
+		}
+		logrus.Info("Cluster manager stopped")
+	}
+
 	// Close audit manager
 	if s.auditManager != nil {
 		if err := s.auditManager.Close(); err != nil {
@@ -409,6 +454,96 @@ type shareManagerAdapter struct {
 
 func (sma *shareManagerAdapter) GetShareByObject(ctx context.Context, bucketName, objectKey, tenantID string) (interface{}, error) {
 	return sma.mgr.GetShareByObject(ctx, bucketName, objectKey, tenantID)
+}
+
+// clusterBucketManagerAdapter adapts bucket.Manager to cluster.BucketManager interface
+type clusterBucketManagerAdapter struct {
+	mgr bucket.Manager
+}
+
+func (a *clusterBucketManagerAdapter) GetBucketTenant(ctx context.Context, bucket string) (string, error) {
+	// Try to get bucket info with empty tenant (will search across all tenants)
+	bucketInfo, err := a.mgr.GetBucketInfo(ctx, "", bucket)
+	if err != nil {
+		return "", err
+	}
+	return bucketInfo.TenantID, nil
+}
+
+func (a *clusterBucketManagerAdapter) BucketExists(ctx context.Context, tenant, bucket string) (bool, error) {
+	return a.mgr.BucketExists(ctx, tenant, bucket)
+}
+
+// clusterReplicationManagerAdapter adapts replication.Manager to cluster.ReplicationManager interface
+type clusterReplicationManagerAdapter struct {
+	mgr *replication.Manager
+}
+
+func (a *clusterReplicationManagerAdapter) GetReplicationRules(ctx context.Context, tenantID, bucket string) ([]cluster.ReplicationRule, error) {
+	// Get all rules for this tenant
+	rules, err := a.mgr.ListRules(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter rules by bucket and convert to cluster.ReplicationRule
+	var clusterRules []cluster.ReplicationRule
+	for _, rule := range rules {
+		// Check if this rule applies to the bucket
+		if rule.SourceBucket == bucket {
+			clusterRules = append(clusterRules, cluster.ReplicationRule{
+				ID:                  rule.ID,
+				DestinationEndpoint: rule.DestinationEndpoint,
+				DestinationBucket:   rule.DestinationBucket,
+				Enabled:             rule.Enabled,
+			})
+		}
+	}
+
+	return clusterRules, nil
+}
+
+// updateBucketCountPeriodically updates the bucket count for the local node periodically
+func (s *Server) updateBucketCountPeriodically(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	// Update immediately on start
+	s.updateLocalBucketCount(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.updateLocalBucketCount(ctx)
+		}
+	}
+}
+
+// updateLocalBucketCount counts buckets and updates the local node's bucket_count
+func (s *Server) updateLocalBucketCount(ctx context.Context) {
+	if s.clusterManager == nil || !s.clusterManager.IsClusterEnabled() {
+		return
+	}
+
+	// Count total buckets across all tenants
+	buckets, err := s.bucketManager.ListBuckets(ctx, "") // Empty tenant = all buckets
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to count buckets for cluster node update")
+		return
+	}
+
+	bucketCount := len(buckets)
+
+	// Update the cluster node
+	err = s.clusterManager.UpdateLocalNodeBucketCount(ctx, bucketCount)
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to update local node bucket count")
+		return
+	}
+
+	logrus.WithField("bucket_count", bucketCount).Debug("Updated local node bucket count")
 }
 
 func (s *Server) setupRoutes() error {

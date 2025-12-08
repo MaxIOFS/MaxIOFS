@@ -95,6 +95,29 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
   - Full audit logging for all replication operations
   - 23 automated tests covering CRUD, queueing, processing, and edge cases
 
+### Cluster Management
+- ✅ **Multi-Node Cluster Support** - High availability cluster with intelligent routing and failover - *New in 0.6.0*
+  - **Cluster Manager**: Complete CRUD operations for cluster nodes, health monitoring, and configuration
+  - **Smart Router with Failover**: Intelligent request routing to healthy nodes with automatic failover
+  - **Bucket Location Cache**: 5-minute TTL cache for bucket-to-node mappings (5ms latency vs 50ms for misses)
+  - **Internal Proxy Mode**: Any node can receive any S3 request and proxy internally to the correct node
+  - **Health Checker**: Background worker checking all nodes every 30 seconds with latency tracking
+  - **SQLite Persistence**: 3 tables (cluster_config, cluster_nodes, cluster_health_history) for cluster state
+  - **Console API Endpoints**: 13 REST endpoints for cluster management (initialize, join, nodes CRUD, health, cache)
+  - **22 automated tests** covering cluster operations (100% pass rate)
+- ✅ **Cluster Dashboard UI** - Complete web console for cluster management - *New in 0.6.0*
+  - **Cluster Page**: New `/cluster` route accessible to global administrators
+  - **Cluster Status Overview**: Real-time dashboard showing total/healthy/degraded/unavailable nodes and bucket statistics
+  - **Nodes Management Table**: Interactive table with health indicators, latency, capacity, bucket count, and priority
+  - **Initialize Cluster**: Dialog to create new cluster with automatic token generation
+  - **Add Node**: Join existing cluster or add remote nodes with endpoint, token, and configuration
+  - **Edit Node**: Update node settings (name, priority, region, metadata)
+  - **Operations**: Remove nodes, trigger health checks, refresh status with complete error handling
+  - **Color-Coded Health Status**: Green (healthy), yellow (degraded), red (unavailable), gray (unknown)
+  - **Navigation Integration**: "Cluster" menu item with Server icon (global admin only)
+  - **TypeScript Types**: 14 interfaces for complete type safety
+  - **API Client**: 13 cluster management methods fully integrated
+
 ### Authentication & Security
 - ✅ **Real-Time Push Notifications (SSE)** - Server-Sent Events for instant admin alerts - *New in 0.4.2*
   - Live notifications in topbar bell icon with unread count badge
@@ -166,6 +189,13 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
   - Color-coded critical events with visual alerts
   - Expandable row details with full event metadata
   - CSV export functionality
+- ✅ **Cluster Management Page** (Global Admins only) - *New in 0.6.0*
+  - Cluster status overview with node health statistics
+  - Interactive nodes table with health indicators and metrics
+  - Initialize cluster with token generation
+  - Add/Edit/Remove nodes with form validation
+  - Manual health checks and status refresh
+  - Complete CRUD operations for cluster management
 - ✅ Metrics monitoring (System, Storage, Requests, Performance)
 
 ### Storage & Performance

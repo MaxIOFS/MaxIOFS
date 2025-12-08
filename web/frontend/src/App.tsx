@@ -29,6 +29,9 @@ import Security from '@/pages/security/index';
 import Settings from '@/pages/settings/index';
 import Tenants from '@/pages/tenants/index';
 import About from '@/pages/about/index';
+import ClusterOverview from '@/pages/cluster/Overview';
+import ClusterBuckets from '@/pages/cluster/BucketReplication';
+import ClusterNodes from '@/pages/cluster/Nodes';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -228,6 +231,36 @@ function App() {
                 <ProtectedRoute>
                   <AppLayout>
                     <Settings />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cluster"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <ClusterOverview />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cluster/buckets"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <ClusterBuckets />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cluster/nodes"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <ClusterNodes />
                   </AppLayout>
                 </ProtectedRoute>
               }

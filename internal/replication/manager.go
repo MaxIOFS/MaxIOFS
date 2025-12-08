@@ -228,6 +228,41 @@ func (m *Manager) ListRules(ctx context.Context, tenantID string) ([]*Replicatio
 	return rules, rows.Err()
 }
 
+// GetRulesForBucket returns all replication rules for a specific bucket
+func (m *Manager) GetRulesForBucket(ctx context.Context, bucketName string) ([]*ReplicationRule, error) {
+	query := `
+		SELECT id, tenant_id, source_bucket, destination_endpoint, destination_bucket,
+			   destination_access_key, destination_secret_key, destination_region, prefix, enabled,
+			   priority, mode, schedule_interval, conflict_resolution, replicate_deletes,
+			   replicate_metadata, created_at, updated_at
+		FROM replication_rules
+		WHERE source_bucket = ?
+		ORDER BY priority DESC, created_at ASC
+	`
+
+	rows, err := m.db.QueryContext(ctx, query, bucketName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var rules []*ReplicationRule
+	for rows.Next() {
+		rule := &ReplicationRule{}
+		err := rows.Scan(
+			&rule.ID, &rule.TenantID, &rule.SourceBucket, &rule.DestinationEndpoint, &rule.DestinationBucket,
+			&rule.DestinationAccessKey, &rule.DestinationSecretKey, &rule.DestinationRegion, &rule.Prefix, &rule.Enabled,
+			&rule.Priority, &rule.Mode, &rule.ScheduleInterval, &rule.ConflictResolution, &rule.ReplicateDeletes,
+			&rule.ReplicateMetadata, &rule.CreatedAt, &rule.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, rule)
+	}
+	return rules, rows.Err()
+}
+
 // UpdateRule updates an existing replication rule
 func (m *Manager) UpdateRule(ctx context.Context, rule *ReplicationRule) error {
 	rule.UpdatedAt = time.Now()

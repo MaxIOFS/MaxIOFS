@@ -19,6 +19,7 @@ import {
   Sun,
   Info,
   FileText,
+  Server,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -84,6 +85,11 @@ const navigation: NavItem[] = [
     icon: Lock,
   },
   {
+    name: 'Cluster',
+    href: '/cluster',
+    icon: Server,
+  },
+  {
     name: 'Settings',
     href: '/settings',
     icon: Settings,
@@ -131,8 +137,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const tenantDisplayName = (tenant as any)?.display_name || tenant?.displayName || tenant?.name || user?.tenantId;
 
   const filteredNavigation = navigation.filter(item => {
-    // Admin-only pages: Metrics, Security, Settings (only for global admins)
-    if ((item.name === 'Metrics' || item.name === 'Security' || item.name === 'Settings') && !isGlobalAdmin) {
+    // Admin-only pages: Metrics, Security, Cluster, Settings (only for global admins)
+    if ((item.name === 'Metrics' || item.name === 'Security' || item.name === 'Cluster' || item.name === 'Settings') && !isGlobalAdmin) {
       return false;
     }
     // Audit Logs: visible for global admins and tenant admins

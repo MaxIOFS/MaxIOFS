@@ -43,6 +43,18 @@ import type {
   CreateReplicationRuleRequest,
   ReplicationMetrics,
   ListReplicationRulesResponse,
+  ClusterNode,
+  ClusterStatus,
+  ClusterConfig,
+  InitializeClusterRequest,
+  InitializeClusterResponse,
+  JoinClusterRequest,
+  AddNodeRequest,
+  UpdateNodeRequest,
+  NodeHealthStatus,
+  CacheStats,
+  ListNodesResponse,
+  BucketWithReplication,
 } from '@/types';
 
 // API Configuration
@@ -1104,6 +1116,82 @@ export class APIClient {
   static async triggerReplicationSync(bucketName: string, ruleId: string): Promise<{ success: boolean; message: string; queued_count: number; rule_id: string }> {
     const response = await apiClient.post<{ success: boolean; message: string; queued_count: number; rule_id: string }>(`/buckets/${bucketName}/replication/rules/${ruleId}/sync`);
     return response.data;
+  }
+
+  // Cluster API
+  static async initializeCluster(request: InitializeClusterRequest): Promise<InitializeClusterResponse> {
+    const response = await apiClient.post<APIResponse<InitializeClusterResponse>>('/cluster/initialize', request);
+    return response.data.data!;
+  }
+
+  static async joinCluster(request: JoinClusterRequest): Promise<{ message: string }> {
+    const response = await apiClient.post<APIResponse<{ message: string }>>('/cluster/join', request);
+    return response.data.data!;
+  }
+
+  static async leaveCluster(): Promise<{ message: string }> {
+    const response = await apiClient.post<APIResponse<{ message: string }>>('/cluster/leave');
+    return response.data.data!;
+  }
+
+  static async getClusterStatus(): Promise<ClusterStatus> {
+    const response = await apiClient.get<APIResponse<ClusterStatus>>('/cluster/status');
+    return response.data.data!;
+  }
+
+  static async getClusterConfig(): Promise<ClusterConfig> {
+    const response = await apiClient.get<APIResponse<ClusterConfig>>('/cluster/config');
+    return response.data.data!;
+  }
+
+  static async listClusterNodes(): Promise<ClusterNode[]> {
+    const response = await apiClient.get<APIResponse<ListNodesResponse>>('/cluster/nodes');
+    return response.data.data!.nodes;
+  }
+
+  static async getClusterNode(nodeId: string): Promise<ClusterNode> {
+    const response = await apiClient.get<APIResponse<ClusterNode>>(`/cluster/nodes/${nodeId}`);
+    return response.data.data!;
+  }
+
+  static async addClusterNode(request: AddNodeRequest): Promise<{ message: string; node_id: string }> {
+    const response = await apiClient.post<APIResponse<{ message: string; node_id: string }>>('/cluster/nodes', request);
+    return response.data.data!;
+  }
+
+  static async updateClusterNode(nodeId: string, request: UpdateNodeRequest): Promise<{ message: string }> {
+    const response = await apiClient.put<APIResponse<{ message: string }>>(`/cluster/nodes/${nodeId}`, request);
+    return response.data.data!;
+  }
+
+  static async removeClusterNode(nodeId: string): Promise<{ message: string }> {
+    const response = await apiClient.delete<APIResponse<{ message: string }>>(`/cluster/nodes/${nodeId}`);
+    return response.data.data!;
+  }
+
+  static async checkNodeHealth(nodeId: string): Promise<NodeHealthStatus> {
+    const response = await apiClient.get<APIResponse<NodeHealthStatus>>(`/cluster/nodes/${nodeId}/health`);
+    return response.data.data!;
+  }
+
+  static async getCacheStats(): Promise<CacheStats> {
+    const response = await apiClient.get<APIResponse<CacheStats>>('/cluster/cache/stats');
+    return response.data.data!;
+  }
+
+  static async invalidateCache(bucket?: string): Promise<{ message: string }> {
+    const response = await apiClient.post<APIResponse<{ message: string }>>('/cluster/cache/invalidate', { bucket });
+    return response.data.data!;
+  }
+
+  static async getClusterBuckets(): Promise<{ buckets: BucketWithReplication[]; total: number }> {
+    const response = await apiClient.get<APIResponse<{ buckets: BucketWithReplication[]; total: number }>>('/cluster/buckets');
+    return response.data.data!;
+  }
+
+  static async getBucketReplicas(bucket: string): Promise<{ bucket: string; rules: any[]; total: number }> {
+    const response = await apiClient.get<APIResponse<{ bucket: string; rules: any[]; total: number }>>(`/cluster/buckets/${bucket}/replicas`);
+    return response.data.data!;
   }
 
   // Utility methods

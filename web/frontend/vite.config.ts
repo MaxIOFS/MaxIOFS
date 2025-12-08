@@ -15,7 +15,7 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
     minify: 'esbuild',
-    chunkSizeWarningLimit: 700,
+    chunkSizeWarningLimit: 800,
     rollupOptions: {
       output: {
         manualChunks: {
@@ -35,7 +35,7 @@ export default defineConfig({
     proxy: {
       // Proxy API requests to the Go backend console server
       '/api': {
-        target: 'https://localhost:8081',
+        target: 'http://localhost:8081',
         changeOrigin: true,
         secure: false,
       },

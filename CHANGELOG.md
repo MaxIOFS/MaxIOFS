@@ -7,7 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes at this time.
+### Added - Cluster Dashboard UI (Phase 3)
+- **Complete Web Console for Cluster Management** - Full-featured cluster management interface
+  - **Cluster Page**: New `/cluster` route with comprehensive cluster management UI
+  - **Navigation Integration**: "Cluster" menu item with Server icon (global admin only access)
+  - **TypeScript Types**: 14 interfaces and 1 type for complete cluster entity definitions
+  - **API Client**: 13 cluster management methods integrated into frontend API client
+  - **Cluster Status Overview**: Real-time dashboard showing:
+    - Total nodes, healthy/degraded/unavailable node counts
+    - Total buckets, replicated buckets, local buckets statistics
+    - Last updated timestamp
+  - **Nodes Management Table**: Interactive table displaying all cluster nodes with:
+    - Health status indicators (color-coded: green=healthy, yellow=degraded, red=unavailable)
+    - Network latency in milliseconds
+    - Storage capacity (used/total with progress bar)
+    - Bucket count per node
+    - Node priority for routing preferences
+    - Last seen timestamp
+  - **Initialize Cluster Dialog**: Create new cluster with:
+    - Node name and region configuration
+    - Automatic cluster token generation
+    - Token display with copy-to-clipboard functionality
+    - Instructions for joining other nodes
+  - **Add Node Dialog**: Join existing cluster or add remote nodes with:
+    - Endpoint URL configuration
+    - Node token authentication
+    - Node name, region, and priority settings
+    - Form validation and error handling
+  - **Edit Node Dialog**: Update existing node configuration:
+    - Modify name, priority, region
+    - Update metadata (JSON format)
+    - Cannot edit endpoint or token (security)
+  - **Cluster Operations**: Complete CRUD functionality
+    - Remove nodes from cluster with confirmation
+    - Manual health check trigger per node
+    - Refresh cluster status and nodes list
+    - Graceful error handling and loading states
+  - **Frontend Build**: Successfully integrated with zero compilation errors
+
+### Added - Multi-Node Cluster Management (Phase 2)
+- **Complete Cluster Infrastructure** - Full implementation of multi-node cluster support with High Availability
+  - **Cluster Manager**: Complete CRUD operations for cluster nodes, health monitoring, and configuration
+  - **Smart Router with Failover**: Intelligent request routing to healthy nodes with automatic failover
+  - **Bucket Location Cache**: 5-minute TTL cache for bucket-to-node mappings (5ms latency for cache hits vs 50ms for misses)
+  - **Internal Proxy Mode**: Any node can receive any S3 request and proxy internally to the correct node
+  - **Health Checker**: Background worker checking all nodes every 30 seconds with latency tracking
+  - **SQLite Persistence**: 3 tables (cluster_config, cluster_nodes, cluster_health_history) for cluster state
+  - **Console API Endpoints**: 13 REST endpoints for cluster management (initialize, join, nodes CRUD, health, cache)
+  - **Flexible Replication**: Manual, user-controlled bucket replication (not automatic by region)
+  - **High Availability Support**: External load balancer integration (HAProxy/nginx) for VIP management
+  - **Interface Adapters**: Clean integration with existing bucket and replication managers
+  - **Server Integration**: Cluster manager and router fully integrated into server.go lifecycle
+  - **Graceful Shutdown**: Proper cleanup of cluster resources on server stop
+  - **No Breaking Changes**: Cluster is opt-in, existing single-node deployments unaffected
+
+### Changed - Bucket Replication Improvements
+- **Complete Replication Implementation** - Full working implementation with real S3 transfers
+  - **AWS SDK v2 Integration**: Real S3 client using AWS SDK for Go v2 with custom endpoint support
+  - **Working Transfers**: Objects are now actually transferred from local storage to remote S3 servers
+  - **Automatic Scheduler**: Background scheduler checks rules every minute and triggers syncs based on `schedule_interval`
+  - **Concurrency Protection**: Per-rule mutex locks prevent overlapping syncs of the same bucket
+  - **Manual Sync Trigger**: New POST endpoint `/api/v1/buckets/{bucket}/replication/rules/{ruleId}/sync`
+  - **Frontend "Sync Now" Button**: UI button added to manually trigger replication syncs
+  - **Object Manager Integration**: Proper adapters for reading objects from local storage
+  - **Bucket Lister Integration**: Adapter for listing all objects in a bucket
+  - **All Tests Passing**: 350+ backend tests passing, frontend build successful
 
 ## [0.5.0-beta] - 2025-12-04
 

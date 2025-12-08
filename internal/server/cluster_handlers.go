@@ -1,0 +1,370 @@
+package server
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/cluster"
+	"github.com/sirupsen/logrus"
+)
+
+// handleInitializeCluster initializes a new cluster
+func (s *Server) handleInitializeCluster(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeName string `json:"node_name"`
+		Region   string `json:"region"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.NodeName == "" {
+		s.writeError(w, "Node name is required", http.StatusBadRequest)
+		return
+	}
+
+	clusterToken, err := s.clusterManager.InitializeCluster(r.Context(), req.NodeName, req.Region)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to initialize cluster")
+		s.writeError(w, "Failed to initialize cluster: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"message":       "Cluster initialized successfully",
+		"cluster_token": clusterToken,
+		"node_name":     req.NodeName,
+		"region":        req.Region,
+	})
+}
+
+// handleJoinCluster joins an existing cluster
+func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ClusterToken string `json:"cluster_token"`
+		NodeEndpoint string `json:"node_endpoint"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.ClusterToken == "" || req.NodeEndpoint == "" {
+		s.writeError(w, "Cluster token and node endpoint are required", http.StatusBadRequest)
+		return
+	}
+
+	err := s.clusterManager.JoinCluster(r.Context(), req.ClusterToken, req.NodeEndpoint)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to join cluster")
+		s.writeError(w, "Failed to join cluster: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"message": "Successfully joined cluster",
+	})
+}
+
+// handleLeaveCluster removes this node from the cluster
+func (s *Server) handleLeaveCluster(w http.ResponseWriter, r *http.Request) {
+	err := s.clusterManager.LeaveCluster(r.Context())
+	if err != nil {
+		logrus.WithError(err).Error("Failed to leave cluster")
+		s.writeError(w, "Failed to leave cluster: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"message": "Successfully left cluster",
+	})
+}
+
+// handleGetClusterStatus gets the overall cluster status
+func (s *Server) handleGetClusterStatus(w http.ResponseWriter, r *http.Request) {
+	status, err := s.clusterManager.GetClusterStatus(r.Context())
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get cluster status")
+		s.writeError(w, "Failed to get cluster status: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, status)
+}
+
+// handleGetClusterConfig gets this node's cluster configuration
+func (s *Server) handleGetClusterConfig(w http.ResponseWriter, r *http.Request) {
+	config, err := s.clusterManager.GetConfig(r.Context())
+	if err != nil {
+		// If cluster is not initialized, return a default standalone config
+		if err.Error() == "cluster not initialized" {
+			s.writeJSON(w, map[string]interface{}{
+				"is_cluster_enabled": false,
+				"node_id":            "",
+				"node_name":          "",
+				"cluster_token":      "",
+				"region":             "",
+				"created_at":         0,
+			})
+			return
+		}
+		logrus.WithError(err).Error("Failed to get cluster config")
+		s.writeError(w, "Failed to get cluster config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, config)
+}
+
+// handleListClusterNodes lists all nodes in the cluster
+func (s *Server) handleListClusterNodes(w http.ResponseWriter, r *http.Request) {
+	nodes, err := s.clusterManager.ListNodes(r.Context())
+	if err != nil {
+		logrus.WithError(err).Error("Failed to list cluster nodes")
+		s.writeError(w, "Failed to list cluster nodes: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"nodes": nodes,
+		"total": len(nodes),
+	})
+}
+
+// handleAddClusterNode adds a new node to the cluster
+func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
+	var node cluster.Node
+
+	if err := json.NewDecoder(r.Body).Decode(&node); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if node.Name == "" || node.Endpoint == "" || node.NodeToken == "" {
+		s.writeError(w, "Name, endpoint, and node_token are required", http.StatusBadRequest)
+		return
+	}
+
+	err := s.clusterManager.AddNode(r.Context(), &node)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to add cluster node")
+		s.writeError(w, "Failed to add cluster node: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"message": "Node added successfully",
+		"node_id": node.ID,
+	})
+}
+
+// handleGetClusterNode gets details of a specific node
+func (s *Server) handleGetClusterNode(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nodeID := vars["nodeId"]
+
+	node, err := s.clusterManager.GetNode(r.Context(), nodeID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get cluster node")
+		s.writeError(w, "Failed to get cluster node: "+err.Error(), http.StatusNotFound)
+		return
+	}
+
+	s.writeJSON(w, node)
+}
+
+// handleUpdateClusterNode updates a node's information
+func (s *Server) handleUpdateClusterNode(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nodeID := vars["nodeId"]
+
+	var node cluster.Node
+	if err := json.NewDecoder(r.Body).Decode(&node); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	node.ID = nodeID
+
+	err := s.clusterManager.UpdateNode(r.Context(), &node)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to update cluster node")
+		s.writeError(w, "Failed to update cluster node: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"message": "Node updated successfully",
+	})
+}
+
+// handleRemoveClusterNode removes a node from the cluster
+func (s *Server) handleRemoveClusterNode(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nodeID := vars["nodeId"]
+
+	err := s.clusterManager.RemoveNode(r.Context(), nodeID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to remove cluster node")
+		s.writeError(w, "Failed to remove cluster node: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Invalidate router cache when a node is removed
+	// This ensures requests don't get routed to the removed node
+	if s.clusterRouter != nil {
+		// We don't have a way to invalidate all cache entries for a specific node,
+		// but the cache will naturally expire within TTL (5 minutes)
+		logrus.WithField("node_id", nodeID).Info("Node removed, cache will expire naturally")
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"message": "Node removed successfully",
+	})
+}
+
+// handleCheckNodeHealth performs a health check on a specific node
+func (s *Server) handleCheckNodeHealth(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nodeID := vars["nodeId"]
+
+	healthStatus, err := s.clusterManager.CheckNodeHealth(r.Context(), nodeID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to check node health")
+		s.writeError(w, "Failed to check node health: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, healthStatus)
+}
+
+// handleGetClusterBuckets lists all buckets with replication information
+func (s *Server) handleGetClusterBuckets(w http.ResponseWriter, r *http.Request) {
+	// Get tenant from context (for multi-tenancy support)
+	tenantID, ok := r.Context().Value("tenant_id").(string)
+	if !ok {
+		tenantID = "" // Global admin sees all buckets
+	}
+
+	// List all buckets
+	buckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to list buckets")
+		s.writeError(w, "Failed to list buckets: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Build response with replication info for each bucket
+	type BucketWithReplication struct {
+		Name             string `json:"name"`
+		TenantID         string `json:"tenant_id,omitempty"`
+		PrimaryNode      string `json:"primary_node"`
+		ReplicaCount     int    `json:"replica_count"`
+		HasReplication   bool   `json:"has_replication"`
+		ReplicationRules int    `json:"replication_rules"`
+	}
+
+	var bucketsWithReplication []BucketWithReplication
+
+	for _, bucket := range buckets {
+		// Get replication rules for this bucket
+		rules, err := s.replicationManager.GetRulesForBucket(r.Context(), bucket.Name)
+		if err != nil {
+			logrus.WithError(err).WithField("bucket", bucket.Name).Warn("Failed to get replication rules")
+			rules = nil
+		}
+
+		replicaCount := len(rules)
+		hasReplication := replicaCount > 0
+
+		// Determine primary node (local node if cluster is enabled)
+		primaryNode := "local"
+		if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+			config, err := s.clusterManager.GetConfig(r.Context())
+			if err == nil {
+				primaryNode = config.NodeName
+			}
+		}
+
+		bucketsWithReplication = append(bucketsWithReplication, BucketWithReplication{
+			Name:             bucket.Name,
+			TenantID:         bucket.TenantID,
+			PrimaryNode:      primaryNode,
+			ReplicaCount:     replicaCount,
+			HasReplication:   hasReplication,
+			ReplicationRules: replicaCount,
+		})
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"buckets": bucketsWithReplication,
+		"total":   len(bucketsWithReplication),
+	})
+}
+
+// handleGetBucketReplicas gets replication info for a specific bucket
+func (s *Server) handleGetBucketReplicas(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	// Get replication rules for this bucket
+	rules, err := s.replicationManager.GetRulesForBucket(r.Context(), bucketName)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get replication rules")
+		s.writeError(w, "Failed to get replication rules: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"bucket":  bucketName,
+		"rules":   rules,
+		"total":   len(rules),
+	})
+}
+
+// handleGetCacheStats gets bucket location cache statistics
+func (s *Server) handleGetCacheStats(w http.ResponseWriter, r *http.Request) {
+	if s.clusterRouter == nil {
+		s.writeError(w, "Cluster router not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	stats := s.clusterRouter.GetCacheStats()
+	s.writeJSON(w, stats)
+}
+
+// handleInvalidateCache invalidates the bucket location cache
+func (s *Server) handleInvalidateCache(w http.ResponseWriter, r *http.Request) {
+	if s.clusterRouter == nil {
+		s.writeError(w, "Cluster router not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req struct {
+		Bucket string `json:"bucket,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// If bucket is specified, invalidate just that bucket
+	// Otherwise, clear the entire cache
+	if req.Bucket != "" {
+		s.clusterRouter.InvalidateCache(req.Bucket)
+		s.writeJSON(w, map[string]interface{}{
+			"message": "Cache invalidated for bucket: " + req.Bucket,
+		})
+	} else {
+		// To clear entire cache, we need to add a method to Router
+		// For now, return error
+		s.writeError(w, "Bucket parameter is required. To clear entire cache, restart the service.", http.StatusBadRequest)
+		return
+	}
+}

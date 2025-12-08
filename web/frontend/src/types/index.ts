@@ -576,6 +576,15 @@ export interface EditBucketForm {
   encryption?: EncryptionConfig;
 }
 
+export interface BucketWithReplication {
+  name: string;
+  tenant_id?: string;
+  primary_node: string;
+  replica_count: number;
+  has_replication: boolean;
+  replication_rules: number;
+}
+
 export interface CreateUserForm {
   username: string;
   email?: string;
@@ -862,6 +871,103 @@ export interface ReplicationMetrics {
 
 export interface ListReplicationRulesResponse {
   rules: ReplicationRule[];
+}
+
+// Cluster Types
+export type HealthStatus = 'healthy' | 'degraded' | 'unavailable' | 'unknown';
+
+export interface ClusterNode {
+  id: string;
+  name: string;
+  endpoint: string;
+  node_token?: string; // Only shown when creating/editing
+  region?: string;
+  priority: number;
+  health_status: HealthStatus;
+  last_health_check?: string;
+  last_seen?: string;
+  latency_ms: number;
+  capacity_total: number;
+  capacity_used: number;
+  bucket_count: number;
+  metadata?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClusterStatus {
+  is_enabled: boolean;
+  total_nodes: number;
+  healthy_nodes: number;
+  degraded_nodes: number;
+  unavailable_nodes: number;
+  total_buckets: number;
+  replicated_buckets: number;
+  local_buckets: number;
+  last_updated: string;
+}
+
+export interface ClusterConfig {
+  node_id: string;
+  node_name: string;
+  cluster_token?: string; // Only shown after initialization
+  is_cluster_enabled: boolean;
+  region?: string;
+  created_at: string;
+}
+
+export interface InitializeClusterRequest {
+  node_name: string;
+  region?: string;
+}
+
+export interface InitializeClusterResponse {
+  message: string;
+  cluster_token: string;
+  node_name: string;
+  region?: string;
+}
+
+export interface JoinClusterRequest {
+  cluster_token: string;
+  node_endpoint: string;
+}
+
+export interface AddNodeRequest {
+  name: string;
+  endpoint: string;
+  node_token: string;
+  region?: string;
+  priority?: number;
+  metadata?: string;
+}
+
+export interface UpdateNodeRequest {
+  name?: string;
+  endpoint?: string;
+  region?: string;
+  priority?: number;
+  metadata?: string;
+}
+
+export interface NodeHealthStatus {
+  node_id: string;
+  status: HealthStatus;
+  latency_ms: number;
+  last_check: string;
+  error_message?: string;
+}
+
+export interface CacheStats {
+  total_entries: number;
+  expired_entries: number;
+  valid_entries: number;
+  ttl_seconds: number;
+}
+
+export interface ListNodesResponse {
+  nodes: ClusterNode[];
+  total: number;
 }
 
 // Re-export common types

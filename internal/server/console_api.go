@@ -335,6 +335,23 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/legal-hold", s.handleGetObjectLegalHold).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/legal-hold", s.handlePutObjectLegalHold).Methods("PUT", "OPTIONS")
 
+	// Cluster endpoints
+	router.HandleFunc("/cluster/initialize", s.handleInitializeCluster).Methods("POST", "OPTIONS")
+	router.HandleFunc("/cluster/join", s.handleJoinCluster).Methods("POST", "OPTIONS")
+	router.HandleFunc("/cluster/leave", s.handleLeaveCluster).Methods("POST", "OPTIONS")
+	router.HandleFunc("/cluster/status", s.handleGetClusterStatus).Methods("GET", "OPTIONS")
+	router.HandleFunc("/cluster/config", s.handleGetClusterConfig).Methods("GET", "OPTIONS")
+	router.HandleFunc("/cluster/nodes", s.handleListClusterNodes).Methods("GET", "OPTIONS")
+	router.HandleFunc("/cluster/nodes", s.handleAddClusterNode).Methods("POST", "OPTIONS")
+	router.HandleFunc("/cluster/nodes/{nodeId}", s.handleGetClusterNode).Methods("GET", "OPTIONS")
+	router.HandleFunc("/cluster/nodes/{nodeId}", s.handleUpdateClusterNode).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/cluster/nodes/{nodeId}", s.handleRemoveClusterNode).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/cluster/nodes/{nodeId}/health", s.handleCheckNodeHealth).Methods("GET", "OPTIONS")
+	router.HandleFunc("/cluster/cache/stats", s.handleGetCacheStats).Methods("GET", "OPTIONS")
+	router.HandleFunc("/cluster/cache/invalidate", s.handleInvalidateCache).Methods("POST", "OPTIONS")
+	router.HandleFunc("/cluster/buckets", s.handleGetClusterBuckets).Methods("GET", "OPTIONS")
+	router.HandleFunc("/cluster/buckets/{bucket}/replicas", s.handleGetBucketReplicas).Methods("GET", "OPTIONS")
+
 	// Health check
 	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET", "OPTIONS")
 }
