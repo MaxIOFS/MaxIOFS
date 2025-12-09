@@ -19,10 +19,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 )
 
 // SimulatedNode represents a minimal simulated MaxIOFS node for testing
@@ -46,7 +46,7 @@ func setupSimulatedNode(t *testing.T, nodeName string) *SimulatedNode {
 
 	// Open SQLite database
 	dbPath := filepath.Join(dataDir, "test.db")
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	require.NoError(t, err)
 
 	// Initialize minimal schema
@@ -70,7 +70,7 @@ func setupSimulatedNode(t *testing.T, nodeName string) *SimulatedNode {
 	require.NoError(t, err)
 
 	// Initialize cluster replication schema
-	err = InitializeReplicationSchema(db)
+	err = InitReplicationSchema(db)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
