@@ -2,6 +2,9 @@ package cluster
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -140,4 +143,70 @@ func isHopByHopHeader(header string) bool {
 		}
 	}
 	return false
+}
+
+// SignClusterRequest adds HMAC authentication headers to a cluster replication request
+// This is used when making authenticated requests to other nodes for replication
+func (p *ProxyClient) SignClusterRequest(req *http.Request, localNodeID, nodeToken string) {
+	timestamp := fmt.Sprintf("%d", time.Now().Unix())
+	nonce := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	// Compute signature: HMAC-SHA256(nodeToken, method + path + timestamp + nonce)
+	payload := fmt.Sprintf("%s\n%s\n%s\n%s", req.Method, req.URL.Path, timestamp, nonce)
+	h := hmac.New(sha256.New, []byte(nodeToken))
+	h.Write([]byte(payload))
+	signature := hex.EncodeToString(h.Sum(nil))
+
+	// Add authentication headers
+	req.Header.Set("X-MaxIOFS-Node-ID", localNodeID)
+	req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
+	req.Header.Set("X-MaxIOFS-Nonce", nonce)
+	req.Header.Set("X-MaxIOFS-Signature", signature)
+
+	p.log.WithFields(logrus.Fields{
+		"node_id":   localNodeID,
+		"method":    req.Method,
+		"path":      req.URL.Path,
+		"timestamp": timestamp,
+	}).Debug("Signed cluster request")
+}
+
+// CreateAuthenticatedRequest creates a new HTTP request with HMAC authentication headers
+// This is a convenience method for cluster replication operations
+func (p *ProxyClient) CreateAuthenticatedRequest(ctx context.Context, method, url string, body io.Reader, localNodeID, nodeToken string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Sign the request
+	p.SignClusterRequest(req, localNodeID, nodeToken)
+
+	return req, nil
+}
+
+// DoAuthenticatedRequest executes an authenticated cluster request and returns the response
+func (p *ProxyClient) DoAuthenticatedRequest(req *http.Request) (*http.Response, error) {
+	startTime := time.Now()
+	resp, err := p.httpClient.Do(req)
+	duration := time.Since(startTime)
+
+	if err != nil {
+		p.log.WithFields(logrus.Fields{
+			"url":         req.URL.String(),
+			"method":      req.Method,
+			"error":       err.Error(),
+			"duration_ms": duration.Milliseconds(),
+		}).Error("Authenticated request failed")
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+
+	p.log.WithFields(logrus.Fields{
+		"url":         req.URL.String(),
+		"method":      req.Method,
+		"status_code": resp.StatusCode,
+		"duration_ms": duration.Milliseconds(),
+	}).Debug("Authenticated request completed")
+
+	return resp, nil
 }

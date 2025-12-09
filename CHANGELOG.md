@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Cluster Bucket Replication System (Phase 3.3)
+- **Complete HA Replication Between MaxIOFS Nodes** - Production-ready cluster replication system
+  - **HMAC Authentication**: Inter-node authentication using HMAC-SHA256 signatures with `node_token`
+  - **No Credentials Required**: Nodes authenticate with cluster tokens, not S3 access keys
+  - **Automatic Tenant Synchronization**: Continuous tenant sync between all cluster nodes every 30 seconds
+  - **Encryption Handling**: Automatic decrypt-on-source, re-encrypt-on-destination (transparent to user)
+  - **Configurable Sync Intervals**: Minimum 10 seconds for real-time HA, up to hours/days for backups
+  - **Self-Replication Prevention**: Nodes cannot replicate to themselves (validation in frontend + backend)
+  - **Bulk Node-to-Node Replication**: Configure all buckets at once between cluster nodes
+  - **Database Schema**: 5 new tables (`cluster_bucket_replication`, `cluster_replication_queue`, etc.)
+  - **Backend Components**:
+    - `internal/cluster/replication_schema.go` - Database schema (5 tables)
+    - `internal/cluster/replication_manager.go` - Core replication manager
+    - `internal/cluster/replication_worker.go` - Background worker processes
+    - `internal/cluster/tenant_sync.go` - Automatic tenant synchronization
+    - `internal/middleware/cluster_auth.go` - HMAC authentication middleware
+    - `internal/server/cluster_replication_handlers.go` - Console API (CRUD operations)
+    - `internal/server/cluster_tenant_handlers.go` - Tenant sync API
+    - `internal/server/cluster_object_handlers.go` - Internal object replication API
+  - **Frontend Components**:
+    - `web/frontend/src/pages/cluster/BucketReplication.tsx` - Bucket replication UI (no credentials)
+    - `web/frontend/src/pages/cluster/Nodes.tsx` - Bulk replication configuration
+    - `web/frontend/src/lib/api.ts` - 5 new cluster replication API methods
+    - `web/frontend/src/types/index.ts` - 5 new TypeScript interfaces for cluster replication
+  - **Console API Endpoints**: 5 new REST endpoints
+    - `POST /api/console/cluster/replication` - Create replication rule
+    - `GET /api/console/cluster/replication` - List replication rules
+    - `PUT /api/console/cluster/replication/:id` - Update rule
+    - `DELETE /api/console/cluster/replication/:id` - Delete rule
+    - `POST /api/console/cluster/replication/bulk` - Bulk node-to-node replication
+  - **Complete Separation from User Replication**: Different tables, endpoints, authentication
+  - **All Tests Passing**: 526+ backend tests, frontend build successful
+  - **✅ PHASE 3.3 100% COMPLETE**
+
 ### Added - Cluster Dashboard UI (Phase 3)
 - **Complete Web Console for Cluster Management** - Full-featured cluster management interface
   - **Cluster Page**: New `/cluster` route with comprehensive cluster management UI

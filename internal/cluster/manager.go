@@ -394,6 +394,43 @@ func (m *Manager) UpdateLocalNodeBucketCount(ctx context.Context, bucketCount in
 	return m.UpdateNodeBucketCount(ctx, config.NodeID, bucketCount)
 }
 
+// GetNodeToken retrieves the node_token for a given node ID
+// This is used for HMAC authentication in cluster replication
+func (m *Manager) GetNodeToken(ctx context.Context, nodeID string) (string, error) {
+	var nodeToken string
+	err := m.db.QueryRowContext(ctx, `
+		SELECT node_token FROM cluster_nodes WHERE id = ? AND status != 'removed'
+	`, nodeID).Scan(&nodeToken)
+
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("node not found: %s", nodeID)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get node token: %w", err)
+	}
+
+	return nodeToken, nil
+}
+
+// GetLocalNodeID returns the ID of the local node
+func (m *Manager) GetLocalNodeID(ctx context.Context) (string, error) {
+	config, err := m.GetConfig(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get cluster config: %w", err)
+	}
+	return config.NodeID, nil
+}
+
+// GetLocalNodeToken returns the node_token of the local node
+// This is used for signing outgoing cluster replication requests
+func (m *Manager) GetLocalNodeToken(ctx context.Context) (string, error) {
+	nodeID, err := m.GetLocalNodeID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return m.GetNodeToken(ctx, nodeID)
+}
+
 // Close stops the cluster manager
 func (m *Manager) Close() error {
 	if m.stopChan != nil {

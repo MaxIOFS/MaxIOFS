@@ -42,22 +42,25 @@ type Server struct {
 	bucketManager   bucket.Manager
 	objectManager   object.Manager
 	authManager     auth.Manager
+	db              *sql.DB
 	auditManager    *audit.Manager
 	metricsManager      metrics.Manager
 	settingsManager     *settings.Manager
 	loggingManager      *logging.Manager
 	shareManager        share.Manager
 	notificationManager *notifications.Manager
-	replicationManager  *replication.Manager
-	clusterManager      *cluster.Manager
-	clusterRouter       *cluster.Router
-	notificationHub     *NotificationHub
-	systemMetrics       *metrics.SystemMetricsTracker
-	lifecycleWorker     *lifecycle.Worker
-	startTime           time.Time // Server start time for uptime calculation
-	version             string    // Server version
-	commit              string    // Git commit hash
-	buildDate           string    // Build date
+	replicationManager      *replication.Manager
+	clusterManager          *cluster.Manager
+	clusterRouter           *cluster.Router
+	clusterReplicationMgr   *cluster.ClusterReplicationManager
+	tenantSyncMgr           *cluster.TenantSyncManager
+	notificationHub         *NotificationHub
+	systemMetrics           *metrics.SystemMetricsTracker
+	lifecycleWorker         *lifecycle.Worker
+	startTime               time.Time // Server start time for uptime calculation
+	version                 string    // Server version
+	commit                  string    // Git commit hash
+	buildDate               string    // Build date
 }
 
 // New creates a new MaxIOFS server
@@ -221,6 +224,11 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize cluster schema: %w", err)
 	}
 
+	// Initialize cluster replication schema
+	if err := cluster.InitReplicationSchema(db); err != nil {
+		return nil, fmt.Errorf("failed to initialize cluster replication schema: %w", err)
+	}
+
 	// Initialize cluster manager
 	clusterManager := cluster.NewManager(db, cfg.PublicAPIURL)
 
@@ -237,6 +245,12 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize cluster router with adapters
 	clusterRouter := cluster.NewRouter(clusterManager, bucketManagerAdapter, replicationManagerAdapter, localNodeID)
+
+	// Initialize tenant synchronization manager
+	tenantSyncMgr := cluster.NewTenantSyncManager(db, clusterManager)
+
+	// Initialize cluster replication manager
+	clusterReplicationMgr := cluster.NewClusterReplicationManager(db, clusterManager, tenantSyncMgr)
 
 	// Create HTTP servers
 	httpServer := &http.Server{
@@ -262,19 +276,22 @@ func New(cfg *config.Config) (*Server, error) {
 		bucketManager:       bucketManager,
 		objectManager:       objectManager,
 		authManager:         authManager,
+		db:                  db,
 		auditManager:        auditManager,
 		metricsManager:      metricsManager,
 		settingsManager:     settingsManager,
 		loggingManager:      loggingManager,
 		shareManager:        shareManager,
 		notificationManager: notificationManager,
-		replicationManager:  replicationManager,
-		clusterManager:      clusterManager,
-		clusterRouter:       clusterRouter,
-		notificationHub:     notificationHub,
-		systemMetrics:       systemMetrics,
-		lifecycleWorker:     lifecycleWorker,
-		startTime:           time.Now(), // Record server start time
+		replicationManager:      replicationManager,
+		clusterManager:          clusterManager,
+		clusterRouter:           clusterRouter,
+		clusterReplicationMgr:   clusterReplicationMgr,
+		tenantSyncMgr:           tenantSyncMgr,
+		notificationHub:         notificationHub,
+		systemMetrics:           systemMetrics,
+		lifecycleWorker:         lifecycleWorker,
+		startTime:               time.Now(), // Record server start time
 	}
 
 	// Connect user locked callback to send SSE notifications
@@ -347,9 +364,21 @@ func (s *Server) Start(ctx context.Context) error {
 		go s.clusterManager.StartHealthChecker(ctx)
 		logrus.Info("Cluster health checker started")
 
-		// Start bucket count updater (runs every 5 minutes)
-		go s.updateBucketCountPeriodically(ctx, 5*time.Minute)
+		// Start bucket count updater (runs every 30 seconds)
+		go s.updateBucketCountPeriodically(ctx, 30*time.Second)
 		logrus.Info("Bucket count updater started")
+
+		// Start tenant synchronization manager
+		if s.tenantSyncMgr != nil {
+			s.tenantSyncMgr.Start(ctx)
+			logrus.Info("Tenant synchronization manager started")
+		}
+
+		// Start cluster replication manager
+		if s.clusterReplicationMgr != nil {
+			s.clusterReplicationMgr.Start(ctx)
+			logrus.Info("Cluster replication manager started")
+		}
 	}
 
 	// Start API server
@@ -543,7 +572,7 @@ func (s *Server) updateLocalBucketCount(ctx context.Context) {
 		return
 	}
 
-	logrus.WithField("bucket_count", bucketCount).Debug("Updated local node bucket count")
+	logrus.WithField("bucket_count", bucketCount).Info("Updated local node bucket count")
 }
 
 func (s *Server) setupRoutes() error {
@@ -588,6 +617,22 @@ func (s *Server) setupRoutes() error {
 
 	// Register API routes on the authenticated subrouter
 	apiHandler.RegisterRoutes(s3Router)
+
+	// Setup internal cluster API routes (authenticated with HMAC)
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		clusterAuthMiddleware := middleware.NewClusterAuthMiddleware(s.db)
+		internalClusterRouter := apiRouter.PathPrefix("/api/internal/cluster").Subrouter()
+		internalClusterRouter.Use(clusterAuthMiddleware.ClusterAuth)
+
+		// Tenant synchronization endpoint
+		internalClusterRouter.HandleFunc("/tenant-sync", s.handleReceiveTenantSync).Methods("POST")
+
+		// Object replication endpoints
+		internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectReplication).Methods("PUT")
+		internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectDeletion).Methods("DELETE")
+
+		logrus.Info("Internal cluster API routes registered with HMAC authentication")
+	}
 
 	// Setup CORS and other middleware
 	s.httpServer.Handler = handlers.RecoveryHandler()(apiRouter)

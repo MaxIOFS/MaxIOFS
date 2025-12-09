@@ -14,10 +14,12 @@ import {
   Trash2,
   Edit,
   Activity,
-  ArrowLeft
+  ArrowLeft,
+  Copy,
+  X
 } from 'lucide-react';
 import APIClient from '@/lib/api';
-import type { ClusterNode, AddNodeRequest, UpdateNodeRequest } from '@/types';
+import type { ClusterNode, AddNodeRequest, UpdateNodeRequest, CreateReplicationRuleRequest, BucketWithReplication } from '@/types';
 
 type HealthStatus = 'healthy' | 'degraded' | 'unavailable' | 'unknown';
 
@@ -28,6 +30,10 @@ export default function ClusterNodes() {
   const [error, setError] = useState<string | null>(null);
   const [showAddNodeDialog, setShowAddNodeDialog] = useState(false);
   const [editingNode, setEditingNode] = useState<ClusterNode | null>(null);
+  const [showNodeReplicationDialog, setShowNodeReplicationDialog] = useState(false);
+  const [configuringBulk, setConfiguringBulk] = useState(false);
+  const [localNodeId, setLocalNodeId] = useState<string | null>(null);
+  const [availableNodes, setAvailableNodes] = useState<ClusterNode[]>([]);
 
   useEffect(() => {
     loadNodes();
@@ -37,8 +43,18 @@ export default function ClusterNodes() {
     try {
       setLoading(true);
       setError(null);
+
+      // Get local node ID
+      const clusterConfig = await APIClient.getClusterConfig();
+      setLocalNodeId(clusterConfig.node_id);
+
+      // Get all cluster nodes
       const data = await APIClient.listClusterNodes();
       setNodes(data);
+
+      // Filter out local node for bulk replication (cannot replicate to itself)
+      const remoteNodes = data.filter(node => node.id !== clusterConfig.node_id);
+      setAvailableNodes(remoteNodes);
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'Failed to load nodes');
     } finally {
@@ -85,6 +101,40 @@ export default function ClusterNodes() {
       alert(`Health Status: ${health.status}\nLatency: ${health.latency_ms}ms`);
     } catch (err: any) {
       alert(err.response?.data?.error || 'Failed to check node health');
+    }
+  };
+
+  const handleBulkReplication = async (targetNodeId: string, syncInterval: number) => {
+    try {
+      setConfiguringBulk(true);
+
+      // Validate sync interval (minimum 10 seconds)
+      if (syncInterval < 10) {
+        throw new Error('Sync interval must be at least 10 seconds');
+      }
+
+      // Use bulk cluster replication API (NO CREDENTIALS needed)
+      const result = await APIClient.createBulkClusterReplication({
+        destination_node_id: targetNodeId,
+        sync_interval_seconds: syncInterval,
+        enabled: true,
+      });
+
+      // Show results
+      let message = `Bulk cluster replication configured!\n\nSuccess: ${result.rules_created}\nFailed: ${result.rules_failed}`;
+      if (result.failed_buckets && result.failed_buckets.length > 0 && result.failed_buckets.length <= 5) {
+        message += '\n\nFailed buckets:\n' + result.failed_buckets.join('\n');
+      } else if (result.failed_buckets && result.failed_buckets.length > 5) {
+        message += '\n\nFailed buckets (first 5):\n' + result.failed_buckets.slice(0, 5).join('\n');
+      }
+
+      alert(message);
+      setShowNodeReplicationDialog(false);
+      await loadNodes();
+    } catch (err: any) {
+      alert(err.response?.data?.error || err.message || 'Failed to configure bulk replication');
+    } finally {
+      setConfiguringBulk(false);
     }
   };
 
@@ -160,6 +210,14 @@ export default function ClusterNodes() {
           >
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setShowNodeReplicationDialog(true)}
+            className="bg-white dark:bg-gray-800"
+          >
+            <Copy className="h-4 w-4 mr-2" />
+            Configure Node Replication
           </Button>
           <Button
             onClick={() => setShowAddNodeDialog(true)}
@@ -240,33 +298,401 @@ export default function ClusterNodes() {
         </div>
       </Card>
 
-      {/* TODO: Add AddNodeDialog and EditNodeDialog components */}
+      {/* Add Node Dialog */}
       {showAddNodeDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-opacity-70 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-md p-6">
-            <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Add Node</h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-4">Add node dialog coming soon...</p>
-            <Button
-              variant="outline"
-              onClick={() => setShowAddNodeDialog(false)}
-            >
-              Close
-            </Button>
+          <Card className="w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Add Cluster Node</h2>
+              <button
+                onClick={() => setShowAddNodeDialog(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              handleAddNode({
+                name: formData.get('name') as string,
+                endpoint: formData.get('endpoint') as string,
+                node_token: formData.get('nodeToken') as string,
+                region: formData.get('region') as string || undefined,
+                priority: parseInt(formData.get('priority') as string) || 100,
+                metadata: formData.get('metadata') as string || undefined,
+              });
+            }}>
+              <div className="space-y-4">
+                {/* Node Name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Node Name *
+                  </label>
+                  <input
+                    name="name"
+                    type="text"
+                    required
+                    placeholder="node-us-west-1"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+
+                {/* Endpoint URL */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Endpoint URL *
+                  </label>
+                  <input
+                    name="endpoint"
+                    type="url"
+                    required
+                    placeholder="https://node2.example.com:8080"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Full URL including protocol and port (e.g., https://node.example.com:8080)
+                  </p>
+                </div>
+
+                {/* Node Token */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Node Token *
+                  </label>
+                  <textarea
+                    name="nodeToken"
+                    required
+                    rows={3}
+                    placeholder="eyJhbGciOiJIUzI1NiIs..."
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 font-mono text-sm"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    JWT token generated by the remote node for authentication
+                  </p>
+                </div>
+
+                {/* Region (Optional) */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Region (Optional)
+                  </label>
+                  <input
+                    name="region"
+                    type="text"
+                    placeholder="us-west-1"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+
+                {/* Priority */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Priority
+                  </label>
+                  <input
+                    name="priority"
+                    type="number"
+                    defaultValue={100}
+                    min={1}
+                    max={1000}
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Lower values = higher priority for routing (1-1000)
+                  </p>
+                </div>
+
+                {/* Metadata (Optional) */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Metadata (Optional, JSON)
+                  </label>
+                  <textarea
+                    name="metadata"
+                    rows={2}
+                    placeholder='{"location": "datacenter-1", "environment": "production"}'
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 font-mono text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2 mt-6">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowAddNodeDialog(false)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className="flex-1 bg-brand-600 hover:bg-brand-700 text-white"
+                >
+                  Add Node
+                </Button>
+              </div>
+            </form>
           </Card>
         </div>
       )}
 
+      {/* Edit Node Dialog */}
       {editingNode && (
         <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-opacity-70 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-md p-6">
-            <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Edit Node</h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-4">Edit node dialog coming soon...</p>
-            <Button
-              variant="outline"
-              onClick={() => setEditingNode(null)}
-            >
-              Close
-            </Button>
+          <Card className="w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Edit Cluster Node</h2>
+              <button
+                onClick={() => setEditingNode(null)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              handleUpdateNode(editingNode.id, {
+                name: formData.get('name') as string || undefined,
+                region: formData.get('region') as string || undefined,
+                priority: parseInt(formData.get('priority') as string) || undefined,
+                metadata: formData.get('metadata') as string || undefined,
+              });
+            }}>
+              <div className="space-y-4">
+                {/* Node Name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Node Name
+                  </label>
+                  <input
+                    name="name"
+                    type="text"
+                    defaultValue={editingNode.name}
+                    placeholder="node-us-west-1"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+
+                {/* Endpoint (Read-only) */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Endpoint URL
+                  </label>
+                  <input
+                    type="text"
+                    value={editingNode.endpoint}
+                    disabled
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Endpoint cannot be changed. Remove and re-add the node to change the endpoint.
+                  </p>
+                </div>
+
+                {/* Node ID (Read-only) */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Node ID
+                  </label>
+                  <input
+                    type="text"
+                    value={editingNode.id}
+                    disabled
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-mono text-sm"
+                  />
+                </div>
+
+                {/* Region */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Region
+                  </label>
+                  <input
+                    name="region"
+                    type="text"
+                    defaultValue={editingNode.region || ''}
+                    placeholder="us-west-1"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+
+                {/* Priority */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Priority
+                  </label>
+                  <input
+                    name="priority"
+                    type="number"
+                    defaultValue={editingNode.priority}
+                    min={1}
+                    max={1000}
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Lower values = higher priority for routing (1-1000)
+                  </p>
+                </div>
+
+                {/* Metadata */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Metadata (JSON)
+                  </label>
+                  <textarea
+                    name="metadata"
+                    rows={3}
+                    defaultValue={editingNode.metadata || ''}
+                    placeholder='{"location": "datacenter-1", "environment": "production"}'
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 font-mono text-sm"
+                  />
+                </div>
+
+                {/* Health Info (Read-only) */}
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600 dark:text-gray-400">Health Status:</span>
+                    <span className={`font-medium ${
+                      editingNode.health_status === 'healthy' ? 'text-green-600' :
+                      editingNode.health_status === 'degraded' ? 'text-yellow-600' :
+                      'text-red-600'
+                    }`}>
+                      {editingNode.health_status}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600 dark:text-gray-400">Latency:</span>
+                    <span className="font-medium text-gray-900 dark:text-white">{editingNode.latency_ms}ms</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600 dark:text-gray-400">Bucket Count:</span>
+                    <span className="font-medium text-gray-900 dark:text-white">{editingNode.bucket_count}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2 mt-6">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEditingNode(null)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className="flex-1 bg-brand-600 hover:bg-brand-700 text-white"
+                >
+                  Save Changes
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {/* Node-to-Node Replication Modal */}
+      {showNodeReplicationDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-opacity-70 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-lg p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                Configure Node-to-Node Replication
+              </h2>
+              <button
+                onClick={() => setShowNodeReplicationDialog(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                This will configure cluster replication for <strong>all local buckets</strong> to the selected target node.
+                Nodes authenticate using cluster tokens - no credentials needed.
+              </p>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              handleBulkReplication(
+                formData.get('targetNode') as string,
+                parseInt(formData.get('syncInterval') as string) || 60
+              );
+            }}>
+              <div className="space-y-4">
+                {/* Target Node */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Target Node *
+                  </label>
+                  <select
+                    name="targetNode"
+                    required
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                  >
+                    <option value="">Select target node...</option>
+                    {availableNodes.map(node => (
+                      <option key={node.id} value={node.id}>
+                        {node.name} ({node.endpoint}) - {node.health_status}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    All local buckets will be replicated to this node. Note: Local node is not shown (cannot replicate to itself).
+                  </p>
+                </div>
+
+                {/* Sync Interval */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Sync Interval (seconds) *
+                  </label>
+                  <input
+                    name="syncInterval"
+                    type="number"
+                    min="10"
+                    defaultValue="60"
+                    required
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                    placeholder="60"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Minimum 10 seconds. Use 60 for real-time HA, or higher values for backups.
+                  </p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 mt-6">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowNodeReplicationDialog(false)}
+                  disabled={configuringBulk}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={configuringBulk}
+                  className="flex-1 bg-brand-600 hover:bg-brand-700 text-white"
+                >
+                  {configuringBulk ? 'Configuring...' : 'Configure Replication'}
+                </Button>
+              </div>
+            </form>
           </Card>
         </div>
       )}

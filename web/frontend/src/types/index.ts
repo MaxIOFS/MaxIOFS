@@ -583,6 +583,8 @@ export interface BucketWithReplication {
   replica_count: number;
   has_replication: boolean;
   replication_rules: number;
+  object_count: number;
+  total_size: number;
 }
 
 export interface CreateUserForm {
@@ -968,6 +970,61 @@ export interface CacheStats {
 export interface ListNodesResponse {
   nodes: ClusterNode[];
   total: number;
+}
+
+// Cluster Replication Types
+export interface ClusterReplicationRule {
+  id: string;
+  tenant_id: string;
+  source_bucket: string;
+  destination_node_id: string;
+  destination_bucket: string;
+  sync_interval_seconds: number;
+  enabled: boolean;
+  replicate_deletes: boolean;
+  replicate_metadata: boolean;
+  prefix?: string;
+  priority: number;
+  last_sync_at?: string;
+  last_error?: string;
+  objects_replicated: number;
+  bytes_replicated: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateClusterReplicationRequest {
+  tenant_id?: string;
+  source_bucket: string;
+  destination_node_id: string;
+  destination_bucket: string;
+  sync_interval_seconds: number;
+  enabled: boolean;
+  replicate_deletes: boolean;
+  replicate_metadata: boolean;
+  prefix?: string;
+  priority?: number;
+}
+
+export interface UpdateClusterReplicationRequest {
+  sync_interval_seconds?: number;
+  enabled?: boolean;
+  replicate_deletes?: boolean;
+  replicate_metadata?: boolean;
+  priority?: number;
+}
+
+export interface BulkClusterReplicationRequest {
+  source_node_id?: string;
+  destination_node_id: string;
+  sync_interval_seconds: number;
+  tenant_id?: string;
+  enabled: boolean;
+}
+
+export interface ListClusterReplicationsResponse {
+  rules: ClusterReplicationRule[];
+  count: number;
 }
 
 // Re-export common types

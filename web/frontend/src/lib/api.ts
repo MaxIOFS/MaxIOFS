@@ -55,6 +55,11 @@ import type {
   CacheStats,
   ListNodesResponse,
   BucketWithReplication,
+  ClusterReplicationRule,
+  CreateClusterReplicationRequest,
+  UpdateClusterReplicationRequest,
+  BulkClusterReplicationRequest,
+  ListClusterReplicationsResponse,
 } from '@/types';
 
 // API Configuration
@@ -1191,6 +1196,36 @@ export class APIClient {
 
   static async getBucketReplicas(bucket: string): Promise<{ bucket: string; rules: any[]; total: number }> {
     const response = await apiClient.get<APIResponse<{ bucket: string; rules: any[]; total: number }>>(`/cluster/buckets/${bucket}/replicas`);
+    return response.data.data!;
+  }
+
+  // Cluster Replication methods
+  static async listClusterReplications(params?: { tenant_id?: string; bucket?: string }): Promise<ListClusterReplicationsResponse> {
+    const queryParams = new URLSearchParams();
+    if (params?.tenant_id) queryParams.append('tenant_id', params.tenant_id);
+    if (params?.bucket) queryParams.append('bucket', params.bucket);
+    const url = `/cluster/replication${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    const response = await apiClient.get<APIResponse<ListClusterReplicationsResponse>>(url);
+    return response.data.data!;
+  }
+
+  static async createClusterReplication(request: CreateClusterReplicationRequest): Promise<ClusterReplicationRule> {
+    const response = await apiClient.post<APIResponse<ClusterReplicationRule>>('/cluster/replication', request);
+    return response.data.data!;
+  }
+
+  static async updateClusterReplication(id: string, request: UpdateClusterReplicationRequest): Promise<{ success: boolean; message: string }> {
+    const response = await apiClient.put<APIResponse<{ success: boolean; message: string }>>(`/cluster/replication/${id}`, request);
+    return response.data.data!;
+  }
+
+  static async deleteClusterReplication(id: string): Promise<{ success: boolean; message: string }> {
+    const response = await apiClient.delete<APIResponse<{ success: boolean; message: string }>>(`/cluster/replication/${id}`);
+    return response.data.data!;
+  }
+
+  static async createBulkClusterReplication(request: BulkClusterReplicationRequest): Promise<{ success: boolean; rules_created: number; rules_failed: number; failed_buckets: string[]; message: string }> {
+    const response = await apiClient.post<APIResponse<{ success: boolean; rules_created: number; rules_failed: number; failed_buckets: string[]; message: string }>>('/cluster/replication/bulk', request);
     return response.data.data!;
   }
 

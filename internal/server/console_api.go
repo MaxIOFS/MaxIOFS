@@ -352,6 +352,13 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/cluster/buckets", s.handleGetClusterBuckets).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/buckets/{bucket}/replicas", s.handleGetBucketReplicas).Methods("GET", "OPTIONS")
 
+	// Cluster replication endpoints
+	router.HandleFunc("/cluster/replication", s.handleListClusterReplications).Methods("GET", "OPTIONS")
+	router.HandleFunc("/cluster/replication", s.handleCreateClusterReplication).Methods("POST", "OPTIONS")
+	router.HandleFunc("/cluster/replication/{id}", s.handleUpdateClusterReplication).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/cluster/replication/{id}", s.handleDeleteClusterReplication).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/cluster/replication/bulk", s.handleCreateBulkClusterReplication).Methods("POST", "OPTIONS")
+
 	// Health check
 	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET", "OPTIONS")
 }
