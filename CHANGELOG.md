@@ -188,6 +188,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **S3 API Test Expansion** - Coverage improved from 16.6% to 30.9% with tests for versioning, batch delete, copy, range requests, and list versions
 
 ### Fixed
+- **Frontend Authentication Bug** - Fixed session closing on page reload (F5/Ctrl+F5) caused by infinite loop in useAuth useEffect dependencies. Removed `applyUserPreferences` and `navigate` from dependency array to ensure initialization runs only once on mount
+- **Cluster Test Assertions** - Fixed `TestGetClusterStatus` expectations to account for initial node created by `InitializeCluster` (expected 4 total nodes and 2 healthy nodes instead of 3 and 1)
 - **Frontend Session Management** - Fixed unexpected logouts during active sessions caused by background React Query polling triggering 401 errors. Implemented intelligent error handling with consecutive error tracking
 - **VEEAM SOSAPI Capacity** - Fixed capacity reporting to respect tenant quotas instead of reporting full disk capacity
 - **ListObjectVersions** - Fixed empty results for non-versioned buckets by correcting object key prefix

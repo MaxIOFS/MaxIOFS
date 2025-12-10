@@ -276,15 +276,15 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">JWT Authentication</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Token-based authentication for Console API requests</p>
+                  <p className="font-medium text-gray-900 dark:text-white">JWT & S3 Signature Authentication</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Token-based (JWT) for Console, AWS Signature v2/v4 for S3 API</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">S3 Signature v2/v4</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">AWS-compatible signature authentication for S3 API</p>
+                  <p className="font-medium text-gray-900 dark:text-white">HMAC-SHA256 Cluster Auth</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Secure inter-node communication with cryptographic signatures</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -335,11 +335,11 @@ export default function SecurityPage() {
             </div>
           </div>
 
-          {/* Data Protection */}
+          {/* Data Protection & Replication */}
           <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
               <HardDrive className="h-5 w-5 text-brand-600" />
-              Data Protection
+              Data Protection & Replication
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
@@ -352,22 +352,22 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Object Versioning</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Multiple versions with delete markers for data recovery</p>
+                  <p className="font-medium text-gray-900 dark:text-white">Encrypted Cluster Replication</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatic decrypt-on-source, re-encrypt-on-destination for HA</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Object Lock (WORM)</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Write-Once-Read-Many compliance and governance modes</p>
+                  <p className="font-medium text-gray-900 dark:text-white">Cross-Region Replication</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Secure bucket replication to AWS S3, MinIO with credential encryption</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Lifecycle Policies</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Automated data retention and deletion rules</p>
+                  <p className="font-medium text-gray-900 dark:text-white">Object Lock & Versioning</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">WORM compliance, versioning with delete markers, lifecycle policies</p>
                 </div>
               </div>
             </div>
@@ -384,33 +384,54 @@ export default function SecurityPage() {
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Tenant Isolation</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Complete data isolation between tenants</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Complete data isolation between tenants with separate namespaces</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Resource Quotas</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Per-tenant storage limits and usage tracking</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Per-tenant storage, bucket, and access key limits with usage tracking</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Bucket Permissions</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Fine-grained per-bucket access control (read/write/admin)</p>
+                  <p className="font-medium text-gray-900 dark:text-white">Self-Replication Prevention</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatic validation to prevent circular replication loops</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Bucket Permissions (ACLs)</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Fine-grained per-bucket access control with canned ACLs</p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Event Monitoring */}
+          {/* Event Monitoring & Logging */}
           <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
               <Bell className="h-5 w-5 text-brand-600" />
-              Event Monitoring
+              Event Monitoring & Logging
             </h3>
             <div className="space-y-3">
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Advanced Logging System</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">HTTP output with batching and Syslog integration (TCP/UDP)</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Comprehensive Audit Logging</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">20+ event types tracked with automatic retention ({getSetting('audit.retention_days', '90')} days)</p>
+                </div>
+              </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
                 <div>
@@ -423,13 +444,6 @@ export default function SecurityPage() {
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Prometheus Metrics</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Real-time metrics export for monitoring and alerting</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Comprehensive Audit Logging</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">20+ event types tracked with automatic retention ({getSetting('audit.retention_days', '90')} days)</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">

@@ -562,10 +562,10 @@ warp mixed --host localhost:8080 \
 ## ⚠️ Known Limitations
 
 ### Critical
-- ⚠️ Single-node only (no clustering/replication)
 - ⚠️ Filesystem backend only (no S3/GCS/Azure backends)
 - ⚠️ Object Lock not validated with Veeam or other backup tools
 - ⚠️ Multi-tenancy needs more real-world production testing
+- ⚠️ Cluster features tested with up to 5 nodes (larger deployments need validation)
 
 ### Performance
 - ✅ **Validated with MinIO Warp stress testing (7000+ objects)**
@@ -776,8 +776,6 @@ Contributions welcome! Please:
 - [ ] CI/CD pipeline with automated releases
 
 ### Long Term (v1.0.0+)
-- [ ] Multi-node clustering
-- [ ] Replication between nodes (sync/async)
 - [ ] Additional storage backends (S3, GCS, Azure)
 - [ ] LDAP/SSO integration
 - [ ] **External Key Management Service** (AWS KMS, Azure Key Vault, HashiCorp Vault)
