@@ -100,7 +100,8 @@ export function useAuthProvider(): AuthContextType {
     };
 
     initializeAuth();
-  }, [navigate, applyUserPreferences]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount
 
   // Login function
   const login = useCallback(async (credentials: LoginRequest) => {
