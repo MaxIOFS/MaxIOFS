@@ -1,8 +1,8 @@
 # MaxIOFS Documentation
 
-**Version**: 0.5.0-beta
+**Version**: 0.6.0-beta
 **S3 Compatibility**: 98%
-**Last Updated**: December 3, 2025
+**Last Updated**: December 9, 2025
 
 ---
 
@@ -109,38 +109,59 @@ Start here if you're new to MaxIOFS:
 
 ---
 
-## 🆕 What's New in v0.5.0-beta
+## 🆕 What's New in v0.6.0-beta
 
 ### Major Features
+
+- ✅ **Multi-Node Cluster Support** - Complete cluster infrastructure with HA
+  - Cluster Manager with full CRUD operations for cluster nodes
+  - Smart Router with health-aware failover and automatic routing
+  - Bucket Location Cache with 5-minute TTL (5ms vs 50ms latency optimization)
+  - Internal Proxy Mode - any node can receive and route any S3 request
+  - Background Health Checker monitoring all nodes every 30 seconds
+  - SQLite persistence for cluster state (3 tables)
+  - 13 REST API endpoints for cluster management
+  - 27 automated tests (22 cluster management + 5 replication integration tests)
+
+- ✅ **Cluster Bucket Replication** - Production-ready node-to-node replication for HA
+  - HMAC-SHA256 authentication using node_token (no S3 credentials required)
+  - Automatic tenant synchronization between all cluster nodes every 30 seconds
+  - Transparent encryption handling (decrypt-on-source, re-encrypt-on-destination)
+  - Configurable sync intervals from 10 seconds (real-time HA) to hours/days (backups)
+  - Self-replication prevention with validation in both frontend and backend
+  - Bulk node-to-node replication for configuring all buckets at once
+  - Complete separation from user replication system
+  - 5 new database tables for cluster replication state management
+
+- ✅ **Cluster Dashboard UI** - Complete web console for cluster management
+  - Real-time cluster status overview with node health statistics
+  - Interactive nodes table with health indicators, latency, capacity, and bucket count
+  - Initialize Cluster dialog with automatic token generation and display
+  - Add/Edit/Remove node operations with complete form validation
+  - Manual health checks and status refresh with error handling
+  - Color-coded health status badges (green/yellow/red/gray indicators)
+  - 14 TypeScript interfaces and 13 API client methods fully integrated
+
+- ✅ **Testing Infrastructure** - Comprehensive integration tests
+  - SimulatedNode infrastructure for testing two-node cluster communication without real servers
+  - 5 integration tests: HMAC authentication, tenant sync, object/delete replication, self-prevention
+  - Pure Go SQLite driver (modernc.org/sqlite) with no CGO dependencies
+  - Backend test suite expanded from 504 to 531 tests
+  - All tests pass in under 2 seconds with 100% pass rate
+  - Complete documentation updates across README, CHANGELOG, TODO, and /docs
+
+### Previous Features (v0.5.0-beta)
 
 - ✅ **Bucket Replication** - S3-compatible cross-bucket replication
   - Support for AWS S3, MinIO, and other MaxIOFS instances
   - Three replication modes: Realtime, Scheduled, Batch
   - Queue-based async processing with retry logic
-  - Conflict resolution strategies (Last Write Wins, Version-Based, Primary Wins)
-  - Selective replication with prefix filters
-  - Web Console integration with visual rule management
   - 23 automated tests covering all functionality
-
 - ✅ **Advanced Logging System** - HTTP and Syslog output
   - HTTP output with batching and authentication
   - Syslog integration (TCP/UDP protocols)
   - Dynamic configuration without restart
-  - Multiple output formats (JSON, text)
-  - Prefix/suffix filtering for targeted log routing
-
-- ✅ **Comprehensive Test Coverage Expansion**
-  - 504 backend tests (~53% coverage, up from ~48%)
-  - ACL Module: 25 tests (77.0% coverage)
-  - Middleware Module: 30 tests (87.4% coverage)
-  - Lifecycle Module: 12 tests (67.9% coverage)
-  - Storage Module: 40 tests (79.1% coverage)
-  - Replication Module: 23 tests (100% pass rate)
-
-- ✅ **Bug Fixes**
-  - Frontend session management (unexpected logouts fixed)
-  - VEEAM SOSAPI capacity reporting (tenant quota respect)
-  - ListObjectVersions for non-versioned buckets
+- ✅ **Comprehensive Test Coverage Expansion** - Backend test suite expanded to 504 tests
 
 ### Previous Features (v0.4.2-beta)
 
@@ -287,9 +308,8 @@ MaxIOFS is in **beta development**. Core features are implemented and tested, bu
 
 - ⚠️ No third-party security audits
 - ⚠️ Limited testing at extreme scale (100+ concurrent users)
-- ⚠️ Single-node only (no clustering)
-- ⚠️ Filesystem backend only
-- ⚠️ Limited encryption key management (master key in config, HSM planned for v0.5.0)
+- ⚠️ Filesystem backend only (S3/GCS/Azure backends planned)
+- ⚠️ Limited encryption key management (master key in config, HSM planned for v0.7.0)
 
 See [Architecture Overview](ARCHITECTURE.md#current-limitations) for complete list.
 
@@ -347,5 +367,5 @@ Email: security@yourdomain.com (update with actual contact)
 
 ---
 
-**Version**: 0.5.0-beta
-**Last Updated**: December 3, 2025
+**Version**: 0.6.0-beta
+**Last Updated**: December 9, 2025

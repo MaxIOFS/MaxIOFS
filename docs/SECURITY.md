@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 0.5.0-beta
+**Version**: 0.6.0-beta
 
 > **BETA SOFTWARE DISCLAIMER**
 >
@@ -10,11 +10,12 @@
 
 MaxIOFS implements essential security features for object storage:
 
+- **HMAC-SHA256 Cluster Authentication** (v0.6.0-beta) - Inter-node authentication
 - **Real-Time Security Notifications (SSE)** (v0.4.2+)
 - **Dynamic Security Configuration** (v0.4.2+)
 - **Server-Side Encryption at Rest (SSE)** (v0.4.1+)
 - **Comprehensive Audit Logging** (v0.4.0+)
-- Dual authentication (JWT + S3 signatures)
+- Triple authentication (JWT + S3 signatures + HMAC for clusters)
 - **Two-Factor Authentication (2FA) with TOTP**
 - Role-Based Access Control (RBAC)
 - Bcrypt password hashing
@@ -426,6 +427,297 @@ X-Amz-Date: 20251012T120000Z
 - Per-user access keys
 - Multiple keys per user supported
 - Keys can be revoked individually
+
+### 4. Cluster Authentication (HMAC-SHA256)
+
+**New in v0.6.0-beta**
+
+MaxIOFS uses HMAC-SHA256 signatures for secure inter-node communication in multi-node clusters. This authentication mechanism is completely independent from user authentication (JWT/S3 signatures) and specifically designed for node-to-node operations.
+
+**Purpose:**
+- Authenticate requests between cluster nodes
+- Secure cluster replication operations
+- Protect tenant synchronization
+- Prevent unauthorized node joining
+
+#### Authentication Flow
+
+**1. Node Registration:**
+```
+Node initialization:
+  ├─ Generate cluster_id (UUID)
+  ├─ Generate node_id (UUID)
+  ├─ Generate node_token (32-byte secure random)
+  └─ Store node_token hash in cluster.db
+```
+
+**2. Request Signing (Sending Node):**
+```
+Request components:
+  ├─ method = "PUT"
+  ├─ path = "/api/internal/cluster/objects/tenant-123/bucket/key"
+  ├─ timestamp = Unix timestamp (current time)
+  ├─ nonce = 16-byte random hex string
+  └─ body = Request payload
+
+Signature = HMAC-SHA256(node_token, method + path + timestamp + nonce + body)
+```
+
+**3. Request Verification (Receiving Node):**
+```
+1. Extract headers:
+   - X-MaxIOFS-Node-ID
+   - X-MaxIOFS-Timestamp
+   - X-MaxIOFS-Nonce
+   - X-MaxIOFS-Signature
+
+2. Validate timestamp:
+   - Check clock skew ≤ 5 minutes
+   - Reject if expired
+
+3. Retrieve node_token:
+   - Query cluster_nodes table by node_id
+   - Verify node exists and is active
+
+4. Compute expected signature:
+   - Reconstruct message from request
+   - Calculate HMAC-SHA256(node_token, message)
+
+5. Compare signatures:
+   - Use constant-time comparison (timing attack prevention)
+   - Reject if mismatch
+```
+
+#### Request Headers
+
+All inter-node requests include these headers:
+
+```http
+X-MaxIOFS-Node-ID: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+X-MaxIOFS-Timestamp: 1702123456
+X-MaxIOFS-Nonce: 9a8b7c6d5e4f3210
+X-MaxIOFS-Signature: f8e7d6c5b4a3210987654321abcdef0123456789abcdef0123456789abcdef01
+```
+
+**Header Purposes:**
+- `X-MaxIOFS-Node-ID`: Identifies sending node (for token lookup)
+- `X-MaxIOFS-Timestamp`: Unix timestamp for replay attack prevention
+- `X-MaxIOFS-Nonce`: Random string ensuring request uniqueness
+- `X-MaxIOFS-Signature`: HMAC-SHA256 signature for verification
+
+#### Security Properties
+
+**1. Replay Attack Prevention:**
+```
+Mechanism: Timestamp + Nonce
+- Timestamp must be within 5 minutes of current time
+- Nonce ensures each request is unique
+- Expired requests automatically rejected
+```
+
+**2. Message Integrity:**
+```
+Coverage: method + path + timestamp + nonce + body
+- Any modification invalidates signature
+- Protects against man-in-the-middle tampering
+- Ensures request authenticity
+```
+
+**3. Timing Attack Prevention:**
+```go
+// Constant-time signature comparison
+if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
+    return errors.New("invalid signature")
+}
+
+// NOT this (vulnerable):
+if signature != expectedSignature {
+    return errors.New("invalid signature")
+}
+```
+
+**4. Token Security:**
+```
+Storage: Only hash stored in database (bcrypt-like)
+Transmission: Never transmitted (only used for signing)
+Generation: Cryptographically secure random (crypto/rand)
+Length: 32 bytes (256 bits) - same strength as AES-256
+```
+
+#### Node Token Management
+
+**Token Generation:**
+```go
+// 32-byte secure random token
+token := make([]byte, 32)
+_, err := rand.Read(token)
+nodeToken := hex.EncodeToString(token)
+// Result: "5f8a2b3c4d5e6f7g8h9i0j1k2l3m4n5o..."
+```
+
+**Token Storage:**
+```sql
+-- Only hash stored in database
+CREATE TABLE cluster_nodes (
+    id TEXT PRIMARY KEY,
+    node_name TEXT,
+    s3_endpoint TEXT,
+    console_endpoint TEXT,
+    region TEXT,
+    datacenter TEXT,
+    node_token_hash TEXT,  -- bcrypt hash of token
+    is_primary BOOLEAN,
+    status TEXT,
+    created_at TIMESTAMP
+);
+```
+
+**⚠️ CRITICAL SECURITY WARNINGS:**
+
+1. **Token is ONLY returned during initialization/node creation**
+   - Cannot be retrieved later
+   - Must be saved securely by administrator
+   - Loss of token requires node re-registration
+
+2. **NEVER commit tokens to version control**
+   - Tokens should be stored in secure secret management systems
+   - Use environment variables or secret managers in production
+   - Treat node_token like a password
+
+3. **Token rotation:**
+   - Currently no automatic rotation mechanism
+   - Manual rotation requires node re-registration
+   - Plan rotation strategy for compliance requirements
+
+4. **Network security:**
+   - HMAC prevents tampering but not eavesdropping
+   - Use TLS/HTTPS for inter-node communication in production
+   - Consider VPN or private network for cluster traffic
+
+#### Authenticated Endpoints
+
+**Internal cluster endpoints requiring HMAC authentication:**
+
+```
+POST   /api/internal/cluster/tenant-sync
+  - Receives tenant synchronization from another node
+  - Payload: Tenant metadata, users, access keys
+
+PUT    /api/internal/cluster/objects/{tenantID}/{bucket}/{key}
+  - Receives object replication from another node
+  - Payload: Object data (plaintext, re-encrypted on arrival)
+
+DELETE /api/internal/cluster/objects/{tenantID}/{bucket}/{key}
+  - Receives delete replication from another node
+  - No payload (just delete notification)
+```
+
+**Example request (tenant sync):**
+
+```http
+POST /api/internal/cluster/tenant-sync HTTP/1.1
+Host: 10.0.1.20:8081
+X-MaxIOFS-Node-ID: node-abc123
+X-MaxIOFS-Timestamp: 1702123456
+X-MaxIOFS-Nonce: 9a8b7c6d5e4f3210
+X-MaxIOFS-Signature: f8e7d6c5b4a3...
+Content-Type: application/json
+
+{
+  "tenant_id": "tenant-xyz789",
+  "name": "acme-corp",
+  "max_storage_bytes": 107374182400,
+  "users": [...],
+  "access_keys": [...]
+}
+```
+
+#### Comparison with S3 Authentication
+
+| Feature | S3 Signature V4 | Cluster HMAC |
+|---------|-----------------|--------------|
+| **Purpose** | User → Server authentication | Server → Server authentication |
+| **Credentials** | Access Key + Secret Key | node_token |
+| **Algorithm** | AWS Signature V4 (complex) | HMAC-SHA256 (simple) |
+| **Scope** | S3 API operations | Internal cluster operations |
+| **Users** | Tenant users | Cluster nodes only |
+| **Expiration** | Can be revoked | Token persists until node removed |
+
+#### Monitoring & Auditing
+
+**HMAC authentication events are NOT logged in regular audit logs** (to avoid excessive log volume).
+
+However, authentication failures are logged:
+```
+Level: WARN
+Message: "Cluster authentication failed: invalid signature from node-abc123"
+Context: node_id, endpoint, reason
+```
+
+**Monitor for:**
+- Repeated authentication failures (potential attack)
+- Timestamp skew warnings (clock synchronization issues)
+- Unknown node_id attempts (unauthorized node trying to join)
+
+#### Best Practices
+
+**1. Time Synchronization:**
+```bash
+# Install NTP on all cluster nodes
+apt install ntp
+systemctl enable ntp
+systemctl start ntp
+
+# Verify time sync
+ntpq -p
+```
+
+**2. Secure Token Storage:**
+```bash
+# Store tokens in environment variables (not in code)
+export MAXIOFS_NODE_TOKEN="your-secure-token"
+
+# Or use secret management
+# - Hashicorp Vault
+# - AWS Secrets Manager
+# - Kubernetes Secrets
+```
+
+**3. Network Isolation:**
+```
+Recommended: Private network for cluster traffic
+- VPC/subnet isolation
+- VPN for geographically distributed nodes
+- Firewall rules limiting inter-node access
+```
+
+**4. Regular Security Audits:**
+```bash
+# Check cluster node status
+curl http://localhost:8081/api/cluster/nodes \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Review node health history
+curl http://localhost:8081/api/cluster/health/history \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+#### Limitations
+
+- ⚠️ **No automatic key rotation** - Manual process required
+- ⚠️ **No certificate-based authentication** - Only HMAC tokens
+- ⚠️ **No node identity verification** - Trust on first use model
+- ⚠️ **Timestamp-based replay prevention** - Requires synchronized clocks
+- ⚠️ **No TLS enforcement** - Must be configured separately
+
+**Mitigations:**
+- Use TLS for all cluster communication
+- Implement NTP synchronization across all nodes
+- Store node tokens in secure secret management systems
+- Regularly review cluster node list for unauthorized additions
+- Monitor authentication failure logs
+
+> **See [CLUSTER.md](CLUSTER.md) for complete cluster security architecture**
 
 ---
 
@@ -905,5 +1197,5 @@ Response time: Within 48 hours
 
 ---
 
-**Version**: 0.5.0-beta
-**Last Updated**: November 23, 2025
+**Version**: 0.6.0-beta
+**Last Updated**: December 9, 2025

@@ -1,3 +1,41 @@
+maxiofs (0.6.0-beta) unstable; urgency=medium
+
+  * Major feature release: Multi-Node Cluster Support & Cluster Replication
+  * Multi-Node Cluster Support - Complete cluster infrastructure with HA
+  * Cluster Manager with full CRUD operations for cluster nodes
+  * Smart Router with health-aware failover and automatic routing
+  * Bucket Location Cache with 5-minute TTL (5ms vs 50ms latency optimization)
+  * Internal Proxy Mode - any node can receive and route any S3 request
+  * Background Health Checker monitoring all nodes every 30 seconds with latency tracking
+  * SQLite persistence for cluster state (cluster_config, cluster_nodes, cluster_health_history)
+  * 13 REST API endpoints for cluster management (initialize, join, nodes CRUD, health, cache)
+  * Cluster Bucket Replication - Production-ready node-to-node replication for HA
+  * HMAC-SHA256 authentication using node_token (no S3 credentials required)
+  * Automatic tenant synchronization between all cluster nodes every 30 seconds
+  * Transparent encryption handling (decrypt-on-source, re-encrypt-on-destination)
+  * Configurable sync intervals from 10 seconds (real-time HA) to hours/days (backups)
+  * Self-replication prevention with validation in both frontend and backend
+  * Bulk node-to-node replication for configuring all buckets at once
+  * Complete separation from user replication system (different tables, endpoints, authentication)
+  * 5 new database tables for cluster replication state management
+  * Cluster Dashboard UI - Complete web console for cluster management
+  * Real-time cluster status overview with node health statistics and bucket metrics
+  * Interactive nodes table with health indicators, latency, capacity, and bucket count
+  * Initialize Cluster dialog with automatic token generation and display
+  * Add/Edit/Remove node operations with complete form validation
+  * Manual health checks and status refresh with error handling
+  * Color-coded health status badges (green/yellow/red/gray indicators)
+  * 14 TypeScript interfaces and 13 API client methods fully integrated
+  * Testing Infrastructure - Comprehensive integration tests for cluster replication
+  * SimulatedNode infrastructure for testing two-node cluster communication without real servers
+  * 5 integration tests: HMAC authentication, tenant sync, object/delete replication, self-prevention
+  * Pure Go SQLite driver (modernc.org/sqlite) with no CGO dependencies
+  * Backend test suite expanded from 504 to 531 tests (27 cluster tests total)
+  * All tests pass in under 2 seconds with 100% pass rate
+  * Complete documentation updates across README, CHANGELOG, TODO, and /docs
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Mon, 09 Dec 2025 12:00:00 +0000
+
 maxiofs (0.5.0-beta) unstable; urgency=medium
 
   * Major feature release: Bucket Replication, Advanced Logging & Test Coverage

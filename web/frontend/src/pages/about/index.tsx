@@ -311,57 +311,60 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New Features in v0.5.0-beta
+            New Features in v0.6.0-beta
           </h2>
           <div className="space-y-4">
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Bucket Replication System
+                Multi-Node Cluster Support
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                S3-compatible cross-bucket replication supporting AWS S3, MinIO, and other MaxIOFS instances as destinations.
-                Three replication modes: Realtime (immediate), Scheduled (interval-based), and Batch (manual). Features include
-                queue-based async processing with configurable worker pools, automatic retry with exponential backoff, conflict
-                resolution strategies (Last Write Wins, Version-Based, Primary Wins), selective replication with prefix filters,
-                and priority-based rule ordering. Complete Web Console integration with visual rule management and 23 automated
-                tests (100% pass rate).
+                Complete cluster infrastructure with intelligent routing and automatic failover. Features include: Cluster Manager
+                with full CRUD operations for nodes, Smart Router with health-aware failover, Bucket Location Cache with 5-minute
+                TTL (5ms vs 50ms latency), Internal Proxy Mode for seamless request routing, Background Health Checker monitoring
+                all nodes every 30 seconds, SQLite persistence for cluster state, and 13 REST API endpoints for cluster management.
+                Includes 27 automated tests (22 cluster management + 5 replication integration tests).
               </p>
             </div>
 
             <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Advanced Logging System
+                Cluster Bucket Replication System
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                HTTP and Syslog output support with dynamic configuration without server restart. HTTP output includes batching,
-                authentication (Bearer tokens), and configurable flush intervals. Syslog integration supports TCP and UDP protocols.
-                Multiple output formats (JSON, text) with caller information, prefix/suffix filters for targeted log routing to
-                different outputs. Configure outputs, formats, and filters dynamically via Settings page.
+                Production-ready HA replication between MaxIOFS nodes. HMAC-SHA256 authentication using node_token (no S3 credentials
+                needed). Automatic tenant synchronization every 30 seconds. Transparent encryption handling (decrypt-on-source,
+                re-encrypt-on-destination). Configurable sync intervals from 10 seconds (real-time HA) to hours/days (backups).
+                Self-replication prevention with validation in frontend and backend. Bulk node-to-node replication for all buckets.
+                Complete separation from user replication system. 5 new database tables and 5 comprehensive integration tests with
+                SimulatedNode infrastructure.
               </p>
             </div>
 
             <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Comprehensive Test Coverage Expansion
+                Cluster Dashboard UI
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Backend test suite expanded from 458 to 504 tests (~53% coverage). New test suites include: ACL Module (25 tests,
-                77.0% coverage), Middleware Module (30 tests, 87.4% coverage), Lifecycle Module (12 tests, 67.9% coverage),
-                Storage Module (40 tests, 79.1% coverage), expanded Metadata Module (30 tests, 52.4% coverage), Bucket Module
-                (47 tests, 49.8% coverage), and Object Module (83 additional tests, 48.4% coverage). Console API test coverage
-                expanded from 4.4% to 12.7% with 19 new tests.
+                Complete web console for cluster management accessible to global administrators. Real-time cluster status overview
+                showing total/healthy/degraded/unavailable nodes and bucket statistics. Interactive nodes table with health indicators,
+                latency, storage capacity, bucket count, and priority. Initialize Cluster dialog with automatic token generation.
+                Add/Edit/Remove node operations with complete form validation. Manual health checks and status refresh. Color-coded
+                health badges (green=healthy, yellow=degraded, red=unavailable, gray=unknown). 14 TypeScript interfaces and 13 API
+                client methods fully integrated.
               </p>
             </div>
 
             <div className="border-l-4 border-red-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Bug Fixes and Improvements
+                Testing and Documentation
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Fixed frontend session management preventing unexpected logout. Fixed VEEAM SOSAPI capacity reporting to properly
-                respect tenant quotas. Fixed ListObjectVersions to work correctly for non-versioned buckets. Schema migration
-                system added for replication database (old → new S3 parameters). Complete documentation updates across README,
-                CHANGELOG, TODO, and 9 docs/ files.
+                Backend test suite expanded from 504 to 531 tests with comprehensive cluster replication integration tests. New
+                SimulatedNode infrastructure for testing two-node cluster communication without real servers. Pure Go SQLite driver
+                (modernc.org/sqlite) with no CGO dependencies. All 5 integration tests pass in under 2 seconds. Complete documentation
+                updates across README, CHANGELOG, TODO covering cluster management, replication system architecture, HMAC authentication,
+                and deployment strategies.
               </p>
             </div>
           </div>

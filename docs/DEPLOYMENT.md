@@ -1,6 +1,6 @@
 # MaxIOFS Deployment Guide
 
-**Version**: 0.5.0-beta
+**Version**: 0.6.0-beta
 
 ## Overview
 
@@ -327,6 +327,321 @@ Certbot will automatically configure HTTPS.
 
 ---
 
+## Multi-Node Cluster Deployment (v0.6.0-beta)
+
+MaxIOFS supports multi-node clustering for high availability and horizontal scaling. This section covers deploying a production cluster.
+
+### Cluster Architecture
+
+```
+                 ┌──────────────────┐
+                 │  Load Balancer   │
+                 │  (HAProxy/Nginx) │
+                 └────────┬─────────┘
+                          │
+        ┌─────────────────┼─────────────────┐
+        │                 │                 │
+        ▼                 ▼                 ▼
+    Node 1            Node 2            Node 3
+  10.0.1.10         10.0.1.20         10.0.1.30
+  (Primary)         (Secondary)       (Secondary)
+```
+
+### Prerequisites
+
+- 3+ Linux servers (recommended)
+- Network connectivity between all nodes
+- Load balancer (HAProxy or Nginx)
+- Synchronized system time (NTP)
+
+### Step 1: Deploy MaxIOFS on All Nodes
+
+On each node, install MaxIOFS using systemd:
+
+```bash
+# Node 1 (10.0.1.10)
+sudo mkdir -p /opt/maxiofs /var/lib/maxiofs
+sudo cp maxiofs /opt/maxiofs/
+sudo useradd -r -s /bin/false maxiofs
+sudo chown -R maxiofs:maxiofs /var/lib/maxiofs
+
+# Create systemd service
+sudo cat > /etc/systemd/system/maxiofs.service <<EOF
+[Unit]
+Description=MaxIOFS Object Storage - Node 1
+After=network.target
+
+[Service]
+Type=simple
+User=maxiofs
+Group=maxiofs
+WorkingDirectory=/opt/maxiofs
+ExecStart=/opt/maxiofs/maxiofs --data-dir /var/lib/maxiofs --log-level info
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable maxiofs
+sudo systemctl start maxiofs
+```
+
+Repeat for Node 2 (10.0.1.20) and Node 3 (10.0.1.30).
+
+### Step 2: Initialize Cluster on Primary Node
+
+On Node 1 (primary), initialize the cluster:
+
+```bash
+# Login to web console at http://10.0.1.10:8081
+# Navigate to Cluster → Initialize Cluster
+
+curl -X POST http://10.0.1.10:8081/api/cluster/initialize \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_name": "node-east-1",
+    "s3_endpoint": "http://10.0.1.10:8080",
+    "console_endpoint": "http://10.0.1.10:8081",
+    "region": "us-east-1",
+    "datacenter": "dc-east"
+  }'
+```
+
+**Save the response** - it contains the `cluster_id` and `node_token` (needed for authentication).
+
+### Step 3: Join Secondary Nodes to Cluster
+
+On Node 1, add Node 2 and Node 3:
+
+```bash
+# Add Node 2
+curl -X POST http://10.0.1.10:8081/api/cluster/nodes \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_name": "node-east-2",
+    "s3_endpoint": "http://10.0.1.20:8080",
+    "console_endpoint": "http://10.0.1.20:8081",
+    "region": "us-east-1",
+    "datacenter": "dc-east"
+  }'
+
+# Add Node 3
+curl -X POST http://10.0.1.10:8081/api/cluster/nodes \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_name": "node-east-3",
+    "s3_endpoint": "http://10.0.1.30:8080",
+    "console_endpoint": "http://10.0.1.30:8081",
+    "region": "us-east-1",
+    "datacenter": "dc-east"
+  }'
+```
+
+### Step 4: Configure Load Balancer
+
+**Option A: HAProxy Configuration**
+
+Create `/etc/haproxy/haproxy.cfg`:
+
+```haproxy
+global
+    log /dev/log local0
+    maxconn 4096
+
+defaults
+    log global
+    mode http
+    option httplog
+    option dontlognull
+    timeout connect 10s
+    timeout client 300s
+    timeout server 300s
+
+# S3 API Load Balancer
+frontend s3_frontend
+    bind *:8080
+    default_backend s3_backend
+
+backend s3_backend
+    mode http
+    balance roundrobin
+    option httpchk GET /health
+    http-check expect status 200
+    server node1 10.0.1.10:8080 check inter 10s fall 3 rise 2
+    server node2 10.0.1.20:8080 check inter 10s fall 3 rise 2
+    server node3 10.0.1.30:8080 check inter 10s fall 3 rise 2
+
+# Web Console Load Balancer
+frontend console_frontend
+    bind *:8081
+    default_backend console_backend
+
+backend console_backend
+    mode http
+    balance roundrobin
+    option httpchk GET /health
+    http-check expect status 200
+    server node1 10.0.1.10:8081 check inter 10s fall 3 rise 2
+    server node2 10.0.1.20:8081 check inter 10s fall 3 rise 2
+    server node3 10.0.1.30:8081 check inter 10s fall 3 rise 2
+```
+
+Start HAProxy:
+```bash
+sudo systemctl enable haproxy
+sudo systemctl start haproxy
+sudo systemctl status haproxy
+```
+
+**Option B: Nginx Load Balancer**
+
+Create `/etc/nginx/nginx.conf`:
+
+```nginx
+http {
+    upstream s3_backend {
+        least_conn;
+        server 10.0.1.10:8080 max_fails=3 fail_timeout=30s;
+        server 10.0.1.20:8080 max_fails=3 fail_timeout=30s;
+        server 10.0.1.30:8080 max_fails=3 fail_timeout=30s;
+    }
+
+    upstream console_backend {
+        least_conn;
+        server 10.0.1.10:8081 max_fails=3 fail_timeout=30s;
+        server 10.0.1.20:8081 max_fails=3 fail_timeout=30s;
+        server 10.0.1.30:8081 max_fails=3 fail_timeout=30s;
+    }
+
+    # S3 API
+    server {
+        listen 8080;
+        location / {
+            proxy_pass http://s3_backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            client_max_body_size 0;
+            proxy_request_buffering off;
+        }
+    }
+
+    # Web Console
+    server {
+        listen 8081;
+        location / {
+            proxy_pass http://console_backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+    }
+}
+```
+
+### Step 5: Configure Cluster Replication
+
+Set up automatic bucket replication for high availability:
+
+```bash
+# Navigate to Cluster → Replication in web console
+# Or use API:
+
+curl -X POST http://load-balancer:8081/api/cluster/replication/rules \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_bucket": "backups",
+    "destination_node_id": "node-i9j0k1l2",
+    "sync_interval_seconds": 30,
+    "enabled": true,
+    "replicate_deletes": true
+  }'
+```
+
+**Recommended sync intervals:**
+- Real-time HA: 10-30 seconds
+- Near real-time: 60-300 seconds (1-5 minutes)
+- Periodic backup: 3600+ seconds (1+ hours)
+
+### Step 6: Verify Cluster Health
+
+```bash
+# Check cluster status
+curl http://load-balancer:8081/api/cluster/status \
+  -H "Authorization: Bearer $TOKEN"
+
+# Check individual node health
+curl http://load-balancer:8081/api/cluster/health/summary \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Production Cluster Recommendations
+
+1. **Use odd number of nodes** (3, 5, 7) for better fault tolerance
+2. **Deploy across multiple availability zones** for geographic redundancy
+3. **Use dedicated load balancer** (not running on cluster nodes)
+4. **Enable HTTPS** on load balancer with valid certificates
+5. **Configure monitoring** (Prometheus + Grafana)
+6. **Set up automated backups** of cluster database (cluster.db)
+7. **Use consistent time synchronization** (NTP) across all nodes
+8. **Monitor replication lag** to ensure data consistency
+
+### Cluster Maintenance
+
+**Adding a new node:**
+```bash
+curl -X POST http://load-balancer:8081/api/cluster/nodes \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"node_name": "node-4", ...}'
+```
+
+**Removing a node:**
+```bash
+curl -X DELETE http://load-balancer:8081/api/cluster/nodes/{node-id} \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Update load balancer** configuration after adding/removing nodes.
+
+### Cluster Troubleshooting
+
+**Node appears unhealthy:**
+```bash
+# Check node health manually
+curl -X POST http://load-balancer:8081/api/cluster/nodes/{node-id}/health \
+  -H "Authorization: Bearer $TOKEN"
+
+# Check health history
+curl http://load-balancer:8081/api/cluster/health/history \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Replication not working:**
+```bash
+# Check replication rules
+curl http://load-balancer:8081/api/cluster/replication/rules \
+  -H "Authorization: Bearer $TOKEN"
+
+# Manually trigger sync
+curl -X POST http://load-balancer:8081/api/cluster/replication/sync \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Clear bucket location cache** if routing issues occur:
+```bash
+curl -X DELETE http://load-balancer:8081/api/cluster/cache \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+> **See [CLUSTER.md](CLUSTER.md) for complete cluster documentation**
+
+---
+
 ## Basic Troubleshooting
 
 ### Service Won't Start
@@ -426,10 +741,7 @@ ls -t $BACKUP_DIR/maxiofs_*.tar.gz | tail -n +8 | xargs rm -f
 - ⚠️ No official SLA or support guarantees
 
 **Current Limitations:**
-- Single-instance only (no clustering)
-- Filesystem backend only
-- No built-in replication
-- Basic monitoring
+- Filesystem backend only (cloud storage backends planned)
 - SQLite database (not optimized for extreme concurrency)
 
 **Recommended Use Cases:**
@@ -448,5 +760,5 @@ ls -t $BACKUP_DIR/maxiofs_*.tar.gz | tail -n +8 | xargs rm -f
 
 ---
 
-**Version**: 0.4.1-beta
-**Last Updated**: November 23, 2025
+**Version**: 0.6.0-beta
+**Last Updated**: December 9, 2025

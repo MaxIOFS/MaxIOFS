@@ -1,8 +1,8 @@
 # MaxIOFS API Reference
 
-**Version**: 0.5.0-beta
+**Version**: 0.6.0-beta
 **S3 Compatibility**: 98%
-**Last Updated**: November 23, 2025
+**Last Updated**: December 9, 2025
 
 ## Overview
 
@@ -11,13 +11,20 @@ MaxIOFS provides two APIs:
 1. **S3 API** (Port 8080) - 98% AWS S3-compatible REST API
 2. **Console API** (Port 8081) - Management REST API for web console
 
-### Recent Updates (v0.4.2-beta)
+### Recent Updates (v0.6.0-beta)
+
+- ✅ **Multi-Node Cluster Support** - Complete cluster infrastructure with HA
+- ✅ **Cluster Management API** - 18 REST endpoints for cluster management
+- ✅ **Smart Router** - Health-aware request routing with automatic failover
+- ✅ **Cluster Replication** - HMAC-authenticated node-to-node replication
+- ✅ **Health Monitoring** - Background health checker with latency tracking
+
+### Previous Updates (v0.4.2-beta)
 
 - ✅ **Global Bucket Uniqueness** - Bucket names now globally unique across all tenants (AWS S3 compatible)
 - ✅ **S3-Compatible URLs** - Presigned and share URLs without tenant prefix for standard S3 client compatibility
 - ✅ **Bucket Notifications (Webhooks)** - AWS S3 compatible event notifications (ObjectCreated, ObjectRemoved, ObjectRestored)
 - ✅ **Automatic Tenant Resolution** - Backend automatically resolves bucket ownership from bucket name
-- ✅ **Frontend Modal Improvements** - Fixed presigned URL modal state persistence
 
 ---
 
@@ -252,6 +259,181 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 - Global admins: Can view all audit logs across all tenants
 - Tenant admins: Can view only their tenant's logs
 - Regular users: Cannot access audit logs
+
+#### Cluster Management (v0.6.0-beta)
+
+**Cluster Configuration:**
+- `POST /api/cluster/initialize` - Initialize cluster on this node
+- `GET /api/cluster/status` - Get cluster configuration and status
+- `DELETE /api/cluster/leave` - Remove this node from cluster
+
+**Node Management:**
+- `GET /api/cluster/nodes` - List all cluster nodes
+- `POST /api/cluster/nodes` - Add node to cluster
+- `PUT /api/cluster/nodes/{id}` - Update node configuration
+- `DELETE /api/cluster/nodes/{id}` - Remove node from cluster
+
+**Health Monitoring:**
+- `POST /api/cluster/nodes/{id}/health` - Manually check node health
+- `GET /api/cluster/health/history` - Get health check history
+- `GET /api/cluster/health/summary` - Get cluster health summary
+
+**Bucket Location Management:**
+- `GET /api/cluster/buckets/locations` - List all bucket locations
+- `PUT /api/cluster/buckets/{name}/location` - Set bucket location
+- `DELETE /api/cluster/cache` - Clear bucket location cache
+
+**Cluster Replication:**
+- `GET /api/cluster/replication/rules` - List cluster replication rules
+- `POST /api/cluster/replication/rules` - Create replication rule
+- `PUT /api/cluster/replication/rules/{id}` - Update replication rule
+- `DELETE /api/cluster/replication/rules/{id}` - Delete replication rule
+- `POST /api/cluster/replication/sync` - Manually trigger sync
+
+**Internal Cluster Endpoints** (HMAC-authenticated, inter-node only):
+- `POST /api/internal/cluster/tenant-sync` - Receive tenant synchronization
+- `PUT /api/internal/cluster/objects/{tenantID}/{bucket}/{key}` - Receive object replication
+- `DELETE /api/internal/cluster/objects/{tenantID}/{bucket}/{key}` - Receive delete replication
+
+**Initialize Cluster Example:**
+```bash
+curl -X POST http://localhost:8081/api/cluster/initialize \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_name": "node-east-1",
+    "s3_endpoint": "http://10.0.1.10:8080",
+    "console_endpoint": "http://10.0.1.10:8081",
+    "region": "us-east-1",
+    "datacenter": "dc-east"
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "cluster_id": "cls-a1b2c3d4",
+  "node_id": "node-e5f6g7h8",
+  "node_token": "5f8a2b3c4d5e6f7g8h9i0j1k2l3m4n5o",
+  "message": "Cluster initialized successfully"
+}
+```
+
+**Add Node to Cluster Example:**
+```bash
+curl -X POST http://localhost:8081/api/cluster/nodes \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_name": "node-west-1",
+    "s3_endpoint": "http://10.0.2.20:8080",
+    "console_endpoint": "http://10.0.2.20:8081",
+    "region": "us-west-1",
+    "datacenter": "dc-west"
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "node": {
+    "id": "node-i9j0k1l2",
+    "node_name": "node-west-1",
+    "s3_endpoint": "http://10.0.2.20:8080",
+    "console_endpoint": "http://10.0.2.20:8081",
+    "region": "us-west-1",
+    "datacenter": "dc-west",
+    "status": "healthy",
+    "is_primary": false,
+    "created_at": "2025-12-09T10:30:00Z"
+  }
+}
+```
+
+**Get Cluster Status Example:**
+```bash
+curl http://localhost:8081/api/cluster/status \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "cluster": {
+    "id": "cls-a1b2c3d4",
+    "initialized": true,
+    "primary_node_id": "node-e5f6g7h8",
+    "node_count": 3,
+    "healthy_nodes": 3,
+    "total_buckets": 42,
+    "replication_rules": 15
+  },
+  "nodes": [
+    {
+      "id": "node-e5f6g7h8",
+      "node_name": "node-east-1",
+      "s3_endpoint": "http://10.0.1.10:8080",
+      "status": "healthy",
+      "is_primary": true,
+      "last_health_check": "2025-12-09T10:35:00Z",
+      "latency_ms": 5,
+      "bucket_count": 15
+    },
+    {
+      "id": "node-i9j0k1l2",
+      "node_name": "node-west-1",
+      "s3_endpoint": "http://10.0.2.20:8080",
+      "status": "healthy",
+      "is_primary": false,
+      "last_health_check": "2025-12-09T10:35:00Z",
+      "latency_ms": 23,
+      "bucket_count": 12
+    }
+  ]
+}
+```
+
+**Create Cluster Replication Rule Example:**
+```bash
+curl -X POST http://localhost:8081/api/cluster/replication/rules \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_bucket": "backups",
+    "destination_node_id": "node-i9j0k1l2",
+    "sync_interval_seconds": 30,
+    "enabled": true,
+    "replicate_deletes": true
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "rule": {
+    "id": "rep-m3n4o5p6",
+    "tenant_id": "tenant-abc123",
+    "source_bucket": "backups",
+    "destination_node_id": "node-i9j0k1l2",
+    "sync_interval_seconds": 30,
+    "enabled": true,
+    "replicate_deletes": true,
+    "last_sync_at": null,
+    "created_at": "2025-12-09T10:40:00Z"
+  }
+}
+```
+
+**Access Control (Cluster Endpoints):**
+- **Global admins only**: All cluster management operations require global admin privileges
+- **Tenant admins**: Cannot manage cluster (cluster is global infrastructure)
+- **Internal endpoints**: Require HMAC-SHA256 authentication with `node_token`
+
+> **See [CLUSTER.md](CLUSTER.md) for complete cluster documentation and architecture details**
 
 ### Example Usage
 

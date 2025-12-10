@@ -1,6 +1,6 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.5.0-beta
+**Version**: 0.6.0-beta
 **Status**: Beta - 98% S3 Compatible
 **License**: MIT
 
@@ -8,7 +8,7 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 
 ## 🎉 Project Status
 
-**This project is now in BETA phase - v0.5.0-beta**. This means:
+**This project is now in BETA phase - v0.6.0-beta**. This means:
 - ✅ **All core S3 features fully implemented and tested**
 - ✅ **AWS CLI compatibility validated for all major operations (98% compatible)**
 - ✅ Successfully tested with MinIO Warp (7000+ objects, bulk operations validated)
@@ -104,7 +104,16 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
   - **Health Checker**: Background worker checking all nodes every 30 seconds with latency tracking
   - **SQLite Persistence**: 3 tables (cluster_config, cluster_nodes, cluster_health_history) for cluster state
   - **Console API Endpoints**: 13 REST endpoints for cluster management (initialize, join, nodes CRUD, health, cache)
-  - **22 automated tests** covering cluster operations (100% pass rate)
+  - **27 automated tests** covering cluster operations (100% pass rate)
+- ✅ **Cluster Bucket Replication** - Node-to-node replication for high availability - *New in 0.6.0*
+  - **HMAC Authentication**: Nodes authenticate using HMAC-SHA256 with `node_token` (no S3 credentials)
+  - **Automatic Tenant Sync**: Continuous synchronization of tenant data every 30 seconds
+  - **Encryption Handling**: Transparent decrypt-on-source, re-encrypt-on-destination
+  - **Configurable Sync Intervals**: From 10 seconds (real-time HA) to hours/days (backups)
+  - **Self-Replication Prevention**: Built-in validation prevents nodes from replicating to themselves
+  - **Bulk Configuration**: Configure entire node-to-node replication for all buckets at once
+  - **Separation from User Replication**: Completely separate system from external S3 replication
+  - **5 integration tests** simulating two-node cluster communication (HMAC auth, tenant sync, object/delete replication)
 - ✅ **Cluster Dashboard UI** - Complete web console for cluster management - *New in 0.6.0*
   - **Cluster Page**: New `/cluster` route accessible to global administrators
   - **Cluster Status Overview**: Real-time dashboard showing total/healthy/degraded/unavailable nodes and bucket statistics
@@ -444,12 +453,24 @@ MaxIOFS/
   - Concurrent multipart uploads (10 parts simultaneously)
   - Multiple simultaneous uploads (5 uploads, 25 parts total)
   - Verified: No race conditions, BadgerDB handles concurrency correctly
+- ✅ **internal/cluster/** - 27 tests covering cluster operations
+  - Cluster management tests (22 tests): Node CRUD, health checks, configuration
+  - **Cluster replication integration tests (5 tests)**: Simulated two-node cluster
+    - SimulatedNode infrastructure with in-memory storage and SQLite
+    - HMAC-SHA256 authentication (valid and invalid signatures)
+    - Tenant synchronization with checksum validation
+    - Object replication (PUT) with authenticated HTTP requests
+    - Delete replication with HMAC signatures
+    - Self-replication prevention validation
+  - Uses pure Go SQLite driver (`modernc.org/sqlite`) - no CGO required
+  - All tests pass in under 2 seconds
 - ✅ **Test Infrastructure**:
   - Helper functions for test setup and authentication
   - Isolated test environments with temporary databases
   - AWS SigV4 authentication for S3 API tests
   - Mock servers for HTTP and syslog testing
-  - **66 backend tests**, 100% pass rate, CI/CD ready
+  - SimulatedNode infrastructure for cluster testing
+  - **71 backend tests**, 100% pass rate, CI/CD ready
 
 **Feature Implementation**:
 - ✅ **Lifecycle Worker** - 100% Complete (November 20, 2025)
@@ -466,10 +487,12 @@ MaxIOFS/
 **Run Tests**:
 ```bash
 # Backend tests
-go test ./...                    # Run all backend tests
-go test -cover ./internal/...    # Run with coverage
-go test -v ./internal/auth/      # Verbose output
-go test ./internal/logging       # Run logging tests
+go test ./...                              # Run all backend tests
+go test -cover ./internal/...              # Run with coverage
+go test -v ./internal/auth/                # Verbose output
+go test ./internal/logging                 # Run logging tests
+go test ./internal/cluster -v              # Run cluster tests (includes integration tests)
+go test ./internal/cluster -v -run "TestHMAC|TestTenant|TestObject|TestDelete|TestSelf"  # Run only cluster replication tests
 
 # Frontend tests
 cd web/frontend
@@ -666,7 +689,7 @@ Contributions welcome! Please:
 
 ## 🗺️ Roadmap
 
-### Completed (v0.5.0-beta - Current)
+### Completed (v0.6.0-beta - Current)
 - [x] **Bucket Replication** (S3-compatible cross-bucket replication to AWS S3, MinIO, or other MaxIOFS instances)
   - Realtime, scheduled, and batch replication modes
   - S3 protocol-level replication with endpoint URL, access key, secret key configuration
@@ -732,6 +755,9 @@ Contributions welcome! Please:
 - [ ] **CI/CD Pipeline** (GitHub Actions for automated builds and releases)
 - [x] ~~**Bucket Notifications** (Webhooks on object events)~~ **IMPLEMENTED in v0.4.2-beta**
 - [x] ~~**Bucket Replication** (Basic S3-compatible replication)~~ **IMPLEMENTED in v0.5.0-beta**
+- [x] ~~**Multi-Node Cluster Support** (HA cluster with routing and failover)~~ **IMPLEMENTED in v0.6.0-beta**
+- [x] ~~**Cluster Bucket Replication** (Node-to-node replication for HA)~~ **IMPLEMENTED in v0.6.0-beta**
+- [x] ~~**Cluster Dashboard UI** (Web console for cluster management)~~ **IMPLEMENTED in v0.6.0-beta**
 - [ ] **Multi-Region Replication** (Geographic replication with region health checks and automatic failover)
 - [ ] **Encryption Key Rotation** (Automatic key rotation with dual-key support)
 - [ ] **Per-Tenant Encryption Keys** (Tenant-level key isolation for multi-tenancy)

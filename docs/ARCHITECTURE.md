@@ -1,16 +1,18 @@
 # MaxIOFS Architecture
 
-**Version**: 0.5.0-beta
+**Version**: 0.6.0-beta
 **S3 Compatibility**: 98%
-**Last Updated**: November 23, 2025
+**Last Updated**: December 9, 2025
 
 ## Overview
 
-MaxIOFS is a single-binary S3-compatible object storage system built in Go with an embedded React (Vite) frontend. The architecture emphasizes simplicity, portability, and ease of deployment with tenant-scoped bucket namespaces.
+MaxIOFS is a single-binary S3-compatible object storage system built in Go with an embedded React (Vite) frontend. The architecture emphasizes simplicity, portability, and ease of deployment with tenant-scoped bucket namespaces. **Version 0.6.0-beta introduces multi-node cluster support** with high availability, intelligent routing, and automatic node-to-node replication.
 
 **Testing Status**: Successfully validated with MinIO Warp stress testing (7000+ objects, bulk operations, metadata consistency under load). **98% S3 compatible** with all core operations fully functional. Production-ready for beta testing environments.
 
 ## System Architecture
+
+### Single-Node Mode
 
 ```
 ┌─────────────────────────────────────┐
@@ -39,6 +41,55 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 │  - Object Lock support              │
 └─────────────────────────────────────┘
 ```
+
+### Multi-Node Cluster Mode (v0.6.0-beta)
+
+```
+                 ┌──────────────────┐
+                 │  Load Balancer   │
+                 │  (HAProxy/Nginx) │
+                 └────────┬─────────┘
+                          │
+        ┌─────────────────┼─────────────────┐
+        │                 │                 │
+        ▼                 ▼                 ▼
+┌───────────────┐ ┌───────────────┐ ┌───────────────┐
+│   Node 1      │ │   Node 2      │ │   Node 3      │
+│  (Primary)    │ │  (Secondary)  │ │  (Secondary)  │
+├───────────────┤ ├───────────────┤ ├───────────────┤
+│ Smart Router  │ │ Smart Router  │ │ Smart Router  │
+│ - Health      │ │ - Health      │ │ - Health      │
+│ - Location    │ │ - Location    │ │ - Location    │
+│   Cache (5m)  │ │   Cache (5m)  │ │   Cache (5m)  │
+├───────────────┤ ├───────────────┤ ├───────────────┤
+│Cluster Manager│ │Cluster Manager│ │Cluster Manager│
+│ - CRUD Nodes  │ │ - CRUD Nodes  │ │ - CRUD Nodes  │
+│ - Health Chk  │ │ - Health Chk  │ │ - Health Chk  │
+├───────────────┤ ├───────────────┤ ├───────────────┤
+│Replication Mgr│ │Replication Mgr│ │Replication Mgr│
+│ - HMAC Auth   │ │ - HMAC Auth   │ │ - HMAC Auth   │
+│ - Tenant Sync │ │ - Tenant Sync │ │ - Tenant Sync │
+│ - Object Sync │ │ - Object Sync │ │ - Object Sync │
+├───────────────┤ ├───────────────┤ ├───────────────┤
+│ Local Storage │ │ Local Storage │ │ Local Storage │
+│ - Filesystem  │ │ - Filesystem  │ │ - Filesystem  │
+│ - SQLite      │ │ - SQLite      │ │ - SQLite      │
+│ - BadgerDB    │ │ - BadgerDB    │ │ - BadgerDB    │
+└───────────────┘ └───────────────┘ └───────────────┘
+        │                 │                 │
+        └─────────────────┼─────────────────┘
+              Cluster Replication
+           (HMAC-SHA256, node_token)
+```
+
+**Cluster Features**:
+- **Smart Router**: Automatically routes requests to correct node with health-aware failover
+- **Bucket Location Cache**: 5-minute TTL cache reduces latency (5ms vs 50ms)
+- **Health Monitoring**: Background checker monitors all nodes every 30 seconds
+- **Cluster Replication**: Automatic node-to-node replication with HMAC authentication
+- **Tenant Synchronization**: Auto-sync tenant data between nodes every 30 seconds
+
+> **See [CLUSTER.md](CLUSTER.md) for complete cluster documentation**
 
 ## Core Components
 
@@ -97,6 +148,42 @@ type Manager interface {
 - Multi-tenant isolation (global/tenant admin access)
 - Tracks 20+ event types (authentication, user management, buckets, 2FA, etc.)
 
+**Cluster Manager** (v0.6.0-beta)
+```go
+type Manager interface {
+    // Cluster initialization
+    InitializeCluster(ctx context.Context, nodeName, region string) (string, error)
+
+    // Node management (CRUD)
+    AddNode(ctx context.Context, node *Node) error
+    UpdateNode(ctx context.Context, nodeID string, updates map[string]interface{}) error
+    RemoveNode(ctx context.Context, nodeID string) error
+    ListNodes(ctx context.Context) ([]*Node, error)
+
+    // Health monitoring
+    CheckNodeHealth(ctx context.Context, nodeID string) (*HealthStatus, error)
+    GetHealthHistory(ctx context.Context, nodeID string, limit int) ([]*HealthCheck, error)
+
+    // Bucket location management
+    GetBucketLocation(ctx context.Context, bucketName string) (string, error)
+    SetBucketLocation(ctx context.Context, bucketName, nodeID string) error
+    ClearLocationCache() error
+}
+```
+
+**Smart Router** (v0.6.0-beta)
+- Bucket location resolution with 5-minute TTL cache
+- Health-aware request routing with automatic failover
+- Internal proxy mode for cross-node requests
+- Latency tracking per node
+
+**Replication Manager** (v0.6.0-beta)
+- HMAC-SHA256 authentication between nodes
+- Automatic tenant synchronization (30s intervals)
+- Configurable bucket replication (10s minimum interval)
+- Queue-based async processing with retry logic
+- Self-replication prevention
+
 ### 3. Storage Layer
 
 **Filesystem Backend** (Tenant-Scoped)
@@ -121,7 +208,13 @@ type Manager interface {
   │   ├── MANIFEST
   │   ├── 000001.vlog
   │   └── 000001.sst
-  └── audit.db                     ← SQLite audit logs (v0.4.0+)
+  ├── audit.db                     ← SQLite audit logs (v0.4.0+)
+  ├── cluster.db                   ← SQLite cluster state (v0.6.0-beta)
+  ├── replication.db               ← SQLite bucket replication (v0.5.0-beta)
+  ├── settings.db                  ← SQLite dynamic settings (v0.4.1-beta)
+  └── metrics/                     ← BadgerDB metrics history (v0.4.1-beta)
+      ├── MANIFEST
+      └── 000001.sst
 ```
 
 **BadgerDB Metadata Store**
@@ -140,6 +233,24 @@ type Manager interface {
 - Automatic retention management (default: 90 days)
 - Path: `{data_dir}/audit.db`
 
+**SQLite Cluster Database** (v0.6.0-beta)
+- Cluster configuration and node state
+- 3 tables: `cluster_config`, `cluster_nodes`, `cluster_health_history`
+- Stores node endpoints, regions, health status, and latency metrics
+- Background health checker updates every 30 seconds
+- Path: `{data_dir}/cluster.db`
+
+**SQLite Replication Database** (v0.5.0-beta)
+- User bucket replication rules and queue (external S3 endpoints)
+- 3 tables: `replication_rules`, `replication_queue`, `replication_status`
+- Separate from cluster replication system
+- Path: `{data_dir}/replication.db`
+
+**SQLite Settings Database** (v0.4.1-beta)
+- Dynamic runtime configuration (no restart required)
+- Security settings (rate limits, lockout thresholds, encryption)
+- Path: `{data_dir}/settings.db`
+
 ## Authentication
 
 ### Console Authentication
@@ -153,6 +264,21 @@ type Manager interface {
 - Access Key / Secret Key
 - AWS Signature v2 and v4
 - Compatible with AWS CLI, SDKs, and S3 tools
+
+### Cluster Authentication (v0.6.0-beta)
+- **HMAC-SHA256 signatures** for inter-node communication
+- Each node has a unique `node_token` (32-byte secure random)
+- Request signing: `HMAC-SHA256(node_token, method + path + timestamp + nonce + body)`
+- Headers: `X-MaxIOFS-Node-ID`, `X-MaxIOFS-Timestamp`, `X-MaxIOFS-Nonce`, `X-MaxIOFS-Signature`
+- Timestamp validation: Max 5-minute clock skew allowed
+- Constant-time signature comparison (timing attack prevention)
+- No S3 credentials required for node-to-node replication
+
+**Security Benefits**:
+- Mutual authentication between cluster nodes
+- Replay attack prevention (nonce + timestamp)
+- Message integrity verification (signature covers entire request)
+- Independent from S3 authentication system
 
 ## Multi-Tenancy
 
@@ -222,6 +348,93 @@ Global Admin (No tenant)
 
 **Key Point**: Client requests "backups/file.txt", backend serves from "tenant-abc123/backups/file.txt"
 
+### Cluster Request Routing (v0.6.0-beta)
+
+**Scenario**: Client uploads object to bucket located on different node
+
+```
+1. Client → Load Balancer → Node 2 (receives request)
+2. Node 2 S3 API: PUT /backups/file.txt
+3. Authentication: Extract access_key → tenant_id = "tenant-abc123"
+4. Smart Router checks bucket location:
+   - Cache lookup: "tenant-abc123/backups" → Cache MISS
+   - Query cluster.db bucket_locations table
+   - Result: Bucket owned by Node 1
+   - Update cache with 5-minute TTL
+5. Health Check: Verify Node 1 is healthy
+6. Internal Proxy: Node 2 forwards request to Node 1
+   - HTTP PUT to Node 1 internal endpoint
+   - Preserves all S3 headers and authentication
+   - Transparent to client
+7. Node 1 processes request locally (filesystem write)
+8. Node 1 responds to Node 2
+9. Node 2 returns response to client
+```
+
+**Performance Optimization**: Subsequent requests hit cache (5ms vs 50ms)
+
+### Cluster Replication Flow (v0.6.0-beta)
+
+**Scenario**: Automatic bucket replication from Node 1 to Node 2
+
+```
+1. Replication Scheduler (Node 1) checks every 5 seconds:
+   - Query cluster_bucket_replication table
+   - Find rule: bucket "backups" → Node 2, interval 10s
+   - Check last_sync_at: 15 seconds ago (sync needed)
+
+2. Queue Objects for Replication:
+   - List all objects in tenant-abc123/backups
+   - Insert into cluster_replication_queue table
+   - Each object gets a queue entry
+
+3. Replication Worker processes queue:
+   - Get object: objectManager.GetObject(tenant-abc123, backups, file.txt)
+   - Object is automatically decrypted (if encryption enabled)
+   - Read plaintext data into memory buffer
+
+4. Sign Request with HMAC:
+   - timestamp = current Unix timestamp
+   - nonce = random 16-byte hex string
+   - message = "PUT" + "/api/internal/cluster/objects/tenant-abc123/backups/file.txt" + timestamp + nonce + body
+   - signature = HMAC-SHA256(node_token, message)
+
+5. Send to Destination Node:
+   - HTTP PUT to Node 2: /api/internal/cluster/objects/tenant-abc123/backups/file.txt
+   - Headers:
+     * X-MaxIOFS-Node-ID: node-1-id
+     * X-MaxIOFS-Timestamp: 1702123456
+     * X-MaxIOFS-Nonce: a1b2c3d4e5f6g7h8
+     * X-MaxIOFS-Signature: 9f8e7d6c5b4a3210...
+   - Body: plaintext object data
+
+6. Node 2 receives request:
+   - Cluster Auth Middleware validates HMAC signature
+   - Lookup node_token for node-1-id in cluster_nodes table
+   - Verify signature matches (constant-time comparison)
+   - Check timestamp skew < 5 minutes
+
+7. Node 2 stores object:
+   - objectManager.PutObject(tenant-abc123, backups, file.txt, reader, size, contentType, metadata)
+   - Object is automatically re-encrypted with Node 2's encryption key
+   - Filesystem write: /data/objects/tenant-abc123/backups/file.txt
+
+8. Mark as Completed:
+   - Update cluster_replication_status table
+   - last_replicated_at = current timestamp
+   - Remove from queue
+
+9. Update Rule Status:
+   - Update cluster_bucket_replication.last_sync_at = current timestamp
+   - Next sync will occur in 10 seconds
+```
+
+**Key Security Features**:
+- HMAC authentication (no S3 credentials exposed)
+- Timestamp validation prevents replay attacks
+- Nonce ensures request uniqueness
+- Encryption handled transparently (decrypt → transfer → re-encrypt)
+
 ## Security
 
 **Authentication**
@@ -244,13 +457,10 @@ Global Admin (No tenant)
 ## Current Limitations
 
 **Beta Status**
-- ⚠️ Single-node only (no clustering)
-- ⚠️ Filesystem backend only
+- ⚠️ Filesystem backend only (cloud storage backends planned)
 - ⚠️ Object versioning (basic implementation, not fully validated)
 - ⚠️ No automatic compression
-- ⚠️ No encryption at rest
-- ⚠️ No data replication
-- ⚠️ Limited metrics
+- ⚠️ Limited encryption key management (master key in config, HSM planned for v0.7.0)
 
 **Performance**
 - ✅ **Validated with MinIO Warp stress testing**
@@ -305,16 +515,21 @@ ExecStart=/usr/local/bin/maxiofs --data-dir /var/lib/maxiofs
 
 ## Future Considerations
 
-**Not Implemented Yet**
-- Multi-node clustering
-- Object versioning (real implementation)
-- Data replication
-- Encryption at rest
-- Advanced metrics and monitoring
-- Plugin system
+**Planned Features** (See [TODO.md](../TODO.md) for complete roadmap)
+- Object versioning (enhanced validation and testing)
+- Hardware Security Module (HSM) integration for encryption keys
+- Advanced compression algorithms
+- Plugin system for extensibility
 - Additional storage backends (S3, GCS, Azure)
+- Cluster auto-scaling
+- Cross-region replication
 
-See [TODO.md](../TODO.md) for roadmap.
+**Recently Implemented**
+- ✅ Multi-node clustering (v0.6.0-beta)
+- ✅ Cluster data replication with HA (v0.6.0-beta)
+- ✅ Server-Side Encryption at Rest (v0.4.1-beta)
+- ✅ Prometheus/Grafana monitoring (v0.3.2-beta)
+- ✅ Comprehensive audit logging (v0.4.0-beta)
 
 ---
 

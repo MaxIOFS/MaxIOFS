@@ -1,9 +1,9 @@
 
 # MaxIOFS Configuration Guide
 
-**Version**: 0.5.0-beta
+**Version**: 0.6.0-beta
 
-Configuration reference for MaxIOFS v0.5.0-beta
+Configuration reference for MaxIOFS v0.6.0-beta
 
 ---
 
@@ -18,6 +18,7 @@ Configuration reference for MaxIOFS v0.5.0-beta
 - [Server-Side Encryption (SSE)](#server-side-encryption-sse)
 - [Authentication](#authentication)
 - [Audit Logging](#audit-logging)
+- [Cluster Configuration](#cluster-configuration)
 - [Dynamic Settings](#dynamic-settings)
 - [Examples](#examples)
 
@@ -496,6 +497,306 @@ audit:
 - Audit logs available at: `/audit-logs`
 - Access restricted to global admins and tenant admins
 - Features: advanced filtering, search, CSV export, quick date filters
+
+---
+
+## Cluster Configuration
+
+**New in v0.6.0-beta**
+
+MaxIOFS supports multi-node clustering for high availability and horizontal scaling. Cluster configuration is stored in SQLite (`{data_dir}/cluster.db`) and managed through the Web Console or Cluster API.
+
+### Cluster Initialization
+
+**Initialize the first node (primary):**
+
+```bash
+curl -X POST http://localhost:8081/api/cluster/initialize \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_name": "node-east-1",
+    "s3_endpoint": "http://10.0.1.10:8080",
+    "console_endpoint": "http://10.0.1.10:8081",
+    "region": "us-east-1",
+    "datacenter": "dc-east"
+  }'
+```
+
+**Response includes:**
+- `cluster_id`: Unique cluster identifier
+- `node_id`: This node's unique ID
+- `node_token`: **HMAC authentication token** (32-byte secure random string)
+  - **⚠️ CRITICAL: Save this token securely - required for inter-node authentication**
+  - **⚠️ Cannot be retrieved again after initialization**
+
+### Node Configuration Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `node_name` | string | Yes | Human-readable node name (e.g., "node-east-1") |
+| `s3_endpoint` | string | Yes | Full S3 API URL (e.g., "http://10.0.1.10:8080") |
+| `console_endpoint` | string | Yes | Full Console API URL (e.g., "http://10.0.1.10:8081") |
+| `region` | string | No | AWS-compatible region (e.g., "us-east-1") |
+| `datacenter` | string | No | Datacenter identifier (e.g., "dc-east") |
+
+### Adding Nodes to Cluster
+
+**From any existing node, add a new node:**
+
+```bash
+curl -X POST http://10.0.1.10:8081/api/cluster/nodes \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_name": "node-east-2",
+    "s3_endpoint": "http://10.0.1.20:8080",
+    "console_endpoint": "http://10.0.1.20:8081",
+    "region": "us-east-1",
+    "datacenter": "dc-east"
+  }'
+```
+
+**Response includes:**
+- `node_id`: New node's unique identifier
+- `node_token`: HMAC authentication token for this node
+- `status`: Node health status (healthy/degraded/unhealthy)
+
+### Health Monitoring Configuration
+
+**Background health checker** (automatic, no configuration needed):
+- **Interval**: 30 seconds (checks all nodes every 30s)
+- **Timeout**: 10 seconds per node
+- **Latency tracking**: Measures round-trip time in milliseconds
+- **History retention**: Last 100 health checks per node in `cluster_health_history` table
+
+**Health status levels:**
+- `healthy`: Response time < 500ms, last check successful
+- `degraded`: Response time 500ms-2000ms, or 1-2 failed checks
+- `unhealthy`: Response time > 2000ms, or 3+ consecutive failed checks
+- `unknown`: Never checked or node recently added
+
+### Bucket Location Cache
+
+**Configuration** (automatic, managed internally):
+- **TTL**: 5 minutes (300 seconds)
+- **Performance**: 5ms cached lookup vs 50ms database query
+- **Automatic invalidation**: Cache cleared on bucket creation/deletion
+- **Manual clear endpoint**: `DELETE /api/cluster/cache`
+
+**How it works:**
+1. First S3 request for bucket → Database query (50ms)
+2. Cache bucket location for 5 minutes
+3. Subsequent requests → Cache hit (5ms)
+4. After 5 minutes → Database query again (refresh cache)
+
+### Cluster Replication Configuration
+
+**Create replication rule:**
+
+```bash
+curl -X POST http://localhost:8081/api/cluster/replication/rules \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_bucket": "backups",
+    "destination_node_id": "node-abc123",
+    "sync_interval_seconds": 30,
+    "enabled": true,
+    "replicate_deletes": true,
+    "replicate_metadata": true
+  }'
+```
+
+**Replication Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `source_bucket` | string | Yes | - | Bucket name to replicate |
+| `destination_node_id` | string | Yes | - | Target node ID (from `GET /api/cluster/nodes`) |
+| `sync_interval_seconds` | int | No | 300 | Sync frequency (minimum: 10 seconds) |
+| `enabled` | bool | No | true | Enable/disable rule without deleting |
+| `replicate_deletes` | bool | No | true | Replicate object deletions |
+| `replicate_metadata` | bool | No | true | Replicate metadata changes |
+
+**Recommended sync intervals:**
+- **Real-time HA**: 10-30 seconds (high CPU/network usage)
+- **Near real-time**: 60-300 seconds (balanced performance)
+- **Periodic backup**: 3600+ seconds (1+ hours, low overhead)
+
+### Tenant Synchronization
+
+**Automatic background synchronization** (no configuration needed):
+- **Interval**: 30 seconds
+- **Scope**: All tenants synchronized to all cluster nodes
+- **Checksum validation**: MD5 hash prevents duplicate sync
+- **Purpose**: Ensures all nodes can authenticate users and enforce quotas
+
+**What gets synchronized:**
+- Tenant metadata (name, quotas, limits)
+- User accounts and credentials
+- Access keys and permissions
+- Bucket ownership mapping
+
+**What does NOT get synchronized:**
+- Object data (handled by bucket replication rules)
+- Node-specific configuration
+- Health check history
+
+### HMAC Authentication
+
+**How it works:**
+- Each node has unique `node_token` (32-byte secure random)
+- Inter-node requests signed with HMAC-SHA256
+- Signature covers: HTTP method + URL path + timestamp + nonce + request body
+- Prevents replay attacks with timestamp validation (max 5-minute skew)
+
+**Request headers:**
+```
+X-MaxIOFS-Node-ID: source-node-id
+X-MaxIOFS-Timestamp: 1702123456
+X-MaxIOFS-Nonce: a1b2c3d4e5f6g7h8
+X-MaxIOFS-Signature: 9f8e7d6c5b4a3210...
+```
+
+**Security:**
+- Constant-time signature comparison (timing attack prevention)
+- Nonce prevents replay attacks
+- Timestamp ensures request freshness
+- No S3 credentials required for cluster operations
+
+### Database Schema
+
+Cluster state stored in `{data_dir}/cluster.db` (SQLite):
+
+**Tables:**
+1. `cluster_config` - Cluster ID, primary node, initialization timestamp
+2. `cluster_nodes` - Node inventory (ID, name, endpoints, region, token hash)
+3. `cluster_health_history` - Last 100 health checks per node
+4. `cluster_bucket_replication` - Replication rules
+5. `cluster_replication_queue` - Pending replication tasks
+
+### Environment Variables
+
+Cluster configuration is **not** configurable via environment variables (requires API/Web Console).
+
+However, you can configure:
+
+```bash
+# Data directory (cluster.db stored here)
+export MAXIOFS_DATA_DIR=/var/lib/maxiofs
+
+# S3 and Console listen addresses (must match cluster node endpoints)
+export MAXIOFS_LISTEN=:8080
+export MAXIOFS_CONSOLE_LISTEN=:8081
+```
+
+### Example: Production Cluster Setup
+
+**Step 1: Initialize primary node (10.0.1.10)**
+
+```bash
+curl -X POST http://10.0.1.10:8081/api/cluster/initialize \
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -d '{
+    "node_name": "prod-east-1",
+    "s3_endpoint": "http://10.0.1.10:8080",
+    "console_endpoint": "http://10.0.1.10:8081",
+    "region": "us-east-1"
+  }'
+
+# Save the node_token from response!
+```
+
+**Step 2: Add secondary nodes**
+
+```bash
+# Add node 2 (10.0.1.20)
+curl -X POST http://10.0.1.10:8081/api/cluster/nodes \
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -d '{
+    "node_name": "prod-east-2",
+    "s3_endpoint": "http://10.0.1.20:8080",
+    "console_endpoint": "http://10.0.1.20:8081",
+    "region": "us-east-1"
+  }'
+
+# Add node 3 (10.0.1.30)
+curl -X POST http://10.0.1.10:8081/api/cluster/nodes \
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -d '{
+    "node_name": "prod-east-3",
+    "s3_endpoint": "http://10.0.1.30:8080",
+    "console_endpoint": "http://10.0.1.30:8081",
+    "region": "us-east-1"
+  }'
+```
+
+**Step 3: Configure replication for HA**
+
+```bash
+# Replicate critical buckets to all nodes
+curl -X POST http://10.0.1.10:8081/api/cluster/replication/rules \
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -d '{
+    "source_bucket": "backups",
+    "destination_node_id": "node-id-from-step-2",
+    "sync_interval_seconds": 30,
+    "enabled": true
+  }'
+```
+
+### Web Console Management
+
+Navigate to **Cluster** page (`http://localhost:8081/cluster`) for:
+- Initialize cluster dialog
+- Real-time cluster status dashboard
+- Node health monitoring with latency graphs
+- Add/Edit/Remove nodes
+- Bucket replication rule management
+- Manual health checks
+- Cache management
+
+### Limitations
+
+- ⚠️ **No automatic node discovery** - Nodes must be manually added via API
+- ⚠️ **No consensus algorithm** - Primary node election is manual
+- ⚠️ **No automatic failover** - Requires external load balancer with health checks
+- ⚠️ **Replication is eventual consistency** - Not strongly consistent
+- ⚠️ **Bucket location is fixed** - Cannot migrate bucket between nodes (yet)
+
+### Troubleshooting
+
+**Node shows as unhealthy:**
+```bash
+# Manually trigger health check
+curl -X POST http://localhost:8081/api/cluster/nodes/{node-id}/health \
+  -H "Authorization: Bearer $TOKEN"
+
+# View health history
+curl http://localhost:8081/api/cluster/health/history?node_id={node-id} \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Replication not working:**
+```bash
+# Check replication rules
+curl http://localhost:8081/api/cluster/replication/rules \
+  -H "Authorization: Bearer $TOKEN"
+
+# Manually trigger sync
+curl -X POST http://localhost:8081/api/cluster/replication/sync \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Routing issues:**
+```bash
+# Clear bucket location cache
+curl -X DELETE http://localhost:8081/api/cluster/cache \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+> **See [CLUSTER.md](CLUSTER.md) for complete cluster documentation and architecture**
 
 ---
 
