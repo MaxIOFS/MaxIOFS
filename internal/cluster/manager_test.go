@@ -391,12 +391,14 @@ func TestGetClusterStatus(t *testing.T) {
 		t.Error("Expected cluster to be enabled")
 	}
 
-	if status.TotalNodes != 3 {
-		t.Errorf("Expected 3 total nodes, got %d", status.TotalNodes)
+	// InitializeCluster creates 1 node (test-node) + 3 added nodes = 4 total
+	if status.TotalNodes != 4 {
+		t.Errorf("Expected 4 total nodes, got %d", status.TotalNodes)
 	}
 
-	if status.HealthyNodes != 1 {
-		t.Errorf("Expected 1 healthy node, got %d", status.HealthyNodes)
+	// test-node (healthy by default) + node-1 (healthy) = 2 healthy nodes
+	if status.HealthyNodes != 2 {
+		t.Errorf("Expected 2 healthy nodes, got %d", status.HealthyNodes)
 	}
 
 	if status.DegradedNodes != 1 {
