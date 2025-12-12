@@ -1,0 +1,159 @@
+groups:
+  - name: maxiofs_performance
+    interval: 30s
+    rules:
+      # High P95 Latency Alerts
+      - alert: HighP95Latency
+        expr: maxiofs_operation_latency_p95_milliseconds > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "High P95 latency detected for {{ $labels.operation }}"
+          description: "{{ $labels.operation }} P95 latency is {{ $value }}ms (threshold: 100ms)"
+
+      - alert: CriticalP95Latency
+        expr: maxiofs_operation_latency_p95_milliseconds > 500
+        for: 2m
+        labels:
+          severity: critical
+          component: performance
+        annotations:
+          summary: "Critical P95 latency detected for {{ $labels.operation }}"
+          description: "{{ $labels.operation }} P95 latency is {{ $value }}ms (threshold: 500ms). Immediate attention required!"
+
+      # High P99 Latency Alerts
+      - alert: HighP99Latency
+        expr: maxiofs_operation_latency_p99_milliseconds > 200
+        for: 5m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "High P99 latency detected for {{ $labels.operation }}"
+          description: "{{ $labels.operation }} P99 latency is {{ $value }}ms (threshold: 200ms)"
+
+      - alert: CriticalP99Latency
+        expr: maxiofs_operation_latency_p99_milliseconds > 1000
+        for: 2m
+        labels:
+          severity: critical
+          component: performance
+        annotations:
+          summary: "Critical P99 latency detected for {{ $labels.operation }}"
+          description: "{{ $labels.operation }} P99 latency is {{ $value }}ms (threshold: 1000ms). Service degradation likely!"
+
+      # Low Success Rate Alerts
+      - alert: LowSuccessRate
+        expr: maxiofs_operation_success_rate_percent < 95
+        for: 3m
+        labels:
+          severity: warning
+          component: reliability
+        annotations:
+          summary: "Low success rate for {{ $labels.operation }}"
+          description: "{{ $labels.operation }} success rate is {{ $value }}% (threshold: 95%)"
+
+      - alert: CriticalSuccessRate
+        expr: maxiofs_operation_success_rate_percent < 90
+        for: 1m
+        labels:
+          severity: critical
+          component: reliability
+        annotations:
+          summary: "Critical success rate for {{ $labels.operation }}"
+          description: "{{ $labels.operation }} success rate is {{ $value }}% (threshold: 90%). Service outage possible!"
+
+      # Throughput Degradation Alerts
+      - alert: LowThroughput
+        expr: maxiofs_throughput_requests_per_second < 1 and maxiofs_operation_count_total > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "Low request throughput detected"
+          description: "Request throughput is {{ $value }} req/s (threshold: 1 req/s) despite having operations"
+
+      - alert: ZeroThroughput
+        expr: maxiofs_throughput_requests_per_second == 0 and maxiofs_operation_count_total > 100
+        for: 10m
+        labels:
+          severity: critical
+          component: availability
+        annotations:
+          summary: "Zero request throughput detected"
+          description: "No requests being processed for 10 minutes despite having historical operations. Service may be down!"
+
+      # Mean Latency Spike Alerts
+      - alert: MeanLatencySpike
+        expr: (maxiofs_operation_latency_mean_milliseconds / (maxiofs_operation_latency_mean_milliseconds offset 5m)) > 2
+        for: 3m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "Mean latency spike for {{ $labels.operation }}"
+          description: "{{ $labels.operation }} mean latency increased by {{ $value | humanizePercentage }} in last 5 minutes"
+
+      # High Operation Count (Potential Attack)
+      - alert: SuspiciousHighOperationRate
+        expr: rate(maxiofs_operation_count_total[1m]) > 1000
+        for: 2m
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "Suspicious high operation rate for {{ $labels.operation }}"
+          description: "{{ $labels.operation }} rate is {{ $value | humanize }} ops/s. Potential attack or misconfiguration?"
+
+      # P95/P50 Ratio Alert (Latency Variance)
+      - alert: HighLatencyVariance
+        expr: (maxiofs_operation_latency_p95_milliseconds / maxiofs_operation_latency_p50_milliseconds) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "High latency variance for {{ $labels.operation }}"
+          description: "{{ $labels.operation }} P95/P50 ratio is {{ $value }}x (threshold: 5x). Inconsistent performance detected!"
+
+  - name: maxiofs_slo_violations
+    interval: 60s
+    rules:
+      # SLO Violation: 99.9% availability target
+      - alert: SLOViolationAvailability
+        expr: avg_over_time(maxiofs_operation_success_rate_percent[1h]) < 99.9
+        for: 5m
+        labels:
+          severity: critical
+          component: slo
+          slo: availability
+        annotations:
+          summary: "SLO violation: Availability below 99.9%"
+          description: "Average success rate over last hour is {{ $value }}% (SLO target: 99.9%)"
+
+      # SLO Violation: P95 latency < 50ms target
+      - alert: SLOViolationLatencyP95
+        expr: avg_over_time(maxiofs_operation_latency_p95_milliseconds{operation=~"PutObject|GetObject|DeleteObject"}[1h]) > 50
+        for: 10m
+        labels:
+          severity: warning
+          component: slo
+          slo: latency_p95
+        annotations:
+          summary: "SLO violation: P95 latency above 50ms"
+          description: "Average P95 latency for {{ $labels.operation }} over last hour is {{ $value }}ms (SLO target: <50ms)"
+
+      # SLO Violation: P99 latency < 100ms target
+      - alert: SLOViolationLatencyP99
+        expr: avg_over_time(maxiofs_operation_latency_p99_milliseconds{operation=~"PutObject|GetObject|DeleteObject"}[1h]) > 100
+        for: 10m
+        labels:
+          severity: warning
+          component: slo
+          slo: latency_p99
+        annotations:
+          summary: "SLO violation: P99 latency above 100ms"
+          description: "Average P99 latency for {{ $labels.operation }} over last hour is {{ $value }}ms (SLO target: <100ms)"

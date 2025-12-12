@@ -53,11 +53,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ✅ React Query integration for data fetching
 - ✅ Dark mode support for all new components
 
-#### Pending Work (Sprint 4 Completion)
-- [ ] Prometheus metrics export endpoint
-- [ ] Grafana dashboard templates
-- [ ] Performance alerting rules
-- [ ] SLO documentation
+### Added - Prometheus & Grafana Integration (Sprint 4 - Complete)
+
+#### Prometheus Metrics Export
+- **PerformanceCollector Prometheus Integration** (`internal/metrics/manager.go`)
+  - Added 9 new Prometheus metrics for real-time performance monitoring:
+    - `maxiofs_operation_latency_p50_milliseconds{operation}` - P50 (median) latency per operation
+    - `maxiofs_operation_latency_p95_milliseconds{operation}` - P95 latency per operation
+    - `maxiofs_operation_latency_p99_milliseconds{operation}` - P99 latency per operation
+    - `maxiofs_operation_latency_mean_milliseconds{operation}` - Mean latency per operation
+    - `maxiofs_operation_success_rate_percent{operation}` - Success rate (0-100) per operation
+    - `maxiofs_operation_count_total{operation}` - Total operation count per operation type
+    - `maxiofs_throughput_requests_per_second` - Current request throughput
+    - `maxiofs_throughput_bytes_per_second` - Current data transfer rate
+    - `maxiofs_throughput_objects_per_second` - Current object operation rate
+  - Implemented `UpdatePerformanceMetrics()` method to sync PerformanceCollector data to Prometheus
+  - Metrics automatically updated before each Prometheus scrape via wrapped handler
+  - All metrics exposed at `/metrics` endpoint on port 8080
+
+#### Grafana Dashboard
+- **Performance Metrics Dashboard** (`docker/grafana/dashboards/maxiofs-performance.json`)
+  - 7 visualization panels:
+    1. Operation Latency Percentiles (p50/p95/p99) - Time series chart
+    2. Operation Success Rate - Gauge with color thresholds (red <95%, yellow 95-99%, green ≥99%)
+    3. Throughput - Requests per Second - Time series
+    4. Throughput - Bytes per Second - Time series
+    5. Throughput - Objects per Second - Time series
+    6. Operation Distribution - Pie chart showing operation mix
+    7. Mean Operation Latency - Time series per operation
+  - Auto-refresh every 5 seconds
+  - 15-minute default time window
+  - Ready to import into Grafana instances
+
+#### Prometheus Alerting Rules
+- **Performance Alerting Rules** (`docker/prometheus-alerts.yml`)
+  - **14 alert rules** across 2 groups:
+    - **maxiofs_performance group** (11 alerts):
+      - HighP95Latency: Fires when p95 > 100ms for 5 minutes
+      - CriticalP95Latency: Fires when p95 > 500ms for 2 minutes
+      - HighP99Latency: Fires when p99 > 200ms for 5 minutes
+      - CriticalP99Latency: Fires when p99 > 1000ms for 2 minutes
+      - LowSuccessRate: Fires when success rate < 95% for 3 minutes
+      - CriticalSuccessRate: Fires when success rate < 90% for 1 minute
+      - LowThroughput: Fires when throughput < 1 req/s for 5 minutes
+      - ZeroThroughput: Fires when throughput = 0 for 10 minutes
+      - MeanLatencySpike: Fires when latency increases 2x in 5 minutes
+      - SuspiciousHighOperationRate: Fires when rate > 1000 ops/s for 2 minutes
+      - HighLatencyVariance: Fires when P95/P50 ratio > 5x for 5 minutes
+    - **maxiofs_slo_violations group** (3 alerts):
+      - SLOViolationAvailability: Hourly average < 99.9% for 5 minutes
+      - SLOViolationLatencyP95: Hourly average p95 > 50ms for 10 minutes
+      - SLOViolationLatencyP99: Hourly average p99 > 100ms for 10 minutes
+
+#### Service Level Objectives Documentation
+- **SLO Documentation** (`docs/SLO.md`)
+  - 5 core SLOs defined with measurement periods and targets:
+    1. **Availability SLO**: 99.9% (43 min downtime/month)
+    2. **Latency P95 SLO**: <50ms for core S3 operations
+    3. **Latency P99 SLO**: <100ms for core S3 operations
+    4. **Throughput SLO**: >1000 req/s sustained
+    5. **Error Rate SLO**: <1% for all operations
+  - Performance targets by operation (based on Linux production baseline)
+  - Error budget policy with consumption thresholds
+  - Alert rules mapping and monitoring queries
+  - Performance optimization guidelines
+  - Review schedule and target adjustment criteria
+  - Full appendix with Linux baseline test results
+
+### Fixed - Frontend Performance Dashboard (Sprint 4)
+- **Operation Latencies Display** (`web/frontend/src/pages/metrics/index.tsx`)
+  - Fixed grid layout to always show 4 main S3 operations (PutObject, GetObject, DeleteObject, ListObjects)
+  - Empty operations now display "No data" badge with zero values instead of leaving blank space
+  - Ensures consistent 2x2 grid layout regardless of data availability
+  - Improved visual consistency and user experience
+- **Success Rate Display Bug** (`web/frontend/src/pages/metrics/index.tsx`)
+  - Fixed success_rate percentage calculation (backend returns 0-100, not 0-1 fraction)
+  - Removed duplicate multiplication by 100 that caused "10000.00%" display
+  - Updated color-coded threshold comparisons (≥99 and ≥95 instead of ≥0.99 and ≥0.95)
+  - Now correctly displays "100.00%" for perfect success rates
+- **S3 Operation Tracking Bug** (`internal/middleware/tracing.go`)
+  - Fixed PutObject, GetObject, DeleteObject operations not being tracked
+  - Changed route variable from `vars["key"]` to `vars["object"]` to match S3 handler routes
+  - Operations were incorrectly classified as MetadataOperation instead of specific operation types
+  - Updated unit tests to use `{object:.*}` pattern instead of `{key:.*}`
+  - All S3 operations now properly tracked: PutObject, GetObject, DeleteObject, ListObjects, HeadObject
 
 ### Added - Performance Profiling & Load Testing Infrastructure (Sprint 2)
 - **Complete k6 Load Testing Suite** - Industry-standard performance testing with comprehensive scenarios

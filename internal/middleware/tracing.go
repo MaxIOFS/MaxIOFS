@@ -146,15 +146,16 @@ func isConsoleRequest(r *http.Request) bool {
 
 // mapS3Operation maps S3 request to operation type
 func mapS3Operation(r *http.Request) string {
-	// Get route vars (bucket, key)
+	// Get route vars (bucket, object)
+	// Note: The S3 handler uses "object" not "key" for the path variable
 	vars := mux.Vars(r)
 	bucket := vars["bucket"]
-	key := vars["key"]
+	object := vars["object"] // Changed from "key" to "object"
 
 	// Determine operation based on method and path
 	switch r.Method {
 	case http.MethodPut:
-		if key != "" {
+		if object != "" {
 			// Check for multipart upload
 			if r.URL.Query().Get("uploadId") != "" {
 				return string(metrics.OpMultipartUpload)
@@ -164,7 +165,7 @@ func mapS3Operation(r *http.Request) string {
 		return string(metrics.OpMetadataOperation) // Create bucket or set config
 
 	case http.MethodGet:
-		if key != "" {
+		if object != "" {
 			return string(metrics.OpGetObject)
 		}
 		if bucket != "" {
@@ -176,7 +177,7 @@ func mapS3Operation(r *http.Request) string {
 		return string(metrics.OpHeadObject)
 
 	case http.MethodDelete:
-		if key != "" {
+		if object != "" {
 			return string(metrics.OpDeleteObject)
 		}
 		return string(metrics.OpMetadataOperation) // Delete bucket

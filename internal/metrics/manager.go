@@ -132,6 +132,19 @@ type metricsManager struct {
 	cacheHitRate           prometheus.Gauge
 	cacheSizeBytes         prometheus.Gauge
 
+	// Operation Latency Metrics (from PerformanceCollector)
+	operationLatencyP50 *prometheus.GaugeVec
+	operationLatencyP95 *prometheus.GaugeVec
+	operationLatencyP99 *prometheus.GaugeVec
+	operationLatencyMean *prometheus.GaugeVec
+	operationSuccessRate *prometheus.GaugeVec
+	operationCount       *prometheus.GaugeVec
+
+	// Throughput Metrics (from PerformanceCollector)
+	throughputRequestsPerSecond prometheus.Gauge
+	throughputBytesPerSecond    prometheus.Gauge
+	throughputObjectsPerSecond  prometheus.Gauge
+
 	// Aggregate tracking for quick access
 	totalRequests     uint64
 	totalErrors       uint64
@@ -573,6 +586,95 @@ func (m *metricsManager) initializeMetrics() {
 		},
 	)
 
+	// Operation Latency Metrics (from PerformanceCollector)
+	m.operationLatencyP50 = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "operation",
+			Name:      "latency_p50_milliseconds",
+			Help:      "P50 (median) operation latency in milliseconds",
+		},
+		[]string{"operation"},
+	)
+
+	m.operationLatencyP95 = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "operation",
+			Name:      "latency_p95_milliseconds",
+			Help:      "P95 operation latency in milliseconds",
+		},
+		[]string{"operation"},
+	)
+
+	m.operationLatencyP99 = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "operation",
+			Name:      "latency_p99_milliseconds",
+			Help:      "P99 operation latency in milliseconds",
+		},
+		[]string{"operation"},
+	)
+
+	m.operationLatencyMean = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "operation",
+			Name:      "latency_mean_milliseconds",
+			Help:      "Mean operation latency in milliseconds",
+		},
+		[]string{"operation"},
+	)
+
+	m.operationSuccessRate = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "operation",
+			Name:      "success_rate_percent",
+			Help:      "Operation success rate in percent (0-100)",
+		},
+		[]string{"operation"},
+	)
+
+	m.operationCount = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "operation",
+			Name:      "count_total",
+			Help:      "Total operation count",
+		},
+		[]string{"operation"},
+	)
+
+	// Throughput Metrics (from PerformanceCollector)
+	m.throughputRequestsPerSecond = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "throughput",
+			Name:      "requests_per_second",
+			Help:      "Current throughput in requests per second",
+		},
+	)
+
+	m.throughputBytesPerSecond = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "throughput",
+			Name:      "bytes_per_second",
+			Help:      "Current throughput in bytes per second",
+		},
+	)
+
+	m.throughputObjectsPerSecond = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "throughput",
+			Name:      "objects_per_second",
+			Help:      "Current throughput in objects per second",
+		},
+	)
+
 	// Register all metrics
 	m.registerMetrics()
 }
@@ -628,6 +730,19 @@ func (m *metricsManager) registerMetrics() {
 		m.backgroundTaskDuration,
 		m.cacheHitRate,
 		m.cacheSizeBytes,
+
+		// Operation Latency (from PerformanceCollector)
+		m.operationLatencyP50,
+		m.operationLatencyP95,
+		m.operationLatencyP99,
+		m.operationLatencyMean,
+		m.operationSuccessRate,
+		m.operationCount,
+
+		// Throughput (from PerformanceCollector)
+		m.throughputRequestsPerSecond,
+		m.throughputBytesPerSecond,
+		m.throughputObjectsPerSecond,
 	}
 
 	for _, metric := range metrics {
@@ -769,10 +884,43 @@ func (m *metricsManager) UpdateCacheMetrics(hitRate float64, size int64) {
 	m.cacheSizeBytes.Set(float64(size))
 }
 
+// UpdatePerformanceMetrics syncs PerformanceCollector data to Prometheus metrics
+func (m *metricsManager) UpdatePerformanceMetrics() {
+	collector := GetGlobalPerformanceCollector()
+	if collector == nil {
+		return
+	}
+
+	// Update operation latency metrics
+	allStats := collector.GetAllLatencyStats()
+	for operation, stats := range allStats {
+		opLabel := string(operation)
+		m.operationLatencyP50.WithLabelValues(opLabel).Set(stats.P50)
+		m.operationLatencyP95.WithLabelValues(opLabel).Set(stats.P95)
+		m.operationLatencyP99.WithLabelValues(opLabel).Set(stats.P99)
+		m.operationLatencyMean.WithLabelValues(opLabel).Set(stats.Mean)
+		m.operationSuccessRate.WithLabelValues(opLabel).Set(stats.SuccessRate)
+		m.operationCount.WithLabelValues(opLabel).Set(float64(stats.Count))
+	}
+
+	// Update throughput metrics
+	throughput := collector.GetCurrentThroughput()
+	m.throughputRequestsPerSecond.Set(throughput.RequestsPerSecond)
+	m.throughputBytesPerSecond.Set(float64(throughput.BytesPerSecond))
+	m.throughputObjectsPerSecond.Set(throughput.ObjectsPerSecond)
+}
+
 // Export and Health Implementation
 
 func (m *metricsManager) GetMetricsHandler() http.Handler {
-	return promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{})
+	// Wrap the Prometheus handler to update performance metrics before each scrape
+	handler := promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Update performance metrics from PerformanceCollector before scraping
+		m.UpdatePerformanceMetrics()
+		// Serve the metrics
+		handler.ServeHTTP(w, r)
+	})
 }
 
 func (m *metricsManager) GetMetricsSnapshot() (map[string]interface{}, error) {

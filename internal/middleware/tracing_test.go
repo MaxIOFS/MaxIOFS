@@ -333,8 +333,9 @@ func TestMapS3Operation(t *testing.T) {
 			}
 
 			// Create router to populate mux.Vars
+			// Note: Changed from {key:.*} to {object:.*} to match actual S3 handler routes
 			router := mux.NewRouter()
-			router.HandleFunc("/{bucket}/{key:.*}", func(w http.ResponseWriter, r *http.Request) {
+			router.HandleFunc("/{bucket}/{object:.*}", func(w http.ResponseWriter, r *http.Request) {
 				result := mapS3Operation(r)
 				if result != tt.expected {
 					t.Errorf("Expected '%s', got '%s'", tt.expected, result)
