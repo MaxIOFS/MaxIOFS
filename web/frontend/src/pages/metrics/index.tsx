@@ -567,82 +567,104 @@ export default function MetricsPage() {
                     </div>
                   </div>
 
-                  {/* Section 3: S3 Operation Details */}
+                  {/* Section 3: Operation Latencies */}
                   <div>
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">
                       Operation Latencies (p50 / p95 / p99)
                     </h3>
                     <div className="grid gap-6 md:grid-cols-2">
-                    {Object.entries(performanceLatencies.latencies).map(([operation, stats]) => (
-                      <div
-                        key={operation}
-                        className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4"
-                      >
-                        <div className="flex items-center justify-between mb-4">
-                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                            {operation}
-                          </h3>
-                          <span
-                            className={`px-2 py-1 text-xs font-medium rounded ${
-                              stats.success_rate >= 0.99
-                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                                : stats.success_rate >= 0.95
-                                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-                                : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                            }`}
-                          >
-                            {(stats.success_rate * 100).toFixed(2)}% success
-                          </span>
-                        </div>
+                      {/* Always show these 4 main operations even if no data yet */}
+                      {['PutObject', 'GetObject', 'DeleteObject', 'ListObjects'].map((operation) => {
+                        const stats = performanceLatencies.latencies[operation] || {
+                          operation,
+                          count: 0,
+                          p50_ms: 0,
+                          p95_ms: 0,
+                          p99_ms: 0,
+                          mean_ms: 0,
+                          min_ms: 0,
+                          max_ms: 0,
+                          success_rate: 100.0,
+                          error_count: 0
+                        };
 
-                        <div className="space-y-2">
-                          <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                            <span className="text-sm text-gray-600 dark:text-gray-400">Count</span>
-                            <span className="text-sm font-medium text-gray-900 dark:text-white">
-                              {formatNumber(stats.count)}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                            <span className="text-sm text-gray-600 dark:text-gray-400">p50</span>
-                            <span className="text-sm font-medium text-gray-900 dark:text-white">
-                              {stats.p50_ms.toFixed(2)} ms
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                            <span className="text-sm text-gray-600 dark:text-gray-400">p95</span>
-                            <span className="text-sm font-bold text-brand-600 dark:text-brand-400">
-                              {stats.p95_ms.toFixed(2)} ms
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                            <span className="text-sm text-gray-600 dark:text-gray-400">p99</span>
-                            <span className="text-sm font-medium text-orange-600 dark:text-orange-400">
-                              {stats.p99_ms.toFixed(2)} ms
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                            <span className="text-sm text-gray-600 dark:text-gray-400">Mean</span>
-                            <span className="text-sm font-medium text-gray-900 dark:text-white">
-                              {stats.mean_ms.toFixed(2)} ms
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                            <span className="text-sm text-gray-600 dark:text-gray-400">Min/Max</span>
-                            <span className="text-sm font-medium text-gray-900 dark:text-white">
-                              {stats.min_ms.toFixed(2)} / {stats.max_ms.toFixed(2)} ms
-                            </span>
-                          </div>
-                          {stats.error_count > 0 && (
-                            <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                              <span className="text-sm text-red-600 dark:text-red-400">Errors</span>
-                              <span className="text-sm font-medium text-red-600 dark:text-red-400">
-                                {formatNumber(stats.error_count)}
-                              </span>
+                        return (
+                          <div
+                            key={operation}
+                            className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+                          >
+                            <div className="flex items-center justify-between mb-4">
+                              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                                {operation}
+                              </h3>
+                              {stats.count > 0 ? (
+                                <span
+                                  className={`px-2 py-1 text-xs font-medium rounded ${
+                                    stats.success_rate >= 99
+                                      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                      : stats.success_rate >= 95
+                                      ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                                      : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                                  }`}
+                                >
+                                  {stats.success_rate.toFixed(2)}% success
+                                </span>
+                              ) : (
+                                <span className="px-2 py-1 text-xs font-medium rounded bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">
+                                  No data
+                                </span>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">Count</span>
+                                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                  {formatNumber(stats.count)}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">p50</span>
+                                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                  {stats.p50_ms.toFixed(2)} ms
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">p95</span>
+                                <span className="text-sm font-bold text-brand-600 dark:text-brand-400">
+                                  {stats.p95_ms.toFixed(2)} ms
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">p99</span>
+                                <span className="text-sm font-medium text-orange-600 dark:text-orange-400">
+                                  {stats.p99_ms.toFixed(2)} ms
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">Mean</span>
+                                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                  {stats.mean_ms.toFixed(2)} ms
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">Min/Max</span>
+                                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                  {stats.min_ms.toFixed(2)} / {stats.max_ms.toFixed(2)} ms
+                                </span>
+                              </div>
+                              {stats.error_count > 0 && (
+                                <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                                  <span className="text-sm text-red-600 dark:text-red-400">Errors</span>
+                                  <span className="text-sm font-medium text-red-600 dark:text-red-400">
+                                    {formatNumber(stats.error_count)}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -663,7 +685,7 @@ export default function MetricsPage() {
                           dataKeys={[
                             { key: 'requestsPerSec', name: 'Requests/sec', color: '#3b82f6' },
                           ]}
-                          height={300}
+                          height={350}
                           formatYAxis={(value) => `${value.toFixed(1)}/s`}
                           formatTooltip={(value) => `${value.toFixed(2)}/s`}
                           timeRange={historyData?.requestedRange}
@@ -674,7 +696,7 @@ export default function MetricsPage() {
                           dataKeys={[
                             { key: 'avgLatency', name: 'Latency (ms)', color: '#f59e0b' },
                           ]}
-                          height={300}
+                          height={350}
                           formatYAxis={(value) => `${value.toFixed(0)}ms`}
                           formatTooltip={(value) => `${value.toFixed(2)}ms`}
                           timeRange={historyData?.requestedRange}
