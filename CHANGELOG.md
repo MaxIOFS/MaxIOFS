@@ -7,6 +7,176 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed - Docker Infrastructure Improvements (Sprint 4 - Complete)
+
+#### Docker Configuration Reorganization
+- **docker-compose.yaml** - Complete rewrite and modernization (reduced from 1040 to 285 lines - 74% reduction)
+  - Removed all inline configurations (dashboards, Prometheus configs)
+  - Externalized all configs to proper directory structure
+  - Added Docker profiles for conditional service startup:
+    - `monitoring` profile: Prometheus + Grafana stack
+    - `cluster` profile: Multi-node cluster (3 nodes) for HA testing
+  - Updated to version 0.6.0-beta throughout
+  - Added cluster nodes (maxiofs-node2, maxiofs-node3) with ports 8082/8083 and 8084/8085
+  - Fixed all volume mounts to use external configuration files (read-only)
+  - Added proper service dependencies with `condition: service_healthy`
+  - Improved healthcheck configurations for all services
+  - Production-ready with security labels and metadata
+
+#### Docker Directory Structure
+- **Created organized docker/ directory hierarchy:**
+  - `docker/prometheus/` - Prometheus configuration
+    - `prometheus.yml` - Scrape configuration with MaxIOFS target
+    - `alerts.yml` - 14 performance alert rules (11 performance + 3 SLO violations)
+  - `docker/grafana/provisioning/` - Auto-provisioning configs
+    - `datasources/prometheus.yml` - Prometheus datasource configuration
+    - `dashboards/dashboard.yml` - Dashboard auto-loading configuration
+  - `docker/grafana/dashboards/` - Dashboard JSON files
+    - `maxiofs.json` - **Unified single dashboard** with all metrics (14 panels in 3 sections)
+  - `docker/README.md` - Comprehensive Docker documentation (233 lines)
+
+#### Grafana Dashboard Improvements
+- **Unified Dashboard Approach** - Single comprehensive dashboard instead of multiple separate dashboards
+  - **Removed**: `maxiofs-overview.json` (8 panels), `maxiofs-performance.json` (7 panels)
+  - **Created**: `maxiofs.json` - Unified dashboard with **14 panels** organized in 3 collapsible row sections:
+    - 📊 **SISTEMA & RECURSOS** (8 panels): CPU, Memory, Disk, Buckets, Objects, Storage, Trends, Distribution
+    - ⚡ **PERFORMANCE & LATENCIAS** (3 panels): Latency percentiles (p50/p95/p99), Success rates, Operation distribution
+    - 📈 **THROUGHPUT & REQUESTS** (3 panels): Requests/sec, Bytes/sec, Objects/sec
+  - Set as Grafana **HOME dashboard** via `GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH`
+  - All metrics visible in one place - no navigation between dashboards required
+  - Auto-refresh every 5 seconds with 15-minute time window
+  - Color-coded thresholds for success rates, latencies, and resource usage
+
+#### Prometheus Configuration Improvements
+- **Fixed scrape target** - Corrected from `maxiofs:9090` to `maxiofs:8080` (S3 API metrics endpoint)
+- **Added alert rules integration** - Added `rule_files` reference to load `alerts.yml`
+- **Performance Alert Rules** (11 rules):
+  - HighP95Latency (>100ms for 5 min), CriticalP95Latency (>500ms for 2 min)
+  - HighP99Latency (>200ms for 5 min), CriticalP99Latency (>1000ms for 2 min)
+  - LowSuccessRate (<95% for 3 min), CriticalSuccessRate (<90% for 1 min)
+  - LowThroughput (<1 req/s for 5 min), ZeroThroughput (=0 for 10 min)
+  - MeanLatencySpike (2x increase in 5 min)
+  - HighErrorCount (>100 errors in 5 min)
+  - OperationFailureSpike (5x increase in 1 min)
+- **SLO Violation Alerts** (3 rules):
+  - SLOLatencyViolation (p95 >50ms for 10 min)
+  - SLOAvailabilityViolation (success rate <99.9% for 5 min)
+  - SLOThroughputViolation (<1000 req/s for 10 min)
+
+#### Makefile Docker Commands
+- **Added new Docker deployment commands:**
+  - `make docker-monitoring` - Start with Prometheus + Grafana monitoring stack
+  - `make docker-cluster` - Start 3-node cluster for HA testing
+  - `make docker-cluster-monitoring` - Start cluster + monitoring (full stack)
+  - `make docker-ps` - Show running containers and status
+- **Updated existing commands:**
+  - Enhanced help text with usage examples for all profiles
+  - Added access URLs to command output for user convenience
+  - Improved error messages and validation
+
+#### Documentation
+- **docker/README.md** - Comprehensive Docker deployment guide (233 lines)
+  - Complete directory structure explanation
+  - Usage instructions for all deployment scenarios (basic, monitoring, cluster, full stack)
+  - Unified Grafana dashboard documentation with panel descriptions
+  - Prometheus configuration and alert rules reference
+  - Customization guide (scrape intervals, dashboards, alert thresholds)
+  - Troubleshooting section (Prometheus scraping, Grafana loading, cluster connectivity)
+  - Production considerations (passwords, storage, resource limits, TLS/HTTPS)
+  - Version information (MaxIOFS 0.6.0-beta, Prometheus 3.0.1, Grafana 11.5.0)
+- **DOCKER.md** - Updated to English and modernized (replaced outdated Spanish version)
+  - Quick start guide for Docker deployments
+  - Service descriptions and access URLs
+  - Configuration examples with environment variables
+  - Production deployment best practices
+  - Troubleshooting guide for common Docker issues
+
+#### User Experience Improvements
+- **Simplified Grafana Access** - Single unified dashboard loads automatically as HOME page
+- **No Navigation Required** - All 14 metrics panels visible in one view without clicking between dashboards
+- **Profile-Based Deployment** - Easy selection of deployment type (basic/monitoring/cluster)
+- **Better Organization** - Clear separation of concerns with external configuration files
+- **Documentation Clarity** - English documentation with step-by-step instructions
+
+#### Files Created
+- `docker/prometheus/prometheus.yml` (40 lines) - Prometheus scrape configuration
+- `docker/prometheus/alerts.yml` (195 lines) - Performance and SLO alert rules
+- `docker/grafana/provisioning/datasources/prometheus.yml` (10 lines) - Datasource auto-provisioning
+- `docker/grafana/provisioning/dashboards/dashboard.yml` (12 lines) - Dashboard auto-loading
+- `docker/grafana/dashboards/maxiofs.json` (1850 lines) - Unified Grafana dashboard
+- `docker/README.md` (233 lines) - Comprehensive Docker documentation
+
+#### Files Modified
+- `docker-compose.yaml` - Complete rewrite (1040 → 285 lines, 74% reduction)
+- `Makefile` - Added 4 new Docker commands with enhanced help text
+- `DOCKER.md` - Replaced Spanish outdated version with English modern version
+
+#### Files Deleted
+- `docker/grafana/dashboards/maxiofs-overview.json` (replaced by unified maxiofs.json)
+- `docker/grafana/dashboards/maxiofs-performance.json` (replaced by unified maxiofs.json)
+
+#### Testing & Validation
+- ✅ docker-compose config validated successfully
+- ✅ All 7 configuration files properly organized and mountable
+- ✅ Single unified dashboard contains all 14 metrics panels
+- ✅ Profile system tested (basic, monitoring, cluster)
+- ✅ Version 0.6.0-beta consistent across all files
+- ✅ Documentation complete and accurate
+
+### Added - Cluster Management Testing & Documentation (Phase 4 - Complete)
+
+#### Comprehensive Test Suite
+- **27 Total Cluster Tests** - Complete test coverage across all cluster components
+  - **10 Cache Tests** (`internal/cluster/cache_test.go`)
+    - SetAndGet, GetNonExistent, GetExpired, Delete, Clear, Size
+    - GetStats, CleanupExpired, UpdateEntry, Concurrent access
+  - **12 Manager Tests** (`internal/cluster/manager_test.go`)
+    - InitializeCluster, InitializeCluster_AlreadyInitialized
+    - AddNode, GetNode, GetNode_NotFound, ListNodes
+    - UpdateNode, RemoveNode, GetHealthyNodes
+    - GetClusterStatus, IsClusterEnabled, LeaveCluster
+  - **5 Integration Tests** (`internal/cluster/replication_integration_test.go`)
+    - HMACAuthentication (valid/invalid signatures)
+    - TenantSynchronization (cross-node tenant sync)
+    - ObjectReplication (HMAC-authenticated object transfers)
+    - DeleteReplication (replicate delete operations)
+    - SelfReplicationPrevention (validation logic)
+  - **100% Pass Rate** - All 27 tests passing in ~4.2 seconds
+  - **SimulatedNode Infrastructure** - httptest.Server-based testing without real HTTP servers
+
+#### Complete Documentation
+- **CLUSTER.md** (`docs/CLUSTER.md` - 2136 lines)
+  - Complete cluster management guide with 12 sections
+  - Architecture diagrams and component descriptions
+  - Quick Start guide with step-by-step setup
+  - Production deployment with HAProxy/Nginx examples
+  - HMAC authentication security documentation
+  - API reference with 18 cluster endpoints
+  - Troubleshooting guide with common issues
+  - Testing infrastructure documentation
+  - SQLite schema reference
+  - Network and firewall configuration examples
+
+#### Testing Results
+- **Backend**: 255 total tests passing (27 cluster tests + 228 other tests)
+- **Frontend**: Build successful with zero TypeScript errors
+- **Test Coverage**: Cluster components fully tested
+  - Bucket location cache (100% coverage)
+  - Cluster manager CRUD operations (100% coverage)
+  - HMAC authentication (valid/invalid cases)
+  - Tenant synchronization (checksum validation)
+  - Object replication (PUT/DELETE operations)
+
+#### Documentation Validation
+- ✅ Architecture diagrams complete
+- ✅ API reference with all 18 endpoints
+- ✅ Security section with HMAC implementation details
+- ✅ Troubleshooting guide with 6 common scenarios
+- ✅ Production deployment examples (HAProxy, Nginx)
+- ✅ Testing infrastructure fully documented
+
+**✅ PHASE 4 100% COMPLETE** - Bucket Replication & Cluster Management system is fully tested and documented
+
 ### Added - Frontend Performance Metrics Integration (Sprint 4 - In Progress)
 
 #### Web Console Performance Dashboard

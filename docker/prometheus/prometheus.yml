@@ -5,18 +5,24 @@ global:
     cluster: 'maxiofs'
     environment: 'docker'
 
+# Load alert rules
+rule_files:
+  - '/etc/prometheus/alerts.yml'
+
 scrape_configs:
+  # MaxIOFS S3 API metrics endpoint
   - job_name: 'maxiofs'
     static_configs:
-      - targets: ['maxiofs:9090']
+      - targets: ['maxiofs:8080']
         labels:
           service: 'maxiofs'
           instance: 'maxiofs-main'
-    
+
     metrics_path: '/metrics'
     scrape_interval: 30s
     scrape_timeout: 10s
 
+  # Prometheus self-monitoring
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']

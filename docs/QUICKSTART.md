@@ -56,13 +56,26 @@ cd maxiofs
 git clone https://github.com/yourusername/maxiofs.git
 cd maxiofs
 
-# Build and start
+# Build and start (basic deployment)
 make docker-build
 make docker-up
 
 # Or with monitoring (Prometheus + Grafana)
 make docker-monitoring
+
+# Or 3-node cluster for HA testing
+make docker-cluster
+
+# Or full stack (cluster + monitoring)
+make docker-cluster-monitoring
 ```
+
+**Monitoring features:**
+- Unified Grafana dashboard with 14 panels (loads as HOME)
+- Real-time metrics with 5-second auto-refresh
+- Performance alerts for latency and throughput
+
+**📖 Complete Docker Guide**: See [DOCKER.md](../DOCKER.md) for detailed deployment options
 
 ---
 

@@ -262,20 +262,44 @@ make docker-build       # Build the image
 make docker-monitoring  # Start with monitoring stack
 ```
 
+**3-Node Cluster (HA testing):**
+```bash
+make docker-build    # Build the image
+make docker-cluster  # Start 3-node cluster
+```
+
+**Full Stack (Cluster + Monitoring):**
+```bash
+make docker-build                # Build the image
+make docker-cluster-monitoring   # Start cluster with monitoring
+```
+
 **Access:**
 - Web Console: http://localhost:8081 (admin/admin)
 - S3 API: http://localhost:8080
 - Prometheus: http://localhost:9091 (monitoring profile only)
 - Grafana: http://localhost:3000 (admin/admin, monitoring profile only)
+  - **Unified Dashboard**: Single comprehensive dashboard with 14 panels (loads as HOME)
+  - Real-time metrics with 5-second auto-refresh
+  - Performance alerts for latency, throughput, and SLO violations
+
+**Cluster nodes (cluster profile):**
+- Node 1: http://localhost:8081, :8080
+- Node 2: http://localhost:8083, :8082
+- Node 3: http://localhost:8085, :8084
 
 **Other commands:**
 ```bash
 make docker-down     # Stop all services
 make docker-logs     # View logs
+make docker-ps       # Show running containers
 make docker-clean    # Clean volumes and containers
 ```
 
-See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for more Docker options.
+**Documentation:**
+- [DOCKER.md](DOCKER.md) - Complete Docker deployment guide
+- [docker/README.md](docker/README.md) - Detailed configuration and troubleshooting
+- [DEPLOYMENT.md](docs/DEPLOYMENT.md) - Production deployment best practices
 
 ### Option 2: Build from Source
 

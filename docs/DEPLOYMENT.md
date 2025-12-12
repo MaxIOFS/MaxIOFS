@@ -80,20 +80,42 @@ make build
 
 ## Docker Deployment
 
-MaxIOFS includes complete Docker support with optional monitoring stack (Prometheus + Grafana).
+MaxIOFS includes complete Docker support with multiple deployment profiles:
+- **Basic**: MaxIOFS server only
+- **Monitoring**: Includes Prometheus + Grafana with unified dashboard (14 panels)
+- **Cluster**: 3-node cluster for HA testing
+- **Full Stack**: Cluster + monitoring
 
 ### Quick Start with Docker Compose
 
-**Option 1: Basic deployment**
+**Option 1: Basic deployment (MaxIOFS only)**
 ```bash
 make docker-build    # Build the Docker image
-make docker-up       # Start with docker-compose
+make docker-up       # Start MaxIOFS
 ```
 
 **Option 2: With monitoring (Prometheus + Grafana)**
 ```bash
 make docker-build       # Build the Docker image
 make docker-monitoring  # Start with monitoring stack
+```
+
+**Monitoring Features:**
+- Unified Grafana dashboard (loads as HOME) with 14 panels in 3 sections
+- Real-time metrics with 5-second auto-refresh
+- 14 Prometheus alert rules (performance + SLO violations)
+- Auto-provisioned datasources and dashboards
+
+**Option 3: 3-Node cluster (HA testing)**
+```bash
+make docker-build    # Build the Docker image
+make docker-cluster  # Start 3-node cluster
+```
+
+**Option 4: Full stack (Cluster + Monitoring)**
+```bash
+make docker-build                # Build the Docker image
+make docker-cluster-monitoring   # Start cluster with monitoring
 ```
 
 **Other commands:**
@@ -106,11 +128,20 @@ make docker-clean    # Clean up volumes and containers
 **Access:**
 - **Web Console**: http://localhost:8081 (admin/admin)
 - **S3 API**: http://localhost:8080
-- **Prometheus**: http://localhost:9091 (only with monitoring profile)
-- **Grafana**: http://localhost:3000 (admin/admin, only with monitoring profile)
-  - Pre-configured MaxIOFS dashboard included
-  - Real-time metrics visualization
-  - API requests, storage usage, error rates, latency tracking
+- **Prometheus**: http://localhost:9091 (monitoring profile only)
+- **Grafana**: http://localhost:3000 (admin/admin, monitoring profile only)
+  - **Unified Dashboard** with 14 panels (loads as HOME)
+  - System resources, performance latencies, throughput metrics
+  - Real-time updates every 5 seconds
+
+**Cluster nodes (cluster profile):**
+- **Node 1**: http://localhost:8081 (console), :8080 (S3 API)
+- **Node 2**: http://localhost:8083 (console), :8082 (S3 API)
+- **Node 3**: http://localhost:8085 (console), :8084 (S3 API)
+
+**📖 Detailed Documentation:**
+- [DOCKER.md](../DOCKER.md) - Complete Docker deployment guide
+- [docker/README.md](../docker/README.md) - Configuration, troubleshooting, and customization
 
 ### Windows PowerShell Scripts
 

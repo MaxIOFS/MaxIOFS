@@ -713,13 +713,16 @@ help:
 	@echo "  help               - Show this help message"
 	@echo ""
 	@echo "Docker Commands:"
-	@echo "  docker-build       - Build Docker image"
-	@echo "  docker-run         - Run MaxIOFS in Docker"
-	@echo "  docker-up          - Start services with docker-compose"
-	@echo "  docker-down        - Stop services with docker-compose"
-	@echo "  docker-logs        - View MaxIOFS logs"
-	@echo "  docker-monitoring  - Start with Prometheus + Grafana"
-	@echo "  docker-clean       - Remove containers, images and volumes"
+	@echo "  docker-build              - Build Docker image"
+	@echo "  docker-run                - Run MaxIOFS in Docker (standalone)"
+	@echo "  docker-up                 - Start basic MaxIOFS (docker-compose)"
+	@echo "  docker-monitoring         - Start with Prometheus + Grafana"
+	@echo "  docker-cluster            - Start 3-node cluster"
+	@echo "  docker-cluster-monitoring - Start cluster + monitoring (full stack)"
+	@echo "  docker-ps                 - Show running containers"
+	@echo "  docker-logs               - View MaxIOFS logs"
+	@echo "  docker-down               - Stop all services"
+	@echo "  docker-clean              - Remove containers, volumes, images"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make build VERSION=v1.0.0                      - Build with version"
@@ -761,26 +764,62 @@ docker-clean-ps:
 	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -Clean
 
 # Docker Compose targets (cross-platform)
-.PHONY: docker-up docker-down docker-logs docker-monitoring docker-clean
+.PHONY: docker-up docker-down docker-logs docker-monitoring docker-cluster docker-cluster-monitoring docker-ps docker-clean
 
+# Start basic MaxIOFS (single node)
 docker-up:
-	@echo "Starting MaxIOFS with docker-compose..."
+	@echo "Starting MaxIOFS (basic)..."
 	docker-compose up -d
 
+# Stop all services
 docker-down:
-	@echo "Stopping MaxIOFS..."
-	docker-compose down
+	@echo "Stopping all MaxIOFS services..."
+	docker-compose --profile monitoring --profile cluster down
 
+# View logs (basic MaxIOFS)
 docker-logs:
 	@echo "Viewing MaxIOFS logs (Ctrl+C to exit)..."
 	docker-compose logs -f maxiofs
 
+# Start with Prometheus + Grafana monitoring
 docker-monitoring:
-	@echo "Starting MaxIOFS with monitoring stack..."
+	@echo "Starting MaxIOFS with Prometheus + Grafana..."
+	@echo "Access:"
+	@echo "  - MaxIOFS Console: http://localhost:8081 (admin/admin)"
+	@echo "  - Prometheus:      http://localhost:9091"
+	@echo "  - Grafana:         http://localhost:3000 (admin/admin)"
 	docker-compose --profile monitoring up -d
 
+# Start 3-node cluster setup
+docker-cluster:
+	@echo "Starting MaxIOFS 3-node cluster..."
+	@echo "Access:"
+	@echo "  - Node 1 Console:  http://localhost:8081 (admin/admin)"
+	@echo "  - Node 2 Console:  http://localhost:8083 (admin/admin)"
+	@echo "  - Node 3 Console:  http://localhost:8085 (admin/admin)"
+	docker-compose --profile cluster up -d
+
+# Start cluster with monitoring (full stack)
+docker-cluster-monitoring:
+	@echo "Starting MaxIOFS 3-node cluster with monitoring..."
+	@echo "Access:"
+	@echo "  - Node 1 Console:  http://localhost:8081"
+	@echo "  - Node 2 Console:  http://localhost:8083"
+	@echo "  - Node 3 Console:  http://localhost:8085"
+	@echo "  - Prometheus:      http://localhost:9091"
+	@echo "  - Grafana:         http://localhost:3000"
+	docker-compose --profile monitoring --profile cluster up -d
+
+# Show running containers
+docker-ps:
+	@echo "MaxIOFS Docker containers:"
+	@docker-compose ps
+
+# Clean up everything (containers, volumes, images)
 docker-clean:
-	@echo "Cleaning Docker resources..."
-	docker-compose down -v
+	@echo "Cleaning Docker resources (containers, volumes, images)..."
+	docker-compose --profile monitoring --profile cluster down -v
 	docker system prune -f
+	docker rmi maxiofs:latest maxiofs:$(VERSION) 2>/dev/null || true
+	@echo "Cleanup complete!"
 
