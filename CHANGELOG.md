@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Frontend Performance Metrics Integration (Sprint 4 - In Progress)
+
+#### Web Console Performance Dashboard
+- **TypeScript Types for Performance Metrics** (`web/frontend/src/types/index.ts`)
+  - `PerformanceLatencyStats`: p50, p95, p99, mean, min, max, success_rate, error_count per operation
+  - `LatenciesResponse`: Wrapper for latency stats by operation type
+  - `ThroughputStats`: requests_per_second, bytes_per_second, objects_per_second
+  - `ThroughputResponse`: Wrapper for current throughput statistics
+
+- **API Client Integration** (`web/frontend/src/lib/api.ts`)
+  - `getPerformanceLatencies()`: Fetch p50/p95/p99 latencies for all S3 operations
+  - `getPerformanceThroughput()`: Fetch current throughput metrics (req/s, bytes/s, objects/s)
+  - Connected to backend endpoints: `/api/v1/metrics/performance/latencies`, `/api/v1/metrics/performance/throughput`
+  - Real-time updates every 30 seconds
+
+- **Metrics Page Reorganization** (`web/frontend/src/pages/metrics/index.tsx`)
+  - **Tab "System Health" - Expanded**:
+    - Original metrics: CPU, Memory, Disk, Uptime
+    - New section "Runtime Metrics": Goroutines, Heap Memory, GC Runs, Success Rate (moved from Performance tab)
+    - Two-row grid layout for better organization
+  - **Tab "Performance" - Complete Redesign**:
+    - Throughput stats cards: Requests/Sec, Bytes/Sec, Objects/Sec, Total Operations
+    - Per-operation latency tables (2x2 grid): PutObject, GetObject, DeleteObject, ListObjects
+    - Detailed metrics per operation: Count, p50, **p95 (bold)**, p99, Mean, Min/Max
+    - Color-coded success rate badges: Green (≥99%), Yellow (≥95%), Red (<95%)
+    - Error count displayed when > 0
+    - Empty states with helpful messages
+  - **Tab "Performance" - Unified Dashboard** (fused with former "Requests" tab):
+    - Section 1 "Overview": Total Requests, Total Errors, Success Rate, Avg Latency (general aggregated metrics)
+    - Section 2 "Real-time Throughput": Requests/sec, Bytes/sec, Objects/sec, Total Operations
+    - Section 3 "Operation Latencies": Detailed p50/p95/p99 per S3 operation (PutObject, GetObject, DeleteObject, ListObjects)
+    - Section 4 "Historical Trends": Request throughput and average latency charts over time
+    - Reduced from 4 tabs to 3 tabs for cleaner UI (System Health, Storage, Performance)
+
+- **Real-time Performance Monitoring**
+  - Live latency percentiles (p50, p95, p99) for each S3 operation type
+  - Success/failure tracking with visual indicators
+  - Throughput metrics updated every 30 seconds
+  - Production-ready UI with loading states and error handling
+
+#### Build & Quality Assurance
+- ✅ Frontend builds successfully without TypeScript errors
+- ✅ All types properly exported and imported
+- ✅ React Query integration for data fetching
+- ✅ Dark mode support for all new components
+
+#### Pending Work (Sprint 4 Completion)
+- [ ] Prometheus metrics export endpoint
+- [ ] Grafana dashboard templates
+- [ ] Performance alerting rules
+- [ ] SLO documentation
+
 ### Added - Performance Profiling & Load Testing Infrastructure (Sprint 2)
 - **Complete k6 Load Testing Suite** - Industry-standard performance testing with comprehensive scenarios
   - **Common Library** (`tests/performance/common.js` - 403 lines): Reusable k6 utilities and helpers

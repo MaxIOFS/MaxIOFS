@@ -60,6 +60,8 @@ import type {
   UpdateClusterReplicationRequest,
   BulkClusterReplicationRequest,
   ListClusterReplicationsResponse,
+  LatenciesResponse,
+  ThroughputResponse,
 } from '@/types';
 
 // API Configuration
@@ -614,6 +616,17 @@ export class APIClient {
   static async getS3Metrics(): Promise<S3Metrics> {
     const response = await apiClient.get<APIResponse<S3Metrics>>('/metrics/s3');
     return response.data.data!;
+  }
+
+  // Performance Metrics (from PerformanceCollector)
+  static async getPerformanceLatencies(): Promise<LatenciesResponse> {
+    const response = await apiClient.get<LatenciesResponse>('/metrics/performance/latencies');
+    return response.data;
+  }
+
+  static async getPerformanceThroughput(): Promise<ThroughputResponse> {
+    const response = await apiClient.get<ThroughputResponse>('/metrics/performance/throughput');
+    return response.data;
   }
 
   // Historical Metrics

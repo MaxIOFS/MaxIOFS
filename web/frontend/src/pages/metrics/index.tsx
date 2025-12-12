@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import type { StorageMetrics, SystemMetrics, S3Metrics } from '@/types';
+import type { StorageMetrics, SystemMetrics, S3Metrics, LatenciesResponse, ThroughputResponse } from '@/types';
 import { MetricLineChart, MetricPieChart, TimeRangeSelector, TIME_RANGES, type TimeRange } from '@/components/charts';
 
 export default function MetricsPage() {
@@ -54,6 +54,24 @@ export default function MetricsPage() {
   const { data: s3MetricsData, isLoading: s3Loading } = useQuery<S3Metrics>({
     queryKey: ['s3Metrics'],
     queryFn: APIClient.getS3Metrics,
+    refetchInterval: 30000,
+    enabled: isGlobalAdmin,
+    refetchOnWindowFocus: false,
+  });
+
+  // Fetch performance latency metrics
+  const { data: performanceLatencies, isLoading: latenciesLoading } = useQuery<LatenciesResponse>({
+    queryKey: ['performanceLatencies'],
+    queryFn: APIClient.getPerformanceLatencies,
+    refetchInterval: 30000,
+    enabled: isGlobalAdmin,
+    refetchOnWindowFocus: false,
+  });
+
+  // Fetch performance throughput metrics
+  const { data: performanceThroughput, isLoading: throughputLoading } = useQuery<ThroughputResponse>({
+    queryKey: ['performanceThroughput'],
+    queryFn: APIClient.getPerformanceThroughput,
     refetchInterval: 30000,
     enabled: isGlobalAdmin,
     refetchOnWindowFocus: false,
@@ -202,7 +220,6 @@ export default function MetricsPage() {
   const tabs = [
     { id: 'system', label: 'System Health', icon: Activity },
     { id: 'storage', label: 'Storage', icon: HardDrive },
-    { id: 'requests', label: 'Requests', icon: Globe },
     { id: 'performance', label: 'Performance', icon: Zap },
   ];
 
@@ -270,7 +287,7 @@ export default function MetricsPage() {
           {/* System Health Tab */}
           {activeTab === 'system' && (
             <div className="space-y-6">
-              {/* Quick Stats */}
+              {/* System Resources */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <StatCard
                   icon={Activity}
@@ -303,6 +320,42 @@ export default function MetricsPage() {
                   value={formatUptime(systemMetrics.uptime || 0)}
                   subtext="System running"
                   color="text-purple-600 dark:text-purple-400"
+                />
+              </div>
+
+              {/* Runtime Metrics */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <StatCard
+                  icon={Activity}
+                  label="Goroutines"
+                  value={formatNumber(systemMetrics.goroutines || 0)}
+                  subtext="Active"
+                  color="text-brand-600 dark:text-brand-400"
+                />
+                <StatCard
+                  icon={BarChart3}
+                  label="Heap Memory"
+                  value={`${((systemMetrics.heapAllocBytes || 0) / (1024 * 1024)).toFixed(1)} MB`}
+                  subtext="Allocated"
+                  color="text-purple-600 dark:text-purple-400"
+                />
+                <StatCard
+                  icon={TrendingUp}
+                  label="GC Runs"
+                  value={formatNumber(systemMetrics.gcRuns || 0)}
+                  subtext="Collections"
+                  color="text-orange-600 dark:text-orange-400"
+                />
+                <StatCard
+                  icon={Zap}
+                  label="Success Rate"
+                  value={`${
+                    s3Metrics.totalRequests > 0
+                      ? (((s3Metrics.totalRequests - s3Metrics.totalErrors) / s3Metrics.totalRequests) * 100).toFixed(2)
+                      : 100
+                  }%`}
+                  subtext="Request success"
+                  color="text-green-600 dark:text-green-400"
                 />
               </div>
 
@@ -422,155 +475,227 @@ export default function MetricsPage() {
             </div>
           )}
 
-          {/* Requests Tab */}
-          {activeTab === 'requests' && (
-            <div className="space-y-6">
-              {/* Quick Stats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard
-                  icon={Globe}
-                  label="Total Requests"
-                  value={formatNumber(s3Metrics.totalRequests || 0)}
-                  subtext="Since startup"
-                  color="text-blue-600 dark:text-blue-400"
-                />
-                <StatCard
-                  icon={AlertCircle}
-                  label="Total Errors"
-                  value={formatNumber(s3Metrics.totalErrors || 0)}
-                  subtext="Failed requests"
-                  color="text-red-600 dark:text-red-400"
-                />
-                <StatCard
-                  icon={Zap}
-                  label="Avg Latency"
-                  value={`${(s3Metrics.avgLatency || 0).toFixed(1)}ms`}
-                  subtext="Response time"
-                  color="text-yellow-600 dark:text-yellow-400"
-                />
-                <StatCard
-                  icon={Activity}
-                  label="Throughput"
-                  value={`${(s3Metrics.requestsPerSec || 0).toFixed(2)}/s`}
-                  subtext="Requests per second"
-                  color="text-green-600 dark:text-green-400"
-                />
-              </div>
-
-              {/* Charts */}
-              {historyLoading ? (
-                <div className="flex items-center justify-center h-64">
-                  <Loading size="lg" />
-                </div>
-              ) : chartData.length > 0 ? (
-                <div className="grid gap-6 md:grid-cols-2">
-                  <MetricLineChart
-                    data={chartData}
-                    title="Request Throughput Over Time"
-                    dataKeys={[
-                      { key: 'requestsPerSec', name: 'Requests/sec', color: '#3b82f6' },
-                    ]}
-                    height={350}
-                    formatYAxis={(value) => `${value.toFixed(1)}/s`}
-                    formatTooltip={(value) => `${value.toFixed(2)}/s`}
-                    timeRange={historyData?.requestedRange}
-                  />
-                  <MetricLineChart
-                    data={chartData}
-                    title="Average Latency Over Time"
-                    dataKeys={[
-                      { key: 'avgLatency', name: 'Latency (ms)', color: '#f59e0b' },
-                    ]}
-                    height={350}
-                    formatYAxis={(value) => `${value.toFixed(0)}ms`}
-                    formatTooltip={(value) => `${value.toFixed(2)}ms`}
-                    timeRange={historyData?.requestedRange}
-                  />
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
-                  <AlertCircle className="h-12 w-12 mb-4" />
-                  <p className="text-lg font-medium">No request data available yet</p>
-                  <p className="text-sm">Historical request metrics will appear here</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Performance Tab */}
+          {/* Performance Tab - Unified Performance & Request Metrics */}
           {activeTab === 'performance' && (
             <div className="space-y-6">
-              {/* Quick Stats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard
-                  icon={Activity}
-                  label="Goroutines"
-                  value={formatNumber(systemMetrics.goroutines || 0)}
-                  subtext="Active"
-                  color="text-brand-600 dark:text-brand-400"
-                />
-                <StatCard
-                  icon={BarChart3}
-                  label="Heap Memory"
-                  value={`${((systemMetrics.heapAllocBytes || 0) / (1024 * 1024)).toFixed(1)} MB`}
-                  subtext="Allocated"
-                  color="text-purple-600 dark:text-purple-400"
-                />
-                <StatCard
-                  icon={TrendingUp}
-                  label="GC Runs"
-                  value={formatNumber(systemMetrics.gcRuns || 0)}
-                  subtext="Collections"
-                  color="text-orange-600 dark:text-orange-400"
-                />
-                <StatCard
-                  icon={Zap}
-                  label="Success Rate"
-                  value={`${
-                    s3Metrics.totalRequests > 0
-                      ? (((s3Metrics.totalRequests - s3Metrics.totalErrors) / s3Metrics.totalRequests) * 100).toFixed(2)
-                      : 100
-                  }%`}
-                  subtext="Request success"
-                  color="text-green-600 dark:text-green-400"
-                />
-              </div>
-
-              {/* Charts */}
-              {historyLoading ? (
+              {latenciesLoading || throughputLoading ? (
                 <div className="flex items-center justify-center h-64">
                   <Loading size="lg" />
                 </div>
-              ) : chartData.length > 0 ? (
-                <div className="grid gap-6 md:grid-cols-2">
-                  <MetricLineChart
-                    data={chartData}
-                    title="Goroutines Over Time"
-                    dataKeys={[
-                      { key: 'goroutines', name: 'Goroutines', color: '#8b5cf6' },
-                    ]}
-                    height={350}
-                    formatYAxis={(value) => formatNumber(value)}
-                    formatTooltip={(value) => formatNumber(value)}
-                    timeRange={historyData?.requestedRange}
-                  />
-                  <MetricLineChart
-                    data={chartData}
-                    title="Heap Memory Over Time"
-                    dataKeys={[
-                      { key: 'heapAllocMB', name: 'Heap (MB)', color: '#ec4899' },
-                    ]}
-                    height={350}
-                    formatYAxis={(value) => `${value.toFixed(0)} MB`}
-                    formatTooltip={(value) => `${value.toFixed(2)} MB`}
-                    timeRange={historyData?.requestedRange}
-                  />
-                </div>
+              ) : performanceLatencies && performanceThroughput ? (
+                <>
+                  {/* Section 1: General Overview */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">
+                      Overview
+                    </h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <StatCard
+                        icon={Globe}
+                        label="Total Requests"
+                        value={formatNumber(s3Metrics.totalRequests || 0)}
+                        subtext="Since startup"
+                        color="text-blue-600 dark:text-blue-400"
+                      />
+                      <StatCard
+                        icon={AlertCircle}
+                        label="Total Errors"
+                        value={formatNumber(s3Metrics.totalErrors || 0)}
+                        subtext="Failed requests"
+                        color="text-red-600 dark:text-red-400"
+                      />
+                      <StatCard
+                        icon={Zap}
+                        label="Success Rate"
+                        value={`${
+                          s3Metrics.totalRequests > 0
+                            ? (((s3Metrics.totalRequests - s3Metrics.totalErrors) / s3Metrics.totalRequests) * 100).toFixed(2)
+                            : 100
+                        }%`}
+                        subtext="Request success"
+                        color="text-green-600 dark:text-green-400"
+                      />
+                      <StatCard
+                        icon={Activity}
+                        label="Avg Latency"
+                        value={`${(s3Metrics.avgLatency || 0).toFixed(1)}ms`}
+                        subtext="Overall average"
+                        color="text-yellow-600 dark:text-yellow-400"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Section 2: Real-time Throughput */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">
+                      Real-time Throughput
+                    </h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <StatCard
+                        icon={Zap}
+                        label="Requests/Sec"
+                        value={performanceThroughput.current.requests_per_second.toFixed(2)}
+                        subtext="Current rate"
+                        color="text-brand-600 dark:text-brand-400"
+                      />
+                      <StatCard
+                        icon={HardDrive}
+                        label="Bytes/Sec"
+                        value={formatBytes(performanceThroughput.current.bytes_per_second)}
+                        subtext="Data transfer"
+                        color="text-blue-600 dark:text-blue-400"
+                      />
+                      <StatCard
+                        icon={Database}
+                        label="Objects/Sec"
+                        value={performanceThroughput.current.objects_per_second.toFixed(2)}
+                        subtext="Object ops"
+                        color="text-green-600 dark:text-green-400"
+                      />
+                      <StatCard
+                        icon={Activity}
+                        label="Total Operations"
+                        value={formatNumber(
+                          Object.values(performanceLatencies.latencies).reduce(
+                            (sum, stat) => sum + stat.count,
+                            0
+                          )
+                        )}
+                        subtext="Since last reset"
+                        color="text-purple-600 dark:text-purple-400"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Section 3: S3 Operation Details */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">
+                      Operation Latencies (p50 / p95 / p99)
+                    </h3>
+                    <div className="grid gap-6 md:grid-cols-2">
+                    {Object.entries(performanceLatencies.latencies).map(([operation, stats]) => (
+                      <div
+                        key={operation}
+                        className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+                      >
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                            {operation}
+                          </h3>
+                          <span
+                            className={`px-2 py-1 text-xs font-medium rounded ${
+                              stats.success_rate >= 0.99
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                : stats.success_rate >= 0.95
+                                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                                : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                            }`}
+                          >
+                            {(stats.success_rate * 100).toFixed(2)}% success
+                          </span>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">Count</span>
+                            <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              {formatNumber(stats.count)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">p50</span>
+                            <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              {stats.p50_ms.toFixed(2)} ms
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">p95</span>
+                            <span className="text-sm font-bold text-brand-600 dark:text-brand-400">
+                              {stats.p95_ms.toFixed(2)} ms
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">p99</span>
+                            <span className="text-sm font-medium text-orange-600 dark:text-orange-400">
+                              {stats.p99_ms.toFixed(2)} ms
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">Mean</span>
+                            <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              {stats.mean_ms.toFixed(2)} ms
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">Min/Max</span>
+                            <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              {stats.min_ms.toFixed(2)} / {stats.max_ms.toFixed(2)} ms
+                            </span>
+                          </div>
+                          {stats.error_count > 0 && (
+                            <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                              <span className="text-sm text-red-600 dark:text-red-400">Errors</span>
+                              <span className="text-sm font-medium text-red-600 dark:text-red-400">
+                                {formatNumber(stats.error_count)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    </div>
+                  </div>
+
+                  {/* Section 4: Historical Trends */}
+                  {historyLoading ? (
+                    <div className="flex items-center justify-center h-48">
+                      <Loading size="md" />
+                    </div>
+                  ) : chartData.length > 0 ? (
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">
+                        Historical Trends
+                      </h3>
+                      <div className="grid gap-6 md:grid-cols-2">
+                        <MetricLineChart
+                          data={chartData}
+                          title="Request Throughput Over Time"
+                          dataKeys={[
+                            { key: 'requestsPerSec', name: 'Requests/sec', color: '#3b82f6' },
+                          ]}
+                          height={300}
+                          formatYAxis={(value) => `${value.toFixed(1)}/s`}
+                          formatTooltip={(value) => `${value.toFixed(2)}/s`}
+                          timeRange={historyData?.requestedRange}
+                        />
+                        <MetricLineChart
+                          data={chartData}
+                          title="Average Latency Over Time"
+                          dataKeys={[
+                            { key: 'avgLatency', name: 'Latency (ms)', color: '#f59e0b' },
+                          ]}
+                          height={300}
+                          formatYAxis={(value) => `${value.toFixed(0)}ms`}
+                          formatTooltip={(value) => `${value.toFixed(2)}ms`}
+                          timeRange={historyData?.requestedRange}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {Object.keys(performanceLatencies.latencies).length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+                      <AlertCircle className="h-12 w-12 mb-4" />
+                      <p className="text-lg font-medium">No performance data collected yet</p>
+                      <p className="text-sm">S3 operation metrics will appear after requests are made</p>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
                   <AlertCircle className="h-12 w-12 mb-4" />
-                  <p className="text-lg font-medium">No performance data available yet</p>
-                  <p className="text-sm">Historical performance metrics will appear here</p>
+                  <p className="text-lg font-medium">Performance collector not available</p>
+                  <p className="text-sm">Ensure the server is running with performance metrics enabled</p>
                 </div>
               )}
             </div>

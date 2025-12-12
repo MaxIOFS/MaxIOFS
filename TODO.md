@@ -85,10 +85,25 @@ Total Frontend Tests: 64 (100% pass rate)
 - No code-level optimizations needed - production performance exceeds all targets
 - pprof profiling deferred as low priority (no bottlenecks found on Linux)
 
-**Sprint 4: Production Monitoring** - ⏳ **PENDING**
-- [ ] Integrate performance metrics with Prometheus
+**Sprint 4: Production Monitoring & Frontend Performance Metrics** - 🔄 **IN PROGRESS**
+- ✅ Integrate performance metrics in Web Console (Frontend UI complete)
+  - ✅ Created TypeScript types (PerformanceLatencyStats, ThroughputStats, LatenciesResponse)
+  - ✅ Added API client methods (getPerformanceLatencies, getPerformanceThroughput)
+  - ✅ Reorganized Metrics page tabs for better clarity
+  - ✅ Moved Goroutines/Heap/GC metrics to "System Health" tab
+  - ✅ Created new "Performance" tab with p50/p95/p99 latencies by S3 operation
+  - ✅ Real-time throughput metrics (requests/sec, bytes/sec, objects/sec)
+  - ✅ Color-coded success rates (green ≥99%, yellow ≥95%, red <95%)
+  - ✅ Per-operation stats: PutObject, GetObject, DeleteObject, ListObjects
+  - ✅ Frontend builds successfully without TypeScript errors
+- ✅ Fusioned "Requests" and "Performance" tabs into unified Performance dashboard
+  - Section 1: Overview (Total Requests, Errors, Success Rate, Avg Latency)
+  - Section 2: Real-time Throughput (req/s, bytes/s, objects/s)
+  - Section 3: Operation Latencies (p50/p95/p99 per S3 operation)
+  - Section 4: Historical Trends (request rate and latency graphs)
+- [ ] Integrate performance metrics with Prometheus (export endpoint)
 - [ ] Create Grafana dashboard for latency visualization (p50, p95, p99)
-- [ ] Add alerting rules for performance degradation
+- [ ] Add alerting rules for performance degradation (Prometheus alerts)
 - [ ] Document performance SLOs (Service Level Objectives)
 - [ ] Create runbook for performance troubleshooting
 

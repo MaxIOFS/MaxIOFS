@@ -520,6 +520,36 @@ export interface S3Metrics {
   timestamp: number;
 }
 
+// Performance Metrics Types (from PerformanceCollector)
+export interface PerformanceLatencyStats {
+  operation: string;
+  count: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+  mean_ms: number;
+  min_ms: number;
+  max_ms: number;
+  success_rate: number;
+  error_count: number;
+}
+
+export interface LatenciesResponse {
+  timestamp: string;
+  latencies: Record<string, PerformanceLatencyStats>;
+}
+
+export interface ThroughputStats {
+  requests_per_second: number;
+  bytes_per_second: number;
+  objects_per_second: number;
+  timestamp: string;
+}
+
+export interface ThroughputResponse {
+  current: ThroughputStats;
+}
+
 // UI State Types
 export interface NotificationState {
   id: string;
