@@ -214,6 +214,13 @@ MaxIOFS is an S3-compatible object storage system built in Go with an embedded N
 - ✅ Filesystem storage backend for objects
 - ✅ Atomic write operations with rollback
 - ✅ SQLite for authentication and user management
+- ✅ **Production-Ready Performance** (tested on Linux, 80 cores, 125GB RAM) - *Baseline established in 0.6.0*
+  - Upload: **p95 < 10ms** at 50 concurrent users (1.7-2.4 MB/s)
+  - Download: **p95 < 13ms** at 100 concurrent users (172 MB/s)
+  - List operations: **p95 < 28ms** under heavy load
+  - Delete operations: **p95 < 7ms** under heavy load
+  - **>99.99% success rate** across 100,000+ requests
+  - See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for detailed analysis
 
 ### Logging & Monitoring
 - ✅ **Advanced Logging System** - Flexible multi-output logging infrastructure

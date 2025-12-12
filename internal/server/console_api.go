@@ -359,6 +359,15 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/cluster/replication/{id}", s.handleDeleteClusterReplication).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/cluster/replication/bulk", s.handleCreateBulkClusterReplication).Methods("POST", "OPTIONS")
 
+	// Performance metrics endpoints (accessible to all authenticated users)
+	router.HandleFunc("/metrics/performance/latencies", s.HandleGetPerformanceLatencies).Methods("GET", "OPTIONS")
+	router.HandleFunc("/metrics/performance/throughput", s.HandleGetPerformanceThroughput).Methods("GET", "OPTIONS")
+	router.HandleFunc("/metrics/performance/history", s.HandleGetPerformanceHistory).Methods("GET", "OPTIONS")
+	router.HandleFunc("/metrics/performance/reset", s.HandleResetPerformanceMetrics).Methods("POST", "OPTIONS")
+
+	// Profiling endpoints (global admins only)
+	router.HandleFunc("/profiling/stats", s.HandleGetProfilingStats).Methods("GET", "OPTIONS")
+
 	// Health check
 	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET", "OPTIONS")
 }

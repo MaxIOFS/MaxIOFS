@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"time"
 
@@ -163,6 +164,10 @@ func New(cfg *config.Config) (*Server, error) {
 	}); ok {
 		mm.SetSystemMetrics(systemMetrics)
 	}
+
+	// Initialize global performance collector
+	// Keep last 10,000 samples per operation, 1 hour retention
+	metrics.InitGlobalPerformanceCollector(10000, 1*time.Hour)
 
 	// Connect storage metrics provider to metrics manager
 	if mm, ok := metricsManager.(interface {
@@ -339,6 +344,11 @@ func (s *Server) Start(ctx context.Context) error {
 		"console_address": s.config.ConsoleListen,
 		"data_dir":        s.config.DataDir,
 	}).Info("Starting MaxIOFS servers")
+
+	// Enable runtime profiling
+	runtime.SetBlockProfileRate(1)     // Enable block profiling
+	runtime.SetMutexProfileFraction(1) // Enable mutex profiling
+	logrus.Info("Runtime profiling enabled (block, mutex)")
 
 	// Start metrics collection
 	if s.config.Metrics.Enable {
@@ -608,6 +618,7 @@ func (s *Server) setupRoutes() error {
 	s3Router.Use(middleware.VerboseLogging())
 	s3Router.Use(middleware.CORS())
 	s3Router.Use(middleware.Logging())
+	s3Router.Use(middleware.TracingMiddleware) // Add tracing for performance metrics
 	if s.config.Auth.EnableAuth {
 		s3Router.Use(s.authManager.Middleware())
 	}
@@ -665,7 +676,11 @@ func (s *Server) setupConsoleRoutes(router *mux.Router) {
 
 	// API endpoints for the web console (under base path)
 	apiRouter := baseRouter.PathPrefix("/api/v1").Subrouter()
+	apiRouter.Use(middleware.TracingMiddleware) // Add tracing for performance metrics
 	s.setupConsoleAPIRoutes(apiRouter)
+
+	// Register pprof profiling endpoints (under base path, authenticated)
+	s.RegisterProfilingRoutes(baseRouter)
 
 	// Serve embedded frontend for all other routes (under base path)
 	frontendHandler, err := s.setupEmbeddedFrontend(router)

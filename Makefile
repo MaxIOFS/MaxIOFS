@@ -196,6 +196,86 @@ test-integration:
 	@echo "Running integration tests..."
 	$(GOTEST) -v -race -run Integration ./tests/integration/...
 
+# ============================================================================
+# Performance Testing (k6)
+# ============================================================================
+# Requires k6 to be installed: https://k6.io/docs/get-started/installation/
+#
+# Environment variables:
+#   S3_ENDPOINT      - S3 API endpoint (default: http://localhost:8080)
+#   CONSOLE_ENDPOINT - Console API endpoint (default: http://localhost:8081)
+#   ACCESS_KEY       - S3 access key (create via web console)
+#   SECRET_KEY       - S3 secret key
+#   TEST_BUCKET      - Test bucket name (default: perf-test-bucket)
+#
+# Example:
+#   S3_ENDPOINT=http://server:8080 ACCESS_KEY=test SECRET_KEY=test123 make perf-test-upload
+
+# Check if k6 is installed
+.PHONY: check-k6
+check-k6:
+	@which k6 >/dev/null 2>&1 || (echo "Error: k6 not found. Install from https://k6.io/docs/get-started/installation/" && exit 1)
+
+# Upload performance test (ramp-up to 50 VUs over 2 minutes)
+.PHONY: perf-test-upload
+perf-test-upload: check-k6
+	@echo "Running upload performance test..."
+	@echo "NOTE: Set ACCESS_KEY and SECRET_KEY environment variables"
+	k6 run tests/performance/upload_test.js
+
+# Download performance test (sustained 100 VUs for 3 minutes)
+.PHONY: perf-test-download
+perf-test-download: check-k6
+	@echo "Running download performance test..."
+	@echo "NOTE: Set ACCESS_KEY and SECRET_KEY environment variables"
+	k6 run tests/performance/download_test.js
+
+# Mixed workload test (spike from 25 to 100 VUs)
+.PHONY: perf-test-mixed
+perf-test-mixed: check-k6
+	@echo "Running mixed workload test..."
+	@echo "NOTE: Set ACCESS_KEY and SECRET_KEY environment variables"
+	k6 run tests/performance/mixed_workload.js
+
+# Quick smoke test (5 VUs for 30 seconds)
+.PHONY: perf-test-quick
+perf-test-quick: check-k6
+	@echo "Running quick performance smoke test..."
+	@echo "NOTE: Set ACCESS_KEY and SECRET_KEY environment variables"
+	k6 run --vus 5 --duration 30s tests/performance/mixed_workload.js
+
+# Stress test (ramp up to find breaking point)
+.PHONY: perf-test-stress
+perf-test-stress: check-k6
+	@echo "Running stress test (WARNING: may cause service degradation)..."
+	@echo "NOTE: Set ACCESS_KEY and SECRET_KEY environment variables"
+	k6 run --vus 200 --duration 5m tests/performance/mixed_workload.js
+
+# Run all performance tests sequentially
+.PHONY: perf-test-all
+perf-test-all: check-k6
+	@echo "Running all performance tests..."
+	@echo "This will take approximately 10-15 minutes"
+	@echo "NOTE: Set ACCESS_KEY and SECRET_KEY environment variables"
+	@echo ""
+	@echo "=== Test 1/3: Upload Performance ==="
+	k6 run tests/performance/upload_test.js
+	@echo ""
+	@echo "=== Test 2/3: Download Performance ==="
+	k6 run tests/performance/download_test.js
+	@echo ""
+	@echo "=== Test 3/3: Mixed Workload ==="
+	k6 run tests/performance/mixed_workload.js
+	@echo ""
+	@echo "All performance tests completed!"
+
+# Performance test with custom VUs and duration
+# Usage: make perf-test-custom VUS=50 DURATION=2m SCRIPT=upload_test.js
+.PHONY: perf-test-custom
+perf-test-custom: check-k6
+	@echo "Running custom performance test..."
+	k6 run --vus $(VUS) --duration $(DURATION) tests/performance/$(SCRIPT)
+
 # Lint code
 .PHONY: lint
 lint:
@@ -611,6 +691,13 @@ help:
 	@echo "  test               - Run all tests"
 	@echo "  test-unit          - Run unit tests only"
 	@echo "  test-integration   - Run integration tests only"
+	@echo "  perf-test-upload   - Run k6 upload performance test"
+	@echo "  perf-test-download - Run k6 download performance test"
+	@echo "  perf-test-mixed    - Run k6 mixed workload test"
+	@echo "  perf-test-quick    - Run quick k6 smoke test (30s)"
+	@echo "  perf-test-stress   - Run k6 stress test (WARNING: intensive)"
+	@echo "  perf-test-all      - Run all k6 performance tests (10-15min)"
+	@echo "  perf-test-custom   - Run custom k6 test (set VUS, DURATION, SCRIPT)"
 	@echo "  lint               - Lint code"
 	@echo "  fmt                - Format code"
 	@echo "  clean              - Clean build artifacts"
@@ -635,14 +722,16 @@ help:
 	@echo "  docker-clean       - Remove containers, images and volumes"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make build VERSION=v1.0.0            - Build with version"
-	@echo "  make build-linux                     - Cross-compile for Linux"
-	@echo "  make build-all                       - Build for all platforms"
-	@echo "  make deb VERSION=v0.4.1-beta         - Build Debian AMD64 package"
-	@echo "  make deb-arm64 VERSION=v0.4.1-beta   - Build Debian ARM64 package"
-	@echo "  make deb-install                     - Build and install package"
-	@echo "  make docker-up                       - Start MaxIOFS in Docker"
-	@echo "  make docker-monitoring               - Start with monitoring stack"
+	@echo "  make build VERSION=v1.0.0                      - Build with version"
+	@echo "  make build-linux                               - Cross-compile for Linux"
+	@echo "  make build-all                                 - Build for all platforms"
+	@echo "  make deb VERSION=v0.4.1-beta                   - Build Debian AMD64 package"
+	@echo "  make deb-arm64 VERSION=v0.4.1-beta             - Build Debian ARM64 package"
+	@echo "  make deb-install                               - Build and install package"
+	@echo "  make docker-up                                 - Start MaxIOFS in Docker"
+	@echo "  make docker-monitoring                         - Start with monitoring stack"
+	@echo "  ACCESS_KEY=test SECRET_KEY=pass make perf-test-upload  - Run upload test"
+	@echo "  make perf-test-custom VUS=100 DURATION=5m SCRIPT=mixed_workload.js"
 
 # Docker targets (PowerShell-based for Windows)
 .PHONY: docker-build-ps docker-run-ps docker-up-ps docker-down-ps docker-monitoring-ps docker-clean-ps

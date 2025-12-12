@@ -87,7 +87,7 @@ func (s *SQLiteStore) LogEvent(ctx context.Context, event *AuditEvent) error {
 
 	// Convert details map to JSON
 	var detailsJSON string
-	if event.Details != nil && len(event.Details) > 0 {
+	if len(event.Details) > 0 {
 		detailsBytes, err := json.Marshal(event.Details)
 		if err != nil {
 			s.logger.WithError(err).Warn("Failed to marshal audit event details to JSON")
