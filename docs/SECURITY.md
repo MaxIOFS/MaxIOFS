@@ -1,25 +1,26 @@
 # MaxIOFS Security Guide
 
 **Version**: 0.6.0-beta
+**Last Updated**: December 13, 2025
 
-> **BETA SOFTWARE DISCLAIMER**
->
-> MaxIOFS is in **beta stage**. Core security features are implemented and production bugs have been fixed, but this software has not undergone comprehensive third-party security audits or extensive penetration testing. Use in production requires thorough testing in your environment.
+> **BETA SOFTWARE DISCLAIMER**: MaxIOFS is in beta stage. Core security features are implemented, but third-party security audits have not been conducted. Production use requires thorough testing in your environment.
+
+---
 
 ## Overview
 
-MaxIOFS implements essential security features for object storage:
+MaxIOFS implements comprehensive security features for object storage:
 
-- **HMAC-SHA256 Cluster Authentication** (v0.6.0-beta) - Inter-node authentication
-- **Real-Time Security Notifications (SSE)** (v0.4.2+)
-- **Dynamic Security Configuration** (v0.4.2+)
-- **Server-Side Encryption at Rest (SSE)** (v0.4.1+)
-- **Comprehensive Audit Logging** (v0.4.0+)
-- Triple authentication (JWT + S3 signatures + HMAC for clusters)
-- **Two-Factor Authentication (2FA) with TOTP**
+- **HMAC-SHA256 Cluster Authentication** (v0.6.0) - Secure inter-node communication
+- **Real-Time Security Notifications** (SSE) (v0.4.2)
+- **Dynamic Security Configuration** (v0.4.2) - Runtime security tuning
+- **Server-Side Encryption at Rest** (AES-256-CTR) (v0.4.1)
+- **Comprehensive Audit Logging** (20+ event types) (v0.4.0)
+- **Two-Factor Authentication** (2FA/TOTP)
+- Triple authentication: JWT + S3 signatures + HMAC for clusters
 - Role-Based Access Control (RBAC)
-- Bcrypt password hashing
-- **Configurable rate limiting and account lockout**
+- Bcrypt password hashing (cost: 12)
+- Configurable rate limiting and account lockout
 - Object Lock (WORM compliance)
 - Multi-tenant isolation
 
@@ -27,45 +28,26 @@ MaxIOFS implements essential security features for object storage:
 
 ## Real-Time Security Notifications
 
-**New in v0.4.2-beta**
-
-MaxIOFS provides real-time push notifications using Server-Sent Events (SSE) to alert administrators immediately when security events occur.
+**Server-Sent Events (SSE)** provide real-time push notifications for security events.
 
 ### Features
 
-**Notification Capabilities:**
-- **Real-Time Push**: Zero-latency notifications using SSE
-- **User Locked Alerts**: Immediate notification when accounts are locked
-- **Topbar Bell Icon**: Unread count badge with dropdown
-- **Read/Unread Tracking**: Visual indicators for notification status
-- **Persistent Storage**: Notifications survive page reloads (localStorage)
-- **Limited History**: Last 3 notifications to prevent UI clutter
-- **Tenant Isolation**: Global admins see all, tenant admins see only their tenant
+- **Zero-latency alerts** when accounts are locked
+- **Topbar bell icon** with unread count badge
+- **Persistent storage** (notifications survive page reloads)
+- **Tenant isolation** (global admins see all, tenant admins see only their tenant)
+- **JWT authentication** required for SSE connection
 
-**Security Properties:**
-- JWT authentication required for SSE connection
-- Automatic disconnection on token expiration
-- No sensitive data in notifications (only event metadata)
-- Connection tracking and automatic cleanup
+### Event Flow
 
-### How It Works
+1. Admin logs in → Frontend auto-connects to SSE endpoint
+2. Security event occurs (e.g., account locked)
+3. Backend broadcasts to all connected admins
+4. Notification appears in topbar
+5. Admin clicks to view and mark as read
 
-1. **Connection**: Admin logs in, frontend automatically connects to SSE endpoint
-2. **Event Trigger**: Security event occurs (e.g., user account locked)
-3. **Notification**: Backend broadcasts to all connected admin clients
-4. **Display**: Notification appears in topbar with unread badge
-5. **Action**: Admin clicks to view details and mark as read
+### Example Notification
 
-### Configuration
-
-No configuration required - SSE notifications are automatically enabled for all admin users (global admins and tenant admins).
-
-**Access Requirements:**
-- Must be logged in with admin role
-- Valid JWT token in localStorage
-- Browser must support Server-Sent Events (all modern browsers)
-
-**Example Notification:**
 ```json
 {
   "type": "user_locked",
@@ -79,45 +61,23 @@ No configuration required - SSE notifications are automatically enabled for all 
 }
 ```
 
-### Best Practices
-
-1. **Monitor Regularly**: Check notifications frequently during business hours
-2. **Investigate Immediately**: User lockout may indicate brute force attack
-3. **Review Audit Logs**: Use audit logs for detailed investigation
-4. **Adjust Thresholds**: Use dynamic security configuration to tune sensitivity
+**No configuration required** - automatically enabled for all admin users.
 
 ---
 
 ## Dynamic Security Configuration
 
-**New in v0.4.2-beta**
-
-MaxIOFS allows administrators to adjust security thresholds dynamically without server restarts.
+Adjust security thresholds **without server restarts** via Web Console (`/settings`) or API.
 
 ### Configurable Settings
 
-**Security Settings (via Web Console `/settings`):**
+| Setting | Default | Description | Recommended |
+|---------|---------|-------------|-------------|
+| `security.ratelimit_login_per_minute` | 5 | IP-based rate limiting | 15 (if behind proxy) |
+| `security.max_failed_attempts` | 5 | Account lockout threshold | 5-10 |
+| `security.lockout_duration` | 900s (15 min) | Lock duration in seconds | 900-1800s |
 
-1. **`security.ratelimit_login_per_minute`** (Default: 5)
-   - IP-based rate limiting threshold
-   - Prevents brute force from single IP address
-   - Affects all users from that IP
-   - Recommended: Higher for users behind proxies (e.g., 15)
-
-2. **`security.max_failed_attempts`** (Default: 5)
-   - Account lockout threshold
-   - Protects individual user accounts
-   - Independent of IP rate limiting
-   - Recommended: 5-10 attempts
-
-3. **`security.lockout_duration`** (Default: 900 seconds = 15 minutes)
-   - How long accounts stay locked after exceeding max_failed_attempts
-   - Measured in seconds
-   - Recommended: 900-1800 seconds (15-30 minutes)
-
-### Key Differences
-
-**IP Rate Limiting vs Account Lockout:**
+### IP Rate Limiting vs Account Lockout
 
 | Feature | IP Rate Limiting | Account Lockout |
 |---------|------------------|-----------------|
@@ -125,684 +85,208 @@ MaxIOFS allows administrators to adjust security thresholds dynamically without 
 | **Purpose** | Prevent brute force from single source | Protect individual accounts |
 | **Affects** | All users from that IP | Single user account |
 | **Typical Value** | 15 attempts/minute | 5 failed attempts |
-| **Use Case** | Shared IP (proxy, NAT) | Individual password guessing |
 
-### Configuration via Web Console
+### Configuration
 
+**Via Web Console:**
 1. Navigate to `/settings` (global admin only)
 2. Select "Security" category
-3. Modify desired values
-4. Click "Save Changes"
-5. Changes take effect immediately (no restart)
-6. All changes logged in audit trail
+3. Modify values → Click "Save Changes"
+4. Changes take effect immediately
 
-### Configuration via API
-
+**Via API:**
 ```bash
-# Update rate limit
-curl -X PUT https://your-server/api/v1/settings/security.ratelimit_login_per_minute \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"value": "15"}'
-
-# Update lockout threshold
-curl -X PUT https://your-server/api/v1/settings/security.max_failed_attempts \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"value": "10"}'
-
-# Update lockout duration (30 minutes)
-curl -X PUT https://your-server/api/v1/settings/security.lockout_duration \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"value": "1800"}'
-```
-
-### Best Practices
-
-1. **Separate Concerns**: Set IP rate limiting higher than account lockout
-2. **Consider Environment**: Users behind proxies need higher IP limits
-3. **Balance Security**: Too strict = legitimate users locked out, too loose = vulnerable
-4. **Monitor Effectiveness**: Review audit logs to see if thresholds are appropriate
-5. **Document Changes**: Note why thresholds were changed in your runbook
-
-### Audit Trail
-
-All security setting changes are logged with:
-- User who made the change
-- Timestamp of change
-- Old and new values
-- IP address of requester
-
-**Example Audit Entry:**
-```json
+PUT /api/v1/settings/security.ratelimit_login_per_minute
 {
-  "event_type": "setting_updated",
-  "user_id": "admin-123",
-  "username": "admin",
-  "resource_name": "security.max_failed_attempts",
-  "details": {
-    "old_value": "5",
-    "new_value": "10"
-  },
-  "timestamp": 1732435200,
-  "ip_address": "192.168.1.100"
+  "value": "15"
 }
 ```
+
+All changes are logged in audit trail.
 
 ---
 
 ## Server-Side Encryption (SSE)
 
-**New in v0.4.2-beta**
-
-MaxIOFS provides AES-256-CTR encryption at rest for all stored objects, protecting data from unauthorized filesystem access.
+**AES-256-CTR streaming encryption** for objects at rest.
 
 ### Features
 
-**Encryption Capabilities:**
-- **AES-256-CTR Encryption**: Industry-standard 256-bit encryption
-- **Streaming Encryption**: Constant memory usage (~32KB) for files of any size
-- **Persistent Master Key**: Stored in `config.yaml`, survives server restarts
-- **Flexible Control**: Dual-level encryption (server + bucket)
-- **Automatic Decryption**: Transparent to S3 clients
-- **Backward Compatible**: Mixed encrypted/unencrypted objects supported
-- **Zero Performance Impact**: ~150+ MiB/s throughput maintained
-
-**Security Properties:**
-- Unique initialization vector (IV) per object
-- Metadata-based encryption detection
-- Master key validation on startup
-- No key storage in metadata or logs
+- **Dual-level control**: Server-wide and per-bucket encryption
+- **Transparent encryption/decryption**: Automatic on upload/download
+- **Mixed mode**: Encrypted and unencrypted objects can coexist
+- **Persistent master key**: Stored in `config.yaml`
+- **Visual indicators**: Web console shows encryption status
 
 ### Configuration
 
-**Enable Encryption:**
-
-1. **Generate Master Key:**
-```bash
-openssl rand -hex 32
-```
-
-2. **Configure in config.yaml:**
+**Server-Level Encryption** (config.yaml):
 ```yaml
-storage:
-  # Enable encryption for new object uploads
-  enable_encryption: true
-
-  # Master encryption key (AES-256)
-  # ⚠️ CRITICAL: Must be EXACTLY 64 hexadecimal characters (32 bytes)
-  # ⚠️ BACKUP THIS KEY SECURELY - Loss means PERMANENT data loss
-  encryption_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+encryption:
+  enabled: true
+  master_key: /path/to/master_key.key  # 256-bit AES key
 ```
 
-3. **Restart MaxIOFS:**
+**Bucket-Level Encryption** (Web Console):
+- Navigate to Bucket → Settings
+- Enable "Server-Side Encryption"
+- Override server default (if server encryption disabled)
+
+### Key Management
+
+**Master Key Generation:**
 ```bash
-systemctl restart maxiofs
+openssl rand -hex 32 > master_key.key
+chmod 400 master_key.key
 ```
 
-### Encryption Behavior
+**Best Practices:**
+1. Store master key outside data directory
+2. Restrict permissions (400 or 600)
+3. Backup master key securely (encrypted backups)
+4. Use Hardware Security Module (HSM) for production (planned v0.7.0)
+5. Rotate keys regularly (manual process currently)
 
-**Server-Level Control:**
-- `enable_encryption: true` - New objects CAN be encrypted (if bucket also enabled)
-- `enable_encryption: false` - New objects will NOT be encrypted
-- `encryption_key` present - Existing encrypted objects remain accessible
-
-**Bucket-Level Control:**
-- Users choose encryption when creating buckets via Web Console
-- Per-bucket encryption setting stored in bucket metadata
-- Encryption occurs ONLY if BOTH server AND bucket encryption enabled
-
-**Decryption:**
-- Automatic for all encrypted objects (transparent to clients)
-- Works even if `enable_encryption: false` (read-only mode)
-- Mixed encrypted/unencrypted objects coexist in same bucket
-
-### Key Management Best Practices
-
-**⚠️ CRITICAL SECURITY WARNINGS:**
-
-1. **NEVER commit encryption keys to version control**
-   - Add `config.yaml` to `.gitignore`
-   - Use environment variables or secret managers in production
-
-2. **BACKUP the master key securely:**
-   - Store in password manager (1Password, LastPass, Bitwarden)
-   - Use encrypted vault or HSM for production
-   - Losing the key means PERMANENT data loss
-
-3. **Key rotation:**
-   - Currently manual process
-   - Changing key makes old encrypted objects unreadable
-   - Plan rotation strategy carefully
-
-4. **Access control:**
-   - Restrict `config.yaml` file permissions (`chmod 600`)
-   - Limit access to encryption key to authorized personnel only
+**Key Rotation** (manual):
+1. Generate new key
+2. Decrypt all objects with old key
+3. Re-encrypt with new key
+4. Update config.yaml
+5. Securely delete old key
 
 ### API Compatibility
 
-Encryption is transparent to S3 clients:
-- No API changes required
-- Works with AWS CLI, SDKs, and third-party tools
-- Objects automatically encrypted on upload (if enabled)
-- Objects automatically decrypted on download
+Fully compatible with S3 API - no client changes required. Objects are transparently encrypted/decrypted.
 
-**Example (AWS CLI):**
-```bash
-# Upload (automatically encrypted if bucket has encryption enabled)
-aws s3 cp file.txt s3://encrypted-bucket/
-
-# Download (automatically decrypted)
-aws s3 cp s3://encrypted-bucket/file.txt downloaded.txt
-```
-
-### Web Console Integration
-
-**Bucket Creation:**
-- Encryption checkbox visible only if server has `encryption_key` configured
-- Warning displayed if server doesn't support encryption
-- Users can choose encryption per bucket
-
-**Visual Indicators:**
-- Alert icons show encryption status
-- Warning messages when encryption unavailable
-
-### Performance Considerations
-
-**Benchmarks** (Windows 11, Go 1.24):
-- **1MB file**: ~200 MiB/s encryption, ~210 MiB/s decryption
-- **10MB file**: ~180 MiB/s encryption, ~190 MiB/s decryption
-- **100MB file**: ~150 MiB/s encryption, ~160 MiB/s decryption
-- **Memory usage**: Constant ~32KB buffer
-- **CPU overhead**: <5% for encryption/decryption
-
-### Compliance & Standards
-
-**Industry Standards:**
-- ✅ AES-256 encryption (NIST approved)
-- ✅ FIPS 140-2 compliant algorithm
-- ✅ Data at rest protection
-- ✅ Transparent encryption/decryption
-
-**Limitations:**
-- ⚠️ Metadata NOT encrypted (only object data)
-- ⚠️ Single master key (no per-tenant keys yet)
-- ⚠️ Manual key rotation required
-- ⚠️ No HSM integration (planned for v0.5.0)
+**Performance**: Minimal overhead (~5-10% latency increase for large files)
 
 ---
 
 ## Authentication
 
+MaxIOFS supports **three authentication methods** for different use cases.
+
+### Authentication Methods
+
+| Method | Use Case | Credentials | Security |
+|--------|----------|-------------|----------|
+| **JWT (Console)** | Web Console access | Username + Password + 2FA | Session timeout, HTTPS recommended |
+| **S3 Signatures (v2/v4)** | S3 API access | Access Key + Secret Key | HMAC-SHA256 signed requests |
+| **HMAC-SHA256 (Cluster)** | Inter-node communication | Node token | HMAC with timestamp validation |
+
 ### 1. Console Authentication (JWT)
 
-Web console uses JWT tokens with username/password.
+**Login Flow:**
+1. User submits username/password
+2. If 2FA enabled: TOTP code required
+3. Server validates credentials → Issues JWT token
+4. Token stored in localStorage
+5. Token included in all API requests
 
-**Login Request:**
-```http
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "username": "admin",
-  "password": "your-password"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "token": "eyJhbGciOiJIUzI1NiIs...",
-  "user": {
-    "id": "user-123",
-    "username": "admin",
-    "roles": ["admin"]
-  }
-}
-```
-
-**Features:**
-- Token expiration: 1 hour (default)
-- Stored in localStorage
-- Required for all console API endpoints
-- **Optional 2FA verification with TOTP codes**
+**Session Management:**
+- Token lifetime: 24 hours (configurable)
+- Automatic logout on expiration
+- Manual logout clears token
 
 ### 2. Two-Factor Authentication (2FA)
 
-MaxIOFS supports TOTP-based 2FA for enhanced account security (available since v0.3.2-beta).
+**TOTP-based** (compatible with Google Authenticator, Authy, etc.)
 
 **Setup:**
-1. User enables 2FA in Settings → Security
-2. System generates QR code for authenticator app (Google Authenticator, Authy, etc.)
-3. User scans QR code with authenticator app
-4. User confirms setup with verification code
-5. System generates backup codes for account recovery
+1. Navigate to Profile → Security
+2. Click "Enable 2FA"
+3. Scan QR code with authenticator app
+4. Enter verification code
+5. Save **backup codes** (10 single-use codes)
 
-**Login Flow with 2FA:**
-```http
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "username": "admin",
-  "password": "your-password",
-  "totpCode": "123456"
-}
-```
-
-**Features:**
-- TOTP-based (Time-based One-Time Password)
-- Compatible with standard authenticator apps
-- Backup codes for emergency access
-- Global admin can deactivate 2FA for users if needed
-- User list shows 2FA status indicator
-- Optional - users can choose to enable it
-
-**Backup Codes:**
-- Generated during 2FA setup
-- Each code can be used once
-- Store securely offline
-- Required if authenticator device is lost
+**Recovery:** Use backup codes if device is lost.
 
 ### 3. S3 API Authentication
 
-S3-compatible authentication with access keys.
-
-**Supported:**
-- AWS Signature V2
-- AWS Signature V4
-
-**Example:**
-```http
-GET /bucket/object HTTP/1.1
-Host: localhost:8080
-Authorization: AWS4-HMAC-SHA256 Credential=...
-X-Amz-Date: 20251012T120000Z
+**Signature V4** (AWS-compatible):
+```
+Authorization: AWS4-HMAC-SHA256 Credential=<access_key_id>/...
 ```
 
-**Features:**
-- Compatible with AWS CLI, SDKs, and tools
-- Per-user access keys
-- Multiple keys per user supported
-- Keys can be revoked individually
+**Signature V2** (legacy support):
+```
+Authorization: AWS <access_key_id>:<signature>
+```
+
+**Access Keys:**
+- Generated via Web Console (Users → Access Keys)
+- Format: `AKIA...` (20 chars) + secret (40 chars)
+- Support multiple keys per user (max: tenant quota)
+- Can be disabled or deleted
 
 ### 4. Cluster Authentication (HMAC-SHA256)
 
-**New in v0.6.0-beta**
+**Inter-node authentication** using shared `node_token`.
 
-MaxIOFS uses HMAC-SHA256 signatures for secure inter-node communication in multi-node clusters. This authentication mechanism is completely independent from user authentication (JWT/S3 signatures) and specifically designed for node-to-node operations.
-
-**Purpose:**
-- Authenticate requests between cluster nodes
-- Secure cluster replication operations
-- Protect tenant synchronization
-- Prevent unauthorized node joining
-
-#### Authentication Flow
-
-**1. Node Registration:**
+**Message Format:**
 ```
-Node initialization:
-  ├─ Generate cluster_id (UUID)
-  ├─ Generate node_id (UUID)
-  ├─ Generate node_token (32-byte secure random)
-  └─ Store node_token hash in cluster.db
+HMAC-SHA256(node_token, METHOD + PATH + TIMESTAMP + NONCE + BODY)
 ```
 
-**2. Request Signing (Sending Node):**
+**Headers:**
 ```
-Request components:
-  ├─ method = "PUT"
-  ├─ path = "/api/internal/cluster/objects/tenant-123/bucket/key"
-  ├─ timestamp = Unix timestamp (current time)
-  ├─ nonce = 16-byte random hex string
-  └─ body = Request payload
-
-Signature = HMAC-SHA256(node_token, method + path + timestamp + nonce + body)
+X-MaxIOFS-Node-ID: <sender-node-id>
+X-MaxIOFS-Timestamp: <unix-timestamp>
+X-MaxIOFS-Nonce: <random-uuid>
+X-MaxIOFS-Signature: <hex-encoded-hmac>
 ```
 
-**3. Request Verification (Receiving Node):**
-```
-1. Extract headers:
-   - X-MaxIOFS-Node-ID
-   - X-MaxIOFS-Timestamp
-   - X-MaxIOFS-Nonce
-   - X-MaxIOFS-Signature
+**Validation:**
+- Timestamp skew: max ±5 minutes
+- Signature comparison: constant-time
+- Failed auth: HTTP 401 Unauthorized
 
-2. Validate timestamp:
-   - Check clock skew ≤ 5 minutes
-   - Reject if expired
-
-3. Retrieve node_token:
-   - Query cluster_nodes table by node_id
-   - Verify node exists and is active
-
-4. Compute expected signature:
-   - Reconstruct message from request
-   - Calculate HMAC-SHA256(node_token, message)
-
-5. Compare signatures:
-   - Use constant-time comparison (timing attack prevention)
-   - Reject if mismatch
-```
-
-#### Request Headers
-
-All inter-node requests include these headers:
-
-```http
-X-MaxIOFS-Node-ID: a1b2c3d4-e5f6-7890-abcd-ef1234567890
-X-MaxIOFS-Timestamp: 1702123456
-X-MaxIOFS-Nonce: 9a8b7c6d5e4f3210
-X-MaxIOFS-Signature: f8e7d6c5b4a3210987654321abcdef0123456789abcdef0123456789abcdef01
-```
-
-**Header Purposes:**
-- `X-MaxIOFS-Node-ID`: Identifies sending node (for token lookup)
-- `X-MaxIOFS-Timestamp`: Unix timestamp for replay attack prevention
-- `X-MaxIOFS-Nonce`: Random string ensuring request uniqueness
-- `X-MaxIOFS-Signature`: HMAC-SHA256 signature for verification
-
-#### Security Properties
-
-**1. Replay Attack Prevention:**
-```
-Mechanism: Timestamp + Nonce
-- Timestamp must be within 5 minutes of current time
-- Nonce ensures each request is unique
-- Expired requests automatically rejected
-```
-
-**2. Message Integrity:**
-```
-Coverage: method + path + timestamp + nonce + body
-- Any modification invalidates signature
-- Protects against man-in-the-middle tampering
-- Ensures request authenticity
-```
-
-**3. Timing Attack Prevention:**
-```go
-// Constant-time signature comparison
-if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
-    return errors.New("invalid signature")
-}
-
-// NOT this (vulnerable):
-if signature != expectedSignature {
-    return errors.New("invalid signature")
-}
-```
-
-**4. Token Security:**
-```
-Storage: Only hash stored in database (bcrypt-like)
-Transmission: Never transmitted (only used for signing)
-Generation: Cryptographically secure random (crypto/rand)
-Length: 32 bytes (256 bits) - same strength as AES-256
-```
-
-#### Node Token Management
-
-**Token Generation:**
-```go
-// 32-byte secure random token
-token := make([]byte, 32)
-_, err := rand.Read(token)
-nodeToken := hex.EncodeToString(token)
-// Result: "5f8a2b3c4d5e6f7g8h9i0j1k2l3m4n5o..."
-```
-
-**Token Storage:**
-```sql
--- Only hash stored in database
-CREATE TABLE cluster_nodes (
-    id TEXT PRIMARY KEY,
-    node_name TEXT,
-    s3_endpoint TEXT,
-    console_endpoint TEXT,
-    region TEXT,
-    datacenter TEXT,
-    node_token_hash TEXT,  -- bcrypt hash of token
-    is_primary BOOLEAN,
-    status TEXT,
-    created_at TIMESTAMP
-);
-```
-
-**⚠️ CRITICAL SECURITY WARNINGS:**
-
-1. **Token is ONLY returned during initialization/node creation**
-   - Cannot be retrieved later
-   - Must be saved securely by administrator
-   - Loss of token requires node re-registration
-
-2. **NEVER commit tokens to version control**
-   - Tokens should be stored in secure secret management systems
-   - Use environment variables or secret managers in production
-   - Treat node_token like a password
-
-3. **Token rotation:**
-   - Currently no automatic rotation mechanism
-   - Manual rotation requires node re-registration
-   - Plan rotation strategy for compliance requirements
-
-4. **Network security:**
-   - HMAC prevents tampering but not eavesdropping
-   - Use TLS/HTTPS for inter-node communication in production
-   - Consider VPN or private network for cluster traffic
-
-#### Authenticated Endpoints
-
-**Internal cluster endpoints requiring HMAC authentication:**
-
-```
-POST   /api/internal/cluster/tenant-sync
-  - Receives tenant synchronization from another node
-  - Payload: Tenant metadata, users, access keys
-
-PUT    /api/internal/cluster/objects/{tenantID}/{bucket}/{key}
-  - Receives object replication from another node
-  - Payload: Object data (plaintext, re-encrypted on arrival)
-
-DELETE /api/internal/cluster/objects/{tenantID}/{bucket}/{key}
-  - Receives delete replication from another node
-  - No payload (just delete notification)
-```
-
-**Example request (tenant sync):**
-
-```http
-POST /api/internal/cluster/tenant-sync HTTP/1.1
-Host: 10.0.1.20:8081
-X-MaxIOFS-Node-ID: node-abc123
-X-MaxIOFS-Timestamp: 1702123456
-X-MaxIOFS-Nonce: 9a8b7c6d5e4f3210
-X-MaxIOFS-Signature: f8e7d6c5b4a3...
-Content-Type: application/json
-
-{
-  "tenant_id": "tenant-xyz789",
-  "name": "acme-corp",
-  "max_storage_bytes": 107374182400,
-  "users": [...],
-  "access_keys": [...]
-}
-```
-
-#### Comparison with S3 Authentication
-
-| Feature | S3 Signature V4 | Cluster HMAC |
-|---------|-----------------|--------------|
-| **Purpose** | User → Server authentication | Server → Server authentication |
-| **Credentials** | Access Key + Secret Key | node_token |
-| **Algorithm** | AWS Signature V4 (complex) | HMAC-SHA256 (simple) |
-| **Scope** | S3 API operations | Internal cluster operations |
-| **Users** | Tenant users | Cluster nodes only |
-| **Expiration** | Can be revoked | Token persists until node removed |
-
-#### Monitoring & Auditing
-
-**HMAC authentication events are NOT logged in regular audit logs** (to avoid excessive log volume).
-
-However, authentication failures are logged:
-```
-Level: WARN
-Message: "Cluster authentication failed: invalid signature from node-abc123"
-Context: node_id, endpoint, reason
-```
-
-**Monitor for:**
-- Repeated authentication failures (potential attack)
-- Timestamp skew warnings (clock synchronization issues)
-- Unknown node_id attempts (unauthorized node trying to join)
-
-#### Best Practices
-
-**1. Time Synchronization:**
-```bash
-# Install NTP on all cluster nodes
-apt install ntp
-systemctl enable ntp
-systemctl start ntp
-
-# Verify time sync
-ntpq -p
-```
-
-**2. Secure Token Storage:**
-```bash
-# Store tokens in environment variables (not in code)
-export MAXIOFS_NODE_TOKEN="your-secure-token"
-
-# Or use secret management
-# - Hashicorp Vault
-# - AWS Secrets Manager
-# - Kubernetes Secrets
-```
-
-**3. Network Isolation:**
-```
-Recommended: Private network for cluster traffic
-- VPC/subnet isolation
-- VPN for geographically distributed nodes
-- Firewall rules limiting inter-node access
-```
-
-**4. Regular Security Audits:**
-```bash
-# Check cluster node status
-curl http://localhost:8081/api/cluster/nodes \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
-
-# Review node health history
-curl http://localhost:8081/api/cluster/health/history \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
-```
-
-#### Limitations
-
-- ⚠️ **No automatic key rotation** - Manual process required
-- ⚠️ **No certificate-based authentication** - Only HMAC tokens
-- ⚠️ **No node identity verification** - Trust on first use model
-- ⚠️ **Timestamp-based replay prevention** - Requires synchronized clocks
-- ⚠️ **No TLS enforcement** - Must be configured separately
-
-**Mitigations:**
-- Use TLS for all cluster communication
-- Implement NTP synchronization across all nodes
-- Store node tokens in secure secret management systems
-- Regularly review cluster node list for unauthorized additions
-- Monitor authentication failure logs
-
-> **See [CLUSTER.md](CLUSTER.md) for complete cluster security architecture**
+**See [CLUSTER.md](CLUSTER.md#security) for complete cluster security documentation**
 
 ---
 
 ## Authorization (RBAC)
 
-MaxIOFS implements a 3-tier role system:
+**Role-Based Access Control** with three roles:
 
-### Global Admin
+| Role | Permissions | Scope |
+|------|-------------|-------|
+| **Global Admin** | Full system access | All tenants |
+| **Tenant Admin** | Manage tenant resources | Single tenant |
+| **Tenant User** | Read/write buckets and objects | Single tenant |
 
-**Scope:** Entire system
+### Permission Matrix
 
-**Permissions:**
-- Manage all tenants and users
-- Full access to all buckets/objects
-- View system-wide metrics
-- Unlock user accounts
-- System configuration
-
-### Tenant Admin
-
-**Scope:** Single tenant
-
-**Permissions:**
-- Manage users within tenant
-- Create/delete tenant buckets
-- Manage tenant access keys
-- View tenant metrics
-- Unlock tenant user accounts
-
-### Tenant User
-
-**Scope:** Limited access
-
-**Permissions:**
-- Access assigned buckets
-- Upload/download objects
-- Manage own access keys
-- View own metrics
-
-### Permission Enforcement
-
-Permissions are enforced at:
-1. API level (before processing)
-2. Database level (tenant filtering)
-3. Storage level (directory isolation)
+| Action | Global Admin | Tenant Admin | Tenant User |
+|--------|--------------|--------------|-------------|
+| Manage all tenants | ✅ | ❌ | ❌ |
+| Manage tenant users | ✅ | ✅ | ❌ |
+| Create/delete buckets | ✅ | ✅ | ✅ |
+| Upload/download objects | ✅ | ✅ | ✅ |
+| View audit logs | ✅ | ✅ (tenant only) | ❌ |
+| Modify security settings | ✅ | ❌ | ❌ |
+| Manage cluster | ✅ | ❌ | ❌ |
 
 ---
 
 ## Password Security
 
-### Bcrypt Hashing
-
-MaxIOFS uses **bcrypt** for password storage.
-
-**Features:**
-- Industry-standard algorithm
-- Cost factor: 10 (2^10 iterations)
-- Automatic salt generation
-- Resistant to brute-force attacks
-
-**Implementation:**
-```go
-// Hash password
-hashedPassword, _ := bcrypt.GenerateFromPassword(
-    []byte(password),
-    bcrypt.DefaultCost
-)
-
-// Verify password
-err := bcrypt.CompareHashAndPassword(
-    []byte(storedHash),
-    []byte(password)
-)
-```
+**Bcrypt hashing** with cost factor 12.
 
 ### Password Requirements
 
-**Current Policy:**
 - Minimum length: 8 characters
-- No complexity requirements (alpha)
+- Recommended: 12+ characters with mixed case, numbers, symbols
+- No dictionary words
+- Unique per account
 
-**Recommended for Production:**
-- Minimum 12-16 characters
-- Mix of character types
-- Regular rotation
+### Implementation
+
+```go
+bcrypt.GenerateFromPassword(password, 12)
+```
+
+**Hash storage:** SQLite database (auth.db)
 
 ---
 
@@ -810,316 +294,166 @@ err := bcrypt.CompareHashAndPassword(
 
 ### Login Rate Limiting
 
-**Policy:**
-- Maximum 5 attempts per minute per IP
-- Automatic reset after 1 minute
-- Applied to console login only
+**IP-based rate limiting** prevents brute force attacks:
+- Default: 5 attempts per minute per IP
+- Configurable via security settings
+- Affects all login attempts from same IP
+- HTTP 429 response when exceeded
 
 ### Account Lockout
 
-**Policy:**
-- Triggered after 5 failed login attempts
-- Lockout duration: 15 minutes
-- Auto-unlock after duration
-- Manual unlock by admin
+**User-specific lockout** after failed attempts:
+- Default: 5 failed attempts
+- Lockout duration: 15 minutes (configurable)
+- Independent of IP rate limiting
+- Automatic unlock after duration
+- Manual unlock: Admin can reset via Web Console
 
-**Manual Unlock:**
-```http
-POST /api/users/{userId}/unlock
-Authorization: Bearer <admin-token>
-```
-
-**Permissions:**
-- Global Admin: Can unlock any account
-- Tenant Admin: Can unlock tenant users only
+**Lockout Flow:**
+1. User fails login 5 times
+2. Account locked for 15 minutes
+3. Admin notified via SSE (real-time)
+4. Failed attempts counter reset after successful login
+5. Audit log entry created
 
 ---
 
 ## Audit Logging
 
-**New in v0.4.0-beta**
-
-MaxIOFS includes a comprehensive audit logging system that tracks all critical security and administrative events for compliance and forensic analysis.
+**SQLite-based audit system** tracking 20+ event types.
 
 ### Features
 
-**Event Tracking:**
-- **Authentication Events**: Login (success/failed), Logout, User Blocked/Unblocked
-- **User Management**: User Created/Deleted/Updated, Role Changes, Status Changes
-- **Bucket Operations**: Bucket Created/Deleted (via Console or S3 API)
-- **Access Keys**: Key Created/Deleted, Status Changed
-- **Tenant Management**: Tenant Created/Deleted/Updated (Global Admin only)
-- **Security Events**: Password Changed, 2FA Enabled/Disabled, 2FA Verification
+- **Comprehensive coverage**: Authentication, bucket ops, user management, config changes
+- **Tenant isolation**: Tenant admins see only their tenant events
+- **Automatic retention**: Default 90 days (configurable)
+- **CSV export**: Web Console supports filtered export
+- **API access**: RESTful API for programmatic access
 
-**Access Control:**
-- Global admins can view all audit logs across all tenants
-- Tenant admins can ONLY view logs from their own tenant
-- Regular users cannot access audit logs
-- All access attempts are themselves logged
+### Event Types
 
-**Data Retention:**
-- Configurable retention period (default: 90 days)
-- Automatic cleanup via daily background job
-- Logs older than retention period are purged automatically
-- No manual intervention required
+| Category | Events |
+|----------|--------|
+| **Authentication** | Login success/failure, logout, 2FA events, token issued/expired |
+| **User Management** | User created/updated/deleted, access key generated/revoked |
+| **Bucket Operations** | Bucket created/deleted, policy updated, versioning changed |
+| **Object Operations** | Object uploaded/downloaded/deleted, multipart upload |
+| **Security** | Account locked, password changed, 2FA enabled/disabled |
+| **System** | Config changed, server started/stopped, encryption status changed |
 
 ### Configuration
 
-**config.yaml:**
+**Retention Period** (config.yaml):
 ```yaml
 audit:
-  enabled: true                    # Enable/disable audit logging
-  retention_days: 90               # Auto-delete logs older than N days
-  db_path: "./data/audit_logs.db"  # SQLite database path
+  retention_days: 90
 ```
 
-**Environment Variables:**
+**Web Console Access:**
+- Navigate to Audit Logs page
+- Filter by: Date range, Event type, User, Tenant, Bucket
+- Export to CSV for compliance reporting
+
+**API Access:**
 ```bash
-AUDIT_ENABLED=true
-AUDIT_RETENTION_DAYS=90
-AUDIT_DB_PATH="./data/audit_logs.db"
+GET /api/v1/audit-logs?start=<timestamp>&end=<timestamp>&event_type=<type>
 ```
-
-### API Access
-
-**List Audit Logs:**
-```http
-GET /api/v1/audit-logs?page=1&page_size=50
-Authorization: Bearer <admin-token>
-```
-
-**Query Parameters:**
-- `tenant_id` - Filter by tenant (global admin only)
-- `user_id` - Filter by user
-- `event_type` - Filter by event type (login_success, user_created, etc.)
-- `resource_type` - Filter by resource (system, user, bucket, etc.)
-- `action` - Filter by action (login, create, delete, etc.)
-- `status` - Filter by status (success, failed)
-- `start_date` - Unix timestamp start range
-- `end_date` - Unix timestamp end range
-- `page` - Page number (default: 1)
-- `page_size` - Results per page (default: 50, max: 100)
-
-**Example Response:**
-```json
-{
-  "logs": [
-    {
-      "id": 1,
-      "timestamp": 1700000000,
-      "tenant_id": "tenant-123",
-      "user_id": "user-456",
-      "username": "admin",
-      "event_type": "login_success",
-      "resource_type": "system",
-      "action": "login",
-      "status": "success",
-      "ip_address": "192.168.1.100",
-      "user_agent": "Mozilla/5.0...",
-      "details": "{}"
-    }
-  ],
-  "total": 150,
-  "page": 1,
-  "page_size": 50
-}
-```
-
-### Web Console Access
-
-Audit logs are accessible via the Web Console at `/audit-logs` (admin only).
-
-**Features:**
-- Advanced filtering (event type, status, resource type, date range)
-- Quick date filters (Today, Last 7 Days, Last 30 Days, All Time)
-- Real-time search across users, events, resources, and IP addresses
-- Color-coded critical events (login failures, security events)
-- Expandable rows with full event details
-- CSV export for compliance reporting
-
-### Security Considerations
-
-**Data Privacy:**
-- ✅ Passwords are NEVER logged (even hashed passwords)
-- ✅ Secrets and tokens are never included in logs
-- ✅ User agents stored for security analysis
-- ✅ IP addresses logged for security auditing
-- ⚠️ Consider GDPR compliance for IP address logging
-
-**Immutability:**
-- ✅ No UPDATE or DELETE operations via API
-- ✅ Only system maintenance jobs can purge old logs
-- ✅ Append-only design ensures audit trail integrity
-- ✅ Logs stored in separate SQLite database
-
-### Compliance Support
-
-This audit logging system helps with:
-- ✅ **GDPR Article 30**: Records of processing activities
-- ✅ **SOC 2 Type II**: Audit trail requirements
-- ✅ **HIPAA**: Access logging for protected health information systems
-- ✅ **ISO 27001**: Information security event logging
-- ✅ **PCI DSS**: User activity tracking and audit trails
-
-### Event Types Reference
-
-| Event Type | Description | Example Trigger |
-|-----------|-------------|-----------------|
-| `login_success` | Successful login | User logs in with correct credentials |
-| `login_failed` | Failed login attempt | Wrong password or username |
-| `logout` | User logout | User clicks logout |
-| `user_blocked` | Account locked | Too many failed login attempts |
-| `user_unblocked` | Account unlocked | Admin unlocks user |
-| `user_created` | New user created | Admin creates user |
-| `user_deleted` | User removed | Admin deletes user |
-| `user_updated` | User modified | Admin changes user settings |
-| `password_changed` | Password updated | User changes password |
-| `2fa_enabled` | 2FA activated | User enables 2FA |
-| `2fa_disabled` | 2FA deactivated | User or admin disables 2FA |
-| `2fa_verify_success` | 2FA code valid | Correct TOTP code entered |
-| `2fa_verify_failed` | 2FA code invalid | Wrong TOTP code entered |
-| `bucket_created` | Bucket created | Via Console or S3 API |
-| `bucket_deleted` | Bucket deleted | Via Console or S3 API |
-| `access_key_created` | Access key created | Admin creates key for user |
-| `access_key_deleted` | Access key revoked | Admin or user deletes key |
-| `tenant_created` | Tenant created | Global admin creates tenant |
-| `tenant_deleted` | Tenant deleted | Global admin deletes tenant |
-| `tenant_updated` | Tenant modified | Global admin updates tenant |
 
 ---
 
 ## Object Lock (WORM)
 
-S3-compatible Object Lock for immutable storage.
+**Write-Once-Read-Many** compliance for regulatory requirements.
 
 ### Retention Modes
 
-**COMPLIANCE Mode:**
-- Immutable until expiration
-- Cannot be bypassed
-- Use: Regulatory compliance
-
-**GOVERNANCE Mode:**
-- Protected but can be bypassed with permissions
-- More flexible
-- Use: Internal policies
+| Mode | Description | Override |
+|------|-------------|----------|
+| **GOVERNANCE** | Protects from deletion | Admin can override |
+| **COMPLIANCE** | Strict immutability | Cannot be deleted until expiration |
 
 ### Legal Hold
 
-- Indefinite protection
-- Independent of retention
-- Use: Litigation, investigations
+**Independent of retention period:**
+- Can be applied/removed anytime
+- Prevents deletion regardless of retention
+- Requires special permissions
 
-### Enabling Object Lock
+### Configuration
 
-**Bucket creation:**
+**Bucket-Level:**
 ```bash
-aws s3api create-bucket \
-  --bucket my-bucket \
-  --object-lock-enabled-for-bucket
+aws s3api create-bucket --bucket compliance-bucket --object-lock-enabled-for-bucket
 ```
 
-**Set retention:**
+**Object-Level:**
 ```bash
 aws s3api put-object-retention \
-  --bucket my-bucket \
-  --key file.txt \
+  --bucket compliance-bucket \
+  --key document.pdf \
   --retention Mode=COMPLIANCE,RetainUntilDate=2026-01-01T00:00:00Z
-```
-
-**Set legal hold:**
-```bash
-aws s3api put-object-legal-hold \
-  --bucket my-bucket \
-  --key file.txt \
-  --legal-hold Status=ON
 ```
 
 ---
 
 ## Security Best Practices
 
-### 1. Change Default Credentials
+### Essential Security Measures
 
-**First priority:**
-```
-Console: admin/admin → Change password immediately
-S3 API: No default keys → Create secure access keys via console
-```
+1. **Change Default Credentials**
+   - Default: admin/admin
+   - Change immediately after installation
+   - Use strong passwords (12+ chars)
 
-**Steps:**
-1. Login to web console with admin/admin
-2. Change admin password
-3. Create S3 access keys for your applications
-4. Store keys securely (password manager/vault)
+2. **Use HTTPS**
+   - Generate TLS certificates (Let's Encrypt recommended)
+   - Configure reverse proxy (Nginx/HAProxy)
+   - Redirect HTTP → HTTPS
 
-### 2. Use HTTPS
+3. **Configure CORS Carefully**
+   - Whitelist only trusted origins
+   - Avoid `*` wildcard in production
+   - Test CORS rules before deployment
 
-MaxIOFS doesn't include TLS. Use reverse proxy:
+4. **Run as Non-Root User**
+   ```bash
+   useradd -r -s /bin/false maxiofs
+   chown -R maxiofs:maxiofs /opt/maxiofs
+   ```
 
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name storage.example.com;
+5. **Restrict File Permissions**
+   ```bash
+   chmod 700 /opt/maxiofs/data
+   chmod 400 /opt/maxiofs/master_key.key
+   ```
 
-    ssl_certificate /etc/ssl/cert.pem;
-    ssl_certificate_key /etc/ssl/key.pem;
+6. **Enable Firewall**
+   ```bash
+   ufw allow 8080/tcp  # S3 API
+   ufw allow 8081/tcp  # Console
+   ufw enable
+   ```
 
-    location / {
-        proxy_pass http://localhost:8081;
-    }
-}
-```
+7. **Regular Backups**
+   - Backup data directory
+   - Backup SQLite databases (auth.db, audit.db)
+   - Backup master encryption key (encrypted)
+   - Test restore procedures
 
-### 3. Configure CORS Carefully
+8. **Monitor Logs**
+   - Review audit logs daily
+   - Set up alerts for suspicious activity
+   - Monitor failed login attempts
+   - Track account lockouts
 
-```yaml
-cors:
-  enabled: true
-  allowed_origins:
-    - "https://your-app.example.com"
-  # Never use "*" in production
-```
+9. **Enable 2FA**
+   - Require 2FA for all admin accounts
+   - Use hardware tokens for high-security environments
 
-### 4. Run as Non-Root User
-
-```bash
-sudo useradd -r -s /bin/false maxiofs
-sudo chown -R maxiofs:maxiofs /var/lib/maxiofs
-```
-
-### 5. Restrict File Permissions
-
-```bash
-# Data directory
-chmod 750 /var/lib/maxiofs
-
-# Database
-chmod 600 /var/lib/maxiofs/maxiofs.db
-```
-
-### 6. Enable Firewall
-
-```bash
-# Only expose HTTPS via reverse proxy
-ufw allow 443/tcp
-ufw deny 8080/tcp
-ufw deny 8081/tcp
-```
-
-### 7. Regular Backups
-
-```bash
-# Backup data directory
-tar -czf backup.tar.gz /var/lib/maxiofs
-```
-
-### 8. Monitor Logs
-
-```bash
-# Check for suspicious activity
-journalctl -u maxiofs | grep -i "failed\|locked\|denied"
-```
+10. **Network Segmentation**
+    - Isolate MaxIOFS network
+    - Use VPN for admin access
+    - Restrict cluster communication to private network
 
 ---
 
@@ -1127,75 +461,115 @@ journalctl -u maxiofs | grep -i "failed\|locked\|denied"
 
 ### Beta Security Limitations
 
-1. **No Built-in TLS** - Use reverse proxy (recommended approach)
-2. **Basic Password Policy** - Only minimum length enforced
-3. ~~**No Multi-Factor Authentication**~~ - ✅ **2FA IMPLEMENTED** (v0.3.2-beta with TOTP)
-4. ~~**Limited Audit Logging**~~ - ✅ **COMPREHENSIVE AUDIT LOGGING** (v0.4.0-beta)
-5. ~~**No Encryption at Rest**~~ - ✅ **AES-256 ENCRYPTION IMPLEMENTED** (v0.4.2-beta)
-6. **Simple Rate Limiting** - Login endpoint only
-7. **No Security Audits** - Not professionally audited by third parties
-8. ✅ **Session Management** - Improved with idle timer and timeout enforcement (v0.3.1-beta)
-9. **Limited Key Management** - Master key in config file (HSM planned for v0.5.0)
-10. **SQLite Database** - No at-rest encryption (use LUKS/BitLocker for system disk)
+1. **No Third-Party Security Audit**
+   - No external penetration testing
+   - No security certification (SOC 2, ISO 27001)
+   - Recommended: Perform internal security assessment
+
+2. **Limited Encryption Options**
+   - Single master key for all tenants
+   - No per-tenant encryption keys
+   - No HSM integration (planned v0.7.0)
+   - Manual key rotation required
+
+3. **Authentication Limitations**
+   - No LDAP/Active Directory integration (planned v0.8.0)
+   - No SAML/OAuth2 SSO (planned v0.8.0)
+   - Session management basic (no device tracking)
+
+4. **Audit Log Retention**
+   - SQLite storage (size limits for very high volume)
+   - No external log shipping (syslog planned v0.7.0)
+   - Manual export required for long-term archival
 
 ### Mitigations
 
-- Use strong passwords
-- ✅ Enable 2FA for all users (especially admins)
-- ✅ Enable server-side encryption (AES-256) for sensitive data
-- Enable account lockout
-- Configure firewall rules
-- Use reverse proxy with TLS
-- Filesystem-level encryption for system disk (LUKS/BitLocker)
-- Restrict file permissions (especially `config.yaml` with encryption key)
-- Backup encryption key securely
-- Regular security updates
+- Deploy behind WAF (Web Application Firewall)
+- Use intrusion detection system (IDS)
+- Implement network monitoring
+- Regular security assessments
+- Stay updated with security patches
 
 ---
 
 ## Reporting Security Issues
 
-**DO NOT** open public GitHub issues for vulnerabilities.
+**DO NOT** open public GitHub issues for security vulnerabilities.
 
-**Email:** security@yourdomain.com (update with actual contact)
+**Report to**: [Insert your security contact email]
 
 **Include:**
 - Vulnerability description
 - Steps to reproduce
 - Potential impact
-- Suggested fix (optional)
+- Suggested mitigation (if any)
 
-Response time: Within 48 hours
+**Response time**: 48 hours for acknowledgment
 
 ---
 
 ## Security Checklist
 
-**Initial Setup:**
-- [ ] Change default credentials
-- [ ] Enable 2FA for admin accounts
-- [ ] Generate and configure encryption key (AES-256)
-- [ ] Backup encryption key securely
-- [ ] Configure HTTPS (reverse proxy)
-- [ ] Set up firewall rules
-- [ ] Run as non-root user
-- [ ] Restrict file permissions (`chmod 600 config.yaml`)
-- [ ] Configure CORS properly
-- [ ] Enable rate limiting
-- [ ] Set up backups (including encryption key)
+### Initial Setup
 
-**Ongoing:**
-- [ ] Monitor logs
-- [ ] Keep MaxIOFS updated
-- [ ] Review user permissions
-- [ ] Test backup restoration
-- [ ] Update TLS certificates
+- [ ] Change default admin credentials
+- [ ] Enable HTTPS with valid TLS certificate
+- [ ] Configure firewall rules
+- [ ] Generate and secure master encryption key
+- [ ] Enable server-side encryption
+- [ ] Set appropriate file permissions (700 data, 400 keys)
+- [ ] Create non-root user for service
 
----
+### User Management
 
-**Note**: This is beta software. Conduct thorough security assessment and testing before production use.
+- [ ] Enforce strong password policy
+- [ ] Enable 2FA for all admin accounts
+- [ ] Review and audit user permissions
+- [ ] Set tenant quotas appropriately
+- [ ] Disable unused accounts
+- [ ] Rotate access keys regularly (every 90 days)
+
+### Configuration
+
+- [ ] Configure rate limiting thresholds
+- [ ] Set account lockout parameters
+- [ ] Enable audit logging
+- [ ] Configure log retention (minimum 90 days)
+- [ ] Set session timeout (default: 24h)
+- [ ] Configure CORS whitelist
+
+### Monitoring
+
+- [ ] Review audit logs daily
+- [ ] Monitor failed login attempts
+- [ ] Track account lockouts
+- [ ] Set up security alerts (SSE notifications)
+- [ ] Monitor system resource usage
+- [ ] Check for security updates
+
+### Cluster Security (if applicable)
+
+- [ ] Use strong cluster tokens (256-bit entropy)
+- [ ] Rotate cluster tokens every 90 days
+- [ ] Restrict cluster network (firewall rules)
+- [ ] Use TLS for inter-node communication
+- [ ] Monitor cluster health and replication
+
+### Compliance
+
+- [ ] Export audit logs for compliance reporting
+- [ ] Backup encryption keys securely
+- [ ] Document security procedures
+- [ ] Perform regular security assessments
+- [ ] Test disaster recovery procedures
+- [ ] Maintain security documentation
 
 ---
 
 **Version**: 0.6.0-beta
-**Last Updated**: December 9, 2025
+**Last Updated**: December 13, 2025
+
+For additional security information, see:
+- [CLUSTER.md](CLUSTER.md#security) - Cluster security details
+- [DEPLOYMENT.md](DEPLOYMENT.md) - Production security best practices
+- [CONFIGURATION.md](CONFIGURATION.md) - Security configuration options

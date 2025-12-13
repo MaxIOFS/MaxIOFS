@@ -950,4 +950,146 @@ Requirements:
 
 ---
 
+## Roadmap
+
+### Completed Features (v0.1.0 - v0.6.0-beta)
+
+**v0.6.0-beta (December 2025)** - Multi-Node Cluster & Replication
+- ✅ Multi-node cluster support with intelligent routing
+- ✅ Node-to-node HMAC-authenticated replication
+- ✅ Automatic failover and health monitoring
+- ✅ Bucket location caching for performance
+- ✅ Cluster management web console
+
+**v0.5.0-beta (December 2025)** - S3-Compatible Replication
+- ✅ S3-compatible bucket replication (AWS S3, MinIO, MaxIOFS)
+- ✅ Real-time, scheduled, and batch replication modes
+- ✅ Queue-based async processing
+- ✅ Production-ready logging system
+
+**v0.4.2-beta (November 2025)** - Notifications & Security
+- ✅ Bucket notifications (webhooks)
+- ✅ Dynamic security configuration
+- ✅ Real-time push notifications (SSE)
+- ✅ Global bucket uniqueness
+
+**v0.4.1-beta (November 2025)** - Encryption at Rest
+- ✅ Server-side encryption (AES-256-CTR)
+- ✅ SQLite-based configuration management
+- ✅ Visual encryption indicators
+
+**v0.4.0-beta (November 2025)** - Audit & Compliance
+- ✅ Complete audit logging system (20+ event types)
+- ✅ CSV export and filtering
+- ✅ Automatic retention policies
+
+**v0.3.2-beta (November 2025)** - Security & Monitoring
+- ✅ Two-Factor Authentication (2FA/TOTP)
+- ✅ Prometheus & Grafana integration
+- ✅ Docker support with Compose
+- ✅ Object Lock (COMPLIANCE/GOVERNANCE)
+
+**See version history above for complete feature details**
+
+### Short Term (v0.7.0-beta - Q1 2026)
+
+**Monitoring & Observability**
+- [ ] Real-time performance dashboards
+- [ ] Enhanced Prometheus metrics with custom SLOs
+- [ ] Alerting rules for performance degradation
+- [ ] Distributed tracing integration (OpenTelemetry)
+- [ ] Performance profiling endpoints (pprof authentication fix)
+
+**Testing & Quality**
+- [ ] Backend test coverage to 90%+ (current: ~53%)
+- [ ] Comprehensive integration tests
+- [ ] Chaos engineering tests (node failures, network partitions)
+- [ ] Load testing with 10,000+ concurrent connections
+
+**Documentation**
+- [ ] Complete API reference documentation
+- [ ] Video tutorials and getting started guides
+- [ ] Architecture deep-dive documentation
+- [ ] Performance tuning guides
+
+### Medium Term (v0.8.0-beta to v0.9.0-beta - Q2-Q3 2026)
+
+**Advanced Storage Features**
+- [ ] Storage tiering (hot/warm/cold with automatic transitions)
+- [ ] Compression support (gzip, zstd, lz4)
+- [ ] Deduplication (hash-based duplicate detection)
+- [ ] Erasure coding for fault tolerance
+- [ ] Object immutability enhancements
+
+**Enterprise Features**
+- [ ] LDAP/Active Directory integration
+- [ ] SAML/OAuth2 SSO support
+- [ ] Advanced RBAC with custom policies
+- [ ] Multi-region replication orchestration
+- [ ] Tenant resource quotas and billing
+
+**Cluster Enhancements**
+- [ ] Automatic cluster scaling (add/remove nodes)
+- [ ] Geographic distribution with latency-based routing
+- [ ] Cross-datacenter replication
+- [ ] Consensus-based configuration (Raft/etcd)
+- [ ] Split-brain prevention mechanisms
+
+**Performance Optimizations**
+- [ ] Read-through caching with Redis/Memcached
+- [ ] CDN integration for static object delivery
+- [ ] Parallel multipart upload optimization
+- [ ] Delta sync for large object updates
+
+### Long Term (v1.0.0+ - Q4 2026 and beyond)
+
+**Production Readiness**
+- [ ] Third-party security audit completion
+- [ ] 90%+ test coverage across all modules
+- [ ] 6+ months production usage validation
+- [ ] Zero critical bugs policy
+- [ ] Performance validated at enterprise scale (1M+ objects)
+
+**Alternative Storage Backends**
+- [ ] PostgreSQL metadata backend option
+- [ ] MySQL/MariaDB metadata support
+- [ ] Distributed key-value stores (etcd, Consul)
+- [ ] Cloud storage backends (AWS S3, GCS, Azure Blob)
+
+**Advanced S3 Compatibility**
+- [ ] S3 Batch Operations API
+- [ ] S3 Inventory reports
+- [ ] S3 Analytics and insights
+- [ ] S3 Intelligent-Tiering automation
+- [ ] S3 Glacier storage class
+
+**Platform Expansion**
+- [ ] Kubernetes operator for automated deployment
+- [ ] Helm charts for production clusters
+- [ ] Terraform/Pulumi providers
+- [ ] Cloud marketplace listings (AWS, Azure, GCP)
+- [ ] SaaS multi-tenant platform
+
+**Ecosystem Integration**
+- [ ] Backup tool integrations (Veeam, Restic, Duplicati)
+- [ ] Media server support (Plex, Jellyfin)
+- [ ] Data pipeline integration (Apache Kafka, Spark)
+- [ ] BI tool connectors (Tableau, PowerBI)
+
+### Target Release Schedule
+
+- **v0.7.0-beta**: February 2026 - Monitoring & Testing Phase
+- **v0.8.0-beta**: April 2026 - Enterprise Features Phase
+- **v0.9.0-beta**: June 2026 - Cluster Enhancements Phase
+- **v1.0.0-rc1**: September 2026 - Release Candidate (security audit complete)
+- **v1.0.0**: November 2026 - Production Stable Release
+
+**Notes:**
+- Roadmap is subject to change based on community feedback and production usage
+- Security and stability take priority over new features
+- Breaking changes will be avoided in beta phase
+- Community contributions welcome for all planned features
+
+---
+
 **Note**: This project is currently in BETA phase. Suitable for development, testing, and staging environments. Production use requires extensive testing. Always backup your data.
