@@ -156,8 +156,27 @@ func setupCompleteS3Environment(t *testing.T) *s3TestEnv {
 	router.HandleFunc("/{bucket}", handler.PutBucketVersioning).Methods("PUT").Queries("versioning", "")
 	router.HandleFunc("/{bucket}", handler.GetBucketVersioning).Methods("GET").Queries("versioning", "")
 
+	// Bucket tagging
+	router.HandleFunc("/{bucket}", handler.PutBucketTagging).Methods("PUT").Queries("tagging", "")
+	router.HandleFunc("/{bucket}", handler.GetBucketTagging).Methods("GET").Queries("tagging", "")
+	router.HandleFunc("/{bucket}", handler.DeleteBucketTagging).Methods("DELETE").Queries("tagging", "")
+
+	// Bucket ACL
+	router.HandleFunc("/{bucket}", handler.PutBucketACL).Methods("PUT").Queries("acl", "")
+	router.HandleFunc("/{bucket}", handler.GetBucketACL).Methods("GET").Queries("acl", "")
+
+	// Bucket location
+	router.HandleFunc("/{bucket}", handler.GetBucketLocation).Methods("GET").Queries("location", "")
+
+	// Object lock configuration
+	router.HandleFunc("/{bucket}", handler.PutObjectLockConfiguration).Methods("PUT").Queries("object-lock", "")
+	router.HandleFunc("/{bucket}", handler.GetObjectLockConfiguration).Methods("GET").Queries("object-lock", "")
+
 	// List object versions
 	router.HandleFunc("/{bucket}", handler.ListBucketVersions).Methods("GET").Queries("versions", "")
+
+	// List multipart uploads
+	router.HandleFunc("/{bucket}", handler.ListMultipartUploads).Methods("GET").Queries("uploads", "")
 
 	// Batch operations
 	router.HandleFunc("/{bucket}", handler.DeleteObjects).Methods("POST").Queries("delete", "")
@@ -181,6 +200,18 @@ func setupCompleteS3Environment(t *testing.T) *s3TestEnv {
 	router.HandleFunc("/{bucket}/{object:.+}", handler.PutObjectTagging).Methods("PUT").Queries("tagging", "")
 	router.HandleFunc("/{bucket}/{object:.+}", handler.GetObjectTagging).Methods("GET").Queries("tagging", "")
 	router.HandleFunc("/{bucket}/{object:.+}", handler.DeleteObjectTagging).Methods("DELETE").Queries("tagging", "")
+
+	// Object retention (with query parameter)
+	router.HandleFunc("/{bucket}/{object:.+}", handler.PutObjectRetention).Methods("PUT").Queries("retention", "")
+	router.HandleFunc("/{bucket}/{object:.+}", handler.GetObjectRetention).Methods("GET").Queries("retention", "")
+
+	// Object legal hold (with query parameter)
+	router.HandleFunc("/{bucket}/{object:.+}", handler.PutObjectLegalHold).Methods("PUT").Queries("legal-hold", "")
+	router.HandleFunc("/{bucket}/{object:.+}", handler.GetObjectLegalHold).Methods("GET").Queries("legal-hold", "")
+
+	// Object ACL (with query parameter)
+	router.HandleFunc("/{bucket}/{object:.+}", handler.PutObjectACL).Methods("PUT").Queries("acl", "")
+	router.HandleFunc("/{bucket}/{object:.+}", handler.GetObjectACL).Methods("GET").Queries("acl", "")
 
 	// General object operations (NO query parameters - AFTER!)
 	router.HandleFunc("/{bucket}/{object:.+}", handler.PutObject).Methods("PUT")
@@ -1438,5 +1469,852 @@ func TestSOSAPICapacityQuota(t *testing.T) {
 		t.Logf("Second User (Same Tenant) - Capacity: %d bytes, Used: %d bytes, Available: %d bytes",
 			capInfo.Capacity, capInfo.Used, capInfo.Available)
 		t.Logf("Quota is shared: User1 and User2 both see the same 10GB tenant quota")
+	})
+}
+
+// TestListMultipartUploads tests listing multipart uploads
+func TestListMultipartUploads(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "test-multipart-bucket"
+
+	// Create bucket
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	// Initiate multipart upload
+	objectKey := "test-large-file.txt"
+	req, w := env.makeS3Request("POST", "/"+bucketName+"/"+objectKey+"?uploads", nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should initiate multipart upload")
+
+	type InitResult struct {
+		UploadId string `xml:"UploadId"`
+	}
+	var initResult InitResult
+	xml.Unmarshal(w.Body.Bytes(), &initResult)
+	uploadID := initResult.UploadId
+
+	// List multipart uploads
+	listReq, listW := env.makeS3Request("GET", "/"+bucketName+"?uploads", nil)
+	env.router.ServeHTTP(listW, listReq)
+
+	assert.Equal(t, http.StatusOK, listW.Code, "Should list multipart uploads successfully")
+
+	// Parse response
+	type ListMultipartUploadsResult struct {
+		XMLName xml.Name `xml:"ListMultipartUploadsResult"`
+		Uploads []struct {
+			Key      string `xml:"Key"`
+			UploadId string `xml:"UploadId"`
+		} `xml:"Upload"`
+	}
+
+	var result ListMultipartUploadsResult
+	err = xml.Unmarshal(listW.Body.Bytes(), &result)
+	require.NoError(t, err, "Should parse XML response")
+
+	assert.Len(t, result.Uploads, 1, "Should have 1 multipart upload")
+	assert.Equal(t, objectKey, result.Uploads[0].Key)
+	assert.Equal(t, uploadID, result.Uploads[0].UploadId)
+
+	// Cleanup - abort upload
+	abortReq, abortW := env.makeS3Request("DELETE",
+		fmt.Sprintf("/%s/%s?uploadId=%s", bucketName, objectKey, uploadID), nil)
+	env.router.ServeHTTP(abortW, abortReq)
+}
+
+// TestAbortMultipartUpload tests aborting a multipart upload
+func TestAbortMultipartUpload(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "test-abort-multipart"
+
+	// Create bucket
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	// Initiate multipart upload
+	objectKey := "test-abort-file.txt"
+	initReq, initW := env.makeS3Request("POST", "/"+bucketName+"/"+objectKey+"?uploads", nil)
+	env.router.ServeHTTP(initW, initReq)
+	require.Equal(t, http.StatusOK, initW.Code)
+
+	type InitResult struct {
+		UploadId string `xml:"UploadId"`
+	}
+	var initResult InitResult
+	xml.Unmarshal(initW.Body.Bytes(), &initResult)
+	uploadID := initResult.UploadId
+
+	// Abort multipart upload
+	req, w := env.makeS3Request("DELETE",
+		fmt.Sprintf("/%s/%s?uploadId=%s", bucketName, objectKey, uploadID), nil)
+	env.router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNoContent, w.Code, "Should abort multipart upload successfully")
+
+	// Verify upload no longer exists
+	listReq, listW := env.makeS3Request("GET", "/"+bucketName+"?uploads", nil)
+	env.router.ServeHTTP(listW, listReq)
+
+	type ListResult struct {
+		Uploads []struct {
+			UploadId string `xml:"UploadId"`
+		} `xml:"Upload"`
+	}
+	var listResult ListResult
+	xml.Unmarshal(listW.Body.Bytes(), &listResult)
+
+	assert.Len(t, listResult.Uploads, 0, "Aborted upload should not appear in list")
+}
+
+// TestUploadPartCopy tests copying an object as part of a multipart upload
+func TestUploadPartCopy(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "test-upload-part-copy"
+	sourceKey := "source-object.txt"
+	destKey := "dest-large-file.txt"
+	sourceContent := []byte("This is the source content to be copied")
+
+	// Create bucket
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	// Upload source object
+	req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+sourceKey, sourceContent)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should upload source object")
+
+	// Initiate multipart upload
+	req, w = env.makeS3Request("POST", "/"+bucketName+"/"+destKey+"?uploads", nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should initiate multipart upload")
+
+	type InitResult struct {
+		UploadId string `xml:"UploadId"`
+	}
+	var initResult InitResult
+	xml.Unmarshal(w.Body.Bytes(), &initResult)
+	uploadID := initResult.UploadId
+	require.NotEmpty(t, uploadID, "Upload ID should not be empty")
+
+	// Upload part using copy
+	copySource := fmt.Sprintf("%s/%s", bucketName, sourceKey)
+	req, w = env.makeS3Request("PUT",
+		fmt.Sprintf("/%s/%s?uploadId=%s&partNumber=1", bucketName, destKey, uploadID), nil)
+	req.Header.Set("x-amz-copy-source", copySource)
+	env.router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code, "Should copy object as part")
+
+	// Verify response contains ETag
+	type CopyPartResult struct {
+		ETag string `xml:"ETag"`
+	}
+	var copyResult CopyPartResult
+	xml.Unmarshal(w.Body.Bytes(), &copyResult)
+	assert.NotEmpty(t, copyResult.ETag, "ETag should be present in response")
+}
+
+// TestBucketTagging tests bucket tagging operations (Get/Put/Delete)
+func TestBucketTagging(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "test-bucket-tagging"
+
+	// Create bucket
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	t.Run("PutBucketTagging", func(t *testing.T) {
+		taggingXML := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<Tagging>
+  <TagSet>
+    <Tag>
+      <Key>Environment</Key>
+      <Value>Production</Value>
+    </Tag>
+  </TagSet>
+</Tagging>`)
+
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"?tagging", taggingXML)
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNoContent, w.Code, "Should set bucket tagging successfully")
+	})
+
+	t.Run("GetBucketTagging", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?tagging", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should get bucket tagging successfully")
+	})
+
+	t.Run("DeleteBucketTagging", func(t *testing.T) {
+		req, w := env.makeS3Request("DELETE", "/"+bucketName+"?tagging", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNoContent, w.Code, "Should delete bucket tagging successfully")
+	})
+}
+
+// TestBucketACL tests bucket ACL operations (Get/Put)
+func TestBucketACL(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "test-bucket-acl"
+
+	// Create bucket
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	t.Run("GetBucketACL", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?acl", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should get bucket ACL successfully")
+	})
+
+	t.Run("PutBucketACL", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"?acl", nil)
+		req.Header.Set("x-amz-acl", "private")
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should set bucket ACL successfully")
+	})
+}
+
+// TestObjectRetention tests object retention operations (Get/Put)
+func TestObjectRetention(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "test-object-retention"
+	objectKey := "test-object.txt"
+	objectContent := []byte("Test content for retention")
+
+	// Create bucket
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	// Upload object
+	req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey, objectContent)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should upload object")
+
+	t.Run("PutObjectRetention", func(t *testing.T) {
+		retentionXML := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<Retention>
+  <Mode>GOVERNANCE</Mode>
+  <RetainUntilDate>2025-12-31T00:00:00Z</RetainUntilDate>
+</Retention>`)
+
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey+"?retention", retentionXML)
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should set object retention")
+	})
+
+	t.Run("GetObjectRetention", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?retention", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should get object retention")
+
+		// Verify response contains retention info
+		body := w.Body.String()
+		assert.Contains(t, body, "Retention", "Response should contain retention element")
+	})
+}
+
+// TestGetBucketLocation tests getting bucket location
+func TestGetBucketLocation(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "test-bucket-location"
+
+	// Create bucket
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	// Get bucket location
+	req, w := env.makeS3Request("GET", "/"+bucketName+"?location", nil)
+	env.router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code, "Should get bucket location successfully")
+
+	// Verify response contains LocationConstraint
+	body := w.Body.String()
+	assert.Contains(t, body, "LocationConstraint", "Response should contain LocationConstraint")
+}
+
+// TestObjectLockConfiguration tests object lock configuration (Get/Put)
+func TestObjectLockConfiguration(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	bucketName := "test-object-lock-bucket"
+
+	// Create bucket with object lock enabled
+	// Note: Object lock must be enabled at bucket creation time
+	req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
+	req.Header.Set("x-amz-bucket-object-lock-enabled", "true")
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should create bucket with object lock")
+
+	t.Run("PutObjectLockConfiguration", func(t *testing.T) {
+		configXML := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<ObjectLockConfiguration>
+  <ObjectLockEnabled>Enabled</ObjectLockEnabled>
+  <Rule>
+    <DefaultRetention>
+      <Mode>GOVERNANCE</Mode>
+      <Days>30</Days>
+    </DefaultRetention>
+  </Rule>
+</ObjectLockConfiguration>`)
+
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"?object-lock", configXML)
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+		// Accept 200 (success), 404 (not found/not enabled), or 409 (conflict)
+		assert.Contains(t, []int{http.StatusOK, http.StatusNotFound, http.StatusConflict}, w.Code, "Should handle object lock configuration request")
+	})
+
+	t.Run("GetObjectLockConfiguration", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?object-lock", nil)
+		env.router.ServeHTTP(w, req)
+		// Accept both 200 (if configured) and 404 (if not enabled)
+		assert.Contains(t, []int{http.StatusOK, http.StatusNotFound}, w.Code, "Should handle get object lock configuration request")
+	})
+}
+
+// TestObjectLegalHold tests object legal hold operations (Get/Put)
+// Note: Legal hold requires a bucket with object lock enabled
+func TestObjectLegalHold(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	bucketName := "test-legal-hold-bucket"
+	objectKey := "test-object.txt"
+	objectContent := []byte("Test content for legal hold")
+
+	// Create bucket with object lock enabled (required for legal hold)
+	req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
+	req.Header.Set("x-amz-bucket-object-lock-enabled", "true")
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should create bucket with object lock")
+
+	// Upload object
+	req, w = env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey, objectContent)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should upload object")
+
+	t.Run("PutObjectLegalHold", func(t *testing.T) {
+		legalHoldXML := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<LegalHold>
+  <Status>ON</Status>
+</LegalHold>`)
+
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey+"?legal-hold", legalHoldXML)
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should set legal hold on object")
+	})
+
+	t.Run("GetObjectLegalHold", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?legal-hold", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should get object legal hold")
+
+		// Verify response contains LegalHold status
+		body := w.Body.String()
+		assert.Contains(t, body, "LegalHold", "Response should contain LegalHold element")
+	})
+}
+
+// TestObjectACL tests object ACL operations (Get/Put)
+func TestObjectACL(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "test-object-acl-bucket"
+	objectKey := "test-object.txt"
+	objectContent := []byte("Test content for ACL")
+
+	// Create bucket
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	// Upload object
+	req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey, objectContent)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should upload object")
+
+	t.Run("GetObjectACL", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?acl", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should get object ACL")
+
+		// Verify response contains ACL information
+		body := w.Body.String()
+		assert.Contains(t, body, "AccessControlPolicy", "Response should contain AccessControlPolicy")
+	})
+
+	t.Run("PutObjectACL", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey+"?acl", nil)
+		req.Header.Set("x-amz-acl", "private")
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should set object ACL")
+	})
+}
+
+// TestObjectVersioning tests object versioning operations
+func TestObjectVersioning(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "test-versioning-bucket"
+	objectKey := "test-versioned-object.txt"
+
+	// Create bucket
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	// Enable versioning on bucket
+	versioningXML := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<VersioningConfiguration>
+  <Status>Enabled</Status>
+</VersioningConfiguration>`)
+	req, w := env.makeS3Request("PUT", "/"+bucketName+"?versioning", versioningXML)
+	req.Header.Set("Content-Type", "application/xml")
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should enable versioning")
+
+	// Upload object version 1
+	content1 := []byte("Version 1 content")
+	req, w = env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey, content1)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should upload version 1")
+
+	// Upload object version 2
+	content2 := []byte("Version 2 content")
+	req, w = env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey, content2)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should upload version 2")
+
+	t.Run("ListObjectVersions", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?versions", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should list object versions")
+
+		// Verify response contains version information
+		body := w.Body.String()
+		assert.Contains(t, body, "ListVersionsResult", "Response should contain ListVersionsResult")
+	})
+}
+
+// TestAwsChunkedReader tests AWS chunked encoding reader
+func TestAwsChunkedReader(t *testing.T) {
+	t.Run("Single chunk", func(t *testing.T) {
+		// Format: {hex-size}\r\n{data}\r\n0\r\n\r\n
+		input := "5\r\nHello\r\n0\r\n\r\n"
+		reader := NewAwsChunkedReader(strings.NewReader(input))
+
+		output, err := io.ReadAll(reader)
+		require.NoError(t, err, "Should read chunked data")
+		assert.Equal(t, "Hello", string(output), "Should decode single chunk")
+	})
+
+	t.Run("Multiple chunks", func(t *testing.T) {
+		// Two chunks: "Hello" (5 bytes) + " World" (6 bytes)
+		input := "5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n"
+		reader := NewAwsChunkedReader(strings.NewReader(input))
+
+		output, err := io.ReadAll(reader)
+		require.NoError(t, err, "Should read multiple chunks")
+		assert.Equal(t, "Hello World", string(output), "Should decode multiple chunks")
+	})
+
+	t.Run("Chunk with signature (MinIO format)", func(t *testing.T) {
+		// Format with chunk-signature: {hex-size};chunk-signature={sig}
+		input := "5;chunk-signature=abcd1234\r\nHello\r\n0\r\n\r\n"
+		reader := NewAwsChunkedReader(strings.NewReader(input))
+
+		output, err := io.ReadAll(reader)
+		require.NoError(t, err, "Should read chunk with signature")
+		assert.Equal(t, "Hello", string(output), "Should strip signature and decode")
+	})
+
+	t.Run("Chunk with trailers", func(t *testing.T) {
+		// Final chunk (0) can have trailers before final \r\n
+		input := "5\r\nHello\r\n0\r\nx-amz-checksum-sha256:checksum123\r\n\r\n"
+		reader := NewAwsChunkedReader(strings.NewReader(input))
+
+		output, err := io.ReadAll(reader)
+		require.NoError(t, err, "Should read chunk with trailers")
+		assert.Equal(t, "Hello", string(output), "Should decode and ignore trailers")
+	})
+
+	t.Run("Read in small buffer", func(t *testing.T) {
+		// Large chunk read in small increments
+		input := "a\r\n0123456789\r\n0\r\n\r\n" // 10 bytes (0xa in hex)
+		reader := NewAwsChunkedReader(strings.NewReader(input))
+
+		// Read 3 bytes at a time
+		var output bytes.Buffer
+		buf := make([]byte, 3)
+		for {
+			n, err := reader.Read(buf)
+			if n > 0 {
+				output.Write(buf[:n])
+			}
+			if err == io.EOF {
+				break
+			}
+			require.NoError(t, err, "Should not error during partial reads")
+		}
+
+		assert.Equal(t, "0123456789", output.String(), "Should read large chunk in small buffers")
+	})
+
+	t.Run("Invalid hex size", func(t *testing.T) {
+		// Invalid hexadecimal chunk size
+		input := "XYZ\r\nHello\r\n0\r\n\r\n"
+		reader := NewAwsChunkedReader(strings.NewReader(input))
+
+		_, err := io.ReadAll(reader)
+		assert.Error(t, err, "Should error on invalid hex size")
+		assert.Contains(t, err.Error(), "invalid chunk size", "Error should mention invalid chunk size")
+	})
+
+	t.Run("Premature EOF in chunk data", func(t *testing.T) {
+		// Chunk declares 10 bytes but only provides 5
+		input := "a\r\n12345" // Missing 5 bytes and trailing \r\n
+		reader := NewAwsChunkedReader(strings.NewReader(input))
+
+		_, err := io.ReadAll(reader)
+		assert.Error(t, err, "Should error on premature EOF")
+		assert.Contains(t, err.Error(), "failed to read chunk data", "Error should mention chunk data read failure")
+	})
+
+	t.Run("Empty chunked stream", func(t *testing.T) {
+		// Just the terminal chunk
+		input := "0\r\n\r\n"
+		reader := NewAwsChunkedReader(strings.NewReader(input))
+
+		output, err := io.ReadAll(reader)
+		require.NoError(t, err, "Should handle empty stream")
+		assert.Empty(t, output, "Should return empty data")
+	})
+
+	t.Run("Large chunk", func(t *testing.T) {
+		// 1KB chunk (0x400 in hex = 1024 bytes)
+		data := strings.Repeat("A", 1024)
+		input := fmt.Sprintf("400\r\n%s\r\n0\r\n\r\n", data)
+		reader := NewAwsChunkedReader(strings.NewReader(input))
+
+		output, err := io.ReadAll(reader)
+		require.NoError(t, err, "Should read large chunk")
+		assert.Equal(t, data, string(output), "Should decode 1KB chunk correctly")
+		assert.Len(t, output, 1024, "Output should be exactly 1024 bytes")
+	})
+
+	t.Run("Close reader", func(t *testing.T) {
+		input := "5\r\nHello\r\n0\r\n\r\n"
+		reader := NewAwsChunkedReader(strings.NewReader(input))
+
+		err := reader.Close()
+		assert.NoError(t, err, "Close should not error")
+
+		// Should still be able to read after close (Close is no-op)
+		output, err := io.ReadAll(reader)
+		require.NoError(t, err)
+		assert.Equal(t, "Hello", string(output))
+	})
+}
+
+// TestHeadObjectErrorCases tests HeadObject error scenarios
+func TestHeadObjectErrorCases(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "test-head-bucket"
+	objectKey := "test-object.txt"
+	objectContent := []byte("Test content for HEAD")
+
+	// Create bucket
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	// Upload object
+	req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey, objectContent)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should upload object")
+
+	// Get ETag from response
+	etag := w.Header().Get("ETag")
+	require.NotEmpty(t, etag, "Should have ETag")
+
+	t.Run("Object not found", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucketName+"/nonexistent.txt", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotFound, w.Code, "Should return 404 for nonexistent object")
+	})
+
+	t.Run("Successful HEAD with headers", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucketName+"/"+objectKey, nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should return 200")
+		assert.NotEmpty(t, w.Header().Get("ETag"), "Should have ETag header")
+		assert.NotEmpty(t, w.Header().Get("Content-Length"), "Should have Content-Length header")
+		assert.NotEmpty(t, w.Header().Get("Last-Modified"), "Should have Last-Modified header")
+		assert.Equal(t, "21", w.Header().Get("Content-Length"), "Should match content length")
+	})
+
+	t.Run("If-Match with matching ETag", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("If-Match", etag)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should return 200 when ETag matches")
+	})
+
+	t.Run("If-Match with non-matching ETag", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("If-Match", `"wrong-etag"`)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusPreconditionFailed, w.Code, "Should return 412 when ETag doesn't match")
+	})
+
+	t.Run("If-None-Match with matching ETag", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("If-None-Match", etag)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotModified, w.Code, "Should return 304 when ETag matches (not modified)")
+	})
+
+	t.Run("If-None-Match with non-matching ETag", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("If-None-Match", `"different-etag"`)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should return 200 when ETag doesn't match")
+	})
+
+	t.Run("HEAD on bucket (not object)", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucketName, nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should return 200 for bucket HEAD")
+	})
+
+	t.Run("HEAD on non-existent bucket", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/nonexistent-bucket", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotFound, w.Code, "Should return 404 for nonexistent bucket")
+	})
+}
+
+// TestDeleteObjectErrorCases tests DeleteObject error scenarios
+func TestDeleteObjectErrorCases(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "test-delete-bucket"
+	objectKey := "test-object.txt"
+	objectContent := []byte("Test content for DELETE")
+
+	// Create bucket
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	// Upload object
+	req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey, objectContent)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should upload object")
+
+	t.Run("Delete existing object", func(t *testing.T) {
+		req, w := env.makeS3Request("DELETE", "/"+bucketName+"/"+objectKey, nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNoContent, w.Code, "Should return 204 for successful delete")
+	})
+
+	t.Run("Delete non-existent object (idempotent)", func(t *testing.T) {
+		req, w := env.makeS3Request("DELETE", "/"+bucketName+"/nonexistent.txt", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNoContent, w.Code, "Should return 204 for non-existent object (S3 spec)")
+	})
+
+	t.Run("Delete from non-existent bucket", func(t *testing.T) {
+		req, w := env.makeS3Request("DELETE", "/nonexistent-bucket/object.txt", nil)
+		env.router.ServeHTTP(w, req)
+		// S3 spec: DELETE is idempotent - returns 204 even if bucket doesn't exist
+		assert.Equal(t, http.StatusNoContent, w.Code, "Should return 204 (idempotent behavior)")
+	})
+
+	t.Run("Delete object with versionId parameter", func(t *testing.T) {
+		// Upload another object
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"/versioned-object.txt", []byte("version 1"))
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Delete with versionId parameter (will be ignored if versioning not enabled)
+		req, w = env.makeS3Request("DELETE", "/"+bucketName+"/versioned-object.txt?versionId=12345", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNoContent, w.Code, "Should delete with versionId parameter")
+	})
+
+	t.Run("Bypass governance retention header", func(t *testing.T) {
+		// Upload object
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"/governance-object.txt", []byte("gov object"))
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Try to delete with bypass governance header (will be accepted if user is admin)
+		req, w = env.makeS3Request("DELETE", "/"+bucketName+"/governance-object.txt", nil)
+		req.Header.Set("x-amz-bypass-governance-retention", "true")
+		env.router.ServeHTTP(w, req)
+		// Should succeed since test user has admin role
+		assert.Equal(t, http.StatusNoContent, w.Code, "Should delete with bypass governance")
+	})
+
+	t.Run("Delete multiple objects sequentially", func(t *testing.T) {
+		// Upload 3 objects
+		for i := 1; i <= 3; i++ {
+			key := fmt.Sprintf("object-%d.txt", i)
+			req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+key, []byte(fmt.Sprintf("content %d", i)))
+			env.router.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+		}
+
+		// Delete them one by one
+		for i := 1; i <= 3; i++ {
+			key := fmt.Sprintf("object-%d.txt", i)
+			req, w := env.makeS3Request("DELETE", "/"+bucketName+"/"+key, nil)
+			env.router.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusNoContent, w.Code, fmt.Sprintf("Should delete object %d", i))
+		}
+	})
+
+	t.Run("Delete object and verify it's gone", func(t *testing.T) {
+		testKey := "verify-delete.txt"
+
+		// Upload
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+testKey, []byte("will be deleted"))
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Delete
+		req, w = env.makeS3Request("DELETE", "/"+bucketName+"/"+testKey, nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNoContent, w.Code)
+
+		// Verify it's gone with HEAD
+		req, w = env.makeS3Request("HEAD", "/"+bucketName+"/"+testKey, nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotFound, w.Code, "Object should not exist after delete")
+	})
+}
+
+// TestPutObjectErrorCases tests PutObject error scenarios and edge cases
+func TestPutObjectErrorCases(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "test-put-bucket"
+
+	// Create bucket
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	require.NoError(t, err)
+
+	t.Run("PutObject to non-existent bucket", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", "/nonexistent-bucket/object.txt", []byte("test"))
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotFound, w.Code, "Should return 404 for non-existent bucket")
+		assert.Contains(t, w.Body.String(), "NoSuchBucket", "Error should be NoSuchBucket")
+	})
+
+	t.Run("PutObject with metadata headers", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"/metadata-object.txt", []byte("test content"))
+		req.Header.Set("x-amz-meta-author", "test-user")
+		req.Header.Set("x-amz-meta-version", "1.0")
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should upload with metadata")
+		assert.NotEmpty(t, w.Header().Get("ETag"), "Should return ETag")
+	})
+
+	t.Run("PutObject with Content-Type", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"/file.json", []byte(`{"key":"value"}`))
+		req.Header.Set("Content-Type", "application/json")
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should upload with Content-Type")
+
+		// Verify Content-Type is stored
+		getReq, getW := env.makeS3Request("HEAD", "/"+bucketName+"/file.json", nil)
+		env.router.ServeHTTP(getW, getReq)
+		assert.Equal(t, "application/json", getW.Header().Get("Content-Type"), "Content-Type should be preserved")
+	})
+
+	t.Run("PutObject with empty body", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"/empty.txt", []byte(""))
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should accept empty object")
+
+		// Verify empty object exists
+		headReq, headW := env.makeS3Request("HEAD", "/"+bucketName+"/empty.txt", nil)
+		env.router.ServeHTTP(headW, headReq)
+		assert.Equal(t, "0", headW.Header().Get("Content-Length"), "Empty object should have length 0")
+	})
+
+	t.Run("PutObject with nested folder structure", func(t *testing.T) {
+		nestedKey := "folder/subfolder/file.txt"
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+nestedKey, []byte("nested content"))
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should handle nested folder structure")
+
+		// Verify object exists
+		headReq, headW := env.makeS3Request("HEAD", "/"+bucketName+"/"+nestedKey, nil)
+		env.router.ServeHTTP(headW, headReq)
+		assert.Equal(t, http.StatusOK, headW.Code, "Should retrieve nested object")
+	})
+
+	t.Run("PutObject with large metadata", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"/large-metadata.txt", []byte("content"))
+		// Add multiple metadata headers
+		for i := 1; i <= 10; i++ {
+			req.Header.Set(fmt.Sprintf("x-amz-meta-field-%d", i), fmt.Sprintf("value-%d", i))
+		}
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "Should handle multiple metadata headers")
+	})
+
+	t.Run("PutObject with various keys", func(t *testing.T) {
+		// Test different key patterns
+		keys := []string{
+			"simple.txt",
+			"with-dash.txt",
+			"with_underscore.txt",
+			"with.multiple.dots.txt",
+			"123-numeric-prefix.txt",
+		}
+
+		for _, key := range keys {
+			req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+key, []byte("content"))
+			env.router.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusOK, w.Code, fmt.Sprintf("Should upload object with key: %s", key))
+			assert.NotEmpty(t, w.Header().Get("ETag"), fmt.Sprintf("Should have ETag for key: %s", key))
+		}
 	})
 }

@@ -1,33 +1,42 @@
-# MaxIOFS Deployment Guide
+# MaxIOFS Production Deployment Guide
 
 **Version**: 0.6.0-beta
+**Last Updated**: December 13, 2025
+
+> **BETA SOFTWARE**: Suitable for development, testing, and staging environments. Production use requires extensive testing in your environment.
+
+---
 
 ## Overview
 
-MaxIOFS is an S3-compatible object storage system currently in **beta development** with validated stress testing and production bug fixes. This guide covers deployment methods suitable for testing, development, and staging environments.
+This guide covers production deployment scenarios for MaxIOFS:
 
-**Testing Status**: Successfully validated with MinIO Warp (7000+ objects, bulk operations working correctly). Cross-platform support for Windows, Linux (x64/ARM64), and macOS.
-
-**Default Credentials:**
-- Web Console: `admin` / `admin` - **⚠️ Change password after first login**
-- S3 API: **No default access keys** - Create them via web console for security
-
-**🔒 Security Note**: Access keys must be created manually through the web console after login.
+1. **Standalone Binary** - Direct deployment on Linux/Windows
+2. **Docker** - Containerized deployment with Docker Compose
+3. **Systemd Service** - Linux service management
+4. **Reverse Proxy** - Nginx/HAProxy with HTTPS
+5. **Multi-Node Cluster** - High availability setup
 
 ---
 
 ## System Requirements
 
 ### Minimum Requirements
-- CPU: 2 cores
-- RAM: 2 GB
-- Storage: 10 GB
-- OS: Linux, Windows, or macOS
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| CPU | 2 cores | 4+ cores |
+| RAM | 2 GB | 8 GB |
+| Storage | 10 GB | 100 GB+ SSD |
+| Network | 100 Mbps | 1 Gbps |
+| OS | Linux/Windows x64 | Linux x64 |
 
 ### Software Requirements
-- Go 1.24+ (required for building)
-- Node.js 23+ (required for building)
-- SQLite3 (embedded)
+
+- **Go**: 1.24+ (for building from source)
+- **Node.js**: 23+ (for building from source)
+- **Docker**: 20.10+ (for Docker deployment)
+- **Reverse Proxy**: Nginx 1.18+ or HAProxy 2.0+
 
 ---
 
@@ -35,175 +44,114 @@ MaxIOFS is an S3-compatible object storage system currently in **beta developmen
 
 ### Building from Source
 
-**Windows:**
 ```bash
+# Clone repository
 git clone https://github.com/yourusername/maxiofs.git
 cd maxiofs
-build.bat
-```
 
-**Linux/macOS:**
-```bash
-git clone https://github.com/yourusername/maxiofs.git
-cd maxiofs
+# Build
 make build
+
+# Binary location: ./build/maxiofs
 ```
 
 ### Running MaxIOFS
 
-**Basic usage:**
-```bash
-./maxiofs --data-dir ./data --log-level info
-```
+**Production configuration:**
 
-**Custom ports:**
 ```bash
-./maxiofs --data-dir /var/lib/maxiofs --listen :9000 --console-listen :9001
-```
+# Create directories
+sudo mkdir -p /var/lib/maxiofs/data
+sudo mkdir -p /etc/maxiofs/keys
 
-**Available Options:**
-```
---data-dir string       Data directory (REQUIRED)
---listen string         S3 API port (default ":8080")
---console-listen string Console port (default ":8081")
---log-level string      Log level (default "info")
---tls-cert string       TLS certificate (optional)
---tls-key string        TLS private key (optional)
+# Generate encryption key
+sudo openssl rand -hex 32 > /etc/maxiofs/keys/master_key.key
+sudo chmod 400 /etc/maxiofs/keys/master_key.key
+
+# Create config file
+sudo tee /etc/maxiofs/config.yaml > /dev/null <<EOF
+data_dir: /var/lib/maxiofs/data
+listen: 127.0.0.1:8080
+console_listen: 127.0.0.1:8081
+public_url: https://s3.example.com
+console_public_url: https://console.example.com
+log_level: info
+
+encryption:
+  enabled: true
+  master_key: /etc/maxiofs/keys/master_key.key
+
+auth:
+  session_timeout: 28800  # 8 hours
+
+audit:
+  enabled: true
+  retention_days: 180
+EOF
+
+# Run
+sudo ./maxiofs --config /etc/maxiofs/config.yaml
 ```
 
 ### Accessing the Application
 
-- **Web Console**: http://localhost:8081
-- **S3 API**: http://localhost:8080
+- **Web Console**: http://localhost:8081 (or configured console URL)
+- **S3 API**: http://localhost:8080 (or configured S3 URL)
+- **Default credentials**: admin/admin (⚠️ **CHANGE IMMEDIATELY**)
 
 ---
 
 ## Docker Deployment
 
-MaxIOFS includes complete Docker support with multiple deployment profiles:
-- **Basic**: MaxIOFS server only
-- **Monitoring**: Includes Prometheus + Grafana with unified dashboard (14 panels)
-- **Cluster**: 3-node cluster for HA testing
-- **Full Stack**: Cluster + monitoring
+**Complete Docker guide**: See [DOCKER.md](../DOCKER.md)
 
-### Quick Start with Docker Compose
+### Quick Start
 
-**Option 1: Basic deployment (MaxIOFS only)**
 ```bash
-make docker-build    # Build the Docker image
-make docker-up       # Start MaxIOFS
-```
+# Clone repository
+git clone https://github.com/yourusername/maxiofs.git
+cd maxiofs
 
-**Option 2: With monitoring (Prometheus + Grafana)**
-```bash
-make docker-build       # Build the Docker image
-make docker-monitoring  # Start with monitoring stack
-```
+# Build and start
+make docker-build
+make docker-up
 
-**Monitoring Features:**
-- Unified Grafana dashboard (loads as HOME) with 14 panels in 3 sections
-- Real-time metrics with 5-second auto-refresh
-- 14 Prometheus alert rules (performance + SLO violations)
-- Auto-provisioned datasources and dashboards
+# With monitoring (Prometheus + Grafana)
+make docker-monitoring
 
-**Option 3: 3-Node cluster (HA testing)**
-```bash
-make docker-build    # Build the Docker image
-make docker-cluster  # Start 3-node cluster
-```
-
-**Option 4: Full stack (Cluster + Monitoring)**
-```bash
-make docker-build                # Build the Docker image
-make docker-cluster-monitoring   # Start cluster with monitoring
-```
-
-**Other commands:**
-```bash
-make docker-down     # Stop all services
-make docker-logs     # View logs (Ctrl+C to exit)
-make docker-clean    # Clean up volumes and containers
+# 3-node cluster
+make docker-cluster
 ```
 
 **Access:**
-- **Web Console**: http://localhost:8081 (admin/admin)
-- **S3 API**: http://localhost:8080
-- **Prometheus**: http://localhost:9091 (monitoring profile only)
-- **Grafana**: http://localhost:3000 (admin/admin, monitoring profile only)
-  - **Unified Dashboard** with 14 panels (loads as HOME)
-  - System resources, performance latencies, throughput metrics
-  - Real-time updates every 5 seconds
+- Web Console: http://localhost:8081
+- S3 API: http://localhost:8080
+- Prometheus: http://localhost:9091 (monitoring profile)
+- Grafana: http://localhost:3000 (monitoring profile)
 
-**Cluster nodes (cluster profile):**
-- **Node 1**: http://localhost:8081 (console), :8080 (S3 API)
-- **Node 2**: http://localhost:8083 (console), :8082 (S3 API)
-- **Node 3**: http://localhost:8085 (console), :8084 (S3 API)
-
-**📖 Detailed Documentation:**
-- [DOCKER.md](../DOCKER.md) - Complete Docker deployment guide
-- [docker/README.md](../docker/README.md) - Configuration, troubleshooting, and customization
-
-### Windows PowerShell Scripts
-
-For advanced Docker operations on Windows, use the PowerShell script targets:
-
-```powershell
-make docker-build-ps        # Build with docker-build.ps1
-make docker-run-ps          # Build and start
-make docker-up-ps           # Start existing containers
-make docker-down-ps         # Stop containers
-make docker-monitoring-ps   # Start with monitoring
-make docker-clean-ps        # Clean with PowerShell script
-```
-
-### Manual Docker Commands
-
-**Pull and run:**
-```bash
-docker run -d \
-  --name maxiofs \
-  -p 8080:8080 \
-  -p 8081:8081 \
-  -v $(pwd)/data:/data \
-  maxiofs:latest
-```
-
-### Docker Compose File
-
-The project includes a complete `docker-compose.yaml` with:
-- Multi-stage build (Node.js + Go + Alpine)
-- Optional monitoring profile (Prometheus + Grafana)
-- **Pre-configured Grafana dashboards** for MaxIOFS monitoring
-  - Dashboard automatically provisioned on startup
-  - Located in `docker/grafana/dashboards/maxiofs.json`
-  - Includes panels for: API requests, storage usage, error rates, latency percentiles
-- Volume persistence for data
-
-**Basic deployment:**
-```bash
-docker-compose up -d
-```
-
-**With monitoring:**
-```bash
-docker-compose --profile monitoring up -d
-```
-
-**Stop:**
-```bash
-docker-compose down
-```
-
-### Environment Variables
-
-Available in docker-compose.yaml:
+### Docker Compose Example
 
 ```yaml
-environment:
-  - MAXIOFS_DATA_DIR=/data
-  - MAXIOFS_LOG_LEVEL=info
-  - MAXIOFS_LISTEN=:8080
-  - MAXIOFS_CONSOLE_LISTEN=:8081
+version: '3.8'
+
+services:
+  maxiofs:
+    image: maxiofs:latest
+    container_name: maxiofs
+    restart: unless-stopped
+    environment:
+      MAXIOFS_DATA_DIR: /data
+      MAXIOFS_LISTEN: :8080
+      MAXIOFS_CONSOLE_LISTEN: :8081
+      MAXIOFS_PUBLIC_URL: https://s3.example.com
+      MAXIOFS_CONSOLE_PUBLIC_URL: https://console.example.com
+      MAXIOFS_LOG_LEVEL: info
+    volumes:
+      - ./data:/data
+      - ./keys:/keys:ro
+    ports:
+      - "8080:8080"
+      - "8081:8081"
 ```
 
 ---
@@ -212,38 +160,25 @@ environment:
 
 ### Installation
 
-**1. Create directories:**
 ```bash
-sudo mkdir -p /opt/maxiofs
-sudo mkdir -p /var/lib/maxiofs
-```
-
-**2. Install binary:**
-```bash
-sudo cp maxiofs /opt/maxiofs/
-```
-
-**3. Create system user:**
-```bash
+# Create user
 sudo useradd -r -s /bin/false maxiofs
+
+# Set permissions
 sudo chown -R maxiofs:maxiofs /var/lib/maxiofs
-```
+sudo chown -R maxiofs:maxiofs /etc/maxiofs
 
-**4. Create service file:**
-
-Create `/etc/systemd/system/maxiofs.service`:
-
-```ini
+# Create systemd service
+sudo tee /etc/systemd/system/maxiofs.service > /dev/null <<EOF
 [Unit]
-Description=MaxIOFS Object Storage
+Description=MaxIOFS S3-Compatible Object Storage
 After=network.target
 
 [Service]
 Type=simple
 User=maxiofs
 Group=maxiofs
-WorkingDirectory=/opt/maxiofs
-ExecStart=/opt/maxiofs/maxiofs --data-dir /var/lib/maxiofs --log-level info
+ExecStart=/usr/local/bin/maxiofs --config /etc/maxiofs/config.yaml
 Restart=on-failure
 RestartSec=5s
 
@@ -254,422 +189,196 @@ ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/maxiofs
 
+# Limits
+LimitNOFILE=65536
+
 [Install]
 WantedBy=multi-user.target
-```
+EOF
 
-**5. Enable and start:**
-```bash
+# Reload and enable
 sudo systemctl daemon-reload
 sudo systemctl enable maxiofs
 sudo systemctl start maxiofs
-sudo systemctl status maxiofs
 ```
 
 ### Managing the Service
 
 ```bash
-# Start
-sudo systemctl start maxiofs
+# Status
+sudo systemctl status maxiofs
 
-# Stop
-sudo systemctl stop maxiofs
+# Logs
+sudo journalctl -u maxiofs -f
 
 # Restart
 sudo systemctl restart maxiofs
 
-# View logs
-sudo journalctl -u maxiofs -f
+# Stop
+sudo systemctl stop maxiofs
 ```
 
 ---
 
 ## Reverse Proxy with Nginx
 
-For HTTPS and additional security, use Nginx as a reverse proxy.
+**Recommended for production** - provides HTTPS, load balancing, and caching.
 
-### Installation
-
-```bash
-# Ubuntu/Debian
-sudo apt install nginx
-
-# CentOS/RHEL
-sudo yum install nginx
-```
-
-### Configuration
-
-Create `/etc/nginx/sites-available/maxiofs`:
+### Nginx Configuration
 
 ```nginx
+# /etc/nginx/sites-available/maxiofs
+
 # S3 API
 server {
     listen 80;
-    server_name s3.yourdomain.com;
+    server_name s3.example.com;
 
+    # Redirect to HTTPS
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name s3.example.com;
+
+    # TLS certificates
+    ssl_certificate /etc/letsencrypt/live/s3.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/s3.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    # Proxy to MaxIOFS S3 API
     location / {
-        proxy_pass http://localhost:8080;
+        proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # Large file support
-        client_max_body_size 0;
+        # Large file uploads
+        client_max_body_size 5G;
         proxy_request_buffering off;
-        proxy_connect_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_read_timeout 300s;
     }
 }
 
 # Web Console
 server {
     listen 80;
-    server_name console.yourdomain.com;
+    server_name console.example.com;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name console.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/console.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/console.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
 
     location / {
-        proxy_pass http://localhost:8081;
+        proxy_pass http://127.0.0.1:8081;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
 
-**Enable configuration:**
+### Enable Configuration
+
 ```bash
+# Enable site
 sudo ln -s /etc/nginx/sites-available/maxiofs /etc/nginx/sites-enabled/
+
+# Test configuration
 sudo nginx -t
+
+# Reload Nginx
 sudo systemctl reload nginx
 ```
 
-### Adding HTTPS with Let's Encrypt
+### HTTPS with Let's Encrypt
 
 ```bash
-# Install certbot
+# Install Certbot
 sudo apt install certbot python3-certbot-nginx
 
 # Obtain certificates
-sudo certbot --nginx -d s3.yourdomain.com -d console.yourdomain.com
-```
+sudo certbot --nginx -d s3.example.com -d console.example.com
 
-Certbot will automatically configure HTTPS.
+# Auto-renewal (cron job created automatically)
+sudo certbot renew --dry-run
+```
 
 ---
 
-## Multi-Node Cluster Deployment (v0.6.0-beta)
+## Multi-Node Cluster Deployment
 
-MaxIOFS supports multi-node clustering for high availability and horizontal scaling. This section covers deploying a production cluster.
+**Complete cluster guide**: See [CLUSTER.md](CLUSTER.md)
 
-### Cluster Architecture
+### Quick Cluster Setup
 
-```
-                 ┌──────────────────┐
-                 │  Load Balancer   │
-                 │  (HAProxy/Nginx) │
-                 └────────┬─────────┘
-                          │
-        ┌─────────────────┼─────────────────┐
-        │                 │                 │
-        ▼                 ▼                 ▼
-    Node 1            Node 2            Node 3
-  10.0.1.10         10.0.1.20         10.0.1.30
-  (Primary)         (Secondary)       (Secondary)
-```
+**Prerequisites:**
+- 2+ servers with network connectivity
+- Same MaxIOFS version on all nodes
+- Load balancer (HAProxy/Nginx)
 
-### Prerequisites
+**Steps:**
 
-- 3+ Linux servers (recommended)
-- Network connectivity between all nodes
-- Load balancer (HAProxy or Nginx)
-- Synchronized system time (NTP)
+1. **Deploy MaxIOFS on all nodes** (see Standalone/Docker deployment above)
 
-### Step 1: Deploy MaxIOFS on All Nodes
+2. **Initialize cluster on Node 1:**
+   ```bash
+   # Via Web Console: Cluster page → Initialize Cluster
+   # Node Name: node-1
+   # Region: us-east-1
+   # Copy the generated cluster token
+   ```
 
-On each node, install MaxIOFS using systemd:
+3. **Join Node 2 to cluster:**
+   ```bash
+   # Via Web Console: Cluster page → Add Node
+   # Node Name: node-2
+   # Endpoint: http://node1:8080
+   # Node Token: <paste token from step 2>
+   ```
 
-```bash
-# Node 1 (10.0.1.10)
-sudo mkdir -p /opt/maxiofs /var/lib/maxiofs
-sudo cp maxiofs /opt/maxiofs/
-sudo useradd -r -s /bin/false maxiofs
-sudo chown -R maxiofs:maxiofs /var/lib/maxiofs
+4. **Configure load balancer** (HAProxy example):
+   ```haproxy
+   frontend s3_frontend
+       bind *:8080
+       default_backend s3_backend
 
-# Create systemd service
-sudo cat > /etc/systemd/system/maxiofs.service <<EOF
-[Unit]
-Description=MaxIOFS Object Storage - Node 1
-After=network.target
+   backend s3_backend
+       balance roundrobin
+       option httpchk GET /health
+       server node1 10.0.1.10:8080 check
+       server node2 10.0.1.20:8080 check
+   ```
 
-[Service]
-Type=simple
-User=maxiofs
-Group=maxiofs
-WorkingDirectory=/opt/maxiofs
-ExecStart=/opt/maxiofs/maxiofs --data-dir /var/lib/maxiofs --log-level info
-Restart=on-failure
-RestartSec=5s
+5. **Configure replication** (optional for HA):
+   ```bash
+   # Via Web Console: Cluster → Bucket Replication
+   # Select bucket → Configure Replication
+   # Destination: node-2
+   # Sync interval: 60 seconds
+   ```
 
-[Install]
-WantedBy=multi-user.target
-EOF
+6. **Verify cluster health:**
+   ```bash
+   # Check cluster status on Web Console
+   # All nodes should show as "Healthy"
+   ```
 
-sudo systemctl daemon-reload
-sudo systemctl enable maxiofs
-sudo systemctl start maxiofs
-```
-
-Repeat for Node 2 (10.0.1.20) and Node 3 (10.0.1.30).
-
-### Step 2: Initialize Cluster on Primary Node
-
-On Node 1 (primary), initialize the cluster:
-
-```bash
-# Login to web console at http://10.0.1.10:8081
-# Navigate to Cluster → Initialize Cluster
-
-curl -X POST http://10.0.1.10:8081/api/cluster/initialize \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "node_name": "node-east-1",
-    "s3_endpoint": "http://10.0.1.10:8080",
-    "console_endpoint": "http://10.0.1.10:8081",
-    "region": "us-east-1",
-    "datacenter": "dc-east"
-  }'
-```
-
-**Save the response** - it contains the `cluster_id` and `node_token` (needed for authentication).
-
-### Step 3: Join Secondary Nodes to Cluster
-
-On Node 1, add Node 2 and Node 3:
-
-```bash
-# Add Node 2
-curl -X POST http://10.0.1.10:8081/api/cluster/nodes \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "node_name": "node-east-2",
-    "s3_endpoint": "http://10.0.1.20:8080",
-    "console_endpoint": "http://10.0.1.20:8081",
-    "region": "us-east-1",
-    "datacenter": "dc-east"
-  }'
-
-# Add Node 3
-curl -X POST http://10.0.1.10:8081/api/cluster/nodes \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "node_name": "node-east-3",
-    "s3_endpoint": "http://10.0.1.30:8080",
-    "console_endpoint": "http://10.0.1.30:8081",
-    "region": "us-east-1",
-    "datacenter": "dc-east"
-  }'
-```
-
-### Step 4: Configure Load Balancer
-
-**Option A: HAProxy Configuration**
-
-Create `/etc/haproxy/haproxy.cfg`:
-
-```haproxy
-global
-    log /dev/log local0
-    maxconn 4096
-
-defaults
-    log global
-    mode http
-    option httplog
-    option dontlognull
-    timeout connect 10s
-    timeout client 300s
-    timeout server 300s
-
-# S3 API Load Balancer
-frontend s3_frontend
-    bind *:8080
-    default_backend s3_backend
-
-backend s3_backend
-    mode http
-    balance roundrobin
-    option httpchk GET /health
-    http-check expect status 200
-    server node1 10.0.1.10:8080 check inter 10s fall 3 rise 2
-    server node2 10.0.1.20:8080 check inter 10s fall 3 rise 2
-    server node3 10.0.1.30:8080 check inter 10s fall 3 rise 2
-
-# Web Console Load Balancer
-frontend console_frontend
-    bind *:8081
-    default_backend console_backend
-
-backend console_backend
-    mode http
-    balance roundrobin
-    option httpchk GET /health
-    http-check expect status 200
-    server node1 10.0.1.10:8081 check inter 10s fall 3 rise 2
-    server node2 10.0.1.20:8081 check inter 10s fall 3 rise 2
-    server node3 10.0.1.30:8081 check inter 10s fall 3 rise 2
-```
-
-Start HAProxy:
-```bash
-sudo systemctl enable haproxy
-sudo systemctl start haproxy
-sudo systemctl status haproxy
-```
-
-**Option B: Nginx Load Balancer**
-
-Create `/etc/nginx/nginx.conf`:
-
-```nginx
-http {
-    upstream s3_backend {
-        least_conn;
-        server 10.0.1.10:8080 max_fails=3 fail_timeout=30s;
-        server 10.0.1.20:8080 max_fails=3 fail_timeout=30s;
-        server 10.0.1.30:8080 max_fails=3 fail_timeout=30s;
-    }
-
-    upstream console_backend {
-        least_conn;
-        server 10.0.1.10:8081 max_fails=3 fail_timeout=30s;
-        server 10.0.1.20:8081 max_fails=3 fail_timeout=30s;
-        server 10.0.1.30:8081 max_fails=3 fail_timeout=30s;
-    }
-
-    # S3 API
-    server {
-        listen 8080;
-        location / {
-            proxy_pass http://s3_backend;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            client_max_body_size 0;
-            proxy_request_buffering off;
-        }
-    }
-
-    # Web Console
-    server {
-        listen 8081;
-        location / {
-            proxy_pass http://console_backend;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-        }
-    }
-}
-```
-
-### Step 5: Configure Cluster Replication
-
-Set up automatic bucket replication for high availability:
-
-```bash
-# Navigate to Cluster → Replication in web console
-# Or use API:
-
-curl -X POST http://load-balancer:8081/api/cluster/replication/rules \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "source_bucket": "backups",
-    "destination_node_id": "node-i9j0k1l2",
-    "sync_interval_seconds": 30,
-    "enabled": true,
-    "replicate_deletes": true
-  }'
-```
-
-**Recommended sync intervals:**
-- Real-time HA: 10-30 seconds
-- Near real-time: 60-300 seconds (1-5 minutes)
-- Periodic backup: 3600+ seconds (1+ hours)
-
-### Step 6: Verify Cluster Health
-
-```bash
-# Check cluster status
-curl http://load-balancer:8081/api/cluster/status \
-  -H "Authorization: Bearer $TOKEN"
-
-# Check individual node health
-curl http://load-balancer:8081/api/cluster/health/summary \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### Production Cluster Recommendations
-
-1. **Use odd number of nodes** (3, 5, 7) for better fault tolerance
-2. **Deploy across multiple availability zones** for geographic redundancy
-3. **Use dedicated load balancer** (not running on cluster nodes)
-4. **Enable HTTPS** on load balancer with valid certificates
-5. **Configure monitoring** (Prometheus + Grafana)
-6. **Set up automated backups** of cluster database (cluster.db)
-7. **Use consistent time synchronization** (NTP) across all nodes
-8. **Monitor replication lag** to ensure data consistency
-
-### Cluster Maintenance
-
-**Adding a new node:**
-```bash
-curl -X POST http://load-balancer:8081/api/cluster/nodes \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"node_name": "node-4", ...}'
-```
-
-**Removing a node:**
-```bash
-curl -X DELETE http://load-balancer:8081/api/cluster/nodes/{node-id} \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-**Update load balancer** configuration after adding/removing nodes.
-
-### Cluster Troubleshooting
-
-**Node appears unhealthy:**
-```bash
-# Check node health manually
-curl -X POST http://load-balancer:8081/api/cluster/nodes/{node-id}/health \
-  -H "Authorization: Bearer $TOKEN"
-
-# Check health history
-curl http://load-balancer:8081/api/cluster/health/history \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-**Replication not working:**
-```bash
-# Check replication rules
-curl http://load-balancer:8081/api/cluster/replication/rules \
-  -H "Authorization: Bearer $TOKEN"
-
-# Manually trigger sync
-curl -X POST http://load-balancer:8081/api/cluster/replication/sync \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-**Clear bucket location cache** if routing issues occur:
-```bash
-curl -X DELETE http://load-balancer:8081/api/cluster/cache \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-> **See [CLUSTER.md](CLUSTER.md) for complete cluster documentation**
+**Production recommendations:**
+- Use 3+ nodes for fault tolerance
+- Configure bucket replication for critical data
+- Monitor cluster health (Prometheus/Grafana)
+- Use dedicated network for cluster communication
+- Enable TLS for inter-node communication
 
 ---
 
@@ -677,119 +386,215 @@ curl -X DELETE http://load-balancer:8081/api/cluster/cache \
 
 ### Service Won't Start
 
+**Check logs:**
 ```bash
-# Check logs
+# Systemd
 sudo journalctl -u maxiofs -n 50
 
-# Check ports
-sudo netstat -tlnp | grep -E '8080|8081'
+# Docker
+docker logs maxiofs
 
-# Check permissions
-ls -la /var/lib/maxiofs
+# Standalone
+./maxiofs --log-level debug
 ```
+
+**Common issues:**
+- Port already in use (check with `netstat -tlnp | grep 8080`)
+- Permission denied (check file permissions on data directory)
+- Invalid config file (verify YAML syntax)
 
 ### Cannot Access Web Console
 
+**Verify service is running:**
 ```bash
-# Verify service is running
-sudo systemctl status maxiofs
+# Check process
+ps aux | grep maxiofs
 
-# Check firewall
-sudo ufw status
-sudo ufw allow 8080
-sudo ufw allow 8081
+# Test endpoint
+curl http://localhost:8081/health
+```
+
+**Firewall check:**
+```bash
+# Allow ports
+sudo ufw allow 8080/tcp
+sudo ufw allow 8081/tcp
 ```
 
 ### Docker Container Issues
 
 ```bash
-# Check logs
+# Check container status
+docker ps -a
+
+# View logs
 docker logs maxiofs
 
-# Check status
-docker ps -a | grep maxiofs
-
-# Restart
+# Restart container
 docker restart maxiofs
+
+# Rebuild
+docker-compose down
+docker-compose up -d --build
 ```
 
 ### Login Issues
 
+**Reset admin password:**
 ```bash
-# Default credentials
-# Console: admin/admin (change password after first login)
-# S3 API: Create access keys via web console
-
-# To reset admin password (WARNING: deletes auth database)
+# Stop MaxIOFS
 sudo systemctl stop maxiofs
-sudo rm -f /var/lib/maxiofs/auth/auth.db
-sudo systemctl start maxiofs
-# Admin user will be recreated with default password
+
+# Reset via database (requires manual intervention)
+# Or create new admin user via database
 ```
+
+**Check credentials:**
+- Default: admin/admin
+- Verify in Web Console user management
 
 ---
 
 ## Security Recommendations
 
-1. **Change default credentials** immediately
-2. **Enable 2FA** for admin accounts
-3. **Use HTTPS** via reverse proxy
-4. **Configure firewall** rules
-5. **Secure data directory** permissions (750 or 700)
-6. **Regular backups** of data directory
-7. **Don't expose directly** to internet
-8. **Monitor with Prometheus/Grafana** (use monitoring profile)
+### Essential Security Measures
 
-### Basic Backup Script
+1. **Change default credentials** immediately
+2. **Use HTTPS** in production (Let's Encrypt or commercial certificate)
+3. **Configure firewall rules** to restrict access
+4. **Run as non-root user** (systemd configuration above includes this)
+5. **Enable server-side encryption** for data at rest
+6. **Configure rate limiting** to prevent brute force attacks
+7. **Enable audit logging** for compliance
+8. **Regular backups** of data and configuration
+9. **Monitor logs** for suspicious activity
+10. **Keep software updated** with security patches
+
+**See [SECURITY.md](SECURITY.md) for complete security guide**
+
+### Basic Backup Strategy
 
 ```bash
 #!/bin/bash
+# /usr/local/bin/maxiofs-backup.sh
+
 BACKUP_DIR="/backup/maxiofs"
-DATA_DIR="/var/lib/maxiofs"
+DATA_DIR="/var/lib/maxiofs/data"
 DATE=$(date +%Y%m%d_%H%M%S)
 
-mkdir -p $BACKUP_DIR
-tar -czf $BACKUP_DIR/maxiofs_$DATE.tar.gz -C $DATA_DIR .
+# Stop service (optional, for consistency)
+sudo systemctl stop maxiofs
 
-# Keep last 7 backups
-ls -t $BACKUP_DIR/maxiofs_*.tar.gz | tail -n +8 | xargs rm -f
+# Backup data
+sudo tar -czf "$BACKUP_DIR/maxiofs-data-$DATE.tar.gz" "$DATA_DIR"
+
+# Backup encryption key
+sudo tar -czf "$BACKUP_DIR/maxiofs-keys-$DATE.tar.gz" /etc/maxiofs/keys
+
+# Start service
+sudo systemctl start maxiofs
+
+# Retention (keep last 7 days)
+find "$BACKUP_DIR" -name "maxiofs-*.tar.gz" -mtime +7 -delete
 ```
+
+**Schedule backup:**
+```bash
+# Cron job (daily at 2 AM)
+0 2 * * * /usr/local/bin/maxiofs-backup.sh
+```
+
+---
+
+## Performance Tuning
+
+### File Descriptor Limits
+
+```bash
+# Increase system limits
+sudo tee -a /etc/security/limits.conf > /dev/null <<EOF
+maxiofs soft nofile 65536
+maxiofs hard nofile 65536
+EOF
+
+# For systemd service (already included in service file above)
+LimitNOFILE=65536
+```
+
+### Nginx Tuning
+
+```nginx
+# Worker processes
+worker_processes auto;
+
+# Worker connections
+events {
+    worker_connections 4096;
+}
+
+# Client body buffer
+client_body_buffer_size 128k;
+client_max_body_size 5G;
+
+# Timeouts
+keepalive_timeout 65;
+send_timeout 300;
+```
+
+---
+
+## Monitoring
+
+**Prometheus metrics available at**: `http://localhost:8081/api/metrics`
+
+**Grafana dashboard**: Pre-configured dashboard included in Docker monitoring stack
+
+```bash
+# Start with monitoring
+make docker-monitoring
+
+# Access Grafana: http://localhost:3000 (admin/admin)
+```
+
+**Key metrics:**
+- Request latency (p50, p95, p99)
+- Throughput (requests/second)
+- Storage usage
+- Cluster health
+- Replication lag
+
+**See [PERFORMANCE.md](PERFORMANCE.md) for benchmarks and tuning**
 
 ---
 
 ## Beta Software Notice
 
-**MaxIOFS is currently in beta development.**
+**Current Status**: Beta phase (v0.6.0-beta)
 
-**This means:**
-- ✅ Core S3 functionality validated
-- ✅ Production bug fixes implemented
-- ✅ Cross-platform support (Windows, Linux x64/ARM64, macOS)
-- ✅ Debian packaging available
-- ⚠️ Suitable for staging and testing environments
-- ⚠️ Production use requires extensive testing
-- ⚠️ Limited testing at high scale (100+ concurrent users)
-- ⚠️ No official SLA or support guarantees
+**Suitable for:**
+- Development environments
+- Testing and staging
+- Internal deployments with extensive monitoring
 
-**Current Limitations:**
-- Filesystem backend only (cloud storage backends planned)
-- SQLite database (not optimized for extreme concurrency)
+**NOT recommended for:**
+- Mission-critical production without thorough testing
+- Environments requiring certified security audits
+- High-compliance regulated industries (without additional validation)
 
-**Recommended Use Cases:**
-- Development and testing
-- Staging environments
-- Internal file storage
-- Backup storage (with external redundancy)
-- Learning S3 APIs
-
-**Not Recommended For:**
-- Mission-critical production workloads (without thorough testing)
-- High-availability requirements
-- Extreme high-concurrency scenarios (1000+ concurrent users)
-
-**Always maintain backups** and test thoroughly in your environment before production use.
+**Before production deployment:**
+1. Conduct thorough testing in staging environment
+2. Validate backup and restore procedures
+3. Perform security assessment
+4. Monitor closely for first 30 days
+5. Have rollback plan ready
 
 ---
 
 **Version**: 0.6.0-beta
-**Last Updated**: December 9, 2025
+**Last Updated**: December 13, 2025
+
+For additional deployment information, see:
+- [DOCKER.md](../DOCKER.md) - Complete Docker deployment guide
+- [CLUSTER.md](CLUSTER.md) - Multi-node cluster setup
+- [SECURITY.md](SECURITY.md) - Security best practices
+- [CONFIGURATION.md](CONFIGURATION.md) - Configuration reference
