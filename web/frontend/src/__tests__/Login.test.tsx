@@ -43,8 +43,9 @@ describe('Login Page', () => {
     it('should render MaxIOFS branding', () => {
       render(<LoginPage />);
 
-      // Check for logo or brand name
-      expect(screen.getByText(/MaxIOFS/i)).toBeInTheDocument();
+      // Check for logo or brand name (multiple instances may exist)
+      const brandingElements = screen.getAllByText(/MaxIOFS/i);
+      expect(brandingElements.length).toBeGreaterThan(0);
     });
   });
 
