@@ -90,7 +90,7 @@ make docker-cluster
 
 ### Build from Source
 
-**Prerequisites:** Go 1.24+, Node.js 23+
+**Prerequisites:** Go 1.25+, Node.js 24+
 
 ```bash
 # Build

@@ -96,7 +96,7 @@ export default function ClusterOverview() {
 
         {/* Initialize Dialog */}
         {showInitDialog && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-opacity-70 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
             <Card className="w-full max-w-md p-6">
               <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Initialize Cluster</h2>
               <form onSubmit={(e) => {

@@ -21,7 +21,7 @@ COPY web/frontend/ ./
 RUN npm run build
 
 # Stage 2: Build Go application
-FROM golang:1.24-alpine AS go-builder
+FROM golang:1.25-alpine AS go-builder
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata

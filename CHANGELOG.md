@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed - Frontend Dependencies Upgrade (2025-12-22)
+
+#### Major Frontend Updates
+- **Tailwind CSS v3 → v4 Migration** - Complete upgrade to Tailwind CSS v4.1.18
+  - Updated `tailwindcss` from 3.4.19 to 4.1.18 with new Oxide engine (10x faster)
+  - Installed new required packages: `@tailwindcss/postcss` and `@tailwindcss/vite`
+  - Migrated CSS imports from `@tailwind` directives to modern `@import "tailwindcss"` syntax
+  - Added `@config` directive for custom configuration loading
+  - Updated PostCSS configuration to use `@tailwindcss/postcss` plugin
+  - Updated opacity syntax from `bg-opacity-*` to modern slash notation (`bg-black/50`)
+  - All 64 frontend tests passing, build successful (13-16s)
+  - Zero breaking changes required in `tailwind.config.js` - 100% compatible
+
+- **Vitest v3 → v4 Migration** - Complete upgrade to Vitest v4.0.16
+  - Updated `vitest` from 3.2.4 to 4.0.16 (MAJOR version)
+  - Updated `@vitest/ui` from 3.2.4 to 4.0.16 (MAJOR version)
+  - Added `@vitest/coverage-v8` v4.0.16 for coverage reporting
+  - Test performance improved: 21.74s → 9.00s (59% faster)
+  - All 64 tests passing with 100% success rate
+  - Zero configuration changes required - `vitest.config.ts` fully compatible
+
+- **Icon Library Update**
+  - Updated `lucide-react` from 0.553.0 to 0.562.0 (9 new icons available)
+
+- **Build Tools Update**
+  - Updated `autoprefixer` from 10.4.21 to 10.4.23
+
+### Fixed - Documentation and UI Corrections (2025-12-22)
+
+#### Documentation Accuracy Fixes
+- **Corrected Framework References** - Fixed incorrect "Next.js" references to "React"
+  - `README.md`: Updated description from "embedded Next.js web interface" to "embedded React web interface"
+  - `CHANGELOG.md`: Updated v0.2.0 initial release description
+  - `cmd/maxiofs/main.go`: Updated CLI help text description
+  - `debian/control`: Updated package description
+  - `web/frontend/src/pages/about/index.tsx`: Updated feature card description
+  - `web/frontend/src/locales/en/translation.json`: Updated "Single Binary" feature description
+  - `web/frontend/src/locales/es/translation.json`: Updated "Binario Único" feature description (Spanish)
+  - **Justification**: Frontend uses React 19 + Vite + TypeScript, not Next.js
+
+#### Configuration File Corrections
+- **Fixed `.env.example`** - Removed incorrect Next.js environment variables
+  - Removed obsolete `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_S3_URL` variables
+  - Added explanation that React frontend uses dynamic runtime URL detection
+  - Updated production setup example to remove frontend-specific .env.local references
+  - **Justification**: Frontend uses `window.BASE_PATH` and `window.location` for dynamic URLs, not environment variables
+
+#### UI Bug Fixes - Tailwind v4 Compatibility
+- **Fixed Modal Backdrop Opacity** - Corrected semitransparent overlay rendering
+  - `components/ui/Modal.tsx`: Updated backdrop from `bg-black bg-opacity-50 dark:bg-opacity-70` to `bg-black/50 dark:bg-black/70`
+  - `pages/cluster/BucketReplication.tsx`: Fixed modal backdrop opacity syntax (1 occurrence)
+  - `pages/cluster/index.tsx`: Fixed modal backdrop opacity syntax (3 occurrences)
+  - `pages/cluster/Overview.tsx`: Fixed modal backdrop opacity syntax (1 occurrence)
+  - `pages/cluster/Nodes.tsx`: Fixed modal backdrop opacity syntax (3 occurrences)
+  - **Total**: 9 modal backdrops corrected across 5 files
+  - **Issue**: Tailwind v4 changed opacity syntax - old `bg-opacity-*` classes rendered solid black instead of semitransparent
+  - **Solution**: Modern slash notation (`bg-black/50`) for proper opacity rendering
+
+### Removed - Code Cleanup (2025-12-22)
+
+#### Legacy Code Removal
+- **Removed `internal/server/nextjs.go`** - Deleted unused Next.js server code (118 lines)
+  - File contained legacy Next.js standalone server initialization code
+  - No references found in codebase - confirmed unused via grep analysis
+  - **Justification**: Frontend uses Vite dev server and static builds, not Next.js standalone server
+
 ### Added - S3 API Test Suite Expansion (Sprint 4 - Complete)
 
 #### S3 Compatibility Test Coverage Enhancement
