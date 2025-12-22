@@ -206,7 +206,7 @@ export default function AboutPage() {
             <FeatureCard
               icon={Package}
               title="Single Binary"
-              description="Packaged as a single executable with embedded Next.js frontend, no external dependencies, and easy deployment"
+              description="Packaged as a single executable with embedded React frontend, no external dependencies, and easy deployment"
             />
             <FeatureCard
               icon={Code}

@@ -1043,7 +1043,7 @@ Established on Linux production environment (Debian, 80 cores, 125GB RAM, SSD):
 
 ### Initial Release
 - Basic S3-compatible API
-- Web Console with Next.js frontend
+- Web Console with React frontend
 - SQLite for metadata storage
 - Filesystem storage backend
 - Multi-tenancy foundation

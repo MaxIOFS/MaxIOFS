@@ -25,7 +25,7 @@ func main() {
 		Use:   "maxiofs",
 		Short: "MaxIOFS - High-Performance S3-Compatible Object Storage",
 		Long: `MaxIOFS is a high-performance, S3-compatible object storage system
-built in Go with an embedded Next.js web interface.`,
+built in Go with an embedded React web interface.`,
 		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
 		RunE:    runServer,
 	}

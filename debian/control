@@ -16,7 +16,7 @@ Recommends: nginx, logrotate
 Suggests: certbot
 Description: High-Performance S3-Compatible Object Storage
  MaxIOFS is a high-performance, S3-compatible object storage system
- built in Go with an embedded Next.js web interface.
+ built in Go with an embedded React web interface.
  .
  This package includes complete offline documentation in /usr/share/doc/maxiofs/
  including quick start guides, configuration reference, security best practices,

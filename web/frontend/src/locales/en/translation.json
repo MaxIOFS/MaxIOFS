@@ -434,7 +434,7 @@
     "featurePerformance": "High Performance",
     "featurePerformanceDesc": "BadgerDB v4 metadata store with transaction retry logic, metadata-first deletion, and stress-tested with 7000+ objects using MinIO Warp",
     "featureSingleBinary": "Single Binary",
-    "featureSingleBinaryDesc": "Packaged as a single executable with embedded Next.js frontend, no external dependencies, and easy deployment",
+    "featureSingleBinaryDesc": "Packaged as a single executable with embedded React frontend, no external dependencies, and easy deployment",
     "featureModernUI": "Modern UI",
     "featureModernUIDesc": "React 19 + TypeScript interface with dark mode support, real-time metrics, responsive design, and comprehensive management features",
     "featureAdvancedS3": "Advanced S3 Features",

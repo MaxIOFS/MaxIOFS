@@ -5,7 +5,7 @@
 **License**: MIT
 **Website**: [maxiofs.com](https://maxiofs.com)
 
-MaxIOFS is a high-performance, S3-compatible object storage system built in Go with an embedded Next.js web interface. Designed to be simple, portable, and deployable as a single binary.
+MaxIOFS is a high-performance, S3-compatible object storage system built in Go with an embedded React web interface. Designed to be simple, portable, and deployable as a single binary.
 
 ## 🎉 Project Status
 

@@ -434,7 +434,7 @@
     "featurePerformance": "Alto Rendimiento",
     "featurePerformanceDesc": "Almacenamiento de metadatos BadgerDB v4 con lógica de reintentos de transacciones, eliminación metadata-first, y probado bajo estrés con más de 7000 objetos usando MinIO Warp",
     "featureSingleBinary": "Binario Único",
-    "featureSingleBinaryDesc": "Empaquetado como un ejecutable único con frontend Next.js embebido, sin dependencias externas y despliegue fácil",
+    "featureSingleBinaryDesc": "Empaquetado como un ejecutable único con frontend React embebido, sin dependencias externas y despliegue fácil",
     "featureModernUI": "Interfaz Moderna",
     "featureModernUIDesc": "Interfaz React 19 + TypeScript con soporte para modo oscuro, métricas en tiempo real, diseño responsive y características completas de gestión",
     "featureAdvancedS3": "Características Avanzadas de S3",
