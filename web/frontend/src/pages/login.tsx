@@ -24,7 +24,7 @@ export default function LoginPage() {
 
   // Get base path from window (injected by backend)
   const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
-  const version = config?.version || '0.6.0-beta';
+  const version = config?.version || '0.6.1-beta';
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

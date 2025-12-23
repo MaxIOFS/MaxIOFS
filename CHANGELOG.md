@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1-beta] - 2025-12-23
+
+### Changed - Build Requirements Update
+- **Updated Node.js requirement** from 23+ to **24+**
+  - Updated `README.md` prerequisites section
+  - Updated `web/frontend/package.json` engines field to `"node": ">=24.0.0"`
+  - Updated `Dockerfile` frontend stage to use `node:24-alpine`
+  - Updated `debian/control` build dependencies to `nodejs (>= 24)`
+  - Updated `.github/workflows/main.yml` to use Node.js 24
+  - **Justification**: Compatibility with latest npm packages and security updates
+
+- **Updated Go requirement** from 1.24+ to **1.25+**
+  - Updated `README.md` prerequisites section
+  - Updated `Dockerfile` Go builder stage to use `golang:1.25-alpine`
+  - Updated `debian/control` build dependencies to `golang-go (>= 1.25)`
+  - Current Go version: 1.25.4
+  - **Justification**: Leveraging latest Go performance improvements and security patches
+
 ### Changed - Frontend Dependencies Upgrade (2025-12-22)
 
 #### Major Frontend Updates

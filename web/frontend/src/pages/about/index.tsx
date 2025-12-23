@@ -19,7 +19,10 @@ import {
   Send,
   FileJson,
   RefreshCw,
-  Layers
+  Layers,
+  Network,
+  Copy,
+  BarChart3
 } from 'lucide-react';
 
 export default function AboutPage() {
@@ -81,9 +84,9 @@ export default function AboutPage() {
                 <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
                   MaxIOFS is a high-performance S3-compatible object storage system built with Go and React.
                   Designed to be simple, portable, and deployable as a single binary with an embedded modern
-                  web interface. Features full multi-tenancy support, BadgerDB-powered metadata storage, and
-                  comprehensive S3 API compatibility with 40+ operations including bulk operations, object lock,
-                  and advanced bucket management.
+                  web interface. Features full multi-tenancy support, multi-node cluster with HA replication,
+                  BadgerDB-powered metadata storage, and comprehensive S3 API compatibility with 40+ operations
+                  including bulk operations, object lock, and advanced bucket management.
                 </p>
               </div>
 
@@ -130,8 +133,8 @@ export default function AboutPage() {
                 <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
                   Project entirely developed by Aluisco Ricardo. MaxIOFS was born as a solution
                   to provide enterprise-grade S3-compatible object storage in a simple and efficient way,
-                  with complete multi-tenant support, high-performance metadata storage using BadgerDB,
-                  and production-ready security features.
+                  with complete multi-tenant support, multi-node cluster for high availability,
+                  high-performance metadata storage using BadgerDB, and production-ready security features.
                 </p>
               </div>
 
@@ -191,32 +194,42 @@ export default function AboutPage() {
             <FeatureCard
               icon={Shield}
               title="Multi-Tenant"
-              description="Complete tenant isolation with configurable quotas, cascading deletes, deletion validation, and global admin cross-tenant visibility"
+              description="Complete tenant isolation with configurable quotas, cascading deletes, and global admin cross-tenant visibility"
             />
             <FeatureCard
               icon={Lock}
               title="Security & Encryption"
-              description="AES-256-CTR encryption at rest, JWT + 2FA authentication, AWS Signature v2/v4, comprehensive audit logging (20+ event types), compliance-ready (GDPR, SOC 2, HIPAA, ISO 27001)"
+              description="AES-256-CTR encryption at rest, 2FA authentication, AWS Signature v2/v4, audit logging (20+ events), compliance-ready (GDPR, SOC 2, HIPAA)"
             />
             <FeatureCard
               icon={Zap}
               title="High Performance"
-              description="BadgerDB v4 metadata store with transaction retry logic, metadata-first deletion, and stress-tested with 7000+ objects using MinIO Warp"
+              description="BadgerDB v4 metadata store with transaction retry logic, stress-tested with 7000+ objects using MinIO Warp"
             />
             <FeatureCard
               icon={Package}
               title="Single Binary"
-              description="Packaged as a single executable with embedded React frontend, no external dependencies, and easy deployment"
+              description="Packaged as a single executable with embedded React frontend, no external dependencies, easy deployment"
             />
             <FeatureCard
               icon={Code}
               title="Modern UI"
-              description="React 19 + TypeScript interface with dark mode support, real-time metrics, responsive design, and comprehensive management features"
+              description="React 19 + TypeScript with dark mode, real-time metrics, responsive design, and comprehensive management features"
             />
             <FeatureCard
               icon={FileJson}
               title="Advanced S3 Features"
-              description="Object Lock (WORM), Bucket Versioning, Bucket Policies (JSON), CORS, Lifecycle rules, Object Tagging, and Object ACLs"
+              description="Object Lock (WORM), Versioning, Bucket Policies (JSON), CORS, Lifecycle rules, Object Tagging, and ACLs"
+            />
+            <FeatureCard
+              icon={Copy}
+              title="Bucket Replication"
+              description="S3-compatible replication to AWS S3, MinIO, or other MaxIOFS instances. Realtime, scheduled, and batch modes with retry logic"
+            />
+            <FeatureCard
+              icon={Network}
+              title="High Availability Cluster"
+              description="Multi-node cluster with intelligent routing, HMAC-authenticated HA replication, health monitoring, and automatic failover"
             />
             <FeatureCard
               icon={RefreshCw}
@@ -226,7 +239,12 @@ export default function AboutPage() {
             <FeatureCard
               icon={Layers}
               title="Dual Storage"
-              description="BadgerDB v4 for high-performance object metadata, SQLite for authentication & audit logs, filesystem for object storage with atomic operations"
+              description="BadgerDB v4 for object metadata, SQLite for authentication/audit/cluster, filesystem for objects with atomic operations"
+            />
+            <FeatureCard
+              icon={BarChart3}
+              title="Monitoring & Observability"
+              description="Prometheus metrics endpoint, Grafana dashboards, performance SLOs, real-time latency tracking (p50/p95/p99), and alerting"
             />
           </div>
         </div>
@@ -247,7 +265,7 @@ export default function AboutPage() {
               <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
-                  Go 1.21+
+                  Go 1.25+
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
@@ -259,7 +277,7 @@ export default function AboutPage() {
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
-                  SQLite (Authentication & Audit Logs)
+                  SQLite (Authentication, Audit & Cluster)
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
@@ -283,23 +301,23 @@ export default function AboutPage() {
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
-                  Vite (Build Tool)
+                  Vite 7 (Build Tool)
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
-                  TailwindCSS 3
+                  TailwindCSS 4 (Oxide Engine)
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
-                  TanStack Query (React Query)
+                  TanStack Query v5 (React Query)
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
-                  React Router v6
+                  React Router v7
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
-                  SweetAlert2 (Notifications)
+                  Vitest 4 (Testing Framework)
                 </li>
               </ul>
             </div>
@@ -311,60 +329,50 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New Features in v0.6.0-beta
+            New Features in v0.6.1-beta
           </h2>
           <div className="space-y-4">
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Multi-Node Cluster Support
+                Build Requirements Update
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Complete cluster infrastructure with intelligent routing and automatic failover. Features include: Cluster Manager
-                with full CRUD operations for nodes, Smart Router with health-aware failover, Bucket Location Cache with 5-minute
-                TTL (5ms vs 50ms latency), Internal Proxy Mode for seamless request routing, Background Health Checker monitoring
-                all nodes every 30 seconds, SQLite persistence for cluster state, and 13 REST API endpoints for cluster management.
-                Includes 27 automated tests (22 cluster management + 5 replication integration tests).
+                Updated Node.js requirement from 23+ to 24+ for latest npm packages and security updates. Updated Go requirement from
+                1.24+ to 1.25+ (current: 1.25.4) for performance improvements and security patches. All build configurations updated
+                including README, package.json, Dockerfile, and debian packages.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Cluster Bucket Replication System
+                Frontend Dependencies Upgrade
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Production-ready HA replication between MaxIOFS nodes. HMAC-SHA256 authentication using node_token (no S3 credentials
-                needed). Automatic tenant synchronization every 30 seconds. Transparent encryption handling (decrypt-on-source,
-                re-encrypt-on-destination). Configurable sync intervals from 10 seconds (real-time HA) to hours/days (backups).
-                Self-replication prevention with validation in frontend and backend. Bulk node-to-node replication for all buckets.
-                Complete separation from user replication system. 5 new database tables and 5 comprehensive integration tests with
-                SimulatedNode infrastructure.
+                Tailwind CSS v3 → v4 Migration with 10x faster Oxide engine (3.4.19 → 4.1.18). Vitest v3 → v4 Migration with 59%
+                faster test execution (21.74s → 9.00s). Updated lucide-react icons and autoprefixer. All 64 frontend tests passing
+                with zero breaking changes. Modern CSS syntax with @import directives and optimized build performance.
               </p>
             </div>
 
             <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Cluster Dashboard UI
+                S3 Test Coverage Expansion
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Complete web console for cluster management accessible to global administrators. Real-time cluster status overview
-                showing total/healthy/degraded/unavailable nodes and bucket statistics. Interactive nodes table with health indicators,
-                latency, storage capacity, bucket count, and priority. Initialize Cluster dialog with automatic token generation.
-                Add/Edit/Remove node operations with complete form validation. Manual health checks and status refresh. Color-coded
-                health badges (green=healthy, yellow=degraded, red=unavailable, gray=unknown). 14 TypeScript interfaces and 13 API
-                client methods fully integrated.
+                Added 42 comprehensive S3 API tests to pkg/s3compat package, improving coverage from 30.9% to 45.7% (+14.8 points, 48%
+                improvement). Tests cover advanced S3 features (multipart uploads, ACLs, Object Lock), AWS chunked encoding (0% → 100%
+                coverage), HeadObject/DeleteObject/PutObject error cases, and complete XML request/response validation.
               </p>
             </div>
 
             <div className="border-l-4 border-red-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Testing and Documentation
+                Server Integration Tests & Improvements
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Backend test suite expanded from 504 to 531 tests with comprehensive cluster replication integration tests. New
-                SimulatedNode infrastructure for testing two-node cluster communication without real servers. Pure Go SQLite driver
-                (modernc.org/sqlite) with no CGO dependencies. All 5 integration tests pass in under 2 seconds. Complete documentation
-                updates across README, CHANGELOG, TODO covering cluster management, replication system architecture, HMAC authentication,
-                and deployment strategies.
+                Added 4 server lifecycle integration tests improving internal/server coverage from 12.7% to 18.3% (+5.6 points, 44%
+                improvement). Docker infrastructure improvements with organized config directories and profiles. Fixed UI bugs with
+                Tailwind v4 opacity syntax. Removed 118 lines of unused Next.js server code. Complete documentation accuracy fixes.
               </p>
             </div>
           </div>

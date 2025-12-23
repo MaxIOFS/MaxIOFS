@@ -1,3 +1,21 @@
+maxiofs (0.6.1-beta) unstable; urgency=medium
+
+  * Maintenance release: Build Requirements Update & Test Coverage Expansion
+  * Updated Node.js requirement from 23+ to 24+ for latest security updates
+  * Updated Go requirement from 1.24+ to 1.25+ for performance improvements
+  * Tailwind CSS v3 → v4 Migration - 10x faster Oxide engine (3.4.19 → 4.1.18)
+  * Vitest v3 → v4 Migration - 59% faster test execution (3.2.4 → 4.0.16)
+  * S3 API Test Suite Expansion - +42 tests added (coverage: 30.9% → 45.7%)
+  * Server Integration Tests - +4 lifecycle tests (coverage: 12.7% → 18.3%)
+  * Docker Infrastructure Improvements - Organized configs with profiles
+  * Documentation Accuracy Fixes - Corrected React framework references
+  * UI Bug Fixes - Fixed Tailwind v4 modal backdrop opacity syntax
+  * Code Cleanup - Removed unused Next.js server code (118 lines)
+  * Frontend build improvements - Zero breaking changes, all tests passing
+  * Updated debian package dependencies (nodejs >= 24, golang-go >= 1.25)
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Mon, 23 Dec 2025 12:00:00 +0000
+
 maxiofs (0.6.0-beta) unstable; urgency=medium
 
   * Major feature release: Multi-Node Cluster Support & Cluster Replication

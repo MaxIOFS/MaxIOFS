@@ -60,7 +60,7 @@ const localStorageMock = (() => {
     }),
   };
 })();
-global.localStorage = localStorageMock as any;
+globalThis.localStorage = localStorageMock as any;
 
 // Mock sessionStorage
 const sessionStorageMock = (() => {
@@ -78,4 +78,4 @@ const sessionStorageMock = (() => {
     }),
   };
 })();
-global.sessionStorage = sessionStorageMock as any;
+globalThis.sessionStorage = sessionStorageMock as any;

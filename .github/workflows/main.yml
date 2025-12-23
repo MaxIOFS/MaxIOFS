@@ -36,7 +36,7 @@ jobs:
       - name: Generate nightly version
         id: nightly_version
         run: |
-          BASE_VERSION="0.6.1"
+          BASE_VERSION="0.6.2"
           COMMIT_SHORT=$(git rev-parse --short HEAD)
           NIGHTLY_VERSION="${BASE_VERSION}-nightly-${COMMIT_SHORT}"
           echo "version=${NIGHTLY_VERSION}" >> $GITHUB_OUTPUT
@@ -75,7 +75,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.25'
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

@@ -1,7 +1,7 @@
 # MaxIOFS - TODO & Roadmap
 
-**Version**: 0.6.0-beta
-**Last Updated**: December 12, 2025
+**Version**: 0.6.1-beta
+**Last Updated**: December 23, 2025
 **Status**: Beta - 98% S3 Compatible
 
 ## 📊 Project Status
@@ -14,21 +14,23 @@
 
 ## 📌 Current Sprint
 
-### Sprint 4: Production Monitoring & Frontend Performance Metrics - ✅ COMPLETE
-- ✅ Performance metrics integration in Web Console (TypeScript types, API client, unified dashboard)
-- ✅ Reorganized Metrics page tabs (System Health, Storage, Performance)
-- ✅ Real-time throughput and latency visualization (p50/p95/p99)
-- ✅ Prometheus metrics export endpoint (9 new metrics integrated)
-- ✅ Grafana dashboard templates (7 visualization panels)
-- ✅ Performance alerting rules (14 alert rules defined)
-- ✅ SLO documentation (5 SLOs with baselines and targets)
+### Sprint 5: Production Readiness & Stability - 🔄 IN PROGRESS
+- [ ] Expand test coverage for internal/auth (28.0% coverage)
+- [ ] Expand test coverage for internal/metrics (17.4% coverage)
+- [ ] Memory/CPU Profiling - Identify bottlenecks
+- [ ] Enhanced Health Checks - Readiness probes
+- [ ] Database Migration System - Schema versioning
 
 ## 🔴 HIGH PRIORITY
 
-### Performance Profiling & Optimization (v0.6.1)
+### Performance Profiling & Optimization (v0.6.1) - ✅ COMPLETE
 - ✅ Sprint 2: Load Testing Infrastructure (k6 test suite, Makefile integration, documentation)
 - ✅ Sprint 3: Performance Analysis (Windows/Linux baselines, bottleneck identification, optimization)
 - ✅ Sprint 4: Production Monitoring (Complete - Frontend, Prometheus, Grafana, Alerts, SLOs)
+- ✅ Build Requirements Update (Node.js 24+, Go 1.25+)
+- ✅ Frontend Dependencies Upgrade (Tailwind v4, Vitest v4)
+- ✅ S3 Test Suite Expansion (+42 tests, 30.9% → 45.7% coverage)
+- ✅ Server Integration Tests (+4 tests, 12.7% → 18.3% coverage)
 
 ### Bucket Replication & Cluster Management (v0.5.0 - v0.6.0) - ✅ COMPLETE
 - ✅ Phase 1: S3-compatible replication (Backend CRUD, queue infrastructure, SQLite persistence, retry logic, scheduler)
@@ -60,7 +62,18 @@
 
 ## ✅ COMPLETED FEATURES
 
-### v0.6.0-beta (Current)
+### v0.6.1-beta (Current)
+- ✅ Build Requirements Update (Node.js 24+, Go 1.25+)
+- ✅ Tailwind CSS v3 → v4 Migration (10x faster Oxide engine)
+- ✅ Vitest v3 → v4 Migration (59% faster test execution)
+- ✅ S3 API Test Suite Expansion (+42 tests, coverage: 30.9% → 45.7%)
+- ✅ Server Integration Tests (+4 tests, coverage: 12.7% → 18.3%)
+- ✅ Docker Infrastructure Improvements (organized config, profiles, unified dashboard)
+- ✅ Documentation Accuracy Fixes (React framework references)
+- ✅ UI Bug Fixes (Tailwind v4 opacity syntax compatibility)
+- ✅ Code Cleanup (removed unused Next.js server code)
+
+### v0.6.0-beta
 - ✅ Cluster Management System (multi-node coordination, health monitoring, smart routing)
 - ✅ Performance Metrics Collection (latency percentiles, throughput tracking, operation tracing)
 - ✅ Load Testing Infrastructure (k6 test suite, performance baselines)

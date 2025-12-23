@@ -199,7 +199,7 @@ volumes:
 ### Build with Specific Version
 
 ```bash
-VERSION=0.6.0-beta make docker-build
+VERSION=0.6.1-beta make docker-build
 ```
 
 ### Build Without Cache
@@ -211,7 +211,7 @@ docker compose build --no-cache
 ### Multi-platform Build
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t maxiofs:0.6.0-beta .
+docker buildx build --platform linux/amd64,linux/arm64 -t maxiofs:0.6.1-beta .
 ```
 
 ## Volumes
@@ -476,7 +476,7 @@ make docker-clean
 
 ## Version Information
 
-- **MaxIOFS**: 0.6.0-beta
+- **MaxIOFS**: 0.6.1-beta
 - **Prometheus**: 3.0.1
 - **Grafana**: 11.5.0
 - **Docker Compose**: v2.x required

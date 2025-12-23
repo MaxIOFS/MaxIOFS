@@ -29,7 +29,7 @@ vi.mock('@/hooks/useCurrentUser', () => ({
 }));
 
 // Mock fetch for health check
-global.fetch = vi.fn();
+globalThis.fetch = vi.fn();
 
 describe('Dashboard Page', () => {
   const mockBuckets = [
@@ -94,7 +94,7 @@ describe('Dashboard Page', () => {
     vi.mocked(APIClient.getUsers).mockResolvedValue(mockUsers);
 
     // Mock health check
-    vi.mocked(global.fetch).mockResolvedValue({
+    vi.mocked(globalThis.fetch).mockResolvedValue({
       ok: true,
       json: async () => ({
         data: { status: 'healthy', uptime: 12345 },
@@ -215,7 +215,7 @@ describe('Dashboard Page', () => {
       render(<Dashboard />);
 
       await waitFor(() => {
-        expect(global.fetch).toHaveBeenCalledWith(
+        expect(globalThis.fetch).toHaveBeenCalledWith(
           expect.stringContaining('/api/v1/health')
         );
       });
@@ -223,7 +223,7 @@ describe('Dashboard Page', () => {
 
     it('should handle health check failure gracefully', async () => {
       // Mock failed health check
-      vi.mocked(global.fetch).mockResolvedValue({
+      vi.mocked(globalThis.fetch).mockResolvedValue({
         ok: false,
         status: 500,
       } as Response);

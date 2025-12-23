@@ -1,6 +1,6 @@
 # MaxIOFS Production Deployment Guide
 
-**Version**: 0.6.0-beta
+**Version**: 0.6.1-beta
 **Last Updated**: December 13, 2025
 
 > **BETA SOFTWARE**: Suitable for development, testing, and staging environments. Production use requires extensive testing in your environment.
@@ -569,7 +569,7 @@ make docker-monitoring
 
 ## Beta Software Notice
 
-**Current Status**: Beta phase (v0.6.0-beta)
+**Current Status**: Beta phase (v0.6.1-beta)
 
 **Suitable for:**
 - Development environments
@@ -590,7 +590,7 @@ make docker-monitoring
 
 ---
 
-**Version**: 0.6.0-beta
+**Version**: 0.6.1-beta
 **Last Updated**: December 13, 2025
 
 For additional deployment information, see:
