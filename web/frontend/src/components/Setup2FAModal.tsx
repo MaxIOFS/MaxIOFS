@@ -3,7 +3,7 @@ import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { KeyRound, Download, Copy, Check } from 'lucide-react';
 import APIClient from '@/lib/api';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager from '@/lib/modals';
 
 interface Setup2FAModalProps {
   isOpen: boolean;
@@ -54,7 +54,7 @@ export function Setup2FAModal({ isOpen, onClose, onSuccess }: Setup2FAModalProps
     try {
       const data = await APIClient.enable2FA(verificationCode, secret);
 
-      await SweetAlert.success(
+      await ModalManager.success(
         '2FA Enabled Successfully',
         'Your account is now protected with two-factor authentication. Please save your backup codes securely.'
       );

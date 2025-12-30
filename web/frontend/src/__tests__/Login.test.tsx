@@ -13,8 +13,8 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-// Mock SweetAlert
-vi.mock('@/lib/sweetalert', () => ({
+// Mock ModalManager
+vi.mock('@/lib/modals', () => ({
   default: {
     loading: vi.fn(),
     close: vi.fn(),
@@ -143,7 +143,7 @@ describe('Login Page', () => {
         expect(APIClient.login).toHaveBeenCalled();
       });
 
-      // Note: Error is shown via SweetAlert, not in DOM
+      // Note: Error is shown via ModalManager, not in DOM
       // In a real app, you might render error messages in the component
     });
 

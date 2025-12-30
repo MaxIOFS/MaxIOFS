@@ -18,10 +18,23 @@ case "$1" in
         chown -R maxiofs:maxiofs /var/lib/maxiofs
         chown -R maxiofs:maxiofs /var/log/maxiofs
 
-        # Set ownership and permissions for config file
+        # Create config.yaml from example if it doesn't exist (NEVER overwrite existing config)
+        if [ ! -f /etc/maxiofs/config.yaml ]; then
+            echo "Creating initial config.yaml from example..."
+            cp /etc/maxiofs/config.example.yaml /etc/maxiofs/config.yaml
+        else
+            echo "Preserving existing config.yaml (contains encryption keys)"
+        fi
+
+        # Set ownership and permissions for config files
         if [ -f /etc/maxiofs/config.yaml ]; then
             chown maxiofs:maxiofs /etc/maxiofs/config.yaml
             chmod 0640 /etc/maxiofs/config.yaml
+        fi
+
+        if [ -f /etc/maxiofs/config.example.yaml ]; then
+            chown maxiofs:maxiofs /etc/maxiofs/config.example.yaml
+            chmod 0644 /etc/maxiofs/config.example.yaml
         fi
 
         # Set permissions
@@ -46,6 +59,7 @@ case "$1" in
                 echo "========================================"
                 echo ""
                 echo "Configuration file: /etc/maxiofs/config.yaml"
+                echo "Example config: /etc/maxiofs/config.example.yaml"
                 echo "Data directory: /var/lib/maxiofs"
                 echo "Log directory: /var/log/maxiofs"
                 echo ""
@@ -66,8 +80,17 @@ case "$1" in
                 echo "Web Console: http://localhost:8081"
                 echo "S3 API: http://localhost:8080"
                 echo ""
-                echo "CRITICAL: The config.yaml contains your encryption key."
-                echo "Make regular backups of /etc/maxiofs/config.yaml"
+                echo "════════════════════════════════════════════════════"
+                echo "⚠️  CRITICAL SECURITY WARNING ⚠️"
+                echo "════════════════════════════════════════════════════"
+                echo "The config.yaml file contains your ENCRYPTION KEY."
+                echo "If this key is lost, ALL encrypted data is PERMANENTLY LOST."
+                echo ""
+                echo "IMMEDIATELY create a backup:"
+                echo "  sudo cp /etc/maxiofs/config.yaml /etc/maxiofs/config.yaml.backup"
+                echo ""
+                echo "Store the backup in a SECURE location (off-server recommended)"
+                echo "════════════════════════════════════════════════════"
                 echo ""
             else
                 # Upgrade
@@ -76,14 +99,23 @@ case "$1" in
                 echo "MaxIOFS has been upgraded successfully!"
                 echo "========================================"
                 echo ""
-                echo "Your configuration has been preserved: /etc/maxiofs/config.yaml"
-                echo "Data directory: /var/lib/maxiofs"
+                echo "✅ Your configuration has been PRESERVED: /etc/maxiofs/config.yaml"
+                echo "   (Encryption keys and settings remain unchanged)"
+                echo ""
+                echo "📄 Updated example config available at:"
+                echo "   /etc/maxiofs/config.example.yaml"
+                echo ""
+                echo "📁 Data directory: /var/lib/maxiofs"
                 echo ""
                 echo "To restart MaxIOFS with the new version:"
                 echo "  sudo systemctl restart maxiofs"
                 echo ""
                 echo "To check status:"
                 echo "  sudo systemctl status maxiofs"
+                echo ""
+                echo "════════════════════════════════════════════════════"
+                echo "⚠️  REMINDER: Backup your config.yaml regularly"
+                echo "════════════════════════════════════════════════════"
                 echo ""
             fi
         fi

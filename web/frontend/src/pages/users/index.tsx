@@ -33,7 +33,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { User, CreateUserRequest, EditUserForm } from '@/types';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager from '@/lib/modals';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { EmptyState } from '@/components/ui/EmptyState';
 
@@ -83,10 +83,10 @@ export default function UsersPage() {
       queryClient.refetchQueries({ queryKey: ['tenants'] });
       setIsCreateModalOpen(false);
       setNewUser({ roles: ['user'], status: 'active' });
-      SweetAlert.successUserCreated(variables.username);
+      ModalManager.successUserCreated(variables.username);
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -96,24 +96,24 @@ export default function UsersPage() {
     onSuccess: () => {
       queryClient.refetchQueries({ queryKey: ['users'] });
       queryClient.refetchQueries({ queryKey: ['tenants'] });
-      SweetAlert.toast('success', 'User updated successfully');
+      ModalManager.toast('success', 'User updated successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
   const deleteUserMutation = useMutation({
     mutationFn: (userId: string) => APIClient.deleteUser(userId),
     onSuccess: () => {
-      SweetAlert.close();
+      ModalManager.close();
       queryClient.refetchQueries({ queryKey: ['users'] });
       queryClient.refetchQueries({ queryKey: ['tenants'] });
-      SweetAlert.toast('success', 'User deleted successfully');
+      ModalManager.toast('success', 'User deleted successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.close();
-      SweetAlert.apiError(error);
+      ModalManager.close();
+      ModalManager.apiError(error);
     },
   });
 
@@ -122,10 +122,10 @@ export default function UsersPage() {
     onSuccess: () => {
       queryClient.refetchQueries({ queryKey: ['users'] });
       queryClient.refetchQueries({ queryKey: ['locked-users'] });
-      SweetAlert.toast('success', 'User unlocked successfully');
+      ModalManager.toast('success', 'User unlocked successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -150,15 +150,15 @@ export default function UsersPage() {
     const user = users?.find((u: User) => u.id === userId);
 
     try {
-      const result = await SweetAlert.confirmDeleteUser(user?.username || 'user');
+      const result = await ModalManager.confirmDeleteUser(user?.username || 'user');
 
       if (result.isConfirmed) {
-        SweetAlert.loading('Deleting user...', `Deleting "${user?.username}"`);
+        ModalManager.loading('Deleting user...', `Deleting "${user?.username}"`);
         deleteUserMutation.mutate(userId);
       }
     } catch (error) {
-      SweetAlert.close();
-      SweetAlert.apiError(error);
+      ModalManager.close();
+      ModalManager.apiError(error);
     }
   };
 
@@ -182,7 +182,7 @@ export default function UsersPage() {
     if (!user) return;
 
     try {
-      const result = await SweetAlert.fire({
+      const result = await ModalManager.fire({
         title: 'Unlock Account',
         text: `Are you sure you want to unlock "${user.username}"?`,
         icon: 'question',
@@ -196,7 +196,7 @@ export default function UsersPage() {
         unlockUserMutation.mutate(userId);
       }
     } catch (error) {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     }
   };
 
@@ -229,18 +229,11 @@ export default function UsersPage() {
 
   // Badge color helpers
   const getRoleBadgeClasses = (role: string) => {
-    switch (role) {
-      case 'admin':
-        return 'bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-500/20 dark:text-purple-300 dark:border-purple-500/30';
-      case 'user':
-        return 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/30';
-      case 'readonly':
-        return 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-500/20 dark:text-orange-300 dark:border-orange-500/30';
-      case 'guest':
-        return 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-500/20 dark:text-gray-300 dark:border-gray-500/30';
-      default:
-        return 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-500/20 dark:text-gray-300 dark:border-gray-500/30';
+    // All roles use gray - only differentiate admin with slightly darker shade
+    if (role === 'admin') {
+      return 'bg-gray-200 text-gray-800 border-gray-400 dark:bg-gray-600/30 dark:text-gray-200 dark:border-gray-500/40';
     }
+    return 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-500/20 dark:text-gray-300 dark:border-gray-500/30';
   };
 
   const getStatusBadgeClasses = (status: string) => {
@@ -422,7 +415,7 @@ export default function UsersPage() {
                     </TableCell>
                     <TableCell>
                       {user.twoFactorEnabled ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border bg-cyan-100 text-cyan-700 border-cyan-300 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/30">
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border bg-green-100 text-green-700 border-green-300 dark:bg-green-500/20 dark:text-green-300 dark:border-green-500/30">
                           <KeyRound className="h-3 w-3" />
                           Enabled
                         </span>

@@ -7,7 +7,129 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.6.1-beta] - 2025-12-23
+### Removed - Frontend Dependencies Cleanup
+
+#### SweetAlert2 Library Removal
+- **Removed `sweetalert2` dependency** - Complete migration to custom modal components
+  - Removed `sweetalert2` v11.15.3 from `package.json` dependencies
+  - Removed `web/frontend/src/lib/sweetalert.ts` utility wrapper (deleted)
+  - Removed `web/frontend/src/test/mocks/sweetalert.ts` test mock (deleted)
+  - **Replaced with**: Custom modal components using existing Modal UI component
+  - Created `web/frontend/src/lib/modals.tsx` - New utility for confirmation/alert modals
+  - **Benefits**:
+    - Reduced bundle size (sweetalert2 was ~65KB minified)
+    - Better integration with project's Tailwind CSS styling
+    - Consistent design system across all UI components
+    - Improved dark mode support with native theme integration
+  - **Updated files**: All pages using confirmations/alerts migrated to new modal system:
+    - `pages/buckets/[bucket]/index.tsx` - Object deletion confirmations
+    - `pages/buckets/[bucket]/settings.tsx` - Bucket deletion and settings confirmations
+    - `pages/buckets/create.tsx` - Bucket creation success/error alerts
+    - `pages/buckets/index.tsx` - Bulk bucket operations confirmations
+    - `pages/login.tsx` - Login error alerts
+    - `pages/security/index.tsx` - Security settings confirmations
+    - `pages/tenants/index.tsx` - Tenant management confirmations
+    - `pages/users/[user]/index.tsx` - User management confirmations
+    - `pages/users/access-keys.tsx` - Access key operations confirmations
+    - `pages/users/index.tsx` - User deletion and role change confirmations
+  - All 64 frontend tests passing with new modal system
+
+### Changed - Frontend UI Improvements
+
+#### Metrics Dashboard Redesign
+- **Reorganized Metrics Page** - Complete redesign with 5 specialized tabs and historical data filtering
+  - **New Tab Structure** (changed from 3 to 5 tabs):
+    - **Overview**: High-level summary (System Health, Storage, Requests, Uptime) with combined charts
+    - **System**: Detailed system metrics (CPU, Memory, Disk, Runtime, Network I/O)
+    - **Storage**: Storage-specific metrics (Size, Objects, Buckets, Average Size)
+    - **API & Requests**: Request metrics (Total, Errors, Success Rate, Latency, Error Rate)
+    - **Performance**: Detailed operation latencies (p50/p95/p99) and throughput
+  - **Time Range Selector**: Added historical data filtering (Real-time, 1H, 6H, 24H, 7D, 30D, 1Y)
+  - **Historical Charts**: All charts now use `MetricLineChart` component showing evolution over time
+  - **Eliminated Duplicates**: Each tab now shows unique information specific to its category
+  - **Improvements**:
+    - System tab: Replaced static bar charts with temporal line charts
+    - Storage tab: Removed ineffective pie chart, kept temporal evolution charts
+    - API tab: Two rows of metrics (8 cards total) with request/error details
+    - Performance tab: Operation latency cards in 4-column grid (side-by-side layout)
+    - All tabs use `MetricCard` component with soft color scheme for consistency
+  - **Data Processing**: Smart historical data processing with current metrics appended to timeline
+  - **Adaptive Refresh**: Query refresh intervals adjust based on selected time range (10s to 30min)
+
+#### Visual Consistency Updates
+- **Standardized MetricCard Usage**: All metrics pages now use consistent `MetricCard` component
+  - Applied soft color scheme: `brand`, `blue-light`, `success`, `warning`, `error`
+  - Updated across Dashboard, Buckets, Security, Users, Tenants, Audit Logs pages
+- **Table Styling Consistency**: Applied modern hover effects to all tables
+  - Gradient backgrounds on row hover with brand color border transitions
+  - Consistent styling through updated `TableRow` component
+- **Background Contrast**: Changed AppLayout background from `bg-gray-50` to `bg-gray-100`
+  - Improved contrast with white cards in light theme
+
+### Fixed - CRITICAL: Debian Package Configuration Preservation
+
+**🚨 CRITICAL SECURITY FIX**: Fixed severe bug where Debian package upgrades could overwrite `/etc/maxiofs/config.yaml`, causing **permanent data loss** of all encrypted objects.
+
+#### The Problem
+- During package upgrades, `config.yaml` was being replaced with the example configuration
+- This overwrote the encryption master key stored in `config.yaml`
+- **Result**: All encrypted objects became permanently inaccessible (no recovery possible)
+- **Severity**: CRITICAL - Data loss bug affecting production systems
+
+#### Root Cause Analysis
+1. **debian/rules** was installing `config.example.yaml` directly as `config.yaml` in every package
+2. Although listed in `conffiles`, dpkg could still overwrite it under certain conditions
+3. No protection mechanism prevented config replacement during upgrades
+
+#### The Fix
+- **debian/rules**: Now installs only `config.example.yaml` (not `config.yaml`)
+- **debian/postinst**: Added smart logic to create `config.yaml` only on first install:
+  ```bash
+  if [ ! -f /etc/maxiofs/config.yaml ]; then
+      cp /etc/maxiofs/config.example.yaml /etc/maxiofs/config.yaml
+  else
+      echo "Preserving existing config.yaml (contains encryption keys)"
+  fi
+  ```
+- **debian/conffiles**: Changed to only track `config.example.yaml` (not user config)
+
+#### Protection Mechanisms
+1. ✅ **Never overwrites existing config.yaml** during upgrades
+2. ✅ **Creates config.yaml from example** only on first installation
+3. ✅ **Always updates config.example.yaml** for reference (shows new options)
+4. ✅ **Clear upgrade messages** confirming config preservation
+5. ✅ **Enhanced warnings** about encryption key backup importance
+
+#### Installation Behavior
+- **First Install**: Creates `/etc/maxiofs/config.yaml` from example template
+- **Upgrade**: Preserves existing `/etc/maxiofs/config.yaml` completely untouched
+- **Both Cases**: Updates `/etc/maxiofs/config.example.yaml` with latest template
+
+#### User Impact
+- **Existing Users**: Upgrade safely - your config and encryption keys are preserved
+- **New Users**: Clear warnings about backing up config.yaml immediately after install
+- **All Users**: Can reference config.example.yaml for new configuration options
+
+#### Recommendation
+**IMMEDIATELY backup your config.yaml**:
+```bash
+sudo cp /etc/maxiofs/config.yaml /etc/maxiofs/config.yaml.backup
+# Store backup off-server in secure location
+```
+
+If you've already lost your encryption key from a previous upgrade, encrypted objects are unrecoverable. You must:
+1. Delete affected buckets
+2. Recreate them
+3. Re-upload all data
+4. **DO NOT upgrade** until applying this fix
+
+#### Files Changed
+- `debian/rules` - Install only example config, not actual config
+- `debian/postinst` - Smart config creation logic with preservation checks
+- `debian/conffiles` - Track only config.example.yaml
+- Enhanced warning messages for both new installs and upgrades
+
+## [0.6.1-beta] - 2025-12-24
 
 ### Changed - Build Requirements Update
 - **Updated Node.js requirement** from 23+ to **24+**

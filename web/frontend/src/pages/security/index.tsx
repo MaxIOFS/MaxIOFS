@@ -138,7 +138,7 @@ export default function SecurityPage() {
             value={activeUsers}
             icon={Users}
             description={`${totalUsers} total users`}
-            color="brand"
+            color="success"
           />
 
           <MetricCard
@@ -146,7 +146,7 @@ export default function SecurityPage() {
             value={users2FA}
             icon={KeyRound}
             description={`${Math.round((users2FA / totalUsers) * 100)}% of users`}
-            color="blue-light"
+            color="brand"
           />
 
           <MetricCard
@@ -154,7 +154,7 @@ export default function SecurityPage() {
             value={lockedUsers.length}
             icon={lockedUsers.length > 0 ? AlertTriangle : Lock}
             description="Due to failed logins"
-            color={lockedUsers.length > 0 ? 'warning' : 'success'}
+            color={lockedUsers.length > 0 ? 'error' : 'success'}
           />
 
           <MetricCard
@@ -162,7 +162,7 @@ export default function SecurityPage() {
             value={tenantAdminCount}
             icon={Shield}
             description={`Global admin: ${globalAdminCount}`}
-            color="error"
+            color="blue-light"
           />
 
           <MetricCard
@@ -170,7 +170,7 @@ export default function SecurityPage() {
             value={formatDuration(getSetting('security.session_timeout', '86400'))}
             icon={Clock}
             description="Auto-logout idle sessions"
-            color="success"
+            color="warning"
           />
         </div>
       </div>
@@ -260,35 +260,35 @@ export default function SecurityPage() {
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Active Security Features</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {/* Authentication Features */}
-          <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card p-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <Shield className="h-5 w-5 text-brand-600" />
+              <Shield className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               Authentication & Access
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Two-Factor Authentication (2FA)</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">TOTP-based 2FA with backup codes for enhanced security</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">JWT & S3 Signature Authentication</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Token-based (JWT) for Console, AWS Signature v2/v4 for S3 API</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">HMAC-SHA256 Cluster Auth</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Secure inter-node communication with cryptographic signatures</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Bcrypt Password Hashing</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Industry-standard password encryption with salt</p>
@@ -298,35 +298,35 @@ export default function SecurityPage() {
           </div>
 
           {/* Security Controls */}
-          <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card p-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <Lock className="h-5 w-5 text-brand-600" />
+              <Lock className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               Security Controls
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Rate Limiting</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">IP-based rate limiting ({getSetting('security.rate_limit_login', '5')} login attempts per minute)</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Account Lockout</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Automatic {formatDuration(getSetting('security.lockout_duration', '900'))} lockout after {getSetting('security.max_login_attempts', '5')} failed login attempts</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Session Management</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Automatic session timeout and idle detection ({formatDuration(getSetting('security.session_timeout', '86400'))})</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Role-Based Access Control (RBAC)</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">4 roles: Admin, User, Read-Only, Guest with granular permissions</p>
@@ -336,35 +336,35 @@ export default function SecurityPage() {
           </div>
 
           {/* Data Protection & Replication */}
-          <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card p-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <HardDrive className="h-5 w-5 text-brand-600" />
+              <HardDrive className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               Data Protection & Replication
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Server-Side Encryption (SSE)</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">AES-256-CTR streaming encryption for all stored objects</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Encrypted Cluster Replication</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Automatic decrypt-on-source, re-encrypt-on-destination for HA</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Cross-Region Replication</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Secure bucket replication to AWS S3, MinIO with credential encryption</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Object Lock & Versioning</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">WORM compliance, versioning with delete markers, lifecycle policies</p>
@@ -374,35 +374,35 @@ export default function SecurityPage() {
           </div>
 
           {/* Infrastructure Security */}
-          <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card p-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <Users className="h-5 w-5 text-brand-600" />
+              <Users className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               Multi-Tenancy & Isolation
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Tenant Isolation</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Complete data isolation between tenants with separate namespaces</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Resource Quotas</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Per-tenant storage, bucket, and access key limits with usage tracking</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Self-Replication Prevention</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Automatic validation to prevent circular replication loops</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Bucket Permissions (ACLs)</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Fine-grained per-bucket access control with canned ACLs</p>
@@ -412,42 +412,42 @@ export default function SecurityPage() {
           </div>
 
           {/* Event Monitoring & Logging */}
-          <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card p-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <Bell className="h-5 w-5 text-brand-600" />
+              <Bell className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               Event Monitoring & Logging
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Advanced Logging System</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">HTTP output with batching and Syslog integration (TCP/UDP)</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Comprehensive Audit Logging</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">20+ event types tracked with automatic retention ({getSetting('audit.retention_days', '90')} days)</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Bucket Notifications (Webhooks)</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Real-time HTTP webhooks for S3 events (ObjectCreated, ObjectRemoved)</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Prometheus Metrics</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Real-time metrics export for monitoring and alerting</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Dynamic Settings System</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Runtime configuration management without server restarts</p>
@@ -465,35 +465,35 @@ export default function SecurityPage() {
           </div>
 
           {/* Compliance */}
-          <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card p-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <FileText className="h-5 w-5 text-brand-600" />
+              <FileText className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               Compliance & Standards
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Compliance Ready</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">GDPR, SOC 2, HIPAA, ISO 27001, PCI DSS support</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Audit Trail Access</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Complete logging of authentication and access events</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Read-Only Audit Mode</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Global admins can audit tenant buckets without modification</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-success-600 dark:text-success-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">CSV Export</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Export audit logs for compliance reporting and analysis</p>

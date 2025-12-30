@@ -414,10 +414,16 @@ export class APIClient {
     return response.data.data!;
   }
 
-  static async deleteBucket(bucketName: string, tenantId?: string): Promise<void> {
-    const url = tenantId
+  static async deleteBucket(bucketName: string, tenantId?: string, force?: boolean): Promise<void> {
+    let url = tenantId
       ? `/buckets/${bucketName}?tenantId=${encodeURIComponent(tenantId)}`
       : `/buckets/${bucketName}`;
+
+    // Add force parameter if requested
+    if (force) {
+      url += tenantId ? '&force=true' : '?force=true';
+    }
+
     await apiClient.delete(url);
   }
 
@@ -972,8 +978,9 @@ export class APIClient {
     return response.data.data!;
   }
 
-  static async deleteTenant(tenantId: string): Promise<void> {
-    await apiClient.delete(`/tenants/${tenantId}`);
+  static async deleteTenant(tenantId: string, force?: boolean): Promise<void> {
+    const url = force ? `/tenants/${tenantId}?force=true` : `/tenants/${tenantId}`;
+    await apiClient.delete(url);
   }
 
   static async getTenantUsers(tenantId: string): Promise<User[]> {

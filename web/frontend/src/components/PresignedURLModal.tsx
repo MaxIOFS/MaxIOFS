@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/Input';
 import { Copy as CopyIcon, Link as LinkIcon } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager from '@/lib/modals';
 
 interface PresignedURLModalProps {
   isOpen: boolean;
@@ -47,10 +47,10 @@ export function PresignedURLModal({
     onSuccess: (data) => {
       setGeneratedURL(data.url);
       setExpiresAt(data.expiresAt);
-      SweetAlert.toast('success', 'Presigned URL generated successfully');
+      ModalManager.toast('success', 'Presigned URL generated successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -60,7 +60,7 @@ export function PresignedURLModal({
 
   const handleCopy = () => {
     navigator.clipboard.writeText(generatedURL);
-    SweetAlert.toast('success', 'URL copied to clipboard');
+    ModalManager.toast('success', 'URL copied to clipboard');
   };
 
   const handleClose = () => {

@@ -37,6 +37,7 @@ type Manager interface {
 	// Basic bucket operations
 	CreateBucket(ctx context.Context, tenantID, name string) error
 	DeleteBucket(ctx context.Context, tenantID, name string) error
+	ForceDeleteBucket(ctx context.Context, tenantID, name string) error // Force delete even if not empty (admin only)
 	ListBuckets(ctx context.Context, tenantID string) ([]Bucket, error)
 	BucketExists(ctx context.Context, tenantID, name string) (bool, error)
 	GetBucketInfo(ctx context.Context, tenantID, name string) (*Bucket, error)

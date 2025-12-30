@@ -225,6 +225,119 @@ func (bm *badgerBucketManager) DeleteBucket(ctx context.Context, tenantID, name 
 	return nil
 }
 
+// ForceDeleteBucket deletes a bucket and all its objects (admin only, for cleanup)
+func (bm *badgerBucketManager) ForceDeleteBucket(ctx context.Context, tenantID, name string) error {
+	// Check if bucket exists
+	bucketPath := bm.getTenantBucketPath(tenantID, name)
+	_, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"tenant": tenantID,
+		"bucket": name,
+	}).Warn("Force deleting bucket and all its objects")
+
+	// List all objects in the bucket
+	prefix := bucketPath + "/"
+	objects, err := bm.storage.List(ctx, prefix, false)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to list objects for force delete")
+		return err
+	}
+
+	// Delete all objects (both metadata and physical files)
+	deletedCount := 0
+	for _, obj := range objects {
+		// Skip bucket marker and internal files (will be deleted separately)
+		if strings.HasSuffix(obj.Path, ".maxiofs-bucket") || strings.Contains(obj.Path, "/.maxiofs-") {
+			continue
+		}
+
+		// Extract object key from path
+		objectKey := strings.TrimPrefix(obj.Path, prefix)
+		if objectKey == "" {
+			continue
+		}
+
+		// Delete object metadata from BadgerDB
+		if err := bm.metadataStore.DeleteObject(ctx, bucketPath, objectKey); err != nil {
+			if err != metadata.ErrObjectNotFound {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"bucket": bucketPath,
+					"key":    objectKey,
+				}).Warn("Failed to delete object metadata during force delete")
+			}
+		}
+
+		// Delete physical file from storage
+		if err := bm.storage.Delete(ctx, obj.Path); err != nil {
+			if err != storage.ErrObjectNotFound {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"path": obj.Path,
+				}).Warn("Failed to delete physical file during force delete")
+			}
+		}
+
+		deletedCount++
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"tenant":       tenantID,
+		"bucket":       name,
+		"deletedCount": deletedCount,
+	}).Info("Deleted all objects from bucket")
+
+	// Now delete the bucket itself using the standard method (which will succeed since it's now empty)
+	// Delete from BadgerDB
+	if err := bm.metadataStore.DeleteBucket(ctx, tenantID, name); err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+
+	// Delete bucket marker from storage
+	if err := bm.storage.Delete(ctx, prefix+".maxiofs-bucket"); err != nil {
+		if err != storage.ErrObjectNotFound {
+			logrus.WithError(err).Warn("Failed to delete bucket marker during force delete")
+		}
+	}
+
+	// Remove physical directory if using filesystem backend
+	if fsBackend, ok := bm.storage.(interface{ RemoveDirectory(string) error }); ok {
+		if err := fsBackend.RemoveDirectory(bucketPath); err != nil {
+			logrus.WithError(err).Warn("Failed to remove bucket directory during force delete")
+		}
+	}
+
+	// Log audit event for force deleted bucket
+	user, _ := auth.GetUserFromContext(ctx)
+	if user != nil {
+		bm.logAuditEvent(ctx, &audit.AuditEvent{
+			TenantID:     tenantID,
+			UserID:       user.ID,
+			Username:     user.Username,
+			EventType:    "bucket_force_deleted",
+			ResourceType: audit.ResourceTypeBucket,
+			ResourceID:   name,
+			ResourceName: name,
+			Action:       audit.ActionDelete,
+			Status:       audit.StatusSuccess,
+			Details: map[string]interface{}{
+				"deleted_objects": deletedCount,
+				"force_delete":    true,
+			},
+		})
+	}
+
+	return nil
+}
+
 // ListBuckets lists all buckets for a tenant
 func (bm *badgerBucketManager) ListBuckets(ctx context.Context, tenantID string) ([]Bucket, error) {
 	// Get from BadgerDB

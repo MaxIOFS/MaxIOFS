@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager from '@/lib/modals';
 import {
   ArrowLeft,
   Database,
@@ -74,7 +74,7 @@ export default function CreateBucketPage() {
     retentionMode: '',
     retentionDays: 0,
     retentionYears: 0,
-    encryptionEnabled: true,
+    encryptionEnabled: false,
     encryptionType: 'AES256',
     blockPublicAccess: true,
     blockPublicAcls: true,
@@ -149,11 +149,11 @@ export default function CreateBucketPage() {
       // Refetch to update immediately (buckets list and tenant counters)
       queryClient.refetchQueries({ queryKey: ['buckets'] });
       queryClient.refetchQueries({ queryKey: ['tenants'] });
-      SweetAlert.toast('success', `Bucket "${config.name}" created successfully`);
+      ModalManager.toast('success', `Bucket "${config.name}" created successfully`);
       navigate('/buckets');
     },
     onError: (error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -162,31 +162,31 @@ export default function CreateBucketPage() {
 
     // Validations
     if (!config.name) {
-      SweetAlert.toast('error', 'Bucket name is required');
+      ModalManager.toast('error', 'Bucket name is required');
       return;
     }
 
     if (!/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/.test(config.name)) {
-      SweetAlert.toast('error', 'Invalid bucket name. Must contain only lowercase letters, numbers, dots and hyphens');
+      ModalManager.toast('error', 'Invalid bucket name. Must contain only lowercase letters, numbers, dots and hyphens');
       return;
     }
 
     if (config.objectLockEnabled && !config.versioningEnabled) {
-      SweetAlert.toast('error', 'Object Lock requires versioning to be enabled');
+      ModalManager.toast('error', 'Object Lock requires versioning to be enabled');
       return;
     }
 
     if (config.objectLockEnabled && !config.retentionMode) {
-      SweetAlert.toast('error', 'You must select a retention mode for Object Lock');
+      ModalManager.toast('error', 'You must select a retention mode for Object Lock');
       return;
     }
 
     if (config.objectLockEnabled && config.retentionDays === 0 && config.retentionYears === 0) {
-      SweetAlert.toast('error', 'You must specify at least days or years of retention');
+      ModalManager.toast('error', 'You must specify at least days or years of retention');
       return;
     }
 
-    const result = await SweetAlert.fire({
+    const result = await ModalManager.fire({
       icon: 'question',
       title: 'Create bucket?',
       html: `
@@ -207,7 +207,7 @@ export default function CreateBucketPage() {
     });
 
     if (result.isConfirmed) {
-      SweetAlert.loading('Creating bucket...', `Configuring "${config.name}"`);
+      ModalManager.loading('Creating bucket...', `Configuring "${config.name}"`);
       createBucketMutation.mutate();
     }
   };
@@ -254,14 +254,16 @@ export default function CreateBucketPage() {
             variant="ghost"
             size="sm"
             onClick={() => navigate('/buckets')}
-            className="gap-2"
+            className="gap-2 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 transition-all duration-200"
           >
             <ArrowLeft className="h-4 w-4" />
             Back
           </Button>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Create New Bucket</h1>
-            <p className="text-gray-500 dark:text-gray-400">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">
+              Create New Bucket
+            </h1>
+            <p className="text-gray-500 dark:text-gray-400 mt-1">
               Configure all advanced options for your new S3 bucket
             </p>
           </div>
@@ -270,43 +272,35 @@ export default function CreateBucketPage() {
 
       <form onSubmit={handleSubmit}>
         {/* Tabs */}
-        <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
-          <nav className="-mb-px flex space-x-8">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`
-                    flex items-center gap-2 py-4 px-1 border-b-2 font-medium text-sm
-                    ${activeTab === tab.id
-                      ? 'border-brand-600 text-brand-600 dark:text-brand-400'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-                    }
-                  `}
-                >
-                  <Icon className="h-5 w-5" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="p-6">
+            {/* Tabs Navigation */}
+            <div className="flex space-x-1 bg-gray-100 dark:bg-gray-900 rounded-lg p-1 mb-6">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id as any)}
+                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 font-medium text-sm rounded-md transition-all duration-200 ${
+                      activeTab === tab.id
+                        ? 'bg-white dark:bg-gray-800 text-brand-600 dark:text-brand-400 shadow-sm'
+                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
 
-        {/* Tab Content */}
-        <div className="space-y-6">
+            {/* Tab Content */}
+            <div className="space-y-6">
           {/* General Tab */}
           {activeTab === 'general' && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Database className="h-5 w-5" />
-                  General Configuration
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Bucket Name <span className="text-red-500">*</span>
@@ -469,20 +463,12 @@ export default function CreateBucketPage() {
                     </Button>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+            </div>
           )}
 
           {/* Object Lock Tab */}
           {activeTab === 'objectlock' && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Lock className="h-5 w-5" />
-                  Object Lock & WORM (Write Once Read Many)
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <div className="space-y-4">
                 <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-md p-4">
                   <div className="flex gap-2">
                     <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0" />
@@ -597,20 +583,12 @@ export default function CreateBucketPage() {
                     )}
                   </>
                 )}
-              </CardContent>
-            </Card>
+            </div>
           )}
 
           {/* Lifecycle Tab */}
           {activeTab === 'lifecycle' && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="h-5 w-5" />
-                  Lifecycle Policies
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <div className="space-y-4">
                 <div className="flex items-center space-x-2">
                   <input
                     type="checkbox"
@@ -642,20 +620,12 @@ export default function CreateBucketPage() {
                     </p>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+            </div>
           )}
 
           {/* Encryption Tab */}
           {activeTab === 'encryption' && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Shield className="h-5 w-5" />
-                  Encryption
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <div className="space-y-4">
                 {/* Server encryption status warning */}
                 {!serverEncryptionEnabled && (
                   <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-md p-3 mb-4">
@@ -705,20 +675,12 @@ export default function CreateBucketPage() {
                     </p>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+            </div>
           )}
 
           {/* Access Control Tab */}
           {activeTab === 'access' && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings className="h-5 w-5" />
-                  Public Access Control
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <div className="space-y-4">
                 <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md p-3 text-sm text-blue-800 dark:text-blue-300">
                   <Info className="h-4 w-4 inline mr-2" />
                   It is recommended to block all public access unless you specifically need to share data.
@@ -765,26 +727,26 @@ export default function CreateBucketPage() {
                     <span className="text-sm text-gray-700 dark:text-gray-300">Restrict public buckets</span>
                   </label>
                 </div>
-
-              </CardContent>
-            </Card>
+            </div>
           )}
+            </div>
+          </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center justify-end gap-4 mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-end gap-4 mt-8 pt-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4">
           <Button
             type="button"
             variant="outline"
             onClick={() => navigate('/buckets')}
-            className="border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300"
+            className="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gradient-to-r hover:from-gray-50 hover:to-gray-100 dark:hover:from-gray-700 dark:hover:to-gray-700/50 transition-all duration-200"
           >
             Cancel
           </Button>
           <Button
             type="submit"
             disabled={createBucketMutation.isPending}
-            className="gap-2 bg-brand-600 hover:bg-brand-700 text-white"
+            className="gap-2 bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md hover:shadow-lg transition-all duration-200"
           >
             {createBucketMutation.isPending ? (
               <>

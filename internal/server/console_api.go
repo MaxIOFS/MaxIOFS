@@ -953,6 +953,30 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 		tenantID = user.TenantID
 	}
 
+	// Check if force delete is requested (only for global admins)
+	forceParam := r.URL.Query().Get("force")
+	force := forceParam == "true"
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+
+	// Debug logging
+	logrus.WithFields(logrus.Fields{
+		"bucket":        bucketName,
+		"tenantID":      tenantID,
+		"user":          user.Username,
+		"userTenantID":  user.TenantID,
+		"forceParam":    forceParam,
+		"force":         force,
+		"isAdmin":       auth.IsAdminUser(r.Context()),
+		"isGlobalAdmin": isGlobalAdmin,
+		"queryString":   r.URL.RawQuery,
+	}).Info("Delete bucket request received")
+
+	// Force delete only allowed for global admins
+	if force && !isGlobalAdmin {
+		s.writeError(w, "Force delete is only allowed for global administrators", http.StatusForbidden)
+		return
+	}
+
 	// Obtener información del bucket antes de eliminarlo para actualizar contadores
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -964,15 +988,34 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.bucketManager.DeleteBucket(r.Context(), tenantID, bucketName); err != nil {
-		if err == bucket.ErrBucketNotFound {
-			s.writeError(w, "Bucket not found", http.StatusNotFound)
-		} else if err == bucket.ErrBucketNotEmpty {
-			s.writeError(w, "Bucket is not empty", http.StatusConflict)
-		} else {
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
+	// Use force delete if requested and user is global admin
+	if force && isGlobalAdmin {
+		logrus.WithFields(logrus.Fields{
+			"bucket":   bucketName,
+			"tenantID": tenantID,
+			"user":     user.Username,
+		}).Warn("Force deleting bucket")
+
+		if err := s.bucketManager.ForceDeleteBucket(r.Context(), tenantID, bucketName); err != nil {
+			if err == bucket.ErrBucketNotFound {
+				s.writeError(w, "Bucket not found", http.StatusNotFound)
+			} else {
+				s.writeError(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
 		}
-		return
+	} else {
+		// Normal delete (requires bucket to be empty)
+		if err := s.bucketManager.DeleteBucket(r.Context(), tenantID, bucketName); err != nil {
+			if err == bucket.ErrBucketNotFound {
+				s.writeError(w, "Bucket not found", http.StatusNotFound)
+			} else if err == bucket.ErrBucketNotEmpty {
+				s.writeError(w, "Bucket is not empty", http.StatusConflict)
+			} else {
+				s.writeError(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
 	}
 
 	// Decrementar el contador de buckets del tenant si tiene owner de tipo tenant
@@ -2980,6 +3023,9 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if force delete is requested
+	force := r.URL.Query().Get("force") == "true"
+
 	// Validate that tenant has no buckets before allowing deletion
 	buckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
 	if err != nil {
@@ -2987,9 +3033,42 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If tenant has buckets
 	if len(buckets) > 0 {
-		s.writeError(w, fmt.Sprintf("Cannot delete tenant: tenant has %d bucket(s). Please delete all buckets before deleting the tenant", len(buckets)), http.StatusConflict)
-		return
+		if force {
+			// Force delete all buckets associated with this tenant
+			logrus.WithFields(logrus.Fields{
+				"tenantID":     tenantID,
+				"bucketCount":  len(buckets),
+				"user":         currentUser.Username,
+			}).Warn("Force deleting all tenant buckets before deleting tenant")
+
+			deletedBuckets := 0
+			for _, b := range buckets {
+				logrus.WithFields(logrus.Fields{
+					"tenant": tenantID,
+					"bucket": b.Name,
+				}).Info("Force deleting bucket as part of tenant deletion")
+
+				if err := s.bucketManager.ForceDeleteBucket(r.Context(), tenantID, b.Name); err != nil {
+					logrus.WithError(err).WithFields(logrus.Fields{
+						"tenant": tenantID,
+						"bucket": b.Name,
+					}).Error("Failed to force delete bucket during tenant deletion")
+					s.writeError(w, fmt.Sprintf("Failed to delete bucket %s: %v", b.Name, err), http.StatusInternalServerError)
+					return
+				}
+				deletedBuckets++
+			}
+
+			logrus.WithFields(logrus.Fields{
+				"tenantID":       tenantID,
+				"deletedBuckets": deletedBuckets,
+			}).Info("Successfully deleted all tenant buckets")
+		} else {
+			s.writeError(w, fmt.Sprintf("Cannot delete tenant: tenant has %d bucket(s). Please delete all buckets before deleting the tenant, or use force=true to delete all resources", len(buckets)), http.StatusConflict)
+			return
+		}
 	}
 
 	if err := s.authManager.DeleteTenant(r.Context(), tenantID); err != nil {

@@ -34,17 +34,10 @@ import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/EmptyState';
 
-// Event type badges color mapping - soft colors matching the app design
+// Event type badges color mapping - gray for all events
 const getEventTypeColor = (eventType: string | undefined): string => {
-  if (!eventType) return 'bg-gray-50 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300';
-  if (eventType.includes('login') || eventType.includes('logout')) return 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
-  if (eventType.includes('blocked') || eventType.includes('unblocked')) return 'bg-orange-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300';
-  if (eventType.includes('user_created') || eventType.includes('user_deleted')) return 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300';
-  if (eventType.includes('bucket')) return 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300';
-  if (eventType.includes('access_key')) return 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300';
-  if (eventType.includes('tenant')) return 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300';
-  if (eventType.includes('2fa')) return 'bg-yellow-50 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300';
-  return 'bg-gray-50 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300';
+  // All events use gray color for professional appearance
+  return 'bg-gray-100 text-gray-700 dark:bg-gray-700/50 dark:text-gray-300';
 };
 
 // Format event type for display

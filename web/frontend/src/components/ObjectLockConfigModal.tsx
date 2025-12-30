@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/Input';
 import { Lock, ShieldAlert, Info } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager from '@/lib/modals';
 
 interface ObjectLockConfigModalProps {
   isOpen: boolean;
@@ -42,12 +42,12 @@ export function ObjectLockConfigModal({
         [retentionUnit]: parseInt(retentionValue),
       }),
     onSuccess: () => {
-      SweetAlert.toast('success', 'Object Lock configuration updated successfully');
+      ModalManager.toast('success', 'Object Lock configuration updated successfully');
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
       onClose();
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -57,7 +57,7 @@ export function ObjectLockConfigModal({
 
     // Validar que solo se aumente
     if (newTotalDays < currentTotalDays) {
-      SweetAlert.toast(
+      ModalManager.toast(
         'error',
         `Retention period can only be increased (current: ${currentTotalDays} days, requested: ${newTotalDays} days)`
       );
@@ -66,7 +66,7 @@ export function ObjectLockConfigModal({
 
     // Validar valor positivo
     if (newValue <= 0) {
-      SweetAlert.toast('error', 'Retention period must be greater than 0');
+      ModalManager.toast('error', 'Retention period must be greater than 0');
       return;
     }
 

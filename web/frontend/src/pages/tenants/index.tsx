@@ -28,7 +28,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Tenant, CreateTenantRequest, UpdateTenantRequest } from '@/types';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager from '@/lib/modals';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 export default function TenantsPage() {
@@ -65,10 +65,10 @@ export default function TenantsPage() {
       queryClient.refetchQueries({ queryKey: ['tenants'] });
       setIsCreateModalOpen(false);
       setNewTenant({ maxAccessKeys: 10, maxStorageBytes: 107374182400, maxBuckets: 100 });
-      SweetAlert.toast('success', `Tenant "${variables.displayName}" created successfully`);
+      ModalManager.toast('success', `Tenant "${variables.displayName}" created successfully`);
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -79,24 +79,49 @@ export default function TenantsPage() {
       queryClient.refetchQueries({ queryKey: ['tenants'] });
       setIsEditModalOpen(false);
       setSelectedTenant(null);
-      SweetAlert.toast('success', 'Tenant updated successfully');
+      ModalManager.toast('success', 'Tenant updated successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
   const deleteTenantMutation = useMutation({
-    mutationFn: (tenantId: string) => APIClient.deleteTenant(tenantId),
+    mutationFn: ({ tenantId, force }: { tenantId: string; force?: boolean }) => APIClient.deleteTenant(tenantId, force),
     onSuccess: () => {
-      SweetAlert.close();
+      ModalManager.close();
       queryClient.refetchQueries({ queryKey: ['tenants'] });
       queryClient.refetchQueries({ queryKey: ['buckets'] });
-      SweetAlert.toast('success', 'Tenant deleted successfully');
+      ModalManager.toast('success', 'Tenant deleted successfully');
     },
-    onError: (error: Error) => {
-      SweetAlert.close();
-      SweetAlert.apiError(error);
+    onError: async (error: any, variables) => {
+      ModalManager.close();
+
+      // Check if error is about tenant having buckets and offer force delete option
+      const errorMessage = error?.response?.data?.error || error?.message || String(error);
+
+      if (errorMessage.includes('has') && errorMessage.includes('bucket')) {
+        const result = await ModalManager.fire({
+          title: 'Tenant has buckets',
+          text: `${errorMessage}\n\nDo you want to force delete this tenant and all its buckets and objects? This action cannot be undone.`,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Yes, force delete all',
+          cancelButtonText: 'Cancel',
+          confirmButtonColor: '#dc2626',
+        });
+
+        if (result.isConfirmed) {
+          ModalManager.loading('Force deleting tenant...', 'Deleting tenant and all associated resources');
+          // Explicitly construct the mutation parameters with force=true
+          deleteTenantMutation.mutate({
+            tenantId: variables.tenantId,
+            force: true
+          });
+        }
+      } else {
+        ModalManager.apiError(error);
+      }
     },
   });
 
@@ -126,10 +151,10 @@ export default function TenantsPage() {
   };
 
   const handleDelete = (tenant: Tenant) => {
-    SweetAlert.confirm(
+    ModalManager.confirm(
       `Are you sure you want to delete "${tenant.displayName}"?`,
       'This will remove the tenant and unassign all users. This action cannot be undone.',
-      () => deleteTenantMutation.mutate(tenant.id)
+      () => deleteTenantMutation.mutate({ tenantId: tenant.id })
     );
   };
 
@@ -188,7 +213,7 @@ export default function TenantsPage() {
           value={formatBytes(tenants?.reduce((acc: number, t: Tenant) => acc + (t.currentStorageBytes || 0), 0) || 0)}
           icon={HardDrive}
           description="Across all tenants"
-          color="blue-light"
+          color="warning"
         />
 
         <MetricCard
@@ -196,7 +221,7 @@ export default function TenantsPage() {
           value={tenants?.reduce((acc: number, t: Tenant) => acc + (t.currentBuckets || 0), 0) || 0}
           icon={Database}
           description="Across all tenants"
-          color="warning"
+          color="blue-light"
         />
       </div>
 

@@ -264,27 +264,27 @@ export default function AboutPage() {
               </h3>
               <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
                 <li className="flex items-center">
-                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
                   Go 1.25+
                 </li>
                 <li className="flex items-center">
-                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
                   Gorilla Mux (Routing)
                 </li>
                 <li className="flex items-center">
-                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
                   BadgerDB v4 (Object Metadata)
                 </li>
                 <li className="flex items-center">
-                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
                   SQLite (Authentication, Audit & Cluster)
                 </li>
                 <li className="flex items-center">
-                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
                   Filesystem Storage Backend
                 </li>
                 <li className="flex items-center">
-                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
                   Logrus (Structured Logging)
                 </li>
               </ul>
@@ -296,27 +296,27 @@ export default function AboutPage() {
               </h3>
               <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
                 <li className="flex items-center">
-                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
                   React 19 + TypeScript
                 </li>
                 <li className="flex items-center">
-                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
                   Vite 7 (Build Tool)
                 </li>
                 <li className="flex items-center">
-                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
                   TailwindCSS 4 (Oxide Engine)
                 </li>
                 <li className="flex items-center">
-                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
                   TanStack Query v5 (React Query)
                 </li>
                 <li className="flex items-center">
-                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
                   React Router v7
                 </li>
                 <li className="flex items-center">
-                  <span className="w-2 h-2 bg-brand-600 rounded-full mr-3"></span>
+                  <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
                   Vitest 4 (Testing Framework)
                 </li>
               </ul>
@@ -408,8 +408,8 @@ function FeatureCard({ icon: Icon, title, description }: FeatureCardProps) {
   return (
     <div className="flex flex-col">
       <div className="flex items-center space-x-3 mb-2">
-        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-brand-100 dark:bg-brand-900/30">
-          <Icon className="h-4 w-4 text-brand-600 dark:text-brand-400" />
+        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gray-100 dark:bg-gray-700/50">
+          <Icon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
         </div>
         <h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3>
       </div>

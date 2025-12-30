@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Loading } from '@/components/ui/Loading';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager from '@/lib/modals';
 import {
   ArrowLeft,
   User as UserIcon,
@@ -115,10 +115,10 @@ export default function UserDetailsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user', userId] });
       setIsEditUserModalOpen(false);
-      SweetAlert.toast('success', 'User updated successfully');
+      ModalManager.toast('success', 'User updated successfully');
     },
     onError: (error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -134,10 +134,10 @@ export default function UserDetailsPage() {
       setCreatedKey(response);
       setIsCreateKeyModalOpen(false);
       setNewKeyName('');
-      SweetAlert.toast('success', 'Access key created successfully');
+      ModalManager.toast('success', 'Access key created successfully');
     },
     onError: (error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -145,7 +145,7 @@ export default function UserDetailsPage() {
   const deleteAccessKeyMutation = useMutation({
     mutationFn: (keyId: string) => APIClient.deleteAccessKey(userId, keyId),
     onSuccess: async (_, keyId) => {
-      SweetAlert.close();
+      ModalManager.close();
 
       // Update cache immediately for this user's keys
       queryClient.setQueryData(['accessKeys', userId], (oldData: AccessKey[] | undefined) => {
@@ -169,11 +169,11 @@ export default function UserDetailsPage() {
         queryClient.refetchQueries({ queryKey: ['accessKeys'] }),
       ]);
 
-      SweetAlert.toast('success', 'Access key deleted successfully');
+      ModalManager.toast('success', 'Access key deleted successfully');
     },
     onError: (error) => {
-      SweetAlert.close();
-      SweetAlert.apiError(error);
+      ModalManager.close();
+      ModalManager.apiError(error);
     },
   });
 
@@ -184,10 +184,10 @@ export default function UserDetailsPage() {
     onSuccess: () => {
       setIsChangePasswordOpen(false);
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-      SweetAlert.toast('success', 'Password changed successfully');
+      ModalManager.toast('success', 'Password changed successfully');
     },
     onError: (error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -232,7 +232,7 @@ export default function UserDetailsPage() {
 
     // Validate: Cannot remove last admin from tenant
     if (isLastAdminInTenant()) {
-      SweetAlert.error(
+      ModalManager.error(
         'Cannot Remove Admin Role',
         'Every tenant must have at least one admin. This is the last admin in the tenant.'
       );
@@ -249,7 +249,7 @@ export default function UserDetailsPage() {
 
   const handleDeleteAccessKey = async (keyId: string, keyDescription: string) => {
     try {
-      const result = await SweetAlert.fire({
+      const result = await ModalManager.fire({
         icon: 'warning',
         title: 'Delete access key?',
         html: `<p>You are about to delete the access key <strong>"${keyDescription}"</strong></p>
@@ -261,20 +261,20 @@ export default function UserDetailsPage() {
       });
 
       if (result.isConfirmed) {
-        SweetAlert.loading('Deleting access key...', `Deleting "${keyDescription}"`);
+        ModalManager.loading('Deleting access key...', `Deleting "${keyDescription}"`);
         deleteAccessKeyMutation.mutate(keyId);
       }
     } catch (error) {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     }
   };
 
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      SweetAlert.toast('success', 'Copied to clipboard');
+      ModalManager.toast('success', 'Copied to clipboard');
     } catch (err) {
-      SweetAlert.toast('error', err.message);
+      ModalManager.toast('error', err.message);
     }
   };
 
@@ -289,7 +289,7 @@ export default function UserDetailsPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    SweetAlert.toast('success', 'CSV downloaded successfully');
+    ModalManager.toast('success', 'CSV downloaded successfully');
   };
 
   const handleChangePassword = () => {
@@ -297,22 +297,22 @@ export default function UserDetailsPage() {
     const isAdminChangingOtherUser = isCurrentUserAdmin && !isEditingSelf;
     
     if (!isAdminChangingOtherUser && !passwordForm.currentPassword) {
-      SweetAlert.toast('error', 'Current password is required');
+      ModalManager.toast('error', 'Current password is required');
       return;
     }
 
     if (!passwordForm.newPassword || !passwordForm.confirmPassword) {
-      SweetAlert.toast('error', 'New password fields are required');
+      ModalManager.toast('error', 'New password fields are required');
       return;
     }
 
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      SweetAlert.toast('error', 'New passwords do not match');
+      ModalManager.toast('error', 'New passwords do not match');
       return;
     }
 
     if (passwordForm.newPassword.length < 6) {
-      SweetAlert.toast('error', 'Password must be at least 6 characters');
+      ModalManager.toast('error', 'Password must be at least 6 characters');
       return;
     }
 
@@ -337,14 +337,14 @@ export default function UserDetailsPage() {
     setDisabling2FA(true);
     try {
       await APIClient.disable2FA(userId);
-      await SweetAlert.success(
+      await ModalManager.success(
         '2FA Disabled',
         'Two-factor authentication has been disabled for this user.'
       );
       setShowDisable2FAModal(false);
       refetch2FAStatus();
     } catch (error: any) {
-      await SweetAlert.apiError(error);
+      await ModalManager.apiError(error);
     } finally {
       setDisabling2FA(false);
     }
@@ -352,7 +352,7 @@ export default function UserDetailsPage() {
 
   const handleRegenerateBackupCodes = async () => {
     try {
-      const result = await SweetAlert.confirm(
+      const result = await ModalManager.confirm(
         'Regenerate Backup Codes',
         'This will invalidate all existing backup codes and generate new ones. Continue?',
         undefined,
@@ -363,21 +363,21 @@ export default function UserDetailsPage() {
       );
 
       if (result.isConfirmed) {
-        SweetAlert.loading('Regenerating...', 'Generating new backup codes');
+        ModalManager.loading('Regenerating...', 'Generating new backup codes');
         const data = await APIClient.regenerateBackupCodes();
-        SweetAlert.close();
+        ModalManager.close();
 
         setBackupCodes(data.backup_codes);
         setShowBackupCodesModal(true);
 
-        await SweetAlert.success(
+        await ModalManager.success(
           'Backup Codes Regenerated',
           'Your new backup codes are ready. Please save them in a secure location.'
         );
       }
     } catch (error: any) {
-      SweetAlert.close();
-      await SweetAlert.apiError(error);
+      ModalManager.close();
+      await ModalManager.apiError(error);
     }
   };
 
@@ -510,8 +510,8 @@ export default function UserDetailsPage() {
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Email</p>
               <h3 className="text-lg font-bold text-gray-900 dark:text-white break-all">{userData.email || 'Not provided'}</h3>
             </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-50 dark:bg-blue-900/30">
-              <Mail className="h-7 w-7 text-blue-600 dark:text-blue-400" />
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-gray-100 dark:bg-gray-700/50">
+              <Mail className="h-7 w-7 text-gray-600 dark:text-gray-400" />
             </div>
           </div>
         </div>
@@ -526,7 +526,7 @@ export default function UserDetailsPage() {
                   userData.roles.map((role: string) => (
                     <span
                       key={role}
-                      className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400 border border-blue-200 dark:border-blue-800"
+                      className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-700/50 text-gray-800 dark:text-gray-300 border border-gray-300 dark:border-gray-600"
                     >
                       {role}
                     </span>
@@ -536,8 +536,8 @@ export default function UserDetailsPage() {
                 )}
               </div>
             </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-purple-50 dark:bg-purple-900/30">
-              <Shield className="h-7 w-7 text-purple-600 dark:text-purple-400" />
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-gray-100 dark:bg-gray-700/50">
+              <Shield className="h-7 w-7 text-gray-600 dark:text-gray-400" />
             </div>
           </div>
         </div>

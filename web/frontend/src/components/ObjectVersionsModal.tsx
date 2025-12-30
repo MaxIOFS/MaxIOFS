@@ -13,7 +13,7 @@ import {
 import { Download as DownloadIcon, Trash2 as Trash2Icon, RotateCcw as RotateCcwIcon } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager from '@/lib/modals';
 
 interface ObjectVersionsModalProps {
   isOpen: boolean;
@@ -51,15 +51,15 @@ export function ObjectVersionsModal({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['objectVersions', bucketName, objectKey] });
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
-      SweetAlert.toast('success', 'Version deleted successfully');
+      ModalManager.toast('success', 'Version deleted successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
   const handleDeleteVersion = async (versionId: string, isDeleteMarker: boolean, isLatest: boolean) => {
-    const result = await SweetAlert.fire({
+    const result = await ModalManager.fire({
       icon: 'warning',
       title: `Delete ${isDeleteMarker ? 'Delete Marker' : 'Version'}?`,
       html: isDeleteMarker
@@ -80,7 +80,7 @@ export function ObjectVersionsModal({
 
   const handleDownloadVersion = async (versionId: string) => {
     try {
-      SweetAlert.loading('Downloading version...', `Downloading version ${versionId}`);
+      ModalManager.loading('Downloading version...', `Downloading version ${versionId}`);
 
       const blob = await APIClient.downloadObject({
         bucket: bucketName,
@@ -89,7 +89,7 @@ export function ObjectVersionsModal({
         versionId,
       });
 
-      SweetAlert.close();
+      ModalManager.close();
 
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -100,10 +100,10 @@ export function ObjectVersionsModal({
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
-      SweetAlert.toast('success', 'Version downloaded successfully');
+      ModalManager.toast('success', 'Version downloaded successfully');
     } catch (error: any) {
-      SweetAlert.close();
-      SweetAlert.apiError(error);
+      ModalManager.close();
+      ModalManager.apiError(error);
     }
   };
 

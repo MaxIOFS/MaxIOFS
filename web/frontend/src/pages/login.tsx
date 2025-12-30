@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react';
 import APIClient from '@/lib/api';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager from '@/lib/modals';
 import { TwoFactorInput } from '@/components/TwoFactorInput';
 import { useQuery } from '@tanstack/react-query';
 import type { ServerConfig } from '@/types';
@@ -33,14 +33,14 @@ export default function LoginPage() {
 
     try {
       // Show loading indicator
-      SweetAlert.loading('Signing in...', 'Verifying credentials');
+      ModalManager.loading('Signing in...', 'Verifying credentials');
 
       const response = await APIClient.login({
         username: formData.username,
         password: formData.password,
       });
 
-      SweetAlert.close();
+      ModalManager.close();
 
       // Check if 2FA is required
       if (response.requires_2fa && response.user_id) {
@@ -52,26 +52,26 @@ export default function LoginPage() {
 
       if (response.success && response.token) {
         // Show welcome message (don't await - let it show while redirecting)
-        SweetAlert.successLogin(formData.username);
+        ModalManager.successLogin(formData.username);
 
         // Redirect to dashboard using hard redirect to ensure auth state is initialized
         // Use BASE_PATH from window (injected by backend based on public_console_url)
         const basePath = (window as any).BASE_PATH || '/';
         window.location.href = basePath;
       } else {
-        await SweetAlert.error('Authentication error', response.error || 'Invalid credentials');
+        await ModalManager.error('Authentication error', response.error || 'Invalid credentials');
         setError(response.error || 'Login failed');
       }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
-      SweetAlert.close();
+      ModalManager.close();
 
       // Handle 401 specifically for login - invalid credentials
       if (err.response?.status === 401 || err.message?.includes('401')) {
-        await SweetAlert.error('Invalid Credentials', 'Username or password is incorrect. Please try again.');
+        await ModalManager.error('Invalid Credentials', 'Username or password is incorrect. Please try again.');
         setError('Username or password is incorrect');
       } else {
-        await SweetAlert.apiError(err);
+        await ModalManager.apiError(err);
         setError(err.message || 'Failed to login. Please check your credentials.');
       }
     } finally {
@@ -86,15 +86,15 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      SweetAlert.loading('Verifying...', 'Checking 2FA code');
+      ModalManager.loading('Verifying...', 'Checking 2FA code');
 
       const response = await APIClient.verify2FA(userId, code);
 
-      SweetAlert.close();
+      ModalManager.close();
 
       if (response.success && response.token) {
         // Show welcome message (don't await - let it show while redirecting)
-        SweetAlert.successLogin(formData.username);
+        ModalManager.successLogin(formData.username);
 
         // Redirect to dashboard
         const basePath = (window as any).BASE_PATH || '/';
@@ -104,7 +104,7 @@ export default function LoginPage() {
       }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
-      SweetAlert.close();
+      ModalManager.close();
       setError(err.message || 'Invalid 2FA code. Please try again.');
     } finally {
       setLoading(false);
@@ -285,7 +285,12 @@ export default function LoginPage() {
 
           {/* Login Card */}
           <div className="w-full max-w-md 3xl:max-w-lg 4xl:max-w-xl mt-20 lg:mt-0">
-            <div className="bg-white dark:bg-gray-900 rounded-[2rem] shadow-2xl p-8 sm:p-10 border border-gray-200 dark:border-gray-800">
+            <div className="relative bg-white/95 dark:bg-gray-900/90 backdrop-blur-xl rounded-[2rem] shadow-2xl p-8 sm:p-10 border border-white/20 dark:border-white/10">
+              {/* Gradient overlay for dark mode */}
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-purple-500/5 to-indigo-500/5 dark:from-blue-400/10 dark:via-purple-400/10 dark:to-indigo-400/10 rounded-[2rem] pointer-events-none" />
+
+              {/* Content wrapper */}
+              <div className="relative z-10">
               {/* Show 2FA Input if required */}
               {show2FA ? (
                 <TwoFactorInput
@@ -298,10 +303,10 @@ export default function LoginPage() {
                 <>
                   {/* Header */}
                   <div className="text-center">
-                    <h1 className="text-4xl font-light text-gray-900 dark:text-white mb-2">
+                    <h1 className="text-4xl font-light text-gray-900 dark:text-white mb-2 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-blue-100 dark:to-white bg-clip-text text-transparent">
                       Web Console
                     </h1>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
                       Sign in to access your object storage
                     </p>
                   </div>
@@ -309,8 +314,8 @@ export default function LoginPage() {
                   {/* Login Form */}
                   <form onSubmit={handleSubmit} className="space-y-6 mt-8">
                     {error && (
-                      <div className="rounded-lg bg-red-50 dark:bg-red-900/20 p-4 border-l-4 border-red-500">
-                        <div className="text-sm text-red-800 dark:text-red-200">{error}</div>
+                      <div className="rounded-lg bg-red-50 dark:bg-red-500/10 p-4 border-l-4 border-red-500 dark:border-red-400 backdrop-blur-sm">
+                        <div className="text-sm text-red-800 dark:text-red-200 font-medium">{error}</div>
                       </div>
                     )}
 
@@ -333,7 +338,7 @@ export default function LoginPage() {
                           name="username"
                           type="text"
                           required
-                          className="peer w-full pl-8 pr-4 py-3 pt-6 pb-2 border-b-2 border-gray-300 dark:border-gray-600 bg-transparent text-gray-900 dark:text-white placeholder-transparent focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 transition-colors duration-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+                          className="peer w-full pl-8 pr-4 py-3 pt-6 pb-2 border-b-2 border-gray-300 dark:border-gray-500 bg-transparent text-gray-900 dark:text-white placeholder-transparent focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 transition-colors duration-200 hover:bg-gray-50 dark:hover:bg-white/5"
                           placeholder="Username"
                           value={formData.username}
                           onChange={handleChange}
@@ -374,7 +379,7 @@ export default function LoginPage() {
                           name="password"
                           type="password"
                           required
-                          className="peer w-full pl-8 pr-4 py-3 pt-6 pb-2 border-b-2 border-gray-300 dark:border-gray-600 bg-transparent text-gray-900 dark:text-white placeholder-transparent focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 transition-colors duration-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+                          className="peer w-full pl-8 pr-4 py-3 pt-6 pb-2 border-b-2 border-gray-300 dark:border-gray-500 bg-transparent text-gray-900 dark:text-white placeholder-transparent focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 transition-colors duration-200 hover:bg-gray-50 dark:hover:bg-white/5"
                           placeholder="Password"
                           value={formData.password}
                           onChange={handleChange}
@@ -401,7 +406,7 @@ export default function LoginPage() {
                       <button
                         type="submit"
                         disabled={loading}
-                        className="w-full py-3 px-6 rounded-full text-lg font-medium text-white bg-blue-600 dark:bg-blue-500 border-2 border-blue-600 dark:border-blue-500 hover:bg-white dark:hover:bg-gray-900 hover:text-blue-600 dark:hover:text-blue-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300"
+                        className="w-full py-3 px-6 rounded-full text-lg font-medium text-white bg-gradient-to-r from-blue-600 to-blue-700 dark:from-blue-500 dark:to-blue-600 border-2 border-blue-600 dark:border-blue-400 hover:from-white hover:to-white dark:hover:from-gray-800 dark:hover:to-gray-900 hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:shadow-xl"
                       >
                         {loading ? (
                           <span className="flex items-center justify-center">
@@ -419,18 +424,19 @@ export default function LoginPage() {
                   </form>
 
                   {/* Footer */}
-                  <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+                  <div className="mt-8 pt-6 border-t border-gray-200 dark:border-white/10">
                     <div className="text-center">
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                      <p className="text-xs text-gray-500 dark:text-gray-300">
                         © {new Date().getFullYear()} MaxIOFS. All rights reserved.
                       </p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                      <p className="text-xs text-gray-400 dark:text-gray-400 mt-1">
                         High-Performance Object Storage Solution
                       </p>
                     </div>
                   </div>
                 </>
               )}
+              </div>
             </div>
           </div>
         </div>

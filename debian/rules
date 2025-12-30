@@ -48,8 +48,8 @@ override_dh_auto_install:
 	# Install binary
 	install -m 0755 build/maxiofs debian/maxiofs/opt/maxiofs/maxiofs
 
-	# Install config
-	install -m 0644 config.example.yaml debian/maxiofs/etc/maxiofs/config.yaml
+	# Install config example (actual config created in postinst)
+	install -m 0644 config.example.yaml debian/maxiofs/etc/maxiofs/config.example.yaml
 
 	# Install logrotate config
 	install -m 0644 debian/maxiofs.logrotate debian/maxiofs/etc/logrotate.d/maxiofs

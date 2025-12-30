@@ -1,14 +1,15 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Loading } from '@/components/ui/Loading';
 import { MetricCard } from '@/components/ui/MetricCard';
-import { Database, FolderOpen, Users, Activity, HardDrive, TrendingUp, ArrowUpRight, Shield } from 'lucide-react';
+import { Database, FolderOpen, Users, Activity, HardDrive, TrendingUp, ArrowUpRight, Shield, AlertCircle, CheckCircle2, BarChart3 } from 'lucide-react';
 import { formatBytes } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip } from 'recharts';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -17,6 +18,7 @@ export default function Dashboard() {
   // Get base path from window (injected by backend based on public_console_url)
   const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
 
+  // Queries already filtered by tenant on backend
   const { data: metrics, isLoading: metricsLoading } = useQuery({
     queryKey: ['metrics'],
     queryFn: APIClient.getStorageMetrics,
@@ -49,15 +51,49 @@ export default function Dashboard() {
     refetchOnWindowFocus: false,
   });
 
+  const { data: systemMetrics } = useQuery({
+    queryKey: ['systemMetrics'],
+    queryFn: APIClient.getSystemMetrics,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: false,
+  });
+
   const isLoading = metricsLoading || bucketsLoading || usersLoading;
 
+  // Data is already tenant-filtered by backend
   const buckets = bucketsResponse || [];
   const users = usersResponse || [];
   const totalBuckets = buckets.length;
-  const totalObjects = buckets.reduce((sum, bucket) => sum + (bucket.object_count || 0), 0);
-  const totalSize = buckets.reduce((sum, bucket) => sum + (bucket.size || 0), 0);
-  const activeUsers = users.filter(u => u.status === 'active').length;
-  
+  const totalObjects = buckets.reduce((sum: number, bucket: any) => sum + (bucket.object_count || 0), 0);
+  const totalSize = buckets.reduce((sum: number, bucket: any) => sum + (bucket.size || 0), 0);
+  const activeUsers = users.filter((u: any) => u.status === 'active').length;
+
+  // Prepare chart data (respects tenant filtering from backend)
+  const storageDistribution = useMemo(() => {
+    return buckets
+      .filter((b: any) => b.size > 0)
+      .sort((a: any, b: any) => b.size - a.size)
+      .slice(0, 5)
+      .map((bucket: any) => ({
+        name: bucket.name,
+        value: bucket.size,
+        percentage: ((bucket.size / totalSize) * 100).toFixed(1),
+      }));
+  }, [buckets, totalSize]);
+
+  const topBuckets = useMemo(() => {
+    return buckets
+      .sort((a: any, b: any) => b.size - a.size)
+      .slice(0, 5)
+      .map((bucket: any) => ({
+        name: bucket.name.length > 15 ? bucket.name.substring(0, 15) + '...' : bucket.name,
+        size: bucket.size,
+        objects: bucket.object_count || 0,
+      }));
+  }, [buckets]);
+
+  const COLORS = ['#4F46E5', '#06B6D4', '#8B5CF6', '#F59E0B', '#EF4444'];
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -66,26 +102,38 @@ export default function Dashboard() {
     );
   }
 
+  // Calculate metrics
+  const encryptedBucketsCount = buckets.filter((b: any) => b.encryption).length;
+  const encryptedPercentage = totalBuckets > 0 ? ((encryptedBucketsCount / totalBuckets) * 100).toFixed(0) : 0;
+
+  // Calculate real storage percentage based on disk size
+  const diskTotal = systemMetrics?.diskTotalBytes || 0;
+  const storagePercentage = diskTotal > 0 ? ((totalSize / diskTotal) * 100) : 0;
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Welcome to MaxIOFS Object Storage Console</p>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">
+            Dashboard
+          </h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {isGlobalAdmin ? 'System-wide overview' : 'Your storage overview'}
+          </p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={() => navigate('/buckets')}
-            className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white"
+            className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white shadow-sm"
           >
             <Database className="h-4 w-4 mr-2" />
             View Buckets
           </Button>
-          <Button 
+          <Button
             onClick={() => navigate('/buckets/create')}
-            className="bg-brand-600 hover:bg-brand-700 text-white"
+            className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md hover:shadow-lg transition-all duration-200"
           >
             <FolderOpen className="h-4 w-4 mr-2" />
             Create Bucket
@@ -94,7 +142,7 @@ export default function Dashboard() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 4xl:grid-cols-4 5xl:grid-cols-5 gap-4 md:gap-6 4xl:gap-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 4xl:grid-cols-4 5xl:grid-cols-5 6xl:grid-cols-6 gap-4 md:gap-6 4xl:gap-8">
         <MetricCard
           title="Total Buckets"
           value={totalBuckets}
@@ -115,7 +163,7 @@ export default function Dashboard() {
           title="Storage Used"
           value={formatBytes(totalSize)}
           icon={HardDrive}
-          description="Total storage consumption"
+          description={`of ${formatBytes(diskTotal)}`}
           color="warning"
         />
 
@@ -137,135 +185,305 @@ export default function Dashboard() {
 
         <MetricCard
           title="Encrypted Buckets"
-          value={buckets.filter(b => b.encryption).length}
+          value={encryptedBucketsCount}
           icon={Shield}
           description={`Out of ${totalBuckets} total buckets`}
           color="warning"
         />
       </div>
 
+      {/* Charts and Analytics - Only show if there's data */}
+      {(storageDistribution.length > 0 || topBuckets.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Storage Distribution Pie Chart */}
+          {storageDistribution.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                    <BarChart3 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  Storage Distribution
+                </CardTitle>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Top 5 buckets by size</p>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                  <div className="w-full md:w-1/2">
+                    <ResponsiveContainer width="100%" height={200}>
+                      <PieChart>
+                        <Pie
+                          data={storageDistribution}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          {storageDistribution.map((entry: any, index: number) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip
+                          formatter={(value: any) => formatBytes(value)}
+                          contentStyle={{
+                            backgroundColor: document.documentElement.classList.contains('dark')
+                              ? 'rgba(31, 41, 55, 0.95)'
+                              : 'rgba(255, 255, 255, 0.95)',
+                            border: document.documentElement.classList.contains('dark')
+                              ? '1px solid rgba(75, 85, 99, 0.5)'
+                              : '1px solid #e5e7eb',
+                            borderRadius: '8px',
+                            padding: '8px 12px',
+                            color: document.documentElement.classList.contains('dark') ? '#f9fafb' : '#1f2937'
+                          }}
+                          itemStyle={{
+                            color: document.documentElement.classList.contains('dark') ? '#f9fafb' : '#1f2937'
+                          }}
+                          labelStyle={{
+                            color: document.documentElement.classList.contains('dark') ? '#f9fafb' : '#1f2937'
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="w-full md:w-1/2 space-y-2">
+                    {storageDistribution.map((item: any, index: number) => (
+                      <div key={index} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <div
+                            className="w-3 h-3 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                          />
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">{item.name}</span>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white">{formatBytes(item.value)}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{item.percentage}%</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Top Buckets Bar Chart */}
+          {topBuckets.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-lg">
+                    <Database className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+                  </div>
+                  Top Buckets
+                </CardTitle>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Largest buckets by storage</p>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={topBuckets} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke={document.documentElement.classList.contains('dark') ? '#4b5563' : '#e5e7eb'}
+                      opacity={0.3}
+                    />
+                    <XAxis
+                      dataKey="name"
+                      tick={{
+                        fontSize: 12,
+                        fill: document.documentElement.classList.contains('dark') ? '#d1d5db' : '#6b7280'
+                      }}
+                      angle={-15}
+                      textAnchor="end"
+                      height={60}
+                    />
+                    <YAxis
+                      tick={{
+                        fontSize: 12,
+                        fill: document.documentElement.classList.contains('dark') ? '#d1d5db' : '#6b7280'
+                      }}
+                      tickFormatter={(value) => formatBytes(value)}
+                    />
+                    <RechartsTooltip
+                      formatter={(value: any, name: string) => {
+                        if (name === 'size') return formatBytes(value);
+                        return value.toLocaleString();
+                      }}
+                      labelFormatter={(label) => `Bucket: ${label}`}
+                      contentStyle={{
+                        backgroundColor: document.documentElement.classList.contains('dark')
+                          ? 'rgba(31, 41, 55, 0.95)'
+                          : 'rgba(255, 255, 255, 0.95)',
+                        border: document.documentElement.classList.contains('dark')
+                          ? '1px solid rgba(75, 85, 99, 0.5)'
+                          : '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        color: document.documentElement.classList.contains('dark') ? '#f9fafb' : '#1f2937'
+                      }}
+                      itemStyle={{
+                        color: document.documentElement.classList.contains('dark') ? '#f9fafb' : '#1f2937'
+                      }}
+                      labelStyle={{
+                        color: document.documentElement.classList.contains('dark') ? '#f9fafb' : '#1f2937'
+                      }}
+                    />
+                    <Bar dataKey="size" fill="url(#colorGradient)" radius={[8, 8, 0, 0]} />
+                    <defs>
+                      <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#06B6D4" stopOpacity={0.9}/>
+                        <stop offset="100%" stopColor="#0891B2" stopOpacity={0.7}/>
+                      </linearGradient>
+                    </defs>
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
       {/* Quick Actions and Recent Buckets */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 4xl:grid-cols-3 gap-6 4xl:gap-8">
-        {/* Quick Actions Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card hover:shadow-card-hover transition-all duration-300 overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Quick Actions</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Quick Actions Card - Enhanced */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
+          <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-800">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <div className="p-2 bg-brand-100 dark:bg-brand-900/30 rounded-lg">
+                <Activity className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+              </div>
+              Quick Actions
+            </h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Common tasks and shortcuts</p>
           </div>
           <div className="p-6">
             <div className="space-y-3">
               <button
                 onClick={() => navigate('/buckets')}
-                className="w-full flex items-center justify-between px-4 py-3.5 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-button transition-all duration-200 text-left group shadow-soft hover:shadow-soft-md"
+                className="w-full flex items-center justify-between px-4 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 hover:from-blue-100 hover:to-indigo-100 dark:hover:from-blue-900/40 dark:hover:to-indigo-900/40 rounded-xl transition-all duration-200 text-left group border border-blue-100 dark:border-blue-900/50 shadow-sm hover:shadow-md"
               >
                 <div className="flex items-center space-x-3">
-                  <div className="flex items-center justify-center w-10 h-10 rounded-button bg-brand-100 dark:bg-brand-900/30">
-                    <Database className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+                  <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg">
+                    <Database className="h-6 w-6 text-white" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">Create New Bucket</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white">Create New Bucket</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">Set up a new storage container</p>
                   </div>
                 </div>
-                <ArrowUpRight className="h-5 w-5 text-gray-400 dark:text-gray-500 group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors" />
+                <ArrowUpRight className="h-5 w-5 text-gray-400 dark:text-gray-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-200" />
               </button>
 
               <button
                 onClick={() => navigate('/users')}
-                className="w-full flex items-center justify-between px-4 py-3.5 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-button transition-all duration-200 text-left group shadow-soft hover:shadow-soft-md"
+                className="w-full flex items-center justify-between px-4 py-4 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 hover:from-green-100 hover:to-emerald-100 dark:hover:from-green-900/40 dark:hover:to-emerald-900/40 rounded-xl transition-all duration-200 text-left group border border-green-100 dark:border-green-900/50 shadow-sm hover:shadow-md"
               >
                 <div className="flex items-center space-x-3">
-                  <div className="flex items-center justify-center w-10 h-10 rounded-button bg-success-100 dark:bg-success-900/30">
-                    <Users className="h-5 w-5 text-success-600 dark:text-success-400" />
+                  <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 shadow-lg">
+                    <Users className="h-6 w-6 text-white" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">Manage Users</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white">Manage Users</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">Add or edit user accounts</p>
                   </div>
                 </div>
-                <ArrowUpRight className="h-5 w-5 text-gray-400 dark:text-gray-500 group-hover:text-success-600 dark:group-hover:text-success-400 transition-colors" />
+                <ArrowUpRight className="h-5 w-5 text-gray-400 dark:text-gray-500 group-hover:text-green-600 dark:group-hover:text-green-400 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-200" />
               </button>
 
               {isGlobalAdmin && (
                 <button
                   onClick={() => navigate('/metrics')}
-                  className="w-full flex items-center justify-between px-4 py-3.5 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-button transition-all duration-200 text-left group shadow-soft hover:shadow-soft-md"
+                  className="w-full flex items-center justify-between px-4 py-4 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 hover:from-amber-100 hover:to-orange-100 dark:hover:from-amber-900/40 dark:hover:to-orange-900/40 rounded-xl transition-all duration-200 text-left group border border-amber-100 dark:border-amber-900/50 shadow-sm hover:shadow-md"
                 >
                   <div className="flex items-center space-x-3">
-                    <div className="flex items-center justify-center w-10 h-10 rounded-button bg-orange-100 dark:bg-orange-900/30">
-                      <Activity className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                    <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg">
+                      <Activity className="h-6 w-6 text-white" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">View Metrics</p>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white">View Metrics</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">Check system statistics</p>
                     </div>
                   </div>
-                  <ArrowUpRight className="h-5 w-5 text-gray-400 dark:text-gray-500 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors" />
+                  <ArrowUpRight className="h-5 w-5 text-gray-400 dark:text-gray-500 group-hover:text-amber-600 dark:group-hover:text-amber-400 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-200" />
                 </button>
               )}
             </div>
           </div>
         </div>
 
-        {/* Recent Buckets Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card hover:shadow-card-hover transition-all duration-300 overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Buckets</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Your latest storage containers</p>
+        {/* Recent Buckets Card - Enhanced */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
+          <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-800">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-lg">
+                <Database className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+              </div>
+              Recent Buckets
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Latest storage containers</p>
           </div>
           <div className="p-6">
             {buckets.length === 0 ? (
               <div className="text-center py-8">
-                <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-gray-100 dark:bg-gray-700 mb-4">
-                  <Database className="h-8 w-8 text-gray-400 dark:text-gray-500" />
+                <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 mb-4 shadow-inner">
+                  <Database className="h-10 w-10 text-gray-400 dark:text-gray-500" />
                 </div>
-                <p className="text-sm font-medium text-gray-900 dark:text-white mb-1">No buckets yet</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">Create your first bucket to get started</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">No buckets yet</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-5">Create your first bucket to get started</p>
                 <Button
                   size="sm"
                   onClick={() => navigate('/buckets')}
-                  className="bg-brand-600 hover:bg-brand-700 text-white"
+                  className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md"
                 >
+                  <FolderOpen className="h-4 w-4 mr-2" />
                   Create Bucket
                 </Button>
               </div>
             ) : (
               <div className="space-y-2">
                 {buckets
-                  .sort((a, b) => new Date(b.creation_date).getTime() - new Date(a.creation_date).getTime())
+                  .sort((a: any, b: any) => new Date(b.creation_date).getTime() - new Date(a.creation_date).getTime())
                   .slice(0, 3)
-                  .map((bucket) => {
-                    // Construir la URL correcta basada en si el bucket tiene tenant_id
+                  .map((bucket: any) => {
                     const tenantId = bucket.tenant_id || bucket.tenantId;
                     const bucketPath = tenantId
                       ? `/buckets/${tenantId}/${bucket.name}`
                       : `/buckets/${bucket.name}`;
-                    
+
                     return (
                       <div
                         key={bucket.name}
-                        className="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-button cursor-pointer transition-all duration-200 group shadow-soft hover:shadow-soft-md"
+                        className="flex items-center justify-between p-4 hover:bg-gradient-to-r hover:from-gray-50 hover:to-blue-50 dark:hover:from-gray-700 dark:hover:to-blue-950/30 rounded-xl cursor-pointer transition-all duration-200 group border border-transparent hover:border-blue-100 dark:hover:border-blue-900/50 hover:shadow-sm"
                         onClick={() => navigate(bucketPath)}
                       >
                         <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <div className="flex items-center justify-center w-10 h-10 rounded-button bg-brand-50 dark:bg-brand-900/30 flex-shrink-0">
-                            <Database className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+                          <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-md group-hover:shadow-lg transition-shadow duration-200 flex-shrink-0">
+                            <Database className="h-6 w-6 text-white" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{bucket.name}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                              {bucket.object_count || 0} objects · {formatBytes(bucket.size || 0)}
-                            </p>
+                            <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{bucket.name}</p>
+                            <div className="flex items-center gap-3 mt-1">
+                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                                {bucket.object_count || 0} objects
+                              </span>
+                              <span className="text-xs text-gray-400 dark:text-gray-500">•</span>
+                              <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                                {formatBytes(bucket.size || 0)}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                        <ArrowUpRight className="h-4 w-4 text-gray-400 dark:text-gray-500 group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors flex-shrink-0" />
+                        <ArrowUpRight className="h-5 w-5 text-gray-400 dark:text-gray-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-200 flex-shrink-0" />
                       </div>
                     );
                   })}
                 {buckets.length > 3 && (
                   <button
                     onClick={() => navigate('/buckets')}
-                    className="w-full mt-4 text-center text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium py-2"
+                    className="w-full mt-4 text-center text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-semibold py-3 rounded-lg hover:bg-brand-50 dark:hover:bg-brand-950/30 transition-all duration-200"
                   >
                     View all {buckets.length} buckets →
                   </button>

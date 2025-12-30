@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { render } from '@/test/utils/test-utils';
 import UsersPage from '@/pages/users/index';
 import { APIClient } from '@/lib/api';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager from '@/lib/modals';
 
 // Mock API Client
 vi.mock('@/lib/api', () => ({
@@ -17,8 +17,8 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-// Mock SweetAlert
-vi.mock('@/lib/sweetalert', () => ({
+// Mock ModalManager
+vi.mock('@/lib/modals', () => ({
   default: {
     confirmDelete: vi.fn(),
     success: vi.fn(),
@@ -106,7 +106,7 @@ describe('Users Page', () => {
     vi.mocked(APIClient.getUsers).mockResolvedValue(mockUsers);
     vi.mocked(APIClient.getAccessKeys).mockResolvedValue([]);
     vi.mocked(APIClient.getTenants).mockResolvedValue(mockTenants);
-    vi.mocked(SweetAlert.confirmDelete).mockResolvedValue({ isConfirmed: true, isDenied: false, isDismissed: false });
+    vi.mocked(ModalManager.confirmDelete).mockResolvedValue({ isConfirmed: true, isDenied: false, isDismissed: false });
   });
 
   describe('Rendering', () => {
@@ -327,7 +327,7 @@ describe('Users Page', () => {
 
     it('should not delete user if confirmation is cancelled', async () => {
       const user = userEvent.setup();
-      vi.mocked(SweetAlert.confirmDelete).mockResolvedValue({ isConfirmed: false, isDenied: false, isDismissed: true });
+      vi.mocked(ModalManager.confirmDelete).mockResolvedValue({ isConfirmed: false, isDenied: false, isDismissed: true });
 
       render(<UsersPage />);
 

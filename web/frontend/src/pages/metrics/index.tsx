@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
+import { MetricCard } from '@/components/ui/MetricCard';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import {
   BarChart3,
@@ -12,17 +12,26 @@ import {
   Zap,
   Database,
   Globe,
-  AlertCircle
+  AlertCircle,
+  Cpu,
+  MemoryStick,
+  Server,
+  FolderOpen,
+  CheckCircle,
+  XCircle,
+  ArrowUp,
+  ArrowDown,
+  Gauge,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import type { StorageMetrics, SystemMetrics, S3Metrics, LatenciesResponse, ThroughputResponse } from '@/types';
-import { MetricLineChart, MetricPieChart, TimeRangeSelector, TIME_RANGES, type TimeRange } from '@/components/charts';
+import { MetricLineChart, TimeRangeSelector, TIME_RANGES, type TimeRange } from '@/components/charts';
 
 export default function MetricsPage() {
   const navigate = useNavigate();
   const { isGlobalAdmin, user: currentUser } = useCurrentUser();
-  const [activeTab, setActiveTab] = React.useState<'system' | 'storage' | 'requests' | 'performance'>('system');
+  const [activeTab, setActiveTab] = React.useState<'overview' | 'system' | 'storage' | 'api' | 'performance'>('overview');
   const [timeRange, setTimeRange] = React.useState<TimeRange>(TIME_RANGES[0]); // Default: Real-time (5 min)
 
   // Only global admins can access metrics
@@ -85,13 +94,12 @@ export default function MetricsPage() {
       const start = end - (timeRange.hours * 3600);
 
       const metricTypeMap: Record<string, string> = {
+        overview: 'system',
         system: 'system',
         storage: 'storage',
-        requests: 's3',
+        api: 's3',
         performance: 'system',
       };
-
-      console.log(`Fetching metrics: type=${metricTypeMap[activeTab]}, start=${new Date(start * 1000).toISOString()}, end=${new Date(end * 1000).toISOString()}, range=${timeRange.label}`);
 
       const result = await APIClient.getHistoricalMetrics({
         type: metricTypeMap[activeTab],
@@ -169,7 +177,7 @@ export default function MetricsPage() {
     if (processed.length > 0 && (systemMetrics || storageMetrics || s3Metrics)) {
       const currentTimestamp = Math.floor(Date.now() / 1000);
       const lastTimestamp = processed[processed.length - 1].timestamp;
-      
+
       // Only add if current time is newer than last snapshot (avoid duplicates)
       if (currentTimestamp > lastTimestamp + 30) { // 30 seconds threshold
         processed.push({
@@ -218,28 +226,14 @@ export default function MetricsPage() {
   }
 
   const tabs = [
-    { id: 'system', label: 'System Health', icon: Activity },
-    { id: 'storage', label: 'Storage', icon: HardDrive },
-    { id: 'performance', label: 'Performance', icon: Zap },
+    { id: 'overview', label: 'Overview', icon: Gauge },
+    { id: 'system', label: 'System', icon: Server },
+    { id: 'storage', label: 'Storage', icon: Database },
+    { id: 'api', label: 'API & Requests', icon: Globe },
+    { id: 'performance', label: 'Performance', icon: Activity },
   ];
 
   const chartData = processHistoricalData();
-
-  // Stats Card Component
-  const StatCard = ({ icon: Icon, label, value, subtext, color }: any) => (
-    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <div className="flex items-center space-x-2 mb-1">
-            <Icon className={`h-4 w-4 ${color}`} />
-            <p className="text-xs font-medium text-gray-600 dark:text-gray-400">{label}</p>
-          </div>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
-          {subtext && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{subtext}</p>}
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <div className="space-y-6">
@@ -284,78 +278,151 @@ export default function MetricsPage() {
             })}
           </div>
 
-          {/* System Health Tab */}
+          {/* OVERVIEW TAB */}
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              {/* Quick Stats Grid - General Summary */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <MetricCard
+                  title="System Health"
+                  value={`${(systemMetrics.cpuUsagePercent || 0).toFixed(0)}% CPU`}
+                  icon={Server}
+                  description={`${(systemMetrics.memoryUsagePercent || 0).toFixed(0)}% Memory`}
+                  color="blue-light"
+                />
+                <MetricCard
+                  title="Total Storage"
+                  value={formatBytes(storageMetrics.totalSize || 0)}
+                  icon={Database}
+                  description={`${formatNumber(storageMetrics.totalBuckets || 0)} buckets`}
+                  color="brand"
+                />
+                <MetricCard
+                  title="Total Requests"
+                  value={formatNumber(s3Metrics.totalRequests || 0)}
+                  icon={Globe}
+                  description={`${formatNumber(s3Metrics.totalErrors || 0)} errors`}
+                  color="warning"
+                />
+                <MetricCard
+                  title="Uptime"
+                  value={formatUptime(systemMetrics.uptime || 0)}
+                  icon={Clock}
+                  description="System running"
+                  color="success"
+                />
+              </div>
+
+              {/* Charts - Combined overview */}
+              {historyLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <Loading size="lg" />
+                </div>
+              ) : chartData.length > 0 ? (
+                <div className="grid gap-6 md:grid-cols-2">
+                  <MetricLineChart
+                    data={chartData}
+                    title="System Resources Over Time"
+                    dataKeys={[
+                      { key: 'cpuUsagePercent', name: 'CPU %', color: '#3b82f6' },
+                      { key: 'memoryUsagePercent', name: 'Memory %', color: '#10b981' },
+                      { key: 'diskUsagePercent', name: 'Disk %', color: '#f59e0b' },
+                    ]}
+                    height={300}
+                    formatYAxis={(value) => `${value.toFixed(0)}%`}
+                    formatTooltip={(value) => `${value.toFixed(2)}%`}
+                    timeRange={historyData?.requestedRange}
+                  />
+                  <MetricLineChart
+                    data={chartData}
+                    title="Storage Growth Over Time"
+                    dataKeys={[
+                      { key: 'totalObjects', name: 'Objects', color: '#8b5cf6' },
+                    ]}
+                    height={300}
+                    formatYAxis={(value) => formatNumber(value)}
+                    formatTooltip={(value) => `${formatNumber(value)} objects`}
+                    timeRange={historyData?.requestedRange}
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+                  <AlertCircle className="h-12 w-12 mb-4" />
+                  <p className="text-lg font-medium">No historical data available yet</p>
+                  <p className="text-sm">Metrics will appear after the system collects data</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SYSTEM TAB */}
           {activeTab === 'system' && (
             <div className="space-y-6">
               {/* System Resources */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard
-                  icon={Activity}
-                  label="CPU Usage"
+                <MetricCard
+                  title="CPU Usage"
                   value={`${(systemMetrics.cpuUsagePercent || 0).toFixed(1)}%`}
-                  subtext={
+                  icon={Cpu}
+                  description={
                     systemMetrics.cpuCores
                       ? `${systemMetrics.cpuCores} cores @ ${(systemMetrics.cpuFrequencyMhz || 0) > 1000 ? ((systemMetrics.cpuFrequencyMhz || 0) / 1000).toFixed(2) + ' GHz' : (systemMetrics.cpuFrequencyMhz || 0).toFixed(0) + ' MHz'}`
                       : 'CPU info unavailable'
                   }
-                  color="text-blue-600 dark:text-blue-400"
+                  color="blue-light"
                 />
-                <StatCard
-                  icon={BarChart3}
-                  label="Memory"
+                <MetricCard
+                  title="Memory"
                   value={`${(systemMetrics.memoryUsagePercent || 0).toFixed(1)}%`}
-                  subtext={`${formatBytes(systemMetrics.memoryUsedBytes || 0)} / ${formatBytes(systemMetrics.memoryTotalBytes || 0)}`}
-                  color="text-green-600 dark:text-green-400"
+                  icon={MemoryStick}
+                  description={`${formatBytes(systemMetrics.memoryUsedBytes || 0)} / ${formatBytes(systemMetrics.memoryTotalBytes || 0)}`}
+                  color="success"
                 />
-                <StatCard
-                  icon={HardDrive}
-                  label="Disk Usage"
+                <MetricCard
+                  title="Disk Usage"
                   value={`${(systemMetrics.diskUsagePercent || 0).toFixed(1)}%`}
-                  subtext={`${formatBytes(systemMetrics.diskUsedBytes || 0)} / ${formatBytes(systemMetrics.diskTotalBytes || 0)}`}
-                  color="text-yellow-600 dark:text-yellow-400"
+                  icon={HardDrive}
+                  description={`${formatBytes(systemMetrics.diskUsedBytes || 0)} / ${formatBytes(systemMetrics.diskTotalBytes || 0)}`}
+                  color="warning"
                 />
-                <StatCard
-                  icon={Clock}
-                  label="Uptime"
+                <MetricCard
+                  title="Uptime"
                   value={formatUptime(systemMetrics.uptime || 0)}
-                  subtext="System running"
-                  color="text-purple-600 dark:text-purple-400"
+                  icon={Clock}
+                  description="System running"
+                  color="brand"
                 />
               </div>
 
               {/* Runtime Metrics */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard
-                  icon={Activity}
-                  label="Goroutines"
+                <MetricCard
+                  title="Goroutines"
                   value={formatNumber(systemMetrics.goroutines || 0)}
-                  subtext="Active"
-                  color="text-brand-600 dark:text-brand-400"
+                  icon={Activity}
+                  description="Active"
+                  color="brand"
                 />
-                <StatCard
-                  icon={BarChart3}
-                  label="Heap Memory"
+                <MetricCard
+                  title="Heap Memory"
                   value={`${((systemMetrics.heapAllocBytes || 0) / (1024 * 1024)).toFixed(1)} MB`}
-                  subtext="Allocated"
-                  color="text-purple-600 dark:text-purple-400"
+                  icon={BarChart3}
+                  description="Allocated"
+                  color="blue-light"
                 />
-                <StatCard
-                  icon={TrendingUp}
-                  label="GC Runs"
+                <MetricCard
+                  title="GC Runs"
                   value={formatNumber(systemMetrics.gcRuns || 0)}
-                  subtext="Collections"
-                  color="text-orange-600 dark:text-orange-400"
+                  icon={TrendingUp}
+                  description="Collections"
+                  color="warning"
                 />
-                <StatCard
-                  icon={Zap}
-                  label="Success Rate"
-                  value={`${
-                    s3Metrics.totalRequests > 0
-                      ? (((s3Metrics.totalRequests - s3Metrics.totalErrors) / s3Metrics.totalRequests) * 100).toFixed(2)
-                      : 100
-                  }%`}
-                  subtext="Request success"
-                  color="text-green-600 dark:text-green-400"
+                <MetricCard
+                  title="Network I/O"
+                  value={formatBytes(systemMetrics.networkBytesOut || 0)}
+                  icon={ArrowUp}
+                  description={`↓ ${formatBytes(systemMetrics.networkBytesIn || 0)}`}
+                  color="success"
                 />
               </div>
 
@@ -405,33 +472,33 @@ export default function MetricsPage() {
             <div className="space-y-6">
               {/* Quick Stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard
-                  icon={HardDrive}
-                  label="Total Storage"
+                <MetricCard
+                  title="Total Storage"
                   value={formatBytes(storageMetrics.totalSize || 0)}
-                  subtext="Used space"
-                  color="text-brand-600 dark:text-brand-400"
+                  icon={HardDrive}
+                  description="Used space"
+                  color="brand"
                 />
-                <StatCard
-                  icon={Database}
-                  label="Total Objects"
+                <MetricCard
+                  title="Total Objects"
                   value={formatNumber(storageMetrics.totalObjects || 0)}
-                  subtext="Stored files"
-                  color="text-blue-600 dark:text-blue-400"
-                />
-                <StatCard
                   icon={Database}
-                  label="Buckets"
-                  value={formatNumber(storageMetrics.totalBuckets || 0)}
-                  subtext="Total buckets"
-                  color="text-green-600 dark:text-green-400"
+                  description="Stored files"
+                  color="blue-light"
                 />
-                <StatCard
-                  icon={BarChart3}
-                  label="Avg Object Size"
+                <MetricCard
+                  title="Buckets"
+                  value={formatNumber(storageMetrics.totalBuckets || 0)}
+                  icon={Database}
+                  description="Total buckets"
+                  color="success"
+                />
+                <MetricCard
+                  title="Avg Object Size"
                   value={formatBytes(storageMetrics.averageObjectSize || 0)}
-                  subtext="Per object"
-                  color="text-purple-600 dark:text-purple-400"
+                  icon={BarChart3}
+                  description="Per object"
+                  color="warning"
                 />
               </div>
 
@@ -475,7 +542,121 @@ export default function MetricsPage() {
             </div>
           )}
 
-          {/* Performance Tab - Unified Performance & Request Metrics */}
+          {/* API & REQUESTS TAB */}
+          {activeTab === 'api' && (
+            <div className="space-y-6">
+              {/* API Metrics */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <MetricCard
+                  title="Total Requests"
+                  value={formatNumber(s3Metrics.totalRequests || 0)}
+                  icon={Globe}
+                  description="Since startup"
+                  color="blue-light"
+                />
+                <MetricCard
+                  title="Total Errors"
+                  value={formatNumber(s3Metrics.totalErrors || 0)}
+                  icon={XCircle}
+                  description="Failed requests"
+                  color="error"
+                />
+                <MetricCard
+                  title="Success Rate"
+                  value={`${
+                    s3Metrics.totalRequests > 0
+                      ? (((s3Metrics.totalRequests - s3Metrics.totalErrors) / s3Metrics.totalRequests) * 100).toFixed(2)
+                      : 100
+                  }%`}
+                  icon={CheckCircle}
+                  description="Request success"
+                  color="success"
+                />
+                <MetricCard
+                  title="Avg Latency"
+                  value={`${(s3Metrics.avgLatency || 0).toFixed(1)}ms`}
+                  icon={Clock}
+                  description="Average response time"
+                  color="warning"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <MetricCard
+                  title="Requests/Sec"
+                  value={(s3Metrics.requestsPerSec || 0).toFixed(2)}
+                  icon={TrendingUp}
+                  description="Current rate"
+                  color="brand"
+                />
+                <MetricCard
+                  title="Error Rate"
+                  value={`${
+                    s3Metrics.totalRequests > 0
+                      ? ((s3Metrics.totalErrors / s3Metrics.totalRequests) * 100).toFixed(2)
+                      : 0
+                  }%`}
+                  icon={AlertCircle}
+                  description="Percentage of errors"
+                  color="error"
+                />
+                <MetricCard
+                  title="Total Operations"
+                  value={formatNumber(s3Metrics.totalRequests || 0)}
+                  icon={Activity}
+                  description="All API calls"
+                  color="blue-light"
+                />
+                <MetricCard
+                  title="Response Time"
+                  value={`${(s3Metrics.avgLatency || 0).toFixed(0)}ms`}
+                  icon={Zap}
+                  description="Avg latency"
+                  color="success"
+                />
+              </div>
+
+              {/* Charts */}
+              {historyLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <Loading size="lg" />
+                </div>
+              ) : chartData.length > 0 ? (
+                <div className="grid gap-6 md:grid-cols-2">
+                  <MetricLineChart
+                    data={chartData}
+                    title="Request Throughput Over Time"
+                    dataKeys={[
+                      { key: 'requestsPerSec', name: 'Requests/sec', color: '#3b82f6' },
+                    ]}
+                    height={300}
+                    formatYAxis={(value) => `${value.toFixed(1)}/s`}
+                    formatTooltip={(value) => `${value.toFixed(2)}/s`}
+                    timeRange={historyData?.requestedRange}
+                  />
+                  <MetricLineChart
+                    data={chartData}
+                    title="Average Latency Over Time"
+                    dataKeys={[
+                      { key: 'avgLatency', name: 'Latency (ms)', color: '#f59e0b' },
+                    ]}
+                    height={300}
+                    formatYAxis={(value) => `${value.toFixed(0)}ms`}
+                    formatTooltip={(value) => `${value.toFixed(2)}ms`}
+                    timeRange={historyData?.requestedRange}
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+                  <AlertCircle className="h-12 w-12 mb-4" />
+                  <p className="text-lg font-medium">No API history available yet</p>
+                  <p className="text-sm">Request metrics will appear after collecting data</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* PERFORMANCE TAB */}
           {activeTab === 'performance' && (
             <div className="space-y-6">
               {latenciesLoading || throughputLoading ? (
@@ -490,37 +671,37 @@ export default function MetricsPage() {
                       Overview
                     </h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <StatCard
-                        icon={Globe}
-                        label="Total Requests"
+                      <MetricCard
+                        title="Total Requests"
                         value={formatNumber(s3Metrics.totalRequests || 0)}
-                        subtext="Since startup"
-                        color="text-blue-600 dark:text-blue-400"
+                        icon={Globe}
+                        description="Since startup"
+                        color="blue-light"
                       />
-                      <StatCard
-                        icon={AlertCircle}
-                        label="Total Errors"
+                      <MetricCard
+                        title="Total Errors"
                         value={formatNumber(s3Metrics.totalErrors || 0)}
-                        subtext="Failed requests"
-                        color="text-red-600 dark:text-red-400"
+                        icon={AlertCircle}
+                        description="Failed requests"
+                        color="error"
                       />
-                      <StatCard
-                        icon={Zap}
-                        label="Success Rate"
+                      <MetricCard
+                        title="Success Rate"
                         value={`${
                           s3Metrics.totalRequests > 0
                             ? (((s3Metrics.totalRequests - s3Metrics.totalErrors) / s3Metrics.totalRequests) * 100).toFixed(2)
                             : 100
                         }%`}
-                        subtext="Request success"
-                        color="text-green-600 dark:text-green-400"
+                        icon={Zap}
+                        description="Request success"
+                        color="success"
                       />
-                      <StatCard
-                        icon={Activity}
-                        label="Avg Latency"
+                      <MetricCard
+                        title="Avg Latency"
                         value={`${(s3Metrics.avgLatency || 0).toFixed(1)}ms`}
-                        subtext="Overall average"
-                        color="text-yellow-600 dark:text-yellow-400"
+                        icon={Activity}
+                        description="Overall average"
+                        color="warning"
                       />
                     </div>
                   </div>
@@ -531,38 +712,38 @@ export default function MetricsPage() {
                       Real-time Throughput
                     </h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <StatCard
-                        icon={Zap}
-                        label="Requests/Sec"
+                      <MetricCard
+                        title="Requests/Sec"
                         value={performanceThroughput.current.requests_per_second.toFixed(2)}
-                        subtext="Current rate"
-                        color="text-brand-600 dark:text-brand-400"
+                        icon={Zap}
+                        description="Current rate"
+                        color="brand"
                       />
-                      <StatCard
-                        icon={HardDrive}
-                        label="Bytes/Sec"
+                      <MetricCard
+                        title="Bytes/Sec"
                         value={formatBytes(performanceThroughput.current.bytes_per_second)}
-                        subtext="Data transfer"
-                        color="text-blue-600 dark:text-blue-400"
+                        icon={HardDrive}
+                        description="Data transfer"
+                        color="blue-light"
                       />
-                      <StatCard
-                        icon={Database}
-                        label="Objects/Sec"
+                      <MetricCard
+                        title="Objects/Sec"
                         value={performanceThroughput.current.objects_per_second.toFixed(2)}
-                        subtext="Object ops"
-                        color="text-green-600 dark:text-green-400"
+                        icon={Database}
+                        description="Object ops"
+                        color="success"
                       />
-                      <StatCard
-                        icon={Activity}
-                        label="Total Operations"
+                      <MetricCard
+                        title="Total Operations"
                         value={formatNumber(
                           Object.values(performanceLatencies.latencies).reduce(
                             (sum, stat) => sum + stat.count,
                             0
                           )
                         )}
-                        subtext="Since last reset"
-                        color="text-purple-600 dark:text-purple-400"
+                        icon={Activity}
+                        description="Since last reset"
+                        color="warning"
                       />
                     </div>
                   </div>
@@ -572,7 +753,7 @@ export default function MetricsPage() {
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">
                       Operation Latencies (p50 / p95 / p99)
                     </h3>
-                    <div className="grid gap-6 md:grid-cols-2">
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                       {/* Always show these 4 main operations even if no data yet */}
                       {['PutObject', 'GetObject', 'DeleteObject', 'ListObjects'].map((operation) => {
                         const stats = performanceLatencies.latencies[operation] || {

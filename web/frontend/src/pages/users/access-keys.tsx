@@ -13,7 +13,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { AccessKey } from '@/types';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager from '@/lib/modals';
 
 export default function AccessKeysPage() {
   const navigate = useNavigate();
@@ -33,7 +33,7 @@ export default function AccessKeysPage() {
     mutationFn: ({ userId, keyId }: { userId: string; keyId: string }) =>
       APIClient.deleteAccessKey(userId, keyId),
     onSuccess: async (_, variables) => {
-      SweetAlert.close();
+      ModalManager.close();
 
       // Update cache immediately by removing the deleted key
       queryClient.setQueryData(['accessKeys'], (oldData: AccessKey[] | undefined) => {
@@ -47,11 +47,11 @@ export default function AccessKeysPage() {
       // Force refetch to ensure we have the latest data from server
       await queryClient.refetchQueries({ queryKey: ['accessKeys'] });
 
-      SweetAlert.toast('success', 'Access key deleted successfully');
+      ModalManager.toast('success', 'Access key deleted successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.close();
-      SweetAlert.apiError(error);
+      ModalManager.close();
+      ModalManager.apiError(error);
     },
   });
 
@@ -61,7 +61,7 @@ export default function AccessKeysPage() {
     const user = users?.find((u: any) => u.id === key.userId);
 
     try {
-      const result = await SweetAlert.fire({
+      const result = await ModalManager.fire({
         icon: 'warning',
         title: 'Delete Access Key',
         html: `<p>Are you sure you want to delete access key <strong>"${key.id}"</strong> for user <strong>"${user?.username || 'unknown'}"</strong>?</p>
@@ -73,12 +73,12 @@ export default function AccessKeysPage() {
       });
 
       if (result.isConfirmed) {
-        SweetAlert.loading('Deleting access key...', `Deleting "${key.id}"`);
+        ModalManager.loading('Deleting access key...', `Deleting "${key.id}"`);
         deleteAccessKeyMutation.mutate({ userId: key.userId, keyId: key.id });
       }
     } catch (error) {
-      SweetAlert.close();
-      SweetAlert.apiError(error);
+      ModalManager.close();
+      ModalManager.apiError(error);
     }
   };
 

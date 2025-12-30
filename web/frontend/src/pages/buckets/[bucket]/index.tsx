@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Loading } from '@/components/ui/Loading';
+import { MetricCard } from '@/components/ui/MetricCard';
 import {
   Table,
   TableBody,
@@ -33,7 +34,7 @@ import { Link as LinkIcon } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { UploadRequest } from '@/types';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager from '@/lib/modals';
 import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 import { ObjectVersionsModal } from '@/components/ObjectVersionsModal';
 import { PresignedURLModal } from '@/components/PresignedURLModal';
@@ -105,10 +106,10 @@ export default function BucketDetailsPage() {
 
       // Show success notification
       const fileName = variables.key.split('/').pop() || variables.key;
-      SweetAlert.successUpload(fileName);
+      ModalManager.successUpload(fileName);
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -138,10 +139,10 @@ export default function BucketDetailsPage() {
       queryClient.invalidateQueries({ queryKey: ['buckets'] });
       setIsCreateFolderModalOpen(false);
       setNewFolderName('');
-      SweetAlert.toast('success', `Folder "${newFolderName}" created successfully`);
+      ModalManager.toast('success', `Folder "${newFolderName}" created successfully`);
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -219,10 +220,10 @@ export default function BucketDetailsPage() {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       // Invalidate buckets list to update counters
       queryClient.invalidateQueries({ queryKey: ['buckets'] });
-      SweetAlert.toast('success', 'Object deleted successfully');
+      ModalManager.toast('success', 'Object deleted successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -230,10 +231,10 @@ export default function BucketDetailsPage() {
     mutationFn: ({ bucket, key }: { bucket: string; key: string }) => APIClient.deleteShare(bucket, key, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shares', bucketName, tenantId] });
-      SweetAlert.toast('success', 'Share deleted successfully');
+      ModalManager.toast('success', 'Share deleted successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -243,10 +244,10 @@ export default function BucketDetailsPage() {
     onSuccess: (_, variables) => {
       // Invalidate objects to refresh Legal Hold status
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
-      SweetAlert.toast('success', `Legal Hold ${variables.enabled ? 'enabled' : 'disabled'} successfully`);
+      ModalManager.toast('success', `Legal Hold ${variables.enabled ? 'enabled' : 'disabled'} successfully`);
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -295,9 +296,9 @@ export default function BucketDetailsPage() {
 
     // Show loading indicator
     if (totalFiles === 1) {
-      SweetAlert.loading('Uploading file...', `Uploading "${selectedFiles[0].name}"`);
+      ModalManager.loading('Uploading file...', `Uploading "${selectedFiles[0].name}"`);
     } else {
-      SweetAlert.loading('Uploading files...', `0 of ${totalFiles} files`);
+      ModalManager.loading('Uploading files...', `0 of ${totalFiles} files`);
     }
 
     // Upload files sequentially
@@ -310,7 +311,7 @@ export default function BucketDetailsPage() {
       try {
         // Update progress message for multiple files
         if (totalFiles > 1) {
-          SweetAlert.loading('Uploading files...', `${i + 1} of ${totalFiles}: ${file.name}`);
+          ModalManager.loading('Uploading files...', `${i + 1} of ${totalFiles}: ${file.name}`);
         }
 
         await APIClient.uploadObject({
@@ -327,27 +328,27 @@ export default function BucketDetailsPage() {
       }
     }
 
-    SweetAlert.close();
+    ModalManager.close();
 
     // Show results
     if (totalFiles === 1) {
       if (successCount === 1) {
-        SweetAlert.successUpload(selectedFiles[0].name);
+        ModalManager.successUpload(selectedFiles[0].name);
       } else {
-        SweetAlert.apiError(new Error(errors[0] || 'Error uploading file'));
+        ModalManager.apiError(new Error(errors[0] || 'Error uploading file'));
       }
     } else {
       const failCount = totalFiles - successCount;
       if (failCount === 0) {
-        SweetAlert.toast('success', `${totalFiles} files uploaded successfully`);
+        ModalManager.toast('success', `${totalFiles} files uploaded successfully`);
       } else if (successCount > 0) {
-        SweetAlert.fire({
+        ModalManager.fire({
           icon: 'warning',
           title: 'Partially successful upload',
           html: `<p>Uploaded: <strong>${successCount}</strong> / ${totalFiles}</p><p>Failed: <strong>${failCount}</strong></p>`,
         });
       } else {
-        SweetAlert.fire({
+        ModalManager.fire({
           icon: 'error',
           title: 'Error uploading files',
           text: 'All files failed',
@@ -380,7 +381,7 @@ export default function BucketDetailsPage() {
     const itemType = isFolder ? 'folder' : 'file';
 
     try {
-      const result = await SweetAlert.fire({
+      const result = await ModalManager.fire({
         icon: 'warning',
         title: `Delete ${itemType}?`,
         html: isFolder
@@ -395,18 +396,18 @@ export default function BucketDetailsPage() {
       });
 
       if (result.isConfirmed) {
-        SweetAlert.loading(`Deleting ${itemType}...`, `Deleting "${key}"`);
+        ModalManager.loading(`Deleting ${itemType}...`, `Deleting "${key}"`);
         deleteObjectMutation.mutate({ bucket: bucketName, key });
       }
     } catch (error) {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     }
   };
 
   const handleDownloadObject = async (key: string) => {
     try {
       // Show download indicator
-      SweetAlert.loading('Downloading file...', `Downloading "${key}"`);
+      ModalManager.loading('Downloading file...', `Downloading "${key}"`);
 
       const blob = await APIClient.downloadObject({
         bucket: bucketName,
@@ -415,7 +416,7 @@ export default function BucketDetailsPage() {
       });
 
       // Close loading indicator
-      SweetAlert.close();
+      ModalManager.close();
 
       // Create download link
       const url = window.URL.createObjectURL(blob);
@@ -428,10 +429,10 @@ export default function BucketDetailsPage() {
       window.URL.revokeObjectURL(url);
 
       // Show success message
-      SweetAlert.successDownload(key.split('/').pop() || key);
+      ModalManager.successDownload(key.split('/').pop() || key);
     } catch (error: any) {
-      SweetAlert.close();
-      SweetAlert.apiError(error);
+      ModalManager.close();
+      ModalManager.apiError(error);
     }
   };
 
@@ -460,7 +461,7 @@ export default function BucketDetailsPage() {
           expirationInfo = `<p><strong>Expiration:</strong> Never (permanent link)</p>`;
         }
 
-        const result = await SweetAlert.fire({
+        const result = await ModalManager.fire({
           icon: 'info',
           title: 'Object Already Shared',
           html: `
@@ -488,10 +489,10 @@ export default function BucketDetailsPage() {
 
         if (result.isConfirmed) {
           navigator.clipboard.writeText(shareData.url);
-          SweetAlert.toast('success', 'Link copied to clipboard');
+          ModalManager.toast('success', 'Link copied to clipboard');
         } else if (result.isDenied) {
           // Unshare the object
-          const confirmDelete = await SweetAlert.fire({
+          const confirmDelete = await ModalManager.fire({
             icon: 'warning',
             title: 'Unshare Object?',
             text: 'This will delete the share link. The file itself will not be deleted.',
@@ -509,7 +510,7 @@ export default function BucketDetailsPage() {
       }
 
       // Object is not shared yet - show create dialog
-      const result = await SweetAlert.fire({
+      const result = await ModalManager.fire({
         icon: 'info',
         title: 'Share Object',
         html: `
@@ -541,7 +542,7 @@ export default function BucketDetailsPage() {
       const expiresIn = result.value as number | null;
 
       // Show loading indicator
-      SweetAlert.loading('Generating shareable link...', `Creating link for "${key}"`);
+      ModalManager.loading('Generating shareable link...', `Creating link for "${key}"`);
 
       const shareData = await APIClient.shareObject(bucketName, key, expiresIn, tenantId);
 
@@ -549,7 +550,7 @@ export default function BucketDetailsPage() {
       queryClient.invalidateQueries({ queryKey: ['shares', bucketName, tenantId] });
 
       // Close loading indicator
-      SweetAlert.close();
+      ModalManager.close();
 
       // Prepare expiration info
       let expirationInfo = '';
@@ -572,7 +573,7 @@ export default function BucketDetailsPage() {
         statusBadge = '<span class="inline-block px-2 py-1 bg-green-100 text-green-800 text-xs rounded">∞ Permanent</span>';
       }
 
-      await SweetAlert.fire({
+      await ModalManager.fire({
         icon: 'success',
         title: 'Shareable Link Created',
         html: `
@@ -602,12 +603,12 @@ export default function BucketDetailsPage() {
       }).then((copyResult) => {
         if (copyResult.isConfirmed) {
           navigator.clipboard.writeText(shareData.url);
-          SweetAlert.toast('success', 'Link copied to clipboard');
+          ModalManager.toast('success', 'Link copied to clipboard');
         }
       });
     } catch (error: any) {
-      SweetAlert.close();
-      SweetAlert.apiError(error);
+      ModalManager.close();
+      ModalManager.apiError(error);
     }
   };
 
@@ -623,7 +624,7 @@ export default function BucketDetailsPage() {
 
   const handleToggleLegalHold = async (key: string, currentStatus: boolean) => {
     const action = currentStatus ? 'disable' : 'enable';
-    const result = await SweetAlert.fire({
+    const result = await ModalManager.fire({
       icon: 'warning',
       title: `${action === 'enable' ? 'Enable' : 'Disable'} Legal Hold?`,
       text: `Are you sure you want to ${action} Legal Hold on this object? ${
@@ -679,7 +680,7 @@ export default function BucketDetailsPage() {
 
   const handleBulkDelete = async () => {
     if (selectedObjects.size === 0) return;
-    const result = await SweetAlert.fire({
+    const result = await ModalManager.fire({
       icon: 'warning',
       title: `Delete ${selectedObjects.size} objects?`,
       html: `<p>You are about to delete <strong>${selectedObjects.size}</strong> objects</p>
@@ -694,7 +695,7 @@ export default function BucketDetailsPage() {
     if (!result.isConfirmed) return;
 
     // Show progress (don't await - it returns void)
-    SweetAlert.progress(
+    ModalManager.progress(
       'Deleting objects...',
       `Processing ${selectedObjects.size} objects`
     );
@@ -707,7 +708,7 @@ export default function BucketDetailsPage() {
     for (let i = 0; i < selectedArray.length; i++) {
       const key = selectedArray[i];
       const progress = ((i + 1) / selectedArray.length) * 100;
-      SweetAlert.updateProgress(progress);
+      ModalManager.updateProgress(progress);
 
       try {
         await APIClient.deleteObject(bucketName, key, tenantId);
@@ -719,14 +720,14 @@ export default function BucketDetailsPage() {
       }
     }
 
-    SweetAlert.close();
+    ModalManager.close();
 
     // Show results
     if (failCount === 0) {
-      SweetAlert.toast('success', `${successCount} objects deleted successfully`);
+      ModalManager.toast('success', `${successCount} objects deleted successfully`);
     } else if (successCount > 0) {
       const errorList = errors.map(e => `<li><strong>${e.key}</strong>: ${e.error}</li>`).join('');
-      SweetAlert.fire({
+      ModalManager.fire({
         icon: 'warning',
         title: 'Partially successful deletion',
         html: `<p>Deleted: <strong>${successCount}</strong> / ${selectedArray.length}</p>
@@ -739,7 +740,7 @@ export default function BucketDetailsPage() {
       });
     } else {
       const errorList = errors.map(e => `<li><strong>${e.key}</strong>: ${e.error}</li>`).join('');
-      SweetAlert.fire({
+      ModalManager.fire({
         icon: 'error',
         title: 'Error deleting objects',
         html: `<p>All objects failed</p>
@@ -848,7 +849,7 @@ export default function BucketDetailsPage() {
             variant="outline"
             size="default"
             onClick={() => navigate('/buckets')}
-            className="gap-2 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700"
+            className="gap-2 bg-white dark:bg-gray-800 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 border-gray-200 dark:border-gray-700 transition-all duration-200"
           >
             <ArrowLeftIcon className="h-4 w-4" />
             Back to Buckets
@@ -858,7 +859,7 @@ export default function BucketDetailsPage() {
               variant="outline"
               size="default"
               onClick={navigateUp}
-              className="gap-2 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700"
+              className="gap-2 bg-white dark:bg-gray-800 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 border-gray-200 dark:border-gray-700 transition-all duration-200"
             >
               <ArrowLeftIcon className="h-4 w-4" />
               Up to Parent Folder
@@ -867,7 +868,7 @@ export default function BucketDetailsPage() {
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{bucketName}</h1>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">{bucketName}</h1>
             {currentPrefix && (
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 Current path: /{currentPrefix}
@@ -878,7 +879,7 @@ export default function BucketDetailsPage() {
             <Button
               onClick={() => setIsPermissionsModalOpen(true)}
               variant="outline"
-              className="gap-2"
+              className="gap-2 hover:bg-gradient-to-r hover:from-purple-50 hover:to-violet-50 dark:hover:from-purple-900/30 dark:hover:to-violet-900/30 transition-all duration-200"
             >
               <ShieldIcon className="h-4 w-4" />
               Permissions
@@ -886,7 +887,7 @@ export default function BucketDetailsPage() {
           <Button
             onClick={() => setIsCreateFolderModalOpen(true)}
             variant="outline"
-            className="gap-2"
+            className="gap-2 hover:bg-gradient-to-r hover:from-blue-50 hover:to-cyan-50 dark:hover:from-blue-900/30 dark:hover:to-cyan-900/30 transition-all duration-200"
             disabled={isGlobalAdminInTenantBucket}
             title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant buckets" : "Create a new folder"}
           >
@@ -896,7 +897,7 @@ export default function BucketDetailsPage() {
           <Button
             onClick={() => setIsUploadModalOpen(true)}
             variant="outline"
-            className="gap-2"
+            className="gap-2 hover:bg-gradient-to-r hover:from-green-50 hover:to-emerald-50 dark:hover:from-green-900/30 dark:hover:to-emerald-900/30 transition-all duration-200"
             disabled={isGlobalAdminInTenantBucket}
             title={isGlobalAdminInTenantBucket ? "Global admins cannot upload to tenant buckets" : "Upload files to this bucket"}
           >
@@ -906,7 +907,7 @@ export default function BucketDetailsPage() {
           <Button
             variant="outline"
             onClick={() => navigate(`${bucketPath}/settings`)}
-            className="gap-2"
+            className="gap-2 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 transition-all duration-200"
           >
             <SettingsIcon className="h-4 w-4" />
             Settings
@@ -917,50 +918,29 @@ export default function BucketDetailsPage() {
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Objects</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{(bucketData?.object_count || 0).toLocaleString()}</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Files and folders
-              </p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-brand-50 dark:bg-brand-900/30">
-              <FileIcon className="h-7 w-7 text-brand-600 dark:text-brand-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Total Objects"
+          value={(bucketData?.object_count || 0).toLocaleString()}
+          icon={FileIcon}
+          description="Files and folders"
+          color="brand"
+        />
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Size</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{formatSize(bucketData?.size || 0)}</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Storage used
-              </p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-orange-50 dark:bg-orange-900/30">
-              <HardDriveIcon className="h-7 w-7 text-orange-600 dark:text-orange-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Total Size"
+          value={formatSize(bucketData?.size || 0)}
+          icon={HardDriveIcon}
+          description="Storage used"
+          color="warning"
+        />
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Region</p>
-              <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{bucketData?.region || 'us-east-1'}</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Storage region
-              </p>
-            </div>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-light-50 dark:bg-blue-light-900/30">
-              <GlobeIcon className="h-7 w-7 text-blue-light-600 dark:text-blue-light-400" />
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          title="Region"
+          value={bucketData?.region || 'us-east-1'}
+          icon={GlobeIcon}
+          description="Storage region"
+          color="success"
+        />
       </div>
 
       {/* Object Lock Banner */}
@@ -1014,24 +994,27 @@ export default function BucketDetailsPage() {
         </div>
       )}
 
-      {/* Search */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-4">
+      {/* Enhanced Search Bar */}
+      <div className="bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-4">
         <div className="relative max-w-md">
-          <SearchIcon className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+          <div className="absolute left-4 top-1/2 transform -translate-y-1/2">
+            <SearchIcon className="text-gray-400 dark:text-gray-500 h-5 w-5" />
+          </div>
           <Input
             placeholder="Search objects..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white focus:ring-brand-500 focus:border-brand-500"
+            className="pl-12 bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 rounded-lg shadow-sm"
           />
         </div>
       </div>
 
       {/* Objects Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
+        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-800">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <FileIcon className="h-5 w-5 text-brand-600 dark:text-brand-400" />
               Objects ({filteredItems.length})
               {currentPrefix && ` in ${currentPrefix}`}
             </h3>
@@ -1121,7 +1104,7 @@ export default function BucketDetailsPage() {
               </TableHeader>
               <TableBody>
                 {filteredItems.map((item) => (
-                  <TableRow key={item.key}>
+                  <TableRow key={item.key} className="hover:bg-gradient-to-r hover:from-brand-50/30 hover:to-blue-50/30 dark:hover:from-brand-900/10 dark:hover:to-blue-900/10 transition-all duration-200 border-l-2 border-transparent hover:border-brand-500">
                     {!isGlobalAdminInTenantBucket && (
                       <TableCell>
                         <input

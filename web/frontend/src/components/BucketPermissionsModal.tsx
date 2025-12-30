@@ -23,7 +23,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { BucketPermission, GrantPermissionRequest } from '@/types';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager from '@/lib/modals';
 
 interface BucketPermissionsModalProps {
   isOpen: boolean;
@@ -77,10 +77,10 @@ export function BucketPermissionsModal({
       queryClient.invalidateQueries({ queryKey: ['bucketPermissions', bucketName] });
       setIsAddPermissionOpen(false);
       setNewPermission({ permissionLevel: 'read', grantedBy: 'admin' });
-      SweetAlert.toast('success', 'Permission granted successfully');
+      ModalManager.toast('success', 'Permission granted successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -90,10 +90,10 @@ export function BucketPermissionsModal({
       APIClient.revokeBucketPermission(bucketName, userId, permissionTenantId, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucketPermissions', bucketName] });
-      SweetAlert.toast('success', 'Permission revoked successfully');
+      ModalManager.toast('success', 'Permission revoked successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -101,12 +101,12 @@ export function BucketPermissionsModal({
     e.preventDefault();
 
     if (targetType === 'user' && !newPermission.userId) {
-      SweetAlert.toast('error', 'Please select a user');
+      ModalManager.toast('error', 'Please select a user');
       return;
     }
 
     if (targetType === 'tenant' && !newPermission.tenantId) {
-      SweetAlert.toast('error', 'Please select a tenant');
+      ModalManager.toast('error', 'Please select a tenant');
       return;
     }
 
@@ -132,7 +132,7 @@ export function BucketPermissionsModal({
 
     console.log('Revoking permission:', { userId: permission.userId, tenantId: permission.tenantId, permission });
 
-    SweetAlert.confirm(
+    ModalManager.confirm(
       'Revoke Permission?',
       `Are you sure you want to revoke ${permission.permissionLevel} access for ${targetType} "${targetName}"?`,
       () => revokePermissionMutation.mutate({

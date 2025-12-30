@@ -24,7 +24,6 @@ export default defineConfig({
           query: ['@tanstack/react-query'],
           charts: ['recharts'],
           icons: ['lucide-react'],
-          alerts: ['sweetalert2'],
           utils: ['axios', 'date-fns', 'clsx', 'class-variance-authority', 'tailwind-merge'],
         },
       },

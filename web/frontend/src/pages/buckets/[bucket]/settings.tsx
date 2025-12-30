@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { ObjectLockConfigModal } from '@/components/ObjectLockConfigModal';
@@ -26,7 +25,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager from '@/lib/modals';
 import { useAuth } from '@/hooks/useAuth';
 import type { NotificationConfiguration, NotificationRule, ReplicationRule, CreateReplicationRuleRequest } from '@/types';
 
@@ -172,10 +171,10 @@ export default function BucketSettingsPage() {
     mutationFn: (enabled: boolean) => APIClient.putBucketVersioning(bucketName, enabled, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
-      SweetAlert.toast('success', 'Versioning updated successfully');
+      ModalManager.toast('success', 'Versioning updated successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -189,10 +188,10 @@ export default function BucketSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsPolicyModalOpen(false);
       loadCurrentPolicy(); // Reload policy after save
-      SweetAlert.toast('success', 'Bucket policy updated successfully');
+      ModalManager.toast('success', 'Bucket policy updated successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -201,10 +200,10 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       loadCurrentPolicy(); // Reload policy after delete
-      SweetAlert.toast('success', 'Bucket policy deleted successfully');
+      ModalManager.toast('success', 'Bucket policy deleted successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -214,10 +213,10 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsCORSModalOpen(false);
-      SweetAlert.toast('success', 'CORS configuration updated successfully');
+      ModalManager.toast('success', 'CORS configuration updated successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -225,10 +224,10 @@ export default function BucketSettingsPage() {
     mutationFn: () => APIClient.deleteBucketCORS(bucketName, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
-      SweetAlert.toast('success', 'CORS configuration deleted successfully');
+      ModalManager.toast('success', 'CORS configuration deleted successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -238,10 +237,10 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsLifecycleModalOpen(false);
-      SweetAlert.toast('success', 'Lifecycle rules updated successfully');
+      ModalManager.toast('success', 'Lifecycle rules updated successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -249,10 +248,10 @@ export default function BucketSettingsPage() {
     mutationFn: () => APIClient.deleteBucketLifecycle(bucketName, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
-      SweetAlert.toast('success', 'Lifecycle rules deleted successfully');
+      ModalManager.toast('success', 'Lifecycle rules deleted successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -262,10 +261,10 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsTagsModalOpen(false);
-      SweetAlert.toast('success', 'Bucket tags updated successfully');
+      ModalManager.toast('success', 'Bucket tags updated successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -273,10 +272,10 @@ export default function BucketSettingsPage() {
     mutationFn: () => APIClient.deleteBucketTagging(bucketName, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
-      SweetAlert.toast('success', 'Bucket tags deleted successfully');
+      ModalManager.toast('success', 'Bucket tags deleted successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -301,10 +300,10 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket-notification', bucketName, tenantId] });
       refetchNotifications();
-      SweetAlert.toast('success', 'Notification configuration updated successfully');
+      ModalManager.toast('success', 'Notification configuration updated successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -313,10 +312,10 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket-notification', bucketName, tenantId] });
       refetchNotifications();
-      SweetAlert.toast('success', 'Notification configuration deleted successfully');
+      ModalManager.toast('success', 'Notification configuration deleted successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -343,10 +342,10 @@ export default function BucketSettingsPage() {
         replicate_deletes: true,
         replicate_metadata: true,
       });
-      SweetAlert.toast('success', 'Replication rule created successfully');
+      ModalManager.toast('success', 'Replication rule created successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -358,10 +357,10 @@ export default function BucketSettingsPage() {
       refetchReplicationRules();
       setIsReplicationModalOpen(false);
       setEditingReplicationRule(null);
-      SweetAlert.toast('success', 'Replication rule updated successfully');
+      ModalManager.toast('success', 'Replication rule updated successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -370,10 +369,10 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName] });
       refetchReplicationRules();
-      SweetAlert.toast('success', 'Replication rule deleted successfully');
+      ModalManager.toast('success', 'Replication rule deleted successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -381,10 +380,10 @@ export default function BucketSettingsPage() {
     mutationFn: (ruleId: string) => APIClient.triggerReplicationSync(bucketName, ruleId),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName] });
-      SweetAlert.toast('success', `Replication sync triggered! ${data.queued_count} object(s) queued for replication.`);
+      ModalManager.toast('success', `Replication sync triggered! ${data.queued_count} object(s) queued for replication.`);
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -395,10 +394,10 @@ export default function BucketSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsACLModalOpen(false);
       loadCurrentACL(); // Reload ACL after save
-      SweetAlert.toast('success', 'Bucket ACL updated successfully');
+      ModalManager.toast('success', 'Bucket ACL updated successfully');
     },
     onError: (error: Error) => {
-      SweetAlert.apiError(error);
+      ModalManager.apiError(error);
     },
   });
 
@@ -491,7 +490,7 @@ export default function BucketSettingsPage() {
   // Handlers
   const handleToggleVersioning = () => {
     const newState = !isVersioningEnabled;
-    SweetAlert.confirm(
+    ModalManager.confirm(
       `${newState ? 'Enable' : 'Suspend'} versioning?`,
       `This will ${newState ? 'enable' : 'suspend'} object versioning for this bucket.`,
       () => toggleVersioningMutation.mutate(newState)
@@ -523,7 +522,7 @@ export default function BucketSettingsPage() {
   };
 
   const handleDeletePolicy = () => {
-    SweetAlert.confirm(
+    ModalManager.confirm(
       'Delete bucket policy?',
       'This will remove all custom access policies for this bucket.',
       () => deletePolicyMutation.mutate()
@@ -564,7 +563,7 @@ export default function BucketSettingsPage() {
   };
 
   const handleDeleteCORS = () => {
-    SweetAlert.confirm(
+    ModalManager.confirm(
       'Delete CORS configuration?',
       'This will remove all CORS rules for this bucket.',
       () => deleteCORSMutation.mutate()
@@ -587,11 +586,11 @@ export default function BucketSettingsPage() {
     if (!editingCorsRule) return;
 
     if (editingCorsRule.allowedOrigins.length === 0) {
-      SweetAlert.toast('error', 'At least one allowed origin is required');
+      ModalManager.toast('error', 'At least one allowed origin is required');
       return;
     }
     if (editingCorsRule.allowedMethods.length === 0) {
-      SweetAlert.toast('error', 'At least one allowed method is required');
+      ModalManager.toast('error', 'At least one allowed method is required');
       return;
     }
 
@@ -726,7 +725,7 @@ export default function BucketSettingsPage() {
   };
 
   const handleDeleteLifecycle = () => {
-    SweetAlert.confirm(
+    ModalManager.confirm(
       'Delete lifecycle rules?',
       'This will remove all lifecycle management rules for this bucket.',
       () => deleteLifecycleMutation.mutate()
@@ -788,7 +787,7 @@ export default function BucketSettingsPage() {
   };
 
   const handleDeleteAllTags = () => {
-    SweetAlert.confirm(
+    ModalManager.confirm(
       'Delete all bucket tags?',
       'This will remove all tags from this bucket.',
       () => deleteTagsMutation.mutate()
@@ -831,7 +830,7 @@ export default function BucketSettingsPage() {
     const currentConfig = notificationData as NotificationConfiguration | null;
     if (!currentConfig) return;
 
-    SweetAlert.confirm(
+    ModalManager.confirm(
       'Delete notification rule?',
       'This will remove this notification rule from the bucket.',
       () => {
@@ -861,7 +860,7 @@ export default function BucketSettingsPage() {
 
   const handleSaveNotificationRule = () => {
     if (!notificationRuleForm.webhookUrl || !notificationRuleForm.events || notificationRuleForm.events.length === 0) {
-      SweetAlert.toast('error', 'Please provide webhook URL and select at least one event');
+      ModalManager.toast('error', 'Please provide webhook URL and select at least one event');
       return;
     }
 
@@ -895,7 +894,7 @@ export default function BucketSettingsPage() {
   };
 
   const handleDeleteAllNotifications = () => {
-    SweetAlert.confirm(
+    ModalManager.confirm(
       'Delete all notification rules?',
       'This will remove all notification rules from this bucket.',
       () => deleteNotificationMutation.mutate()
@@ -953,15 +952,15 @@ export default function BucketSettingsPage() {
 
   const handleSaveReplicationRule = () => {
     if (!replicationRuleForm.destination_endpoint) {
-      SweetAlert.toast('error', 'Please provide a destination endpoint URL');
+      ModalManager.toast('error', 'Please provide a destination endpoint URL');
       return;
     }
     if (!replicationRuleForm.destination_bucket) {
-      SweetAlert.toast('error', 'Please provide a destination bucket');
+      ModalManager.toast('error', 'Please provide a destination bucket');
       return;
     }
     if (!replicationRuleForm.destination_access_key || !replicationRuleForm.destination_secret_key) {
-      SweetAlert.toast('error', 'Please provide access key and secret key');
+      ModalManager.toast('error', 'Please provide access key and secret key');
       return;
     }
 
@@ -989,7 +988,7 @@ export default function BucketSettingsPage() {
   };
 
   const handleDeleteReplicationRule = (ruleId: string) => {
-    SweetAlert.confirm(
+    ModalManager.confirm(
       'Delete replication rule?',
       'This will remove this replication rule. Objects will no longer be replicated to the destination.',
       () => deleteReplicationRuleMutation.mutate(ruleId)
@@ -1016,7 +1015,7 @@ export default function BucketSettingsPage() {
   };
 
   const handleTriggerReplicationSync = (ruleId: string) => {
-    SweetAlert.confirm(
+    ModalManager.confirm(
       'Trigger manual sync?',
       'This will queue all objects in the source bucket for replication to the destination.',
       () => triggerReplicationSyncMutation.mutate(ruleId)
@@ -1102,7 +1101,7 @@ export default function BucketSettingsPage() {
       JSON.parse(policyText);
       savePolicyMutation.mutate(policyText);
     } catch (error) {
-      SweetAlert.error('Invalid JSON', 'Please enter a valid JSON policy document');
+      ModalManager.error('Invalid JSON', 'Please enter a valid JSON policy document');
     }
   };
 
@@ -1114,7 +1113,7 @@ export default function BucketSettingsPage() {
   const currentTab = tabs.find(t => t.id === activeTab) || tabs[0];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-8">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -1122,38 +1121,41 @@ export default function BucketSettingsPage() {
             variant="ghost"
             size="icon"
             onClick={() => navigate(bucketPath)}
+            className="hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 transition-all duration-200"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{bucketName}</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Bucket Settings</p>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">{bucketName}</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Bucket Settings</p>
           </div>
         </div>
       </div>
 
       {/* Tabs Container */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md">
         <div className="p-6">
           {/* Tabs Navigation */}
-          <div className="flex space-x-1 bg-gray-100 dark:bg-gray-900 rounded-lg p-1 mb-6">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 font-medium text-sm rounded-md transition-all duration-200 ${
-                    activeTab === tab.id
-                      ? 'bg-white dark:bg-gray-800 text-brand-600 dark:text-brand-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
+          <div className="bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-1 mb-6">
+            <div className="flex space-x-2">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 font-medium text-sm rounded-lg transition-all duration-200 ${
+                      activeTab === tab.id
+                        ? 'bg-gradient-to-r from-brand-600 to-brand-700 text-white shadow-md'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 hover:text-brand-700 dark:hover:text-brand-300'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Tab Description */}
@@ -1172,14 +1174,15 @@ export default function BucketSettingsPage() {
             {activeTab === 'general' && (
               <>
                 {/* Versioning */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5" />
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <Clock className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               Versioning
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </h3>
+          </div>
+          <div>
+            <div className="p-6">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -1198,18 +1201,20 @@ export default function BucketSettingsPage() {
                 </Button>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+        </div>
 
         {/* Object Lock */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Lock className="h-5 w-5" />
+        <div className="bg-gradient-to-br from-yellow-50 to-amber-50/30 dark:from-yellow-950/20 dark:to-amber-950/10 rounded-lg border border-yellow-200 dark:border-yellow-800/50 shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-yellow-200 dark:border-yellow-800/50">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <Lock className="h-5 w-5 text-yellow-600 dark:text-yellow-500" />
               Object Lock
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </h3>
+          </div>
+          <div>
+            <div className="p-6">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -1250,8 +1255,9 @@ export default function BucketSettingsPage() {
                 </div>
               )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+        </div>
               </>
             )}
 
@@ -1259,14 +1265,15 @@ export default function BucketSettingsPage() {
             {activeTab === 'security' && (
               <>
         {/* Bucket Policy */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Shield className="h-5 w-5" />
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <Shield className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               Bucket Policy
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </h3>
+          </div>
+          <div>
+            <div className="p-6">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex-1">
@@ -1314,18 +1321,20 @@ export default function BucketSettingsPage() {
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+        </div>
 
         {/* Bucket ACL */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <Users className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               Access Control List (ACL)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </h3>
+          </div>
+          <div>
+            <div className="p-6">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex-1">
@@ -1361,18 +1370,20 @@ export default function BucketSettingsPage() {
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+        </div>
 
         {/* Tags */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Tag className="h-5 w-5" />
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <Tag className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               Tags
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </h3>
+          </div>
+          <div>
+            <div className="p-6">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -1406,18 +1417,20 @@ export default function BucketSettingsPage() {
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+        </div>
 
         {/* CORS */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Globe className="h-5 w-5" />
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <Globe className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               CORS Configuration
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </h3>
+          </div>
+          <div>
+            <div className="p-6">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -1449,8 +1462,9 @@ export default function BucketSettingsPage() {
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+        </div>
               </>
             )}
 
@@ -1458,14 +1472,15 @@ export default function BucketSettingsPage() {
             {activeTab === 'lifecycle' && (
               <>
         {/* Lifecycle */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <FileText className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               Lifecycle Rules
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </h3>
+          </div>
+          <div>
+            <div className="p-6">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -1497,22 +1512,24 @@ export default function BucketSettingsPage() {
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+        </div>
               </>
             )}
 
             {/* NOTIFICATIONS TAB */}
             {activeTab === 'notifications' && (
               <>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Bell className="h-5 w-5" />
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
+                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                      <Bell className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                       Event Notifications
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
+                    </h3>
+                  </div>
+                  <div>
+                    <div className="p-6">
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <div>
@@ -1683,22 +1700,24 @@ export default function BucketSettingsPage() {
                         </div>
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
+                </div>
               </>
             )}
 
             {/* REPLICATION TAB */}
             {activeTab === 'replication' && (
               <>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <RefreshCw className="h-5 w-5" />
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
+                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                      <RefreshCw className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                       Bucket Replication
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
+                    </h3>
+                  </div>
+                  <div>
+                    <div className="p-6">
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <div>
@@ -1890,8 +1909,9 @@ export default function BucketSettingsPage() {
                         </div>
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
+                </div>
               </>
             )}
           </div>

@@ -24,7 +24,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
-import SweetAlert from '@/lib/sweetalert';
+import ModalManager, { ModalRenderer, ToastNotifications } from '@/lib/modals';
 import { useQuery } from '@tanstack/react-query';
 import APIClient from '@/lib/api';
 import type { ServerConfig } from '@/types';
@@ -189,15 +189,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const handleLogout = async () => {
     try {
-      const result = await SweetAlert.confirmLogout();
+      const result = await ModalManager.confirmLogout();
       if (result.isConfirmed) {
-        SweetAlert.loading('Signing out...', 'See you soon');
+        ModalManager.loading('Signing out...', 'See you soon');
         await logout();
-        SweetAlert.close();
+        ModalManager.close();
       }
     } catch (error) {
-      SweetAlert.close();
-      SweetAlert.error('Error signing out', error as string);
+      ModalManager.close();
+      ModalManager.error('Error signing out', error as string);
     }
   };
 
@@ -570,12 +570,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Main content */}
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 dark:bg-gray-900">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900">
           <div className="mx-auto max-w-screen-2xl 3xl:max-w-[95%] 4xl:max-w-[90%] 5xl:max-w-[85%] p-4 md:p-6 2xl:p-10 3xl:p-12 4xl:p-16">
             {children}
           </div>
         </main>
       </div>
+
+      {/* Modal Manager and Toast Notifications */}
+      <ModalRenderer />
+      <ToastNotifications />
     </div>
   );
 }
