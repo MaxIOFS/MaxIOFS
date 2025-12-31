@@ -11,6 +11,9 @@ vi.mock('@/lib/api', () => ({
     getStorageMetrics: vi.fn(),
     getBuckets: vi.fn(),
     getUsers: vi.fn(),
+    getServerConfig: vi.fn(),
+    getCurrentUser: vi.fn(),
+    getSystemMetrics: vi.fn(),
   },
 }));
 
@@ -92,6 +95,29 @@ describe('Dashboard Page', () => {
     vi.mocked(APIClient.getStorageMetrics).mockResolvedValue(mockMetrics);
     vi.mocked(APIClient.getBuckets).mockResolvedValue(mockBuckets);
     vi.mocked(APIClient.getUsers).mockResolvedValue(mockUsers);
+    vi.mocked(APIClient.getServerConfig).mockResolvedValue({
+      version: '0.6.1-beta',
+      commit: 'abc123',
+      buildDate: '2025-01-01',
+    });
+    vi.mocked(APIClient.getCurrentUser).mockResolvedValue({
+      id: '1',
+      username: 'admin',
+      email: 'admin@example.com',
+      role: 'admin',
+      roles: ['admin'],
+      tenantId: undefined,
+      createdAt: '2024-01-01T00:00:00Z',
+    });
+    vi.mocked(APIClient.getSystemMetrics).mockResolvedValue({
+      cpuUsagePercent: 25.5,
+      memoryUsagePercent: 45.2,
+      diskUsagePercent: 60.1,
+      diskTotalBytes: 1000000000,
+      diskUsedBytes: 600000000,
+      diskFreeBytes: 400000000,
+      timestamp: Date.now(),
+    });
 
     // Mock health check
     vi.mocked(globalThis.fetch).mockResolvedValue({
@@ -103,12 +129,12 @@ describe('Dashboard Page', () => {
   });
 
   describe('Rendering', () => {
-    it('should render dashboard title and welcome message', async () => {
+    it('should render dashboard title and description', async () => {
       render(<Dashboard />);
 
       await waitFor(() => {
         expect(screen.getByText('Dashboard')).toBeInTheDocument();
-        expect(screen.getByText(/Welcome to MaxIOFS/i)).toBeInTheDocument();
+        expect(screen.getByText(/System-wide overview/i)).toBeInTheDocument();
       });
     });
 

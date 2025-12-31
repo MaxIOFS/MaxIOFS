@@ -10,6 +10,12 @@ vi.mock('@/lib/api', () => ({
   default: {
     login: vi.fn(),
     verify2FA: vi.fn(),
+    getServerConfig: vi.fn(),
+  },
+  APIClient: {
+    login: vi.fn(),
+    verify2FA: vi.fn(),
+    getServerConfig: vi.fn(),
   },
 }));
 
@@ -29,6 +35,13 @@ describe('Login Page', () => {
     vi.clearAllMocks();
     localStorage.clear();
     (window as any).location.href = '';
+
+    // Mock getServerConfig
+    vi.mocked(APIClient.getServerConfig).mockResolvedValue({
+      version: '0.6.1-beta',
+      commit: 'abc123',
+      buildDate: '2025-01-01',
+    });
   });
 
   describe('Rendering', () => {

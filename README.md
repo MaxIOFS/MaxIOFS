@@ -12,7 +12,7 @@ MaxIOFS is a high-performance, S3-compatible object storage system built in Go w
 **BETA PHASE** - Production-ready features with ongoing testing:
 - ✅ **98% S3 API compatibility** - Validated with AWS CLI and MinIO Warp
 - ✅ **Zero known bugs** - All reported issues resolved
-- ✅ **Comprehensive testing** - 135 automated tests (frontend + backend)
+- ✅ **Comprehensive testing** - 550+ automated tests (487 backend + 64 frontend)
 - ✅ **Production performance** - Validated with 100,000+ requests
 - ✅ **Complete documentation** - See `/docs` directory
 - ⚠️ Suitable for testing, development, and staging environments

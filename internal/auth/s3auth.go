@@ -67,15 +67,16 @@ func (s *S3AuthHelper) parseAuthorizationHeader(auth string) (string, string, er
 
 // parseV4Authorization parses AWS SigV4 authorization header
 func (s *S3AuthHelper) parseV4Authorization(auth string) (string, string, error) {
-	parts := strings.Split(auth, " ")
+	parts := strings.SplitN(auth, " ", 2)
 	if len(parts) != 2 {
 		return "", "", ErrInvalidSignature
 	}
 
-	params := strings.Split(parts[1], ", ")
+	params := strings.Split(parts[1], ",")
 	var accessKey, signature string
 
 	for _, param := range params {
+		param = strings.TrimSpace(param)
 		kv := strings.SplitN(param, "=", 2)
 		if len(kv) != 2 {
 			continue
@@ -121,7 +122,11 @@ func (s *S3AuthHelper) ValidateTimestamp(r *http.Request, maxSkew time.Duration)
 		if err != nil {
 			return ErrInvalidSignature
 		}
-		if time.Since(t).Abs() > maxSkew {
+		diff := time.Since(t)
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > maxSkew {
 			return ErrTimestampSkew
 		}
 		return nil
@@ -133,7 +138,11 @@ func (s *S3AuthHelper) ValidateTimestamp(r *http.Request, maxSkew time.Duration)
 		if err != nil {
 			return ErrInvalidSignature
 		}
-		if time.Since(t).Abs() > maxSkew {
+		diff := time.Since(t)
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > maxSkew {
 			return ErrTimestampSkew
 		}
 		return nil
@@ -260,7 +269,7 @@ func (s *S3AuthHelper) GetS3Action(r *http.Request) string {
 
 // GetResourceARN generates an ARN for the requested resource
 func (s *S3AuthHelper) GetResourceARN(r *http.Request) string {
-	path := strings.Trim(r.URL.Path, "/")
+	path := strings.TrimPrefix(r.URL.Path, "/")
 	if path == "" {
 		return "arn:aws:s3:::*"
 	}

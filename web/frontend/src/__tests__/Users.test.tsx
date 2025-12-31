@@ -14,6 +14,8 @@ vi.mock('@/lib/api', () => ({
     getTenants: vi.fn(),
     createUser: vi.fn(),
     deleteUser: vi.fn(),
+    getServerConfig: vi.fn(),
+    getCurrentUser: vi.fn(),
   },
 }));
 
@@ -106,6 +108,20 @@ describe('Users Page', () => {
     vi.mocked(APIClient.getUsers).mockResolvedValue(mockUsers);
     vi.mocked(APIClient.getAccessKeys).mockResolvedValue([]);
     vi.mocked(APIClient.getTenants).mockResolvedValue(mockTenants);
+    vi.mocked(APIClient.getServerConfig).mockResolvedValue({
+      version: '0.6.1-beta',
+      commit: 'abc123',
+      buildDate: '2025-01-01',
+    });
+    vi.mocked(APIClient.getCurrentUser).mockResolvedValue({
+      id: '1',
+      username: 'admin',
+      email: 'admin@example.com',
+      role: 'admin',
+      roles: ['admin'],
+      tenantId: undefined,
+      createdAt: '2024-01-01T00:00:00Z',
+    });
     vi.mocked(ModalManager.confirmDelete).mockResolvedValue({ isConfirmed: true, isDenied: false, isDismissed: false });
   });
 

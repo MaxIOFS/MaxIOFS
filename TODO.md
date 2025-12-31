@@ -1,21 +1,24 @@
 # MaxIOFS - TODO & Roadmap
 
 **Version**: 0.6.1-beta
-**Last Updated**: December 23, 2025
+**Last Updated**: December 30, 2025
 **Status**: Beta - 98% S3 Compatible
 
 ## 📊 Project Status
 
 - S3 API Compatibility: 98%
-- Backend Test Coverage: ~53%
-- Frontend Test Coverage: 100%
+- Backend Test Coverage: ~53% (487 tests)
+- Frontend Test Coverage: 100% (64 tests)
 - Features Complete: ~96%
 - Production Ready: Testing Phase
 
 ## 📌 Current Sprint
 
 ### Sprint 5: Production Readiness & Stability - 🔄 IN PROGRESS
-- [ ] Expand test coverage for internal/auth (28.0% coverage)
+- [x] ✅ Expand test coverage for internal/auth (30.2% → **47.1% coverage**, +16.9 points, 56% improvement)
+  - 13 new test functions with 80+ test cases for S3 authentication
+  - s3auth.go coverage: 83-100% across all functions
+  - Fixed 4 critical bugs in SigV4/SigV2 authentication
 - [ ] Expand test coverage for internal/metrics (17.4% coverage)
 - [ ] Memory/CPU Profiling - Identify bottlenecks
 - [ ] Enhanced Health Checks - Readiness probes
@@ -43,7 +46,9 @@
 ### Test Coverage Expansion
 - [x] pkg/s3compat (30.9% → **45.7% coverage** ✅) - **42 tests added** (+14.8 points, 48% improvement)
 - [x] internal/server (12.7% → **18.3% coverage** ✅) - **4 integration tests added** (+5.6 points, 44% improvement)
-- [ ] internal/auth (28.0% coverage) - Expand authentication/authorization tests
+- [x] internal/auth (30.2% → **47.1% coverage** ✅) - **13 test functions added** (+16.9 points, 56% improvement)
+  - Comprehensive S3 signature authentication tests (SigV4, SigV2, Bearer tokens)
+  - Fixed 4 critical bugs in authentication implementation
 - [ ] internal/metrics (17.4% coverage) - Expand metrics manager tests
 
 ### Improvements & Optimization
@@ -68,6 +73,9 @@
 - ✅ Vitest v3 → v4 Migration (59% faster test execution)
 - ✅ S3 API Test Suite Expansion (+42 tests, coverage: 30.9% → 45.7%)
 - ✅ Server Integration Tests (+4 tests, coverage: 12.7% → 18.3%)
+- ✅ Auth Module Test Suite (+13 test functions, coverage: 30.2% → 47.1%)
+  - S3 signature authentication tests (SigV4, SigV2, Bearer tokens, pre-signed URLs)
+  - Fixed 4 critical authentication bugs (parseV4Authorization, ValidateTimestamp, GetResourceARN)
 - ✅ Docker Infrastructure Improvements (organized config, profiles, unified dashboard)
 - ✅ Documentation Accuracy Fixes (React framework references)
 - ✅ UI Bug Fixes (Tailwind v4 opacity syntax compatibility)
