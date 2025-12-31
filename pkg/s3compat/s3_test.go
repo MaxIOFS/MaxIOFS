@@ -1711,11 +1711,13 @@ func TestObjectRetention(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, "Should upload object")
 
 	t.Run("PutObjectRetention", func(t *testing.T) {
-		retentionXML := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+		// Use a date 30 days in the future to ensure it's always valid
+		futureDate := time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.RFC3339)
+		retentionXML := []byte(fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <Retention>
   <Mode>GOVERNANCE</Mode>
-  <RetainUntilDate>2025-12-31T00:00:00Z</RetainUntilDate>
-</Retention>`)
+  <RetainUntilDate>%s</RetainUntilDate>
+</Retention>`, futureDate))
 
 		req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey+"?retention", retentionXML)
 		req.Header.Set("Content-Type", "application/xml")
