@@ -41,6 +41,44 @@ describe('Login Page', () => {
       version: '0.6.1-beta',
       commit: 'abc123',
       buildDate: '2025-01-01',
+      server: {
+        s3ApiPort: '8080',
+        consoleApiPort: '8081',
+        dataDir: './data',
+        publicApiUrl: 'http://localhost:8080',
+        publicConsoleUrl: 'http://localhost:8081',
+        enableTls: false,
+        logLevel: 'info',
+      },
+      storage: {
+        backend: 'badger',
+        root: './data/storage',
+        enableCompression: false,
+        compressionType: 'gzip',
+        compressionLevel: 6,
+        enableEncryption: false,
+        enableObjectLock: false,
+      },
+      auth: {
+        enableAuth: true,
+      },
+      metrics: {
+        enable: true,
+        path: '/metrics',
+        interval: 60,
+      },
+      features: {
+        multiTenancy: true,
+        objectLock: true,
+        versioning: true,
+        encryption: true,
+        compression: true,
+        multipart: true,
+        presignedUrls: true,
+        cors: true,
+        lifecycle: true,
+        tagging: true,
+      },
     });
   });
 
