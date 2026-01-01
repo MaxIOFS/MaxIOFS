@@ -216,7 +216,7 @@ All endpoints automatically filter by tenant:
 ### Create Tenant (Global Admin Only)
 
 ```http
-POST /api/tenants
+POST /api/v1/tenants
 Authorization: Bearer <global-admin-token>
 Content-Type: application/json
 
@@ -248,7 +248,7 @@ Content-Type: application/json
 ### Create Tenant Admin
 
 ```http
-POST /api/users
+POST /api/v1/users
 Authorization: Bearer <global-admin-token>
 Content-Type: application/json
 
@@ -264,7 +264,7 @@ Content-Type: application/json
 ### Create Tenant User
 
 ```http
-POST /api/users
+POST /api/v1/users
 Authorization: Bearer <tenant-admin-token>
 Content-Type: application/json
 
@@ -282,7 +282,7 @@ Content-Type: application/json
 Global Admins only:
 
 ```http
-PUT /api/tenants/{tenantId}
+PUT /api/v1/tenants/{tenantId}
 Authorization: Bearer <global-admin-token>
 Content-Type: application/json
 

@@ -325,7 +325,7 @@ X-MaxIOFS-Signature: <hex-encoded-hmac>
 
 **Via API:**
 ```bash
-POST /api/console/cluster/replication
+POST /api/v1/cluster/replication
 {
   "source_bucket": "my-bucket",
   "destination_node_id": "uuid-5678",
@@ -378,42 +378,42 @@ POST /api/console/cluster/replication
 
 ## API Reference
 
-**Base URL**: `http://localhost:8081/api/console/cluster`
+**Base URL**: `http://localhost:8081/api/v1`
 **Authentication**: JWT token required in `Authorization: Bearer <token>` header
 
 ### Cluster Management Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/cluster/initialize` | Initialize cluster, generates token |
-| GET | `/api/cluster/config` | Get cluster configuration |
-| GET | `/api/cluster/nodes` | List all cluster nodes |
-| POST | `/api/cluster/nodes` | Add node to cluster |
-| GET | `/api/cluster/nodes/{nodeId}` | Get node details |
-| PUT | `/api/cluster/nodes/{nodeId}` | Update node (name, region, priority, metadata) |
-| DELETE | `/api/cluster/nodes/{nodeId}` | Remove node from cluster |
-| GET | `/api/cluster/health` | Get cluster health summary |
-| POST | `/api/cluster/health/refresh` | Trigger manual health check |
-| GET | `/api/cluster/cache/stats` | Get cache statistics (hits, misses, ratio) |
-| DELETE | `/api/cluster/cache` | Clear bucket location cache |
-| GET | `/api/cluster/buckets` | List cluster buckets with replication status |
-| GET | `/api/cluster/buckets/{bucketName}/nodes` | Get primary and replica nodes for bucket |
+| POST | `/api/v1/cluster/initialize` | Initialize cluster, generates token |
+| GET | `/api/v1/cluster/config` | Get cluster configuration |
+| GET | `/api/v1/cluster/nodes` | List all cluster nodes |
+| POST | `/api/v1/cluster/nodes` | Add node to cluster |
+| GET | `/api/v1/cluster/nodes/{nodeId}` | Get node details |
+| PUT | `/api/v1/cluster/nodes/{nodeId}` | Update node (name, region, priority, metadata) |
+| DELETE | `/api/v1/cluster/nodes/{nodeId}` | Remove node from cluster |
+| GET | `/api/v1/cluster/health` | Get cluster health summary |
+| POST | `/api/v1/cluster/health/refresh` | Trigger manual health check |
+| GET | `/api/v1/cluster/cache/stats` | Get cache statistics (hits, misses, ratio) |
+| DELETE | `/api/v1/cluster/cache` | Clear bucket location cache |
+| GET | `/api/v1/cluster/buckets` | List cluster buckets with replication status |
+| GET | `/api/v1/cluster/buckets/{bucketName}/nodes` | Get primary and replica nodes for bucket |
 
 ### Cluster Replication Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/console/cluster/replication` | Create replication rule |
-| GET | `/api/console/cluster/replication` | List replication rules (filter by tenant, bucket) |
-| PUT | `/api/console/cluster/replication/{ruleId}` | Update replication rule |
-| DELETE | `/api/console/cluster/replication/{ruleId}` | Delete replication rule |
-| POST | `/api/console/cluster/replication/bulk` | Bulk replicate all buckets node-to-node |
+| POST | `/api/v1/cluster/replication` | Create replication rule |
+| GET | `/api/v1/cluster/replication` | List replication rules (filter by tenant, bucket) |
+| PUT | `/api/v1/cluster/replication/{ruleId}` | Update replication rule |
+| DELETE | `/api/v1/cluster/replication/{ruleId}` | Delete replication rule |
+| POST | `/api/v1/cluster/replication/bulk` | Bulk replicate all buckets node-to-node |
 
 ### Example Requests
 
 **Initialize Cluster:**
 ```json
-POST /api/cluster/initialize
+POST /api/v1/cluster/initialize
 {
   "node_name": "node-east-1",
   "region": "us-east-1"
@@ -423,7 +423,7 @@ POST /api/cluster/initialize
 
 **Add Node:**
 ```json
-POST /api/cluster/nodes
+POST /api/v1/cluster/nodes
 {
   "name": "node-west-1",
   "endpoint": "http://10.0.1.20:8080",
@@ -435,7 +435,7 @@ POST /api/cluster/nodes
 
 **Create Replication Rule:**
 ```json
-POST /api/console/cluster/replication
+POST /api/v1/cluster/replication
 {
   "source_bucket": "my-bucket",
   "destination_node_id": "uuid-5678",
@@ -595,7 +595,7 @@ sqlite3 /data/node1/auth.db "SELECT id, name, endpoint FROM cluster_nodes;"
 **Diagnosis:**
 ```bash
 # Check replication rule status
-curl -X GET "http://localhost:8081/api/console/cluster/replication?bucket=my-bucket" \
+curl -X GET "http://localhost:8081/api/v1/cluster/replication?bucket=my-bucket" \
   -H "Authorization: Bearer $TOKEN"
 
 # Verify: enabled=true, last_error=null, reasonable sync_interval
@@ -604,7 +604,7 @@ curl -X GET "http://localhost:8081/api/console/cluster/replication?bucket=my-buc
 sqlite3 /data/node1/auth.db "SELECT COUNT(*) FROM cluster_replication_queue WHERE status='pending';"
 
 # Check tenant sync
-curl -X GET "http://node2:8081/api/console/tenants" \
+curl -X GET "http://node2:8081/api/v1/tenants" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -639,18 +639,18 @@ ssh node2 "date -u"
 **Diagnosis:**
 ```bash
 # Check cache stats
-curl -X GET "http://localhost:8081/api/cluster/cache/stats" \
+curl -X GET "http://localhost:8081/api/v1/cluster/cache/stats" \
   -H "Authorization: Bearer $TOKEN"
 
 # Check bucket ownership
-curl -X GET "http://localhost:8081/api/cluster/buckets/my-bucket/nodes" \
+curl -X GET "http://localhost:8081/api/v1/cluster/buckets/my-bucket/nodes" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 **Fixes:**
 ```bash
 # Clear cache
-curl -X DELETE "http://localhost:8081/api/cluster/cache" \
+curl -X DELETE "http://localhost:8081/api/v1/cluster/cache" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -680,7 +680,7 @@ scp large-file.bin node2:/tmp/
 - Check browser console (F12 → Console tab)
 - Verify API endpoint responds:
 ```bash
-curl -X GET "http://localhost:8081/api/cluster/health" \
+curl -X GET "http://localhost:8081/api/v1/cluster/health" \
   -H "Authorization: Bearer $TOKEN"
 ```
 

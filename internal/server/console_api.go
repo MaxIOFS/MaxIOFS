@@ -146,7 +146,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip authentication for public endpoints
-			publicPaths := []string{"/auth/login", "/auth/2fa/verify", "/health"}
+			publicPaths := []string{"/", "/auth/login", "/auth/2fa/verify", "/health"}
 			for _, path := range publicPaths {
 				if strings.Contains(r.URL.Path, path) || r.Method == "OPTIONS" {
 					next.ServeHTTP(w, r)
@@ -176,6 +176,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	})
+
+	// API root endpoint - provides API information
+	router.HandleFunc("/", s.handleAPIRoot).Methods("GET", "OPTIONS")
 
 	// Auth endpoints
 	router.HandleFunc("/auth/login", s.handleLogin).Methods("POST", "OPTIONS")
@@ -370,6 +373,35 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 
 	// Health check
 	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET", "OPTIONS")
+}
+
+// handleAPIRoot returns information about the Console API
+func (s *Server) handleAPIRoot(w http.ResponseWriter, r *http.Request) {
+	response := APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"name":          "MaxIOFS Console API",
+			"version":       "v1",
+			"serverVersion": s.version,
+			"description":   "Management REST API for MaxIOFS web console",
+			"documentation": "https://github.com/MaxIOFS/MaxIOFS/blob/main/docs/API.md",
+			"endpoints": map[string]string{
+				"health":   "/health",
+				"auth":     "/auth/*",
+				"users":    "/users",
+				"buckets":  "/buckets",
+				"tenants":  "/tenants",
+				"metrics":  "/metrics",
+				"settings": "/settings",
+				"cluster":  "/cluster/*",
+				"audit":    "/audit-logs",
+			},
+			"note": "All endpoints require /api/v1 prefix. Example: POST /api/v1/auth/login",
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // Auth handlers

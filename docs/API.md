@@ -157,13 +157,13 @@ For detailed S3 API specs, see [AWS S3 API Documentation](https://docs.aws.amazo
 
 ## Console API (Port 8081)
 
-REST API for web console management. All endpoints require JWT authentication.
+REST API for web console management. All endpoints require JWT authentication and are prefixed with `/api/v1`.
 
 ### Authentication
 
 **Login:**
 ```http
-POST /api/auth/login
+POST /api/v1/auth/login
 Content-Type: application/json
 
 {
@@ -187,56 +187,59 @@ Content-Type: application/json
 
 **Authenticated Requests:**
 ```http
-GET /api/users
+GET /api/v1/users
 Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 ```
 
 ### Available Endpoints
 
+#### API Root
+- `GET /api/v1/` - Get API information and available endpoints
+
 #### Authentication
-- `POST /api/auth/login` - Login with username/password (with optional TOTP code)
-- `GET /api/auth/me` - Get current user info
-- `POST /api/auth/logout` - Logout
-- `POST /api/auth/2fa/enable` - Enable 2FA for current user
-- `POST /api/auth/2fa/verify` - Verify 2FA setup
-- `POST /api/auth/2fa/disable` - Disable 2FA for current user
-- `GET /api/auth/2fa/backup-codes` - Get backup codes
+- `POST /api/v1/auth/login` - Login with username/password (with optional TOTP code)
+- `GET /api/v1/auth/me` - Get current user info
+- `POST /api/v1/auth/logout` - Logout
+- `POST /api/v1/auth/2fa/enable` - Enable 2FA for current user
+- `POST /api/v1/auth/2fa/verify` - Verify 2FA setup
+- `POST /api/v1/auth/2fa/disable` - Disable 2FA for current user
+- `GET /api/v1/auth/2fa/backup-codes` - Get backup codes
 
 #### User Management
-- `GET /api/users` - List users
-- `POST /api/users` - Create user
-- `PUT /api/users/{id}` - Update user
-- `DELETE /api/users/{id}` - Delete user
-- `POST /api/users/{id}/unlock` - Unlock locked account
+- `GET /api/v1/users` - List users
+- `POST /api/v1/users` - Create user
+- `PUT /api/v1/users/{id}` - Update user
+- `DELETE /api/v1/users/{id}` - Delete user
+- `POST /api/v1/users/{id}/unlock` - Unlock locked account
 
 #### Tenant Management
-- `GET /api/tenants` - List tenants
-- `POST /api/tenants` - Create tenant
-- `PUT /api/tenants/{id}` - Update tenant
-- `DELETE /api/tenants/{id}` - Delete tenant
-- `GET /api/tenants/{id}/stats` - Get tenant statistics
+- `GET /api/v1/tenants` - List tenants
+- `POST /api/v1/tenants` - Create tenant
+- `PUT /api/v1/tenants/{id}` - Update tenant
+- `DELETE /api/v1/tenants/{id}` - Delete tenant
+- `GET /api/v1/tenants/{id}/stats` - Get tenant statistics
 
 #### Access Key Management
-- `GET /api/access-keys` - List access keys
-- `POST /api/access-keys` - Create access key
-- `DELETE /api/access-keys/{id}` - Revoke access key
+- `GET /api/v1/access-keys` - List access keys
+- `POST /api/v1/access-keys` - Create access key
+- `DELETE /api/v1/access-keys/{id}` - Revoke access key
 
 #### Bucket Management
-- `GET /api/buckets` - List buckets
-- `POST /api/buckets` - Create bucket
-- `DELETE /api/buckets/{name}` - Delete bucket
-- `GET /api/buckets/{name}/stats` - Get bucket statistics
+- `GET /api/v1/buckets` - List buckets
+- `POST /api/v1/buckets` - Create bucket
+- `DELETE /api/v1/buckets/{name}` - Delete bucket
+- `GET /api/v1/buckets/{name}/stats` - Get bucket statistics
 
 #### Object Management
-- `GET /api/buckets/{bucket}/objects` - List objects
-- `POST /api/buckets/{bucket}/objects` - Upload object (multipart/form-data)
-- `DELETE /api/buckets/{bucket}/objects/{key}` - Delete object
-- `POST /api/buckets/{bucket}/objects/{key}/share` - Generate share URL
-- `DELETE /api/buckets/{bucket}/objects/{key}/share` - Revoke share
+- `GET /api/v1/buckets/{bucket}/objects` - List objects
+- `POST /api/v1/buckets/{bucket}/objects` - Upload object (multipart/form-data)
+- `DELETE /api/v1/buckets/{bucket}/objects/{key}` - Delete object
+- `POST /api/v1/buckets/{bucket}/objects/{key}/share` - Generate share URL
+- `DELETE /api/v1/buckets/{bucket}/objects/{key}/share` - Revoke share
 
 #### Metrics
-- `GET /api/metrics` - Dashboard metrics
-- `GET /api/metrics/system` - System metrics (CPU, memory, disk)
+- `GET /api/v1/metrics` - Dashboard metrics
+- `GET /api/v1/metrics/system` - System metrics (CPU, memory, disk)
 - `GET /metrics` - Prometheus metrics endpoint (comprehensive monitoring)
 
 #### Audit Logs (v0.4.0+)
@@ -263,32 +266,32 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 #### Cluster Management (v0.6.1-beta)
 
 **Cluster Configuration:**
-- `POST /api/cluster/initialize` - Initialize cluster on this node
-- `GET /api/cluster/status` - Get cluster configuration and status
-- `DELETE /api/cluster/leave` - Remove this node from cluster
+- `POST /api/v1/cluster/initialize` - Initialize cluster on this node
+- `GET /api/v1/cluster/status` - Get cluster configuration and status
+- `DELETE /api/v1/cluster/leave` - Remove this node from cluster
 
 **Node Management:**
-- `GET /api/cluster/nodes` - List all cluster nodes
-- `POST /api/cluster/nodes` - Add node to cluster
-- `PUT /api/cluster/nodes/{id}` - Update node configuration
-- `DELETE /api/cluster/nodes/{id}` - Remove node from cluster
+- `GET /api/v1/cluster/nodes` - List all cluster nodes
+- `POST /api/v1/cluster/nodes` - Add node to cluster
+- `PUT /api/v1/cluster/nodes/{id}` - Update node configuration
+- `DELETE /api/v1/cluster/nodes/{id}` - Remove node from cluster
 
 **Health Monitoring:**
-- `POST /api/cluster/nodes/{id}/health` - Manually check node health
-- `GET /api/cluster/health/history` - Get health check history
-- `GET /api/cluster/health/summary` - Get cluster health summary
+- `POST /api/v1/cluster/nodes/{id}/health` - Manually check node health
+- `GET /api/v1/cluster/health/history` - Get health check history
+- `GET /api/v1/cluster/health/summary` - Get cluster health summary
 
 **Bucket Location Management:**
-- `GET /api/cluster/buckets/locations` - List all bucket locations
-- `PUT /api/cluster/buckets/{name}/location` - Set bucket location
-- `DELETE /api/cluster/cache` - Clear bucket location cache
+- `GET /api/v1/cluster/buckets/locations` - List all bucket locations
+- `PUT /api/v1/cluster/buckets/{name}/location` - Set bucket location
+- `DELETE /api/v1/cluster/cache` - Clear bucket location cache
 
 **Cluster Replication:**
-- `GET /api/cluster/replication/rules` - List cluster replication rules
-- `POST /api/cluster/replication/rules` - Create replication rule
-- `PUT /api/cluster/replication/rules/{id}` - Update replication rule
-- `DELETE /api/cluster/replication/rules/{id}` - Delete replication rule
-- `POST /api/cluster/replication/sync` - Manually trigger sync
+- `GET /api/v1/cluster/replication/rules` - List cluster replication rules
+- `POST /api/v1/cluster/replication/rules` - Create replication rule
+- `PUT /api/v1/cluster/replication/rules/{id}` - Update replication rule
+- `DELETE /api/v1/cluster/replication/rules/{id}` - Delete replication rule
+- `POST /api/v1/cluster/replication/sync` - Manually trigger sync
 
 **Internal Cluster Endpoints** (HMAC-authenticated, inter-node only):
 - `POST /api/internal/cluster/tenant-sync` - Receive tenant synchronization
@@ -297,7 +300,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 
 **Initialize Cluster Example:**
 ```bash
-curl -X POST http://localhost:8081/api/cluster/initialize \
+curl -X POST http://localhost:8081/api/v1/cluster/initialize \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -322,7 +325,7 @@ curl -X POST http://localhost:8081/api/cluster/initialize \
 
 **Add Node to Cluster Example:**
 ```bash
-curl -X POST http://localhost:8081/api/cluster/nodes \
+curl -X POST http://localhost:8081/api/v1/cluster/nodes \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
