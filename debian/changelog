@@ -1,3 +1,29 @@
+maxiofs (0.6.2-beta) unstable; urgency=medium
+
+  * Major maintenance release: Test Coverage, Security Fixes & Infrastructure
+  * Console API Documentation Fixed (GitHub Issue #2) - All routes corrected to /api/v1/ prefix
+  * Added GET /api/v1/ root endpoint returning API information in JSON format
+  * Added MIT LICENSE file to repository root (GitHub Issue #3)
+  * S3 Authentication Test Suite - 13 test functions, 80+ cases (coverage: 30.2% → 47.1%)
+  * Fixed critical S3 auth bugs: SigV4 parsing, timestamp validation, ARN generation
+  * S3 API Test Expansion - 42 new tests added (coverage: 30.9% → 45.7%)
+  * Advanced S3 features: multipart, ACL, Object Lock, versioning, chunked encoding
+  * Server Integration Tests - 4 lifecycle tests added (coverage: 12.7% → 18.3%)
+  * Frontend Dependencies Upgrade - Tailwind CSS v3→v4 (10x faster), Vitest v3→v4 (59% faster)
+  * Removed SweetAlert2 dependency - Custom modal system reduces bundle by ~65KB
+  * Metrics Dashboard Redesign - 5 tabs (Overview/System/Storage/API/Performance) with time filters
+  * CRITICAL FIX: Debian package upgrades now preserve /etc/maxiofs/config.yaml
+  * Prevented encryption key loss that caused permanent data inaccessibility
+  * Docker Infrastructure - Complete rewrite (1040→285 lines, 74% reduction)
+  * Docker profiles for monitoring (Prometheus+Grafana) and cluster (3-node HA)
+  * Unified Grafana dashboard with 14 panels, auto-provisioning, performance alerts
+  * Documentation corrections - Fixed Next.js references to React throughout
+  * UI Bug Fixes - Tailwind v4 modal backdrop opacity syntax corrections
+  * Code Cleanup - Removed unused Next.js server code (118 lines)
+  * All tests passing - 64 frontend tests, 531 backend tests (100% success rate)
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Wed, 01 Jan 2026 12:00:00 +0000
+
 maxiofs (0.6.1-beta) unstable; urgency=medium
 
   * Maintenance release: Build Requirements Update & Test Coverage Expansion

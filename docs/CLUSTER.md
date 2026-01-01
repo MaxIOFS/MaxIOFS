@@ -1,6 +1,6 @@
 # Multi-Node Cluster Management
 
-**Version**: 0.6.1-beta
+**Version**: 0.6.2-beta
 **Status**: Production-Ready
 **Last Updated**: December 13, 2025
 
@@ -25,7 +25,7 @@
 
 ## Overview
 
-MaxIOFS v0.6.1-beta introduces complete multi-node cluster support for high availability (HA) and automatic failover. Multiple MaxIOFS instances work together as a unified storage cluster with intelligent request routing, automatic health monitoring, and seamless failover.
+MaxIOFS v0.6.2-beta introduces complete multi-node cluster support for high availability (HA) and automatic failover. Multiple MaxIOFS instances work together as a unified storage cluster with intelligent request routing, automatic health monitoring, and seamless failover.
 
 ### Key Features
 
@@ -845,7 +845,7 @@ CREATE TABLE cluster_replication_queue (
 
 ---
 
-**Version**: 0.6.1-beta
+**Version**: 0.6.2-beta
 **Last Updated**: December 13, 2025
 **Documentation Status**: Complete
 

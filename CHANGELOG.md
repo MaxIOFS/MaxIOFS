@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2-beta] - 2026-01-01
+
+### Added
+- **Console API Root Endpoint** (`GET /api/v1/`)
+  - Returns API information, available endpoints, and server version in JSON format
+  - Public endpoint (no authentication required)
+  - Helps developers discover correct API routes and prevents HTML responses for API calls
+  - Includes documentation link and usage examples
+
+- **LICENSE File**
+  - Added MIT License file to repository root
+  - Resolves GitHub Issue #3
+
+### Fixed
+- **Console API Documentation** (GitHub Issue #2)
+  - **Root Cause**: Documentation showed API routes without `/v1/` prefix (e.g., `/api/auth/login` instead of `/api/v1/auth/login`)
+  - **Impact**: Developers accessing incorrect routes received HTML responses instead of JSON
+  - **Files Updated**:
+    - `docs/API.md` - All Console API endpoints corrected to `/api/v1/` prefix
+    - `docs/CLUSTER.md` - Cluster management endpoints and curl examples
+    - `docs/MULTI_TENANCY.md` - Tenant and user management endpoints
+  - All documentation now accurately reflects actual API routes
+
+### Changed
+- **API Documentation Structure**
+  - Added explicit note in `docs/API.md`: "All endpoints require /api/v1 prefix"
+  - Updated base URL documentation from `/api/console/cluster` to `/api/v1`
+  - Added "API Root" section documenting the new endpoint
+
 ### Added - S3 Authentication Test Suite (Auth Module - Complete)
 
 #### Comprehensive S3 Signature Authentication Tests

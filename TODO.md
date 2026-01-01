@@ -1,7 +1,7 @@
 # MaxIOFS - TODO & Roadmap
 
-**Version**: 0.6.1-beta
-**Last Updated**: December 30, 2025
+**Version**: 0.6.2-beta
+**Last Updated**: January 1, 2026
 **Status**: Beta - 98% S3 Compatible
 
 ## 📊 Project Status
@@ -67,7 +67,18 @@
 
 ## ✅ COMPLETED FEATURES
 
-### v0.6.1-beta (Current)
+### v0.6.2-beta (Current)
+- ✅ Console API Documentation Fixes (GitHub Issues #2 and #3)
+  - Fixed all API endpoint documentation (corrected `/api/` to `/api/v1/` prefix)
+  - Added `GET /api/v1/` root endpoint (returns API information in JSON)
+  - Updated `docs/API.md`, `docs/CLUSTER.md`, `docs/MULTI_TENANCY.md`
+- ✅ LICENSE File Addition (MIT License added to repository root)
+- ✅ API Documentation Structure Improvements
+  - Added explicit prefix note in documentation
+  - Updated base URL examples and curl commands
+  - Added API Root section with endpoint discovery
+
+### v0.6.1-beta
 - ✅ Build Requirements Update (Node.js 24+, Go 1.25+)
 - ✅ Tailwind CSS v3 → v4 Migration (10x faster Oxide engine)
 - ✅ Vitest v3 → v4 Migration (59% faster test execution)

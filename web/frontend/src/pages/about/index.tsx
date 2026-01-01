@@ -329,50 +329,133 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New Features in v0.6.1-beta
+            New Features in v0.6.2-beta
           </h2>
           <div className="space-y-4">
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Build Requirements Update
+                Console API Documentation Fixed (GitHub Issue #2)
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Updated Node.js requirement from 23+ to 24+ for latest npm packages and security updates. Updated Go requirement from
-                1.24+ to 1.25+ (current: 1.25.4) for performance improvements and security patches. All build configurations updated
-                including README, package.json, Dockerfile, and debian packages.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-purple-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Frontend Dependencies Upgrade
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Tailwind CSS v3 → v4 Migration with 10x faster Oxide engine (3.4.19 → 4.1.18). Vitest v3 → v4 Migration with 59%
-                faster test execution (21.74s → 9.00s). Updated lucide-react icons and autoprefixer. All 64 frontend tests passing
-                with zero breaking changes. Modern CSS syntax with @import directives and optimized build performance.
+                Corrected all Console API endpoint documentation from /api/ to /api/v1/ prefix. Added GET /api/v1/ root endpoint that
+                returns API information, available endpoints, and server version in JSON format. Updated docs/API.md, docs/CLUSTER.md,
+                and docs/MULTI_TENANCY.md with accurate routes and examples.
               </p>
             </div>
 
             <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                S3 Test Coverage Expansion
+                MIT LICENSE Added (GitHub Issue #3)
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Added 42 comprehensive S3 API tests to pkg/s3compat package, improving coverage from 30.9% to 45.7% (+14.8 points, 48%
-                improvement). Tests cover advanced S3 features (multipart uploads, ACLs, Object Lock), AWS chunked encoding (0% → 100%
-                coverage), HeadObject/DeleteObject/PutObject error cases, and complete XML request/response validation.
+                Added MIT License file to repository root. Resolves missing LICENSE file referenced in README.md with complete
+                copyright notice (2024-2026) and standard MIT License terms.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-blue-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                S3 Authentication Test Suite - Complete Coverage
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Added 13 comprehensive test functions with 80+ test cases for S3 authentication. Improved auth module coverage from
+                30.2% to 47.1% (+56% relative improvement). Tests cover AWS Signature V4/V2, JWT Bearer tokens, timestamp validation,
+                S3 action extraction, ARN generation, and complete authentication flow. Fixed critical bugs in SigV4 authorization parsing,
+                timestamp UTC timezone handling, and ARN trailing slash preservation.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-green-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                S3 API Test Suite Expansion - 42 New Tests
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Improved S3 API test coverage from 30.9% to 45.7% (+48% relative improvement). Added tests for advanced S3 features
+                (multipart uploads, bucket/object ACLs, Object Lock, versioning, tagging), AWS chunked encoding (0% to 100% coverage),
+                and error cases for HeadObject, DeleteObject, and PutObject operations. All 42 tests passing with complete XML/HTTP
+                validation.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-purple-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Server Integration Test Suite - Lifecycle Tests
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Added 4 comprehensive server lifecycle integration tests. Improved server package coverage from 12.7% to 18.3% (+44%
+                relative improvement). Tests cover server initialization with manager validation, version information handling, graceful
+                shutdown with timeout, and start/stop cycle resilience with resource cleanup.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-orange-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Frontend Dependencies Upgrade - Major Performance Gains
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Migrated Tailwind CSS from v3 to v4 with new Oxide engine (10x faster build times). Upgraded Vitest from v3 to v4 with
+                59% faster test execution (21.74s to 9.00s). Updated lucide-react icon library and autoprefixer. All 64 frontend tests
+                passing with zero breaking changes. Updated build requirements to Node.js 24+ and Go 1.25+ for latest security patches.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-blue-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                SweetAlert2 Removed - Custom Modal System
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Completely removed sweetalert2 dependency (reduced bundle size by ~65KB). Created custom modal components using existing
+                Modal UI component with better Tailwind CSS integration, consistent design system, and improved dark mode support. Migrated
+                all pages using confirmations/alerts to new modal system.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-green-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Metrics Dashboard Complete Redesign
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Reorganized metrics page from 3 to 5 specialized tabs: Overview, System, Storage, API & Requests, and Performance. Added
+                time range selector for historical data filtering (Real-time, 1H, 6H, 24H, 7D, 30D, 1Y). All charts now show temporal
+                evolution with MetricLineChart component. Eliminated duplicate information with unique content per tab. Improved visual
+                consistency with standardized MetricCard components across all metrics pages.
               </p>
             </div>
 
             <div className="border-l-4 border-red-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Server Integration Tests & Improvements
+                CRITICAL FIX: Debian Package Configuration Preservation
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Added 4 server lifecycle integration tests improving internal/server coverage from 12.7% to 18.3% (+5.6 points, 44%
-                improvement). Docker infrastructure improvements with organized config directories and profiles. Fixed UI bugs with
-                Tailwind v4 opacity syntax. Removed 118 lines of unused Next.js server code. Complete documentation accuracy fixes.
+                Fixed severe bug where Debian package upgrades could overwrite /etc/maxiofs/config.yaml, causing permanent data loss of
+                all encrypted objects. Package upgrades now preserve existing config.yaml completely untouched while updating
+                config.example.yaml with latest template. Smart logic creates config.yaml only on first installation. Prevents encryption
+                key loss that would make all encrypted objects permanently inaccessible.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-purple-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Docker Infrastructure - Complete Rewrite
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Modernized docker-compose.yaml with 74% reduction (1040 to 285 lines). Added Docker profiles for conditional service
+                startup: monitoring (Prometheus + Grafana) and cluster (3-node HA). Created organized docker/ directory with externalized
+                configurations. Unified Grafana dashboard with 14 panels in 3 sections, auto-provisioning, and 14 performance alert rules.
+                New Makefile commands (docker-monitoring, docker-cluster, docker-cluster-monitoring). Comprehensive Docker documentation
+                in English.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-orange-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Documentation & UI Corrections
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Fixed incorrect "Next.js" references to "React" throughout README, CHANGELOG, CLI help, package descriptions, and frontend
+                locales. Corrected Tailwind v4 modal backdrop opacity syntax across 5 files (9 modal backdrops). Removed unused Next.js
+                server code (118 lines). Fixed .env.example by removing obsolete Next.js environment variables. All tests passing (64
+                frontend, 531 backend with 100% success rate).
               </p>
             </div>
           </div>

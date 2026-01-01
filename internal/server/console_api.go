@@ -146,9 +146,17 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip authentication for public endpoints
-			publicPaths := []string{"/", "/auth/login", "/auth/2fa/verify", "/health"}
+			publicPaths := []string{"/auth/login", "/auth/2fa/verify", "/health"}
+
+			// Check for exact match on root path
+			if r.URL.Path == "/" || r.Method == "OPTIONS" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Check for other public paths using Contains
 			for _, path := range publicPaths {
-				if strings.Contains(r.URL.Path, path) || r.Method == "OPTIONS" {
+				if strings.Contains(r.URL.Path, path) {
 					next.ServeHTTP(w, r)
 					return
 				}

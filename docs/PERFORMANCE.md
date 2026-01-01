@@ -2,7 +2,7 @@
 
 **Date:** December 11, 2025
 **Test Suite:** K6 Performance Benchmarks
-**MaxIOFS Version:** 0.6.1-beta
+**MaxIOFS Version:** 0.6.2-beta
 
 ---
 
@@ -329,7 +329,7 @@ ssh production-server
 
 ## Baseline Performance Metrics (Linux Production)
 
-These are the **official baseline metrics** for MaxIOFS v0.6.1-beta:
+These are the **official baseline metrics** for MaxIOFS v0.6.2-beta:
 
 ### System Specifications
 - **Platform:** Debian Linux 6.1, 80 CPU cores, 125GB RAM
@@ -401,4 +401,4 @@ Windows performance issues are entirely **environmental** and should be disregar
 
 **Report Generated:** December 11, 2025
 **Tested By:** K6 Load Testing Framework
-**MaxIOFS Version:** 0.6.1-beta
+**MaxIOFS Version:** 0.6.2-beta
