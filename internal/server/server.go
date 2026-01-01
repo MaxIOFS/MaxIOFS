@@ -674,6 +674,10 @@ func (s *Server) setupConsoleRoutes(router *mux.Router) {
 		baseRouter = router
 	}
 
+	// API root endpoints (handle both with and without trailing slash)
+	baseRouter.HandleFunc("/api/v1", s.handleAPIRoot).Methods("GET", "OPTIONS")
+	baseRouter.HandleFunc("/api/v1/", s.handleAPIRoot).Methods("GET", "OPTIONS")
+
 	// API endpoints for the web console (under base path)
 	apiRouter := baseRouter.PathPrefix("/api/v1").Subrouter()
 	apiRouter.Use(middleware.TracingMiddleware) // Add tracing for performance metrics

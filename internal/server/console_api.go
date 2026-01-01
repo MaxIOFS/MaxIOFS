@@ -145,16 +145,14 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Authentication middleware - validates JWT and adds user to context
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip authentication for public endpoints
-			publicPaths := []string{"/auth/login", "/auth/2fa/verify", "/health"}
-
-			// Check for exact match on root path
-			if r.URL.Path == "/" || r.Method == "OPTIONS" {
+			// Skip authentication for OPTIONS requests
+			if r.Method == "OPTIONS" {
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			// Check for other public paths using Contains
+			// Skip authentication for public endpoints
+			publicPaths := []string{"/auth/login", "/auth/2fa/verify", "/health"}
 			for _, path := range publicPaths {
 				if strings.Contains(r.URL.Path, path) {
 					next.ServeHTTP(w, r)
@@ -184,9 +182,6 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	})
-
-	// API root endpoint - provides API information
-	router.HandleFunc("/", s.handleAPIRoot).Methods("GET", "OPTIONS")
 
 	// Auth endpoints
 	router.HandleFunc("/auth/login", s.handleLogin).Methods("POST", "OPTIONS")
