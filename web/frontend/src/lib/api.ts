@@ -60,6 +60,9 @@ import type {
   UpdateClusterReplicationRequest,
   BulkClusterReplicationRequest,
   ListClusterReplicationsResponse,
+  MigrationJob,
+  MigrateBucketRequest,
+  ListMigrationsResponse,
   LatenciesResponse,
   ThroughputResponse,
 } from '@/types';
@@ -1246,6 +1249,23 @@ export class APIClient {
 
   static async createBulkClusterReplication(request: BulkClusterReplicationRequest): Promise<{ success: boolean; rules_created: number; rules_failed: number; failed_buckets: string[]; message: string }> {
     const response = await apiClient.post<APIResponse<{ success: boolean; rules_created: number; rules_failed: number; failed_buckets: string[]; message: string }>>('/cluster/replication/bulk', request);
+    return response.data.data!;
+  }
+
+  // Cluster Migration methods
+  static async migrateBucket(bucket: string, request: MigrateBucketRequest): Promise<MigrationJob> {
+    const response = await apiClient.post<APIResponse<MigrationJob>>(`/cluster/buckets/${bucket}/migrate`, request);
+    return response.data.data!;
+  }
+
+  static async listMigrations(bucket?: string): Promise<ListMigrationsResponse> {
+    const params = bucket ? { bucket } : {};
+    const response = await apiClient.get<APIResponse<ListMigrationsResponse>>('/cluster/migrations', { params });
+    return response.data.data!;
+  }
+
+  static async getMigration(id: number): Promise<MigrationJob> {
+    const response = await apiClient.get<APIResponse<MigrationJob>>(`/cluster/migrations/${id}`);
     return response.data.data!;
   }
 

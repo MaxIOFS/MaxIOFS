@@ -12,10 +12,14 @@ import {
   Edit,
   Activity,
   Database,
-  Settings
+  Settings,
+  ArrowRightLeft,
+  Clock,
+  TrendingUp
 } from 'lucide-react';
 import APIClient from '@/lib/api';
-import type { ClusterStatus, ClusterConfig, ClusterNode, AddNodeRequest, UpdateNodeRequest, InitializeClusterRequest, BucketWithReplication } from '@/types';
+import type { ClusterStatus, ClusterConfig, ClusterNode, AddNodeRequest, UpdateNodeRequest, InitializeClusterRequest, BucketWithReplication, MigrationJob, MigrateBucketRequest } from '@/types';
+import { MigrationsTab } from './Migrations';
 
 export default function Cluster() {
   const { t } = useTranslation();
@@ -29,7 +33,11 @@ export default function Cluster() {
   const [showAddNodeDialog, setShowAddNodeDialog] = useState(false);
   const [editingNode, setEditingNode] = useState<ClusterNode | null>(null);
   const [clusterToken, setClusterToken] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'buckets' | 'nodes'>('buckets');
+  const [activeTab, setActiveTab] = useState<'buckets' | 'nodes' | 'migrations'>('buckets');
+  const [migrations, setMigrations] = useState<MigrationJob[]>([]);
+  const [showMigrateDialog, setShowMigrateDialog] = useState(false);
+  const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
+  const [migrationDetails, setMigrationDetails] = useState<MigrationJob | null>(null);
 
   useEffect(() => {
     loadData();
@@ -44,18 +52,21 @@ export default function Cluster() {
       const configData = await APIClient.getClusterConfig();
       setConfig(configData);
 
-      // Fetch cluster status and nodes if cluster is enabled
+      // Fetch cluster status, nodes and migrations if cluster is enabled
       if (configData.is_cluster_enabled) {
-        const [statusData, nodesData] = await Promise.all([
+        const [statusData, nodesData, migrationsData] = await Promise.all([
           APIClient.getClusterStatus(),
-          APIClient.listClusterNodes()
+          APIClient.listClusterNodes(),
+          APIClient.listMigrations()
         ]);
         setStatus(statusData);
         setNodes(nodesData);
+        setMigrations(migrationsData.migrations || []);
       } else {
         // Standalone mode - clear cluster data
         setStatus(null);
         setNodes([]);
+        setMigrations([]);
       }
 
       // Always fetch buckets (works in both standalone and cluster mode)
@@ -124,6 +135,29 @@ export default function Cluster() {
     }
   };
 
+  const handleMigrateBucket = async (request: MigrateBucketRequest) => {
+    if (!selectedBucket) return;
+
+    try {
+      await APIClient.migrateBucket(selectedBucket, request);
+      setShowMigrateDialog(false);
+      setSelectedBucket(null);
+      await loadData();
+      alert('Migration started successfully! Check the Migrations tab for progress.');
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to start migration');
+    }
+  };
+
+  const handleViewMigration = async (id: number) => {
+    try {
+      const migration = await APIClient.getMigration(id);
+      setMigrationDetails(migration);
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to load migration details');
+    }
+  };
+
   const getHealthIcon = (status: string) => {
     switch (status) {
       case 'healthy': return <CheckCircle className="w-5 h-5 text-green-500" />;
@@ -145,6 +179,34 @@ export default function Cluster() {
         {status}
       </span>
     );
+  };
+
+  const getMigrationStatusBadge = (status: string) => {
+    const colors = {
+      pending: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
+      in_progress: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
+      completed: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
+      failed: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
+      cancelled: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+    };
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[status as keyof typeof colors] || colors.pending}`}>
+        {status.replace('_', ' ')}
+      </span>
+    );
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+  };
+
+  const getProgressPercentage = (migrated: number, total: number) => {
+    if (total === 0) return 0;
+    return Math.round((migrated / total) * 100);
   };
 
   if (loading) {
@@ -273,6 +335,16 @@ export default function Cluster() {
               }`}
             >
               Cluster Nodes
+            </button>
+            <button
+              onClick={() => setActiveTab('migrations')}
+              className={`px-6 py-4 text-sm font-medium border-b-2 ${
+                activeTab === 'migrations'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+              }`}
+            >
+              Migrations
             </button>
           </nav>
         </div>
@@ -426,6 +498,18 @@ export default function Cluster() {
               </tbody>
             </table>
           </div>
+        )}
+
+        {/* Migrations Tab */}
+        {activeTab === 'migrations' && (
+          <MigrationsTab
+            migrations={migrations}
+            buckets={buckets}
+            nodes={nodes}
+            onMigrate={handleMigrateBucket}
+            onViewDetails={handleViewMigration}
+            onRefresh={loadData}
+          />
         )}
       </div>
 

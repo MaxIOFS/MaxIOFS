@@ -1057,5 +1057,38 @@ export interface ListClusterReplicationsResponse {
   count: number;
 }
 
+// Cluster Migration Types
+export type MigrationStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
+
+export interface MigrationJob {
+  id: number;
+  bucket_name: string;
+  source_node_id: string;
+  target_node_id: string;
+  status: MigrationStatus;
+  objects_total: number;
+  objects_migrated: number;
+  bytes_total: number;
+  bytes_migrated: number;
+  delete_source: boolean;
+  verify_data: boolean;
+  started_at?: string;
+  completed_at?: string;
+  created_at: string;
+  updated_at: string;
+  error_message?: string;
+}
+
+export interface MigrateBucketRequest {
+  target_node_id: string;
+  delete_source: boolean;
+  verify_data: boolean;
+}
+
+export interface ListMigrationsResponse {
+  migrations: MigrationJob[];
+  count: number;
+}
+
 // Re-export common types
 export type { FC, ReactNode, ComponentProps } from 'react';

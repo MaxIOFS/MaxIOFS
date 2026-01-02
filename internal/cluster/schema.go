@@ -53,6 +53,34 @@ CREATE TABLE IF NOT EXISTS cluster_health_history (
 CREATE INDEX IF NOT EXISTS idx_cluster_health_node ON cluster_health_history(node_id);
 CREATE INDEX IF NOT EXISTS idx_cluster_health_timestamp ON cluster_health_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_cluster_health_status ON cluster_health_history(health_status);
+
+-- Bucket migrations between cluster nodes
+CREATE TABLE IF NOT EXISTS cluster_migrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bucket_name TEXT NOT NULL,
+    source_node_id TEXT NOT NULL,
+    target_node_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending, in_progress, completed, failed, cancelled
+    objects_total INTEGER DEFAULT 0,
+    objects_migrated INTEGER DEFAULT 0,
+    bytes_total INTEGER DEFAULT 0,
+    bytes_migrated INTEGER DEFAULT 0,
+    delete_source INTEGER NOT NULL DEFAULT 0,
+    verify_data INTEGER NOT NULL DEFAULT 1,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    error_message TEXT DEFAULT '',
+    FOREIGN KEY (source_node_id) REFERENCES cluster_nodes(id),
+    FOREIGN KEY (target_node_id) REFERENCES cluster_nodes(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cluster_migrations_bucket ON cluster_migrations(bucket_name);
+CREATE INDEX IF NOT EXISTS idx_cluster_migrations_status ON cluster_migrations(status);
+CREATE INDEX IF NOT EXISTS idx_cluster_migrations_source ON cluster_migrations(source_node_id);
+CREATE INDEX IF NOT EXISTS idx_cluster_migrations_target ON cluster_migrations(target_node_id);
+CREATE INDEX IF NOT EXISTS idx_cluster_migrations_created ON cluster_migrations(created_at);
 `
 
 // InitSchema initializes the cluster database schema

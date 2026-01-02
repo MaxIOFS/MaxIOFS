@@ -2,7 +2,7 @@
 
 **Version**: 0.6.2-beta
 **Status**: Production-Ready
-**Last Updated**: December 13, 2025
+**Last Updated**: January 2, 2026
 
 ---
 
@@ -14,12 +14,13 @@
 4. [Cluster Setup](#cluster-setup)
 5. [Configuration](#configuration)
 6. [Cluster Replication](#cluster-replication)
-7. [Dashboard UI](#dashboard-ui)
-8. [API Reference](#api-reference)
-9. [Security](#security)
-10. [Monitoring & Health](#monitoring--health)
-11. [Troubleshooting](#troubleshooting)
-12. [Testing](#testing)
+7. [Bucket Migration](#bucket-migration)
+8. [Dashboard UI](#dashboard-ui)
+9. [API Reference](#api-reference)
+10. [Security](#security)
+11. [Monitoring & Health](#monitoring--health)
+12. [Troubleshooting](#troubleshooting)
+13. [Testing](#testing)
 
 ---
 
@@ -34,6 +35,7 @@ MaxIOFS v0.6.2-beta introduces complete multi-node cluster support for high avai
 - ✅ Automatic tenant synchronization
 - ✅ Health monitoring (30-second intervals)
 - ✅ Bucket location cache (5ms vs 50ms latency)
+- ✅ Bucket migration between nodes for capacity rebalancing
 - ✅ Web-based cluster management dashboard
 
 ### Use Cases
@@ -343,6 +345,351 @@ POST /api/v1/cluster/replication
 
 ---
 
+## Bucket Migration
+
+### Overview
+
+Bucket migration enables **moving entire buckets between cluster nodes** for capacity rebalancing, hardware maintenance, or performance optimization. This feature allows administrators to seamlessly relocate data without service interruption.
+
+**Key Features:**
+
+- ✅ Live bucket migration between nodes
+- ✅ Real-time progress tracking (objects and bytes)
+- ✅ Optional data integrity verification
+- ✅ Automatic bucket location updates
+- ✅ Optional source data deletion after successful migration
+- ✅ Web-based migration management dashboard
+
+### Use Cases
+
+1. **Capacity Rebalancing** - Move buckets from full nodes to nodes with available space
+2. **Hardware Maintenance** - Evacuate data before decommissioning a node
+3. **Performance Optimization** - Relocate high-traffic buckets to faster/closer nodes
+4. **Geographic Redistribution** - Move data closer to users for better latency
+5. **Cost Optimization** - Consolidate data to reduce node count
+
+### How It Works
+
+**Migration Workflow:**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ 1. Count Objects & Calculate Total Size                │
+│    → Query objects table for bucket                    │
+│    → Store counts in migration job                     │
+└─────────────────────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│ 2. Copy Objects to Target Node                         │
+│    → Iterate through all bucket objects                │
+│    → HTTP PUT to target node (HMAC authenticated)      │
+│    → Update progress every 10 objects                  │
+│    → Allow up to 10 errors before failing              │
+└─────────────────────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│ 3. Verify Data Integrity (if enabled)                  │
+│    → Validate object count matches                     │
+│    → Validate total bytes (1% tolerance)               │
+│    → Sample verification: Check first 10 objects       │
+│    → Verify ETags match between nodes                  │
+└─────────────────────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│ 4. Update Bucket Location                              │
+│    → Update BadgerDB metadata                          │
+│    → Update bucket location cache                      │
+│    → All future requests route to target node          │
+└─────────────────────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│ 5. Delete Source Data (if enabled)                     │
+│    → Remove objects from source node                   │
+│    → Free up storage space                             │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Migration States:**
+
+| State | Description |
+|-------|-------------|
+| `pending` | Migration job created, waiting to start |
+| `in_progress` | Actively copying objects to target node |
+| `completed` | Successfully migrated all objects |
+| `failed` | Migration failed (check error_message) |
+| `cancelled` | Migration manually cancelled |
+
+### Configuring Migration
+
+**Via Web Console:**
+
+1. Navigate to Cluster → Migrations tab
+2. Click "Migrate Bucket" button
+3. Select source bucket from dropdown
+4. Select target node (only healthy nodes shown)
+5. Configure options:
+   - ✅ **Verify data integrity** - Validates ETags after migration (recommended)
+   - ✅ **Delete source data** - Removes objects from source after successful migration
+6. Click "Start Migration"
+7. Monitor progress in Migrations table
+
+**Via API:**
+
+```bash
+# Start bucket migration
+POST /api/v1/cluster/buckets/{bucket}/migrate
+{
+  "target_node_id": "uuid-target-node",
+  "verify_data": true,
+  "delete_source": false
+}
+
+# Response: HTTP 202 Accepted
+{
+  "status": "success",
+  "message": "Migration started successfully",
+  "data": {
+    "id": 1,
+    "bucket_name": "my-bucket",
+    "source_node_id": "uuid-source-node",
+    "target_node_id": "uuid-target-node",
+    "status": "pending",
+    "objects_total": 0,
+    "objects_migrated": 0,
+    "bytes_total": 0,
+    "bytes_migrated": 0,
+    "verify_data": true,
+    "delete_source": false,
+    "created_at": "2025-12-13T10:30:00Z"
+  }
+}
+```
+
+### Monitoring Migration Progress
+
+**List All Migrations:**
+
+```bash
+# Get all migrations
+GET /api/v1/cluster/migrations
+
+# Filter by bucket
+GET /api/v1/cluster/migrations?bucket=my-bucket
+
+# Response
+{
+  "status": "success",
+  "data": {
+    "migrations": [
+      {
+        "id": 1,
+        "bucket_name": "my-bucket",
+        "source_node_id": "uuid-source",
+        "target_node_id": "uuid-target",
+        "status": "in_progress",
+        "objects_total": 10000,
+        "objects_migrated": 3500,
+        "bytes_total": 104857600,
+        "bytes_migrated": 36700160,
+        "started_at": "2025-12-13T10:30:00Z",
+        "updated_at": "2025-12-13T10:35:00Z"
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+**Get Specific Migration:**
+
+```bash
+GET /api/v1/cluster/migrations/{id}
+
+# Response
+{
+  "status": "success",
+  "data": {
+    "id": 1,
+    "bucket_name": "my-bucket",
+    "source_node_id": "uuid-source",
+    "target_node_id": "uuid-target",
+    "status": "completed",
+    "objects_total": 10000,
+    "objects_migrated": 10000,
+    "bytes_total": 104857600,
+    "bytes_migrated": 104857600,
+    "verify_data": true,
+    "delete_source": false,
+    "started_at": "2025-12-13T10:30:00Z",
+    "completed_at": "2025-12-13T10:45:00Z",
+    "created_at": "2025-12-13T10:30:00Z",
+    "updated_at": "2025-12-13T10:45:00Z"
+  }
+}
+```
+
+### Migration Dashboard
+
+**Migrations Table Columns:**
+
+- **ID** - Migration job identifier
+- **Bucket** - Bucket being migrated
+- **Source → Target** - Node IDs showing migration direction
+- **Status** - Current state with color coding (🟢 completed, 🔵 in progress, 🔴 failed)
+- **Progress** - Visual progress bar showing percentage and object counts
+- **Data Size** - Bytes migrated vs total (human-readable format)
+- **Started** - Migration start timestamp
+- **Actions** - View details button
+
+**Progress Visualization:**
+
+```
+my-bucket    node-1 → node-2    [████████░░] 80%
+                                3,500 / 10,000 objects
+                                35 MB / 100 MB
+```
+
+### Best Practices
+
+**1. Pre-Migration Checklist:**
+
+```bash
+# Verify target node has sufficient space
+curl -X GET "http://localhost:8081/api/v1/cluster/nodes/{targetNodeId}" \
+  -H "Authorization: Bearer $TOKEN"
+# Check: capacity_used + bucket_size < capacity_total
+
+# Verify target node is healthy
+# Health status should be "healthy" (not degraded/unavailable)
+
+# Stop replication rules for the bucket (optional)
+# Prevents conflicts during migration
+```
+
+**2. Migration Settings:**
+
+- **Always enable** `verify_data: true` for production migrations
+- **Only enable** `delete_source: true` after confirming migration completed successfully
+- For large buckets (>100K objects), monitor network bandwidth and node CPU
+
+**3. Performance Considerations:**
+
+| Bucket Size | Expected Duration | Recommendation |
+|-------------|-------------------|----------------|
+| < 1,000 objects | < 5 minutes | Migrate anytime |
+| 1K - 10K objects | 5-30 minutes | Migrate during low-traffic periods |
+| 10K - 100K objects | 30m - 3 hours | Schedule during maintenance window |
+| > 100K objects | > 3 hours | Consider splitting bucket or increasing worker count |
+
+**4. Error Handling:**
+
+- Migration allows up to **10 errors** before failing
+- Check `error_message` field if status is `failed`
+- Common errors:
+  - Network timeout (check connectivity between nodes)
+  - Target node full (check capacity)
+  - Permission denied (verify HMAC authentication)
+
+**5. Rollback Plan:**
+
+If migration fails or needs to be reversed:
+
+```bash
+# Option 1: Migrate back to original node
+POST /api/v1/cluster/buckets/{bucket}/migrate
+{
+  "target_node_id": "original-node-id",
+  "verify_data": true,
+  "delete_source": false
+}
+
+# Option 2: Update bucket location manually (advanced)
+# Use BucketLocationManager to change primary node
+```
+
+### Prometheus Metrics
+
+**Migration-Specific Metrics:**
+
+```
+cluster_migrations_total
+cluster_migrations_active
+cluster_migrations_completed_total
+cluster_migrations_failed_total
+cluster_migration_objects_migrated_total
+cluster_migration_bytes_migrated_total
+cluster_migration_duration_seconds
+```
+
+### Recommended Alerts
+
+```yaml
+# alerts.yml
+groups:
+  - name: maxiofs_migrations
+    rules:
+      - alert: MigrationFailed
+        expr: cluster_migrations_failed_total > 0
+        for: 1m
+        severity: warning
+        annotations:
+          summary: "Bucket migration failed"
+
+      - alert: MigrationStalled
+        expr: cluster_migrations_active > 0 AND
+              increase(cluster_migration_objects_migrated_total[10m]) == 0
+        for: 10m
+        severity: warning
+        annotations:
+          summary: "Migration appears stalled"
+```
+
+### Troubleshooting Migrations
+
+**Migration Stuck at 0%:**
+
+```bash
+# Check source node logs
+journalctl -u maxiofs -n 100 | grep "migration"
+
+# Verify bucket exists
+curl -X GET "http://source-node:8081/api/v1/buckets/{bucket}" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Check migration job status
+sqlite3 /data/auth.db "SELECT * FROM cluster_migrations WHERE id=1;"
+```
+
+**Migration Failed with HMAC Errors:**
+
+```bash
+# Verify cluster tokens match
+sqlite3 /data/node1/auth.db "SELECT cluster_token FROM cluster_config;"
+sqlite3 /data/node2/auth.db "SELECT cluster_token FROM cluster_config;"
+
+# Ensure clocks are synchronized (NTP)
+ssh node1 "date -u"
+ssh node2 "date -u"
+```
+
+**High Migration Duration:**
+
+```bash
+# Test network bandwidth between nodes
+scp large-file.bin target-node:/tmp/
+
+# Check if target node is under load
+ssh target-node "top -bn1 | grep maxiofs"
+
+# Consider migrating during off-peak hours
+```
+
+---
+
 ## Dashboard UI
 
 ### Accessing Cluster Dashboard
@@ -409,6 +756,14 @@ POST /api/v1/cluster/replication
 | DELETE | `/api/v1/cluster/replication/{ruleId}` | Delete replication rule |
 | POST | `/api/v1/cluster/replication/bulk` | Bulk replicate all buckets node-to-node |
 
+### Bucket Migration Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/cluster/buckets/{bucket}/migrate` | Migrate bucket to different node |
+| GET | `/api/v1/cluster/migrations` | List all migration jobs (optional filter: ?bucket=name) |
+| GET | `/api/v1/cluster/migrations/{id}` | Get specific migration job details |
+
 ### Example Requests
 
 **Initialize Cluster:**
@@ -446,6 +801,17 @@ POST /api/v1/cluster/replication
   "replicate_metadata": true,
   "prefix": ""
 }
+```
+
+**Migrate Bucket:**
+```json
+POST /api/v1/cluster/buckets/my-bucket/migrate
+{
+  "target_node_id": "uuid-target-node",
+  "verify_data": true,
+  "delete_source": false
+}
+// Returns HTTP 202 Accepted with migration job details
 ```
 
 ---
@@ -843,10 +1209,40 @@ CREATE TABLE cluster_replication_queue (
 );
 ```
 
+### cluster_migrations Table
+
+```sql
+CREATE TABLE cluster_migrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT '',
+    bucket_name TEXT NOT NULL,
+    source_node_id TEXT NOT NULL,
+    target_node_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    objects_total INTEGER NOT NULL DEFAULT 0,
+    objects_migrated INTEGER NOT NULL DEFAULT 0,
+    bytes_total INTEGER NOT NULL DEFAULT 0,
+    bytes_migrated INTEGER NOT NULL DEFAULT 0,
+    delete_source INTEGER NOT NULL DEFAULT 0,
+    verify_data INTEGER NOT NULL DEFAULT 1,
+    error_message TEXT,
+    started_at INTEGER,
+    completed_at INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (source_node_id) REFERENCES cluster_nodes(id),
+    FOREIGN KEY (target_node_id) REFERENCES cluster_nodes(id)
+);
+
+CREATE INDEX idx_cluster_migrations_bucket ON cluster_migrations(bucket_name);
+CREATE INDEX idx_cluster_migrations_status ON cluster_migrations(status);
+CREATE INDEX idx_cluster_migrations_tenant ON cluster_migrations(tenant_id);
+```
+
 ---
 
 **Version**: 0.6.2-beta
-**Last Updated**: December 13, 2025
+**Last Updated**: January 2, 2026
 **Documentation Status**: Complete
 
 For questions or issues, see [README.md](../README.md).
