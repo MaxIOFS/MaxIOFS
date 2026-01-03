@@ -42,10 +42,12 @@ MaxIOFS is a high-performance, S3-compatible object storage system built in Go w
 - Multi-node cluster support with intelligent routing
 - Automatic failover and health monitoring
 - Node-to-node replication with HMAC authentication
-- **Bucket migration between nodes** (In Development)
-  - Move buckets for capacity rebalancing
+- **Bucket migration between nodes** ✅
+  - Move buckets for capacity rebalancing and maintenance
   - Migrate to new nodes without full sync
-  - Progress tracking with verification
+  - Real-time progress tracking with verification
+  - Web console UI with migration history and filters
+  - REST API for automation
 - Bucket location caching for performance
 - Web console for cluster management
 

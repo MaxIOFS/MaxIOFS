@@ -32,6 +32,7 @@ import About from '@/pages/about/index';
 import ClusterOverview from '@/pages/cluster/Overview';
 import ClusterBuckets from '@/pages/cluster/BucketReplication';
 import ClusterNodes from '@/pages/cluster/Nodes';
+import ClusterMigrations from '@/pages/cluster/Migrations';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -261,6 +262,16 @@ function App() {
                 <ProtectedRoute>
                   <AppLayout>
                     <ClusterNodes />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cluster/migrations"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <ClusterMigrations />
                   </AppLayout>
                 </ProtectedRoute>
               }

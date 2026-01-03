@@ -11,7 +11,8 @@ import {
   Network,
   CheckCircle,
   AlertTriangle,
-  XCircle
+  XCircle,
+  ArrowRightLeft
 } from 'lucide-react';
 import APIClient from '@/lib/api';
 import type { ClusterStatus, ClusterConfig } from '@/types';
@@ -173,11 +174,19 @@ export default function ClusterOverview() {
             Manage Replication
           </Button>
           <Button
+            variant="outline"
             onClick={() => navigate('/cluster/nodes')}
-            className="bg-brand-600 hover:bg-brand-700 text-white"
+            className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
           >
             <Server className="h-4 w-4 mr-2" />
             Manage Nodes
+          </Button>
+          <Button
+            onClick={() => navigate('/cluster/migrations')}
+            className="bg-brand-600 hover:bg-brand-700 text-white"
+          >
+            <ArrowRightLeft className="h-4 w-4 mr-2" />
+            Manage Migrations
           </Button>
         </div>
       </div>

@@ -1,4 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Button } from '@/components/ui/Button';
+import APIClient from '@/lib/api';
 import {
   ArrowRightLeft,
   Clock,
@@ -8,7 +11,9 @@ import {
   AlertTriangle,
   Eye,
   Server,
-  Database
+  Database,
+  ArrowLeft,
+  Filter
 } from 'lucide-react';
 import type { MigrationJob, MigrateBucketRequest, ClusterNode, BucketWithReplication } from '@/types';
 
@@ -24,6 +29,16 @@ interface MigrationsTabProps {
 export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDetails, onRefresh }: MigrationsTabProps) {
   const [showMigrateDialog, setShowMigrateDialog] = useState(false);
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'all' | 'active' | 'completed' | 'failed'>('all');
+
+  // Filter migrations based on selected filter
+  const filteredMigrations = migrations.filter(m => {
+    if (filter === 'all') return true;
+    if (filter === 'active') return m.status === 'pending' || m.status === 'in_progress';
+    if (filter === 'completed') return m.status === 'completed';
+    if (filter === 'failed') return m.status === 'failed' || m.status === 'cancelled';
+    return true;
+  });
 
   const getMigrationStatusBadge = (status: string) => {
     const colors = {
@@ -59,20 +74,69 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
   };
 
   return (
-    <div className="space-y-4">
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
       {/* Header with actions */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Bucket Migrations</h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400">Move buckets between cluster nodes</p>
+      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Bucket Migrations</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Move buckets between cluster nodes</p>
+          </div>
+          <button
+            onClick={() => setShowMigrateDialog(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
+          >
+            <ArrowRightLeft className="w-4 h-4" />
+            Migrate Bucket
+          </button>
         </div>
-        <button
-          onClick={() => setShowMigrateDialog(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
-        >
-          <ArrowRightLeft className="w-4 h-4" />
-          Migrate Bucket
-        </button>
+
+        {/* Filter buttons */}
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+          <div className="flex gap-2">
+            <button
+              onClick={() => setFilter('all')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                filter === 'all'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+              }`}
+            >
+              All ({migrations.length})
+            </button>
+            <button
+              onClick={() => setFilter('active')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                filter === 'active'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+              }`}
+            >
+              Active ({migrations.filter(m => m.status === 'pending' || m.status === 'in_progress').length})
+            </button>
+            <button
+              onClick={() => setFilter('completed')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                filter === 'completed'
+                  ? 'bg-green-600 text-white'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+              }`}
+            >
+              Completed ({migrations.filter(m => m.status === 'completed').length})
+            </button>
+            <button
+              onClick={() => setFilter('failed')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                filter === 'failed'
+                  ? 'bg-red-600 text-white'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+              }`}
+            >
+              Failed ({migrations.filter(m => m.status === 'failed' || m.status === 'cancelled').length})
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Migrations Table */}
@@ -91,20 +155,24 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-            {migrations.length === 0 ? (
+            {filteredMigrations.length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-6 py-12 text-center">
                   <div className="flex flex-col items-center gap-3">
                     <ArrowRightLeft className="w-12 h-12 text-gray-400" />
                     <div>
-                      <p className="text-gray-900 dark:text-white font-medium">No migrations yet</p>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Start migrating buckets between nodes</p>
+                      <p className="text-gray-900 dark:text-white font-medium">
+                        {migrations.length === 0 ? 'No migrations yet' : `No ${filter} migrations`}
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        {migrations.length === 0 ? 'Start migrating buckets between nodes' : 'Try selecting a different filter'}
+                      </p>
                     </div>
                   </div>
                 </td>
               </tr>
             ) : (
-              migrations.map((migration) => {
+              filteredMigrations.map((migration) => {
                 const progress = getProgressPercentage(migration.objects_migrated, migration.objects_total);
                 return (
                   <tr key={migration.id} className="hover:bg-gradient-to-r hover:from-brand-50/30 hover:to-blue-50/30 dark:hover:from-brand-900/10 dark:hover:to-blue-900/10 transition-all duration-200">
@@ -215,10 +283,21 @@ function MigrateBucketDialog({
   const [deleteSource, setDeleteSource] = useState(false);
   const [verifyData, setVerifyData] = useState(true);
 
+  // Get the source node for the selected bucket
+  const selectedBucketData = buckets.find(b => b.name === bucket);
+  const sourceNodeId = selectedBucketData?.primary_node || '';
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!bucket || !targetNodeId) {
       alert('Please select a bucket and target node');
+      return;
+    }
+
+    // Validate that source and target are different (compare with both id and name)
+    const targetNode = nodes.find(n => n.id === targetNodeId);
+    if (sourceNodeId && targetNode && (targetNodeId === sourceNodeId || targetNode.name === sourceNodeId)) {
+      alert('Source node and target node cannot be the same!');
       return;
     }
 
@@ -263,13 +342,25 @@ function MigrateBucketDialog({
               required
             >
               <option value="">Select target node</option>
-              {nodes.filter(n => n.health_status === 'healthy').map((node) => (
-                <option key={node.id} value={node.id}>
-                  {node.name} ({node.endpoint}) - {node.health_status}
-                </option>
-              ))}
+              {nodes
+                .filter(n => {
+                  // Only healthy nodes
+                  if (n.health_status !== 'healthy') return false;
+                  // Exclude the source node (compare with both id and name)
+                  if (!sourceNodeId) return true;
+                  return n.id !== sourceNodeId && n.name !== sourceNodeId;
+                })
+                .map((node) => (
+                  <option key={node.id} value={node.id}>
+                    {node.name} ({node.endpoint})
+                  </option>
+                ))}
             </select>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Only healthy nodes are shown</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {sourceNodeId
+                ? `Only healthy nodes (excluding source node ${sourceNodeId}) are shown`
+                : 'Only healthy nodes are shown'}
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -317,6 +408,93 @@ function MigrateBucketDialog({
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+// Main page component
+export default function ClusterMigrations() {
+  const navigate = useNavigate();
+  const [migrations, setMigrations] = useState<MigrationJob[]>([]);
+  const [buckets, setBuckets] = useState<BucketWithReplication[]>([]);
+  const [nodes, setNodes] = useState<ClusterNode[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [migrationsData, bucketsData, nodesData] = await Promise.all([
+        APIClient.listMigrations(),
+        APIClient.getClusterBuckets(),
+        APIClient.listClusterNodes()
+      ]);
+      setMigrations(migrationsData.migrations || []);
+      setBuckets(bucketsData?.buckets || []);
+      setNodes(nodesData || []);
+    } catch (err) {
+      console.error('Failed to load migrations data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleMigrateBucket = async (request: MigrateBucketRequest) => {
+    if (!selectedBucket) return;
+
+    try {
+      await APIClient.migrateBucket(selectedBucket, request);
+      alert('Migration started successfully!');
+      await loadData();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to start migration');
+    }
+  };
+
+  const handleViewDetails = async (id: number) => {
+    try {
+      const migration = await APIClient.getMigration(id);
+      alert(`Migration ${id}: ${migration.status}\nObjects: ${migration.objects_migrated}/${migration.objects_total}`);
+    } catch (err) {
+      console.error('Failed to get migration details:', err);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="flex items-center gap-2 mb-2">
+        <Button variant="outline" size="sm" onClick={() => navigate('/cluster')}>
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div className="flex-1">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Bucket Migrations</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            View migration history and manage active migrations
+          </p>
+        </div>
+      </div>
+
+      <MigrationsTab
+        migrations={migrations}
+        buckets={buckets}
+        nodes={nodes}
+        onMigrate={handleMigrateBucket}
+        onViewDetails={handleViewDetails}
+        onRefresh={loadData}
+      />
     </div>
   );
 }
