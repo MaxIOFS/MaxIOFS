@@ -31,6 +31,11 @@ func InitReplicationSchema(db *sql.DB) error {
 		return fmt.Errorf("failed to create cluster_tenant_sync table: %w", err)
 	}
 
+	// Create cluster_user_sync table
+	if err := createClusterUserSyncTable(ctx, db); err != nil {
+		return fmt.Errorf("failed to create cluster_user_sync table: %w", err)
+	}
+
 	// Create cluster_global_config table
 	if err := createClusterGlobalConfigTable(ctx, db); err != nil {
 		return fmt.Errorf("failed to create cluster_global_config table: %w", err)
@@ -162,6 +167,30 @@ func createClusterTenantSyncTable(ctx context.Context, db *sql.DB) error {
 	return err
 }
 
+// createClusterUserSyncTable creates the table for tracking user synchronization
+func createClusterUserSyncTable(ctx context.Context, db *sql.DB) error {
+	query := `
+	CREATE TABLE IF NOT EXISTS cluster_user_sync (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		source_node_id TEXT NOT NULL,
+		destination_node_id TEXT NOT NULL,
+		user_checksum TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		last_sync_at TIMESTAMP,
+		last_error TEXT,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL,
+		UNIQUE(user_id, destination_node_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_cluster_user_sync_user ON cluster_user_sync(user_id);
+	CREATE INDEX IF NOT EXISTS idx_cluster_user_sync_dest ON cluster_user_sync(destination_node_id);
+	CREATE INDEX IF NOT EXISTS idx_cluster_user_sync_status ON cluster_user_sync(status);
+	`
+	_, err := db.ExecContext(ctx, query)
+	return err
+}
+
 // createClusterGlobalConfigTable creates the table for global cluster replication settings
 func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 	query := `
@@ -197,6 +226,14 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 		"tenant_sync_interval_seconds": {
 			value:       "30",
 			description: "Interval for tenant synchronization checks in seconds",
+		},
+		"auto_user_sync_enabled": {
+			value:       "true",
+			description: "Enable automatic user synchronization between all nodes",
+		},
+		"user_sync_interval_seconds": {
+			value:       "30",
+			description: "Interval for user synchronization checks in seconds",
 		},
 		"replication_worker_count": {
 			value:       "5",

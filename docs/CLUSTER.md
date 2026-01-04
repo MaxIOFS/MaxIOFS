@@ -33,6 +33,7 @@ MaxIOFS v0.6.2-beta introduces complete multi-node cluster support for high avai
 - ✅ Multi-node cluster support with smart routing
 - ✅ HMAC-authenticated node-to-node replication
 - ✅ Automatic tenant synchronization
+- ✅ Automatic user synchronization
 - ✅ Health monitoring (30-second intervals)
 - ✅ Bucket location cache (5ms vs 50ms latency)
 - ✅ Bucket migration between nodes for capacity rebalancing
@@ -314,6 +315,27 @@ X-MaxIOFS-Signature: <hex-encoded-hmac>
 - Computes tenant data checksum
 - Syncs if checksum doesn't match on destination
 - Endpoint: `POST /api/internal/cluster/tenant-sync` (HMAC-authenticated)
+
+### Automatic User Synchronization
+
+Users and their credentials are **automatically synchronized** across all cluster nodes every 30 seconds. When you create or modify a user on any node, the changes are automatically replicated to all other nodes in the cluster.
+
+**What gets synchronized:**
+- Username and password
+- Display name and email
+- Roles, policies, and tenant assignment
+- Theme and language preferences
+- All user metadata
+
+**How it works:**
+- SHA256 checksum-based change detection (only syncs when data changes)
+- HMAC-authenticated node-to-node communication
+- Endpoint: `POST /api/internal/cluster/user-sync`
+
+**Result:**
+- Admin password is identical across all nodes
+- Users created on one node are immediately available on all nodes
+- User sessions work correctly after node failover
 
 ### Configuring Replication
 

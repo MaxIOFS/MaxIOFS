@@ -69,7 +69,7 @@ function App() {
         <LanguageProvider>
           <QueryProvider>
             <AuthProvider>
-              <Routes>
+                <Routes>
             {/* Public route */}
             <Route path="/login" element={<Login />} />
 
@@ -289,7 +289,7 @@ function App() {
 
             {/* Catch all - redirect to dashboard */}
             <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
+                </Routes>
             </AuthProvider>
           </QueryProvider>
         </LanguageProvider>

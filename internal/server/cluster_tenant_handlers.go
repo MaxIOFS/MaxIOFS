@@ -177,3 +177,191 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 
 	return nil
 }
+
+// handleReceiveUserSync handles incoming user synchronization requests from other nodes
+// This endpoint is authenticated with HMAC signatures
+func (s *Server) handleReceiveUserSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get source node ID from context (set by auth middleware)
+	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
+	if !ok {
+		logrus.Warn("Cluster node ID not found in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse user data from request body
+	var userData struct {
+		ID                  string `json:"id"`
+		Username            string `json:"username"`
+		PasswordHash        string `json:"password_hash"`
+		DisplayName         string `json:"display_name"`
+		Email               string `json:"email"`
+		Status              string `json:"status"`
+		TenantID            string `json:"tenant_id"`
+		Roles               string `json:"roles"`
+		Policies            string `json:"policies"`
+		Metadata            string `json:"metadata"`
+		FailedLoginAttempts int    `json:"failed_login_attempts"`
+		LockedUntil         int64  `json:"locked_until"`
+		LastFailedLogin     int64  `json:"last_failed_login"`
+		ThemePreference     string `json:"theme_preference"`
+		LanguagePreference  string `json:"language_preference"`
+		CreatedAt           int64  `json:"created_at"`
+		UpdatedAt           int64  `json:"updated_at"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&userData); err != nil {
+		logrus.WithError(err).Error("Failed to decode user data")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":        userData.ID,
+		"username":       userData.Username,
+		"source_node_id": sourceNodeID,
+	}).Info("Receiving user synchronization")
+
+	// Upsert user in local database
+	if err := s.upsertUser(ctx, &userData); err != nil {
+		logrus.WithError(err).WithField("user_id", userData.ID).Error("Failed to upsert user")
+		http.Error(w, fmt.Sprintf("Failed to sync user: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":  userData.ID,
+		"username": userData.Username,
+	}).Info("User synchronized successfully")
+
+	// Return success
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "User synchronized successfully",
+	})
+}
+
+// upsertUser creates or updates a user in the local database
+func (s *Server) upsertUser(ctx context.Context, user *struct {
+	ID                  string `json:"id"`
+	Username            string `json:"username"`
+	PasswordHash        string `json:"password_hash"`
+	DisplayName         string `json:"display_name"`
+	Email               string `json:"email"`
+	Status              string `json:"status"`
+	TenantID            string `json:"tenant_id"`
+	Roles               string `json:"roles"`
+	Policies            string `json:"policies"`
+	Metadata            string `json:"metadata"`
+	FailedLoginAttempts int    `json:"failed_login_attempts"`
+	LockedUntil         int64  `json:"locked_until"`
+	LastFailedLogin     int64  `json:"last_failed_login"`
+	ThemePreference     string `json:"theme_preference"`
+	LanguagePreference  string `json:"language_preference"`
+	CreatedAt           int64  `json:"created_at"`
+	UpdatedAt           int64  `json:"updated_at"`
+}) error {
+	// Handle NULL values for tenant_id
+	var tenantID sql.NullString
+	if user.TenantID != "" {
+		tenantID = sql.NullString{String: user.TenantID, Valid: true}
+	}
+
+	// Check if user exists
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)`, user.ID).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to check user existence: %w", err)
+	}
+
+	now := time.Now().Unix()
+
+	if exists {
+		// Update existing user
+		_, err = s.db.ExecContext(ctx, `
+			UPDATE users SET
+				username = ?,
+				password_hash = ?,
+				display_name = ?,
+				email = ?,
+				status = ?,
+				tenant_id = ?,
+				roles = ?,
+				policies = ?,
+				metadata = ?,
+				failed_login_attempts = ?,
+				locked_until = ?,
+				last_failed_login = ?,
+				theme_preference = ?,
+				language_preference = ?,
+				updated_at = ?
+			WHERE id = ?
+		`,
+			user.Username,
+			user.PasswordHash,
+			user.DisplayName,
+			user.Email,
+			user.Status,
+			tenantID,
+			user.Roles,
+			user.Policies,
+			user.Metadata,
+			user.FailedLoginAttempts,
+			user.LockedUntil,
+			user.LastFailedLogin,
+			user.ThemePreference,
+			user.LanguagePreference,
+			now,
+			user.ID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update user: %w", err)
+		}
+
+		logrus.WithField("user_id", user.ID).Debug("Updated existing user")
+	} else {
+		// Insert new user (preserve original created_at from source)
+		_, err = s.db.ExecContext(ctx, `
+			INSERT INTO users (
+				id, username, password_hash, display_name, email, status, tenant_id,
+				roles, policies, metadata, failed_login_attempts, locked_until,
+				last_failed_login, theme_preference, language_preference,
+				created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`,
+			user.ID,
+			user.Username,
+			user.PasswordHash,
+			user.DisplayName,
+			user.Email,
+			user.Status,
+			tenantID,
+			user.Roles,
+			user.Policies,
+			user.Metadata,
+			user.FailedLoginAttempts,
+			user.LockedUntil,
+			user.LastFailedLogin,
+			user.ThemePreference,
+			user.LanguagePreference,
+			user.CreatedAt,
+			now,
+		)
+		if err != nil {
+			// Check if it's a unique constraint violation (race condition)
+			if err == sql.ErrNoRows || (err != nil && err.Error() == "UNIQUE constraint failed: users.id") {
+				// Try update instead
+				logrus.WithField("user_id", user.ID).Debug("User created concurrently, updating instead")
+				return s.upsertUser(ctx, user) // Retry as update
+			}
+			return fmt.Errorf("failed to insert user: %w", err)
+		}
+
+		logrus.WithField("user_id", user.ID).Debug("Inserted new user")
+	}
+
+	return nil
+}

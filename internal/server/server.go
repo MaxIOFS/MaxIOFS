@@ -55,6 +55,7 @@ type Server struct {
 	clusterRouter           *cluster.Router
 	clusterReplicationMgr   *cluster.ClusterReplicationManager
 	tenantSyncMgr           *cluster.TenantSyncManager
+	userSyncMgr             *cluster.UserSyncManager
 	notificationHub         *NotificationHub
 	systemMetrics           *metrics.SystemMetricsTracker
 	lifecycleWorker         *lifecycle.Worker
@@ -254,6 +255,9 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize tenant synchronization manager
 	tenantSyncMgr := cluster.NewTenantSyncManager(db, clusterManager)
 
+	// Initialize user synchronization manager
+	userSyncMgr := cluster.NewUserSyncManager(db, clusterManager)
+
 	// Initialize cluster replication manager
 	clusterReplicationMgr := cluster.NewClusterReplicationManager(db, clusterManager, tenantSyncMgr)
 
@@ -293,6 +297,7 @@ func New(cfg *config.Config) (*Server, error) {
 		clusterRouter:           clusterRouter,
 		clusterReplicationMgr:   clusterReplicationMgr,
 		tenantSyncMgr:           tenantSyncMgr,
+		userSyncMgr:             userSyncMgr,
 		notificationHub:         notificationHub,
 		systemMetrics:           systemMetrics,
 		lifecycleWorker:         lifecycleWorker,
@@ -382,6 +387,12 @@ func (s *Server) Start(ctx context.Context) error {
 		if s.tenantSyncMgr != nil {
 			s.tenantSyncMgr.Start(ctx)
 			logrus.Info("Tenant synchronization manager started")
+		}
+
+		// Start user synchronization manager
+		if s.userSyncMgr != nil {
+			s.userSyncMgr.Start(ctx)
+			logrus.Info("User synchronization manager started")
 		}
 
 		// Start cluster replication manager
@@ -637,6 +648,9 @@ func (s *Server) setupRoutes() error {
 
 		// Tenant synchronization endpoint
 		internalClusterRouter.HandleFunc("/tenant-sync", s.handleReceiveTenantSync).Methods("POST")
+
+		// User synchronization endpoint
+		internalClusterRouter.HandleFunc("/user-sync", s.handleReceiveUserSync).Methods("POST")
 
 		// Object replication endpoints
 		internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectReplication).Methods("PUT")
