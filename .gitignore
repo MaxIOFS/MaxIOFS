@@ -83,3 +83,12 @@ build/
 test-files/
 test-files-s3/
 test*.bin
+
+# RPM build artifacts
+*.rpm
+*.src.rpm
+build/rpm-build/
+build/rpm-build-arm64/
+build/rpm-package/
+build/rpm-package-arm64/
+build/maxiofs-*.tar.gz

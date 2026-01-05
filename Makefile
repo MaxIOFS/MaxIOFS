@@ -494,6 +494,9 @@ else
 endif
 
 # Debian package build
+# IMPORTANT: This target only installs config.example.yaml in the package.
+# The actual config.yaml is created by the postinst script ONLY if it doesn't exist.
+# This preserves the encryption key when upgrading packages.
 .PHONY: deb
 deb: build-web
 	@echo "Building Debian package..."
@@ -514,8 +517,8 @@ ifneq ($(DETECTED_OS),Windows)
 	GOOS=linux GOARCH=amd64 $(GOBUILD) $(FLAGS_RELEASE) -o $(BUILD_DIR)/debian-package/opt/maxiofs/maxiofs ./cmd/maxiofs
 	
 	@echo "Copying files..."
-	@cp config.example.yaml $(BUILD_DIR)/debian-package/etc/maxiofs/config.yaml
-	@sed -i 's|data_dir: "./data"|data_dir: "/var/lib/maxiofs"|' $(BUILD_DIR)/debian-package/etc/maxiofs/config.yaml
+	@cp config.example.yaml $(BUILD_DIR)/debian-package/etc/maxiofs/config.example.yaml
+	@sed -i 's|data_dir: "./data"|data_dir: "/var/lib/maxiofs"|' $(BUILD_DIR)/debian-package/etc/maxiofs/config.example.yaml
 	@cp debian/control $(BUILD_DIR)/debian-package/DEBIAN/control
 	@cp debian/postinst $(BUILD_DIR)/debian-package/DEBIAN/
 	@cp debian/prerm $(BUILD_DIR)/debian-package/DEBIAN/
@@ -528,7 +531,7 @@ ifneq ($(DETECTED_OS),Windows)
 	@chmod 755 $(BUILD_DIR)/debian-package/DEBIAN/prerm
 	@chmod 755 $(BUILD_DIR)/debian-package/DEBIAN/postrm
 	@chmod 755 $(BUILD_DIR)/debian-package/opt/maxiofs/maxiofs
-	@chmod 644 $(BUILD_DIR)/debian-package/etc/maxiofs/config.yaml
+	@chmod 644 $(BUILD_DIR)/debian-package/etc/maxiofs/config.example.yaml
 	@chmod 644 $(BUILD_DIR)/debian-package/lib/systemd/system/maxiofs.service
 	@chmod 644 $(BUILD_DIR)/debian-package/etc/logrotate.d/maxiofs
 
@@ -562,6 +565,9 @@ else
 endif
 
 # Debian package build for ARM64
+# IMPORTANT: This target only installs config.example.yaml in the package.
+# The actual config.yaml is created by the postinst script ONLY if it doesn't exist.
+# This preserves the encryption key when upgrading packages.
 .PHONY: deb-arm64
 deb-arm64: build-web
 	@echo "Building Debian package for ARM64..."
@@ -582,8 +588,8 @@ ifneq ($(DETECTED_OS),Windows)
 	GOOS=linux GOARCH=arm64 $(GOBUILD) $(FLAGS_RELEASE) -o $(BUILD_DIR)/debian-package-arm64/opt/maxiofs/maxiofs ./cmd/maxiofs
 	
 	@echo "Copying files..."
-	@cp config.example.yaml $(BUILD_DIR)/debian-package-arm64/etc/maxiofs/config.yaml
-	@sed -i 's|data_dir: "./data"|data_dir: "/var/lib/maxiofs"|' $(BUILD_DIR)/debian-package-arm64/etc/maxiofs/config.yaml
+	@cp config.example.yaml $(BUILD_DIR)/debian-package-arm64/etc/maxiofs/config.example.yaml
+	@sed -i 's|data_dir: "./data"|data_dir: "/var/lib/maxiofs"|' $(BUILD_DIR)/debian-package-arm64/etc/maxiofs/config.example.yaml
 	@cp debian/control $(BUILD_DIR)/debian-package-arm64/DEBIAN/control
 	@sed -i 's/Architecture: amd64/Architecture: arm64/' $(BUILD_DIR)/debian-package-arm64/DEBIAN/control
 	@cp debian/postinst $(BUILD_DIR)/debian-package-arm64/DEBIAN/
@@ -597,7 +603,7 @@ ifneq ($(DETECTED_OS),Windows)
 	@chmod 755 $(BUILD_DIR)/debian-package-arm64/DEBIAN/prerm
 	@chmod 755 $(BUILD_DIR)/debian-package-arm64/DEBIAN/postrm
 	@chmod 755 $(BUILD_DIR)/debian-package-arm64/opt/maxiofs/maxiofs
-	@chmod 644 $(BUILD_DIR)/debian-package-arm64/etc/maxiofs/config.yaml
+	@chmod 644 $(BUILD_DIR)/debian-package-arm64/etc/maxiofs/config.example.yaml
 	@chmod 644 $(BUILD_DIR)/debian-package-arm64/lib/systemd/system/maxiofs.service
 	@chmod 644 $(BUILD_DIR)/debian-package-arm64/etc/logrotate.d/maxiofs
 
@@ -664,8 +670,197 @@ endif
 deb-clean:
 	@echo "Cleaning Debian package artifacts..."
 	@rm -rf $(BUILD_DIR)/debian-package
+	@rm -rf $(BUILD_DIR)/debian-package-arm64
 	@rm -f $(BUILD_DIR)/maxiofs_*.deb
 	@echo "Debian artifacts cleaned"
+
+# ============================================================================
+# RPM Package Targets (RHEL/CentOS/Fedora/Rocky/Alma)
+# ============================================================================
+
+# RPM package build for AMD64
+# IMPORTANT: This target only installs config.example.yaml in the package.
+# The actual config.yaml is created by the %post script ONLY if it doesn't exist.
+# This preserves the encryption key when upgrading packages.
+.PHONY: rpm
+rpm: build-web
+	@echo "Building RPM package for AMD64..."
+ifneq ($(DETECTED_OS),Windows)
+	@echo "Checking for required tools..."
+	@which rpmbuild >/dev/null || (echo "Error: rpmbuild not found. Install with: sudo dnf install rpm-build rpmdevtools" && exit 1)
+	
+	@echo "Creating build structure..."
+	@mkdir -p $(BUILD_DIR)/rpm-build/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+	@mkdir -p $(BUILD_DIR)/rpm-package/opt/maxiofs
+	@mkdir -p $(BUILD_DIR)/rpm-package/etc/maxiofs
+	@mkdir -p $(BUILD_DIR)/rpm-package/var/lib/maxiofs
+	@mkdir -p $(BUILD_DIR)/rpm-package/var/log/maxiofs
+	
+	@echo "Building Linux AMD64 binary..."
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs ./cmd/maxiofs
+	
+	@echo "Creating tarball..."
+	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION)
+	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION)/ 2>/dev/null || true
+	@cp $(BUILD_DIR)/maxiofs $(BUILD_DIR)/maxiofs-$(VERSION)/build/ || mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION)/build && cp $(BUILD_DIR)/maxiofs $(BUILD_DIR)/maxiofs-$(VERSION)/build/
+	@tar -czf $(BUILD_DIR)/rpm-build/SOURCES/maxiofs-$(VERSION).tar.gz -C $(BUILD_DIR) maxiofs-$(VERSION)
+	@rm -rf $(BUILD_DIR)/maxiofs-$(VERSION)
+	
+	@echo "Building RPM package..."
+	@rpmbuild --define "_topdir $(shell pwd)/$(BUILD_DIR)/rpm-build" \
+		--define "version $(VERSION)" \
+		--define "_builddir $(shell pwd)/$(BUILD_DIR)" \
+		-ba rpm/maxiofs.spec
+	
+	@echo "Moving RPM to build directory..."
+	@mv $(BUILD_DIR)/rpm-build/RPMS/x86_64/maxiofs-*.rpm $(BUILD_DIR)/ 2>/dev/null || true
+	@mv $(BUILD_DIR)/rpm-build/SRPMS/maxiofs-*.src.rpm $(BUILD_DIR)/ 2>/dev/null || true
+	
+	@echo ""
+	@echo "=========================================="
+	@echo "RPM package created successfully!"
+	@echo "=========================================="
+	@find $(BUILD_DIR) -name "maxiofs-*.rpm" -type f -exec echo "Package: {}" \;
+	@echo ""
+	@echo "To install:"
+	@echo "  sudo rpm -ivh $(BUILD_DIR)/maxiofs-*.x86_64.rpm"
+	@echo "  or"
+	@echo "  sudo dnf install $(BUILD_DIR)/maxiofs-*.x86_64.rpm"
+	@echo ""
+	@echo "To upgrade:"
+	@echo "  sudo rpm -Uvh $(BUILD_DIR)/maxiofs-*.x86_64.rpm"
+	@echo ""
+	@echo "Compatible with:"
+	@echo "  - RHEL 8, 9"
+	@echo "  - Rocky Linux 8, 9"
+	@echo "  - AlmaLinux 8, 9"
+	@echo "  - CentOS Stream 8, 9"
+	@echo "  - Fedora 38+"
+	@echo "  - Oracle Linux 8, 9"
+else
+	@echo "Error: RPM package building is only supported on Linux"
+	@echo "Use 'make rpm-docker' to build in a container"
+	@exit 1
+endif
+
+# RPM package build for ARM64
+.PHONY: rpm-arm64
+rpm-arm64: build-web
+	@echo "Building RPM package for ARM64..."
+ifneq ($(DETECTED_OS),Windows)
+	@echo "Checking for required tools..."
+	@which rpmbuild >/dev/null || (echo "Error: rpmbuild not found. Install with: sudo dnf install rpm-build rpmdevtools" && exit 1)
+	
+	@echo "Creating build structure..."
+	@mkdir -p $(BUILD_DIR)/rpm-build-arm64/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+	@mkdir -p $(BUILD_DIR)/rpm-package-arm64/opt/maxiofs
+	@mkdir -p $(BUILD_DIR)/rpm-package-arm64/etc/maxiofs
+	@mkdir -p $(BUILD_DIR)/rpm-package-arm64/var/lib/maxiofs
+	@mkdir -p $(BUILD_DIR)/rpm-package-arm64/var/log/maxiofs
+	
+	@echo "Building Linux ARM64 binary..."
+	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-arm64 ./cmd/maxiofs
+	
+	@echo "Creating tarball..."
+	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION)-arm64
+	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION)-arm64/ 2>/dev/null || true
+	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION)-arm64/build
+	@cp $(BUILD_DIR)/maxiofs-arm64 $(BUILD_DIR)/maxiofs-$(VERSION)-arm64/build/maxiofs
+	@tar -czf $(BUILD_DIR)/rpm-build-arm64/SOURCES/maxiofs-$(VERSION).tar.gz -C $(BUILD_DIR) maxiofs-$(VERSION)-arm64
+	@rm -rf $(BUILD_DIR)/maxiofs-$(VERSION)-arm64
+	
+	@echo "Building RPM package..."
+	@rpmbuild --define "_topdir $(shell pwd)/$(BUILD_DIR)/rpm-build-arm64" \
+		--define "version $(VERSION)" \
+		--define "_builddir $(shell pwd)/$(BUILD_DIR)" \
+		--target aarch64 \
+		-ba rpm/maxiofs.spec
+	
+	@echo "Moving RPM to build directory..."
+	@mv $(BUILD_DIR)/rpm-build-arm64/RPMS/aarch64/maxiofs-*.rpm $(BUILD_DIR)/ 2>/dev/null || true
+	@mv $(BUILD_DIR)/rpm-build-arm64/SRPMS/maxiofs-*.src.rpm $(BUILD_DIR)/maxiofs-$(VERSION)-arm64.src.rpm 2>/dev/null || true
+	
+	@echo ""
+	@echo "=========================================="
+	@echo "RPM ARM64 package created successfully!"
+	@echo "=========================================="
+	@find $(BUILD_DIR) -name "maxiofs-*.aarch64.rpm" -type f -exec echo "Package: {}" \;
+	@echo ""
+	@echo "To install on ARM64 system:"
+	@echo "  sudo rpm -ivh $(BUILD_DIR)/maxiofs-*.aarch64.rpm"
+	@echo ""
+	@echo "Compatible with:"
+	@echo "  - Raspberry Pi 4/5 (64-bit)"
+	@echo "  - AWS Graviton"
+	@echo "  - Oracle Cloud Ampere"
+	@echo "  - Any ARM64 RHEL/Rocky/Alma system"
+else
+	@echo "Error: RPM package building is only supported on Linux"
+	@echo "Use 'make rpm-docker' to build in a container"
+	@exit 1
+endif
+
+# Build RPM using Docker (works on any platform)
+.PHONY: rpm-docker
+rpm-docker: build-web
+	@echo "Building RPM package using Docker..."
+	@docker build -f Dockerfile.rpm-builder -t maxiofs-rpm-builder .
+	@docker run --rm -v $(shell pwd):/workspace maxiofs-rpm-builder make rpm
+	@echo ""
+	@echo "RPM package built successfully using Docker!"
+
+# Install RPM package locally (for testing)
+.PHONY: rpm-install
+rpm-install: rpm
+	@echo "Installing RPM package locally..."
+ifneq ($(DETECTED_OS),Windows)
+	@if command -v dnf >/dev/null 2>&1; then \
+		sudo dnf install -y $(BUILD_DIR)/maxiofs-*.x86_64.rpm; \
+	elif command -v yum >/dev/null 2>&1; then \
+		sudo yum install -y $(BUILD_DIR)/maxiofs-*.x86_64.rpm; \
+	else \
+		sudo rpm -ivh $(BUILD_DIR)/maxiofs-*.x86_64.rpm; \
+	fi
+	@echo ""
+	@echo "Package installed! Service status:"
+	sudo systemctl status maxiofs --no-pager || true
+	@echo ""
+	@echo "Configuration file: /etc/maxiofs/config.yaml"
+	@echo "Data directory: /var/lib/maxiofs"
+	@echo "Logs: /var/log/maxiofs or 'sudo journalctl -u maxiofs -f'"
+	@echo ""
+	@echo "To start: sudo systemctl start maxiofs"
+	@echo "To enable on boot: sudo systemctl enable maxiofs"
+else
+	@echo "Error: Installation is only supported on Linux"
+	@exit 1
+endif
+
+# Uninstall RPM package (for testing)
+.PHONY: rpm-uninstall
+rpm-uninstall:
+	@echo "Uninstalling MaxIOFS RPM..."
+ifneq ($(DETECTED_OS),Windows)
+	sudo systemctl stop maxiofs || true
+	sudo rpm -e maxiofs || true
+	@echo "MaxIOFS uninstalled (data preserved in /var/lib/maxiofs)"
+	@echo "To completely remove data: sudo rm -rf /etc/maxiofs /var/lib/maxiofs /var/log/maxiofs"
+else
+	@echo "Error: Uninstallation is only supported on Linux"
+	@exit 1
+endif
+
+# Clean RPM build artifacts
+.PHONY: rpm-clean
+rpm-clean:
+	@echo "Cleaning RPM package artifacts..."
+	@rm -rf $(BUILD_DIR)/rpm-build
+	@rm -rf $(BUILD_DIR)/rpm-build-arm64
+	@rm -rf $(BUILD_DIR)/rpm-package
+	@rm -rf $(BUILD_DIR)/rpm-package-arm64
+	@rm -f $(BUILD_DIR)/maxiofs-*.rpm
+	@rm -f $(BUILD_DIR)/maxiofs-*.src.rpm
+	@echo "RPM artifacts cleaned"
 
 # Help target
 .PHONY: help
@@ -710,6 +905,12 @@ help:
 	@echo "  deb-install        - Build and install Debian package locally"
 	@echo "  deb-uninstall      - Uninstall Debian package"
 	@echo "  deb-clean          - Clean Debian build artifacts"
+	@echo "  rpm                - Build RPM package AMD64 (Linux only)"
+	@echo "  rpm-arm64          - Build RPM package ARM64 (Linux only)"
+	@echo "  rpm-docker         - Build RPM using Docker (any platform)"
+	@echo "  rpm-install        - Build and install RPM package locally"
+	@echo "  rpm-uninstall      - Uninstall RPM package"
+	@echo "  rpm-clean          - Clean RPM build artifacts"
 	@echo "  help               - Show this help message"
 	@echo ""
 	@echo "Docker Commands:"
@@ -730,6 +931,9 @@ help:
 	@echo "  make build-all                                 - Build for all platforms"
 	@echo "  make deb VERSION=v0.4.1-beta                   - Build Debian AMD64 package"
 	@echo "  make deb-arm64 VERSION=v0.4.1-beta             - Build Debian ARM64 package"
+	@echo "  make rpm VERSION=v0.7.0                        - Build RPM AMD64 package"
+	@echo "  make rpm-arm64 VERSION=v0.7.0                  - Build RPM ARM64 package"
+	@echo "  make rpm-docker                                - Build RPM using Docker"
 	@echo "  make deb-install                               - Build and install package"
 	@echo "  make docker-up                                 - Start MaxIOFS in Docker"
 	@echo "  make docker-monitoring                         - Start with monitoring stack"

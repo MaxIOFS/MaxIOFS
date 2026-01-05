@@ -1,0 +1,43 @@
+# MaxIOFS Log Rotation Configuration
+#
+# This configuration rotates MaxIOFS log files to prevent disk space issues
+# and maintain a manageable log history.
+#
+# Location: /etc/logrotate.d/maxiofs
+# Managed by: logrotate (runs daily via cron)
+#
+# Configuration:
+#   - daily: Rotate logs once per day
+#   - rotate 7: Keep 7 days of logs (1 week)
+#   - missingok: Don't error if log file is missing
+#   - notifempty: Don't rotate if log is empty
+#   - compress: Compress rotated logs with gzip
+#   - delaycompress: Don't compress the most recent rotation
+#   - copytruncate: Copy then truncate (safe for running services)
+#   - su maxiofs maxiofs: Run as maxiofs user
+#   - postrotate: Reload service after rotation
+#
+# Customization:
+#   - Change "rotate 7" to keep more/less days (e.g., rotate 30)
+#   - Add "size 100M" to also rotate when reaching size limit
+#   - Remove "compress" to disable compression (saves CPU)
+#
+# Manual rotation:
+#   sudo logrotate -f /etc/logrotate.d/maxiofs
+#
+# Test configuration:
+#   sudo logrotate -d /etc/logrotate.d/maxiofs
+
+/var/log/maxiofs/*.log {
+    daily
+    rotate 7
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su maxiofs maxiofs
+    postrotate
+        systemctl reload maxiofs >/dev/null 2>&1 || true
+    endscript
+}

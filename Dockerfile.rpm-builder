@@ -1,0 +1,31 @@
+# Dockerfile for building MaxIOFS RPM packages
+# Based on Rocky Linux 9 (RHEL 9 compatible)
+# 
+# Usage:
+#   docker build -f Dockerfile.rpm-builder -t maxiofs-rpm-builder .
+#   docker run --rm -v $(pwd):/workspace maxiofs-rpm-builder
+#
+# Or use the Makefile:
+#   make rpm-docker
+
+FROM rockylinux:9
+
+# Install build dependencies
+RUN dnf install -y \
+    rpm-build \
+    rpmdevtools \
+    make \
+    git \
+    golang \
+    nodejs \
+    npm \
+    && dnf clean all
+
+# Set up RPM build environment
+RUN rpmdev-setuptree
+
+# Set working directory
+WORKDIR /workspace
+
+# Build command
+CMD ["make", "rpm"]

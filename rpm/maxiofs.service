@@ -1,0 +1,47 @@
+[Unit]
+Description=MaxIOFS - High-Performance S3-Compatible Object Storage
+Documentation=https://github.com/maxiofs/maxiofs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=maxiofs
+Group=maxiofs
+WorkingDirectory=/opt/maxiofs
+
+# Security hardening
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/maxiofs /var/log/maxiofs
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# Service configuration
+ExecStart=/opt/maxiofs/maxiofs --config /etc/maxiofs/config.yaml
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+StartLimitInterval=300s
+StartLimitBurst=5
+
+# Logging
+StandardOutput=append:/var/log/maxiofs/maxiofs.log
+StandardError=append:/var/log/maxiofs/maxiofs.log
+SyslogIdentifier=maxiofs
+
+# Limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target
