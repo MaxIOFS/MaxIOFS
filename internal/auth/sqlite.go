@@ -112,6 +112,42 @@ func (s *SQLiteStore) initSchema() error {
 		UNIQUE(bucket_name, tenant_id)
 	);
 
+	-- Bucket inventory configurations table
+	CREATE TABLE IF NOT EXISTS bucket_inventory_configs (
+		id TEXT PRIMARY KEY,
+		bucket_name TEXT NOT NULL,
+		tenant_id TEXT,
+		enabled BOOLEAN DEFAULT 1,
+		frequency TEXT NOT NULL CHECK(frequency IN ('daily', 'weekly')),
+		format TEXT NOT NULL CHECK(format IN ('csv', 'json')),
+		destination_bucket TEXT NOT NULL,
+		destination_prefix TEXT DEFAULT '',
+		included_fields TEXT NOT NULL,
+		schedule_time TEXT NOT NULL,
+		last_run_at INTEGER,
+		next_run_at INTEGER,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+		UNIQUE(bucket_name, tenant_id)
+	);
+
+	-- Bucket inventory reports table
+	CREATE TABLE IF NOT EXISTS bucket_inventory_reports (
+		id TEXT PRIMARY KEY,
+		config_id TEXT NOT NULL,
+		bucket_name TEXT NOT NULL,
+		report_path TEXT NOT NULL,
+		object_count INTEGER DEFAULT 0,
+		total_size INTEGER DEFAULT 0,
+		status TEXT NOT NULL CHECK(status IN ('pending', 'completed', 'failed')),
+		started_at INTEGER,
+		completed_at INTEGER,
+		error_message TEXT,
+		created_at INTEGER NOT NULL,
+		FOREIGN KEY (config_id) REFERENCES bucket_inventory_configs(id) ON DELETE CASCADE
+	);
+
 	-- Indexes for performance
 	CREATE INDEX IF NOT EXISTS idx_tenants_name ON tenants(name);
 	CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants(status);
@@ -123,6 +159,16 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_bucket_permissions_bucket ON bucket_permissions(bucket_name);
 	CREATE INDEX IF NOT EXISTS idx_bucket_permissions_user ON bucket_permissions(user_id);
 	CREATE INDEX IF NOT EXISTS idx_bucket_permissions_tenant ON bucket_permissions(tenant_id);
+
+	-- Indexes for bucket inventory
+	CREATE INDEX IF NOT EXISTS idx_inventory_configs_bucket ON bucket_inventory_configs(bucket_name);
+	CREATE INDEX IF NOT EXISTS idx_inventory_configs_tenant ON bucket_inventory_configs(tenant_id);
+	CREATE INDEX IF NOT EXISTS idx_inventory_configs_enabled ON bucket_inventory_configs(enabled);
+	CREATE INDEX IF NOT EXISTS idx_inventory_configs_next_run ON bucket_inventory_configs(next_run_at);
+	CREATE INDEX IF NOT EXISTS idx_inventory_reports_config ON bucket_inventory_reports(config_id);
+	CREATE INDEX IF NOT EXISTS idx_inventory_reports_bucket ON bucket_inventory_reports(bucket_name);
+	CREATE INDEX IF NOT EXISTS idx_inventory_reports_status ON bucket_inventory_reports(status);
+	CREATE INDEX IF NOT EXISTS idx_inventory_reports_created ON bucket_inventory_reports(created_at);
 	`
 
 	_, err := s.db.Exec(schema)

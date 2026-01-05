@@ -908,6 +908,35 @@ export class APIClient {
     await apiClient.delete(url);
   }
 
+  // Bucket Inventory Configuration
+  static async getBucketInventory(bucketName: string, tenantId?: string): Promise<any> {
+    const url = tenantId ? `/buckets/${bucketName}/inventory?tenantId=${tenantId}` : `/buckets/${bucketName}/inventory`;
+    const response = await apiClient.get(url);
+    return response.data;
+  }
+
+  static async putBucketInventory(bucketName: string, config: any, tenantId?: string): Promise<void> {
+    const url = tenantId ? `/buckets/${bucketName}/inventory?tenantId=${tenantId}` : `/buckets/${bucketName}/inventory`;
+    await apiClient.put(url, config);
+  }
+
+  static async deleteBucketInventory(bucketName: string, tenantId?: string): Promise<void> {
+    const url = tenantId ? `/buckets/${bucketName}/inventory?tenantId=${tenantId}` : `/buckets/${bucketName}/inventory`;
+    await apiClient.delete(url);
+  }
+
+  static async listBucketInventoryReports(bucketName: string, limit?: number, offset?: number, tenantId?: string): Promise<any> {
+    const params = new URLSearchParams();
+    if (limit) params.append('limit', limit.toString());
+    if (offset) params.append('offset', offset.toString());
+    if (tenantId) params.append('tenantId', tenantId);
+
+    const queryString = params.toString();
+    const url = `/buckets/${bucketName}/inventory/reports${queryString ? `?${queryString}` : ''}`;
+    const response = await apiClient.get(url);
+    return response.data;
+  }
+
   // Object Lock Configuration
   static async getObjectLockConfiguration(bucketName: string, tenantId?: string): Promise<any> {
     const url = tenantId ? `/buckets/${bucketName}/object-lock?tenantId=${tenantId}` : `/buckets/${bucketName}/object-lock`;

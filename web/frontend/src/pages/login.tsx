@@ -24,7 +24,7 @@ export default function LoginPage() {
 
   // Get base path from window (injected by backend)
   const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
-  const version = config?.version || '0.6.2-beta';
+  const version = config?.version || 'v0.7.0-beta';
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -252,7 +252,7 @@ export default function LoginPage() {
                 <div className="flex items-center gap-2">
                   <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
                   <span className="text-sm text-white font-medium" style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)' }}>
-                    v{version}
+                    {version}
                   </span>
                 </div>
                 <div className="w-px h-4 bg-white/30" />

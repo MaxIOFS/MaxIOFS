@@ -947,6 +947,15 @@ func (m *Manager) migrateBucketConfiguration(ctx context.Context, tenantID strin
 		"bucket":       job.BucketName,
 	}).Info("Bucket configuration migrated successfully")
 
+	// Step 4.5: Migrate bucket inventory configuration (if exists)
+	logrus.WithField("migration_id", job.ID).Info("Migrating bucket inventory configuration")
+	if err := m.migrateBucketInventory(ctx, proxyClient, targetNode.Endpoint, localNodeID, nodeToken, tenantID, job); err != nil {
+		// Don't fail migration if inventory config doesn't exist or can't be migrated
+		logrus.WithError(err).Warn("Failed to migrate bucket inventory configuration (non-critical)")
+	} else {
+		logrus.WithField("migration_id", job.ID).Info("Bucket inventory configuration migrated successfully")
+	}
+
 	return nil
 }
 
@@ -1140,6 +1149,114 @@ func (m *Manager) verifyObjectOnTarget(ctx context.Context, proxyClient *ProxyCl
 		if targetETag != expectedETag {
 			return fmt.Errorf("ETag mismatch: source=%s, target=%s", expectedETag, targetETag)
 		}
+	}
+
+	return nil
+}
+
+// migrateBucketInventory migrates bucket inventory configuration to the target node
+func (m *Manager) migrateBucketInventory(ctx context.Context, proxyClient *ProxyClient, targetEndpoint, localNodeID, nodeToken, tenantID string, job *MigrationJob) error {
+	// Query inventory configuration for this bucket
+	query := `
+		SELECT id, bucket_name, tenant_id, enabled, frequency, format,
+		       destination_bucket, destination_prefix, included_fields, schedule_time,
+		       last_run_at, next_run_at
+		FROM bucket_inventory_configs
+		WHERE bucket_name = ? AND tenant_id = ?
+	`
+
+	var id, bucketName, tenantIDVal, frequency, format, destinationBucket, destinationPrefix, includedFields, scheduleTime string
+	var enabled int
+	var lastRunAt, nextRunAt sql.NullInt64
+
+	err := m.db.QueryRowContext(ctx, query, job.BucketName, tenantID).Scan(
+		&id, &bucketName, &tenantIDVal, &enabled, &frequency, &format,
+		&destinationBucket, &destinationPrefix, &includedFields, &scheduleTime,
+		&lastRunAt, &nextRunAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// No inventory configuration exists - this is normal
+			logrus.WithField("bucket", job.BucketName).Debug("No inventory configuration found for bucket")
+			return nil
+		}
+		return fmt.Errorf("failed to get inventory configuration: %w", err)
+	}
+
+	// Parse included fields JSON
+	var includedFieldsArray []string
+	if err := json.Unmarshal([]byte(includedFields), &includedFieldsArray); err != nil {
+		return fmt.Errorf("failed to parse included fields: %w", err)
+	}
+
+	// Send inventory configuration to target node
+	if err := m.sendBucketInventory(ctx, proxyClient, targetEndpoint, localNodeID, nodeToken, tenantID, bucketName,
+		enabled == 1, frequency, format, destinationBucket, destinationPrefix, includedFieldsArray, scheduleTime, lastRunAt, nextRunAt); err != nil {
+		return fmt.Errorf("failed to send inventory configuration: %w", err)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket":    bucketName,
+		"tenant_id": tenantID,
+		"frequency": frequency,
+	}).Info("Inventory configuration migrated successfully")
+
+	return nil
+}
+
+// sendBucketInventory sends bucket inventory configuration to the target node
+func (m *Manager) sendBucketInventory(ctx context.Context, proxyClient *ProxyClient, targetEndpoint, localNodeID, nodeToken, tenantID, bucketName string,
+	enabled bool, frequency, format, destinationBucket, destinationPrefix string, includedFields []string, scheduleTime string, lastRunAt, nextRunAt sql.NullInt64) error {
+
+	// Build URL for internal cluster API
+	url := fmt.Sprintf("%s/api/internal/cluster/bucket-inventory", targetEndpoint)
+
+	// Create inventory data
+	inventoryData := map[string]interface{}{
+		"tenant_id":          tenantID,
+		"bucket_name":        bucketName,
+		"enabled":            enabled,
+		"frequency":          frequency,
+		"format":             format,
+		"destination_bucket": destinationBucket,
+		"destination_prefix": destinationPrefix,
+		"included_fields":    includedFields,
+		"schedule_time":      scheduleTime,
+	}
+
+	if lastRunAt.Valid {
+		inventoryData["last_run_at"] = lastRunAt.Int64
+	}
+	if nextRunAt.Valid {
+		inventoryData["next_run_at"] = nextRunAt.Int64
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.Marshal(inventoryData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal inventory data: %w", err)
+	}
+
+	// Create authenticated request
+	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(jsonData), localNodeID, nodeToken)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	// Execute request
+	resp, err := proxyClient.DoAuthenticatedRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to send inventory configuration: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check response
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	return nil

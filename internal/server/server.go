@@ -20,6 +20,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/config"
+	"github.com/maxiofs/maxiofs/internal/inventory"
 	"github.com/maxiofs/maxiofs/internal/lifecycle"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/metrics"
@@ -62,6 +63,8 @@ type Server struct {
 	notificationHub         *NotificationHub
 	systemMetrics           *metrics.SystemMetricsTracker
 	lifecycleWorker         *lifecycle.Worker
+	inventoryManager        *inventory.Manager
+	inventoryWorker         *inventory.Worker
 	startTime               time.Time // Server start time for uptime calculation
 	version                 string    // Server version
 	commit                  string    // Git commit hash
@@ -208,6 +211,10 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize lifecycle worker
 	lifecycleWorker := lifecycle.NewWorker(bucketManager, objectManager, metadataStore)
 
+	// Initialize inventory manager and worker
+	inventoryManager := inventory.NewManager(db)
+	inventoryWorker := inventory.NewWorker(inventoryManager, bucketManager, metadataStore, storageBackend)
+
 	// Initialize replication manager
 	replicationConfig := replication.ReplicationConfig{
 		Enable:          true, // Now enabled with AWS SDK implementation
@@ -321,6 +328,8 @@ func New(cfg *config.Config) (*Server, error) {
 		notificationHub:         notificationHub,
 		systemMetrics:           systemMetrics,
 		lifecycleWorker:         lifecycleWorker,
+		inventoryManager:        inventoryManager,
+		inventoryWorker:         inventoryWorker,
 		startTime:               time.Now(), // Record server start time
 	}
 
@@ -387,6 +396,10 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Start lifecycle worker (runs every 1 hour)
 	s.lifecycleWorker.Start(ctx, 1*time.Hour)
+
+	// Start inventory worker (runs every 1 hour)
+	s.inventoryWorker.Start(ctx, 1*time.Hour)
+	logrus.Info("Inventory worker started")
 
 	// Start replication manager
 	if s.replicationManager != nil {
@@ -498,6 +511,11 @@ func (s *Server) shutdown() error {
 	// Stop lifecycle worker
 	if s.lifecycleWorker != nil {
 		s.lifecycleWorker.Stop()
+	}
+
+	// Stop inventory worker
+	if s.inventoryWorker != nil {
+		s.inventoryWorker.Stop()
 	}
 
 	// Stop replication manager
@@ -692,6 +710,7 @@ func (s *Server) setupRoutes() error {
 		internalClusterRouter.HandleFunc("/bucket-permissions", s.handleReceiveBucketPermission).Methods("POST")
 		internalClusterRouter.HandleFunc("/bucket-acl", s.handleReceiveBucketACL).Methods("POST")
 		internalClusterRouter.HandleFunc("/bucket-config", s.handleReceiveBucketConfiguration).Methods("POST")
+		internalClusterRouter.HandleFunc("/bucket-inventory", s.handleReceiveBucketInventory).Methods("POST")
 
 		// Synchronization endpoints
 		internalClusterRouter.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")

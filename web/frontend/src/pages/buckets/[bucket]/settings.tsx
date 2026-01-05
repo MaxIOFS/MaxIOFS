@@ -22,6 +22,7 @@ import {
   CheckCircle,
   XCircle,
   RefreshCw,
+  Package,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -30,7 +31,7 @@ import { useAuth } from '@/hooks/useAuth';
 import type { NotificationConfiguration, NotificationRule, ReplicationRule, CreateReplicationRuleRequest } from '@/types';
 
 // Tab types
-type TabId = 'general' | 'security' | 'lifecycle' | 'notifications' | 'replication';
+type TabId = 'general' | 'security' | 'lifecycle' | 'notifications' | 'replication' | 'inventory';
 
 interface TabInfo {
   id: TabId;
@@ -69,6 +70,12 @@ const tabs: TabInfo[] = [
     label: 'Replication',
     icon: RefreshCw,
     description: 'Cross-bucket and cross-region replication rules',
+  },
+  {
+    id: 'inventory',
+    label: 'Inventory',
+    icon: Package,
+    description: 'Automated bucket inventory reports and configuration',
   },
 ];
 
@@ -159,6 +166,17 @@ export default function BucketSettingsPage() {
     conflict_resolution: 'last_write_wins',
     replicate_deletes: true,
     replicate_metadata: true,
+  });
+
+  // Inventory state
+  const [inventoryForm, setInventoryForm] = useState({
+    enabled: false,
+    frequency: 'daily',
+    format: 'csv',
+    destination_bucket: '',
+    destination_prefix: '',
+    included_fields: ['bucket_name', 'object_key', 'size', 'last_modified', 'etag'],
+    schedule_time: '00:00',
   });
 
   const { data: bucketData, isLoading } = useQuery({
@@ -387,6 +405,44 @@ export default function BucketSettingsPage() {
     },
   });
 
+  // Inventory query
+  const { data: inventoryConfig, refetch: refetchInventory } = useQuery({
+    queryKey: ['bucket-inventory', bucketName, tenantId],
+    queryFn: () => APIClient.getBucketInventory(bucketName, tenantId),
+    enabled: activeTab === 'inventory',
+  });
+
+  const { data: inventoryReports } = useQuery({
+    queryKey: ['bucket-inventory-reports', bucketName, tenantId],
+    queryFn: () => APIClient.listBucketInventoryReports(bucketName, 50, 0, tenantId),
+    enabled: activeTab === 'inventory',
+  });
+
+  // Inventory mutations
+  const saveInventoryMutation = useMutation({
+    mutationFn: (config: any) => APIClient.putBucketInventory(bucketName, config, tenantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bucket-inventory', bucketName, tenantId] });
+      refetchInventory();
+      ModalManager.toast('success', 'Inventory configuration saved successfully');
+    },
+    onError: (error: Error) => {
+      ModalManager.apiError(error);
+    },
+  });
+
+  const deleteInventoryMutation = useMutation({
+    mutationFn: () => APIClient.deleteBucketInventory(bucketName, tenantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bucket-inventory', bucketName, tenantId] });
+      refetchInventory();
+      ModalManager.toast('success', 'Inventory configuration deleted successfully');
+    },
+    onError: (error: Error) => {
+      ModalManager.apiError(error);
+    },
+  });
+
   // ACL mutations
   const saveACLMutation = useMutation({
     mutationFn: (cannedACL: string) => APIClient.putBucketACL(bucketName, '', cannedACL, tenantId),
@@ -458,6 +514,21 @@ export default function BucketSettingsPage() {
     loadCurrentACL();
     loadCurrentPolicy();
   }, [bucketName, tenantId]);
+
+  // Populate inventory form when config is loaded
+  useEffect(() => {
+    if (inventoryConfig) {
+      setInventoryForm({
+        enabled: inventoryConfig.enabled || false,
+        frequency: inventoryConfig.frequency || 'daily',
+        format: inventoryConfig.format || 'csv',
+        destination_bucket: inventoryConfig.destination_bucket || '',
+        destination_prefix: inventoryConfig.destination_prefix || '',
+        included_fields: inventoryConfig.included_fields || ['bucket_name', 'object_key', 'size', 'last_modified', 'etag'],
+        schedule_time: inventoryConfig.schedule_time || '00:00',
+      });
+    }
+  }, [inventoryConfig]);
 
   // Helper function to detect canned ACL from grants
   const detectCannedACL = (grants: any[]): string => {
@@ -1911,6 +1982,249 @@ export default function BucketSettingsPage() {
                     </div>
                   </div>
                 </div>
+                </div>
+              </>
+            )}
+
+            {/* INVENTORY TAB */}
+            {activeTab === 'inventory' && (
+              <>
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
+                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                      <Package className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                      Bucket Inventory
+                    </h3>
+                  </div>
+                  <div className="p-6">
+                    <div className="space-y-6">
+                      {/* Configuration Form */}
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={inventoryForm.enabled}
+                              onChange={(e) => setInventoryForm({ ...inventoryForm, enabled: e.target.checked })}
+                              className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                              disabled={isGlobalAdminInTenantBucket}
+                            />
+                            <span className="font-medium text-gray-900 dark:text-white">
+                              Enable Inventory Reports
+                            </span>
+                          </label>
+                        </div>
+
+                        {inventoryForm.enabled && (
+                          <>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                  Frequency
+                                </label>
+                                <select
+                                  value={inventoryForm.frequency}
+                                  onChange={(e) => setInventoryForm({ ...inventoryForm, frequency: e.target.value })}
+                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                  disabled={isGlobalAdminInTenantBucket}
+                                >
+                                  <option value="daily">Daily</option>
+                                  <option value="weekly">Weekly</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                  Format
+                                </label>
+                                <select
+                                  value={inventoryForm.format}
+                                  onChange={(e) => setInventoryForm({ ...inventoryForm, format: e.target.value })}
+                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                  disabled={isGlobalAdminInTenantBucket}
+                                >
+                                  <option value="csv">CSV</option>
+                                  <option value="json">JSON</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Destination Bucket
+                              </label>
+                              <input
+                                type="text"
+                                value={inventoryForm.destination_bucket}
+                                onChange={(e) => setInventoryForm({ ...inventoryForm, destination_bucket: e.target.value })}
+                                placeholder="Enter destination bucket name"
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                disabled={isGlobalAdminInTenantBucket}
+                              />
+                              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                Inventory reports will be saved to this bucket
+                              </p>
+                            </div>
+
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Destination Prefix (Optional)
+                              </label>
+                              <input
+                                type="text"
+                                value={inventoryForm.destination_prefix}
+                                onChange={(e) => setInventoryForm({ ...inventoryForm, destination_prefix: e.target.value })}
+                                placeholder="inventory-reports/"
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                disabled={isGlobalAdminInTenantBucket}
+                              />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                  Schedule Time
+                                </label>
+                                <input
+                                  type="time"
+                                  value={inventoryForm.schedule_time}
+                                  onChange={(e) => setInventoryForm({ ...inventoryForm, schedule_time: e.target.value })}
+                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                  disabled={isGlobalAdminInTenantBucket}
+                                />
+                                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                  Time when reports will be generated
+                                </p>
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                Included Fields
+                              </label>
+                              <div className="grid grid-cols-2 gap-2">
+                                {[
+                                  { value: 'bucket_name', label: 'Bucket Name' },
+                                  { value: 'object_key', label: 'Object Key' },
+                                  { value: 'version_id', label: 'Version ID' },
+                                  { value: 'is_latest', label: 'Is Latest' },
+                                  { value: 'size', label: 'Size' },
+                                  { value: 'last_modified', label: 'Last Modified' },
+                                  { value: 'etag', label: 'ETag' },
+                                  { value: 'storage_class', label: 'Storage Class' },
+                                  { value: 'is_multipart_uploaded', label: 'Multipart Upload' },
+                                  { value: 'encryption_status', label: 'Encryption Status' },
+                                  { value: 'replication_status', label: 'Replication Status' },
+                                  { value: 'object_acl', label: 'Object ACL' },
+                                ].map((field) => (
+                                  <label key={field.value} className="flex items-center gap-2 text-sm">
+                                    <input
+                                      type="checkbox"
+                                      checked={inventoryForm.included_fields.includes(field.value)}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setInventoryForm({
+                                            ...inventoryForm,
+                                            included_fields: [...inventoryForm.included_fields, field.value],
+                                          });
+                                        } else {
+                                          setInventoryForm({
+                                            ...inventoryForm,
+                                            included_fields: inventoryForm.included_fields.filter((f) => f !== field.value),
+                                          });
+                                        }
+                                      }}
+                                      className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                                      disabled={isGlobalAdminInTenantBucket}
+                                    />
+                                    <span className="text-gray-700 dark:text-gray-300">{field.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="flex gap-2">
+                              <Button
+                                onClick={() => saveInventoryMutation.mutate(inventoryForm)}
+                                disabled={isGlobalAdminInTenantBucket || !inventoryForm.destination_bucket}
+                                loading={saveInventoryMutation.isPending}
+                              >
+                                Save Configuration
+                              </Button>
+                              {inventoryConfig && (
+                                <Button
+                                  variant="destructive"
+                                  onClick={() => {
+                                    if (confirm('Are you sure you want to delete the inventory configuration?')) {
+                                      deleteInventoryMutation.mutate();
+                                    }
+                                  }}
+                                  disabled={isGlobalAdminInTenantBucket}
+                                  loading={deleteInventoryMutation.isPending}
+                                >
+                                  Delete Configuration
+                                </Button>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Inventory Reports */}
+                      {inventoryReports && inventoryReports.reports && inventoryReports.reports.length > 0 && (
+                        <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+                          <h4 className="font-semibold text-gray-900 dark:text-white mb-4">Recent Reports</h4>
+                          <div className="space-y-2">
+                            {inventoryReports.reports.map((report: any) => (
+                              <div
+                                key={report.id}
+                                className="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800"
+                              >
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <FileText className="h-4 w-4 text-gray-500" />
+                                    <span className="font-mono text-sm text-gray-900 dark:text-white">
+                                      {report.report_path}
+                                    </span>
+                                    <span
+                                      className={`text-xs px-2 py-1 rounded ${
+                                        report.status === 'completed'
+                                          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                          : report.status === 'failed'
+                                          ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                                          : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                                      }`}
+                                    >
+                                      {report.status}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                    {report.object_count} objects • {(report.total_size / 1024 / 1024).toFixed(2)} MB
+                                    {report.completed_at && ` • ${new Date(report.completed_at * 1000).toLocaleString()}`}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Info Box */}
+                      <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                        <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+                        <div className="text-sm text-blue-800 dark:text-blue-300">
+                          <p className="font-medium mb-1">About Bucket Inventory</p>
+                          <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-blue-400">
+                            <li>Inventory reports provide a scheduled list of your objects and their metadata</li>
+                            <li>Reports are generated automatically based on the configured frequency</li>
+                            <li>Choose between CSV and JSON formats for compatibility with your tools</li>
+                            <li>Select specific fields to include in your inventory reports</li>
+                            <li>Reports are stored in the destination bucket you specify</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </>
             )}

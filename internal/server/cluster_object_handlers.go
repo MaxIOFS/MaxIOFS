@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/acl"
@@ -617,5 +618,129 @@ func (s *Server) handleReceiveBucketPermissionSync(w http.ResponseWriter, r *htt
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Bucket permission synchronized successfully",
+	})
+}
+
+// handleReceiveBucketInventory handles incoming bucket inventory configuration from other nodes during migration
+// POST /api/internal/cluster/bucket-inventory
+func (s *Server) handleReceiveBucketInventory(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get source node ID from context (set by auth middleware)
+	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
+	if !ok {
+		logrus.Warn("Cluster node ID not found in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse inventory configuration data from JSON body
+	var inventoryData struct {
+		TenantID          string   `json:"tenant_id"`
+		BucketName        string   `json:"bucket_name"`
+		Enabled           bool     `json:"enabled"`
+		Frequency         string   `json:"frequency"`
+		Format            string   `json:"format"`
+		DestinationBucket string   `json:"destination_bucket"`
+		DestinationPrefix string   `json:"destination_prefix"`
+		IncludedFields    []string `json:"included_fields"`
+		ScheduleTime      string   `json:"schedule_time"`
+		LastRunAt         *int64   `json:"last_run_at,omitempty"`
+		NextRunAt         *int64   `json:"next_run_at,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&inventoryData); err != nil {
+		logrus.WithError(err).Error("Failed to decode inventory configuration data")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	logrus.WithFields(logrus.Fields{
+		"source_node_id": sourceNodeID,
+		"tenant_id":      inventoryData.TenantID,
+		"bucket":         inventoryData.BucketName,
+	}).Info("Receiving bucket inventory configuration from migration")
+
+	// Check if configuration already exists
+	existingConfig, err := s.inventoryManager.GetConfig(ctx, inventoryData.BucketName, inventoryData.TenantID)
+	if err == nil {
+		// Update existing configuration
+		existingConfig.Enabled = inventoryData.Enabled
+		existingConfig.Frequency = inventoryData.Frequency
+		existingConfig.Format = inventoryData.Format
+		existingConfig.DestinationBucket = inventoryData.DestinationBucket
+		existingConfig.DestinationPrefix = inventoryData.DestinationPrefix
+		existingConfig.IncludedFields = inventoryData.IncludedFields
+		existingConfig.ScheduleTime = inventoryData.ScheduleTime
+		existingConfig.LastRunAt = inventoryData.LastRunAt
+		existingConfig.NextRunAt = inventoryData.NextRunAt
+
+		if err := s.inventoryManager.UpdateConfig(ctx, existingConfig); err != nil {
+			logrus.WithError(err).Error("Failed to update inventory configuration")
+			http.Error(w, fmt.Sprintf("Failed to update configuration: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"tenant_id": inventoryData.TenantID,
+			"bucket":    inventoryData.BucketName,
+		}).Info("Inventory configuration updated successfully")
+	} else {
+		// Create new configuration
+		includedFieldsJSON, err := json.Marshal(inventoryData.IncludedFields)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to marshal included fields")
+			http.Error(w, "Invalid included fields", http.StatusBadRequest)
+			return
+		}
+
+		// Generate new ID
+		id := fmt.Sprintf("inv_%s_%d", inventoryData.BucketName, time.Now().Unix())
+
+		query := `
+			INSERT INTO bucket_inventory_configs (
+				id, bucket_name, tenant_id, enabled, frequency, format,
+				destination_bucket, destination_prefix, included_fields, schedule_time,
+				last_run_at, next_run_at, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`
+
+		now := time.Now().Unix()
+		_, err = s.db.ExecContext(ctx, query,
+			id,
+			inventoryData.BucketName,
+			inventoryData.TenantID,
+			inventoryData.Enabled,
+			inventoryData.Frequency,
+			inventoryData.Format,
+			inventoryData.DestinationBucket,
+			inventoryData.DestinationPrefix,
+			string(includedFieldsJSON),
+			inventoryData.ScheduleTime,
+			inventoryData.LastRunAt,
+			inventoryData.NextRunAt,
+			now,
+			now,
+		)
+
+		if err != nil {
+			logrus.WithError(err).Error("Failed to create inventory configuration")
+			http.Error(w, fmt.Sprintf("Failed to create configuration: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"tenant_id": inventoryData.TenantID,
+			"bucket":    inventoryData.BucketName,
+		}).Info("Inventory configuration created successfully")
+	}
+
+	// Return success
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Inventory configuration migrated successfully",
 	})
 }

@@ -302,6 +302,12 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/lifecycle", s.handlePutBucketLifecycle).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/lifecycle", s.handleDeleteBucketLifecycle).Methods("DELETE", "OPTIONS")
 
+	// Bucket inventory endpoints
+	router.HandleFunc("/buckets/{bucket}/inventory", s.handleGetBucketInventory).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/inventory", s.handlePutBucketInventory).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/inventory", s.handleDeleteBucketInventory).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/inventory/reports", s.handleListBucketInventoryReports).Methods("GET", "OPTIONS")
+
 	// Bucket tagging endpoints
 	router.HandleFunc("/buckets/{bucket}/tagging", s.handleGetBucketTagging).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/tagging", s.handlePutBucketTagging).Methods("PUT", "OPTIONS")

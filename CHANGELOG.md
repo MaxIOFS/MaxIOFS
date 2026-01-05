@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Bucket Inventory Feature (Complete)
+
+#### Automated Bucket Inventory Reports
+- **Complete S3-Compatible Inventory System**
+  - Automated periodic inventory report generation (daily/weekly schedules)
+  - CSV and JSON output formats for compatibility
+  - Configurable field selection (12 available fields)
+  - Scheduled time configuration for report generation
+  - Database schema with `bucket_inventory_configs` and `bucket_inventory_reports` tables
+
+- **Backend Implementation**
+  - `internal/inventory/models.go` - Inventory configuration and report models
+  - `internal/inventory/manager.go` - CRUD operations for inventory configs and reports
+  - `internal/inventory/generator.go` - CSV/JSON report generation from bucket objects
+  - `internal/inventory/worker.go` - Background worker for scheduled report generation
+  - Report generation includes object metadata (size, ETag, storage class, encryption status, etc.)
+
+- **REST API Endpoints**
+  - `PUT /api/v1/buckets/{bucket}/inventory` - Create/update inventory configuration
+  - `GET /api/v1/buckets/{bucket}/inventory` - Get inventory configuration
+  - `DELETE /api/v1/buckets/{bucket}/inventory` - Delete inventory configuration
+  - `GET /api/v1/buckets/{bucket}/inventory/reports` - List inventory reports with pagination
+  - Full tenantId support for multi-tenant environments
+  - Global admin access with tenantId query parameter
+
+- **Cluster Migration Integration**
+  - Inventory configurations automatically migrated during bucket migration
+  - New endpoint: `POST /api/internal/cluster/bucket-inventory`
+  - Handler: `handleReceiveBucketInventory()` receives configs on target node
+  - Non-critical migration (won't fail overall bucket migration if issues occur)
+
+- **Frontend UI**
+  - New "Inventory" tab in bucket settings page
+  - Enable/disable toggle for inventory reports
+  - Frequency selector (daily/weekly)
+  - Format selector (CSV/JSON)
+  - Destination bucket and prefix configuration
+  - Schedule time picker
+  - Field selection with 12 configurable options
+  - Recent reports list with status, object count, and size information
+  - Integrated with existing bucket settings workflow
+
+- **Key Features**
+  - 12 configurable inventory fields: bucket_name, object_key, version_id, is_latest, size, last_modified, etag, storage_class, is_multipart_uploaded, encryption_status, replication_status, object_acl
+  - Circular reference prevention (destination bucket cannot be source bucket)
+  - Destination bucket validation
+  - Reports stored with metadata tracking generation time and statistics
+  - Worker runs hourly checking for configs ready to execute
+  - Next run time automatically calculated based on frequency and schedule
+
 ### Added - Cluster Bucket Migration & Synchronization (Complete)
 
 #### Complete Bucket Migration Implementation
