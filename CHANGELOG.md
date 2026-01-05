@@ -7,7 +7,182 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added - Cluster Bucket Migration (In Development)
+### Added - Cluster Bucket Migration & Synchronization (Complete)
+
+#### Complete Bucket Migration Implementation
+- **Real Object Copying from Physical Storage**
+  - Modified `copyObject()` in migration.go to read actual object data from filesystem storage
+  - Implemented path building for versioned objects (`.versions/{key}/{versionID}`)
+  - Stream object content directly from storage backend to target node
+  - Fixed placeholder code that was sending empty body during migration
+  - Objects now properly migrated with full content and metadata
+
+- **Bucket Permissions Migration**
+  - Added `migrateBucketPermissions()` method to copy all bucket-level permissions
+  - Migrates user and tenant permissions associated with the bucket
+  - Uses `INSERT OR REPLACE` for idempotent operations
+  - New endpoint: `POST /api/internal/cluster/bucket-permissions`
+  - Handler: `handleReceiveBucketPermission()` receives and stores permissions on target node
+
+- **Bucket ACL Migration**
+  - Added `migrateBucketACLs()` method to copy ACLs from BadgerDB
+  - Integration with ACL manager via `SetACLManager()` in cluster manager
+  - ACLs retrieved from source and applied to target bucket
+  - New endpoint: `POST /api/internal/cluster/bucket-acl`
+  - Handler: `handleReceiveBucketACL()` receives and stores ACLs on target node
+
+- **Bucket Configuration Migration**
+  - Added `migrateBucketConfiguration()` method to copy all bucket settings
+  - Migrates: versioning, object_lock, encryption, lifecycle, tags, CORS, policy, notification
+  - Reads from source bucket's database record
+  - Updates target bucket with identical configuration
+  - New endpoint: `POST /api/internal/cluster/bucket-config`
+  - Handler: `handleReceiveBucketConfiguration()` applies configuration on target node
+
+#### Access Key Synchronization System
+- **AccessKeySyncManager** - Automatic access key synchronization between cluster nodes
+  - Periodic sync loop (configurable interval, default: 30 seconds)
+  - Checksum-based change detection (SHA-256) to avoid unnecessary syncs
+  - Only syncs active access keys (status = 'active')
+  - HMAC-authenticated requests between nodes
+  - Sync status tracking in `cluster_access_key_sync` table
+
+- **Database Schema**
+  - New table: `cluster_access_key_sync` for tracking synchronization status
+  - Columns: id, access_key_id, source_node_id, destination_node_id, key_checksum, status, timestamps
+  - Unique constraint on (access_key_id, destination_node_id)
+  - Indexes for performance optimization
+
+- **Configuration**
+  - `auto_access_key_sync_enabled` - Enable/disable automatic synchronization (default: true)
+  - `access_key_sync_interval_seconds` - Sync frequency (default: 30)
+
+- **API Endpoints**
+  - `POST /api/internal/cluster/access-key-sync` - Receive access key synchronization
+  - Handler: `handleReceiveAccessKeySync()` with upsert logic
+
+- **Core Methods**
+  - `listLocalAccessKeys()` - Query active keys from database
+  - `computeAccessKeyChecksum()` - Calculate SHA-256 checksum for change detection
+  - `needsSynchronization()` - Check if key needs sync based on checksum comparison
+  - `syncAccessKeyToNode()` - Sync single key to target node
+  - `sendAccessKeyToNode()` - Send HMAC-authenticated request
+  - `updateSyncStatus()` - Track successful synchronization
+
+#### Bucket Permission Synchronization System
+- **BucketPermissionSyncManager** - Automatic bucket permission synchronization
+  - Periodic sync loop (configurable interval, default: 30 seconds)
+  - Checksum-based change detection for permission changes
+  - Handles optional fields (user_id, tenant_id, expires_at)
+  - HMAC-authenticated requests between nodes
+  - Sync status tracking in `cluster_bucket_permission_sync` table
+
+- **Database Schema**
+  - New table: `cluster_bucket_permission_sync` for tracking synchronization status
+  - Columns: id, permission_id, source_node_id, destination_node_id, permission_checksum, status, timestamps
+  - Unique constraint on (permission_id, destination_node_id)
+  - Indexes for performance optimization
+
+- **Configuration**
+  - `auto_bucket_permission_sync_enabled` - Enable/disable automatic synchronization (default: true)
+  - `bucket_permission_sync_interval_seconds` - Sync frequency (default: 30)
+
+- **API Endpoints**
+  - `POST /api/internal/cluster/bucket-permission-sync` - Receive permission synchronization
+  - Handler: `handleReceiveBucketPermissionSync()` with upsert logic
+
+- **Core Methods**
+  - `listLocalBucketPermissions()` - Query all permissions from database
+  - `computePermissionChecksum()` - Calculate SHA-256 checksum including expiry
+  - `needsSynchronization()` - Check if permission needs sync
+  - `syncPermissionToNode()` - Sync single permission to target node
+  - `sendPermissionToNode()` - Send HMAC-authenticated request
+  - `updateSyncStatus()` - Track successful synchronization
+
+#### Server Integration
+- **Cluster Manager Enhancements**
+  - Added `SetStorage()` method to inject storage backend for migration
+  - Added `SetACLManager()` method to inject ACL manager for migration
+  - Storage and ACL manager properly initialized in server startup
+
+- **Migration Flow Updates**
+  - Step 1: Count objects and calculate sizes
+  - Step 2: Copy objects with actual data from storage
+  - Step 3: Migrate bucket permissions
+  - Step 3.5: Migrate bucket ACLs
+  - Step 4: Migrate bucket configuration
+  - Step 5: Verify data integrity
+  - Step 6: Update bucket location metadata
+  - Step 7: Optional source deletion
+
+- **Sync Manager Lifecycle**
+  - AccessKeySyncManager initialized and started in server.Start()
+  - BucketPermissionSyncManager initialized and started in server.Start()
+  - Both managers run in background goroutines
+  - Graceful shutdown via Stop() methods
+
+#### Testing & Quality Assurance
+- **Access Key Sync Tests** (6 tests, all passing)
+  - `TestAccessKeySyncManager_ListLocalAccessKeys` - Verify key listing and filtering
+  - `TestAccessKeySyncManager_ComputeChecksum` - Checksum calculation and consistency
+  - `TestAccessKeySyncManager_NeedsSynchronization` - Sync detection logic
+  - `TestAccessKeySyncManager_UpdateSyncStatus` - Status tracking and upsert
+  - `TestAccessKeySyncManager_Stop` - Graceful shutdown
+  - `TestAccessKeySyncManagerSchema` - Database schema validation
+
+- **Bucket Permission Sync Tests** (7 tests, all passing)
+  - `TestBucketPermissionSyncManager_ListLocalBucketPermissions` - Permission listing
+  - `TestBucketPermissionSyncManager_ComputeChecksum` - Checksum with optional fields
+  - `TestBucketPermissionSyncManager_NeedsSynchronization` - Sync detection
+  - `TestBucketPermissionSyncManager_UpdateSyncStatus` - Status tracking
+  - `TestBucketPermissionSyncManager_Stop` - Graceful shutdown
+  - `TestBucketPermissionSyncManagerSchema` - Database schema validation
+  - `TestBucketPermissionChecksumWithExpiry` - Expiry date handling
+
+- **Test Coverage**
+  - Total: 44 cluster tests passing (100% pass rate)
+  - 13 new tests for synchronization features
+  - All existing tests continue to pass (backward compatibility verified)
+  - Test execution time: ~5.2 seconds
+
+#### Files Modified/Created
+- **New Files**:
+  - `internal/cluster/access_key_sync.go` (336 lines) - Access key sync manager
+  - `internal/cluster/access_key_sync_test.go` (362 lines) - Access key tests
+  - `internal/cluster/bucket_permission_sync.go` (354 lines) - Permission sync manager
+  - `internal/cluster/bucket_permission_sync_test.go` (394 lines) - Permission tests
+
+- **Modified Files**:
+  - `internal/cluster/manager.go` - Added storage and ACL manager support
+  - `internal/cluster/migration.go` - Complete migration implementation with real data copying
+  - `internal/cluster/replication_schema.go` - Added sync tables and configuration
+  - `internal/server/server.go` - Integrated sync managers, registered routes
+  - `internal/server/cluster_object_handlers.go` - Added 4 new handlers for sync endpoints
+
+#### Architecture & Design
+- **Synchronization Pattern**
+  - Following same pattern as TenantSyncManager and UserSyncManager
+  - Checksum-based to minimize network traffic
+  - Idempotent operations (INSERT OR REPLACE)
+  - HMAC authentication for security
+  - Configurable sync intervals
+  - Background goroutine execution
+
+- **Migration Completeness**
+  - Buckets now migrate with ALL associated data:
+    - ✅ Object data (from physical storage)
+    - ✅ Object metadata (ETags, content-type, etc.)
+    - ✅ Bucket permissions (user and tenant permissions)
+    - ✅ Bucket ACLs (from BadgerDB)
+    - ✅ Bucket configuration (versioning, lifecycle, tags, CORS, etc.)
+
+- **Data Consistency**
+  - User-related data (users, tenants, access keys, permissions) syncs automatically
+  - Ensures users can access their buckets from any node
+  - Access keys work consistently across the cluster
+  - Permissions follow buckets during migration
+
+### Added - Cluster Bucket Migration (Core Features - Previous)
 
 #### Bucket Migration Between Nodes
 - **Database Schema**: New `cluster_migrations` table for tracking migration jobs
