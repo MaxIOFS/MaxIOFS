@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/api"
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
@@ -56,6 +57,8 @@ type Server struct {
 	clusterReplicationMgr   *cluster.ClusterReplicationManager
 	tenantSyncMgr           *cluster.TenantSyncManager
 	userSyncMgr             *cluster.UserSyncManager
+	accessKeySyncMgr        *cluster.AccessKeySyncManager
+	bucketPermissionSyncMgr *cluster.BucketPermissionSyncManager
 	notificationHub         *NotificationHub
 	systemMetrics           *metrics.SystemMetricsTracker
 	lifecycleWorker         *lifecycle.Worker
@@ -238,6 +241,15 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize cluster manager
 	clusterManager := cluster.NewManager(db, cfg.PublicAPIURL)
 
+	// Set storage backend and ACL manager for cluster operations (migrations)
+	clusterManager.SetStorage(storageBackend)
+
+	// Get ACL manager from bucket manager
+	aclMgrInterface := bucketManager.GetACLManager()
+	if aclMgrInterface != nil {
+		clusterManager.SetACLManager(aclMgrInterface.(acl.Manager))
+	}
+
 	// Get local node ID from cluster config (if cluster is initialized)
 	localNodeID := ""
 	clusterConfig, err := clusterManager.GetConfig(context.Background())
@@ -257,6 +269,12 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize user synchronization manager
 	userSyncMgr := cluster.NewUserSyncManager(db, clusterManager)
+
+	// Initialize access key synchronization manager
+	accessKeySyncMgr := cluster.NewAccessKeySyncManager(db, clusterManager)
+
+	// Initialize bucket permission synchronization manager
+	bucketPermissionSyncMgr := cluster.NewBucketPermissionSyncManager(db, clusterManager)
 
 	// Initialize cluster replication manager
 	clusterReplicationMgr := cluster.NewClusterReplicationManager(db, clusterManager, tenantSyncMgr)
@@ -298,6 +316,8 @@ func New(cfg *config.Config) (*Server, error) {
 		clusterReplicationMgr:   clusterReplicationMgr,
 		tenantSyncMgr:           tenantSyncMgr,
 		userSyncMgr:             userSyncMgr,
+		accessKeySyncMgr:        accessKeySyncMgr,
+		bucketPermissionSyncMgr: bucketPermissionSyncMgr,
 		notificationHub:         notificationHub,
 		systemMetrics:           systemMetrics,
 		lifecycleWorker:         lifecycleWorker,
@@ -393,6 +413,18 @@ func (s *Server) Start(ctx context.Context) error {
 		if s.userSyncMgr != nil {
 			s.userSyncMgr.Start(ctx)
 			logrus.Info("User synchronization manager started")
+		}
+
+		// Start access key synchronization manager
+		if s.accessKeySyncMgr != nil {
+			s.accessKeySyncMgr.Start(ctx)
+			logrus.Info("Access key synchronization manager started")
+		}
+
+		// Start bucket permission synchronization manager
+		if s.bucketPermissionSyncMgr != nil {
+			s.bucketPermissionSyncMgr.Start(ctx)
+			logrus.Info("Bucket permission synchronization manager started")
 		}
 
 		// Start cluster replication manager
@@ -655,6 +687,15 @@ func (s *Server) setupRoutes() error {
 		// Object replication endpoints
 		internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectReplication).Methods("PUT")
 		internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectDeletion).Methods("DELETE")
+
+		// Bucket migration endpoints
+		internalClusterRouter.HandleFunc("/bucket-permissions", s.handleReceiveBucketPermission).Methods("POST")
+		internalClusterRouter.HandleFunc("/bucket-acl", s.handleReceiveBucketACL).Methods("POST")
+		internalClusterRouter.HandleFunc("/bucket-config", s.handleReceiveBucketConfiguration).Methods("POST")
+
+		// Synchronization endpoints
+		internalClusterRouter.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
+		internalClusterRouter.HandleFunc("/bucket-permission-sync", s.handleReceiveBucketPermissionSync).Methods("POST")
 
 		logrus.Info("Internal cluster API routes registered with HMAC authentication")
 	}

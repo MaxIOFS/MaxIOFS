@@ -9,27 +9,41 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maxiofs/maxiofs/internal/acl"
+	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 )
 
 // Manager handles cluster operations
 type Manager struct {
-	db                *sql.DB
-	publicAPIURL      string
+	db                  *sql.DB
+	publicAPIURL        string
 	healthCheckInterval time.Duration
-	stopChan          chan struct{}
-	log               *logrus.Entry
+	stopChan            chan struct{}
+	log                 *logrus.Entry
+	storage             storage.Backend
+	aclManager          acl.Manager
 }
 
 // NewManager creates a new cluster manager
 func NewManager(db *sql.DB, publicAPIURL string) *Manager {
 	return &Manager{
-		db:                db,
-		publicAPIURL:      publicAPIURL,
+		db:                  db,
+		publicAPIURL:        publicAPIURL,
 		healthCheckInterval: 30 * time.Second,
-		stopChan:          make(chan struct{}),
-		log:               logrus.WithField("component", "cluster-manager"),
+		stopChan:            make(chan struct{}),
+		log:                 logrus.WithField("component", "cluster-manager"),
 	}
+}
+
+// SetStorage sets the storage backend for the cluster manager
+func (m *Manager) SetStorage(s storage.Backend) {
+	m.storage = s
+}
+
+// SetACLManager sets the ACL manager for the cluster manager
+func (m *Manager) SetACLManager(aclMgr acl.Manager) {
+	m.aclManager = aclMgr
 }
 
 // InitializeCluster initializes a new cluster with this node

@@ -36,6 +36,16 @@ func InitReplicationSchema(db *sql.DB) error {
 		return fmt.Errorf("failed to create cluster_user_sync table: %w", err)
 	}
 
+	// Create cluster_access_key_sync table
+	if err := createClusterAccessKeySyncTable(ctx, db); err != nil {
+		return fmt.Errorf("failed to create cluster_access_key_sync table: %w", err)
+	}
+
+	// Create cluster_bucket_permission_sync table
+	if err := createClusterBucketPermissionSyncTable(ctx, db); err != nil {
+		return fmt.Errorf("failed to create cluster_bucket_permission_sync table: %w", err)
+	}
+
 	// Create cluster_global_config table
 	if err := createClusterGlobalConfigTable(ctx, db); err != nil {
 		return fmt.Errorf("failed to create cluster_global_config table: %w", err)
@@ -191,6 +201,54 @@ func createClusterUserSyncTable(ctx context.Context, db *sql.DB) error {
 	return err
 }
 
+// createClusterAccessKeySyncTable creates the table for tracking access key synchronization
+func createClusterAccessKeySyncTable(ctx context.Context, db *sql.DB) error {
+	query := `
+	CREATE TABLE IF NOT EXISTS cluster_access_key_sync (
+		id TEXT PRIMARY KEY,
+		access_key_id TEXT NOT NULL,
+		source_node_id TEXT NOT NULL,
+		destination_node_id TEXT NOT NULL,
+		key_checksum TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		last_sync_at TIMESTAMP,
+		last_error TEXT,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL,
+		UNIQUE(access_key_id, destination_node_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_cluster_access_key_sync_key ON cluster_access_key_sync(access_key_id);
+	CREATE INDEX IF NOT EXISTS idx_cluster_access_key_sync_dest ON cluster_access_key_sync(destination_node_id);
+	CREATE INDEX IF NOT EXISTS idx_cluster_access_key_sync_status ON cluster_access_key_sync(status);
+	`
+	_, err := db.ExecContext(ctx, query)
+	return err
+}
+
+// createClusterBucketPermissionSyncTable creates the table for tracking bucket permission synchronization
+func createClusterBucketPermissionSyncTable(ctx context.Context, db *sql.DB) error {
+	query := `
+	CREATE TABLE IF NOT EXISTS cluster_bucket_permission_sync (
+		id TEXT PRIMARY KEY,
+		permission_id TEXT NOT NULL,
+		source_node_id TEXT NOT NULL,
+		destination_node_id TEXT NOT NULL,
+		permission_checksum TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		last_sync_at TIMESTAMP,
+		last_error TEXT,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL,
+		UNIQUE(permission_id, destination_node_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_cluster_bucket_perm_sync_perm ON cluster_bucket_permission_sync(permission_id);
+	CREATE INDEX IF NOT EXISTS idx_cluster_bucket_perm_sync_dest ON cluster_bucket_permission_sync(destination_node_id);
+	CREATE INDEX IF NOT EXISTS idx_cluster_bucket_perm_sync_status ON cluster_bucket_permission_sync(status);
+	`
+	_, err := db.ExecContext(ctx, query)
+	return err
+}
+
 // createClusterGlobalConfigTable creates the table for global cluster replication settings
 func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 	query := `
@@ -234,6 +292,22 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 		"user_sync_interval_seconds": {
 			value:       "30",
 			description: "Interval for user synchronization checks in seconds",
+		},
+		"auto_access_key_sync_enabled": {
+			value:       "true",
+			description: "Enable automatic access key synchronization between all nodes",
+		},
+		"access_key_sync_interval_seconds": {
+			value:       "30",
+			description: "Interval for access key synchronization checks in seconds",
+		},
+		"auto_bucket_permission_sync_enabled": {
+			value:       "true",
+			description: "Enable automatic bucket permission synchronization between all nodes",
+		},
+		"bucket_permission_sync_interval_seconds": {
+			value:       "30",
+			description: "Interval for bucket permission synchronization checks in seconds",
 		},
 		"replication_worker_count": {
 			value:       "5",

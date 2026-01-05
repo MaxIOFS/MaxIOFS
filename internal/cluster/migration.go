@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -445,7 +446,28 @@ func (m *Manager) executeMigration(ctx context.Context, locationMgr *BucketLocat
 		logrus.WithField("migration_id", job.ID).Info("No objects to migrate (empty bucket)")
 	}
 
-	// Step 3: Verify data integrity (if requested)
+	// Step 3: Migrate bucket permissions
+	logrus.WithField("migration_id", job.ID).Info("Migrating bucket permissions")
+	if err := m.migrateBucketPermissions(ctx, tenantID, job); err != nil {
+		return fmt.Errorf("failed to migrate bucket permissions: %w", err)
+	}
+	logrus.WithField("migration_id", job.ID).Info("Bucket permissions migrated successfully")
+
+	// Step 3.5: Migrate bucket ACLs
+	logrus.WithField("migration_id", job.ID).Info("Migrating bucket ACLs")
+	if err := m.migrateBucketACLs(ctx, tenantID, job); err != nil {
+		return fmt.Errorf("failed to migrate bucket ACLs: %w", err)
+	}
+	logrus.WithField("migration_id", job.ID).Info("Bucket ACLs migrated successfully")
+
+	// Step 4: Migrate bucket configuration (tags, lifecycle, etc.)
+	logrus.WithField("migration_id", job.ID).Info("Migrating bucket configuration")
+	if err := m.migrateBucketConfiguration(ctx, tenantID, job); err != nil {
+		return fmt.Errorf("failed to migrate bucket configuration: %w", err)
+	}
+	logrus.WithField("migration_id", job.ID).Info("Bucket configuration migrated successfully")
+
+	// Step 5: Verify data integrity (if requested)
 	if job.VerifyData && objectCount > 0 {
 		logrus.WithField("migration_id", job.ID).Info("Verifying data integrity")
 		if err := m.verifyMigration(ctx, tenantID, job); err != nil {
@@ -454,7 +476,7 @@ func (m *Manager) executeMigration(ctx context.Context, locationMgr *BucketLocat
 		logrus.WithField("migration_id", job.ID).Info("Data verification completed successfully")
 	}
 
-	// Step 4: Update bucket location metadata
+	// Step 5: Update bucket location metadata
 	logrus.WithField("migration_id", job.ID).Info("Updating bucket location")
 	if err := locationMgr.SetBucketLocation(ctx, tenantID, job.BucketName, job.TargetNodeID); err != nil {
 		return fmt.Errorf("failed to update bucket location: %w", err)
@@ -607,16 +629,30 @@ func (m *Manager) copyObject(ctx context.Context, proxyClient *ProxyClient, targ
 		key,
 	)
 
-	// TODO: Get actual object data from storage
-	// For now, we'll send metadata only as placeholder
-	// In real implementation, this should read the object data from disk/storage
-	// and stream it to the target node
+	// Check if storage is available
+	if m.storage == nil {
+		return fmt.Errorf("storage backend not initialized")
+	}
 
-	// Create placeholder body (in real implementation, this would be the actual object data)
-	body := bytes.NewReader([]byte{})
+	// Build object path
+	var objectPath string
+	if versionID != "" && versionID != "null" {
+		// Versioned object
+		objectPath = fmt.Sprintf("%s/.versions/%s/%s", bucket, key, versionID)
+	} else {
+		// Regular object
+		objectPath = fmt.Sprintf("%s/%s", bucket, key)
+	}
 
-	// Create authenticated request
-	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "PUT", url, body, localNodeID, nodeToken)
+	// Get object data from storage
+	objectReader, _, err := m.storage.Get(ctx, objectPath)
+	if err != nil {
+		return fmt.Errorf("failed to read object from storage: %w", err)
+	}
+	defer objectReader.Close()
+
+	// Create authenticated request with actual object data
+	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "PUT", url, objectReader, localNodeID, nodeToken)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -627,11 +663,349 @@ func (m *Manager) copyObject(ctx context.Context, proxyClient *ProxyClient, targ
 	req.Header.Set("X-Object-ETag", etag)
 	req.Header.Set("X-Object-Metadata", metadata)
 	req.Header.Set("X-Source-Version-ID", versionID)
+	req.ContentLength = size
 
 	// Execute request
 	resp, err := proxyClient.DoAuthenticatedRequest(req)
 	if err != nil {
 		return fmt.Errorf("failed to send object: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check response
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
+// migrateBucketPermissions migrates bucket permissions to the target node
+func (m *Manager) migrateBucketPermissions(ctx context.Context, tenantID string, job *MigrationJob) error {
+	// Query all permissions for this bucket
+	query := `
+		SELECT id, bucket_name, user_id, tenant_id, permission_level, granted_by, granted_at, expires_at
+		FROM bucket_permissions
+		WHERE bucket_name = ?
+	`
+
+	rows, err := m.db.QueryContext(ctx, query, job.BucketName)
+	if err != nil {
+		return fmt.Errorf("failed to query bucket permissions: %w", err)
+	}
+	defer rows.Close()
+
+	// Get target node info
+	targetNode, err := m.GetNode(ctx, job.TargetNodeID)
+	if err != nil {
+		return fmt.Errorf("failed to get target node: %w", err)
+	}
+
+	// Get authentication credentials
+	localNodeID, err := m.GetLocalNodeID(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get local node ID: %w", err)
+	}
+
+	nodeToken, err := m.GetLocalNodeToken(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get node token: %w", err)
+	}
+
+	proxyClient := NewProxyClient()
+	permissionCount := 0
+
+	// Iterate through all permissions and send them to target node
+	for rows.Next() {
+		var id, bucketName, userID, tenantIDVal, permissionLevel, grantedBy string
+		var grantedAt, expiresAt sql.NullInt64
+
+		if err := rows.Scan(&id, &bucketName, &userID, &tenantIDVal, &permissionLevel, &grantedBy, &grantedAt, &expiresAt); err != nil {
+			logrus.WithError(err).Warn("Failed to scan bucket permission")
+			continue
+		}
+
+		// Send permission to target node
+		if err := m.sendBucketPermission(ctx, proxyClient, targetNode.Endpoint, localNodeID, nodeToken,
+			id, bucketName, userID, tenantIDVal, permissionLevel, grantedBy, grantedAt.Int64, expiresAt); err != nil {
+			logrus.WithError(err).WithField("permission_id", id).Error("Failed to send bucket permission")
+			continue
+		}
+
+		permissionCount++
+	}
+
+	if err = rows.Err(); err != nil {
+		return fmt.Errorf("error iterating bucket permissions: %w", err)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"migration_id":       job.ID,
+		"permissions_count": permissionCount,
+	}).Info("Bucket permissions migration completed")
+
+	return nil
+}
+
+// sendBucketPermission sends a bucket permission to the target node
+func (m *Manager) sendBucketPermission(ctx context.Context, proxyClient *ProxyClient, targetEndpoint, localNodeID, nodeToken string,
+	id, bucketName, userID, tenantID, permissionLevel, grantedBy string, grantedAt int64, expiresAt sql.NullInt64) error {
+
+	// Build URL for internal cluster API
+	url := fmt.Sprintf("%s/api/internal/cluster/bucket-permissions", targetEndpoint)
+
+	// Create permission data
+	permissionData := map[string]interface{}{
+		"id":               id,
+		"bucket_name":      bucketName,
+		"user_id":          userID,
+		"tenant_id":        tenantID,
+		"permission_level": permissionLevel,
+		"granted_by":       grantedBy,
+		"granted_at":       grantedAt,
+	}
+
+	if expiresAt.Valid {
+		permissionData["expires_at"] = expiresAt.Int64
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.Marshal(permissionData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal permission data: %w", err)
+	}
+
+	// Create authenticated request
+	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(jsonData), localNodeID, nodeToken)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	// Execute request
+	resp, err := proxyClient.DoAuthenticatedRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to send permission: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check response
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
+// migrateBucketACLs migrates bucket ACLs to the target node
+func (m *Manager) migrateBucketACLs(ctx context.Context, tenantID string, job *MigrationJob) error {
+	// Check if ACL manager is available
+	if m.aclManager == nil {
+		logrus.Warn("ACL manager not available, skipping ACL migration")
+		return nil
+	}
+
+	// Get bucket ACL
+	bucketACL, err := m.aclManager.GetBucketACL(ctx, tenantID, job.BucketName)
+	if err != nil {
+		return fmt.Errorf("failed to get bucket ACL: %w", err)
+	}
+
+	// If it's the default ACL, no need to migrate
+	if bucketACL.CannedACL == "private" && len(bucketACL.Grants) == 0 {
+		logrus.WithField("bucket", job.BucketName).Debug("Default ACL, skipping migration")
+		return nil
+	}
+
+	// Get target node info
+	targetNode, err := m.GetNode(ctx, job.TargetNodeID)
+	if err != nil {
+		return fmt.Errorf("failed to get target node: %w", err)
+	}
+
+	// Get authentication credentials
+	localNodeID, err := m.GetLocalNodeID(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get local node ID: %w", err)
+	}
+
+	nodeToken, err := m.GetLocalNodeToken(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get node token: %w", err)
+	}
+
+	// Send ACL to target node
+	proxyClient := NewProxyClient()
+	if err := m.sendBucketACL(ctx, proxyClient, targetNode.Endpoint, localNodeID, nodeToken, tenantID, job.BucketName, bucketACL); err != nil {
+		return fmt.Errorf("failed to send bucket ACL: %w", err)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"migration_id": job.ID,
+		"bucket":       job.BucketName,
+		"canned_acl":   bucketACL.CannedACL,
+		"grants":       len(bucketACL.Grants),
+	}).Info("Bucket ACL migrated successfully")
+
+	return nil
+}
+
+// sendBucketACL sends bucket ACL to the target node
+func (m *Manager) sendBucketACL(ctx context.Context, proxyClient *ProxyClient, targetEndpoint, localNodeID, nodeToken, tenantID, bucketName string, acl interface{}) error {
+	// Build URL for internal cluster API
+	url := fmt.Sprintf("%s/api/internal/cluster/bucket-acl", targetEndpoint)
+
+	// Create ACL data
+	aclData := map[string]interface{}{
+		"tenant_id":   tenantID,
+		"bucket_name": bucketName,
+		"acl":         acl,
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.Marshal(aclData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal ACL data: %w", err)
+	}
+
+	// Create authenticated request
+	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(jsonData), localNodeID, nodeToken)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	// Execute request
+	resp, err := proxyClient.DoAuthenticatedRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to send ACL: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check response
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
+// migrateBucketConfiguration migrates bucket configuration (tags, lifecycle, versioning, etc.) to the target node
+func (m *Manager) migrateBucketConfiguration(ctx context.Context, tenantID string, job *MigrationJob) error {
+	// Get bucket metadata from database
+	query := `
+		SELECT versioning, object_lock, encryption, lifecycle, tags, cors, policy, notification
+		FROM buckets
+		WHERE name = ? AND tenant_id = ?
+	`
+
+	var versioning, objectLock, encryption, lifecycle, tags, cors, policy, notification sql.NullString
+
+	err := m.db.QueryRowContext(ctx, query, job.BucketName, tenantID).Scan(
+		&versioning, &objectLock, &encryption, &lifecycle, &tags, &cors, &policy, &notification,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			logrus.WithField("bucket", job.BucketName).Warn("Bucket not found in database")
+			return nil
+		}
+		return fmt.Errorf("failed to get bucket configuration: %w", err)
+	}
+
+	// Get target node info
+	targetNode, err := m.GetNode(ctx, job.TargetNodeID)
+	if err != nil {
+		return fmt.Errorf("failed to get target node: %w", err)
+	}
+
+	// Get authentication credentials
+	localNodeID, err := m.GetLocalNodeID(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get local node ID: %w", err)
+	}
+
+	nodeToken, err := m.GetLocalNodeToken(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get node token: %w", err)
+	}
+
+	// Send configuration to target node
+	proxyClient := NewProxyClient()
+	if err := m.sendBucketConfiguration(ctx, proxyClient, targetNode.Endpoint, localNodeID, nodeToken, tenantID, job.BucketName,
+		versioning, objectLock, encryption, lifecycle, tags, cors, policy, notification); err != nil {
+		return fmt.Errorf("failed to send bucket configuration: %w", err)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"migration_id": job.ID,
+		"bucket":       job.BucketName,
+	}).Info("Bucket configuration migrated successfully")
+
+	return nil
+}
+
+// sendBucketConfiguration sends bucket configuration to the target node
+func (m *Manager) sendBucketConfiguration(ctx context.Context, proxyClient *ProxyClient, targetEndpoint, localNodeID, nodeToken, tenantID, bucketName string,
+	versioning, objectLock, encryption, lifecycle, tags, cors, policy, notification sql.NullString) error {
+
+	// Build URL for internal cluster API
+	url := fmt.Sprintf("%s/api/internal/cluster/bucket-config", targetEndpoint)
+
+	// Create configuration data
+	configData := map[string]interface{}{
+		"tenant_id":   tenantID,
+		"bucket_name": bucketName,
+	}
+
+	if versioning.Valid {
+		configData["versioning"] = versioning.String
+	}
+	if objectLock.Valid {
+		configData["object_lock"] = objectLock.String
+	}
+	if encryption.Valid {
+		configData["encryption"] = encryption.String
+	}
+	if lifecycle.Valid {
+		configData["lifecycle"] = lifecycle.String
+	}
+	if tags.Valid {
+		configData["tags"] = tags.String
+	}
+	if cors.Valid {
+		configData["cors"] = cors.String
+	}
+	if policy.Valid {
+		configData["policy"] = policy.String
+	}
+	if notification.Valid {
+		configData["notification"] = notification.String
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.Marshal(configData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal configuration data: %w", err)
+	}
+
+	// Create authenticated request
+	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(jsonData), localNodeID, nodeToken)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	// Execute request
+	resp, err := proxyClient.DoAuthenticatedRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to send configuration: %w", err)
 	}
 	defer resp.Body.Close()
 
