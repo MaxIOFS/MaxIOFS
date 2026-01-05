@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Loading } from '@/components/ui/Loading';
@@ -14,6 +14,30 @@ import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { isGlobalAdmin } = useCurrentUser();
+
+  // Safe dark mode detection
+  const [isDarkMode, setIsDarkMode] = useState(false);
+
+  useEffect(() => {
+    const checkDarkMode = () => {
+      if (typeof document !== 'undefined') {
+        setIsDarkMode(document.documentElement.classList.contains('dark'));
+      }
+    };
+
+    checkDarkMode();
+
+    // Watch for theme changes
+    const observer = new MutationObserver(checkDarkMode);
+    if (typeof document !== 'undefined') {
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class'],
+      });
+    }
+
+    return () => observer.disconnect();
+  }, []);
 
   // Get base path from window (injected by backend based on public_console_url)
   const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
@@ -228,21 +252,21 @@ export default function Dashboard() {
                         <RechartsTooltip
                           formatter={(value: any) => formatBytes(value)}
                           contentStyle={{
-                            backgroundColor: document.documentElement.classList.contains('dark')
+                            backgroundColor: isDarkMode
                               ? 'rgba(31, 41, 55, 0.95)'
                               : 'rgba(255, 255, 255, 0.95)',
-                            border: document.documentElement.classList.contains('dark')
+                            border: isDarkMode
                               ? '1px solid rgba(75, 85, 99, 0.5)'
                               : '1px solid #e5e7eb',
                             borderRadius: '8px',
                             padding: '8px 12px',
-                            color: document.documentElement.classList.contains('dark') ? '#f9fafb' : '#1f2937'
+                            color: isDarkMode ? '#f9fafb' : '#1f2937'
                           }}
                           itemStyle={{
-                            color: document.documentElement.classList.contains('dark') ? '#f9fafb' : '#1f2937'
+                            color: isDarkMode ? '#f9fafb' : '#1f2937'
                           }}
                           labelStyle={{
-                            color: document.documentElement.classList.contains('dark') ? '#f9fafb' : '#1f2937'
+                            color: isDarkMode ? '#f9fafb' : '#1f2937'
                           }}
                         />
                       </PieChart>
@@ -287,14 +311,14 @@ export default function Dashboard() {
                   <BarChart data={topBuckets} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
                     <CartesianGrid
                       strokeDasharray="3 3"
-                      stroke={document.documentElement.classList.contains('dark') ? '#4b5563' : '#e5e7eb'}
+                      stroke={isDarkMode ? '#4b5563' : '#e5e7eb'}
                       opacity={0.3}
                     />
                     <XAxis
                       dataKey="name"
                       tick={{
                         fontSize: 12,
-                        fill: document.documentElement.classList.contains('dark') ? '#d1d5db' : '#6b7280'
+                        fill: isDarkMode ? '#d1d5db' : '#6b7280'
                       }}
                       angle={-15}
                       textAnchor="end"
@@ -303,7 +327,7 @@ export default function Dashboard() {
                     <YAxis
                       tick={{
                         fontSize: 12,
-                        fill: document.documentElement.classList.contains('dark') ? '#d1d5db' : '#6b7280'
+                        fill: isDarkMode ? '#d1d5db' : '#6b7280'
                       }}
                       tickFormatter={(value) => formatBytes(value)}
                     />
@@ -314,21 +338,21 @@ export default function Dashboard() {
                       }}
                       labelFormatter={(label) => `Bucket: ${label}`}
                       contentStyle={{
-                        backgroundColor: document.documentElement.classList.contains('dark')
+                        backgroundColor: isDarkMode
                           ? 'rgba(31, 41, 55, 0.95)'
                           : 'rgba(255, 255, 255, 0.95)',
-                        border: document.documentElement.classList.contains('dark')
+                        border: isDarkMode
                           ? '1px solid rgba(75, 85, 99, 0.5)'
                           : '1px solid #e5e7eb',
                         borderRadius: '8px',
                         padding: '8px 12px',
-                        color: document.documentElement.classList.contains('dark') ? '#f9fafb' : '#1f2937'
+                        color: isDarkMode ? '#f9fafb' : '#1f2937'
                       }}
                       itemStyle={{
-                        color: document.documentElement.classList.contains('dark') ? '#f9fafb' : '#1f2937'
+                        color: isDarkMode ? '#f9fafb' : '#1f2937'
                       }}
                       labelStyle={{
-                        color: document.documentElement.classList.contains('dark') ? '#f9fafb' : '#1f2937'
+                        color: isDarkMode ? '#f9fafb' : '#1f2937'
                       }}
                     />
                     <Bar dataKey="size" fill="url(#colorGradient)" radius={[8, 8, 0, 0]} />
