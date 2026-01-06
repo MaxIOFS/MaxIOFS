@@ -802,14 +802,26 @@ else
 	@exit 1
 endif
 
+# Build RPM for both AMD64 and ARM64
+.PHONY: rpm-all
+rpm-all: rpm rpm-arm64
+	@echo ""
+	@echo "=========================================="
+	@echo "All RPM packages created successfully!"
+	@echo "=========================================="
+	@find $(BUILD_DIR) -name "maxiofs-*.rpm" -type f -exec echo "Package: {}" \;
+	@echo ""
+	@echo "AMD64 package: maxiofs-*.x86_64.rpm"
+	@echo "ARM64 package: maxiofs-*.aarch64.rpm"
+
 # Build RPM using Docker (works on any platform)
 .PHONY: rpm-docker
 rpm-docker: build-web
-	@echo "Building RPM package using Docker..."
+	@echo "Building RPM packages (AMD64 + ARM64) using Docker..."
 	@docker build -f Dockerfile.rpm-builder -t maxiofs-rpm-builder .
-	@docker run --rm -v $(shell pwd):/workspace maxiofs-rpm-builder make rpm
+	@docker run --rm -v $(shell pwd):/workspace maxiofs-rpm-builder
 	@echo ""
-	@echo "RPM package built successfully using Docker!"
+	@echo "RPM packages built successfully using Docker!"
 
 # Install RPM package locally (for testing)
 .PHONY: rpm-install

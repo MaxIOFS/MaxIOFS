@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Metrics Test Suite Expansion
+- **System Metrics Tests** (`system_metrics_test.go`): 28 test functions
+  - CPU usage and stats (usage percentage, core counts, frequency, model)
+  - Memory usage statistics (used/total/free bytes, percentage)
+  - Disk usage statistics (used/total/free bytes, percentage)
+  - Request tracking (total requests, errors, average latency, requests/sec)
+  - Performance stats (uptime, goroutines, heap allocation, GC runs)
+  - Concurrent safety tests for request recording
+- **Collector Tests** (`collector_test.go`): 17 test functions
+  - System and runtime metrics collection
+  - Storage and S3 metrics collection
+  - Background collection with context cancellation
+  - Concurrent collection tests
+  - Collector health checks
+- **History Store Tests** (`history_test.go`): 29 test functions created
+  - SQLite-based metrics history storage
+  - Snapshot CRUD operations, aggregation, cleanup
+  - *Note*: Requires refactoring for test database isolation (not yet active)
+- **BadgerDB History Tests** (`badger_history_test.go`): 28 test functions created
+  - BadgerDB-based metrics history storage
+  - Concurrent writes, key generation, timestamp ordering
+  - *Note*: Requires refactoring for test database isolation (not yet active)
+- **Test Coverage Improvement**: 25.8% → 36.2% (+10.4 points, +40.3% improvement)
+- **Total Test Functions Written**: 102 (45 active, 57 pending DB refactoring)
+
 ### Changed
 
 #### AWS-Compatible Access Key Format

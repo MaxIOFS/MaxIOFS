@@ -5,8 +5,11 @@
 #   docker build -f Dockerfile.rpm-builder -t maxiofs-rpm-builder .
 #   docker run --rm -v $(pwd):/workspace maxiofs-rpm-builder
 #
+#   To build only AMD64: docker run --rm -v $(pwd):/workspace maxiofs-rpm-builder make rpm
+#   To build only ARM64: docker run --rm -v $(pwd):/workspace maxiofs-rpm-builder make rpm-arm64
+#
 # Or use the Makefile:
-#   make rpm-docker
+#   make rpm-docker    (builds both AMD64 and ARM64)
 
 FROM rockylinux:9
 
@@ -39,5 +42,5 @@ RUN rpmdev-setuptree
 # Set working directory
 WORKDIR /workspace
 
-# Build command
-CMD ["make", "rpm"]
+# Build command (builds both AMD64 and ARM64)
+CMD ["make", "rpm-all"]
