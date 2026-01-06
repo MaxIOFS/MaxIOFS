@@ -17,9 +17,6 @@ License:        MIT
 URL:            https://github.com/maxiofs/maxiofs
 Source0:        %{name}-%{version}.tar.gz
 
-BuildRequires:  golang >= 1.25
-BuildRequires:  nodejs >= 24
-BuildRequires:  npm
 BuildRequires:  systemd-rpm-macros
 
 Requires:       glibc
@@ -51,10 +48,10 @@ Features:
 * Pre-signed URLs for temporary access
 
 %prep
-# This section is handled by the Makefile
+%setup -q
 
 %build
-# This section is handled by the Makefile
+# Binary already compiled by Makefile - nothing to do here
 
 %install
 # Create directory structure

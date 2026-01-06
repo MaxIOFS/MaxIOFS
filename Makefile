@@ -42,6 +42,8 @@ ifeq ($(DETECTED_OS),Windows)
 else
 	VERSION?=$(DEFAULT_VERSION)
 endif
+# Clean version for RPM (remove v prefix and -beta/-alpha suffix)
+VERSION_CLEAN=$(shell echo $(VERSION) | sed 's/^v//' | sed 's/-beta$$//' | sed 's/-alpha$$//')
 COMMIT?=$(COMMIT)
 BUILD_DATE?=$(BUILD_DATE)
 LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_DATE)"
@@ -700,15 +702,15 @@ ifneq ($(DETECTED_OS),Windows)
 	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs ./cmd/maxiofs
 	
 	@echo "Creating tarball..."
-	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION)
-	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION)/ 2>/dev/null || true
-	@cp $(BUILD_DIR)/maxiofs $(BUILD_DIR)/maxiofs-$(VERSION)/build/ || mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION)/build && cp $(BUILD_DIR)/maxiofs $(BUILD_DIR)/maxiofs-$(VERSION)/build/
-	@tar -czf $(BUILD_DIR)/rpm-build/SOURCES/maxiofs-$(VERSION).tar.gz -C $(BUILD_DIR) maxiofs-$(VERSION)
-	@rm -rf $(BUILD_DIR)/maxiofs-$(VERSION)
+	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/build
+	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/ 2>/dev/null || true
+	@cp $(BUILD_DIR)/maxiofs $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/build/maxiofs
+	@tar -czf $(BUILD_DIR)/rpm-build/SOURCES/maxiofs-$(VERSION_CLEAN).tar.gz -C $(BUILD_DIR) maxiofs-$(VERSION_CLEAN)
+	@rm -rf $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)
 	
 	@echo "Building RPM package..."
 	@rpmbuild --define "_topdir $(shell pwd)/$(BUILD_DIR)/rpm-build" \
-		--define "version $(VERSION)" \
+		--define "version $(VERSION_CLEAN)" \
 		--define "_builddir $(shell pwd)/$(BUILD_DIR)" \
 		-ba rpm/maxiofs.spec
 	
@@ -762,16 +764,16 @@ ifneq ($(DETECTED_OS),Windows)
 	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-arm64 ./cmd/maxiofs
 	
 	@echo "Creating tarball..."
-	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION)-arm64
-	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION)-arm64/ 2>/dev/null || true
-	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION)-arm64/build
-	@cp $(BUILD_DIR)/maxiofs-arm64 $(BUILD_DIR)/maxiofs-$(VERSION)-arm64/build/maxiofs
-	@tar -czf $(BUILD_DIR)/rpm-build-arm64/SOURCES/maxiofs-$(VERSION).tar.gz -C $(BUILD_DIR) maxiofs-$(VERSION)-arm64
-	@rm -rf $(BUILD_DIR)/maxiofs-$(VERSION)-arm64
+	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)-arm64/build
+	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)-arm64/ 2>/dev/null || true
+	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)-arm64/build
+	@cp $(BUILD_DIR)/maxiofs-arm64 $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)-arm64/build/maxiofs
+	@tar -czf $(BUILD_DIR)/rpm-build-arm64/SOURCES/maxiofs-$(VERSION_CLEAN).tar.gz -C $(BUILD_DIR) maxiofs-$(VERSION_CLEAN)-arm64
+	@rm -rf $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)-arm64
 	
 	@echo "Building RPM package..."
 	@rpmbuild --define "_topdir $(shell pwd)/$(BUILD_DIR)/rpm-build-arm64" \
-		--define "version $(VERSION)" \
+		--define "version $(VERSION_CLEAN)" \
 		--define "_builddir $(shell pwd)/$(BUILD_DIR)" \
 		--target aarch64 \
 		-ba rpm/maxiofs.spec

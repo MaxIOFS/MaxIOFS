@@ -10,16 +10,28 @@
 
 FROM rockylinux:9
 
-# Install build dependencies
+# Install base build tools
 RUN dnf install -y \
     rpm-build \
     rpmdevtools \
+    systemd-rpm-macros \
     make \
     git \
-    golang \
-    nodejs \
-    npm \
+    wget \
+    tar \
+    which \
     && dnf clean all
+
+# Install Go 1.25+
+RUN wget https://go.dev/dl/go1.25.1.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.25.1.linux-amd64.tar.gz && \
+    rm go1.25.1.linux-amd64.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+# Install Node.js 24+
+RUN curl -fsSL https://rpm.nodesource.com/setup_24.x | bash - && \
+    dnf install -y nodejs && \
+    dnf clean all
 
 # Set up RPM build environment
 RUN rpmdev-setuptree

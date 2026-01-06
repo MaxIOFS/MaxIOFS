@@ -94,14 +94,19 @@ export default function Dashboard() {
 
   // Prepare chart data (respects tenant filtering from backend)
   const storageDistribution = useMemo(() => {
-    return buckets
-      .filter((b: any) => b.size > 0)
-      .sort((a: any, b: any) => b.size - a.size)
+    // Ensure we have buckets with valid sizes
+    const validBuckets = buckets.filter((b: any) => (b.size || 0) > 0);
+    if (validBuckets.length === 0 || totalSize === 0) {
+      return [];
+    }
+
+    return validBuckets
+      .sort((a: any, b: any) => (b.size || 0) - (a.size || 0))
       .slice(0, 5)
       .map((bucket: any) => ({
         name: bucket.name,
-        value: bucket.size,
-        percentage: ((bucket.size / totalSize) * 100).toFixed(1),
+        value: bucket.size || 0,
+        percentage: totalSize > 0 ? ((bucket.size / totalSize) * 100).toFixed(1) : '0',
       }));
   }, [buckets, totalSize]);
 
@@ -216,159 +221,174 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Charts and Analytics - Only show if there's data */}
-      {(storageDistribution.length > 0 || topBuckets.length > 0) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Storage Distribution Pie Chart */}
-          {storageDistribution.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                    <BarChart3 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                  </div>
-                  Storage Distribution
-                </CardTitle>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Top 5 buckets by size</p>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-                  <div className="w-full md:w-1/2">
-                    <ResponsiveContainer width="100%" height={200}>
-                      <PieChart>
-                        <Pie
-                          data={storageDistribution}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={60}
-                          outerRadius={80}
-                          paddingAngle={5}
-                          dataKey="value"
-                        >
-                          {storageDistribution.map((entry: any, index: number) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <RechartsTooltip
-                          formatter={(value: any) => formatBytes(value)}
-                          contentStyle={{
-                            backgroundColor: isDarkMode
-                              ? 'rgba(31, 41, 55, 0.95)'
-                              : 'rgba(255, 255, 255, 0.95)',
-                            border: isDarkMode
-                              ? '1px solid rgba(75, 85, 99, 0.5)'
-                              : '1px solid #e5e7eb',
-                            borderRadius: '8px',
-                            padding: '8px 12px',
-                            color: isDarkMode ? '#f9fafb' : '#1f2937'
-                          }}
-                          itemStyle={{
-                            color: isDarkMode ? '#f9fafb' : '#1f2937'
-                          }}
-                          labelStyle={{
-                            color: isDarkMode ? '#f9fafb' : '#1f2937'
-                          }}
-                        />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="w-full md:w-1/2 space-y-2">
-                    {storageDistribution.map((item: any, index: number) => (
-                      <div key={index} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                        <div className="flex items-center gap-2 flex-1 min-w-0">
-                          <div
-                            className="w-3 h-3 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                          />
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">{item.name}</span>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-semibold text-gray-900 dark:text-white">{formatBytes(item.value)}</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">{item.percentage}%</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+      {/* Charts and Analytics */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Storage Distribution Pie Chart */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                <BarChart3 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              </div>
+              Storage Distribution
+            </CardTitle>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Top 5 buckets by size</p>
+          </CardHeader>
+          <CardContent>
+            {storageDistribution.length > 0 ? (
+              <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                <div className="w-full md:w-1/2 min-h-[200px]">
+                  <ResponsiveContainer width="100%" height={200} minWidth={200}>
+                    <PieChart>
+                      <Pie
+                        data={storageDistribution}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                        label={false}
+                      >
+                        {storageDistribution.map((entry: any, index: number) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip
+                        formatter={(value: any) => formatBytes(value)}
+                        contentStyle={{
+                          backgroundColor: isDarkMode
+                            ? 'rgba(31, 41, 55, 0.95)'
+                            : 'rgba(255, 255, 255, 0.95)',
+                          border: isDarkMode
+                            ? '1px solid rgba(75, 85, 99, 0.5)'
+                            : '1px solid #e5e7eb',
+                          borderRadius: '8px',
+                          padding: '8px 12px',
+                          color: isDarkMode ? '#f9fafb' : '#1f2937'
+                        }}
+                        itemStyle={{
+                          color: isDarkMode ? '#f9fafb' : '#1f2937'
+                        }}
+                        labelStyle={{
+                          color: isDarkMode ? '#f9fafb' : '#1f2937'
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
-              </CardContent>
-            </Card>
-          )}
+                <div className="w-full md:w-1/2 space-y-2">
+                  {storageDistribution.map((item: any, index: number) => (
+                    <div key={index} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <div
+                          className="w-3 h-3 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                        />
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">{item.name}</span>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-gray-900 dark:text-white">{formatBytes(item.value)}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{item.percentage}%</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 mb-4 shadow-inner">
+                  <BarChart3 className="h-10 w-10 text-gray-400 dark:text-gray-500" />
+                </div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">No storage data yet</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Upload files to buckets to see distribution</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-          {/* Top Buckets Bar Chart */}
-          {topBuckets.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-lg">
-                    <Database className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
-                  </div>
-                  Top Buckets
-                </CardTitle>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Largest buckets by storage</p>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={topBuckets} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke={isDarkMode ? '#4b5563' : '#e5e7eb'}
-                      opacity={0.3}
-                    />
-                    <XAxis
-                      dataKey="name"
-                      tick={{
-                        fontSize: 12,
-                        fill: isDarkMode ? '#d1d5db' : '#6b7280'
-                      }}
-                      angle={-15}
-                      textAnchor="end"
-                      height={60}
-                    />
-                    <YAxis
-                      tick={{
-                        fontSize: 12,
-                        fill: isDarkMode ? '#d1d5db' : '#6b7280'
-                      }}
-                      tickFormatter={(value) => formatBytes(value)}
-                    />
-                    <RechartsTooltip
-                      formatter={(value: any, name: string) => {
-                        if (name === 'size') return formatBytes(value);
-                        return value.toLocaleString();
-                      }}
-                      labelFormatter={(label) => `Bucket: ${label}`}
-                      contentStyle={{
-                        backgroundColor: isDarkMode
-                          ? 'rgba(31, 41, 55, 0.95)'
-                          : 'rgba(255, 255, 255, 0.95)',
-                        border: isDarkMode
-                          ? '1px solid rgba(75, 85, 99, 0.5)'
-                          : '1px solid #e5e7eb',
-                        borderRadius: '8px',
-                        padding: '8px 12px',
-                        color: isDarkMode ? '#f9fafb' : '#1f2937'
-                      }}
-                      itemStyle={{
-                        color: isDarkMode ? '#f9fafb' : '#1f2937'
-                      }}
-                      labelStyle={{
-                        color: isDarkMode ? '#f9fafb' : '#1f2937'
-                      }}
-                    />
-                    <Bar dataKey="size" fill="url(#colorGradient)" radius={[8, 8, 0, 0]} />
-                    <defs>
-                      <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#06B6D4" stopOpacity={0.9}/>
-                        <stop offset="100%" stopColor="#0891B2" stopOpacity={0.7}/>
-                      </linearGradient>
-                    </defs>
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
+        {/* Top Buckets Bar Chart */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-lg">
+                <Database className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+              </div>
+              Top Buckets
+            </CardTitle>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Largest buckets by storage</p>
+          </CardHeader>
+          <CardContent>
+            {topBuckets.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={topBuckets} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke={isDarkMode ? '#4b5563' : '#e5e7eb'}
+                    opacity={0.3}
+                  />
+                  <XAxis
+                    dataKey="name"
+                    tick={{
+                      fontSize: 12,
+                      fill: isDarkMode ? '#d1d5db' : '#6b7280'
+                    }}
+                    angle={-15}
+                    textAnchor="end"
+                    height={60}
+                  />
+                  <YAxis
+                    tick={{
+                      fontSize: 12,
+                      fill: isDarkMode ? '#d1d5db' : '#6b7280'
+                    }}
+                    tickFormatter={(value) => formatBytes(value)}
+                  />
+                  <RechartsTooltip
+                    formatter={(value: any, name: string) => {
+                      if (name === 'size') return formatBytes(value);
+                      return value.toLocaleString();
+                    }}
+                    labelFormatter={(label) => `Bucket: ${label}`}
+                    contentStyle={{
+                      backgroundColor: isDarkMode
+                        ? 'rgba(31, 41, 55, 0.95)'
+                        : 'rgba(255, 255, 255, 0.95)',
+                      border: isDarkMode
+                        ? '1px solid rgba(75, 85, 99, 0.5)'
+                        : '1px solid #e5e7eb',
+                      borderRadius: '8px',
+                      padding: '8px 12px',
+                      color: isDarkMode ? '#f9fafb' : '#1f2937'
+                    }}
+                    itemStyle={{
+                      color: isDarkMode ? '#f9fafb' : '#1f2937'
+                    }}
+                    labelStyle={{
+                      color: isDarkMode ? '#f9fafb' : '#1f2937'
+                    }}
+                  />
+                  <Bar dataKey="size" fill="url(#colorGradient)" radius={[8, 8, 0, 0]} />
+                  <defs>
+                    <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#06B6D4" stopOpacity={0.9}/>
+                      <stop offset="100%" stopColor="#0891B2" stopOpacity={0.7}/>
+                    </linearGradient>
+                  </defs>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="text-center py-12">
+                <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 mb-4 shadow-inner">
+                  <Database className="h-10 w-10 text-gray-400 dark:text-gray-500" />
+                </div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">No buckets yet</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Create your first bucket to get started</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Quick Actions and Recent Buckets */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
