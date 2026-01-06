@@ -734,13 +734,13 @@ func (am *authManager) GenerateAccessKey(ctx context.Context, userID string) (*A
 		return nil, ErrUserNotFound
 	}
 
-	// Generate new access key pair
-	accessKeyID, err := am.generateRandomString(20)
+	// Generate new access key pair (AWS-compatible format)
+	accessKeyID, err := am.generateAccessKeyID()
 	if err != nil {
 		return nil, err
 	}
 
-	secretAccessKey, err := am.generateRandomString(40)
+	secretAccessKey, err := am.generateSecretAccessKey()
 	if err != nil {
 		return nil, err
 	}
@@ -983,6 +983,40 @@ func (am *authManager) generateRandomString(length int) (string, error) {
 		return "", err
 	}
 	return base64.URLEncoding.EncodeToString(bytes)[:length], nil
+}
+
+// generateAccessKeyID generates an AWS-compatible access key ID
+// Format: AKIA + 16 random uppercase alphanumeric characters (total 20 chars)
+func (am *authManager) generateAccessKeyID() (string, error) {
+	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	const randomLength = 16
+
+	bytes := make([]byte, randomLength)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+
+	// Convert random bytes to uppercase alphanumeric characters
+	result := make([]byte, randomLength)
+	for i := 0; i < randomLength; i++ {
+		result[i] = charset[int(bytes[i])%len(charset)]
+	}
+
+	// AWS access keys start with AKIA (AWS Key ID Access)
+	return "AKIA" + string(result), nil
+}
+
+// generateSecretAccessKey generates an AWS-compatible secret access key
+// Format: 40 characters using base64 encoding (alphanumeric + / and +)
+func (am *authManager) generateSecretAccessKey() (string, error) {
+	// Generate 30 random bytes which will produce 40 base64 characters
+	bytes := make([]byte, 30)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+
+	// Use standard base64 encoding (compatible with AWS format)
+	return base64.StdEncoding.EncodeToString(bytes), nil
 }
 
 // parseBasicToken parses a basic JWT-like token (MVP implementation)

@@ -166,6 +166,10 @@
   - Added explicit prefix note in documentation
   - Updated base URL examples and curl commands
   - Added API Root section with endpoint discovery
+- ✅ AWS-Compatible Access Key Format
+  - Access Key ID: AKIA + 16 uppercase alphanumeric (AWS standard format)
+  - Secret Access Key: 40-character base64 encoding (AWS standard format)
+  - Backward compatible with existing access keys
 
 ### v0.6.1-beta
 - ✅ Build Requirements Update (Node.js 24+, Go 1.25+)

@@ -33,7 +33,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 export default function TenantsPage() {
   const navigate = useNavigate();
-  const { isGlobalAdmin, user: currentUser } = useCurrentUser();
+  const { isGlobalAdmin, isTenantAdmin, user: currentUser } = useCurrentUser();
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -45,18 +45,18 @@ export default function TenantsPage() {
   });
   const queryClient = useQueryClient();
 
-  // Only global admins can access tenant management
+  // Allow global admins and tenant admins to access tenant information
   useEffect(() => {
-    if (currentUser && !isGlobalAdmin) {
-      // Redirect non-global-admins to home
+    if (currentUser && !isGlobalAdmin && !isTenantAdmin) {
+      // Redirect users without admin privileges to home
       navigate('/');
     }
-  }, [currentUser, isGlobalAdmin, navigate]);
+  }, [currentUser, isGlobalAdmin, isTenantAdmin, navigate]);
 
   const { data: tenants, isLoading, error } = useQuery({
     queryKey: ['tenants'],
     queryFn: APIClient.getTenants,
-    enabled: isGlobalAdmin, // Only fetch if user is global admin
+    enabled: isGlobalAdmin || isTenantAdmin, // Fetch for global admins and tenant admins
   });
 
   const createTenantMutation = useMutation({
@@ -126,10 +126,18 @@ export default function TenantsPage() {
   });
 
   const filteredTenants = Array.isArray(tenants)
-    ? tenants.filter((tenant: Tenant) =>
-        tenant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        tenant.displayName?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
+    ? tenants
+        .filter((tenant: Tenant) => {
+          // If tenant admin, only show their own tenant
+          if (isTenantAdmin && currentUser?.tenantId) {
+            return tenant.id === currentUser.tenantId;
+          }
+          return true;
+        })
+        .filter((tenant: Tenant) =>
+          tenant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          tenant.displayName?.toLowerCase().includes(searchTerm.toLowerCase())
+        )
     : [];
 
   const handleCreateTenant = (e: React.FormEvent) => {
@@ -179,8 +187,12 @@ export default function TenantsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Tenants</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Manage organizational tenants and quotas</p>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            {isTenantAdmin ? 'Tenant Information' : 'Tenants'}
+          </h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">
+            {isTenantAdmin ? 'View your tenant quotas and usage' : 'Manage organizational tenants and quotas'}
+          </p>
         </div>
         {isGlobalAdmin && (
           <Button onClick={() => setIsCreateModalOpen(true)} className="bg-brand-600 hover:bg-brand-700 text-white inline-flex items-center gap-2" variant="outline">
@@ -225,24 +237,30 @@ export default function TenantsPage() {
         />
       </div>
 
-      {/* Search */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-5 h-5" />
-          <Input
-            placeholder="Search tenants..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
-          />
+      {/* Search - Only show for global admins with multiple tenants */}
+      {isGlobalAdmin && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-5 h-5" />
+            <Input
+              placeholder="Search tenants..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Tenants Table */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">All Tenants ({filteredTenants.length})</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Manage tenant quotas and configurations</p>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            {isTenantAdmin ? 'Your Tenant Details' : `All Tenants (${filteredTenants.length})`}
+          </h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {isTenantAdmin ? 'View your quotas and current usage' : 'Manage tenant quotas and configurations'}
+          </p>
         </div>
         <div className="overflow-x-auto">
           <Table>
@@ -254,13 +272,13 @@ export default function TenantsPage() {
                 <TableHead>Buckets</TableHead>
                 <TableHead>Access Keys</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                {isGlobalAdmin && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredTenants.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-64">
+                  <TableCell colSpan={isGlobalAdmin ? 7 : 6} className="h-64">
                     <EmptyState
                       icon={Building2}
                       title="No tenants found"
@@ -353,8 +371,8 @@ export default function TenantsPage() {
                       {new Date(tenant.createdAt * 1000).toLocaleDateString()}
                     </div>
                   </TableCell>
-                  <TableCell className="text-right">
-                    {isGlobalAdmin && (
+                  {isGlobalAdmin && (
+                    <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Button
                           variant="ghost"
@@ -374,8 +392,8 @@ export default function TenantsPage() {
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
-                    )}
-                  </TableCell>
+                    </TableCell>
+                  )}
                 </TableRow>
                 ))
               )}

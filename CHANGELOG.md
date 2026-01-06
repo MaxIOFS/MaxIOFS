@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+#### AWS-Compatible Access Key Format
+- **Access Key ID Format**: Now generates AWS-compatible format (AKIA + 16 uppercase alphanumeric characters, total 20 chars)
+- **Secret Access Key Format**: Now generates 40-character base64-encoded secrets (standard AWS format)
+- **Functions Added**:
+  - `generateAccessKeyID()` - Generates AKIA-prefixed uppercase access key IDs
+  - `generateSecretAccessKey()` - Generates 40-char standard base64 secret keys
+- **Backward Compatibility**: Existing access keys continue to work, only new keys use the new format
+- **Location**: `internal/auth/manager.go`
+
 ### Added - Bucket Inventory Feature (Complete)
 
 #### Automated Bucket Inventory Reports
