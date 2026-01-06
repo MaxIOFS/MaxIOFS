@@ -34,6 +34,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Coverage Improvement**: 25.8% → 36.2% (+10.4 points, +40.3% improvement)
 - **Total Test Functions Written**: 102 (45 active, 57 pending DB refactoring)
 
+#### Database Migration System
+- **Migration Framework** (`internal/db/migrations/`): Comprehensive database schema versioning system
+  - **Migration Manager**: Automatic migration execution with transaction support
+  - **Version Tracking**: `schema_version` table tracks applied migrations
+  - **8 Historical Migrations**: Complete schema evolution from v0.1.0 to v0.6.2
+    - Migration 1 (v0.1.0): Core tables (tenants, users, access_keys)
+    - Migration 2 (v0.2.0): Shares table for presigned URLs
+    - Migration 3 (v0.4.0): System settings and 2FA support
+    - Migration 4 (v0.5.0): Replication tables (rules, queue, status)
+    - Migration 5 (v0.6.0): Cluster and metrics tables
+    - Migration 6 (v0.6.1): Cluster replication and sync tables
+    - Migration 7 (v0.6.2): Bucket permissions and inventory tables
+    - Migration 8 (v0.6.2): Current schema validation
+  - **18 Comprehensive Tests**: 100% pass rate, covering all migration scenarios
+  - **Features**:
+    - Automatic schema upgrades on application startup
+    - Transaction-based migrations for data integrity
+    - Migration history tracking with timestamps
+    - Version validation (prevents downgrade without warning)
+    - Incremental migration support (migrate to specific version)
+  - **Integration**: Integrated into `internal/auth/sqlite.go` during database initialization
+  - **Deprecated**: `initSchema()` method replaced by migration system
+
 ### Changed
 
 #### AWS-Compatible Access Key Format

@@ -685,7 +685,11 @@ deb-clean:
 # The actual config.yaml is created by the %post script ONLY if it doesn't exist.
 # This preserves the encryption key when upgrading packages.
 .PHONY: rpm
-rpm: build-web
+rpm: build-web rpm-binary
+
+# Internal target for RPM AMD64 build (without build-web prerequisite)
+.PHONY: rpm-binary
+rpm-binary:
 	@echo "Building RPM package for AMD64..."
 ifneq ($(DETECTED_OS),Windows)
 	@echo "Checking for required tools..."
@@ -747,7 +751,11 @@ endif
 
 # RPM package build for ARM64
 .PHONY: rpm-arm64
-rpm-arm64: build-web
+rpm-arm64: build-web rpm-arm64-binary
+
+# Internal target for RPM ARM64 build (without build-web prerequisite)
+.PHONY: rpm-arm64-binary
+rpm-arm64-binary:
 	@echo "Building RPM package for ARM64..."
 ifneq ($(DETECTED_OS),Windows)
 	@echo "Checking for required tools..."
@@ -764,23 +772,21 @@ ifneq ($(DETECTED_OS),Windows)
 	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-arm64 ./cmd/maxiofs
 	
 	@echo "Creating tarball..."
-	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)-arm64/build
-	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)-arm64/ 2>/dev/null || true
-	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)-arm64/build
-	@cp $(BUILD_DIR)/maxiofs-arm64 $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)-arm64/build/maxiofs
-	@tar -czf $(BUILD_DIR)/rpm-build-arm64/SOURCES/maxiofs-$(VERSION_CLEAN).tar.gz -C $(BUILD_DIR) maxiofs-$(VERSION_CLEAN)-arm64
-	@rm -rf $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)-arm64
+	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/build
+	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/ 2>/dev/null || true
+	@cp $(BUILD_DIR)/maxiofs-arm64 $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/build/maxiofs
+	@tar -czf $(BUILD_DIR)/rpm-build-arm64/SOURCES/maxiofs-$(VERSION_CLEAN).tar.gz -C $(BUILD_DIR) maxiofs-$(VERSION_CLEAN)
+	@rm -rf $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)
 	
 	@echo "Building RPM package..."
 	@rpmbuild --define "_topdir $(shell pwd)/$(BUILD_DIR)/rpm-build-arm64" \
 		--define "version $(VERSION_CLEAN)" \
 		--define "_builddir $(shell pwd)/$(BUILD_DIR)" \
 		--target aarch64 \
-		-ba rpm/maxiofs.spec
+		-bb rpm/maxiofs.spec
 	
 	@echo "Moving RPM to build directory..."
 	@mv $(BUILD_DIR)/rpm-build-arm64/RPMS/aarch64/maxiofs-*.rpm $(BUILD_DIR)/ 2>/dev/null || true
-	@mv $(BUILD_DIR)/rpm-build-arm64/SRPMS/maxiofs-*.src.rpm $(BUILD_DIR)/maxiofs-$(VERSION)-arm64.src.rpm 2>/dev/null || true
 	
 	@echo ""
 	@echo "=========================================="
@@ -804,7 +810,9 @@ endif
 
 # Build RPM for both AMD64 and ARM64
 .PHONY: rpm-all
-rpm-all: rpm rpm-arm64
+rpm-all: build-web
+	@$(MAKE) rpm-binary
+	@$(MAKE) rpm-arm64-binary
 	@echo ""
 	@echo "=========================================="
 	@echo "All RPM packages created successfully!"
@@ -813,6 +821,10 @@ rpm-all: rpm rpm-arm64
 	@echo ""
 	@echo "AMD64 package: maxiofs-*.x86_64.rpm"
 	@echo "ARM64 package: maxiofs-*.aarch64.rpm"
+
+# Internal target for RPM AMD64 build (without build-web prerequisite)
+.PHONY: rpm-binary
+rpm-binary:
 
 # Build RPM using Docker (works on any platform)
 .PHONY: rpm-docker

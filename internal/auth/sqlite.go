@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/db/migrations"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
@@ -33,10 +34,11 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 
 	store := &SQLiteStore{db: db}
 
-	// Initialize schema
-	if err := store.initSchema(); err != nil {
+	// Run database migrations
+	migrationManager := migrations.NewMigrationManager(db, logrus.StandardLogger())
+	if err := migrationManager.Migrate(); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("failed to initialize schema: %w", err)
+		return nil, fmt.Errorf("failed to run database migrations: %w", err)
 	}
 
 	logrus.WithField("db_path", dbPath).Info("SQLite auth store initialized")
@@ -44,6 +46,8 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 }
 
 // initSchema creates the database schema
+// DEPRECATED: This method is no longer used. Database schema is now managed by the migration system.
+// See internal/db/migrations for the migration-based approach.
 func (s *SQLiteStore) initSchema() error {
 	schema := `
 	-- Tenants table
