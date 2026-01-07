@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -47,7 +48,14 @@ func NewHistoryStore(dataDir string, retentionDays int) (*HistoryStore, error) {
 
 	// Create metrics database
 	dbPath := filepath.Join(dataDir, "db", "maxiofs.db")
-	db, err := sql.Open("sqlite", dbPath)
+
+	// Ensure the db directory exists
+	dbDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create db directory: %w", err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open metrics database: %w", err)
 	}
@@ -437,21 +445,41 @@ func (h *HistoryStore) GetStats() (map[string]interface{}, error) {
 	}
 	stats["aggregate_count"] = aggregateCount
 
-	// Get oldest snapshot
-	var oldestSnapshot time.Time
-	err = h.db.QueryRow("SELECT MIN(timestamp) FROM metric_snapshots").Scan(&oldestSnapshot)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, err
-	}
-	stats["oldest_snapshot"] = oldestSnapshot
+	// Get oldest and newest snapshot timestamps
+	// Only query if we have snapshots
+	if snapshotCount > 0 {
+		var oldestStr sql.NullString
+		var newestStr sql.NullString
 
-	// Get newest snapshot
-	var newestSnapshot time.Time
-	err = h.db.QueryRow("SELECT MAX(timestamp) FROM metric_snapshots").Scan(&newestSnapshot)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, err
+		err = h.db.QueryRow("SELECT MIN(timestamp) FROM metric_snapshots").Scan(&oldestStr)
+		if err == nil && oldestStr.Valid {
+			if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", oldestStr.String); err == nil {
+				stats["oldest_snapshot"] = t
+			} else if t, err := time.Parse(time.RFC3339, oldestStr.String); err == nil {
+				stats["oldest_snapshot"] = t
+			} else {
+				stats["oldest_snapshot"] = nil
+			}
+		} else {
+			stats["oldest_snapshot"] = nil
+		}
+
+		err = h.db.QueryRow("SELECT MAX(timestamp) FROM metric_snapshots").Scan(&newestStr)
+		if err == nil && newestStr.Valid {
+			if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", newestStr.String); err == nil {
+				stats["newest_snapshot"] = t
+			} else if t, err := time.Parse(time.RFC3339, newestStr.String); err == nil {
+				stats["newest_snapshot"] = t
+			} else {
+				stats["newest_snapshot"] = nil
+			}
+		} else {
+			stats["newest_snapshot"] = nil
+		}
+	} else {
+		stats["oldest_snapshot"] = nil
+		stats["newest_snapshot"] = nil
 	}
-	stats["newest_snapshot"] = newestSnapshot
 
 	return stats, nil
 }
