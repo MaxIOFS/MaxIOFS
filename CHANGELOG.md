@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Docker-based build using Rocky Linux 9 for RHEL/CentOS/Fedora compatibility
   - Automatic upload of RPM packages to S3 alongside Debian packages and binaries
   - Build summary includes all package types (.deb, .rpm, binaries)
+- **Makefile RPM Build**: Enhanced version handling and debugging
+  - Fixed `VERSION_CLEAN` to handle nightly builds (`-nightly-*` suffix removal)
+  - Added verbose output for tarball creation to aid troubleshooting
+  - Improved error visibility in RPM packaging process
 
 #### Metrics Test Suite Expansion
 - **System Metrics Tests** (`system_metrics_test.go`): 28 test functions

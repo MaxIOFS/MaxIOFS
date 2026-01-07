@@ -42,8 +42,8 @@ ifeq ($(DETECTED_OS),Windows)
 else
 	VERSION?=$(DEFAULT_VERSION)
 endif
-# Clean version for RPM (remove v prefix and -beta/-alpha suffix)
-VERSION_CLEAN=$(shell echo $(VERSION) | sed 's/^v//' | sed 's/-beta$$//' | sed 's/-alpha$$//')
+# Clean version for RPM (remove v prefix and -beta/-alpha/-nightly suffix)
+VERSION_CLEAN=$(shell echo $(VERSION) | sed 's/^v//' | sed 's/-beta$$//' | sed 's/-alpha$$//' | sed 's/-nightly-.*//')
 COMMIT?=$(COMMIT)
 BUILD_DATE?=$(BUILD_DATE)
 LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_DATE)"
@@ -706,10 +706,16 @@ ifneq ($(DETECTED_OS),Windows)
 	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs ./cmd/maxiofs
 	
 	@echo "Creating tarball..."
+	@echo "VERSION=$(VERSION), VERSION_CLEAN=$(VERSION_CLEAN)"
 	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/build
+	@echo "Copying source files to $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/"
 	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/ 2>/dev/null || true
 	@cp $(BUILD_DIR)/maxiofs $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/build/maxiofs
-	@tar -czf $(BUILD_DIR)/rpm-build/SOURCES/maxiofs-$(VERSION_CLEAN).tar.gz -C $(BUILD_DIR) maxiofs-$(VERSION_CLEAN)
+	@echo "Creating tarball: $(BUILD_DIR)/rpm-build/SOURCES/maxiofs-$(VERSION_CLEAN).tar.gz"
+	@ls -la $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN) || echo "Directory listing failed"
+	tar -czf $(BUILD_DIR)/rpm-build/SOURCES/maxiofs-$(VERSION_CLEAN).tar.gz -C $(BUILD_DIR) maxiofs-$(VERSION_CLEAN)
+	@echo "Tarball created successfully"
+	@ls -lh $(BUILD_DIR)/rpm-build/SOURCES/maxiofs-$(VERSION_CLEAN).tar.gz || echo "Tarball not found!"
 	@rm -rf $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)
 	
 	@echo "Building RPM package..."
@@ -720,7 +726,6 @@ ifneq ($(DETECTED_OS),Windows)
 	
 	@echo "Moving RPM to build directory..."
 	@mv $(BUILD_DIR)/rpm-build/RPMS/x86_64/maxiofs-*.rpm $(BUILD_DIR)/ 2>/dev/null || true
-	@mv $(BUILD_DIR)/rpm-build/SRPMS/maxiofs-*.src.rpm $(BUILD_DIR)/ 2>/dev/null || true
 	
 	@echo ""
 	@echo "=========================================="
@@ -770,12 +775,18 @@ ifneq ($(DETECTED_OS),Windows)
 	
 	@echo "Building Linux ARM64 binary..."
 	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-arm64 ./cmd/maxiofs
-	
+
 	@echo "Creating tarball..."
+	@echo "VERSION=$(VERSION), VERSION_CLEAN=$(VERSION_CLEAN)"
 	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/build
+	@echo "Copying source files to $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/"
 	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/ 2>/dev/null || true
 	@cp $(BUILD_DIR)/maxiofs-arm64 $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/build/maxiofs
-	@tar -czf $(BUILD_DIR)/rpm-build-arm64/SOURCES/maxiofs-$(VERSION_CLEAN).tar.gz -C $(BUILD_DIR) maxiofs-$(VERSION_CLEAN)
+	@echo "Creating tarball: $(BUILD_DIR)/rpm-build-arm64/SOURCES/maxiofs-$(VERSION_CLEAN).tar.gz"
+	@ls -la $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN) || echo "Directory listing failed"
+	tar -czf $(BUILD_DIR)/rpm-build-arm64/SOURCES/maxiofs-$(VERSION_CLEAN).tar.gz -C $(BUILD_DIR) maxiofs-$(VERSION_CLEAN)
+	@echo "Tarball created successfully"
+	@ls -lh $(BUILD_DIR)/rpm-build-arm64/SOURCES/maxiofs-$(VERSION_CLEAN).tar.gz || echo "Tarball not found!"
 	@rm -rf $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)
 	
 	@echo "Building RPM package..."
