@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### CI/CD Improvements
+- **Nightly Build Pipeline**: Added RPM package generation to automated builds
+  - Automated RPM package creation for AMD64 (x86_64) and ARM64 (aarch64)
+  - Docker-based build using Rocky Linux 9 for RHEL/CentOS/Fedora compatibility
+  - Automatic upload of RPM packages to S3 alongside Debian packages and binaries
+  - Build summary includes all package types (.deb, .rpm, binaries)
+
 #### Metrics Test Suite Expansion
 - **System Metrics Tests** (`system_metrics_test.go`): 28 test functions
   - CPU usage and stats (usage percentage, core counts, frequency, model)

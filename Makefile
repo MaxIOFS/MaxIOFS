@@ -716,7 +716,7 @@ ifneq ($(DETECTED_OS),Windows)
 	@rpmbuild --define "_topdir $(shell pwd)/$(BUILD_DIR)/rpm-build" \
 		--define "version $(VERSION_CLEAN)" \
 		--define "_builddir $(shell pwd)/$(BUILD_DIR)" \
-		-ba rpm/maxiofs.spec
+		-bb rpm/maxiofs.spec
 	
 	@echo "Moving RPM to build directory..."
 	@mv $(BUILD_DIR)/rpm-build/RPMS/x86_64/maxiofs-*.rpm $(BUILD_DIR)/ 2>/dev/null || true

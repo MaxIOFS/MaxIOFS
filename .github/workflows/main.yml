@@ -139,12 +139,37 @@ jobs:
           VERSION=${{ steps.nightly_version.outputs.version }} make deb
           VERSION=${{ steps.nightly_version.outputs.version }} make deb-arm64
 
+      - name: Build RPM builder Docker image
+        run: |
+          echo "Building Docker image for RPM packaging..."
+          docker build -f Dockerfile.rpm-builder -t maxiofs-rpm-builder .
+          echo "Docker image built successfully"
+
+      - name: Build .rpm packages
+        run: |
+          echo "Building RPM packages (AMD64 + ARM64) using Docker..."
+          docker run --rm \
+            -v $(pwd):/workspace \
+            -e VERSION=${{ steps.nightly_version.outputs.version }} \
+            maxiofs-rpm-builder
+          echo "RPM packages built successfully"
+          ls -lah build/*.rpm || echo "Warning: No RPM files found"
+
       - name: Prepare artifacts
         run: |
           mkdir -p nightly-artifacts
-          rm -rf build/debian-package build/debian-package-arm64
+          rm -rf build/debian-package build/debian-package-arm64 build/rpm-build build/rpm-build-arm64 build/rpm-package build/rpm-package-arm64
           cp -r build/* nightly-artifacts/
           echo "Artifacts prepared with version ${{ steps.nightly_version.outputs.version }}"
+          echo ""
+          echo "📦 Binary packages:"
+          ls -lah nightly-artifacts/*.deb 2>/dev/null || echo "  No .deb files found"
+          ls -lah nightly-artifacts/*.rpm 2>/dev/null || echo "  No .rpm files found"
+          echo ""
+          echo "🗜️ Binary archives:"
+          ls -lah nightly-artifacts/*.tar.gz nightly-artifacts/*.zip 2>/dev/null || echo "  No archives found"
+          echo ""
+          echo "📁 All artifacts:"
           ls -lah nightly-artifacts/
 
       - name: Save current commit hash
@@ -165,6 +190,7 @@ jobs:
           echo "### 📦 Artifacts Published" >> $GITHUB_STEP_SUMMARY
           echo "- Backend binaries (linux-amd64, linux-arm64, darwin-amd64, darwin-arm64, windows-amd64)" >> $GITHUB_STEP_SUMMARY
           echo "- Debian packages (.deb for amd64 and arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "- RPM packages (.rpm for x86_64 and aarch64)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📍 S3 Location: \`s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest/\`" >> $GITHUB_STEP_SUMMARY
 
