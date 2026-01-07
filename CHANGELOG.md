@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed `VERSION_CLEAN` to handle nightly builds (`-nightly-*` suffix removal)
   - Added verbose output for tarball creation to aid troubleshooting
   - Improved error visibility in RPM packaging process
+- **GitHub Actions Workflow**: Fixed file permission issues
+  - Added `sudo rm` for Docker-created temporary directories (owned by root)
+  - Ensures clean artifact preparation without permission errors
 
 #### Metrics Test Suite Expansion
 - **System Metrics Tests** (`system_metrics_test.go`): 28 test functions

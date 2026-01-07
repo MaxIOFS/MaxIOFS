@@ -158,7 +158,11 @@ jobs:
       - name: Prepare artifacts
         run: |
           mkdir -p nightly-artifacts
-          rm -rf build/debian-package build/debian-package-arm64 build/rpm-build build/rpm-build-arm64 build/rpm-package build/rpm-package-arm64
+          # Remove temporary build directories (created by Docker as root, need sudo)
+          sudo rm -rf build/debian-package build/debian-package-arm64
+          sudo rm -rf build/rpm-build build/rpm-build-arm64
+          sudo rm -rf build/rpm-package build/rpm-package-arm64
+          # Copy only the final artifacts (binaries and packages)
           cp -r build/* nightly-artifacts/
           echo "Artifacts prepared with version ${{ steps.nightly_version.outputs.version }}"
           echo ""
