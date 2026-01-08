@@ -198,6 +198,56 @@ test-integration:
 	@echo "Running integration tests..."
 	$(GOTEST) -v -race -run Integration ./tests/integration/...
 
+# Run benchmarks
+.PHONY: bench
+bench:
+ifeq ($(DETECTED_OS),Windows)
+	@echo Running performance benchmarks...
+	@if not exist "bench-results" mkdir bench-results
+	@echo === Storage Benchmarks === > bench-results\benchmarks.txt
+	$(GOTEST) ./internal/storage -bench=. -benchmem -benchtime=3s >> bench-results\benchmarks.txt
+	@echo. >> bench-results\benchmarks.txt
+	@echo === Encryption Benchmarks === >> bench-results\benchmarks.txt
+	$(GOTEST) ./pkg/encryption -bench=. -benchmem -benchtime=3s >> bench-results\benchmarks.txt
+	@echo.
+	@echo Benchmarks completed
+	@echo Results saved to bench-results\benchmarks.txt
+else
+	@echo "Running performance benchmarks..."
+	@mkdir -p bench-results
+	@echo "=== Storage Benchmarks ===" | tee bench-results/benchmarks.txt
+	$(GOTEST) ./internal/storage -bench=. -benchmem -benchtime=3s | tee -a bench-results/benchmarks.txt
+	@echo "" | tee -a bench-results/benchmarks.txt
+	@echo "=== Encryption Benchmarks ===" | tee -a bench-results/benchmarks.txt
+	$(GOTEST) ./pkg/encryption -bench=. -benchmem -benchtime=3s | tee -a bench-results/benchmarks.txt
+	@echo ""
+	@echo "✅ Benchmarks completed"
+	@echo "📊 Results saved to bench-results/benchmarks.txt"
+endif
+
+# Run benchmarks with CPU profiling
+.PHONY: bench-profile
+bench-profile:
+ifeq ($(DETECTED_OS),Windows)
+	@echo Running benchmarks with CPU profiling...
+	@if not exist "bench-results" mkdir bench-results
+	$(GOTEST) ./internal/storage -bench=. -benchmem -cpuprofile=bench-results\cpu-storage.prof -benchtime=5s
+	$(GOTEST) ./pkg/encryption -bench=. -benchmem -cpuprofile=bench-results\cpu-encryption.prof -benchtime=5s
+	@echo.
+	@echo Benchmarks with profiling completed
+	@echo CPU profiles saved to bench-results\*.prof
+	@echo Analyze with: go tool pprof bench-results\cpu-storage.prof
+else
+	@echo "Running benchmarks with CPU profiling..."
+	@mkdir -p bench-results
+	$(GOTEST) ./internal/storage -bench=. -benchmem -cpuprofile=bench-results/cpu-storage.prof -benchtime=5s
+	$(GOTEST) ./pkg/encryption -bench=. -benchmem -cpuprofile=bench-results/cpu-encryption.prof -benchtime=5s
+	@echo ""
+	@echo "✅ Benchmarks with profiling completed"
+	@echo "📊 CPU profiles saved to bench-results/*.prof"
+	@echo "💡 Analyze with: go tool pprof bench-results/cpu-storage.prof"
+endif
+
 # ============================================================================
 # Performance Testing (k6)
 # ============================================================================

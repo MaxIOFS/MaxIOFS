@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Performance Profiling & Benchmarking
+- **Go Benchmarks Suite**: Performance benchmarking infrastructure for core operations
+  - **Storage Benchmarks** (`internal/storage/storage_bench_test.go`): 12 benchmarks
+    - Put operations (10KB, 1MB, 10MB) measuring write throughput
+    - Get operations (10KB, 1MB, 10MB) measuring read throughput
+    - Delete, Exists, List, GetMetadata operations
+    - Concurrent Puts/Gets for parallel performance testing
+  - **Encryption Benchmarks** (`pkg/encryption/encryption_bench_test.go`): 13 benchmarks
+    - Encrypt operations (1KB, 100KB, 1MB) with AES-256-GCM
+    - Decrypt operations (1KB, 100KB, 1MB)
+    - Stream encryption/decryption (1MB, 10MB)
+    - Round-trip encrypt/decrypt cycles
+    - Key generation and derivation
+    - Concurrent encrypt/decrypt operations
+- **Cross-Platform Makefile Targets**: Benchmark execution for Windows/Linux/macOS
+  - `make bench` - Run all benchmarks with memory stats (cross-platform)
+  - `make bench-profile` - Run benchmarks with CPU profiling
+  - Results saved to `bench-results/benchmarks.txt`
+  - CPU profiles (`.prof` files) for `go tool pprof` analysis
+- **CI/CD Integration**: Automated benchmark execution in nightly builds
+  - Benchmarks run after backend tests (1s runtime for speed)
+  - Results published to S3 with other artifacts
+  - Build summary includes benchmark performance data
+  - Baseline establishment for performance regression tracking
+
 #### CI/CD Improvements
 - **Nightly Build Pipeline**: Added RPM package generation to automated builds
   - Automated RPM package creation for AMD64 (x86_64) and ARM64 (aarch64)

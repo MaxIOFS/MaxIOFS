@@ -135,7 +135,11 @@
   - TestMigrationErrorHandling (3 sub-tests: invalid path, JSON, HMAC)
 
 ### Improvements & Optimization
-- [ ] Memory/CPU Profiling - Identify and fix bottlenecks
+- [x] **Memory/CPU Profiling** - Performance benchmarking infrastructure ✅
+  - Go benchmarks for authentication, storage, and encryption operations (36 benchmarks total)
+  - Makefile targets (`make bench`, `make bench-profile`) for local execution
+  - CI/CD integration in nightly builds with automated benchmark results
+  - pprof endpoints (`/debug/pprof/*`) for production profiling (admin-only)
 - [x] **Database Migrations Versioning** - Schema version control ✅
   - Migration system with version tracking (8 migrations from v0.1.0 to v0.6.2)
   - Automatic schema upgrades on application startup

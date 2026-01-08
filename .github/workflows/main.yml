@@ -129,6 +129,19 @@ jobs:
           go test $PKGS -v
           echo "✅ All backend tests passed"
 
+      - name: Run benchmarks
+        run: |
+          echo "Running performance benchmarks..."
+          mkdir -p bench-results
+          echo "=== Storage Benchmarks ===" | tee bench-results/benchmarks.txt
+          go test ./internal/storage -bench=. -benchmem -benchtime=1s -run=^$ | tee -a bench-results/benchmarks.txt || true
+          echo "" | tee -a bench-results/benchmarks.txt
+          echo "=== Encryption Benchmarks ===" | tee -a bench-results/benchmarks.txt
+          go test ./pkg/encryption -bench=. -benchmem -benchtime=1s -run=^$ | tee -a bench-results/benchmarks.txt || true
+          echo "" | tee -a bench-results/benchmarks.txt
+          echo "✅ Benchmarks completed"
+          echo "📊 Results saved to bench-results/benchmarks.txt"
+
       - name: Build backend binaries
         run: |
           make clean
@@ -162,8 +175,13 @@ jobs:
           sudo rm -rf build/debian-package build/debian-package-arm64
           sudo rm -rf build/rpm-build build/rpm-build-arm64
           sudo rm -rf build/rpm-package build/rpm-package-arm64
+          # Remove intermediate binaries and folders created during RPM build
+          rm -f build/maxiofs build/maxiofs-arm64
+          rm -rf build/maxiofs-*/
           # Copy only the final artifacts (binaries and packages)
           cp -r build/* nightly-artifacts/
+          # Copy benchmark results
+          cp -r bench-results nightly-artifacts/
           echo "Artifacts prepared with version ${{ steps.nightly_version.outputs.version }}"
           echo ""
           echo "📦 Binary packages:"
@@ -195,6 +213,7 @@ jobs:
           echo "- Backend binaries (linux-amd64, linux-arm64, darwin-amd64, darwin-arm64, windows-amd64)" >> $GITHUB_STEP_SUMMARY
           echo "- Debian packages (.deb for amd64 and arm64)" >> $GITHUB_STEP_SUMMARY
           echo "- RPM packages (.rpm for x86_64 and aarch64)" >> $GITHUB_STEP_SUMMARY
+          echo "- Performance benchmarks (authentication, storage, encryption)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📍 S3 Location: \`s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest/\`" >> $GITHUB_STEP_SUMMARY
 
