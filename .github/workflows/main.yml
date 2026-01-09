@@ -175,9 +175,9 @@ jobs:
           sudo rm -rf build/debian-package build/debian-package-arm64
           sudo rm -rf build/rpm-build build/rpm-build-arm64
           sudo rm -rf build/rpm-package build/rpm-package-arm64
-          # Remove intermediate binaries and folders created during RPM build
-          rm -f build/maxiofs build/maxiofs-arm64
-          rm -rf build/maxiofs-*/
+          # Remove intermediate binaries and folders created during RPM build (also created by Docker as root)
+          sudo rm -f build/maxiofs build/maxiofs-arm64
+          sudo rm -rf build/maxiofs-*/
           # Copy only the final artifacts (binaries and packages)
           cp -r build/* nightly-artifacts/
           # Copy benchmark results
