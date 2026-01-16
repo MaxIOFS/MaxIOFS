@@ -1,3 +1,32 @@
+maxiofs (0.7.0-beta) unstable; urgency=medium
+
+  * Feature release: Bucket Inventory, Performance Profiling & Database Migrations
+  * Bucket Inventory System - Automated S3-compatible inventory reports
+  * Daily/weekly schedules, CSV/JSON formats, 12 configurable fields
+  * REST API endpoints and frontend UI with inventory tab
+  * Cluster migration integration for inventory configurations
+  * Database Migration System - Comprehensive schema versioning framework
+  * 8 historical migrations (v0.1.0 to v0.6.2) with automatic execution
+  * Transaction-based migrations with version tracking
+  * 18 comprehensive tests (100% pass rate)
+  * Performance Profiling - 36 Go benchmarks for storage, encryption, auth
+  * CI/CD integration with automated benchmark execution in nightly builds
+  * Cross-platform Makefile targets (make bench, make bench-profile)
+  * pprof endpoints for production profiling (/debug/pprof/*)
+  * Metrics Test Suite Expansion - 102 test functions created
+  * System metrics tests (28 tests), collector tests (17 tests)
+  * Test coverage improvement: 25.8% → 36.2% (+10.4 points)
+  * CI/CD Improvements - RPM package generation for RHEL/CentOS/Fedora
+  * Docker-based RPM builds (AMD64 + ARM64) using Rocky Linux 9
+  * Fixed permission issues in artifact preparation
+  * AWS-Compatible Access Key Format - AKIA prefix for access keys
+  * 40-character base64 secret keys (AWS standard format)
+  * Backward compatible with existing access keys
+  * Dependencies cleanup - Removed unused github.com/mattn/go-sqlite3
+  * Removed .env.example file (not loaded by application, caused confusion)
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Thu, 16 Jan 2026 12:00:00 +0000
+
 maxiofs (0.6.2-beta) unstable; urgency=medium
 
   * Major maintenance release: Test Coverage, Security Fixes & Infrastructure

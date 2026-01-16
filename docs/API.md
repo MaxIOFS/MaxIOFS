@@ -1,8 +1,8 @@
 # MaxIOFS API Reference
 
-**Version**: 0.6.2-beta
+**Version**: 0.7.0-beta
 **S3 Compatibility**: 98%
-**Last Updated**: December 9, 2025
+**Last Updated**: January 16, 2026
 
 ## Overview
 
@@ -11,7 +11,7 @@ MaxIOFS provides two APIs:
 1. **S3 API** (Port 8080) - 98% AWS S3-compatible REST API
 2. **Console API** (Port 8081) - Management REST API for web console
 
-### Recent Updates (v0.6.2-beta)
+### Recent Updates (v0.7.0-beta)
 
 - ✅ **Multi-Node Cluster Support** - Complete cluster infrastructure with HA
 - ✅ **Cluster Management API** - 18 REST endpoints for cluster management
@@ -263,7 +263,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 - Tenant admins: Can view only their tenant's logs
 - Regular users: Cannot access audit logs
 
-#### Cluster Management (v0.6.2-beta)
+#### Cluster Management (v0.7.0-beta)
 
 **Cluster Configuration:**
 - `POST /api/v1/cluster/initialize` - Initialize cluster on this node

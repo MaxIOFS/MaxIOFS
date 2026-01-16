@@ -1,7 +1,7 @@
 # MaxIOFS - Service Level Objectives (SLOs)
 
-**Version**: 0.6.2-beta
-**Last Updated**: December 12, 2025
+**Version**: 0.7.0-beta
+**Last Updated**: January 16, 2026
 **Status**: Production-Ready Targets
 
 ## Overview

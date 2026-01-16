@@ -329,135 +329,91 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New Features in v0.6.2-beta
+            New Features in v0.7.0-beta
           </h2>
           <div className="space-y-4">
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Console API Documentation Fixed (GitHub Issue #2)
+                Bucket Inventory System - Automated Report Generation
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Corrected all Console API endpoint documentation from /api/ to /api/v1/ prefix. Added GET /api/v1/ root endpoint that
-                returns API information, available endpoints, and server version in JSON format. Updated docs/API.md, docs/CLUSTER.md,
-                and docs/MULTI_TENANCY.md with accurate routes and examples.
+                Complete S3-compatible inventory system with automated periodic report generation (daily/weekly schedules). Supports CSV and
+                JSON formats with 12 configurable fields including size, ETag, storage class, and encryption status. Includes REST API
+                endpoints for configuration management, frontend UI with inventory tab in bucket settings, and cluster migration integration.
+                11 comprehensive tests with 100% coverage ensure reliability.
               </p>
             </div>
 
             <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                MIT LICENSE Added (GitHub Issue #3)
+                Database Migration System - Schema Versioning Framework
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Added MIT License file to repository root. Resolves missing LICENSE file referenced in README.md with complete
-                copyright notice (2024-2026) and standard MIT License terms.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-blue-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                S3 Authentication Test Suite - Complete Coverage
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Added 13 comprehensive test functions with 80+ test cases for S3 authentication. Improved auth module coverage from
-                30.2% to 47.1% (+56% relative improvement). Tests cover AWS Signature V4/V2, JWT Bearer tokens, timestamp validation,
-                S3 action extraction, ARN generation, and complete authentication flow. Fixed critical bugs in SigV4 authorization parsing,
-                timestamp UTC timezone handling, and ARN trailing slash preservation.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-green-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                S3 API Test Suite Expansion - 42 New Tests
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Improved S3 API test coverage from 30.9% to 45.7% (+48% relative improvement). Added tests for advanced S3 features
-                (multipart uploads, bucket/object ACLs, Object Lock, versioning, tagging), AWS chunked encoding (0% to 100% coverage),
-                and error cases for HeadObject, DeleteObject, and PutObject operations. All 42 tests passing with complete XML/HTTP
-                validation.
+                Comprehensive database schema versioning with automatic migration execution on startup. Features 8 historical migrations
+                (v0.1.0 to v0.6.2), version tracking with schema_version table, and transaction-based migrations for data integrity.
+                Supports incremental migrations to specific versions and prevents accidental downgrades. 18 comprehensive tests validate
+                all migration scenarios with 100% pass rate.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Server Integration Test Suite - Lifecycle Tests
+                Performance Profiling & Benchmarking Infrastructure
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Added 4 comprehensive server lifecycle integration tests. Improved server package coverage from 12.7% to 18.3% (+44%
-                relative improvement). Tests cover server initialization with manager validation, version information handling, graceful
-                shutdown with timeout, and start/stop cycle resilience with resource cleanup.
+                Production-ready performance monitoring with 36 Go benchmarks covering storage operations (12 tests), encryption (13 tests),
+                and authentication. CI/CD integration executes benchmarks in nightly builds with results published to S3. Cross-platform
+                Makefile targets (make bench, make bench-profile) support local profiling. Added pprof endpoints (/debug/pprof/*) for live
+                production profiling with admin-only access.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Frontend Dependencies Upgrade - Major Performance Gains
+                Metrics Test Suite Expansion - 102 New Test Functions
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Migrated Tailwind CSS from v3 to v4 with new Oxide engine (10x faster build times). Upgraded Vitest from v3 to v4 with
-                59% faster test execution (21.74s to 9.00s). Updated lucide-react icon library and autoprefixer. All 64 frontend tests
-                passing with zero breaking changes. Updated build requirements to Node.js 24+ and Go 1.25+ for latest security patches.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-blue-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                SweetAlert2 Removed - Custom Modal System
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Completely removed sweetalert2 dependency (reduced bundle size by ~65KB). Created custom modal components using existing
-                Modal UI component with better Tailwind CSS integration, consistent design system, and improved dark mode support. Migrated
-                all pages using confirmations/alerts to new modal system.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-green-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Metrics Dashboard Complete Redesign
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Reorganized metrics page from 3 to 5 specialized tabs: Overview, System, Storage, API & Requests, and Performance. Added
-                time range selector for historical data filtering (Real-time, 1H, 6H, 24H, 7D, 30D, 1Y). All charts now show temporal
-                evolution with MetricLineChart component. Eliminated duplicate information with unique content per tab. Improved visual
-                consistency with standardized MetricCard components across all metrics pages.
+                Dramatically improved monitoring test coverage from 25.8% to 36.2% (+10.4 points, +40.3% improvement). Added 102 test
+                functions including 28 system metrics tests (CPU, memory, disk, requests), 17 collector tests (metrics collection, health
+                checks), 29 SQLite history tests, and 28 BadgerDB history tests. 45 tests currently active with 57 pending database
+                refactoring for test isolation.
               </p>
             </div>
 
             <div className="border-l-4 border-red-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                CRITICAL FIX: Debian Package Configuration Preservation
+                CI/CD Improvements - RPM Package Generation
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Fixed severe bug where Debian package upgrades could overwrite /etc/maxiofs/config.yaml, causing permanent data loss of
-                all encrypted objects. Package upgrades now preserve existing config.yaml completely untouched while updating
-                config.example.yaml with latest template. Smart logic creates config.yaml only on first installation. Prevents encryption
-                key loss that would make all encrypted objects permanently inaccessible.
+                Enhanced build pipeline with RPM package generation for RHEL/CentOS/Fedora distributions. Docker-based builds using Rocky
+                Linux 9 produce both AMD64 (x86_64) and ARM64 (aarch64) packages. Fixed permission issues in artifact preparation with sudo
+                commands for Docker-created directories. Automated benchmark execution integrated into nightly builds with results uploaded
+                to S3.
               </p>
             </div>
 
-            <div className="border-l-4 border-purple-500 pl-4">
+            <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Docker Infrastructure - Complete Rewrite
+                AWS-Compatible Access Key Format
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Modernized docker-compose.yaml with 74% reduction (1040 to 285 lines). Added Docker profiles for conditional service
-                startup: monitoring (Prometheus + Grafana) and cluster (3-node HA). Created organized docker/ directory with externalized
-                configurations. Unified Grafana dashboard with 14 panels in 3 sections, auto-provisioning, and 14 performance alert rules.
-                New Makefile commands (docker-monitoring, docker-cluster, docker-cluster-monitoring). Comprehensive Docker documentation
-                in English.
+                Access keys now follow AWS standard format with AKIA prefix for access key IDs (20 characters total) and 40-character
+                base64-encoded secret keys. New functions generateAccessKeyID() and generateSecretAccessKey() ensure compatibility with AWS
+                tools and SDKs. Fully backward compatible with existing access keys - only new keys use the updated format.
               </p>
             </div>
 
-            <div className="border-l-4 border-orange-500 pl-4">
+            <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Documentation & UI Corrections
+                Dependencies Cleanup & Code Quality
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Fixed incorrect "Next.js" references to "React" throughout README, CHANGELOG, CLI help, package descriptions, and frontend
-                locales. Corrected Tailwind v4 modal backdrop opacity syntax across 5 files (9 modal backdrops). Removed unused Next.js
-                server code (118 lines). Fixed .env.example by removing obsolete Next.js environment variables. All tests passing (64
-                frontend, 531 backend with 100% success rate).
+                Removed unused github.com/mattn/go-sqlite3 dependency identified by go mod tidy, reducing build complexity. Deleted
+                .env.example file that wasn't loaded by the application (no godotenv integration), preventing developer confusion about
+                configuration. Application continues to support environment variables via viper's AutomaticEnv() and command-line flags.
               </p>
             </div>
+
           </div>
         </div>
       </Card>
@@ -472,7 +428,7 @@ export default function AboutPage() {
             </div>
             <div className="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
               <Award className="h-4 w-4" />
-              <span>© 2024-2025 MaxIOFS</span>
+              <span>© 2024-2026 MaxIOFS</span>
             </div>
           </div>
         </div>

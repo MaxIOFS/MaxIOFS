@@ -25,7 +25,6 @@ dist-ssr
 
 # Environment files
 .env*
-!.env.example
 !.env.development
 
 # Docker compose development files (keep only production)

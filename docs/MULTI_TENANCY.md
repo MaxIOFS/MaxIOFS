@@ -1,6 +1,6 @@
 # MaxIOFS Multi-Tenancy Guide
 
-**Version**: 0.6.2-beta
+**Version**: 0.7.0-beta
 
 > **BETA STATUS**: Multi-tenancy is functional and has been tested with warp stress testing. Features show stability under load and production bugs have been fixed. Suitable for staging and testing environments. Production use requires thorough validation in your specific environment.
 
@@ -452,5 +452,5 @@ Planned for future releases:
 
 ---
 
-**Version**: 0.6.2-beta
-**Last Updated**: November 23, 2025
+**Version**: 0.7.0-beta
+**Last Updated**: January 16, 2026
