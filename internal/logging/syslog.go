@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 )
 
@@ -34,7 +35,8 @@ const facilityDaemon = 3
 
 // NewSyslogOutput creates a new syslog output
 func NewSyslogOutput(protocol, host string, port int, tag string) (*SyslogOutput, error) {
-	addr := fmt.Sprintf("%s:%d", host, port)
+	// Use net.JoinHostPort to properly handle both IPv4 and IPv6 addresses
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 
 	// Connect to syslog server
 	conn, err := net.Dial(protocol, addr)

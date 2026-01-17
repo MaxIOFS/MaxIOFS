@@ -344,28 +344,8 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		return nil, err
 	}
 
-	// Extract ONLY relevant S3/storage metadata from headers (not auth, cookies, etc.)
-	storageMetadata := make(map[string]string)
-	userMetadata := make(map[string]string)
-
-	// Extract Content-Type
-	if contentType := headers.Get("Content-Type"); contentType != "" {
-		storageMetadata["content-type"] = contentType
-	} else {
-		storageMetadata["content-type"] = "application/octet-stream"
-	}
-
-	// Extract user-defined metadata (x-amz-meta-* headers)
-	for headerKey, values := range headers {
-		if len(values) > 0 {
-			lowerKey := strings.ToLower(headerKey)
-			// Only store x-amz-meta-* headers as user metadata
-			if strings.HasPrefix(lowerKey, "x-amz-meta-") {
-				metaKey := strings.TrimPrefix(lowerKey, "x-amz-meta-")
-				userMetadata[metaKey] = values[0]
-			}
-		}
-	}
+	// Extract metadata from headers using helper function
+	storageMetadata, userMetadata := om.extractMetadataFromHeaders(headers)
 
 	// Check if versioning is enabled for this bucket
 	tenantID, bucketName := om.parseBucketPath(bucket)
@@ -414,78 +394,15 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		"originalETag": originalETag,
 	}).Debug("Calculated metadata from streaming upload")
 
-	// Check if encryption should be applied
-	// Encryption requires BOTH:
-	// 1. Server-level encryption enabled (config.yaml)
-	// 2. Bucket-level encryption enabled (bucket metadata)
-	shouldEncrypt := false
-	if om.config.EnableEncryption {
-		// Server encryption is enabled, check bucket preference
-		bucketInfo, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
-		if err == nil && bucketInfo != nil && bucketInfo.Encryption != nil {
-			// Check if bucket has encryption rules configured
-			if len(bucketInfo.Encryption.Rules) > 0 && bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault != nil {
-				sseConfig := bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault
-				if sseConfig.SSEAlgorithm != "" {
-					// Bucket has encryption configured
-					shouldEncrypt = true
-				}
-			}
-		}
-	}
-
-	// Apply encryption if enabled
+	// Store object data (encrypted or unencrypted) using helper functions
+	shouldEncrypt := om.shouldEncryptObject(ctx, tenantID, bucketName)
 	if shouldEncrypt {
-		// ENCRYPTION ENABLED: Encrypt object before storing
-
-		// Save original metadata (size and etag are from UNENCRYPTED data)
-		storageMetadata["original-size"] = fmt.Sprintf("%d", originalSize)
-		storageMetadata["original-etag"] = originalETag
-		storageMetadata["encrypted"] = "true"
-		storageMetadata["x-amz-server-side-encryption"] = "AES256"
-		storageMetadata["x-amz-server-side-encryption-algorithm"] = "AES-256-CTR"
-
-		// Step 2: Open temp file for reading and encrypt while streaming to storage
-		tempFileRead, err := os.Open(tempPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open temp file for encryption: %w", err)
-		}
-		defer tempFileRead.Close()
-
-		// Create a pipe for streaming encryption
-		pipeReader, pipeWriter := io.Pipe()
-
-		// Encrypt in background goroutine
-		go func() {
-			defer pipeWriter.Close()
-			if _, err := om.encryptionService.EncryptStream(tempFileRead, pipeWriter); err != nil {
-				logrus.WithError(err).Error("Failed to encrypt object during upload")
-				pipeWriter.CloseWithError(fmt.Errorf("encryption failed: %w", err))
-			}
-		}()
-
-		// Step 3: Store encrypted data (streaming from pipe)
-		if err := om.storage.Put(ctx, objectPath, pipeReader, storageMetadata); err != nil {
-			return nil, fmt.Errorf("failed to store object: %w", err)
+		if err := om.storeEncryptedObject(ctx, objectPath, tempPath, storageMetadata, originalSize, originalETag); err != nil {
+			return nil, err
 		}
 	} else {
-		// ENCRYPTION DISABLED: Store object as-is (unencrypted)
-
-		// Use original size and ETag directly
-		storageMetadata["size"] = fmt.Sprintf("%d", originalSize)
-		storageMetadata["etag"] = originalETag
-		// Do NOT set "encrypted" = "true"
-
-		// Open temp file for reading
-		tempFileRead, err := os.Open(tempPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open temp file: %w", err)
-		}
-		defer tempFileRead.Close()
-
-		// Store unencrypted data directly
-		if err := om.storage.Put(ctx, objectPath, tempFileRead, storageMetadata); err != nil {
-			return nil, fmt.Errorf("failed to store object: %w", err)
+		if err := om.storeUnencryptedObject(ctx, objectPath, tempPath, storageMetadata, originalSize, originalETag); err != nil {
+			return nil, err
 		}
 	}
 
@@ -576,105 +493,11 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	// This ensures folders are listable even when created implicitly by S3 clients
 	om.ensureImplicitFolders(ctx, bucket, key)
 
-	// Update bucket metrics
-	// Note: For non-versioned buckets, we don't increment on overwrite
-	// For versioned buckets, each version counts as storage but only one object in count
-	if om.bucketManager != nil {
-		// Check if this is a new object (not an overwrite)
-		// For non-versioned buckets: check if object existed before
-		// For versioned buckets: only count the first version
-		if !versioningEnabled {
-			// Use the existing object we captured BEFORE saving
-			isNewObject := existingObjBeforeSave == nil
+	// Update bucket metrics using helper function
+	om.updateBucketMetricsAfterPut(ctx, tenantID, bucketName, bucket, key, size, versioningEnabled, existingObjBeforeSave)
 
-			if isNewObject {
-				// New object - increment count and size
-				if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
-					logrus.WithError(err).WithFields(logrus.Fields{
-						"bucket_path": bucket,
-						"tenant_id":   tenantID,
-						"bucket_name": bucketName,
-						"key":         key,
-						"size":        size,
-					}).Warn("Failed to increment bucket object count")
-				}
-			} else {
-				// Overwrite - adjust size difference only
-				sizeDiff := size - existingObjBeforeSave.Size
-				if sizeDiff != 0 {
-					if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, sizeDiff); err != nil {
-						logrus.WithError(err).WithFields(logrus.Fields{
-							"bucket_path": bucket,
-							"key":         key,
-							"old_size":    existingObjBeforeSave.Size,
-							"new_size":    size,
-							"size_diff":   sizeDiff,
-						}).Warn("Failed to adjust bucket size on overwrite")
-					}
-				}
-			}
-		} else {
-			// Versioned bucket - only increment count on first version
-			existingVersions, err := om.metadataStore.GetObjectVersions(ctx, bucket, key)
-			if err != nil || len(existingVersions) == 1 {
-				// First version - increment count
-				if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
-					logrus.WithError(err).Warn("Failed to increment bucket object count for first version")
-				}
-			} else {
-				// Additional version - only increment size, not count
-				if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
-					logrus.WithError(err).Warn("Failed to increment bucket size for additional version")
-				}
-			}
-		}
-	}
-
-	// Update tenant storage quota
-	// For non-versioned: only adjust diff, for versioned: always add
-	if om.authManager != nil && tenantID != "" {
-		var sizeToAdd int64
-		if !versioningEnabled {
-			// Use the existing object we captured BEFORE saving
-			if existingObjBeforeSave == nil {
-				sizeToAdd = size // New object
-			} else {
-				sizeToAdd = size - existingObjBeforeSave.Size // Size difference
-			}
-		} else {
-			sizeToAdd = size // Versioned: always add new version size
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"tenantID": tenantID,
-			"key":      key,
-			"newSize":  size,
-			"existingSize": func() int64 {
-				if existingObjBeforeSave != nil {
-					return existingObjBeforeSave.Size
-				}
-				return 0
-			}(),
-			"sizeToAdd":   sizeToAdd,
-			"isNewObject": existingObjBeforeSave == nil,
-		}).Info("Updating tenant storage quota after PutObject")
-
-		if sizeToAdd != 0 {
-			if err := om.authManager.IncrementTenantStorage(ctx, tenantID, sizeToAdd); err != nil {
-				logrus.WithError(err).WithFields(logrus.Fields{
-					"tenant_id": tenantID,
-					"size":      sizeToAdd,
-				}).Warn("Failed to increment tenant storage quota")
-			} else {
-				logrus.WithFields(logrus.Fields{
-					"tenantID":  tenantID,
-					"sizeAdded": sizeToAdd,
-				}).Info("Successfully incremented tenant storage")
-			}
-		} else {
-			logrus.WithField("tenantID", tenantID).Debug("No storage change needed (sizeToAdd = 0)")
-		}
-	}
+	// Update tenant storage quota using helper function
+	om.updateTenantQuotaAfterPut(ctx, tenantID, key, size, versioningEnabled, existingObjBeforeSave)
 
 	return object, nil
 }
@@ -1626,36 +1449,10 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 	}
 	multipart := fromMetadataMultipartUpload(metaMU)
 
-	// Validate parts list
-	if len(parts) == 0 {
-		return nil, fmt.Errorf("no parts provided")
-	}
-
-	// Sort parts by part number
-	sort.Slice(parts, func(i, j int) bool {
-		return parts[i].PartNumber < parts[j].PartNumber
-	})
-
-	// Validate parts exist in storage and calculate total size
-	// Note: S3 does NOT require consecutive part numbers
-	var totalSize int64
-	for _, part := range parts {
-		partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
-		exists, err := om.storage.Exists(ctx, partPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check part %d existence: %w", part.PartNumber, err)
-		}
-		if !exists {
-			return nil, fmt.Errorf("part %d not found", part.PartNumber)
-		}
-
-		// Get part metadata to get the actual size
-		// Client only sends PartNumber and ETag, not Size
-		partMeta, err := om.metadataStore.GetPart(ctx, uploadID, part.PartNumber)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get part %d metadata: %w", part.PartNumber, err)
-		}
-		totalSize += partMeta.Size
+	// Validate parts list and calculate total size
+	totalSize, err := om.validateAndCalculatePartsSize(ctx, uploadID, parts)
+	if err != nil {
+		return nil, err
 	}
 
 	// Check if this overwrites an existing object (before combining parts)
@@ -1663,46 +1460,8 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 	isNewObject := existingObj == nil
 
 	// Validate tenant storage quota BEFORE combining parts (early rejection to avoid wasted work)
-	if om.authManager != nil {
-		tenantID, _ := om.parseBucketPath(multipart.Bucket)
-		if tenantID != "" {
-			var sizeIncrement int64
-			if isNewObject {
-				sizeIncrement = totalSize
-			} else {
-				sizeIncrement = totalSize - existingObj.Size
-			}
-
-			// Only check quota if adding storage
-			if sizeIncrement > 0 {
-				logrus.WithFields(logrus.Fields{
-					"tenantID":  tenantID,
-					"uploadID":  uploadID,
-					"totalSize": totalSize,
-					"existingSize": func() int64 {
-						if existingObj != nil {
-							return existingObj.Size
-						}
-						return 0
-					}(),
-					"sizeIncrement": sizeIncrement,
-				}).Info("Validating quota before completing multipart upload")
-
-				if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
-					// Quota exceeded - return error WITHOUT aborting upload
-					// This allows the client to see the correct error message
-					logrus.WithFields(logrus.Fields{
-						"tenantID":      tenantID,
-						"uploadID":      uploadID,
-						"sizeIncrement": sizeIncrement,
-						"error":         err,
-					}).Warn("Multipart upload quota validation failed")
-
-					// Return quota error - DO NOT abort upload so client gets correct error
-					return nil, fmt.Errorf("storage quota exceeded: %w", err)
-				}
-			}
-		}
+	if err := om.checkMultipartQuotaBeforeComplete(ctx, multipart.Bucket, uploadID, totalSize, existingObj); err != nil {
+		return nil, err
 	}
 
 	// Combine parts into final object
@@ -1711,35 +1470,12 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 		return nil, fmt.Errorf("failed to combine parts: %w", err)
 	}
 
-	// Step 1: Stream combined file to temp while calculating hash
-	// This avoids loading large multipart files into memory
-	combinedReader, _, err := om.storage.Get(ctx, objectPath)
+	// Stream combined file to temp while calculating MD5 hash
+	originalSize, originalETag, tempPath, err := om.calculateMultipartHash(ctx, objectPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read combined object: %w", err)
+		return nil, err
 	}
-
-	// Create temp file for calculating metadata
-	tempFile, err := os.CreateTemp("", "maxiofs-multipart-*")
-	if err != nil {
-		combinedReader.Close()
-		return nil, fmt.Errorf("failed to create temp file: %w", err)
-	}
-	tempPath := tempFile.Name()
 	defer os.Remove(tempPath) // Clean up temp file when done
-
-	// Stream to temp file while calculating MD5 hash
-	hasher := md5.New()
-	multiWriter := io.MultiWriter(tempFile, hasher)
-	originalSize, err := io.Copy(multiWriter, combinedReader)
-	combinedReader.Close() // Close reader BEFORE closing temp file
-	if err != nil {
-		tempFile.Close()
-		return nil, fmt.Errorf("failed to write to temp file: %w", err)
-	}
-	tempFile.Close()
-
-	// Step 2: Calculate original ETag (MD5 hash) from UNENCRYPTED data
-	originalETag := hex.EncodeToString(hasher.Sum(nil))
 
 	// Get timestamp from storage before replacing file
 	storageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
@@ -1748,14 +1484,13 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 	}
 	lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
 
-	// Step 3: Create and save object metadata to BadgerDB with ORIGINAL values
-	// This happens BEFORE encryption so BadgerDB has correct unencrypted metadata
+	// Create and save object metadata to BadgerDB with ORIGINAL values
 	object := &Object{
 		Key:          multipart.Key,
 		Bucket:       multipart.Bucket,
-		Size:         originalSize,        // Original size (unencrypted)
+		Size:         originalSize,
 		LastModified: time.Unix(lastModified, 0),
-		ETag:         originalETag,        // Original ETag (MD5 of unencrypted data)
+		ETag:         originalETag,
 		ContentType:  multipart.Metadata["content-type"],
 		Metadata:     multipart.Metadata,
 		StorageClass: multipart.StorageClass,
@@ -1772,161 +1507,19 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 		"originalETag": originalETag,
 	}).Info("Saved original metadata to BadgerDB before encryption")
 
-	// Check if encryption should be applied
-	// Encryption requires BOTH:
-	// 1. Server-level encryption enabled (config.yaml)
-	// 2. Bucket-level encryption enabled (bucket metadata)
-	shouldEncrypt := false
-	if om.config.EnableEncryption {
-		// Server encryption is enabled, check bucket preference
-		tenantID, bucketName := om.parseBucketPath(multipart.Bucket)
-		bucketInfo, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
-		if err == nil && bucketInfo != nil && bucketInfo.Encryption != nil {
-			// Check if bucket has encryption rules configured
-			if len(bucketInfo.Encryption.Rules) > 0 && bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault != nil {
-				sseConfig := bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault
-				if sseConfig.SSEAlgorithm != "" {
-					// Bucket has encryption configured
-					shouldEncrypt = true
-				}
-			}
-		}
-	}
-
 	// Apply encryption if enabled
-	if shouldEncrypt {
-		// ENCRYPTION ENABLED: Encrypt multipart object before storing
-
-		// Step 4: Open temp file for reading and encrypt while streaming to storage
-		tempFileRead, err := os.Open(tempPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open temp file for encryption: %w", err)
+	if om.shouldEncryptMultipartObject(ctx, multipart.Bucket) {
+		if err := om.storeEncryptedMultipartObject(ctx, objectPath, tempPath, uploadID, multipart, originalSize, originalETag); err != nil {
+			return nil, err
 		}
-		defer tempFileRead.Close()
-
-		// Create a pipe for streaming encryption
-		pipeReader, pipeWriter := io.Pipe()
-
-		// Encrypt in background goroutine
-		go func() {
-			defer pipeWriter.Close()
-			if _, err := om.encryptionService.EncryptStream(tempFileRead, pipeWriter); err != nil {
-				logrus.WithError(err).Error("Failed to encrypt multipart object")
-				pipeWriter.CloseWithError(fmt.Errorf("encryption failed: %w", err))
-			}
-		}()
-
-		// Step 5: Replace file with encrypted version (streaming from pipe)
-		// Store encryption markers in storage metadata
-		encryptionMetadata := map[string]string{
-			"original-size":                          fmt.Sprintf("%d", originalSize),
-			"original-etag":                          originalETag,
-			"encrypted":                              "true",
-			"x-amz-server-side-encryption":           "AES256",
-			"x-amz-server-side-encryption-algorithm": "AES-256-CTR",
-			"content-type":                           multipart.Metadata["content-type"],
-		}
-
-		// Copy any user metadata from multipart upload
-		for k, v := range multipart.Metadata {
-			if k != "content-type" {
-				encryptionMetadata[k] = v
-			}
-		}
-
-		if err := om.storage.Put(ctx, objectPath, pipeReader, encryptionMetadata); err != nil {
-			return nil, fmt.Errorf("failed to store encrypted multipart object: %w", err)
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"uploadID": uploadID,
-			"bucket":   multipart.Bucket,
-			"key":      multipart.Key,
-		}).Info("Multipart object encrypted and stored successfully (streaming)")
 	} else {
-		// ENCRYPTION DISABLED: Keep multipart object unencrypted
-		// Combined file already exists at objectPath, just update metadata without encryption
-
-		// Storage metadata for unencrypted object
-		unencryptedMetadata := map[string]string{
-			"size":         fmt.Sprintf("%d", originalSize),
-			"etag":         originalETag,
-			"content-type": multipart.Metadata["content-type"],
-		}
-
-		// Copy any user metadata from multipart upload
-		for k, v := range multipart.Metadata {
-			if k != "content-type" {
-				unencryptedMetadata[k] = v
-			}
-		}
-
-		// Open temp file to replace combined file with proper metadata
-		tempFileRead, err := os.Open(tempPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open temp file: %w", err)
-		}
-		defer tempFileRead.Close()
-
-		// Replace with unencrypted version (streaming)
-		if err := om.storage.Put(ctx, objectPath, tempFileRead, unencryptedMetadata); err != nil {
-			return nil, fmt.Errorf("failed to store multipart object: %w", err)
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"uploadID": uploadID,
-			"bucket":   multipart.Bucket,
-			"key":      multipart.Key,
-		}).Info("Multipart object stored successfully (unencrypted)")
-	}
-
-	// Use the size from the object we already created (original size)
-	size := originalSize
-
-	// Update bucket metrics
-	if om.bucketManager != nil {
-		tenantID, bucketName := om.parseBucketPath(multipart.Bucket)
-		if isNewObject {
-			// New object - increment count and size
-			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
-				logrus.WithError(err).Warn("Failed to increment bucket metrics after multipart upload")
-			}
-		} else {
-			// Overwrite - adjust size difference only
-			sizeDiff := size - existingObj.Size
-			if sizeDiff != 0 {
-				if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, sizeDiff); err != nil {
-					logrus.WithError(err).Warn("Failed to adjust bucket size after multipart overwrite")
-				}
-			}
-		}
-
-		// Update tenant storage quota
-		if om.authManager != nil && tenantID != "" {
-			var sizeToAdd int64
-			if isNewObject {
-				sizeToAdd = size
-			} else {
-				sizeToAdd = size - existingObj.Size
-			}
-			if sizeToAdd != 0 {
-				if err := om.authManager.IncrementTenantStorage(ctx, tenantID, sizeToAdd); err != nil {
-					logrus.WithError(err).Warn("Failed to increment tenant storage after multipart upload")
-				}
-			}
+		if err := om.storeUnencryptedMultipartObject(ctx, objectPath, tempPath, uploadID, multipart, originalSize, originalETag); err != nil {
+			return nil, err
 		}
 	}
 
-	// Clean up multipart upload from BadgerDB
-	if err := om.metadataStore.AbortMultipartUpload(ctx, uploadID); err != nil {
-		logrus.WithError(err).Warn("Failed to delete multipart upload from BadgerDB")
-	}
-
-	// Clean up part files from storage
-	for _, part := range parts {
-		partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
-		om.storage.Delete(ctx, partPath) // Ignore errors
-	}
+	// Update bucket metrics and clean up multipart data
+	om.updateMetricsAndCleanupMultipart(ctx, multipart.Bucket, uploadID, originalSize, isNewObject, existingObj, parts)
 
 	return object, nil
 }
@@ -2279,5 +1872,489 @@ func (om *objectManager) cleanupEmptyDirectories(bucket, key string) {
 			// Directory has files, stop cleanup
 			break
 		}
+	}
+}
+
+// ========== PutObject Helper Functions (Refactoring for Complexity Reduction) ==========
+
+// extractMetadataFromHeaders extracts storage and user metadata from HTTP headers
+func (om *objectManager) extractMetadataFromHeaders(headers http.Header) (storageMetadata, userMetadata map[string]string) {
+	storageMetadata = make(map[string]string)
+	userMetadata = make(map[string]string)
+
+	// Extract Content-Type
+	if contentType := headers.Get("Content-Type"); contentType != "" {
+		storageMetadata["content-type"] = contentType
+	} else {
+		storageMetadata["content-type"] = "application/octet-stream"
+	}
+
+	// Extract user-defined metadata (x-amz-meta-* headers)
+	for headerKey, values := range headers {
+		if len(values) > 0 {
+			lowerKey := strings.ToLower(headerKey)
+			// Only store x-amz-meta-* headers as user metadata
+			if strings.HasPrefix(lowerKey, "x-amz-meta-") {
+				metaKey := strings.TrimPrefix(lowerKey, "x-amz-meta-")
+				userMetadata[metaKey] = values[0]
+			}
+		}
+	}
+
+	return storageMetadata, userMetadata
+}
+
+// shouldEncryptObject determines if an object should be encrypted based on server and bucket configuration
+func (om *objectManager) shouldEncryptObject(ctx context.Context, tenantID, bucketName string) bool {
+	if !om.config.EnableEncryption {
+		return false
+	}
+
+	// Server encryption is enabled, check bucket preference
+	bucketInfo, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
+	if err == nil && bucketInfo != nil && bucketInfo.Encryption != nil {
+		// Check if bucket has encryption rules configured
+		if len(bucketInfo.Encryption.Rules) > 0 && bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault != nil {
+			sseConfig := bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault
+			if sseConfig.SSEAlgorithm != "" {
+				// Bucket has encryption configured
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// storeEncryptedObject encrypts and stores an object
+func (om *objectManager) storeEncryptedObject(ctx context.Context, objectPath, tempPath string, storageMetadata map[string]string, originalSize int64, originalETag string) error {
+	// Save original metadata (size and etag are from UNENCRYPTED data)
+	storageMetadata["original-size"] = fmt.Sprintf("%d", originalSize)
+	storageMetadata["original-etag"] = originalETag
+	storageMetadata["encrypted"] = "true"
+	storageMetadata["x-amz-server-side-encryption"] = "AES256"
+	storageMetadata["x-amz-server-side-encryption-algorithm"] = "AES-256-CTR"
+
+	// Open temp file for reading and encrypt while streaming to storage
+	tempFileRead, err := os.Open(tempPath)
+	if err != nil {
+		return fmt.Errorf("failed to open temp file for encryption: %w", err)
+	}
+	defer tempFileRead.Close()
+
+	// Create a pipe for streaming encryption
+	pipeReader, pipeWriter := io.Pipe()
+
+	// Encrypt in background goroutine
+	go func() {
+		defer pipeWriter.Close()
+		if _, err := om.encryptionService.EncryptStream(tempFileRead, pipeWriter); err != nil {
+			logrus.WithError(err).Error("Failed to encrypt object during upload")
+			pipeWriter.CloseWithError(fmt.Errorf("encryption failed: %w", err))
+		}
+	}()
+
+	// Store encrypted data (streaming from pipe)
+	if err := om.storage.Put(ctx, objectPath, pipeReader, storageMetadata); err != nil {
+		return fmt.Errorf("failed to store object: %w", err)
+	}
+
+	return nil
+}
+
+// storeUnencryptedObject stores an object without encryption
+func (om *objectManager) storeUnencryptedObject(ctx context.Context, objectPath, tempPath string, storageMetadata map[string]string, originalSize int64, originalETag string) error {
+	// Use original size and ETag directly
+	storageMetadata["size"] = fmt.Sprintf("%d", originalSize)
+	storageMetadata["etag"] = originalETag
+	// Do NOT set "encrypted" = "true"
+
+	// Open temp file for reading
+	tempFileRead, err := os.Open(tempPath)
+	if err != nil {
+		return fmt.Errorf("failed to open temp file: %w", err)
+	}
+	defer tempFileRead.Close()
+
+	// Store unencrypted data directly
+	if err := om.storage.Put(ctx, objectPath, tempFileRead, storageMetadata); err != nil {
+		return fmt.Errorf("failed to store object: %w", err)
+	}
+
+	return nil
+}
+
+// updateBucketMetricsAfterPut updates bucket metrics after a PutObject operation
+func (om *objectManager) updateBucketMetricsAfterPut(ctx context.Context, tenantID, bucketName, bucket, key string, size int64, versioningEnabled bool, existingObjBeforeSave *metadata.ObjectMetadata) {
+	if om.bucketManager == nil {
+		return
+	}
+
+	// Check if this is a new object (not an overwrite)
+	// For non-versioned buckets: check if object existed before
+	// For versioned buckets: only count the first version
+	if !versioningEnabled {
+		// Use the existing object we captured BEFORE saving
+		isNewObject := existingObjBeforeSave == nil
+
+		if isNewObject {
+			// New object - increment count and size
+			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"bucket_path": bucket,
+					"tenant_id":   tenantID,
+					"bucket_name": bucketName,
+					"key":         key,
+					"size":        size,
+				}).Warn("Failed to increment bucket object count")
+			}
+		} else {
+			// Overwrite - adjust size difference only
+			sizeDiff := size - existingObjBeforeSave.Size
+			if sizeDiff != 0 {
+				if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, sizeDiff); err != nil {
+					logrus.WithError(err).WithFields(logrus.Fields{
+						"bucket_path": bucket,
+						"key":         key,
+						"old_size":    existingObjBeforeSave.Size,
+						"new_size":    size,
+						"size_diff":   sizeDiff,
+					}).Warn("Failed to adjust bucket size on overwrite")
+				}
+			}
+		}
+	} else {
+		// Versioned bucket - only increment count on first version
+		existingVersions, err := om.metadataStore.GetObjectVersions(ctx, bucket, key)
+		if err != nil || len(existingVersions) == 1 {
+			// First version - increment count
+			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
+				logrus.WithError(err).Warn("Failed to increment bucket object count for first version")
+			}
+		} else {
+			// Additional version - only increment size, not count
+			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
+				logrus.WithError(err).Warn("Failed to increment bucket size for additional version")
+			}
+		}
+	}
+}
+
+// updateTenantQuotaAfterPut updates tenant storage quota after a PutObject operation
+func (om *objectManager) updateTenantQuotaAfterPut(ctx context.Context, tenantID, key string, size int64, versioningEnabled bool, existingObjBeforeSave *metadata.ObjectMetadata) {
+	if om.authManager == nil || tenantID == "" {
+		return
+	}
+
+	var sizeToAdd int64
+	if !versioningEnabled {
+		// Use the existing object we captured BEFORE saving
+		if existingObjBeforeSave == nil {
+			sizeToAdd = size // New object
+		} else {
+			sizeToAdd = size - existingObjBeforeSave.Size // Size difference
+		}
+	} else {
+		sizeToAdd = size // Versioned: always add new version size
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"tenantID": tenantID,
+		"key":      key,
+		"newSize":  size,
+		"existingSize": func() int64 {
+			if existingObjBeforeSave != nil {
+				return existingObjBeforeSave.Size
+			}
+			return 0
+		}(),
+		"sizeToAdd":   sizeToAdd,
+		"isNewObject": existingObjBeforeSave == nil,
+	}).Info("Updating tenant storage quota after PutObject")
+
+	if sizeToAdd != 0 {
+		if err := om.authManager.IncrementTenantStorage(ctx, tenantID, sizeToAdd); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"tenant_id": tenantID,
+				"size":      sizeToAdd,
+			}).Warn("Failed to increment tenant storage quota")
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"tenantID":  tenantID,
+				"sizeAdded": sizeToAdd,
+			}).Info("Successfully incremented tenant storage")
+		}
+	} else {
+		logrus.WithField("tenantID", tenantID).Debug("No storage change needed (sizeToAdd = 0)")
+	}
+}
+
+// ========== CompleteMultipartUpload Helper Functions (Refactoring for Complexity Reduction) ==========
+
+// validateAndCalculatePartsSize validates parts list and calculates total size
+func (om *objectManager) validateAndCalculatePartsSize(ctx context.Context, uploadID string, parts []Part) (int64, error) {
+	if len(parts) == 0 {
+		return 0, fmt.Errorf("no parts provided")
+	}
+
+	// Sort parts by part number
+	sort.Slice(parts, func(i, j int) bool {
+		return parts[i].PartNumber < parts[j].PartNumber
+	})
+
+	// Validate parts exist in storage and calculate total size
+	var totalSize int64
+	for _, part := range parts {
+		partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
+		exists, err := om.storage.Exists(ctx, partPath)
+		if err != nil {
+			return 0, fmt.Errorf("failed to check part %d existence: %w", part.PartNumber, err)
+		}
+		if !exists {
+			return 0, fmt.Errorf("part %d not found", part.PartNumber)
+		}
+
+		// Get part metadata to get the actual size
+		partMeta, err := om.metadataStore.GetPart(ctx, uploadID, part.PartNumber)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get part %d metadata: %w", part.PartNumber, err)
+		}
+		totalSize += partMeta.Size
+	}
+
+	return totalSize, nil
+}
+
+// checkMultipartQuotaBeforeComplete validates tenant quota before combining parts
+func (om *objectManager) checkMultipartQuotaBeforeComplete(ctx context.Context, bucket, uploadID string, totalSize int64, existingObj *metadata.ObjectMetadata) error {
+	if om.authManager == nil {
+		return nil
+	}
+
+	tenantID, _ := om.parseBucketPath(bucket)
+	if tenantID == "" {
+		return nil
+	}
+
+	isNewObject := existingObj == nil
+	var sizeIncrement int64
+	if isNewObject {
+		sizeIncrement = totalSize
+	} else {
+		sizeIncrement = totalSize - existingObj.Size
+	}
+
+	// Only check quota if adding storage
+	if sizeIncrement <= 0 {
+		return nil
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"tenantID":  tenantID,
+		"uploadID":  uploadID,
+		"totalSize": totalSize,
+		"existingSize": func() int64 {
+			if existingObj != nil {
+				return existingObj.Size
+			}
+			return 0
+		}(),
+		"sizeIncrement": sizeIncrement,
+	}).Info("Validating quota before completing multipart upload")
+
+	if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"tenantID":      tenantID,
+			"uploadID":      uploadID,
+			"sizeIncrement": sizeIncrement,
+			"error":         err,
+		}).Warn("Multipart upload quota validation failed")
+		return fmt.Errorf("storage quota exceeded: %w", err)
+	}
+
+	return nil
+}
+
+// calculateMultipartHash streams combined file to temp while calculating MD5 hash
+func (om *objectManager) calculateMultipartHash(ctx context.Context, objectPath string) (int64, string, string, error) {
+	combinedReader, _, err := om.storage.Get(ctx, objectPath)
+	if err != nil {
+		return 0, "", "", fmt.Errorf("failed to read combined object: %w", err)
+	}
+
+	// Create temp file for calculating metadata
+	tempFile, err := os.CreateTemp("", "maxiofs-multipart-*")
+	if err != nil {
+		combinedReader.Close()
+		return 0, "", "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tempPath := tempFile.Name()
+
+	// Stream to temp file while calculating MD5 hash
+	hasher := md5.New()
+	multiWriter := io.MultiWriter(tempFile, hasher)
+	originalSize, err := io.Copy(multiWriter, combinedReader)
+	combinedReader.Close()
+	if err != nil {
+		tempFile.Close()
+		os.Remove(tempPath)
+		return 0, "", "", fmt.Errorf("failed to write to temp file: %w", err)
+	}
+	tempFile.Close()
+
+	originalETag := hex.EncodeToString(hasher.Sum(nil))
+	return originalSize, originalETag, tempPath, nil
+}
+
+// shouldEncryptMultipartObject determines if multipart object should be encrypted
+func (om *objectManager) shouldEncryptMultipartObject(ctx context.Context, bucket string) bool {
+	if !om.config.EnableEncryption {
+		return false
+	}
+
+	tenantID, bucketName := om.parseBucketPath(bucket)
+	bucketInfo, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
+	if err != nil || bucketInfo == nil || bucketInfo.Encryption == nil {
+		return false
+	}
+
+	if len(bucketInfo.Encryption.Rules) > 0 && bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault != nil {
+		sseConfig := bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault
+		return sseConfig.SSEAlgorithm != ""
+	}
+
+	return false
+}
+
+// storeEncryptedMultipartObject encrypts and stores multipart object
+func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, objectPath, tempPath string, uploadID string, multipart *MultipartUpload, originalSize int64, originalETag string) error {
+	tempFileRead, err := os.Open(tempPath)
+	if err != nil {
+		return fmt.Errorf("failed to open temp file for encryption: %w", err)
+	}
+	defer tempFileRead.Close()
+
+	// Create a pipe for streaming encryption
+	pipeReader, pipeWriter := io.Pipe()
+
+	// Encrypt in background goroutine
+	go func() {
+		defer pipeWriter.Close()
+		if _, err := om.encryptionService.EncryptStream(tempFileRead, pipeWriter); err != nil {
+			logrus.WithError(err).Error("Failed to encrypt multipart object")
+			pipeWriter.CloseWithError(fmt.Errorf("encryption failed: %w", err))
+		}
+	}()
+
+	// Store encryption markers in storage metadata
+	encryptionMetadata := map[string]string{
+		"original-size":                          fmt.Sprintf("%d", originalSize),
+		"original-etag":                          originalETag,
+		"encrypted":                              "true",
+		"x-amz-server-side-encryption":           "AES256",
+		"x-amz-server-side-encryption-algorithm": "AES-256-CTR",
+		"content-type":                           multipart.Metadata["content-type"],
+	}
+
+	// Copy any user metadata from multipart upload
+	for k, v := range multipart.Metadata {
+		if k != "content-type" {
+			encryptionMetadata[k] = v
+		}
+	}
+
+	if err := om.storage.Put(ctx, objectPath, pipeReader, encryptionMetadata); err != nil {
+		return fmt.Errorf("failed to store encrypted multipart object: %w", err)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"uploadID": uploadID,
+		"bucket":   multipart.Bucket,
+		"key":      multipart.Key,
+	}).Info("Multipart object encrypted and stored successfully (streaming)")
+
+	return nil
+}
+
+// storeUnencryptedMultipartObject stores multipart object without encryption
+func (om *objectManager) storeUnencryptedMultipartObject(ctx context.Context, objectPath, tempPath string, uploadID string, multipart *MultipartUpload, originalSize int64, originalETag string) error {
+	unencryptedMetadata := map[string]string{
+		"size":         fmt.Sprintf("%d", originalSize),
+		"etag":         originalETag,
+		"content-type": multipart.Metadata["content-type"],
+	}
+
+	// Copy any user metadata from multipart upload
+	for k, v := range multipart.Metadata {
+		if k != "content-type" {
+			unencryptedMetadata[k] = v
+		}
+	}
+
+	// Open temp file to replace combined file with proper metadata
+	tempFileRead, err := os.Open(tempPath)
+	if err != nil {
+		return fmt.Errorf("failed to open temp file: %w", err)
+	}
+	defer tempFileRead.Close()
+
+	// Replace with unencrypted version (streaming)
+	if err := om.storage.Put(ctx, objectPath, tempFileRead, unencryptedMetadata); err != nil {
+		return fmt.Errorf("failed to store multipart object: %w", err)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"uploadID": uploadID,
+		"bucket":   multipart.Bucket,
+		"key":      multipart.Key,
+	}).Info("Multipart object stored successfully (unencrypted)")
+
+	return nil
+}
+
+// updateMetricsAndCleanupMultipart updates bucket/tenant metrics and cleans up multipart data
+func (om *objectManager) updateMetricsAndCleanupMultipart(ctx context.Context, bucket, uploadID string, originalSize int64, isNewObject bool, existingObj *metadata.ObjectMetadata, parts []Part) {
+	tenantID, bucketName := om.parseBucketPath(bucket)
+
+	// Update bucket metrics
+	if om.bucketManager != nil {
+		if isNewObject {
+			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, originalSize); err != nil {
+				logrus.WithError(err).Warn("Failed to increment bucket metrics after multipart upload")
+			}
+		} else {
+			sizeDiff := originalSize - existingObj.Size
+			if sizeDiff != 0 {
+				if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, sizeDiff); err != nil {
+					logrus.WithError(err).Warn("Failed to adjust bucket size after multipart overwrite")
+				}
+			}
+		}
+
+		// Update tenant storage quota
+		if om.authManager != nil && tenantID != "" {
+			var sizeToAdd int64
+			if isNewObject {
+				sizeToAdd = originalSize
+			} else {
+				sizeToAdd = originalSize - existingObj.Size
+			}
+			if sizeToAdd != 0 {
+				if err := om.authManager.IncrementTenantStorage(ctx, tenantID, sizeToAdd); err != nil {
+					logrus.WithError(err).Warn("Failed to increment tenant storage after multipart upload")
+				}
+			}
+		}
+	}
+
+	// Clean up multipart upload from BadgerDB
+	if err := om.metadataStore.AbortMultipartUpload(ctx, uploadID); err != nil {
+		logrus.WithError(err).Warn("Failed to delete multipart upload from BadgerDB")
+	}
+
+	// Clean up part files from storage
+	for _, part := range parts {
+		partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
+		om.storage.Delete(ctx, partPath) // Ignore errors
 	}
 }

@@ -665,75 +665,43 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 
 	// If NOT authenticated, check if this is a presigned URL request
 	if !userExists && presigned.IsPresignedURL(r) {
-		// Extract access key from presigned URL
-		accessKeyID := presigned.ExtractAccessKeyID(r)
-		if accessKeyID == "" {
-			h.writeError(w, "InvalidRequest", "Invalid presigned URL: missing access key", objectKey, r)
-			return
-		}
-
-		// Get access key to retrieve secret
-		if h.authManager == nil {
-			h.writeError(w, "InternalError", "Auth manager not configured", objectKey, r)
-			return
-		}
-
-		accessKey, err := h.authManager.GetAccessKey(r.Context(), accessKeyID)
+		accessKeyID, valid, err := h.validatePresignedURLAccess(r, objectKey)
 		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"accessKeyID": accessKeyID,
-				"error":       err.Error(),
-			}).Warn("Presigned URL: access key not found")
-			h.writeError(w, "InvalidAccessKeyId", "The AWS access key ID you provided does not exist in our records", objectKey, r)
+			// Determine appropriate error code based on the error
+			if strings.Contains(err.Error(), "missing access key") {
+				h.writeError(w, "InvalidRequest", err.Error(), objectKey, r)
+			} else if strings.Contains(err.Error(), "auth manager") {
+				h.writeError(w, "InternalError", err.Error(), objectKey, r)
+			} else if strings.Contains(err.Error(), "access key not found") {
+				h.writeError(w, "InvalidAccessKeyId", "The AWS access key ID you provided does not exist in our records", objectKey, r)
+			} else {
+				h.writeError(w, "SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided", objectKey, r)
+			}
 			return
 		}
 
-		// Validate presigned URL signature
-		valid, err := presigned.ValidatePresignedURL(r, accessKey.SecretAccessKey)
-		if err != nil || !valid {
+		if valid {
+			allowedByPresignedURL = true
 			logrus.WithFields(logrus.Fields{
+				"bucket":      bucketName,
+				"object":      objectKey,
 				"accessKeyID": accessKeyID,
-				"error":       err,
-			}).Warn("Presigned URL validation failed")
-			h.writeError(w, "SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided", objectKey, r)
-			return
+			}).Info("Presigned URL access allowed")
 		}
-
-		// Presigned URL is valid - mark as allowed
-		allowedByPresignedURL = true
-		logrus.WithFields(logrus.Fields{
-			"bucket":      bucketName,
-			"object":      objectKey,
-			"accessKeyID": accessKeyID,
-		}).Info("Presigned URL validated successfully")
 	}
 
 	// Check if this is a VEEAM SOSAPI virtual object (after authentication check)
-	if isVeeamSOSAPIObject(objectKey) {
-		// SOSAPI requires authentication - Veeam sends credentials
-		if !userExists {
+	// SOSAPI requires authentication - Veeam sends credentials
+	if !userExists {
+		if isVeeamSOSAPIObject(objectKey) {
 			h.writeError(w, "AccessDenied", "Authentication required", objectKey, r)
 			return
 		}
-
-		logrus.WithFields(logrus.Fields{
-			"bucket": bucketName,
-			"object": objectKey,
-		}).Info("Serving VEEAM SOSAPI virtual object (authenticated)")
-
-		data, contentType, err := h.getSOSAPIVirtualObject(r.Context(), objectKey)
-		if err != nil {
-			h.writeError(w, "InternalError", err.Error(), objectKey, r)
+	} else {
+		// User is authenticated, handle VEEAM SOSAPI if applicable
+		if h.handleVeeamSOSAPIObject(w, r, objectKey) {
 			return
 		}
-
-		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-		w.Header().Set("ETag", `"sosapi-virtual-object"`)
-		w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
-		w.WriteHeader(http.StatusOK)
-		w.Write(data)
-		return
 	}
 
 	// If NOT authenticated and NOT allowed by presigned URL, check if object has an active share (Public Link)
@@ -742,59 +710,16 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	// 2. /tenant-xxx/bucket/object (tenant bucket)
 	var shareTenantID string
 	if !userExists && !allowedByPresignedURL && h.shareManager != nil {
-		// Extract tenant from bucket name if present
-		realBucket := bucketName
-		realObject := objectKey
-		extractedTenant := ""
-
-		// If bucketName starts with "tenant-", it's actually the tenant ID
-		if strings.HasPrefix(bucketName, "tenant-") {
-			extractedTenant = bucketName
-			// The object key contains bucket/object, split it
-			parts := strings.SplitN(objectKey, "/", 2)
-			if len(parts) == 2 {
-				realBucket = parts[0]
-				realObject = parts[1]
-			} else {
-				realBucket = objectKey
-				realObject = ""
-			}
-
-			logrus.WithFields(logrus.Fields{
-				"originalBucket":  bucketName,
-				"originalObject":  objectKey,
-				"extractedTenant": extractedTenant,
-				"realBucket":      realBucket,
-				"realObject":      realObject,
-			}).Debug("Extracted tenant from URL path")
-		}
-
-		// Try to find share with extracted tenant ID
-		shareInterface, err := h.shareManager.GetShareByObject(r.Context(), realBucket, realObject, extractedTenant)
+		realBucket, realObject, tenantFromShare, err := h.validateShareAccess(r, bucketName, objectKey)
 		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"bucket": realBucket,
-				"object": realObject,
-				"tenant": extractedTenant,
-				"error":  err.Error(),
-			}).Warn("Unauthenticated access denied - no active share found")
 			h.writeError(w, "AccessDenied", "Access denied. Object is not shared.", objectKey, r)
 			return
 		}
 
-		// Type assert to *share.Share
-		if s, ok := shareInterface.(*share.Share); ok {
-			shareTenantID = s.TenantID
-			// Override vars for subsequent processing
-			bucketName = realBucket
-			objectKey = realObject
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"bucket":   bucketName,
-			"object":   objectKey,
-			"tenantID": shareTenantID,
-		}).Info("Shared object access - bypassing authentication")
+		shareTenantID = tenantFromShare
+		// Override vars for subsequent processing
+		bucketName = realBucket
+		objectKey = realObject
 	}
 
 	// Build bucket path: use shareTenantID if available, otherwise use auth-based tenant
@@ -954,9 +879,6 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		isRangeRequest = false
 	}
 
-	// Calculate content length for this range
-	contentLength := rangeEnd - rangeStart + 1
-
 	// Set common response headers
 	w.Header().Set("Content-Type", obj.ContentType)
 	w.Header().Set("ETag", obj.ETag)
@@ -981,39 +903,13 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 
 	// Handle range request
 	if isRangeRequest {
-		// Set 206 Partial Content headers
-		w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
-		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, obj.Size))
-		w.WriteHeader(http.StatusPartialContent)
-
-		// Skip to start position if needed
-		if rangeStart > 0 {
-			if seeker, ok := reader.(io.Seeker); ok {
-				// Use Seek if available (more efficient)
-				if _, err := seeker.Seek(rangeStart, io.SeekStart); err != nil {
-					logrus.WithError(err).Error("Failed to seek to range start")
-					return
-				}
-			} else {
-				// Fall back to reading and discarding bytes
-				if _, err := io.CopyN(io.Discard, reader, rangeStart); err != nil {
-					logrus.WithError(err).Error("Failed to skip to range start")
-					return
-				}
-			}
-		}
-
-		// Copy only the requested range
-		if _, err := io.CopyN(w, reader, contentLength); err != nil && err != io.EOF {
-			logrus.WithError(err).Error("Failed to write partial object data")
+		if err := h.sendRangeResponse(w, reader, rangeStart, rangeEnd, obj.Size); err != nil {
+			return
 		}
 	} else {
 		// Send entire object (no range request)
-		w.Header().Set("Content-Length", strconv.FormatInt(obj.Size, 10))
-
-		// Copy object data to response
-		if _, err := io.Copy(w, reader); err != nil {
-			logrus.WithError(err).Error("Failed to write object data")
+		if err := h.sendFullResponse(w, reader, obj.Size); err != nil {
+			return
 		}
 	}
 }
@@ -1370,47 +1266,7 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	tenantID := h.getTenantIDFromRequest(r)
 	bucketPath := h.getBucketPath(r, bucketName)
 
-	hasPermission := false
-
-	if userExists {
-		// If user belongs to the same tenant as the bucket, allow access automatically
-		if user.TenantID == tenantID {
-			hasPermission = true
-		} else {
-			// Cross-tenant access - check ACL permissions
-			hasPermission = h.checkObjectACLPermission(r.Context(), bucketPath, objectKey, user.ID, acl.PermissionWrite)
-
-			// If no explicit object ACL, check bucket WRITE permission
-			if !hasPermission {
-				hasPermission = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionWrite)
-			}
-
-			// Check if authenticated users have write access
-			if !hasPermission {
-				hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
-			}
-
-			// Also check FULL_CONTROL as an alternative
-			if !hasPermission {
-				hasPermission = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionFullControl)
-			}
-
-			// If still no permission, check if public access is allowed
-			if !hasPermission {
-				hasPermission = h.checkPublicObjectAccess(r.Context(), bucketPath, objectKey, acl.PermissionWrite)
-				if !hasPermission {
-					hasPermission = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
-				}
-			}
-		}
-	} else {
-		// Unauthenticated access - check if bucket/object allows public WRITE
-		hasPermission = h.checkPublicObjectAccess(r.Context(), bucketPath, objectKey, acl.PermissionWrite)
-		if !hasPermission {
-			hasPermission = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
-		}
-	}
-
+	hasPermission := h.checkDeleteObjectPermission(r.Context(), user, userExists, tenantID, bucketName, bucketPath, objectKey)
 	if !hasPermission {
 		logrus.WithFields(logrus.Fields{
 			"bucket":        bucketName,
@@ -1424,103 +1280,25 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 
 	// If bypass governance is requested, validate user has admin permission
 	if bypassGovernance {
-		if !userExists {
-			h.writeError(w, "AccessDenied", "Authentication required for bypass governance retention", objectKey, r)
-			return
-		}
-
-		// Verify user has permission to bypass governance
-		isAdmin := false
-		for _, role := range user.Roles {
-			if role == "admin" {
-				isAdmin = true
-				break
-			}
-		}
-
-		if !isAdmin {
-			h.writeError(w, "AccessDenied", "Only administrators can bypass governance retention", objectKey, r)
+		if err := h.validateBypassGovernance(user, userExists); err != nil {
+			h.writeError(w, "AccessDenied", err.Error(), objectKey, r)
 			return
 		}
 	}
 
 	// Get object info before deletion to track size for metrics
-	var objectSize int64
-	objInfo, reader, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
-	if err == nil && objInfo != nil {
-		objectSize = objInfo.Size
-		if reader != nil {
-			reader.Close() // Close immediately, we only need the size
-		}
-	}
+	objectSize := h.getObjectSizeBeforeDeletion(r.Context(), bucketPath, objectKey, versionID)
 
 	deleteMarkerVersionID, err := h.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, bypassGovernance, versionID)
-	if err != nil {
-		if err == object.ErrBucketNotFound {
-			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
-			return
-		}
-
-		// S3 spec: DELETE on non-existent object should return success (idempotent)
-		if err == object.ErrObjectNotFound {
-			logrus.WithFields(logrus.Fields{
-				"bucket": bucketName,
-				"object": objectKey,
-			}).Debug("DELETE on non-existent object - returning success (S3 spec)")
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		// Check if it's a retention error with detailed information
-		if retErr, ok := err.(*object.RetentionError); ok {
-			h.writeError(w, "AccessDenied", retErr.Error(), objectKey, r)
-			return
-		}
-
-		// Check for other Object Lock errors
-		if err == object.ErrObjectUnderLegalHold {
-			h.writeError(w, "AccessDenied", "Object is under legal hold and cannot be deleted", objectKey, r)
-			return
-		}
-
-		h.writeError(w, "InternalError", err.Error(), objectKey, r)
+	if h.handleDeleteObjectErrors(w, r, err, bucketName, objectKey) {
 		return
 	}
 
 	// Update bucket metrics after successful deletion
-	// Only decrement if we actually deleted an object (not just created delete marker)
-	if objectSize > 0 && deleteMarkerVersionID == "" {
-		if err := h.bucketManager.DecrementObjectCount(r.Context(), tenantID, bucketName, objectSize); err != nil {
-			logrus.WithError(err).WithFields(logrus.Fields{
-				"bucket":   bucketName,
-				"object":   objectKey,
-				"size":     objectSize,
-				"tenantID": tenantID,
-			}).Warn("Failed to update bucket metrics after DeleteObject")
-		}
-	}
-
-	// Update tenant storage usage for quota tracking
-	if userExists && user.TenantID != "" && objectSize > 0 && deleteMarkerVersionID == "" {
-		if err := h.authManager.DecrementTenantStorage(r.Context(), user.TenantID, objectSize); err != nil {
-			logrus.WithError(err).WithFields(logrus.Fields{
-				"tenantID": user.TenantID,
-				"size":     objectSize,
-			}).Warn("Failed to decrement tenant storage usage")
-		}
-	}
+	h.updateMetricsAfterDeletion(r.Context(), user, userExists, tenantID, bucketName, objectSize, deleteMarkerVersionID)
 
 	// Set response headers
-	if deleteMarkerVersionID != "" {
-		// A delete marker was created
-		w.Header().Set("x-amz-version-id", deleteMarkerVersionID)
-		w.Header().Set("x-amz-delete-marker", "true")
-	} else if versionID != "" {
-		// A specific version was permanently deleted
-		w.Header().Set("x-amz-version-id", versionID)
-		w.Header().Set("x-amz-delete-marker", "false")
-	}
-
+	h.setDeleteResponseHeaders(w, deleteMarkerVersionID, versionID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -2545,3 +2323,334 @@ func (h *Handler) PresignedOperation(w http.ResponseWriter, r *http.Request) {
 // - bucket_ops.go: Bucket Policy, Lifecycle, CORS operations
 // - object_ops.go: Object Lock, Tagging, ACL, CopyObject operations
 // - multipart.go: Multipart Upload operations
+
+// ========== GetObject Helper Functions (Refactoring for Complexity Reduction) ==========
+
+// validatePresignedURLAccess validates a presigned URL and returns access key ID if valid
+func (h *Handler) validatePresignedURLAccess(r *http.Request, objectKey string) (string, bool, error) {
+	// Extract access key from presigned URL
+	accessKeyID := presigned.ExtractAccessKeyID(r)
+	if accessKeyID == "" {
+		return "", false, fmt.Errorf("invalid presigned URL: missing access key")
+	}
+
+	// Get access key to retrieve secret
+	if h.authManager == nil {
+		return "", false, fmt.Errorf("auth manager not configured")
+	}
+
+	accessKey, err := h.authManager.GetAccessKey(r.Context(), accessKeyID)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"accessKeyID": accessKeyID,
+			"error":       err.Error(),
+		}).Warn("Presigned URL: access key not found")
+		return "", false, fmt.Errorf("access key not found")
+	}
+
+	// Validate presigned URL signature
+	valid, err := presigned.ValidatePresignedURL(r, accessKey.SecretAccessKey)
+	if err != nil || !valid {
+		logrus.WithFields(logrus.Fields{
+			"accessKeyID": accessKeyID,
+			"error":       err,
+		}).Warn("Presigned URL validation failed")
+		return "", false, fmt.Errorf("signature validation failed")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"accessKeyID": accessKeyID,
+	}).Info("Presigned URL validated successfully")
+
+	return accessKeyID, true, nil
+}
+
+// handleVeeamSOSAPIObject handles VEEAM SOSAPI virtual objects
+func (h *Handler) handleVeeamSOSAPIObject(w http.ResponseWriter, r *http.Request, objectKey string) bool {
+	if !isVeeamSOSAPIObject(objectKey) {
+		return false
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"object": objectKey,
+	}).Info("Serving VEEAM SOSAPI virtual object (authenticated)")
+
+	data, contentType, err := h.getSOSAPIVirtualObject(r.Context(), objectKey)
+	if err != nil {
+		h.writeError(w, "InternalError", err.Error(), objectKey, r)
+		return true
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.Header().Set("ETag", `"sosapi-virtual-object"`)
+	w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
+	return true
+}
+
+// validateShareAccess validates if object is shared and returns real bucket/object names and tenant
+func (h *Handler) validateShareAccess(r *http.Request, bucketName, objectKey string) (string, string, string, error) {
+	if h.shareManager == nil {
+		return "", "", "", fmt.Errorf("share manager not available")
+	}
+
+	realBucket := bucketName
+	realObject := objectKey
+	extractedTenant := ""
+
+	// If bucketName starts with "tenant-", it's actually the tenant ID
+	if strings.HasPrefix(bucketName, "tenant-") {
+		extractedTenant = bucketName
+		// The object key contains bucket/object, split it
+		parts := strings.SplitN(objectKey, "/", 2)
+		if len(parts) == 2 {
+			realBucket = parts[0]
+			realObject = parts[1]
+		} else {
+			realBucket = objectKey
+			realObject = ""
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"originalBucket":  bucketName,
+			"originalObject":  objectKey,
+			"extractedTenant": extractedTenant,
+			"realBucket":      realBucket,
+			"realObject":      realObject,
+		}).Debug("Extracted tenant from URL path")
+	}
+
+	// Try to find share with extracted tenant ID
+	shareInterface, err := h.shareManager.GetShareByObject(r.Context(), realBucket, realObject, extractedTenant)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"bucket": realBucket,
+			"object": realObject,
+			"tenant": extractedTenant,
+			"error":  err.Error(),
+		}).Warn("Unauthenticated access denied - no active share found")
+		return "", "", "", err
+	}
+
+	// Type assert to *share.Share
+	var shareTenantID string
+	if s, ok := shareInterface.(*share.Share); ok {
+		shareTenantID = s.TenantID
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket":   realBucket,
+		"object":   realObject,
+		"tenantID": shareTenantID,
+	}).Info("Shared object access - bypassing authentication")
+
+	return realBucket, realObject, shareTenantID, nil
+}
+
+// sendRangeResponse sends a partial content response for Range requests
+func (h *Handler) sendRangeResponse(w http.ResponseWriter, reader io.ReadCloser, rangeStart, rangeEnd, totalSize int64) error {
+	contentLength := rangeEnd - rangeStart + 1
+
+	// Set 206 Partial Content headers
+	w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, totalSize))
+	w.WriteHeader(http.StatusPartialContent)
+
+	// Skip to start position if needed
+	if rangeStart > 0 {
+		if seeker, ok := reader.(io.Seeker); ok {
+			// Use Seek if available (more efficient)
+			if _, err := seeker.Seek(rangeStart, io.SeekStart); err != nil {
+				logrus.WithError(err).Error("Failed to seek to range start")
+				return err
+			}
+		} else {
+			// Fall back to reading and discarding bytes
+			if _, err := io.CopyN(io.Discard, reader, rangeStart); err != nil {
+				logrus.WithError(err).Error("Failed to skip to range start")
+				return err
+			}
+		}
+	}
+
+	// Copy only the requested range
+	if _, err := io.CopyN(w, reader, contentLength); err != nil && err != io.EOF {
+		logrus.WithError(err).Error("Failed to write partial object data")
+		return err
+	}
+
+	return nil
+}
+
+// sendFullResponse sends the complete object response
+func (h *Handler) sendFullResponse(w http.ResponseWriter, reader io.Reader, size int64) error {
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+
+	// Copy object data to response
+	if _, err := io.Copy(w, reader); err != nil {
+		logrus.WithError(err).Error("Failed to write object data")
+		return err
+	}
+
+	return nil
+}
+
+// ========== DeleteObject Helper Functions (Refactoring for Complexity Reduction) ==========
+
+// checkDeleteObjectPermission checks if user/anonymous has permission to delete object
+func (h *Handler) checkDeleteObjectPermission(ctx context.Context, user *auth.User, userExists bool, tenantID, bucketName, bucketPath, objectKey string) bool {
+	hasPermission := false
+
+	if userExists {
+		// If user belongs to the same tenant as the bucket, allow access automatically
+		if user.TenantID == tenantID {
+			hasPermission = true
+		} else {
+			// Cross-tenant access - check ACL permissions
+			hasPermission = h.checkObjectACLPermission(ctx, bucketPath, objectKey, user.ID, acl.PermissionWrite)
+
+			// If no explicit object ACL, check bucket WRITE permission
+			if !hasPermission {
+				hasPermission = h.checkBucketACLPermission(ctx, tenantID, bucketName, user.ID, acl.PermissionWrite)
+			}
+
+			// Check if authenticated users have write access
+			if !hasPermission {
+				hasPermission = h.checkAuthenticatedBucketAccess(ctx, tenantID, bucketName, acl.PermissionWrite)
+			}
+
+			// Also check FULL_CONTROL as an alternative
+			if !hasPermission {
+				hasPermission = h.checkBucketACLPermission(ctx, tenantID, bucketName, user.ID, acl.PermissionFullControl)
+			}
+
+			// If still no permission, check if public access is allowed
+			if !hasPermission {
+				hasPermission = h.checkPublicObjectAccess(ctx, bucketPath, objectKey, acl.PermissionWrite)
+				if !hasPermission {
+					hasPermission = h.checkPublicBucketAccess(ctx, tenantID, bucketName, acl.PermissionWrite)
+				}
+			}
+		}
+	} else {
+		// Unauthenticated access - check if bucket/object allows public WRITE
+		hasPermission = h.checkPublicObjectAccess(ctx, bucketPath, objectKey, acl.PermissionWrite)
+		if !hasPermission {
+			hasPermission = h.checkPublicBucketAccess(ctx, tenantID, bucketName, acl.PermissionWrite)
+		}
+	}
+
+	return hasPermission
+}
+
+// validateBypassGovernance validates that user is admin if bypass governance is requested
+func (h *Handler) validateBypassGovernance(user *auth.User, userExists bool) error {
+	if !userExists {
+		return fmt.Errorf("authentication required for bypass governance retention")
+	}
+
+	// Verify user has permission to bypass governance
+	isAdmin := false
+	for _, role := range user.Roles {
+		if role == "admin" {
+			isAdmin = true
+			break
+		}
+	}
+
+	if !isAdmin {
+		return fmt.Errorf("only administrators can bypass governance retention")
+	}
+
+	return nil
+}
+
+// getObjectSizeBeforeDeletion gets object size before deletion for metrics tracking
+func (h *Handler) getObjectSizeBeforeDeletion(ctx context.Context, bucketPath, objectKey, versionID string) int64 {
+	var objectSize int64
+	objInfo, reader, err := h.objectManager.GetObject(ctx, bucketPath, objectKey, versionID)
+	if err == nil && objInfo != nil {
+		objectSize = objInfo.Size
+		if reader != nil {
+			reader.Close() // Close immediately, we only need the size
+		}
+	}
+	return objectSize
+}
+
+// handleDeleteObjectErrors handles specific delete errors and writes appropriate response
+func (h *Handler) handleDeleteObjectErrors(w http.ResponseWriter, r *http.Request, err error, bucketName, objectKey string) bool {
+	if err == nil {
+		return false
+	}
+
+	if err == object.ErrBucketNotFound {
+		h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+		return true
+	}
+
+	// S3 spec: DELETE on non-existent object should return success (idempotent)
+	if err == object.ErrObjectNotFound {
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucketName,
+			"object": objectKey,
+		}).Debug("DELETE on non-existent object - returning success (S3 spec)")
+		w.WriteHeader(http.StatusNoContent)
+		return true
+	}
+
+	// Check if it's a retention error with detailed information
+	if retErr, ok := err.(*object.RetentionError); ok {
+		h.writeError(w, "AccessDenied", retErr.Error(), objectKey, r)
+		return true
+	}
+
+	// Check for other Object Lock errors
+	if err == object.ErrObjectUnderLegalHold {
+		h.writeError(w, "AccessDenied", "Object is under legal hold and cannot be deleted", objectKey, r)
+		return true
+	}
+
+	h.writeError(w, "InternalError", err.Error(), objectKey, r)
+	return true
+}
+
+// updateMetricsAfterDeletion updates bucket and tenant metrics after successful deletion
+func (h *Handler) updateMetricsAfterDeletion(ctx context.Context, user *auth.User, userExists bool, tenantID, bucketName string, objectSize int64, deleteMarkerVersionID string) {
+	// Update bucket metrics after successful deletion
+	// Only decrement if we actually deleted an object (not just created delete marker)
+	if objectSize > 0 && deleteMarkerVersionID == "" {
+		if err := h.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objectSize); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"bucket":   bucketName,
+				"size":     objectSize,
+				"tenantID": tenantID,
+			}).Warn("Failed to update bucket metrics after DeleteObject")
+		}
+	}
+
+	// Update tenant storage usage for quota tracking
+	if userExists && user.TenantID != "" && objectSize > 0 && deleteMarkerVersionID == "" {
+		if err := h.authManager.DecrementTenantStorage(ctx, user.TenantID, objectSize); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"tenantID": user.TenantID,
+				"size":     objectSize,
+			}).Warn("Failed to decrement tenant storage usage")
+		}
+	}
+}
+
+// setDeleteResponseHeaders sets appropriate response headers for delete operation
+func (h *Handler) setDeleteResponseHeaders(w http.ResponseWriter, deleteMarkerVersionID, versionID string) {
+	if deleteMarkerVersionID != "" {
+		// A delete marker was created
+		w.Header().Set("x-amz-version-id", deleteMarkerVersionID)
+		w.Header().Set("x-amz-delete-marker", "true")
+	} else if versionID != "" {
+		// A specific version was permanently deleted
+		w.Header().Set("x-amz-version-id", versionID)
+		w.Header().Set("x-amz-delete-marker", "false")
+	}
+}
