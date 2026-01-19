@@ -667,16 +667,7 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	if !userExists && presigned.IsPresignedURL(r) {
 		accessKeyID, valid, err := h.validatePresignedURLAccess(r, objectKey)
 		if err != nil {
-			// Determine appropriate error code based on the error
-			if strings.Contains(err.Error(), "missing access key") {
-				h.writeError(w, "InvalidRequest", err.Error(), objectKey, r)
-			} else if strings.Contains(err.Error(), "auth manager") {
-				h.writeError(w, "InternalError", err.Error(), objectKey, r)
-			} else if strings.Contains(err.Error(), "access key not found") {
-				h.writeError(w, "InvalidAccessKeyId", "The AWS access key ID you provided does not exist in our records", objectKey, r)
-			} else {
-				h.writeError(w, "SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided", objectKey, r)
-			}
+			h.handlePresignedURLError(w, err, objectKey, r)
 			return
 		}
 
@@ -724,14 +715,7 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 
 	// Build bucket path: use shareTenantID if available, otherwise use auth-based tenant
 	// IMPORTANT: Use same logic as PutObject to ensure consistency
-	var bucketPath string
-	if shareTenantID != "" {
-		// Share is active - use tenant from share
-		bucketPath = shareTenantID + "/" + bucketName
-	} else {
-		// No share - use standard bucket path (same as PutObject/ListObjects/DeleteObject)
-		bucketPath = h.getBucketPath(r, bucketName)
-	}
+	bucketPath := h.resolveBucketPath(r, bucketName, shareTenantID)
 
 	logrus.WithFields(logrus.Fields{
 		"bucket":        bucketName,
@@ -743,57 +727,8 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 
 	// 1. Verificar permiso de BUCKET únicamente (NO verificar ACL de objeto aún)
 	// El objeto puede no existir, así que solo verificamos permisos de bucket
-
-	var hasBucketRead bool = true
-	if userExists && !allowedByPresignedURL && shareTenantID == "" {
-		logrus.WithFields(logrus.Fields{
-			"userTenantID":   user.TenantID,
-			"bucketTenantID": tenantID,
-			"isCrossTenant":  user.TenantID != tenantID,
-			"userID":         user.ID,
-			"bucket":         bucketName,
-		}).Info("GetObject: ACL check - comparing tenant IDs")
-
-		// Si es mismo tenant, permitir; si no, verificar permiso de bucket
-		if user.TenantID != tenantID {
-			// Cross-tenant: verificar permisos de bucket (NO de objeto específico)
-			hasBucketRead = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionRead)
-
-			// Si no tiene permiso explícito, verificar si es authenticated-read
-			if !hasBucketRead {
-				hasBucketRead = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
-			}
-
-			// Si aún no tiene permiso, verificar si el bucket es público
-			if !hasBucketRead {
-				hasBucketRead = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
-			}
-
-			if !hasBucketRead {
-				logrus.WithFields(logrus.Fields{
-					"bucket":       bucketName,
-					"object":       objectKey,
-					"userID":       user.ID,
-					"userTenantID": user.TenantID,
-					"bucketTenant": tenantID,
-				}).Warn("ACL permission denied for GetObject - cross-tenant access (bucket-level)")
-				h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
-				return
-			}
-		}
-		// Mismo tenant: acceso permitido
-	} else if !userExists && !allowedByPresignedURL && shareTenantID == "" {
-		// Sin autenticación: solo verificar si el BUCKET es público (NO el objeto específico)
-		hasBucketRead = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
-
-		if !hasBucketRead {
-			logrus.WithFields(logrus.Fields{
-				"bucket": bucketName,
-				"object": objectKey,
-			}).Warn("Public access denied - bucket not publicly readable (bucket-level)")
-			h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
-			return
-		}
+	if !h.validateBucketReadPermission(w, r, user, userExists, allowedByPresignedURL, shareTenantID, tenantID, bucketName, objectKey) {
+		return
 	}
 
 	// 2. Intentar obtener el objeto
@@ -813,39 +748,13 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	defer reader.Close()
 
 	// Handle conditional requests (If-Match, If-None-Match)
-	ifMatch := r.Header.Get("If-Match")
-	ifNoneMatch := r.Header.Get("If-None-Match")
-
-	if ifMatch != "" {
-		// If-Match: Return 412 if ETag doesn't match
-		if obj.ETag != strings.Trim(ifMatch, "\"") {
-			w.WriteHeader(http.StatusPreconditionFailed)
-			return
-		}
-	}
-
-	if ifNoneMatch != "" {
-		// If-None-Match: Return 304 if ETag matches (resource not modified)
-		if obj.ETag == strings.Trim(ifNoneMatch, "\"") {
-			w.WriteHeader(http.StatusNotModified)
-			return
-		}
+	if !h.validateConditionalHeaders(w, r, obj.ETag) {
+		return
 	}
 
 	// 3. El objeto existe - ahora verificar ACL de objeto (solo para cross-tenant)
-	if userExists && !allowedByPresignedURL && shareTenantID == "" && user.TenantID != tenantID {
-		hasObjectACL := h.checkObjectACLPermission(r.Context(), bucketPath, objectKey, user.ID, acl.PermissionRead)
-		if !hasObjectACL {
-			logrus.WithFields(logrus.Fields{
-				"bucket":       bucketName,
-				"object":       objectKey,
-				"userID":       user.ID,
-				"userTenantID": user.TenantID,
-				"bucketTenant": tenantID,
-			}).Warn("ACL permission denied for GetObject - cross-tenant access (object-level)")
-			h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
-			return
-		}
+	if !h.validateObjectReadPermission(w, r, user, userExists, allowedByPresignedURL, shareTenantID, tenantID, bucketPath, bucketName, objectKey) {
+		return
 	}
 
 	// Parse Range header if present (for parallel/resumable downloads)
@@ -880,26 +789,7 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set common response headers
-	w.Header().Set("Content-Type", obj.ContentType)
-	w.Header().Set("ETag", obj.ETag)
-	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
-	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
-
-	// Add version ID if available
-	if obj.VersionID != "" {
-		w.Header().Set("x-amz-version-id", obj.VersionID)
-	}
-
-	// Agregar headers de Object Lock si existen (Veeam compatibility)
-	if obj.Retention != nil {
-		w.Header().Set("x-amz-object-lock-mode", obj.Retention.Mode)
-		w.Header().Set("x-amz-object-lock-retain-until-date", obj.Retention.RetainUntilDate.UTC().Format(time.RFC3339))
-	}
-
-	if obj.LegalHold != nil && obj.LegalHold.Status == "ON" {
-		w.Header().Set("x-amz-object-lock-legal-hold", "ON")
-	}
+	h.setGetObjectResponseHeaders(w, obj)
 
 	// Handle range request
 	if isRangeRequest {
@@ -949,114 +839,13 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	tenantID := h.getTenantIDFromRequest(r)
 
 	// Check tenant storage quota before accepting upload
-	if h.authManager != nil && userExists && user.TenantID != "" {
-		// Get content length for quota check
-		contentLength := r.ContentLength
-		if decodedContentLength != "" {
-			if size, err := strconv.ParseInt(decodedContentLength, 10, 64); err == nil {
-				contentLength = size
-			}
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"bucket":        bucketName,
-			"object":        objectKey,
-			"tenantID":      user.TenantID,
-			"contentLength": contentLength,
-			"hasAuthMgr":    h.authManager != nil,
-		}).Debug("Starting quota validation")
-
-		// For quota validation, we need to check the actual storage increment
-		// If overwriting an existing object, only validate the size difference
-		if contentLength > 0 {
-			// Check if object exists to calculate actual storage increment
-			var sizeIncrement int64 = contentLength
-
-			// Try to get existing object metadata (use bucketPath for proper tenant isolation)
-			bucketPath := h.getBucketPath(r, bucketName)
-			existingObj, _, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey)
-			if err == nil && existingObj != nil {
-				// Object exists - calculate size difference for quota check
-				sizeIncrement = contentLength - existingObj.Size
-				logrus.WithFields(logrus.Fields{
-					"existingSize":  existingObj.Size,
-					"newSize":       contentLength,
-					"sizeIncrement": sizeIncrement,
-				}).Debug("Object exists, calculating size increment")
-			} else {
-				logrus.WithField("sizeIncrement", sizeIncrement).Debug("New object, using full content length")
-			}
-
-			// Only check quota if we're adding storage (sizeIncrement > 0)
-			// If sizeIncrement is negative or zero, we're not adding storage
-			if sizeIncrement > 0 {
-				logrus.WithFields(logrus.Fields{
-					"tenantID":      user.TenantID,
-					"sizeIncrement": sizeIncrement,
-				}).Info("Checking tenant storage quota")
-
-				if err := h.authManager.CheckTenantStorageQuota(r.Context(), user.TenantID, sizeIncrement); err != nil {
-					logrus.WithFields(logrus.Fields{
-						"bucket":        bucketName,
-						"object":        objectKey,
-						"tenantID":      user.TenantID,
-						"contentLength": contentLength,
-						"existingSize": func() int64 {
-							if existingObj != nil {
-								return existingObj.Size
-							}
-							return 0
-						}(),
-						"sizeIncrement": sizeIncrement,
-						"error":         err,
-					}).Warn("Tenant storage quota exceeded")
-					h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
-					return
-				}
-				logrus.Info("Quota check passed")
-			} else {
-				logrus.WithField("sizeIncrement", sizeIncrement).Debug("Skipping quota check (not adding storage)")
-			}
-		}
-	} else {
-		logrus.WithFields(logrus.Fields{
-			"hasAuthMgr":  h.authManager != nil,
-			"userExists":  userExists,
-			"hasTenantID": userExists && user.TenantID != "",
-		}).Debug("Skipping quota validation")
+	if err := h.validateTenantQuota(r, user, userExists, bucketName, objectKey, decodedContentLength); err != nil {
+		h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
+		return
 	}
 
-	hasPermission := false
-
-	if userExists {
-		// If user belongs to the same tenant as the bucket, allow access automatically
-		if user.TenantID == tenantID {
-			hasPermission = true
-		} else {
-			// Cross-tenant access - check ACL permissions
-			hasPermission = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionWrite)
-
-			// If no explicit ACL permission, check if authenticated users have write access
-			if !hasPermission {
-				hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
-			}
-
-			// Also check FULL_CONTROL as an alternative
-			if !hasPermission {
-				hasPermission = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionFullControl)
-			}
-
-			// If still no permission, check if public access is allowed
-			if !hasPermission {
-				hasPermission = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
-			}
-		}
-	} else {
-		// Unauthenticated access - check if bucket allows public WRITE
-		hasPermission = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
-	}
-
-	if !hasPermission {
+	// Validate WRITE permission via ACL cascading
+	if !h.validateBucketWritePermission(r, user, userExists, tenantID, bucketName) {
 		logrus.WithFields(logrus.Fields{
 			"bucket":        bucketName,
 			"object":        objectKey,
@@ -1089,51 +878,8 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	retainUntilDateStr := r.Header.Get("x-amz-object-lock-retain-until-date")
 	legalHoldStatus := r.Header.Get("x-amz-object-lock-legal-hold")
 
-	// CRITICAL FIX: AWS CLI and warp/MinIO-Go use "aws-chunked" encoding
-	// Some clients send the header, others don't - we need to detect by content
-	var bodyReader io.Reader = r.Body
-	isAwsChunked := strings.Contains(contentEncoding, "aws-chunked") || decodedContentLength != ""
-
-	// If not detected by headers, peek at first bytes to check for aws-chunked format
-	if !isAwsChunked {
-		// Buffer first 100 bytes to detect aws-chunked format
-		buf := make([]byte, 100)
-		n, _ := io.ReadFull(r.Body, buf)
-		if n > 0 {
-			// Check if starts with hex digits followed by ";chunk-signature="
-			content := string(buf[:n])
-			if strings.Contains(content, ";chunk-signature=") {
-				isAwsChunked = true
-				logrus.WithFields(logrus.Fields{
-					"bucket": bucketName,
-					"object": objectKey,
-				}).Info("AWS chunked encoding detected by content inspection")
-			}
-			// Restore the buffer to the reader
-			bodyReader = io.MultiReader(bytes.NewReader(buf[:n]), r.Body)
-		}
-	}
-
-	if isAwsChunked {
-		logrus.WithFields(logrus.Fields{
-			"bucket":                 bucketName,
-			"object":                 objectKey,
-			"decoded-content-length": decodedContentLength,
-		}).Info("AWS chunked encoding detected - decoding")
-
-		bodyReader = NewAwsChunkedReader(bodyReader)
-
-		// Update Content-Length header for storage layer
-		if decodedContentLength != "" {
-			if size, err := strconv.ParseInt(decodedContentLength, 10, 64); err == nil {
-				r.ContentLength = size
-				r.Header.Set("Content-Length", decodedContentLength)
-			}
-		}
-
-		// Remove aws-chunked from Content-Encoding for storage
-		r.Header.Del("Content-Encoding")
-	}
+	// Detect and decode AWS chunked encoding
+	bodyReader := h.detectAndDecodeAwsChunked(r, bucketName, objectKey, contentEncoding, decodedContentLength)
 
 	logrus.WithFields(logrus.Fields{
 		"bucket":     bucketName,
@@ -1156,90 +902,21 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Aplicar retención si se especificó en headers (Veeam compatibility)
-	retentionApplied := false
-	if lockMode != "" && retainUntilDateStr != "" {
-		retainUntilDate, parseErr := time.Parse(time.RFC3339, retainUntilDateStr)
-		if parseErr == nil {
-			retention := &object.RetentionConfig{
-				Mode:            lockMode,
-				RetainUntilDate: retainUntilDate,
-			}
-			if setErr := h.objectManager.SetObjectRetention(r.Context(), bucketPath, objectKey, retention); setErr != nil {
-				logrus.WithError(setErr).Warn("Failed to set retention from headers")
-			} else {
-				logrus.WithFields(logrus.Fields{
-					"bucket": bucketName,
-					"object": objectKey,
-					"mode":   lockMode,
-					"until":  retainUntilDate,
-				}).Info("Applied Object Lock retention from headers")
-				retentionApplied = true
-			}
-		} else {
-			logrus.WithError(parseErr).Warn("Failed to parse retain-until-date header")
-		}
-	}
+	// Apply Object Lock retention from headers (Veeam compatibility)
+	retentionApplied := h.applyObjectLockFromHeaders(r, bucketPath, bucketName, objectKey, lockMode, retainUntilDateStr)
 
-	// Si no se aplicó retención desde headers, aplicar la retención por defecto del bucket
+	// If no retention was applied from headers, apply default bucket retention
 	if !retentionApplied {
-		tenantID := h.getTenantIDFromRequest(r)
-		lockConfig, err := h.bucketManager.GetObjectLockConfig(r.Context(), tenantID, bucketName)
-		if err == nil && lockConfig != nil && lockConfig.ObjectLockEnabled {
-			// Apply default retention if configured
-			if lockConfig.Rule != nil && lockConfig.Rule.DefaultRetention != nil {
-				retention := &object.RetentionConfig{
-					Mode: lockConfig.Rule.DefaultRetention.Mode,
-				}
-
-				// Calculate retain until date based on days or years
-				if lockConfig.Rule.DefaultRetention.Days != nil {
-					retention.RetainUntilDate = time.Now().AddDate(0, 0, *lockConfig.Rule.DefaultRetention.Days)
-				} else if lockConfig.Rule.DefaultRetention.Years != nil {
-					retention.RetainUntilDate = time.Now().AddDate(*lockConfig.Rule.DefaultRetention.Years, 0, 0)
-				}
-
-				// Set retention on the newly uploaded object
-				if !retention.RetainUntilDate.IsZero() {
-					if setErr := h.objectManager.SetObjectRetention(r.Context(), bucketPath, objectKey, retention); setErr != nil {
-						logrus.WithError(setErr).Warn("Failed to apply default bucket retention")
-					} else {
-						logrus.WithFields(logrus.Fields{
-							"bucket": bucketName,
-							"object": objectKey,
-							"mode":   retention.Mode,
-							"until":  retention.RetainUntilDate,
-						}).Info("Applied default bucket retention")
-					}
-				}
-			}
-		}
+		h.applyDefaultBucketRetention(r, bucketPath, bucketName, objectKey, tenantID)
 	}
 
-	// Aplicar legal hold si se especificó (Veeam compatibility)
-	if legalHoldStatus == "ON" {
-		legalHold := &object.LegalHoldConfig{Status: "ON"}
-		if setErr := h.objectManager.SetObjectLegalHold(r.Context(), bucketPath, objectKey, legalHold); setErr != nil {
-			logrus.WithError(setErr).Warn("Failed to set legal hold from headers")
-		} else {
-			logrus.WithFields(logrus.Fields{
-				"bucket": bucketName,
-				"object": objectKey,
-			}).Info("Applied legal hold from headers")
-		}
-	}
+	// Apply legal hold if specified (Veeam compatibility)
+	h.applyLegalHold(r, bucketPath, bucketName, objectKey, legalHoldStatus)
 
 	// Note: Bucket metrics and tenant storage are updated by objectManager.PutObject()
 	// No need to increment here to avoid double-counting on overwrites
 
-	w.Header().Set("ETag", obj.ETag)
-	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
-
-	// Return version ID if versioning is enabled
-	if obj.VersionID != "" {
-		w.Header().Set("x-amz-version-id", obj.VersionID)
-	}
-
+	h.setPutObjectResponseHeaders(w, obj)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -2652,5 +2329,459 @@ func (h *Handler) setDeleteResponseHeaders(w http.ResponseWriter, deleteMarkerVe
 		// A specific version was permanently deleted
 		w.Header().Set("x-amz-version-id", versionID)
 		w.Header().Set("x-amz-delete-marker", "false")
+	}
+}
+
+// handlePresignedURLError writes appropriate error response based on presigned URL validation error
+func (h *Handler) handlePresignedURLError(w http.ResponseWriter, err error, objectKey string, r *http.Request) {
+	if strings.Contains(err.Error(), "missing access key") {
+		h.writeError(w, "InvalidRequest", err.Error(), objectKey, r)
+	} else if strings.Contains(err.Error(), "auth manager") {
+		h.writeError(w, "InternalError", err.Error(), objectKey, r)
+	} else if strings.Contains(err.Error(), "access key not found") {
+		h.writeError(w, "InvalidAccessKeyId", "The AWS access key ID you provided does not exist in our records", objectKey, r)
+	} else {
+		h.writeError(w, "SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided", objectKey, r)
+	}
+}
+
+// resolveBucketPath determines the correct bucket path based on share tenant or standard path
+func (h *Handler) resolveBucketPath(r *http.Request, bucketName, shareTenantID string) string {
+	if shareTenantID != "" {
+		return shareTenantID + "/" + bucketName
+	}
+	return h.getBucketPath(r, bucketName)
+}
+
+// validateBucketReadPermission validates bucket-level read permissions for GetObject
+func (h *Handler) validateBucketReadPermission(
+	w http.ResponseWriter,
+	r *http.Request,
+	user *auth.User,
+	userExists bool,
+	allowedByPresignedURL bool,
+	shareTenantID string,
+	tenantID string,
+	bucketName string,
+	objectKey string,
+) bool {
+	// Si acceso por presigned URL o share, permitir
+	if allowedByPresignedURL || shareTenantID != "" {
+		return true
+	}
+
+	// Usuario autenticado
+	if userExists {
+		// Mismo tenant - permitir
+		if user.TenantID == tenantID {
+			return true
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"userTenantID":   user.TenantID,
+			"bucketTenantID": tenantID,
+			"isCrossTenant":  user.TenantID != tenantID,
+			"userID":         user.ID,
+			"bucket":         bucketName,
+		}).Info("GetObject: ACL check - comparing tenant IDs")
+
+		// Cross-tenant - verificar ACLs en cascada
+		if h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionRead) {
+			return true
+		}
+		if h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
+			return true
+		}
+		if h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
+			return true
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"bucket":       bucketName,
+			"object":       objectKey,
+			"userID":       user.ID,
+			"userTenantID": user.TenantID,
+			"bucketTenant": tenantID,
+		}).Warn("ACL permission denied for GetObject - cross-tenant access (bucket-level)")
+		h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
+		return false
+	}
+
+	// Usuario anónimo - solo público
+	if h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
+		return true
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
+		"object": objectKey,
+	}).Warn("Public access denied - bucket not publicly readable (bucket-level)")
+	h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
+	return false
+}
+
+// validateConditionalHeaders validates If-Match and If-None-Match headers
+func (h *Handler) validateConditionalHeaders(w http.ResponseWriter, r *http.Request, etag string) bool {
+	ifMatch := r.Header.Get("If-Match")
+	ifNoneMatch := r.Header.Get("If-None-Match")
+
+	if ifMatch != "" && etag != strings.Trim(ifMatch, "\"") {
+		w.WriteHeader(http.StatusPreconditionFailed)
+		return false
+	}
+
+	if ifNoneMatch != "" && etag == strings.Trim(ifNoneMatch, "\"") {
+		w.WriteHeader(http.StatusNotModified)
+		return false
+	}
+
+	return true
+}
+
+// validateObjectReadPermission validates object-level read permissions for cross-tenant access
+func (h *Handler) validateObjectReadPermission(
+	w http.ResponseWriter,
+	r *http.Request,
+	user *auth.User,
+	userExists bool,
+	allowedByPresignedURL bool,
+	shareTenantID string,
+	tenantID string,
+	bucketPath string,
+	bucketName string,
+	objectKey string,
+) bool {
+	// Solo verificar ACL de objeto si es cross-tenant y no es presigned/share
+	if !userExists || allowedByPresignedURL || shareTenantID != "" || user.TenantID == tenantID {
+		return true
+	}
+
+	// Cross-tenant: verificar ACL de objeto
+	if h.checkObjectACLPermission(r.Context(), bucketPath, objectKey, user.ID, acl.PermissionRead) {
+		return true
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket":       bucketName,
+		"object":       objectKey,
+		"userID":       user.ID,
+		"userTenantID": user.TenantID,
+		"bucketTenant": tenantID,
+	}).Warn("ACL permission denied for GetObject - cross-tenant access (object-level)")
+	h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
+	return false
+}
+
+// setGetObjectResponseHeaders sets all response headers for GetObject operation
+func (h *Handler) setGetObjectResponseHeaders(w http.ResponseWriter, obj *object.Object) {
+	w.Header().Set("Content-Type", obj.ContentType)
+	w.Header().Set("ETag", obj.ETag)
+	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
+
+	if obj.VersionID != "" {
+		w.Header().Set("x-amz-version-id", obj.VersionID)
+	}
+
+	if obj.Retention != nil {
+		w.Header().Set("x-amz-object-lock-mode", obj.Retention.Mode)
+		w.Header().Set("x-amz-object-lock-retain-until-date", obj.Retention.RetainUntilDate.UTC().Format(time.RFC3339))
+	}
+
+	if obj.LegalHold != nil && obj.LegalHold.Status == "ON" {
+		w.Header().Set("x-amz-object-lock-legal-hold", "ON")
+	}
+}
+
+// ============================================================================
+// PutObject Helper Functions
+// ============================================================================
+
+// validateTenantQuota checks tenant storage quota before accepting upload
+// Returns error if quota is exceeded, nil if quota check passes or is skipped
+func (h *Handler) validateTenantQuota(
+	r *http.Request,
+	user *auth.User,
+	userExists bool,
+	bucketName string,
+	objectKey string,
+	decodedContentLength string,
+) error {
+	// Skip quota check if no auth manager, no user, or no tenant ID
+	if h.authManager == nil || !userExists || user.TenantID == "" {
+		return nil
+	}
+
+	// Get content length for quota check
+	contentLength := r.ContentLength
+	if decodedContentLength != "" {
+		if size, err := strconv.ParseInt(decodedContentLength, 10, 64); err == nil {
+			contentLength = size
+		}
+	}
+
+	// Skip if no content
+	if contentLength <= 0 {
+		return nil
+	}
+
+	// Calculate actual storage increment (consider existing object size)
+	var sizeIncrement int64 = contentLength
+	bucketPath := h.getBucketPath(r, bucketName)
+	existingObj, _, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey)
+	if err == nil && existingObj != nil {
+		// Object exists - calculate size difference for quota check
+		sizeIncrement = contentLength - existingObj.Size
+		logrus.WithFields(logrus.Fields{
+			"existingSize":  existingObj.Size,
+			"newSize":       contentLength,
+			"sizeIncrement": sizeIncrement,
+		}).Debug("Object exists, calculating size increment")
+	}
+
+	// Only check quota if we're adding storage (sizeIncrement > 0)
+	if sizeIncrement <= 0 {
+		logrus.WithField("sizeIncrement", sizeIncrement).Debug("Skipping quota check (not adding storage)")
+		return nil
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"tenantID":      user.TenantID,
+		"sizeIncrement": sizeIncrement,
+	}).Info("Checking tenant storage quota")
+
+	if err := h.authManager.CheckTenantStorageQuota(r.Context(), user.TenantID, sizeIncrement); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"bucket":        bucketName,
+			"object":        objectKey,
+			"tenantID":      user.TenantID,
+			"contentLength": contentLength,
+			"existingSize": func() int64 {
+				if existingObj != nil {
+					return existingObj.Size
+				}
+				return 0
+			}(),
+			"sizeIncrement": sizeIncrement,
+			"error":         err,
+		}).Warn("Tenant storage quota exceeded")
+		return err
+	}
+
+	logrus.Info("Quota check passed")
+	return nil
+}
+
+// validateBucketWritePermission checks if user has WRITE permission via ACL
+// Uses cascading permission checks: same-tenant, cross-tenant ACL, authenticated users, full control, public access
+func (h *Handler) validateBucketWritePermission(
+	r *http.Request,
+	user *auth.User,
+	userExists bool,
+	tenantID string,
+	bucketName string,
+) bool {
+	if !userExists {
+		// Unauthenticated access - check if bucket allows public WRITE
+		return h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
+	}
+
+	// If user belongs to the same tenant as the bucket, allow access automatically
+	if user.TenantID == tenantID {
+		return true
+	}
+
+	// Cross-tenant access - check ACL permissions with cascading fallback
+	if h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionWrite) {
+		return true
+	}
+
+	// Check if authenticated users have write access
+	if h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite) {
+		return true
+	}
+
+	// Check FULL_CONTROL as an alternative
+	if h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionFullControl) {
+		return true
+	}
+
+	// Check if public access is allowed
+	return h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
+}
+
+// detectAndDecodeAwsChunked detects AWS chunked encoding and returns appropriate body reader
+// AWS CLI and MinIO-Go use "aws-chunked" encoding - detect by headers or content inspection
+func (h *Handler) detectAndDecodeAwsChunked(
+	r *http.Request,
+	bucketName string,
+	objectKey string,
+	contentEncoding string,
+	decodedContentLength string,
+) io.Reader {
+	var bodyReader io.Reader = r.Body
+	isAwsChunked := strings.Contains(contentEncoding, "aws-chunked") || decodedContentLength != ""
+
+	// If not detected by headers, peek at first bytes to check for aws-chunked format
+	if !isAwsChunked {
+		buf := make([]byte, 100)
+		n, _ := io.ReadFull(r.Body, buf)
+		if n > 0 {
+			// Check if starts with hex digits followed by ";chunk-signature="
+			content := string(buf[:n])
+			if strings.Contains(content, ";chunk-signature=") {
+				isAwsChunked = true
+				logrus.WithFields(logrus.Fields{
+					"bucket": bucketName,
+					"object": objectKey,
+				}).Info("AWS chunked encoding detected by content inspection")
+			}
+			// Restore the buffer to the reader
+			bodyReader = io.MultiReader(bytes.NewReader(buf[:n]), r.Body)
+		}
+	}
+
+	if isAwsChunked {
+		logrus.WithFields(logrus.Fields{
+			"bucket":                 bucketName,
+			"object":                 objectKey,
+			"decoded-content-length": decodedContentLength,
+		}).Info("AWS chunked encoding detected - decoding")
+
+		bodyReader = NewAwsChunkedReader(bodyReader)
+
+		// Update Content-Length header for storage layer
+		if decodedContentLength != "" {
+			if size, err := strconv.ParseInt(decodedContentLength, 10, 64); err == nil {
+				r.ContentLength = size
+				r.Header.Set("Content-Length", decodedContentLength)
+			}
+		}
+
+		// Remove aws-chunked from Content-Encoding for storage
+		r.Header.Del("Content-Encoding")
+	}
+
+	return bodyReader
+}
+
+// applyObjectLockFromHeaders applies Object Lock retention from request headers (Veeam compatibility)
+// Returns true if retention was successfully applied, false otherwise
+func (h *Handler) applyObjectLockFromHeaders(
+	r *http.Request,
+	bucketPath string,
+	bucketName string,
+	objectKey string,
+	lockMode string,
+	retainUntilDateStr string,
+) bool {
+	if lockMode == "" || retainUntilDateStr == "" {
+		return false
+	}
+
+	retainUntilDate, parseErr := time.Parse(time.RFC3339, retainUntilDateStr)
+	if parseErr != nil {
+		logrus.WithError(parseErr).Warn("Failed to parse retain-until-date header")
+		return false
+	}
+
+	retention := &object.RetentionConfig{
+		Mode:            lockMode,
+		RetainUntilDate: retainUntilDate,
+	}
+
+	if setErr := h.objectManager.SetObjectRetention(r.Context(), bucketPath, objectKey, retention); setErr != nil {
+		logrus.WithError(setErr).Warn("Failed to set retention from headers")
+		return false
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
+		"object": objectKey,
+		"mode":   lockMode,
+		"until":  retainUntilDate,
+	}).Info("Applied Object Lock retention from headers")
+	return true
+}
+
+// applyDefaultBucketRetention applies default bucket retention if configured
+func (h *Handler) applyDefaultBucketRetention(
+	r *http.Request,
+	bucketPath string,
+	bucketName string,
+	objectKey string,
+	tenantID string,
+) {
+	lockConfig, err := h.bucketManager.GetObjectLockConfig(r.Context(), tenantID, bucketName)
+	if err != nil || lockConfig == nil || !lockConfig.ObjectLockEnabled {
+		return
+	}
+
+	// Apply default retention if configured
+	if lockConfig.Rule == nil || lockConfig.Rule.DefaultRetention == nil {
+		return
+	}
+
+	retention := &object.RetentionConfig{
+		Mode: lockConfig.Rule.DefaultRetention.Mode,
+	}
+
+	// Calculate retain until date based on days or years
+	if lockConfig.Rule.DefaultRetention.Days != nil {
+		retention.RetainUntilDate = time.Now().AddDate(0, 0, *lockConfig.Rule.DefaultRetention.Days)
+	} else if lockConfig.Rule.DefaultRetention.Years != nil {
+		retention.RetainUntilDate = time.Now().AddDate(*lockConfig.Rule.DefaultRetention.Years, 0, 0)
+	}
+
+	// Set retention on the newly uploaded object
+	if retention.RetainUntilDate.IsZero() {
+		return
+	}
+
+	if setErr := h.objectManager.SetObjectRetention(r.Context(), bucketPath, objectKey, retention); setErr != nil {
+		logrus.WithError(setErr).Warn("Failed to apply default bucket retention")
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
+		"object": objectKey,
+		"mode":   retention.Mode,
+		"until":  retention.RetainUntilDate,
+	}).Info("Applied default bucket retention")
+}
+
+// applyLegalHold applies legal hold from request headers (Veeam compatibility)
+func (h *Handler) applyLegalHold(
+	r *http.Request,
+	bucketPath string,
+	bucketName string,
+	objectKey string,
+	legalHoldStatus string,
+) {
+	if legalHoldStatus != "ON" {
+		return
+	}
+
+	legalHold := &object.LegalHoldConfig{Status: "ON"}
+	if setErr := h.objectManager.SetObjectLegalHold(r.Context(), bucketPath, objectKey, legalHold); setErr != nil {
+		logrus.WithError(setErr).Warn("Failed to set legal hold from headers")
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
+		"object": objectKey,
+	}).Info("Applied legal hold from headers")
+}
+
+// setPutObjectResponseHeaders sets response headers for PutObject operation
+func (h *Handler) setPutObjectResponseHeaders(w http.ResponseWriter, obj *object.Object) {
+	w.Header().Set("ETag", obj.ETag)
+	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
+
+	if obj.VersionID != "" {
+		w.Header().Set("x-amz-version-id", obj.VersionID)
 	}
 }

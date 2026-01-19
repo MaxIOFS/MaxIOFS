@@ -1,11 +1,14 @@
 # MaxIOFS RPM Specification
 # This spec file is used to build RPM packages for RHEL/CentOS/Fedora/Rocky/Alma Linux
 #
-# Build with: rpmbuild -ba maxiofs.spec
-# Or use: make rpm (recommended)
+# Build with: make rpm (recommended)
+# Or manually: rpmbuild --define "version X.Y.Z" -ba maxiofs.spec
+#
+# Note: Version is injected by Makefile via --define "version $(VERSION_CLEAN)"
+# Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%define version 0.7.0
+%{!?version: %define version 0.7.1}
 %define release 1
 %define debug_package %{nil}
 
