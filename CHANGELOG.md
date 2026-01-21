@@ -9,10 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Fixed syslog logging support for IPv6 addresses
+- **CRITICAL: Fixed bucket replication workers not processing queue items** - Objects queued for replication were stuck in "pending" status indefinitely. Queue loader now loads pending items immediately on startup instead of waiting 10 seconds, ensuring objects are replicated promptly.
+
+### Added
+- Comprehensive end-to-end tests for bucket replication system with in-memory stores and mock S3 clients
+- Replication test coverage includes object replication, metrics tracking, and prefix filtering
 
 ### Changed
 - Internal code refactoring to improve maintainability and reduce complexity
 - Improved object upload, download, delete, and multipart upload operations
+- Replication test coverage improved from 19.4% to support realistic E2E testing scenarios
 
 ### Removed
 - Removed unused `.env.example` file

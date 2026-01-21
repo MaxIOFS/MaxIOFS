@@ -15,19 +15,20 @@ import (
 
 // Manager handles replication operations
 type Manager struct {
-	db            *sql.DB
-	config        ReplicationConfig
-	workers       []*Worker
-	queue         chan *QueueItem
-	stopChan      chan struct{}
-	wg            sync.WaitGroup
-	mu            sync.RWMutex
-	running       bool
-	objectAdapter ObjectAdapter
-	objectManager ObjectManager
-	bucketLister  BucketLister
-	ruleLocks     map[string]*sync.Mutex // Locks per rule to prevent concurrent syncs
-	locksMu       sync.RWMutex           // Protects ruleLocks map
+	db              *sql.DB
+	config          ReplicationConfig
+	workers         []*Worker
+	queue           chan *QueueItem
+	stopChan        chan struct{}
+	wg              sync.WaitGroup
+	mu              sync.RWMutex
+	running         bool
+	objectAdapter   ObjectAdapter
+	objectManager   ObjectManager
+	bucketLister    BucketLister
+	ruleLocks       map[string]*sync.Mutex // Locks per rule to prevent concurrent syncs
+	locksMu         sync.RWMutex           // Protects ruleLocks map
+	s3ClientFactory S3ClientFactory        // Factory for creating S3 clients (for testing)
 }
 
 // ObjectAdapter provides methods to interact with objects
@@ -70,16 +71,32 @@ func NewManager(db *sql.DB, config ReplicationConfig, objectAdapter ObjectAdapte
 		config.BatchSize = 100
 	}
 
+	// Default S3 client factory (uses real AWS SDK)
+	defaultS3Factory := func(endpoint, region, accessKey, secretKey string) S3Client {
+		return NewS3RemoteClient(endpoint, region, accessKey, secretKey)
+	}
+
 	return &Manager{
-		db:            db,
-		config:        config,
-		queue:         make(chan *QueueItem, config.QueueSize),
-		stopChan:      make(chan struct{}),
-		objectAdapter: objectAdapter,
-		objectManager: objectManager,
-		bucketLister:  bucketLister,
-		ruleLocks:     make(map[string]*sync.Mutex),
+		db:              db,
+		config:          config,
+		queue:           make(chan *QueueItem, config.QueueSize),
+		stopChan:        make(chan struct{}),
+		objectAdapter:   objectAdapter,
+		objectManager:   objectManager,
+		bucketLister:    bucketLister,
+		ruleLocks:       make(map[string]*sync.Mutex),
+		s3ClientFactory: defaultS3Factory,
 	}, nil
+}
+
+// NewManagerWithS3Factory creates a new replication manager with custom S3 client factory (for testing)
+func NewManagerWithS3Factory(db *sql.DB, config ReplicationConfig, objectAdapter ObjectAdapter, objectManager ObjectManager, bucketLister BucketLister, s3Factory S3ClientFactory) (*Manager, error) {
+	manager, err := NewManager(db, config, objectAdapter, objectManager, bucketLister)
+	if err != nil {
+		return nil, err
+	}
+	manager.s3ClientFactory = s3Factory
+	return manager, nil
 }
 
 // Start starts the replication manager and workers
@@ -94,7 +111,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	// Start workers
 	m.workers = make([]*Worker, m.config.WorkerCount)
 	for i := 0; i < m.config.WorkerCount; i++ {
-		worker := NewWorker(i, m.queue, m.db, m.objectAdapter, m.objectManager)
+		worker := NewWorkerWithS3Factory(i, m.queue, m.db, m.objectAdapter, m.objectManager, m.s3ClientFactory)
 		m.workers[i] = worker
 		m.wg.Add(1)
 		go func(w *Worker) {
@@ -418,6 +435,9 @@ func (m *Manager) findMatchingRules(ctx context.Context, tenantID, bucket, objec
 
 // queueLoader periodically loads pending items from database to queue
 func (m *Manager) queueLoader(ctx context.Context) {
+	// Load pending items immediately on startup
+	m.loadPendingItems(ctx)
+
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -447,10 +467,12 @@ func (m *Manager) loadPendingItems(ctx context.Context) {
 
 	rows, err := m.db.QueryContext(ctx, query, m.config.BatchSize)
 	if err != nil {
+		logrus.WithError(err).Error("Failed to query pending items from database")
 		return
 	}
 	defer rows.Close()
 
+	itemCount := 0
 	for rows.Next() {
 		item := &QueueItem{}
 		err := rows.Scan(
@@ -459,15 +481,23 @@ func (m *Manager) loadPendingItems(ctx context.Context) {
 			&item.MaxRetries, &item.LastError, &item.ScheduledAt, &item.BytesReplicated,
 		)
 		if err != nil {
+			logrus.WithError(err).Error("Failed to scan queue item")
 			continue
 		}
+
+		itemCount++
 
 		// Try to queue item (non-blocking)
 		select {
 		case m.queue <- item:
+			// Successfully queued
 		default:
-			// Queue is full, will retry next time
+			logrus.Warn("Replication queue is full, item will be retried later")
 		}
+	}
+
+	if itemCount > 0 {
+		logrus.WithField("count", itemCount).Debug("Loaded pending replication items")
 	}
 }
 

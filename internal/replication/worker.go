@@ -9,13 +9,17 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// S3ClientFactory creates an S3 client for a given endpoint
+type S3ClientFactory func(endpoint, region, accessKey, secretKey string) S3Client
+
 // Worker processes replication queue items
 type Worker struct {
-	id            int
-	queue         <-chan *QueueItem
-	db            *sql.DB
-	objectAdapter ObjectAdapter
-	objectManager ObjectManager
+	id              int
+	queue           <-chan *QueueItem
+	db              *sql.DB
+	objectAdapter   ObjectAdapter
+	objectManager   ObjectManager
+	s3ClientFactory S3ClientFactory
 }
 
 // NewWorker creates a new replication worker
@@ -26,6 +30,21 @@ func NewWorker(id int, queue <-chan *QueueItem, db *sql.DB, objectAdapter Object
 		db:            db,
 		objectAdapter: objectAdapter,
 		objectManager: objectManager,
+		s3ClientFactory: func(endpoint, region, accessKey, secretKey string) S3Client {
+			return NewS3RemoteClient(endpoint, region, accessKey, secretKey)
+		},
+	}
+}
+
+// NewWorkerWithS3Factory creates a new replication worker with custom S3 client factory (for testing)
+func NewWorkerWithS3Factory(id int, queue <-chan *QueueItem, db *sql.DB, objectAdapter ObjectAdapter, objectManager ObjectManager, factory S3ClientFactory) *Worker {
+	return &Worker{
+		id:              id,
+		queue:           queue,
+		db:              db,
+		objectAdapter:   objectAdapter,
+		objectManager:   objectManager,
+		s3ClientFactory: factory,
 	}
 }
 
@@ -132,7 +151,7 @@ func (w *Worker) replicateObject(ctx context.Context, rule *ReplicationRule, ite
 		region = "us-east-1" // Default region
 	}
 
-	s3Client := NewS3RemoteClient(
+	s3Client := w.s3ClientFactory(
 		rule.DestinationEndpoint,
 		region,
 		rule.DestinationAccessKey,
@@ -197,7 +216,7 @@ func (w *Worker) replicateDelete(ctx context.Context, rule *ReplicationRule, ite
 		region = "us-east-1" // Default region
 	}
 
-	s3Client := NewS3RemoteClient(
+	s3Client := w.s3ClientFactory(
 		rule.DestinationEndpoint,
 		region,
 		rule.DestinationAccessKey,

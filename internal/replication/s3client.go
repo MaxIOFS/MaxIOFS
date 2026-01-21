@@ -13,6 +13,17 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// S3Client is an interface for S3 operations (for testing)
+type S3Client interface {
+	PutObject(ctx context.Context, bucket, key string, data io.Reader, size int64, contentType string, metadata map[string]string) error
+	DeleteObject(ctx context.Context, bucket, key string) error
+	HeadObject(ctx context.Context, bucket, key string) (map[string]string, int64, error)
+	GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, int64, error)
+	CopyObject(ctx context.Context, sourceBucket, sourceKey, destBucket, destKey string) error
+	ListObjects(ctx context.Context, bucket, prefix string, maxKeys int32) ([]types.Object, error)
+	TestConnection(ctx context.Context) error
+}
+
 // S3RemoteClient is a client for communicating with remote S3-compatible servers
 type S3RemoteClient struct {
 	client   *s3.Client

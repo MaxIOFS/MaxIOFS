@@ -1022,48 +1022,8 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify BUCKET permissions only (object may not exist)
-	var hasBucketRead bool = true
-	if userExists {
-		// If user belongs to the same tenant as the bucket, allow access automatically
-		if user.TenantID != tenantID {
-			// Cross-tenant access - check BUCKET ACL permissions only
-			hasBucketRead = h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionRead)
-
-			// If no explicit ACL permission, check if authenticated users have access
-			if !hasBucketRead {
-				hasBucketRead = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
-			}
-
-			// If still no permission, check if public access is allowed
-			if !hasBucketRead {
-				hasBucketRead = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
-			}
-
-			if !hasBucketRead {
-				logrus.WithFields(logrus.Fields{
-					"bucket":       bucketName,
-					"object":       objectKey,
-					"userID":       user.ID,
-					"userTenantID": user.TenantID,
-					"bucketTenant": tenantID,
-				}).Warn("ACL permission denied for HeadObject - cross-tenant access (bucket-level)")
-				h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
-				return
-			}
-		}
-		// Same tenant - allow access automatically
-	} else {
-		// Unauthenticated access - check if BUCKET is public (not object specifically)
-		hasBucketRead = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
-
-		if !hasBucketRead {
-			logrus.WithFields(logrus.Fields{
-				"bucket": bucketName,
-				"object": objectKey,
-			}).Warn("Public access denied for HeadObject - bucket not publicly readable")
-			h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
-			return
-		}
+	if !h.validateHeadBucketReadPermission(w, r, user, userExists, tenantID, bucketName, objectKey) {
+		return
 	}
 
 	// Try to get object metadata - may return NoSuchKey if doesn't exist
@@ -1079,56 +1039,16 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Handle conditional requests (If-Match, If-None-Match) for HeadObject
-	ifMatch := r.Header.Get("If-Match")
-	ifNoneMatch := r.Header.Get("If-None-Match")
-
-	if ifMatch != "" {
-		// If-Match: Return 412 if ETag doesn't match
-		if obj.ETag != strings.Trim(ifMatch, "\"") {
-			w.WriteHeader(http.StatusPreconditionFailed)
-			return
-		}
-	}
-
-	if ifNoneMatch != "" {
-		// If-None-Match: Return 304 if ETag matches (resource not modified)
-		if obj.ETag == strings.Trim(ifNoneMatch, "\"") {
-			w.WriteHeader(http.StatusNotModified)
-			return
-		}
+	if !h.validateConditionalHeaders(w, r, obj.ETag) {
+		return
 	}
 
 	// Object exists - now check object-level ACLs for cross-tenant access
-	if userExists && user.TenantID != tenantID {
-		hasObjectACL := h.checkObjectACLPermission(r.Context(), bucketPath, objectKey, user.ID, acl.PermissionRead)
-		if !hasObjectACL {
-			logrus.WithFields(logrus.Fields{
-				"bucket":       bucketName,
-				"object":       objectKey,
-				"userID":       user.ID,
-				"userTenantID": user.TenantID,
-				"bucketTenant": tenantID,
-			}).Warn("ACL permission denied for HeadObject - cross-tenant access (object-level)")
-			h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
-			return
-		}
+	if !h.validateObjectReadPermission(w, r, user, userExists, false, "", tenantID, bucketPath, bucketName, objectKey) {
+		return
 	}
 
-	w.Header().Set("Content-Type", obj.ContentType)
-	w.Header().Set("Content-Length", strconv.FormatInt(obj.Size, 10))
-	w.Header().Set("ETag", obj.ETag)
-	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
-
-	// Agregar headers de Object Lock si existen (Veeam compatibility)
-	if obj.Retention != nil {
-		w.Header().Set("x-amz-object-lock-mode", obj.Retention.Mode)
-		w.Header().Set("x-amz-object-lock-retain-until-date", obj.Retention.RetainUntilDate.UTC().Format(time.RFC3339))
-	}
-
-	if obj.LegalHold != nil && obj.LegalHold.Status == "ON" {
-		w.Header().Set("x-amz-object-lock-legal-hold", "ON")
-	}
-
+	h.setHeadObjectResponseHeaders(w, obj)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1394,18 +1314,8 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		"bucket":   bucketName,
 	}).Info("PutObjectLockConfiguration - Got tenantID")
 
-	// Verificar permisos
-	user, userExists := auth.GetUserFromContext(r.Context())
-	if !userExists {
-		logrus.Warn("PutObjectLockConfiguration - No user in context")
-		h.writeError(w, "AccessDenied", "Access denied", bucketName, r)
-		return
-	}
-
-	// Verificar acceso cross-tenant (si no es global admin)
-	if user.TenantID != "" && user.TenantID != tenantID {
-		logrus.Warn("PutObjectLockConfiguration - Cross-tenant access denied")
-		h.writeError(w, "AccessDenied", "Access denied", bucketName, r)
+	// Verificar permisos y autenticación
+	if _, ok := h.validateObjectLockPermissions(w, r, tenantID, bucketName); !ok {
 		return
 	}
 
@@ -1430,19 +1340,9 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Leer la nueva configuración del body
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		logrus.WithError(err).Error("PutObjectLockConfiguration - Failed to read request body")
-		h.writeError(w, "InvalidRequest", "Failed to read request body", bucketName, r)
-		return
-	}
-	defer r.Body.Close()
-
-	var newConfig ObjectLockConfiguration
-	if err := xml.Unmarshal(body, &newConfig); err != nil {
-		logrus.WithError(err).Error("PutObjectLockConfiguration - Failed to unmarshal XML")
-		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
+	// Leer y parsear la nueva configuración del body
+	newConfig, ok := h.parseObjectLockConfigXML(w, r, bucketName)
+	if !ok {
 		return
 	}
 
@@ -1453,66 +1353,33 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 	}
 
 	newMode := newConfig.Rule.DefaultRetention.Mode
-	if currentMode != "" && newMode != currentMode {
-		logrus.WithFields(logrus.Fields{
-			"currentMode": currentMode,
-			"newMode":     newMode,
-		}).Warn("PutObjectLockConfiguration - Attempt to change mode")
-		h.writeError(w, "InvalidRequest",
-			fmt.Sprintf("Object Lock mode cannot be changed (current: %s)", currentMode),
-			bucketName, r)
+	if !h.validateObjectLockModeImmutable(w, r, currentMode, newMode, bucketName) {
 		return
 	}
 
-	// Calcular días actuales
+	// Calcular días actuales y nuevos
 	var currentDays int
 	if bucketInfo.ObjectLock.Rule != nil && bucketInfo.ObjectLock.Rule.DefaultRetention != nil {
-		if bucketInfo.ObjectLock.Rule.DefaultRetention.Years != nil && *bucketInfo.ObjectLock.Rule.DefaultRetention.Years > 0 {
-			currentDays = *bucketInfo.ObjectLock.Rule.DefaultRetention.Years * 365
-		} else if bucketInfo.ObjectLock.Rule.DefaultRetention.Days != nil {
-			currentDays = *bucketInfo.ObjectLock.Rule.DefaultRetention.Days
+		currentYears := 0
+		currentDaysValue := 0
+		if bucketInfo.ObjectLock.Rule.DefaultRetention.Years != nil {
+			currentYears = *bucketInfo.ObjectLock.Rule.DefaultRetention.Years
 		}
+		if bucketInfo.ObjectLock.Rule.DefaultRetention.Days != nil {
+			currentDaysValue = *bucketInfo.ObjectLock.Rule.DefaultRetention.Days
+		}
+		currentDays = calculateRetentionDays(currentYears, currentDaysValue)
 	}
 
-	// Calcular días nuevos
-	var newDays int
-	if newConfig.Rule.DefaultRetention.Years > 0 {
-		newDays = newConfig.Rule.DefaultRetention.Years * 365
-	} else {
-		newDays = newConfig.Rule.DefaultRetention.Days
-	}
+	newDays := calculateRetentionDays(newConfig.Rule.DefaultRetention.Years, newConfig.Rule.DefaultRetention.Days)
 
 	// Validar que solo se aumente el período de retención (nunca disminuir)
-	if newDays < currentDays {
-		logrus.WithFields(logrus.Fields{
-			"currentDays": currentDays,
-			"newDays":     newDays,
-		}).Warn("PutObjectLockConfiguration - Attempt to decrease retention period")
-		h.writeError(w, "InvalidRequest",
-			fmt.Sprintf("Retention period can only be increased (current: %d days, requested: %d days)",
-				currentDays, newDays),
-			bucketName, r)
+	if !h.validateRetentionPeriodIncrease(w, r, currentDays, newDays, bucketName) {
 		return
 	}
 
 	// Actualizar configuración de Object Lock en el bucket
-	if bucketInfo.ObjectLock.Rule == nil {
-		bucketInfo.ObjectLock.Rule = &bucket.ObjectLockRule{}
-	}
-	if bucketInfo.ObjectLock.Rule.DefaultRetention == nil {
-		bucketInfo.ObjectLock.Rule.DefaultRetention = &bucket.DefaultRetention{}
-	}
-
-	bucketInfo.ObjectLock.Rule.DefaultRetention.Mode = newMode
-	if newConfig.Rule.DefaultRetention.Years > 0 {
-		years := newConfig.Rule.DefaultRetention.Years
-		bucketInfo.ObjectLock.Rule.DefaultRetention.Years = &years
-		bucketInfo.ObjectLock.Rule.DefaultRetention.Days = nil
-	} else {
-		days := newConfig.Rule.DefaultRetention.Days
-		bucketInfo.ObjectLock.Rule.DefaultRetention.Days = &days
-		bucketInfo.ObjectLock.Rule.DefaultRetention.Years = nil
-	}
+	updateBucketRetentionConfig(bucketInfo, newConfig)
 
 	// Guardar cambios en el bucket
 	if err := h.bucketManager.UpdateBucket(r.Context(), tenantID, bucketName, bucketInfo); err != nil {
@@ -2783,5 +2650,214 @@ func (h *Handler) setPutObjectResponseHeaders(w http.ResponseWriter, obj *object
 
 	if obj.VersionID != "" {
 		w.Header().Set("x-amz-version-id", obj.VersionID)
+	}
+}
+
+// ============================================================================
+// HeadObject Helper Functions
+// ============================================================================
+
+// validateHeadBucketReadPermission checks if user has READ permission on bucket (not object)
+// Similar to validateBucketReadPermission but without presigned URL or share support
+func (h *Handler) validateHeadBucketReadPermission(
+	w http.ResponseWriter,
+	r *http.Request,
+	user *auth.User,
+	userExists bool,
+	tenantID string,
+	bucketName string,
+	objectKey string,
+) bool {
+	if !userExists {
+		// Unauthenticated access - check if BUCKET is public
+		if h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
+			return true
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucketName,
+			"object": objectKey,
+		}).Warn("Public access denied for HeadObject - bucket not publicly readable")
+		h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
+		return false
+	}
+
+	// If user belongs to the same tenant as the bucket, allow access automatically
+	if user.TenantID == tenantID {
+		return true
+	}
+
+	// Cross-tenant access - check BUCKET ACL permissions with cascading
+	if h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionRead) {
+		return true
+	}
+
+	// Check if authenticated users have access
+	if h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
+		return true
+	}
+
+	// Check if public access is allowed
+	if h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
+		return true
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket":       bucketName,
+		"object":       objectKey,
+		"userID":       user.ID,
+		"userTenantID": user.TenantID,
+		"bucketTenant": tenantID,
+	}).Warn("ACL permission denied for HeadObject - cross-tenant access (bucket-level)")
+	h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
+	return false
+}
+
+// setHeadObjectResponseHeaders sets all response headers for HeadObject operation (metadata only, no body)
+func (h *Handler) setHeadObjectResponseHeaders(w http.ResponseWriter, obj *object.Object) {
+	w.Header().Set("Content-Type", obj.ContentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(obj.Size, 10))
+	w.Header().Set("ETag", obj.ETag)
+	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
+
+	// Object Lock headers (Veeam compatibility)
+	if obj.Retention != nil {
+		w.Header().Set("x-amz-object-lock-mode", obj.Retention.Mode)
+		w.Header().Set("x-amz-object-lock-retain-until-date", obj.Retention.RetainUntilDate.UTC().Format(time.RFC3339))
+	}
+
+	if obj.LegalHold != nil && obj.LegalHold.Status == "ON" {
+		w.Header().Set("x-amz-object-lock-legal-hold", "ON")
+	}
+}
+
+// ============================================================================
+// PutObjectLockConfiguration Helper Functions
+// ============================================================================
+
+// validateObjectLockPermissions validates user authentication and cross-tenant access
+func (h *Handler) validateObjectLockPermissions(
+	w http.ResponseWriter,
+	r *http.Request,
+	tenantID string,
+	bucketName string,
+) (*auth.User, bool) {
+	user, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists {
+		logrus.Warn("PutObjectLockConfiguration - No user in context")
+		h.writeError(w, "AccessDenied", "Access denied", bucketName, r)
+		return nil, false
+	}
+
+	// Verificar acceso cross-tenant (si no es global admin)
+	if user.TenantID != "" && user.TenantID != tenantID {
+		logrus.Warn("PutObjectLockConfiguration - Cross-tenant access denied")
+		h.writeError(w, "AccessDenied", "Access denied", bucketName, r)
+		return nil, false
+	}
+
+	return user, true
+}
+
+// parseObjectLockConfigXML reads and parses Object Lock configuration XML from request body
+func (h *Handler) parseObjectLockConfigXML(
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName string,
+) (*ObjectLockConfiguration, bool) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		logrus.WithError(err).Error("PutObjectLockConfiguration - Failed to read request body")
+		h.writeError(w, "InvalidRequest", "Failed to read request body", bucketName, r)
+		return nil, false
+	}
+	defer r.Body.Close()
+
+	var config ObjectLockConfiguration
+	if err := xml.Unmarshal(body, &config); err != nil {
+		logrus.WithError(err).Error("PutObjectLockConfiguration - Failed to unmarshal XML")
+		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
+		return nil, false
+	}
+
+	return &config, true
+}
+
+// validateObjectLockModeImmutable validates that Object Lock mode cannot be changed (immutable)
+func (h *Handler) validateObjectLockModeImmutable(
+	w http.ResponseWriter,
+	r *http.Request,
+	currentMode string,
+	newMode string,
+	bucketName string,
+) bool {
+	if currentMode != "" && newMode != currentMode {
+		logrus.WithFields(logrus.Fields{
+			"currentMode": currentMode,
+			"newMode":     newMode,
+		}).Warn("PutObjectLockConfiguration - Attempt to change mode")
+		h.writeError(w, "InvalidRequest",
+			fmt.Sprintf("Object Lock mode cannot be changed (current: %s)", currentMode),
+			bucketName, r)
+		return false
+	}
+	return true
+}
+
+// calculateRetentionDays converts years/days to total days
+func calculateRetentionDays(years int, days int) int {
+	if years > 0 {
+		return years * 365
+	}
+	return days
+}
+
+// validateRetentionPeriodIncrease ensures retention period can only be increased, never decreased
+func (h *Handler) validateRetentionPeriodIncrease(
+	w http.ResponseWriter,
+	r *http.Request,
+	currentDays int,
+	newDays int,
+	bucketName string,
+) bool {
+	if newDays < currentDays {
+		logrus.WithFields(logrus.Fields{
+			"currentDays": currentDays,
+			"newDays":     newDays,
+		}).Warn("PutObjectLockConfiguration - Attempt to decrease retention period")
+		h.writeError(w, "InvalidRequest",
+			fmt.Sprintf("Retention period can only be increased (current: %d days, requested: %d days)",
+				currentDays, newDays),
+			bucketName, r)
+		return false
+	}
+	return true
+}
+
+// updateBucketRetentionConfig updates bucket's Object Lock retention configuration
+func updateBucketRetentionConfig(
+	bucketInfo *bucket.Bucket,
+	newConfig *ObjectLockConfiguration,
+) {
+	// Initialize structures if needed
+	if bucketInfo.ObjectLock.Rule == nil {
+		bucketInfo.ObjectLock.Rule = &bucket.ObjectLockRule{}
+	}
+	if bucketInfo.ObjectLock.Rule.DefaultRetention == nil {
+		bucketInfo.ObjectLock.Rule.DefaultRetention = &bucket.DefaultRetention{}
+	}
+
+	// Update mode
+	bucketInfo.ObjectLock.Rule.DefaultRetention.Mode = newConfig.Rule.DefaultRetention.Mode
+
+	// Update retention period (years or days)
+	if newConfig.Rule.DefaultRetention.Years > 0 {
+		years := newConfig.Rule.DefaultRetention.Years
+		bucketInfo.ObjectLock.Rule.DefaultRetention.Years = &years
+		bucketInfo.ObjectLock.Rule.DefaultRetention.Days = nil
+	} else {
+		days := newConfig.Rule.DefaultRetention.Days
+		bucketInfo.ObjectLock.Rule.DefaultRetention.Days = &days
+		bucketInfo.ObjectLock.Rule.DefaultRetention.Years = nil
 	}
 }
