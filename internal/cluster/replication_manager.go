@@ -292,26 +292,42 @@ func (m *ClusterReplicationManager) queueBucketObjects(ctx context.Context, rule
 	if err != nil {
 		return fmt.Errorf("failed to query objects: %w", err)
 	}
-	defer rows.Close()
 
-	count := 0
+	// CRITICAL FIX: Read all objects first, then close the reader BEFORE starting writes
+	// This prevents "database is locked" errors in SQLite (can't have active reader + writer)
+	type objectInfo struct {
+		key       string
+		size      int64
+		etag      string
+		versionID string
+		createdAt time.Time
+	}
+	var objects []objectInfo
+
 	for rows.Next() {
-		var key, etag, versionID string
-		var size int64
-		var createdAt time.Time
-
-		if err := rows.Scan(&key, &size, &etag, &versionID, &createdAt); err != nil {
+		var obj objectInfo
+		if err := rows.Scan(&obj.key, &obj.size, &obj.etag, &obj.versionID, &obj.createdAt); err != nil {
 			m.log.WithError(err).Warn("Failed to scan object")
 			continue
 		}
+		objects = append(objects, obj)
+	}
+	rows.Close() // Close reader BEFORE writes
 
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// Now insert queue items (writes) after reader is closed
+	count := 0
+	for _, obj := range objects {
 		// Create queue item
 		item := &ClusterReplicationQueueItem{
 			ID:                uuid.New().String(),
 			ReplicationRuleID: rule.ID,
 			TenantID:          rule.TenantID,
 			SourceBucket:      rule.SourceBucket,
-			ObjectKey:         key,
+			ObjectKey:         obj.key,
 			DestinationNodeID: rule.DestinationNodeID,
 			DestinationBucket: rule.DestinationBucket,
 			Operation:         "PUT",
@@ -325,7 +341,7 @@ func (m *ClusterReplicationManager) queueBucketObjects(ctx context.Context, rule
 
 		// Insert into queue
 		if err := m.insertQueueItem(ctx, item); err != nil {
-			m.log.WithError(err).WithField("object_key", key).Warn("Failed to insert queue item")
+			m.log.WithError(err).WithField("object_key", obj.key).Warn("Failed to insert queue item")
 			continue
 		}
 
@@ -337,29 +353,24 @@ func (m *ClusterReplicationManager) queueBucketObjects(ctx context.Context, rule
 		"object_count": count,
 	}).Debug("Queued objects for replication")
 
-	return rows.Err()
+	return nil
 }
 
 // insertQueueItem inserts a queue item into the database
 func (m *ClusterReplicationManager) insertQueueItem(ctx context.Context, item *ClusterReplicationQueueItem) error {
-	// Check if item already exists and is not completed
-	var existingStatus string
-	err := m.db.QueryRowContext(ctx, `
-		SELECT status FROM cluster_replication_queue
-		WHERE replication_rule_id = ? AND object_key = ? AND status IN ('pending', 'processing')
-	`, item.ReplicationRuleID, item.ObjectKey).Scan(&existingStatus)
-
-	if err == nil {
-		// Item already queued, skip
-		return nil
-	}
-
-	_, err = m.db.ExecContext(ctx, `
-		INSERT INTO cluster_replication_queue (
+	// Use INSERT OR IGNORE to make it atomic and avoid SELECT + INSERT race condition
+	// This prevents "database is locked" errors under high concurrency
+	_, err := m.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO cluster_replication_queue (
 			id, replication_rule_id, tenant_id, source_bucket, object_key,
 			destination_node_id, destination_bucket, operation, status,
 			attempts, max_attempts, priority, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		)
+		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+		WHERE NOT EXISTS (
+			SELECT 1 FROM cluster_replication_queue
+			WHERE replication_rule_id = ? AND object_key = ? AND status IN ('pending', 'processing')
+		)
 	`,
 		item.ID,
 		item.ReplicationRuleID,
@@ -375,6 +386,8 @@ func (m *ClusterReplicationManager) insertQueueItem(ctx context.Context, item *C
 		item.Priority,
 		item.CreatedAt,
 		item.UpdatedAt,
+		item.ReplicationRuleID,
+		item.ObjectKey,
 	)
 
 	return err
