@@ -267,6 +267,85 @@ func (m *MockS3Client) TestConnection(ctx context.Context) error {
 	return nil
 }
 
+// FailingS3Client is a mock S3 client that fails the first 2 attempts
+type FailingS3Client struct {
+	sourceStore  *InMemoryObjectStore
+	destStore    *InMemoryObjectStore
+	attemptCount *int
+	attemptMu    *sync.Mutex
+	tenantID     string
+	t            *testing.T
+}
+
+func (f *FailingS3Client) PutObject(ctx context.Context, bucket, key string, data io.Reader, size int64, contentType string, metadata map[string]string) error {
+	f.attemptMu.Lock()
+	*f.attemptCount++
+	currentAttempt := *f.attemptCount
+	f.attemptMu.Unlock()
+
+	if currentAttempt <= 2 {
+		f.t.Logf("Attempt %d: Simulating S3 failure", currentAttempt)
+		return fmt.Errorf("simulated S3 network error")
+	}
+
+	f.t.Logf("Attempt %d: Succeeding", currentAttempt)
+
+	// Read all data
+	content, err := io.ReadAll(data)
+	if err != nil {
+		return fmt.Errorf("failed to read data: %w", err)
+	}
+
+	// Write to destination store
+	f.destStore.PutObject(f.tenantID, bucket, key, content)
+	return nil
+}
+
+func (f *FailingS3Client) DeleteObject(ctx context.Context, bucket, key string) error {
+	f.destStore.DeleteObject(f.tenantID, bucket, key)
+	return nil
+}
+
+func (f *FailingS3Client) HeadObject(ctx context.Context, bucket, key string) (map[string]string, int64, error) {
+	content, exists := f.destStore.GetObject(f.tenantID, bucket, key)
+	if !exists {
+		return nil, 0, fmt.Errorf("object not found")
+	}
+	return map[string]string{}, int64(len(content)), nil
+}
+
+func (f *FailingS3Client) GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, int64, error) {
+	content, exists := f.destStore.GetObject(f.tenantID, bucket, key)
+	if !exists {
+		return nil, 0, fmt.Errorf("object not found")
+	}
+	return io.NopCloser(bytes.NewReader(content)), int64(len(content)), nil
+}
+
+func (f *FailingS3Client) CopyObject(ctx context.Context, sourceBucket, sourceKey, destBucket, destKey string) error {
+	content, exists := f.destStore.GetObject(f.tenantID, sourceBucket, sourceKey)
+	if !exists {
+		return fmt.Errorf("source object not found")
+	}
+	f.destStore.PutObject(f.tenantID, destBucket, destKey, content)
+	return nil
+}
+
+func (f *FailingS3Client) ListObjects(ctx context.Context, bucket, prefix string, maxKeys int32) ([]types.Object, error) {
+	keys := f.destStore.ListObjects(f.tenantID, bucket, prefix)
+	objects := make([]types.Object, 0, len(keys))
+	for _, key := range keys {
+		objects = append(objects, types.Object{
+			Key: &key,
+		})
+	}
+	return objects, nil
+}
+
+func (f *FailingS3Client) TestConnection(ctx context.Context) error {
+	return nil
+}
+
 // TestReplicationEndToEnd_WithInMemoryStores tests complete replication flow
 func TestReplicationEndToEnd_WithInMemoryStores(t *testing.T) {
 	if testing.Short() {
@@ -472,23 +551,49 @@ func TestSchedulerTriggers(t *testing.T) {
 	sourceStore.PutObject(tenantID, sourceBucket, "scheduled2.txt", []byte("content2"))
 
 	tmpDir := t.TempDir()
-	replicationDB, err := sql.Open("sqlite", filepath.Join(tmpDir, "replication.db"))
+	dbPath := filepath.Join(tmpDir, "replication.db")
+	replicationDB, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=10000&_synchronous=NORMAL&cache=shared")
 	require.NoError(t, err)
 	defer replicationDB.Close()
 
+	// Set connection pool settings for better concurrency
+	replicationDB.SetMaxOpenConns(1)
+	replicationDB.SetMaxIdleConns(1)
+
+	// Execute PRAGMA commands to ensure WAL mode is enabled
+	_, err = replicationDB.Exec("PRAGMA journal_mode=WAL;")
+	require.NoError(t, err)
+	_, err = replicationDB.Exec("PRAGMA busy_timeout=10000;")
+	require.NoError(t, err)
+
 	config := ReplicationConfig{
-		Enable:        true,
-		WorkerCount:   2,
-		QueueSize:     100,
-		RetryInterval: 1 * time.Second,
-		MaxRetries:    3,
+		Enable:          true,
+		WorkerCount:     2,
+		QueueSize:       100,
+		BatchSize:       10,
+		RetryInterval:   1 * time.Second,
+		MaxRetries:      3,
+		CleanupInterval: 1 * time.Hour,
+		RetentionDays:   30,
 	}
 
 	sourceObjectManager := NewTestObjectManager(sourceStore)
 	adapter := NewTestReplicationAdapter(sourceStore, destStore)
 	lister := NewTestBucketLister(sourceStore)
 
-	manager, err := NewManager(replicationDB, config, adapter, sourceObjectManager, lister)
+	// Create mock S3 client factory
+	mockS3Factory := func(endpoint, region, accessKey, secretKey string) S3Client {
+		return &MockS3Client{
+			sourceStore:       sourceStore,
+			destStore:         destStore,
+			tenantID:          tenantID,
+			sourceBucket:      sourceBucket,
+			destinationBucket: destBucket,
+			t:                 t,
+		}
+	}
+
+	manager, err := NewManagerWithS3Factory(replicationDB, config, adapter, sourceObjectManager, lister, mockS3Factory)
 	require.NoError(t, err)
 
 	// Create scheduled rule (every 1 minute, but we'll manually trigger for testing)
@@ -517,8 +622,8 @@ func TestSchedulerTriggers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, count, "Should queue 2 objects")
 
-	// Wait for processing
-	time.Sleep(3 * time.Second)
+	// Wait for processing (queue loader runs every 10 seconds, so wait 12 seconds to be safe)
+	time.Sleep(12 * time.Second)
 
 	// Verify objects were replicated
 	content1, exists1 := destStore.GetObject(tenantID, destBucket, "scheduled1.txt")
@@ -550,9 +655,20 @@ func TestReplicationRetries(t *testing.T) {
 	sourceStore.PutObject(tenantID, sourceBucket, "retry-test.txt", []byte("test content"))
 
 	tmpDir := t.TempDir()
-	replicationDB, err := sql.Open("sqlite", filepath.Join(tmpDir, "replication.db"))
+	dbPath := filepath.Join(tmpDir, "replication.db")
+	replicationDB, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=10000&_synchronous=NORMAL&cache=shared")
 	require.NoError(t, err)
 	defer replicationDB.Close()
+
+	// Set connection pool settings for better concurrency
+	replicationDB.SetMaxOpenConns(1)
+	replicationDB.SetMaxIdleConns(1)
+
+	// Execute PRAGMA commands to ensure WAL mode is enabled
+	_, err = replicationDB.Exec("PRAGMA journal_mode=WAL;")
+	require.NoError(t, err)
+	_, err = replicationDB.Exec("PRAGMA busy_timeout=10000;")
+	require.NoError(t, err)
 
 	// Create adapter that fails first 2 times, then succeeds
 	var attemptCount int
@@ -567,17 +683,32 @@ func TestReplicationRetries(t *testing.T) {
 	}
 
 	config := ReplicationConfig{
-		Enable:        true,
-		WorkerCount:   1,
-		QueueSize:     10,
-		RetryInterval: 1 * time.Second,
-		MaxRetries:    5,
+		Enable:          true,
+		WorkerCount:     1,
+		QueueSize:       10,
+		BatchSize:       10,
+		RetryInterval:   1 * time.Second,
+		MaxRetries:      5,
+		CleanupInterval: 1 * time.Hour,
+		RetentionDays:   30,
 	}
 
 	sourceObjectManager := NewTestObjectManager(sourceStore)
 	lister := NewTestBucketLister(sourceStore)
 
-	manager, err := NewManager(replicationDB, config, failingAdapter, sourceObjectManager, lister)
+	// Create mock S3 client factory with failing adapter
+	mockS3Factory := func(endpoint, region, accessKey, secretKey string) S3Client {
+		return &FailingS3Client{
+			sourceStore:  sourceStore,
+			destStore:    destStore,
+			attemptCount: &attemptCount,
+			attemptMu:    &attemptMu,
+			tenantID:     tenantID,
+			t:            t,
+		}
+	}
+
+	manager, err := NewManagerWithS3Factory(replicationDB, config, failingAdapter, sourceObjectManager, lister, mockS3Factory)
 	require.NoError(t, err)
 
 	rule := &ReplicationRule{
@@ -603,7 +734,8 @@ func TestReplicationRetries(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for retries and eventual success
-	time.Sleep(6 * time.Second)
+	// Queue loader runs every 10 seconds, and we need 3 attempts: 10s + 10s + 10s + buffer = 35s
+	time.Sleep(35 * time.Second)
 
 	attemptMu.Lock()
 	finalAttempts := attemptCount
