@@ -441,13 +441,13 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	object := &Object{
 		Key:          key,
 		Bucket:       bucket,
-		Size:         size,                  // Original size (unencrypted)
+		Size:         size, // Original size (unencrypted)
 		LastModified: time.Unix(lastModified, 0),
-		ETag:         originalETag,          // Original ETag (MD5 of unencrypted data)
+		ETag:         originalETag, // Original ETag (MD5 of unencrypted data)
 		ContentType:  finalStorageMetadata["content-type"],
-		Metadata:     userMetadata,          // User metadata from x-amz-meta-* headers
+		Metadata:     userMetadata, // User metadata from x-amz-meta-* headers
 		StorageClass: StorageClassStandard,
-		VersionID:    versionID,             // Set versionID (empty string if versioning disabled)
+		VersionID:    versionID, // Set versionID (empty string if versioning disabled)
 	}
 
 	// Apply default Object Lock retention if bucket has it configured
@@ -843,6 +843,16 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*ListObjectsResult, error) {
 	if maxKeys <= 0 {
 		maxKeys = 1000 // Default max keys
+	}
+
+	// Check if bucket exists first
+	tenantID, bucketName := om.parseBucketPath(bucket)
+	exists, err := om.metadataStore.BucketExists(ctx, tenantID, bucketName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check bucket existence: %w", err)
+	}
+	if !exists {
+		return nil, ErrBucketNotFound
 	}
 
 	// When using delimiter, we need to scan more objects to find all unique folders

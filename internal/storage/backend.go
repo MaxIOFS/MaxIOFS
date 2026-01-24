@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"io"
 )
 
@@ -35,7 +36,11 @@ type ObjectInfo struct {
 
 // NewBackend creates a new storage backend based on configuration
 func NewBackend(config Config) (Backend, error) {
-	// TODO: Implement based on config.Backend type
-	// For now, return filesystem backend
-	return NewFilesystemBackend(config)
+	switch config.Backend {
+	case "filesystem", "":
+		// Empty string defaults to filesystem
+		return NewFilesystemBackend(config)
+	default:
+		return nil, fmt.Errorf("unsupported storage backend: %s (only 'filesystem' is currently supported)", config.Backend)
+	}
 }

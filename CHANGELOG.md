@@ -12,12 +12,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CRITICAL: Fixed bucket replication workers not processing queue items** - Objects queued for replication were stuck in "pending" status indefinitely. Queue loader now loads pending items immediately on startup instead of waiting 10 seconds, ensuring objects are replicated promptly.
 - **CRITICAL: Fixed database lock contention in cluster replication under high concurrency** - `queueBucketObjects()` maintained an active database reader (SELECT) while attempting writes (INSERT) within the same loop, causing "database is locked (5) (SQLITE_BUSY)" errors. Fixed by reading all objects into memory first, closing the reader, then performing writes. This prevented production failures with multiple replication workers and scheduler running concurrently.
 - **Fixed non-atomic queue item insertion in cluster replication** - `insertQueueItem()` used separate SELECT + INSERT operations leading to race conditions. Replaced with single atomic `INSERT OR IGNORE` with subquery to prevent duplicate queue items and reduce lock contention.
+- **Fixed missing storage backend validation** - `NewBackend()` accepted any backend type without validation, always defaulting to filesystem. Now properly validates backend type and returns error for unsupported backends (currently only 'filesystem' is supported).
+- **Fixed server_test.go test suite failures** - Corrected 15+ failing tests with multiple issues:
+  - Fixed `ListObjects` returning empty list for non-existent buckets instead of 404 error (added `BucketExists()` check in object manager)
+  - Fixed API response parsing in tests - handlers wrap responses in `APIResponse{success, data}` structure
+  - Fixed double-wrap issue in `handleGetSecurityStatus` and similar handlers where `writeJSON()` wraps response twice
+  - Fixed `handleShareObject` test using wrong user ID and field names (`url`/`id` not `shareUrl`/`shareID`)
+  - Fixed `handleUpdateTenant` test using wrong URL variable (`tenant` not `id`)
+  - Fixed DELETE handlers expecting 200 instead of 204 No Content (lifecycle, tagging, CORS, policy, object)
+  - Fixed PUT handlers receiving JSON instead of required XML format (lifecycle, tagging, CORS)
+  - Fixed missing tenant creation before bucket creation in tests (required for storage quota validation)
 
 ### Added
 - Comprehensive end-to-end tests for bucket replication system with in-memory stores and mock S3 clients
 - Replication test coverage includes object replication, metrics tracking, and prefix filtering
 - 79 new tests for cluster module covering health checking, routing, bucket location tracking, and replication management
 - Test coverage for cluster module improved from 17.8% to 32.7%
+- **10 comprehensive security tests for internal/api module** - Tests validate authentication, authorization, input validation (XSS, SQL injection, path traversal), oversized headers, and concurrent request handling
+- **API module test coverage improved from 0% to 91.6%** with security-focused tests for S3 API handlers
+- **7 comprehensive lifecycle tests for internal/server module** - Tests validate background workers (lifecycle, inventory, replication), graceful shutdown, configuration variations, error handling, and component initialization
+- Inventory worker tests with 73.4% coverage (0% → 73.4%) including bucket validation, circular reference detection, and CSV/JSON generation
+- Inventory module test coverage improved from 30.1% to 80.6%
+- **28 comprehensive tests for internal/notifications module** - Tests validate webhook delivery with retries, event dispatching, rule matching with prefix/suffix filters, wildcard event type matching, configuration validation, and AWS event format creation
+- Notifications module test coverage improved from 30.7% to 85.0%
+- **46 comprehensive tests for internal/server module** - Tests validate HTTP handlers for object operations (list, get, upload, delete), metrics endpoints (system, S3, historical), security status, bucket advanced features (lifecycle, tagging, CORS, policy, versioning, ACL), server lifecycle, and configuration management
+- **30+ additional tests for console API handlers** - Tests validate 2FA workflows (enable, verify, regenerate backup codes), bucket permissions (list, grant, revoke), bucket owner updates, object ACL operations, shares and presigned URLs, settings management, audit logs, notifications, and tenant user management
+- **60+ comprehensive tests for cluster, inventory, replication, and profiling handlers** - Tests validate:
+  - Cluster operations: initialize, join, leave cluster, node CRUD, health checks, cache stats
+  - Inventory handlers: put/get/delete bucket inventory, list reports, validation
+  - Replication rules: create, list, get, update, delete rules, metrics, manual sync
+  - Object lock and legal hold: configuration validation, status management
+  - Bulk settings: global admin permissions, validation
+  - Bucket notifications: put/delete configuration
+  - Profiling endpoints: pprof handlers (heap, goroutine, threadcreate, block, mutex, allocs)
+  - Global admin middleware: authentication and authorization validation
+- **25+ additional tests for cluster internal sync handlers** - Tests validate:
+  - Object replication sync: receive object, HMAC authentication, size validation
+  - Object deletion sync: receive deletion requests with proper cluster node authentication
+  - Tenant/User sync: create/update tenants and users across cluster nodes
+  - Bucket permissions, ACLs, configurations, access keys, inventory sync handlers
+  - Cluster replication rules CRUD: create, list, update, delete, bulk create
+  - Proper context-based authentication (cluster_node_id for internal, username for console)
+- Server module test coverage improved from 29.8% to 54.2% (+24.4 points)
 
 ### Changed
 - Internal code refactoring to improve maintainability and reduce complexity
