@@ -31,6 +31,9 @@ func createTestBadgerStore(t *testing.T) *metadata.BadgerStore {
 
 	t.Cleanup(func() {
 		store.Close()
+		// Windows needs time to release file handles after Close()
+		// BadgerDB on Windows can take longer to release locks
+		time.Sleep(500 * time.Millisecond)
 	})
 
 	return store

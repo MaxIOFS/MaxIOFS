@@ -87,6 +87,7 @@ func TestObjectManagerBasicOperations(t *testing.T) {
 	ctx := context.Background()
 	tenantID := "test-tenant"
 	bucketName := "test-bucket"
+	bucketPath := tenantID + "/" + bucketName // ObjectManager expects tenant/bucket format
 	objectKey := "test-object.txt"
 
 	// Create bucket first
@@ -102,7 +103,7 @@ func TestObjectManagerBasicOperations(t *testing.T) {
 		headers.Set("X-Amz-Meta-Author", "test-user")
 		headers.Set("X-Amz-Meta-Department", "engineering")
 
-		obj, err := om.PutObject(ctx, bucketName, objectKey, bytes.NewReader(content), headers)
+		obj, err := om.PutObject(ctx, bucketPath, objectKey, bytes.NewReader(content), headers)
 		if err != nil {
 			t.Fatalf("Failed to put object: %v", err)
 		}
@@ -122,7 +123,7 @@ func TestObjectManagerBasicOperations(t *testing.T) {
 	})
 
 	t.Run("GetObject", func(t *testing.T) {
-		obj, reader, err := om.GetObject(ctx, bucketName, objectKey)
+		obj, reader, err := om.GetObject(ctx, bucketPath, objectKey)
 		if err != nil {
 			t.Fatalf("Failed to get object: %v", err)
 		}
@@ -145,7 +146,7 @@ func TestObjectManagerBasicOperations(t *testing.T) {
 	})
 
 	t.Run("GetObjectMetadata", func(t *testing.T) {
-		obj, err := om.GetObjectMetadata(ctx, bucketName, objectKey)
+		obj, err := om.GetObjectMetadata(ctx, bucketPath, objectKey)
 		if err != nil {
 			t.Fatalf("Failed to get object metadata: %v", err)
 		}
@@ -164,13 +165,13 @@ func TestObjectManagerBasicOperations(t *testing.T) {
 			"status":  "updated",
 		}
 
-		err := om.UpdateObjectMetadata(ctx, bucketName, objectKey, newMetadata)
+		err := om.UpdateObjectMetadata(ctx, bucketPath, objectKey, newMetadata)
 		if err != nil {
 			t.Fatalf("Failed to update object metadata: %v", err)
 		}
 
 		// Verify update
-		obj, err := om.GetObjectMetadata(ctx, bucketName, objectKey)
+		obj, err := om.GetObjectMetadata(ctx, bucketPath, objectKey)
 		if err != nil {
 			t.Fatalf("Failed to get updated metadata: %v", err)
 		}
@@ -188,14 +189,14 @@ func TestObjectManagerBasicOperations(t *testing.T) {
 			headers := http.Header{}
 			headers.Set("Content-Type", "text/plain")
 
-			_, err := om.PutObject(ctx, bucketName, key, bytes.NewReader(content), headers)
+			_, err := om.PutObject(ctx, bucketPath, key, bytes.NewReader(content), headers)
 			if err != nil {
 				t.Fatalf("Failed to put object %s: %v", key, err)
 			}
 		}
 
 		// List all objects
-		result, err := om.ListObjects(ctx, bucketName, "", "", "", 1000)
+		result, err := om.ListObjects(ctx, bucketPath, "", "", "", 1000)
 		if err != nil {
 			t.Fatalf("Failed to list objects: %v", err)
 		}
@@ -213,17 +214,17 @@ func TestObjectManagerBasicOperations(t *testing.T) {
 			content := []byte(fmt.Sprintf("Content %d", i))
 			headers := http.Header{}
 			headers.Set("Content-Type", "text/plain")
-			om.PutObject(ctx, bucketName, key, bytes.NewReader(content), headers)
+			om.PutObject(ctx, bucketPath, key, bytes.NewReader(content), headers)
 		}
 
 		// List all objects first to debug
-		allResult, _ := om.ListObjects(ctx, bucketName, "", "", "", 1000)
+		allResult, _ := om.ListObjects(ctx, bucketPath, "", "", "", 1000)
 		t.Logf("Total objects in bucket: %d", len(allResult.Objects))
 		for _, obj := range allResult.Objects {
 			t.Logf("  - %s", obj.Key)
 		}
 
-		result, err := om.ListObjects(ctx, bucketName, "prefix-test-", "", "", 1000)
+		result, err := om.ListObjects(ctx, bucketPath, "prefix-test-", "", "", 1000)
 		if err != nil {
 			t.Fatalf("Failed to list objects with prefix: %v", err)
 		}
@@ -235,13 +236,13 @@ func TestObjectManagerBasicOperations(t *testing.T) {
 	})
 
 	t.Run("DeleteObject", func(t *testing.T) {
-		_, err := om.DeleteObject(ctx, bucketName, objectKey, false)
+		_, err := om.DeleteObject(ctx, bucketPath, objectKey, false)
 		if err != nil {
 			t.Fatalf("Failed to delete object: %v", err)
 		}
 
 		// Verify object is deleted
-		_, _, err = om.GetObject(ctx, bucketName, objectKey)
+		_, _, err = om.GetObject(ctx, bucketPath, objectKey)
 		if err == nil {
 			t.Error("Expected error when getting deleted object")
 		}
