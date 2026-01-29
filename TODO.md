@@ -11,11 +11,370 @@
 - Frontend Test Coverage: 100% (64 tests)
 - Features Complete: ~97%
 - Production Ready: Testing Phase
+- **⚠️ Cluster Production Viability: BLOCKED (2 critical architecture issues)**
+
+## 🚨 CRITICAL BLOCKERS - CLUSTER ARCHITECTURE
+
+### ⚠️ BLOCKER #1: ListBuckets Does NOT Aggregate Cross-Node (UX Breaking)
+**Severity**: CRITICAL - Production Blocker
+**Status**: 🔴 BLOCKS PRODUCTION DEPLOYMENT
+**Discovered**: January 28, 2026
+
+**Problem Description**:
+When a tenant has buckets distributed across multiple cluster nodes, the web interface and S3 API only show buckets from the LOCAL node where the request lands.
+
+**Current Broken Behavior**:
+```
+Scenario: 3-node cluster with load balancer
+- Nodo-1 has: bucket-a
+- Nodo-2 has: bucket-b
+- Nodo-3 has: bucket-c
+
+User connects via load balancer:
+  → Request to Nodo-1: sees ONLY "bucket-a"
+  → User refreshes: Request to Nodo-2: sees ONLY "bucket-b"
+  → User refreshes: Request to Nodo-3: sees ONLY "bucket-c"
+
+RESULT: User NEVER sees all 3 buckets simultaneously
+        Inconsistent UX - buckets appear/disappear on refresh
+```
+
+**Root Cause Analysis**:
+1. **Web API** (`internal/server/console_api.go:398`) - Lists only local BadgerDB
+2. **S3 API** (`pkg/s3compat/handler.go:85`) - Lists only local BadgerDB
+3. **BucketManager** (`internal/bucket/manager_badger.go`) - Queries local metadata store only
+4. **MetadataStore** (`internal/metadata/badger.go`) - Iterates local BadgerDB only
+5. **NO cross-node aggregation mechanism exists**
+
+**Why It Happens**:
+- Each node maintains independent BadgerDB instance
+- `ListBuckets()` has NO cluster awareness
+- `ClusterRouter` requires bucket name (can't be used for listing)
+- `BucketLocationManager` only works when bucket name is already known
+
+**Impact**:
+- ❌ Web interface shows inconsistent bucket lists
+- ❌ S3 clients (AWS CLI, boto3, s3cmd) see partial bucket lists
+- ❌ Users cannot reliably discover all their buckets
+- ❌ Breaks fundamental UX expectations
+- ❌ Makes multi-node cluster unusable in practice
+
+**Solution Required**: Implement `BucketAggregator` to query ALL nodes
+
+---
+
+### 🔥 BLOCKER #2: Tenant Storage Quotas Are NOT Cluster-Aware (SECURITY VULNERABILITY)
+**Severity**: CRITICAL - Security Vulnerability
+**Status**: 🔴 BLOCKS PRODUCTION DEPLOYMENT
+**CVE Risk**: HIGH - Quota bypass vulnerability
+**Discovered**: January 28, 2026
+
+**Problem Description**:
+Tenant storage quotas are enforced PER-NODE with 30-second sync intervals, allowing tenants to exceed quota by factor of N (number of nodes) during the sync window.
+
+**Exploitable Attack Vector**:
+```
+Setup: 3-node cluster, Tenant quota = 1TB
+
+ATTACK TIMELINE:
+T=0s:  All nodes: current_storage_bytes = 0
+T=1s:  Upload 1TB to Nodo-A → Quota check: 0 + 1TB ≤ 1TB ✓ ALLOWED
+T=2s:  Upload 1TB to Nodo-B → Quota check: 0 + 1TB ≤ 1TB ✓ ALLOWED (stale value!)
+T=3s:  Upload 1TB to Nodo-C → Quota check: 0 + 1TB ≤ 1TB ✓ ALLOWED (stale value!)
+T=30s: Sync executes → Each node reports 1TB locally
+
+RESULT: 3TB physically stored with 1TB quota
+        200% QUOTA BYPASS
+```
+
+**Real-World Impact**:
+```
+Tenant with 1TB quota on 3-node cluster:
+- Can store up to 3TB before ANY node detects the violation
+- Quota shows 1TB but actual storage is 3TB
+- Billing fraud potential
+- Storage exhaustion risk
+- No mechanism to detect or prevent
+```
+
+**Root Cause Analysis**:
+1. **Local-Only Quota Checks** (`internal/auth/tenant.go:451-494`)
+   - `CheckTenantStorageQuota()` queries LOCAL `current_storage_bytes` only
+   - No distributed consensus or real-time sync
+
+2. **30-Second Batch Sync** (`internal/cluster/tenant_sync.go:106`)
+   - `syncAllTenants()` runs every 30 seconds
+   - Each node OVERWRITES remote values during sync
+   - Race condition window: 0-30 seconds
+
+3. **Per-Node Storage Tracking** (`internal/auth/tenant.go:398-421`)
+   - `IncrementTenantStorage()` updates ONLY local SQLite
+   - No broadcast to other nodes
+   - Stale reads guaranteed during sync intervals
+
+4. **No Distributed Transactions**
+   - No locks across nodes
+   - No two-phase commit
+   - No quota reservations
+
+**Attack Success Rate**: 100% (deterministic bypass)
+
+**Affected Code Paths**:
+- `pkg/s3compat/handler.go:842` - PutObject quota validation
+- `internal/object/manager.go:433` - Post-upload quota check
+- `internal/object/manager.go:1472` - Multipart quota check
+- `internal/auth/tenant.go:451` - Quota enforcement logic
+- `internal/cluster/tenant_sync.go:106` - Sync mechanism
+
+**Impact**:
+- 🔥 Security vulnerability: Quota bypass exploit
+- 🔥 Billing fraud potential for commercial deployments
+- 🔥 Storage exhaustion risk (DoS via quota bypass)
+- 🔥 Data integrity: Quota values never consistent
+- 🔥 Compliance violation: Cannot enforce storage limits
+- 🔥 Multi-tenancy broken: Tenants can steal resources
+
+**Solution Required**: Implement Distributed Quota Counter with real-time sync
+
+---
+
+### 📋 Implementation Plan - 3 Phases
+
+#### Phase 1: Bucket Aggregator (IMMEDIATE - 2-3 days)
+**Priority**: P0 - Fixes UX blocker
+**Complexity**: Low-Medium
+**Breaking Changes**: None
+
+**Deliverables**:
+- [ ] Create `internal/cluster/bucket_aggregator.go`
+  - `ListAllBuckets(ctx, tenantID)` - Queries all healthy nodes in parallel
+  - `queryBucketsFromNode(ctx, node, tenantID)` - HTTP request to node
+  - `BucketWithLocation` struct - Bucket + NodeID + NodeName
+
+- [ ] Modify `internal/server/console_api.go:398`
+  - Add cluster-aware branch: `if clusterManager.IsClusterEnabled()`
+  - Use `bucketAggregator.ListAllBuckets()` for cluster mode
+  - Fallback to `bucketManager.ListBuckets()` for standalone
+
+- [ ] Modify `pkg/s3compat/handler.go:85`
+  - Same cluster-aware logic for S3 ListBuckets API
+  - Return aggregated results with metadata
+
+- [ ] Update Web UI Response Format
+  ```json
+  {
+    "buckets": [
+      {
+        "name": "bucket-a",
+        "node_id": "node-1",
+        "node_name": "Nodo Principal",
+        "size_bytes": 483729408000,
+        "object_count": 12453
+      }
+    ],
+    "total": 3,
+    "cluster_mode": true
+  }
+  ```
+
+- [ ] Tests
+  - `TestBucketAggregator_ListAllBuckets` - Multi-node aggregation
+  - `TestBucketAggregator_NodeFailure` - Handles node down gracefully
+  - `TestBucketAggregator_EmptyCluster` - No buckets scenario
+  - Integration test with 3 simulated nodes
+
+**Success Criteria**:
+- ✅ User sees ALL buckets regardless of which node serves request
+- ✅ Web UI displays node location for each bucket
+- ✅ S3 API returns complete bucket list
+- ✅ Performance impact < 100ms for 3-node cluster
+
+---
+
+#### Phase 2: Distributed Quota Counter (CRITICAL - 4-5 days)
+**Priority**: P0 - Fixes security vulnerability
+**Complexity**: High
+**Breaking Changes**: Database schema addition
+
+**Deliverables**:
+- [ ] Create `internal/cluster/distributed_quota.go`
+  - `DistributedQuotaManager` struct with distributed locks
+  - `ReserveQuota(ctx, tenantID, bytes)` - Reserve quota before upload
+  - `CommitReservation(ctx, reservationID)` - Commit after successful upload
+  - `ReleaseReservation(ctx, reservationID)` - Release on upload failure
+  - `queryTotalUsageAcrossCluster(ctx, tenantID)` - Real-time aggregation
+  - `broadcastReservation(ctx, reservation)` - Notify all nodes
+
+- [ ] Database Schema Addition
+  ```sql
+  CREATE TABLE cluster_quota_reservations (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      bytes INTEGER NOT NULL,
+      status TEXT DEFAULT 'active',  -- active, committed, expired, released
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,   -- Auto-expire after 5 minutes
+      FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+  );
+
+  CREATE INDEX idx_quota_res_tenant ON cluster_quota_reservations(tenant_id);
+  CREATE INDEX idx_quota_res_status ON cluster_quota_reservations(status);
+  CREATE INDEX idx_quota_res_expires ON cluster_quota_reservations(expires_at);
+  ```
+
+- [ ] Modify Upload Handlers
+  - `pkg/s3compat/handler.go:842` - Add reservation logic to PutObject
+  - `internal/object/manager.go:419` - Add reservation to object manager
+  - `internal/object/manager.go:1451` - Add reservation to multipart
+
+- [ ] Distributed Lock Implementation (Choose one):
+  **Option A: SQLite-based (simpler, good for < 10 nodes)**
+  ```sql
+  CREATE TABLE cluster_locks (
+      resource_key TEXT PRIMARY KEY,
+      node_id TEXT NOT NULL,
+      acquired_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+  );
+  ```
+
+  **Option B: Redis-based (recommended for production)**
+  - Use Redis SET NX EX for distributed locks
+  - Add Redis as optional dependency
+  - Fallback to SQLite if Redis unavailable
+
+- [ ] Real-Time Usage Sync
+  - Replace 30-second batch sync with event-driven broadcast
+  - HTTP endpoint: `POST /api/internal/cluster/quota-update`
+  - Broadcast on every `IncrementTenantStorage()`/`DecrementTenantStorage()`
+
+- [ ] Background Cleanup Worker
+  - Expire reservations after 5 minutes
+  - Reconcile quota discrepancies
+  - Alert on quota inconsistencies
+
+**Tests**:
+- [ ] `TestDistributedQuota_ReserveAndCommit` - Happy path
+- [ ] `TestDistributedQuota_ReserveAndRelease` - Upload failure
+- [ ] `TestDistributedQuota_QuotaExceeded` - Quota enforcement
+- [ ] `TestDistributedQuota_ParallelUploads` - Race conditions
+- [ ] `TestDistributedQuota_NodeFailure` - Node down during reservation
+- [ ] `TestDistributedQuota_ExpirationCleanup` - Expired reservations
+- [ ] Integration test: 3 nodes, parallel uploads, verify no quota bypass
+
+**Security Testing**:
+- [ ] Penetration test: Attempt quota bypass with parallel uploads
+- [ ] Load test: 1000 concurrent uploads to verify no race conditions
+- [ ] Chaos test: Kill nodes during upload to verify reservation cleanup
+
+**Success Criteria**:
+- ✅ ZERO quota bypass possible regardless of timing
+- ✅ Quota enforcement < 1 second delay across cluster
+- ✅ No data loss on node failures
+- ✅ Automatic cleanup of stale reservations
+- ✅ Performance impact < 50ms per upload
+
+---
+
+#### Phase 3: Production Hardening (1-2 days)
+**Priority**: P0 - Required for production
+**Complexity**: Medium
+
+**Deliverables**:
+- [ ] Monitoring & Alerts
+  - Prometheus metrics: `cluster_quota_reservations_active`
+  - Alert on quota discrepancies > 5%
+  - Alert on reservation cleanup failures
+
+- [ ] Audit Logging
+  - Log all quota reservations with node ID
+  - Log quota bypass attempts
+  - Track quota changes across nodes
+
+- [ ] Documentation
+  - Update `docs/CLUSTER.md` with quota architecture
+  - Add troubleshooting guide for quota issues
+  - Document Redis setup (optional)
+
+- [ ] Migration Path
+  - Database migration for `cluster_quota_reservations` table
+  - Backward compatibility for existing deployments
+  - Rollback procedure documented
+
+**Success Criteria**:
+- ✅ Complete monitoring coverage
+- ✅ Clear documentation for operators
+- ✅ Zero-downtime migration path
+
+---
+
+### 📊 Timeline & Resources
+
+**Estimated Total Effort**: 7-10 days
+**Required Skills**: Go, distributed systems, SQL, HTTP, testing
+**Dependencies**: None (can start immediately)
+
+**Proposed Schedule**:
+- **Week 1**: Phase 1 (Bucket Aggregator) - Days 1-3
+- **Week 2**: Phase 2 (Distributed Quota) - Days 4-8
+- **Week 2**: Phase 3 (Production Hardening) - Days 9-10
+
+**Risk Assessment**:
+- **Technical Risk**: Medium (distributed systems complexity)
+- **Testing Risk**: Low (comprehensive test plan)
+- **Deployment Risk**: Low (backward compatible)
+
+---
+
+### 🔗 Technical References
+
+**Affected Files**:
+- `internal/server/console_api.go:398` - Web bucket listing
+- `pkg/s3compat/handler.go:85` - S3 ListBuckets handler
+- `internal/bucket/manager_badger.go` - Bucket manager implementation
+- `internal/metadata/badger.go` - Metadata store queries
+- `internal/auth/tenant.go:451-494` - Quota enforcement
+- `internal/cluster/tenant_sync.go:106` - Tenant sync mechanism
+- `internal/cluster/router.go:115` - Cluster routing (not used for ListBuckets)
+- `internal/cluster/bucket_location.go:57` - Bucket location tracking
+
+**Database Tables**:
+- `tenants` - Contains `max_storage_bytes`, `current_storage_bytes` (local-only)
+- `cluster_quota_reservations` - NEW table for distributed quota tracking
+- `cluster_locks` - NEW table for distributed locks (SQLite option)
+
+**Investigation Reports**:
+- Investigation Date: January 28, 2026
+- Investigation Agent ID: a93235f (ListBuckets cross-node)
+- Investigation Agent ID: a5cbb7e (Quota enforcement)
+
+---
 
 ## 📌 Current Sprint
 
-### Sprint 8: Backend Test Coverage Expansion (54.8% → 90%+) - 🚧 IN PROGRESS
+### Sprint 9: Critical Cluster Architecture Fixes - 🚨 BLOCKED
+**Goal**: Fix 2 critical cluster architecture issues that block production deployment
+
+**Status**: ⚠️ PRODUCTION BLOCKER - Must complete before v0.8.0 release
+
+**Issues**:
+1. 🔴 ListBuckets does NOT aggregate cross-node (UX blocker)
+2. 🔥 Tenant quotas are NOT cluster-aware (security vulnerability - CVE risk)
+
+**Timeline**: 7-10 days (3 phases)
+- Phase 1: Bucket Aggregator (2-3 days) - P0
+- Phase 2: Distributed Quota Counter (4-5 days) - P0
+- Phase 3: Production Hardening (1-2 days) - P0
+
+**See**: 🚨 CRITICAL BLOCKERS section above for full technical details
+
+---
+
+### Sprint 8: Backend Test Coverage Expansion (54.8% → 90%+) - ⏸️ PAUSED
 **Goal**: Systematically test all modules to reach production-ready coverage levels
+
+**Status**: PAUSED - Blocked by Sprint 9 cluster architecture fixes
 
 **Approach**:
 - Test modules in priority order (0% → 90%+ coverage)
@@ -24,6 +383,18 @@
 - Comprehensive integration tests for cross-module interactions
 
 **Target**: Add 400-500 new tests across 15+ modules
+
+**Progress So Far**:
+- ✅ internal/config: 35.8% → 94.0% (+58.2 points, 23 tests)
+- ✅ internal/cluster: 32.7% → 64.0% (+31.3 points, 44 tests)
+  - tenant_sync_test.go (12 tests)
+  - manager_test.go (6 new tests)
+  - proxy_test.go (7 tests - new file)
+  - replication_worker_test.go (11 tests - new file)
+  - migration_test.go (8 new tests)
+- 🚧 internal/cluster: Remaining 9 migration functions pending
+- ⏸️ cmd/maxiofs: 0% → 90%+ (paused)
+- ⏸️ web: 0% → 90%+ (paused)
 
 ### Sprint 7: Complete Bucket Migration & Data Synchronization - ✅ COMPLETE
 - [x] ✅ Real object copying from physical storage (fixed empty body bug)

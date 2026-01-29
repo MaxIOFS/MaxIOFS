@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Known Issues
+
+**⚠️ CRITICAL: Multi-node cluster ListBuckets does not aggregate cross-node** - Discovered January 28, 2026. When a tenant has buckets distributed across multiple cluster nodes, the web interface and S3 API (`handleListBuckets`, `ListBuckets` handler) only show buckets from the local node where the request lands, not all buckets across the cluster. Users see inconsistent bucket lists depending on which node the load balancer routes to. Root cause: `internal/bucket/manager_badger.go` queries only local BadgerDB, no cross-node aggregation exists. This makes multi-node clusters impractical for production use. Tracked in TODO.md Sprint 9.
+
+**🔥 CRITICAL SECURITY: Tenant storage quotas are not cluster-aware** - Discovered January 28, 2026. Tenant storage quotas are enforced per-node with 30-second sync intervals, allowing tenants to exceed quota by a factor of N (number of nodes). Example: Tenant with 1TB quota can store 3TB on a 3-node cluster by uploading to all nodes before the 30-second sync window. Root cause: `CheckTenantStorageQuota()` in `internal/auth/tenant.go:451` queries local `current_storage_bytes` only, `IncrementTenantStorage()` updates only local SQLite without real-time broadcast, and `syncAllTenants()` in `internal/cluster/tenant_sync.go:106` runs batch sync every 30 seconds creating guaranteed race conditions. This is an exploitable security vulnerability (CVE risk: HIGH) that enables quota bypass, billing fraud, and storage exhaustion attacks. Affects all upload code paths: `PutObject`, multipart uploads, and object manager. Production deployment blocked. Tracked in TODO.md Sprint 9.
+
 ### Fixed
 - **CRITICAL: Fixed GetNodeToken() querying non-existent 'status' column** - `internal/cluster/manager.go:416` incorrectly queried `status` column in `cluster_nodes` table, causing "SQL logic error: no such column: status" failures in cluster synchronization operations. Fixed by changing query to use correct `health_status` column. This bug prevented access key synchronization, bucket permission synchronization, and other cluster replication features from functioning.
 - Fixed syslog logging support for IPv6 addresses
