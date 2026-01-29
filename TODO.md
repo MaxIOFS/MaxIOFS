@@ -1,18 +1,29 @@
 # MaxIOFS - TODO & Roadmap
 
 **Version**: 0.7.0-beta
-**Last Updated**: January 16, 2026
+**Last Updated**: January 27, 2026
 **Status**: Beta - 98% S3 Compatible
 
 ## 📊 Project Status
 
 - S3 API Compatibility: 98%
-- Backend Test Coverage: ~54% (500 tests)
+- Backend Test Coverage: 54.8% (500 tests) → Target: 90%+
 - Frontend Test Coverage: 100% (64 tests)
 - Features Complete: ~97%
 - Production Ready: Testing Phase
 
 ## 📌 Current Sprint
+
+### Sprint 8: Backend Test Coverage Expansion (54.8% → 90%+) - 🚧 IN PROGRESS
+**Goal**: Systematically test all modules to reach production-ready coverage levels
+
+**Approach**:
+- Test modules in priority order (0% → 90%+ coverage)
+- Focus on core functionality, edge cases, and error handling
+- No skipping of complex or difficult test scenarios
+- Comprehensive integration tests for cross-module interactions
+
+**Target**: Add 400-500 new tests across 15+ modules
 
 ### Sprint 7: Complete Bucket Migration & Data Synchronization - ✅ COMPLETE
 - [x] ✅ Real object copying from physical storage (fixed empty body bug)
@@ -52,6 +63,129 @@
   - Fixed 4 critical bugs in SigV4/SigV2 authentication
 
 ## 🔴 HIGH PRIORITY
+
+### Backend Test Coverage Expansion - 🚧 IN PROGRESS (Sprint 8)
+**Goal**: Increase backend test coverage from 54.8% to 90%+ (Target: +35.2 percentage points)
+
+**Current Status**: 54.8% coverage (500 tests), 354 functions with 0% coverage
+
+**Critical Commitment**:
+- Test ALL modules systematically without skipping difficult/complex tests
+- Focus on core functionality and edge cases
+- No shortcuts on complicated scenarios
+
+**Priority Order** (by coverage % and criticality):
+
+#### Phase 1: Critical Infrastructure (0-40% coverage)
+- [ ] **cmd/maxiofs** - 0.0% coverage (3 functions: main, runServer, setupLogging)
+  - Integration tests for CLI initialization and server startup
+  - Configuration loading and validation tests
+  - Logging setup verification tests
+
+- [ ] **web** - 0.0% coverage (2 functions: GetFrontendFS, embed)
+  - Frontend file serving tests
+  - Embedded filesystem tests
+
+- [ ] **internal/cluster** - 32.7% coverage (70+ functions with 0%)
+  - Files needing tests:
+    - `migration.go` (15 functions) - Bucket migration orchestration
+    - `user_sync.go` (11 functions) - User synchronization across nodes
+    - `tenant_sync.go` (11 functions) - Tenant synchronization
+    - `replication_worker.go` (10 functions) - Cluster replication worker
+    - `manager.go` (9 functions) - Cluster manager operations
+    - `proxy.go` (8 functions) - Request proxying between nodes
+
+- [ ] **internal/config** - 35.8% coverage
+  - Configuration parsing and validation
+  - Environment variable loading
+  - Default value handling
+  - Configuration migration/upgrade tests
+
+#### Phase 2: Core Functionality (40-50% coverage)
+- [ ] **internal/bucket** - 45.9% coverage (20+ functions with 0%)
+  - Files needing tests:
+    - `manager_badger.go` (7 functions) - ForceDeleteBucket, RecalculateMetrics, ACL operations
+    - `validation.go` (9 functions) - Policy, versioning, lifecycle, object lock validation
+    - `filter.go` (3 functions) - Permission filtering and access checks
+
+- [ ] **pkg/s3compat** - 45.7% coverage (42+ functions with 0%)
+  - Files needing tests:
+    - `handler.go` (24 functions) - S3 API request handlers
+    - `presigned.go` (13 functions) - Pre-signed URL generation and validation
+    - `batch.go` (5 functions) - Batch operations (DeleteObjects)
+
+- [ ] **internal/object** - 48.2% coverage (28+ functions with 0%)
+  - Files needing tests:
+    - `manager.go` (15 functions) - Object operations
+    - `retention.go` (9 functions) - Object retention and compliance mode
+    - `lock.go` (4 functions) - Object locking mechanisms
+
+#### Phase 3: Storage & Metadata (50-55% coverage)
+- [ ] **internal/metadata** - 52.4% coverage (32+ functions with 0%)
+  - Files needing tests:
+    - `badger.go` (14 functions) - BadgerDB operations
+    - `badger_objects.go` (4 functions) - Object metadata operations
+    - `badger_multipart.go` (4 functions) - Multipart upload metadata
+    - `badger_buckets.go` - Bucket metadata operations
+
+- [ ] **internal/server** - 53.0% coverage (30+ functions with 0%)
+  - Files needing tests:
+    - `server.go` (13 functions) - Server lifecycle and initialization
+    - `console_api_logs.go` (4 functions) - Frontend log aggregation
+    - `profiling_handlers.go` (5 functions) - pprof endpoint handlers
+
+- [ ] **internal/replication** - 54.0% coverage (17+ functions with 0%)
+  - Files needing tests:
+    - `s3client.go` (9 functions) - S3 remote client operations
+    - `adapter.go` (4 functions) - Object adapter for replication
+    - `worker.go` - Replication worker operations
+
+#### Phase 4: Authentication & Authorization (60-75% coverage)
+- [ ] **internal/auth** - 71.0% coverage (25+ functions with 0%)
+  - Files needing tests:
+    - `manager.go` (12 functions) - Middleware, bucket permissions, 2FA operations
+    - `sqlite.go` (13 functions) - Database schema, migrations, 2FA persistence
+
+#### Phase 5: Supporting Systems (55-70% coverage)
+- [ ] **internal/metrics** - 67.4% coverage (29 functions with 0%)
+  - Files needing tests:
+    - `manager.go` (29 functions) - Metrics collection and management
+
+- [ ] **pkg/encryption** - 57.1% coverage (7 functions with 0%)
+  - Encryption/decryption operations
+  - Key derivation and management
+  - Stream encryption tests
+
+- [ ] **pkg/compression** - 61.2% coverage (9 functions with 0%)
+  - Gzip compression/decompression
+  - Stream compression tests
+  - Error handling for corrupted data
+
+- [ ] **internal/audit** - 62.8% coverage (4 functions with 0%)
+  - `StartRetentionJob`, `runRetentionCleanup` - Audit log retention
+  - Long-running background job tests
+
+- [ ] **internal/share** - 63.5% coverage
+  - Share link creation and validation
+  - Expiration handling
+  - Access control tests
+
+- [ ] **internal/lifecycle** - 69.0% coverage
+  - Lifecycle rule application
+  - Object expiration worker
+  - Edge cases and error scenarios
+
+**Testing Guidelines**:
+1. **No Skipping**: Do not skip complex or time-consuming tests
+2. **Edge Cases**: Test error conditions, boundary values, concurrent access
+3. **Integration**: Test interactions between modules
+4. **Performance**: Include performance regression tests where applicable
+5. **Race Conditions**: Run tests with `-race` flag
+6. **Cleanup**: Ensure proper resource cleanup in all tests
+
+**Tracking**: Update this list as each module reaches 90%+ coverage
+
+---
 
 ### Cluster Bucket Migration - ✅ COMPLETE (100%)
 **Goal**: Enable moving buckets between cluster nodes for capacity rebalancing and maintenance
@@ -272,7 +406,11 @@
 ### Short Term (v0.8.0-beta - Q1 2026)
 
 **Testing & Quality**
-- [ ] Backend test coverage to 90%+ (current: 54%)
+- [x] 🚧 Backend test coverage expansion to 90%+ (current: 54.8%, target: 90%+) - **IN PROGRESS (Sprint 8)**
+  - Comprehensive test plan created with 15+ modules prioritized
+  - Systematic testing approach: 0% → 90%+ coverage per module
+  - 354 functions identified with 0% coverage
+  - Commitment to test complex/difficult scenarios without skipping
 - [ ] Chaos engineering tests (node failures, network partitions)
 - [x] ✅ End-to-end integration test suite for multi-node cluster scenarios
   - Implemented in `internal/cluster/replication_integration_test.go` and `migration_integration_test.go`

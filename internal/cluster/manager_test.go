@@ -463,3 +463,151 @@ func TestLeaveCluster(t *testing.T) {
 		t.Error("Expected cluster to be disabled after leaving")
 	}
 }
+
+func TestSetStorage(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	manager := NewManager(db, "http://localhost:8080")
+
+	// SetStorage should not panic and should set the storage
+	manager.SetStorage(nil)
+
+	// Verify storage is set (can't directly test private field, but no panic is success)
+	if manager.storage != nil {
+		t.Error("Expected storage to be nil after SetStorage(nil)")
+	}
+}
+
+func TestSetACLManager(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	manager := NewManager(db, "http://localhost:8080")
+
+	// SetACLManager should not panic and should set the ACL manager
+	manager.SetACLManager(nil)
+
+	// Verify ACL manager is set (can't directly test private field, but no panic is success)
+	if manager.aclManager != nil {
+		t.Error("Expected aclManager to be nil after SetACLManager(nil)")
+	}
+}
+
+func TestJoinCluster(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	manager := NewManager(db, "http://localhost:8080")
+	ctx := context.Background()
+
+	// JoinCluster should return "not implemented yet" error
+	err := manager.JoinCluster(ctx, "test-token", "http://localhost:8081")
+	if err == nil {
+		t.Fatal("Expected error from JoinCluster, got nil")
+	}
+
+	if err.Error() != "not implemented yet" {
+		t.Errorf("Expected 'not implemented yet' error, got: %v", err)
+	}
+}
+
+func TestUpdateNodeBucketCount(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	manager := NewManager(db, "http://localhost:8080")
+	ctx := context.Background()
+
+	// Initialize cluster
+	_, err := manager.InitializeCluster(ctx, "test-node", "us-east-1")
+	if err != nil {
+		t.Fatalf("Failed to initialize cluster: %v", err)
+	}
+
+	// Add a node
+	node := &Node{
+		ID:           "test-node-1",
+		Name:         "Test Node 1",
+		Endpoint:     "http://node1:8080",
+		NodeToken:    "token123",
+		HealthStatus: "healthy",
+	}
+	err = manager.AddNode(ctx, node)
+	if err != nil {
+		t.Fatalf("Failed to add node: %v", err)
+	}
+
+	// Update bucket count
+	err = manager.UpdateNodeBucketCount(ctx, "test-node-1", 5)
+	if err != nil {
+		t.Fatalf("Failed to update bucket count: %v", err)
+	}
+
+	// Verify bucket count was updated
+	retrievedNode, err := manager.GetNode(ctx, "test-node-1")
+	if err != nil {
+		t.Fatalf("Failed to get node: %v", err)
+	}
+
+	if retrievedNode.BucketCount != 5 {
+		t.Errorf("Expected bucket count 5, got %d", retrievedNode.BucketCount)
+	}
+}
+
+func TestUpdateLocalNodeBucketCount(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	manager := NewManager(db, "http://localhost:8080")
+	ctx := context.Background()
+
+	// Initialize cluster (this also adds the local node to cluster_nodes)
+	_, err := manager.InitializeCluster(ctx, "test-node", "us-east-1")
+	if err != nil {
+		t.Fatalf("Failed to initialize cluster: %v", err)
+	}
+
+	// Get the local node ID from cluster config
+	config, err := manager.GetConfig(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get cluster config: %v", err)
+	}
+
+	// Update local bucket count
+	err = manager.UpdateLocalNodeBucketCount(ctx, 10)
+	if err != nil {
+		t.Fatalf("Failed to update local bucket count: %v", err)
+	}
+
+	// Verify bucket count was updated
+	retrievedNode, err := manager.GetNode(ctx, config.NodeID)
+	if err != nil {
+		t.Fatalf("Failed to get node: %v", err)
+	}
+
+	if retrievedNode.BucketCount != 10 {
+		t.Errorf("Expected bucket count 10, got %d", retrievedNode.BucketCount)
+	}
+}
+
+func TestClose(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	manager := NewManager(db, "http://localhost:8080")
+
+	// Close should not panic
+	err := manager.Close()
+	if err != nil {
+		t.Errorf("Close returned error: %v", err)
+	}
+
+	// Stop channel should be closed
+	select {
+	case <-manager.stopChan:
+		// Expected - channel is closed
+	default:
+		t.Error("Expected stop channel to be closed")
+	}
+}

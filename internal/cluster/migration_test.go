@@ -2,7 +2,14 @@ package cluster
 
 import (
 	"context"
+	"database/sql"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestMigrationJobCRUD tests basic CRUD operations for migration jobs
@@ -144,4 +151,242 @@ func TestGetMigrationJob_NotFound(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error when getting non-existent migration")
 	}
+}
+
+func TestManager_SendBucketPermission(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create mock target server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "POST", r.Method)
+		assert.Contains(t, r.URL.Path, "/api/internal/cluster/bucket-permissions")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	manager := NewManager(db, "http://localhost:8080")
+	proxyClient := NewProxyClient()
+
+	err := manager.sendBucketPermission(ctx, proxyClient, server.URL, "local-node", "test-token",
+		"perm-1", "test-bucket", "user-1", "tenant-1", "read,write", "admin", time.Now().Unix(), sql.NullInt64{})
+	require.NoError(t, err)
+}
+
+func TestManager_SendBucketACL(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create mock target server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "POST", r.Method)
+		assert.Contains(t, r.URL.Path, "/api/internal/cluster/bucket-acl")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	manager := NewManager(db, "http://localhost:8080")
+	proxyClient := NewProxyClient()
+
+	acl := map[string]interface{}{
+		"grantee_id": "user-1",
+		"permission": "READ",
+	}
+
+	err := manager.sendBucketACL(ctx, proxyClient, server.URL, "local-node", "test-token",
+		"tenant-1", "test-bucket", acl)
+	require.NoError(t, err)
+}
+
+func TestManager_SendBucketConfiguration(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create mock target server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "POST", r.Method)
+		assert.Contains(t, r.URL.Path, "/api/internal/cluster/bucket-config")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	manager := NewManager(db, "http://localhost:8080")
+	proxyClient := NewProxyClient()
+
+	err := manager.sendBucketConfiguration(ctx, proxyClient, server.URL, "local-node", "test-token",
+		"tenant-1", "test-bucket",
+		sql.NullString{String: "Enabled", Valid: true},
+		sql.NullString{String: "false", Valid: true},
+		sql.NullString{},
+		sql.NullString{},
+		sql.NullString{String: `{"env":"test"}`, Valid: true},
+		sql.NullString{},
+		sql.NullString{},
+		sql.NullString{})
+	require.NoError(t, err)
+}
+
+func TestManager_SendBucketInventory(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create mock target server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "POST", r.Method)
+		assert.Contains(t, r.URL.Path, "/api/internal/cluster/bucket-inventory")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	manager := NewManager(db, "http://localhost:8080")
+	proxyClient := NewProxyClient()
+
+	err := manager.sendBucketInventory(ctx, proxyClient, server.URL, "local-node", "test-token",
+		"tenant-1", "test-bucket", true, "daily", "CSV", "dest-bucket", "prefix/",
+		[]string{"Size", "ETag"}, "00:00", sql.NullInt64{}, sql.NullInt64{})
+	require.NoError(t, err)
+}
+
+func TestManager_CountBucketObjects(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create objects table
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS objects (
+			bucket TEXT NOT NULL,
+			key TEXT NOT NULL,
+			tenant_id TEXT NOT NULL,
+			size INTEGER NOT NULL,
+			created_at TIMESTAMP NOT NULL,
+			deleted_at TIMESTAMP,
+			PRIMARY KEY (bucket, key, tenant_id)
+		)
+	`)
+	require.NoError(t, err)
+
+	// Insert test objects
+	now := time.Now()
+	testObjects := []struct {
+		bucket   string
+		key      string
+		tenantID string
+		size     int64
+		deleted  bool
+	}{
+		{"test-bucket", "file1.txt", "tenant-1", 100, false},
+		{"test-bucket", "file2.txt", "tenant-1", 200, false},
+		{"test-bucket", "file3.txt", "tenant-1", 300, false},
+		{"test-bucket", "deleted.txt", "tenant-1", 400, true},
+		{"other-bucket", "file4.txt", "tenant-1", 500, false},
+	}
+
+	for _, obj := range testObjects {
+		var deletedAt sql.NullTime
+		if obj.deleted {
+			deletedAt = sql.NullTime{Time: now, Valid: true}
+		}
+		_, err = db.ExecContext(ctx, `
+			INSERT INTO objects (bucket, key, tenant_id, size, created_at, deleted_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, obj.bucket, obj.key, obj.tenantID, obj.size, now, deletedAt)
+		require.NoError(t, err)
+	}
+
+	manager := NewManager(db, "http://localhost:8080")
+
+	// Count objects in test-bucket
+	count, totalSize, err := manager.countBucketObjects(ctx, "tenant-1", "test-bucket")
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(3), count, "Should count only non-deleted objects")
+	assert.Equal(t, int64(600), totalSize, "Should sum only non-deleted object sizes")
+}
+
+func TestManager_CountBucketObjects_EmptyBucket(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create objects table
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS objects (
+			bucket TEXT NOT NULL,
+			key TEXT NOT NULL,
+			tenant_id TEXT NOT NULL,
+			size INTEGER NOT NULL,
+			created_at TIMESTAMP NOT NULL,
+			deleted_at TIMESTAMP,
+			PRIMARY KEY (bucket, key, tenant_id)
+		)
+	`)
+	require.NoError(t, err)
+
+	manager := NewManager(db, "http://localhost:8080")
+
+	// Count objects in empty bucket
+	count, totalSize, err := manager.countBucketObjects(ctx, "tenant-1", "empty-bucket")
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(0), count)
+	assert.Equal(t, int64(0), totalSize)
+}
+
+func TestManager_VerifyObjectOnTarget(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create mock target server that returns object metadata
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "HEAD", r.Method)
+		assert.Contains(t, r.URL.Path, "/api/internal/cluster/objects/tenant-1/test-bucket/file.txt")
+
+		w.Header().Set("X-Object-ETag", "etag123")
+		w.Header().Set("Content-Length", "1024")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	manager := NewManager(db, "http://localhost:8080")
+	proxyClient := NewProxyClient()
+
+	// Verify object exists with correct metadata
+	err := manager.verifyObjectOnTarget(ctx, proxyClient, server.URL, "local-node", "test-token",
+		"tenant-1", "test-bucket", "file.txt", "etag123")
+	require.NoError(t, err)
+}
+
+func TestManager_VerifyObjectOnTarget_NotFound(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create mock target server that returns 404
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	manager := NewManager(db, "http://localhost:8080")
+	proxyClient := NewProxyClient()
+
+	// Verify object - should fail with 404
+	err := manager.verifyObjectOnTarget(ctx, proxyClient, server.URL, "local-node", "test-token",
+		"tenant-1", "test-bucket", "missing.txt", "etag123")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
 }

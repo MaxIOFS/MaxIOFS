@@ -413,7 +413,7 @@ func (m *Manager) UpdateLocalNodeBucketCount(ctx context.Context, bucketCount in
 func (m *Manager) GetNodeToken(ctx context.Context, nodeID string) (string, error) {
 	var nodeToken string
 	err := m.db.QueryRowContext(ctx, `
-		SELECT node_token FROM cluster_nodes WHERE id = ? AND status != 'removed'
+		SELECT node_token FROM cluster_nodes WHERE id = ? AND health_status != 'removed'
 	`, nodeID).Scan(&nodeToken)
 
 	if err == sql.ErrNoRows {

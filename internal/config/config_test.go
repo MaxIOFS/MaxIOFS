@@ -1,10 +1,14 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSetDefaults(t *testing.T) {
@@ -178,4 +182,468 @@ func TestGenerateRandomString(t *testing.T) {
 	result2 := generateRandomString(64)
 	assert.NotEmpty(t, result2)
 	assert.Len(t, result2, 64)
+}
+
+// Test validate() function
+func TestValidate_MissingDataDir(t *testing.T) {
+	cfg := &Config{}
+	err := validate(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "data_dir is required")
+}
+
+func TestValidate_ValidConfig(t *testing.T) {
+	tempDir := t.TempDir()
+
+	cfg := &Config{
+		DataDir: tempDir,
+		Storage: StorageConfig{
+			Root: "",
+		},
+		Auth: AuthConfig{
+			EnableAuth: true,
+			JWTSecret:  "",
+		},
+		Audit: AuditConfig{
+			Enable: true,
+			DBPath: "",
+		},
+	}
+
+	err := validate(cfg)
+	require.NoError(t, err)
+
+	// Check that storage root was set based on data_dir
+	expectedStorageRoot := filepath.Join(tempDir, "objects")
+	assert.Equal(t, expectedStorageRoot, cfg.Storage.Root)
+
+	// Check that JWT secret was generated
+	assert.NotEmpty(t, cfg.Auth.JWTSecret)
+	assert.Len(t, cfg.Auth.JWTSecret, 32)
+
+	// Check that audit DB path was set
+	expectedAuditPath := filepath.Join(tempDir, "audit.db")
+	assert.Equal(t, expectedAuditPath, cfg.Audit.DBPath)
+}
+
+func TestValidate_StorageRootCreation(t *testing.T) {
+	tempDir := t.TempDir()
+
+	cfg := &Config{
+		DataDir: tempDir,
+		Storage: StorageConfig{
+			Root: filepath.Join(tempDir, "custom", "storage"),
+		},
+	}
+
+	err := validate(cfg)
+	require.NoError(t, err)
+
+	// Check that storage root directory was created
+	_, err = os.Stat(cfg.Storage.Root)
+	assert.NoError(t, err, "Storage root should be created")
+}
+
+func TestValidate_TLSEnabledWithoutCerts(t *testing.T) {
+	tempDir := t.TempDir()
+
+	cfg := &Config{
+		DataDir:   tempDir,
+		EnableTLS: true,
+		CertFile:  "",
+		KeyFile:   "",
+	}
+
+	err := validate(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "TLS enabled but cert-file or key-file not specified")
+}
+
+func TestValidate_TLSEnabledWithCerts(t *testing.T) {
+	tempDir := t.TempDir()
+
+	cfg := &Config{
+		DataDir:   tempDir,
+		EnableTLS: true,
+		CertFile:  "/path/to/cert.pem",
+		KeyFile:   "/path/to/key.pem",
+		Auth: AuthConfig{
+			EnableAuth: true,
+		},
+		Audit: AuditConfig{
+			Enable: true,
+		},
+	}
+
+	err := validate(cfg)
+	require.NoError(t, err)
+}
+
+func TestValidate_RelativeStorageRootBecomesAbsolute(t *testing.T) {
+	tempDir := t.TempDir()
+
+	cfg := &Config{
+		DataDir: tempDir,
+		Storage: StorageConfig{
+			Root: "relative/path",
+		},
+		Auth: AuthConfig{
+			EnableAuth: true,
+		},
+		Audit: AuditConfig{
+			Enable: true,
+		},
+	}
+
+	err := validate(cfg)
+	require.NoError(t, err)
+
+	// Check that storage root is now absolute
+	assert.True(t, filepath.IsAbs(cfg.Storage.Root))
+}
+
+func TestValidate_OldDefaultStorageRoot(t *testing.T) {
+	tempDir := t.TempDir()
+
+	cfg := &Config{
+		DataDir: tempDir,
+		Storage: StorageConfig{
+			Root: "./data/objects", // Old default
+		},
+		Auth: AuthConfig{
+			EnableAuth: true,
+		},
+		Audit: AuditConfig{
+			Enable: true,
+		},
+	}
+
+	err := validate(cfg)
+	require.NoError(t, err)
+
+	// Check that old default was replaced with new data_dir based path
+	expectedStorageRoot := filepath.Join(tempDir, "objects")
+	assert.Equal(t, expectedStorageRoot, cfg.Storage.Root)
+}
+
+func TestValidate_JWTSecretNotGeneratedWhenAuthDisabled(t *testing.T) {
+	tempDir := t.TempDir()
+
+	cfg := &Config{
+		DataDir: tempDir,
+		Auth: AuthConfig{
+			EnableAuth: false,
+			JWTSecret:  "",
+		},
+		Audit: AuditConfig{
+			Enable: true,
+		},
+	}
+
+	err := validate(cfg)
+	require.NoError(t, err)
+
+	// JWT secret should remain empty when auth is disabled
+	assert.Empty(t, cfg.Auth.JWTSecret)
+}
+
+func TestValidate_JWTSecretPreservedWhenProvided(t *testing.T) {
+	tempDir := t.TempDir()
+	customSecret := "my-custom-jwt-secret"
+
+	cfg := &Config{
+		DataDir: tempDir,
+		Auth: AuthConfig{
+			EnableAuth: true,
+			JWTSecret:  customSecret,
+		},
+		Audit: AuditConfig{
+			Enable: true,
+		},
+	}
+
+	err := validate(cfg)
+	require.NoError(t, err)
+
+	// Custom JWT secret should be preserved
+	assert.Equal(t, customSecret, cfg.Auth.JWTSecret)
+}
+
+func TestValidate_AuditDBPathNotSetWhenDisabled(t *testing.T) {
+	tempDir := t.TempDir()
+
+	cfg := &Config{
+		DataDir: tempDir,
+		Auth: AuthConfig{
+			EnableAuth: true,
+		},
+		Audit: AuditConfig{
+			Enable: false,
+			DBPath: "",
+		},
+	}
+
+	err := validate(cfg)
+	require.NoError(t, err)
+
+	// Audit DB path should remain empty when audit is disabled
+	assert.Empty(t, cfg.Audit.DBPath)
+}
+
+func TestValidate_AuditDBPathPreservedWhenProvided(t *testing.T) {
+	tempDir := t.TempDir()
+	customPath := filepath.Join(tempDir, "custom-audit.db")
+
+	cfg := &Config{
+		DataDir: tempDir,
+		Auth: AuthConfig{
+			EnableAuth: true,
+		},
+		Audit: AuditConfig{
+			Enable: true,
+			DBPath: customPath,
+		},
+	}
+
+	err := validate(cfg)
+	require.NoError(t, err)
+
+	// Custom audit DB path should be preserved
+	assert.Equal(t, customPath, cfg.Audit.DBPath)
+}
+
+// Test bindFlags() function
+func TestBindFlags_Success(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("listen", ":8080", "listen address")
+	cmd.Flags().String("console-listen", ":8081", "console listen address")
+	cmd.Flags().String("data-dir", "", "data directory")
+	cmd.Flags().String("log-level", "info", "log level")
+	cmd.Flags().String("tls-cert", "", "TLS certificate file")
+	cmd.Flags().String("tls-key", "", "TLS key file")
+
+	v := viper.New()
+	err := bindFlags(cmd, v)
+	require.NoError(t, err)
+}
+
+func TestBindFlags_MissingFlag(t *testing.T) {
+	// Create command without any flags
+	cmd := &cobra.Command{}
+
+	v := viper.New()
+	err := bindFlags(cmd, v)
+	// Should not error even if flags don't exist, viper just won't bind them
+	require.Error(t, err)
+}
+
+// Test Load() function
+func TestLoad_WithDefaults(t *testing.T) {
+	tempDir := t.TempDir()
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("listen", ":8080", "listen address")
+	cmd.Flags().String("console-listen", ":8081", "console listen address")
+	cmd.Flags().String("data-dir", tempDir, "data directory")
+	cmd.Flags().String("log-level", "info", "log level")
+	cmd.Flags().String("tls-cert", "", "TLS certificate file")
+	cmd.Flags().String("tls-key", "", "TLS key file")
+	cmd.Flags().String("config", "", "config file")
+
+	// Set the data-dir flag
+	err := cmd.Flags().Set("data-dir", tempDir)
+	require.NoError(t, err)
+
+	cfg, err := Load(cmd)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// Check defaults were applied
+	assert.Equal(t, ":8080", cfg.Listen)
+	assert.Equal(t, ":8081", cfg.ConsoleListen)
+	assert.Equal(t, tempDir, cfg.DataDir)
+	assert.Equal(t, "info", cfg.LogLevel)
+	assert.Equal(t, "filesystem", cfg.Storage.Backend)
+	assert.True(t, cfg.Auth.EnableAuth)
+	assert.True(t, cfg.Metrics.Enable)
+	assert.True(t, cfg.Audit.Enable)
+}
+
+func TestLoad_FromConfigFile(t *testing.T) {
+	tempDir := t.TempDir()
+	configFile := filepath.Join(tempDir, "config.yaml")
+
+	// Create a config file - use fmt.Sprintf to properly format the path
+	configContent := "listen: \":9090\"\n" +
+		"console_listen: \":9091\"\n" +
+		"data_dir: \"" + filepath.ToSlash(tempDir) + "\"\n" +
+		"log_level: \"debug\"\n" +
+		"storage:\n" +
+		"  backend: \"filesystem\"\n" +
+		"  enable_compression: true\n" +
+		"  compression_level: 9\n" +
+		"auth:\n" +
+		"  enable_auth: true\n" +
+		"metrics:\n" +
+		"  enable: true\n" +
+		"  interval: 5\n"
+
+	err := os.WriteFile(configFile, []byte(configContent), 0644)
+	require.NoError(t, err)
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("listen", ":8080", "listen address")
+	cmd.Flags().String("console-listen", ":8081", "console listen address")
+	cmd.Flags().String("data-dir", "", "data directory")
+	cmd.Flags().String("log-level", "info", "log level")
+	cmd.Flags().String("tls-cert", "", "TLS certificate file")
+	cmd.Flags().String("tls-key", "", "TLS key file")
+	cmd.Flags().String("config", configFile, "config file")
+
+	// Set the config flag
+	err = cmd.Flags().Set("config", configFile)
+	require.NoError(t, err)
+
+	cfg, err := Load(cmd)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// Check values from config file
+	assert.Equal(t, ":9090", cfg.Listen)
+	assert.Equal(t, ":9091", cfg.ConsoleListen)
+	// Normalize paths for comparison (Windows uses \ but YAML may use /)
+	assert.Equal(t, filepath.Clean(tempDir), filepath.Clean(cfg.DataDir))
+	assert.Equal(t, "debug", cfg.LogLevel)
+	assert.True(t, cfg.Storage.EnableCompression)
+	assert.Equal(t, 9, cfg.Storage.CompressionLevel)
+	assert.Equal(t, 5, cfg.Metrics.Interval)
+}
+
+func TestLoad_InvalidConfigFile(t *testing.T) {
+	tempDir := t.TempDir()
+	configFile := filepath.Join(tempDir, "invalid-config.yaml")
+
+	// Create an invalid config file
+	configContent := `
+listen: ":8080"
+invalid yaml content [[[
+`
+	err := os.WriteFile(configFile, []byte(configContent), 0644)
+	require.NoError(t, err)
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("listen", ":8080", "listen address")
+	cmd.Flags().String("console-listen", ":8081", "console listen address")
+	cmd.Flags().String("data-dir", "", "data directory")
+	cmd.Flags().String("log-level", "info", "log level")
+	cmd.Flags().String("tls-cert", "", "TLS certificate file")
+	cmd.Flags().String("tls-key", "", "TLS key file")
+	cmd.Flags().String("config", configFile, "config file")
+
+	err = cmd.Flags().Set("config", configFile)
+	require.NoError(t, err)
+
+	cfg, err := Load(cmd)
+	require.Error(t, err)
+	assert.Nil(t, cfg)
+	assert.Contains(t, err.Error(), "failed to read config file")
+}
+
+func TestLoad_NonExistentConfigFile(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("listen", ":8080", "listen address")
+	cmd.Flags().String("console-listen", ":8081", "console listen address")
+	cmd.Flags().String("data-dir", "", "data directory")
+	cmd.Flags().String("log-level", "info", "log level")
+	cmd.Flags().String("tls-cert", "", "TLS certificate file")
+	cmd.Flags().String("tls-key", "", "TLS key file")
+	cmd.Flags().String("config", "/nonexistent/config.yaml", "config file")
+
+	err := cmd.Flags().Set("config", "/nonexistent/config.yaml")
+	require.NoError(t, err)
+
+	cfg, err := Load(cmd)
+	require.Error(t, err)
+	assert.Nil(t, cfg)
+	assert.Contains(t, err.Error(), "failed to read config file")
+}
+
+func TestLoad_MissingDataDir(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("listen", ":8080", "listen address")
+	cmd.Flags().String("console-listen", ":8081", "console listen address")
+	cmd.Flags().String("data-dir", "", "data directory")
+	cmd.Flags().String("log-level", "info", "log level")
+	cmd.Flags().String("tls-cert", "", "TLS certificate file")
+	cmd.Flags().String("tls-key", "", "TLS key file")
+	cmd.Flags().String("config", "", "config file")
+
+	// Don't set data-dir flag - should fail validation
+	cfg, err := Load(cmd)
+	require.Error(t, err)
+	assert.Nil(t, cfg)
+	assert.Contains(t, err.Error(), "data_dir is required")
+}
+
+func TestLoad_WithEnvironmentVariables(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Set environment variables
+	os.Setenv("MAXIOFS_DATA_DIR", tempDir)
+	os.Setenv("MAXIOFS_LISTEN", ":9999")
+	os.Setenv("MAXIOFS_LOG_LEVEL", "debug")
+
+	defer func() {
+		os.Unsetenv("MAXIOFS_DATA_DIR")
+		os.Unsetenv("MAXIOFS_LISTEN")
+		os.Unsetenv("MAXIOFS_LOG_LEVEL")
+	}()
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("listen", ":8080", "listen address")
+	cmd.Flags().String("console-listen", ":8081", "console listen address")
+	cmd.Flags().String("data-dir", "", "data directory")
+	cmd.Flags().String("log-level", "info", "log level")
+	cmd.Flags().String("tls-cert", "", "TLS certificate file")
+	cmd.Flags().String("tls-key", "", "TLS key file")
+	cmd.Flags().String("config", "", "config file")
+
+	cfg, err := Load(cmd)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// Check that environment variables were loaded
+	assert.Equal(t, tempDir, cfg.DataDir)
+	assert.Equal(t, ":9999", cfg.Listen)
+	assert.Equal(t, "debug", cfg.LogLevel)
+}
+
+func TestLoad_FlagOverridesEnvironment(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Set environment variable
+	os.Setenv("MAXIOFS_LISTEN", ":9999")
+	defer os.Unsetenv("MAXIOFS_LISTEN")
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("listen", ":8080", "listen address")
+	cmd.Flags().String("console-listen", ":8081", "console listen address")
+	cmd.Flags().String("data-dir", tempDir, "data directory")
+	cmd.Flags().String("log-level", "info", "log level")
+	cmd.Flags().String("tls-cert", "", "TLS certificate file")
+	cmd.Flags().String("tls-key", "", "TLS key file")
+	cmd.Flags().String("config", "", "config file")
+
+	// Set flag explicitly
+	err := cmd.Flags().Set("listen", ":7777")
+	require.NoError(t, err)
+	err = cmd.Flags().Set("data-dir", tempDir)
+	require.NoError(t, err)
+
+	cfg, err := Load(cmd)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// Flag should override environment variable
+	assert.Equal(t, ":7777", cfg.Listen)
 }

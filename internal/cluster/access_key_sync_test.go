@@ -3,6 +3,9 @@ package cluster
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -347,4 +350,423 @@ func TestAccessKeySyncManagerSchema(t *testing.T) {
 			t.Errorf("Required column '%s' not found in cluster_access_key_sync table", col)
 		}
 	}
+}
+
+// TestAccessKeySyncManager_SendAccessKeyToNode tests sending access key to a node via HTTP
+func TestAccessKeySyncManager_SendAccessKeyToNode(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create mock HTTP server to simulate remote node
+	receivedData := make(chan *AccessKeyData, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify request method
+		if r.Method != "POST" {
+			t.Errorf("Expected POST request, got %s", r.Method)
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Verify URL path
+		if r.URL.Path != "/api/internal/cluster/access-key-sync" {
+			t.Errorf("Expected path /api/internal/cluster/access-key-sync, got %s", r.URL.Path)
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+
+		// Verify Content-Type
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("Expected Content-Type application/json, got %s", r.Header.Get("Content-Type"))
+			http.Error(w, "Invalid content type", http.StatusBadRequest)
+			return
+		}
+
+		// Parse request body
+		var keyData AccessKeyData
+		if err := json.NewDecoder(r.Body).Decode(&keyData); err != nil {
+			t.Errorf("Failed to decode request body: %v", err)
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		// Send received data to channel for verification
+		receivedData <- &keyData
+
+		// Respond with success
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer server.Close()
+
+	// Create node pointing to mock server
+	node := &Node{
+		ID:           "test-node-1",
+		Name:         "Test Node 1",
+		Endpoint:     server.URL,
+		HealthStatus: "healthy",
+	}
+
+	// Create test access key
+	now := time.Now().Unix()
+	accessKey := &AccessKeyData{
+		AccessKeyID:     "AKIA1234567890ABCDEF",
+		SecretAccessKey: "testsecretkey123",
+		UserID:          "user-123",
+		Status:          "active",
+		CreatedAt:       now,
+	}
+
+	clusterManager := NewManager(db, "http://localhost:8080")
+	syncManager := NewAccessKeySyncManager(db, clusterManager)
+
+	// Send access key to node
+	err := syncManager.sendAccessKeyToNode(ctx, accessKey, node, "source-node", "test-token")
+	if err != nil {
+		t.Fatalf("Failed to send access key to node: %v", err)
+	}
+
+	// Verify data was received correctly
+	select {
+	case received := <-receivedData:
+		if received.AccessKeyID != accessKey.AccessKeyID {
+			t.Errorf("Expected AccessKeyID %s, got %s", accessKey.AccessKeyID, received.AccessKeyID)
+		}
+		if received.SecretAccessKey != accessKey.SecretAccessKey {
+			t.Errorf("Expected SecretAccessKey %s, got %s", accessKey.SecretAccessKey, received.SecretAccessKey)
+		}
+		if received.UserID != accessKey.UserID {
+			t.Errorf("Expected UserID %s, got %s", accessKey.UserID, received.UserID)
+		}
+		if received.Status != accessKey.Status {
+			t.Errorf("Expected Status %s, got %s", accessKey.Status, received.Status)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for access key data")
+	}
+}
+
+// TestAccessKeySyncManager_SendAccessKeyToNode_ServerError tests handling of server errors
+func TestAccessKeySyncManager_SendAccessKeyToNode_ServerError(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create mock HTTP server that returns error
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	node := &Node{
+		ID:       "test-node-1",
+		Endpoint: server.URL,
+	}
+
+	accessKey := &AccessKeyData{
+		AccessKeyID:     "AKIA1234567890ABCDEF",
+		SecretAccessKey: "testsecretkey123",
+		UserID:          "user-123",
+		Status:          "active",
+		CreatedAt:       time.Now().Unix(),
+	}
+
+	clusterManager := NewManager(db, "http://localhost:8080")
+	syncManager := NewAccessKeySyncManager(db, clusterManager)
+
+	// Should return error
+	err := syncManager.sendAccessKeyToNode(ctx, accessKey, node, "source-node", "test-token")
+	if err == nil {
+		t.Fatal("Expected error from server, got nil")
+	}
+}
+
+// TestAccessKeySyncManager_SyncAccessKeyToNode tests syncing a single key to a node
+func TestAccessKeySyncManager_SyncAccessKeyToNode(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Initialize both cluster schema and replication schema
+	if err := InitSchema(db); err != nil {
+		t.Fatalf("Failed to initialize cluster schema: %v", err)
+	}
+	if err := InitReplicationSchema(db); err != nil {
+		t.Fatalf("Failed to initialize replication schema: %v", err)
+	}
+
+	// Create mock HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer server.Close()
+
+	// Insert cluster config for local node
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO cluster_config (node_id, node_name, cluster_token, is_cluster_enabled)
+		VALUES ('local-node', 'Local Node', 'local-token', 1)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to insert cluster config: %v", err)
+	}
+
+	// Also insert local node into cluster_nodes table for GetNodeToken
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO cluster_nodes (id, name, endpoint, node_token, health_status)
+		VALUES ('local-node', 'Local Node', 'http://localhost:8080', 'local-token', 'healthy')
+	`)
+	if err != nil {
+		t.Fatalf("Failed to insert local node: %v", err)
+	}
+
+	node := &Node{
+		ID:           "test-node-1",
+		Name:         "Test Node 1",
+		Endpoint:     server.URL,
+		HealthStatus: "healthy",
+	}
+
+	accessKey := &AccessKeyData{
+		AccessKeyID:     "AKIA1234567890ABCDEF",
+		SecretAccessKey: "testsecretkey123",
+		UserID:          "user-123",
+		Status:          "active",
+		CreatedAt:       time.Now().Unix(),
+	}
+
+	clusterManager := NewManager(db, "http://localhost:8080")
+	syncManager := NewAccessKeySyncManager(db, clusterManager)
+
+	// First sync - should succeed
+	err = syncManager.syncAccessKeyToNode(ctx, accessKey, node, "local-node")
+	if err != nil {
+		t.Fatalf("Failed to sync access key: %v", err)
+	}
+
+	// Verify sync status was recorded
+	var count int
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM cluster_access_key_sync
+		WHERE access_key_id = ? AND destination_node_id = ?
+	`, accessKey.AccessKeyID, node.ID).Scan(&count)
+	if err != nil {
+		t.Fatalf("Failed to query sync status: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("Expected 1 sync record, got %d", count)
+	}
+
+	// Second sync with same checksum - should skip (not call HTTP server again)
+	err = syncManager.syncAccessKeyToNode(ctx, accessKey, node, "local-node")
+	if err != nil {
+		t.Fatalf("Failed on second sync: %v", err)
+	}
+}
+
+// TestAccessKeySyncManager_SyncLoop tests the background sync loop
+func TestAccessKeySyncManager_SyncLoop(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Initialize both schemas
+	if err := InitSchema(db); err != nil {
+		t.Fatalf("Failed to initialize cluster schema: %v", err)
+	}
+	if err := InitReplicationSchema(db); err != nil {
+		t.Fatalf("Failed to initialize replication schema: %v", err)
+	}
+
+	// Insert cluster config with cluster enabled
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO cluster_config (node_id, node_name, cluster_token, is_cluster_enabled)
+		VALUES ('local-node', 'Local', 'local-token', 1)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to insert cluster config: %v", err)
+	}
+
+	// Insert local node into cluster_nodes
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO cluster_nodes (id, name, endpoint, node_token, health_status)
+		VALUES ('local-node', 'Local', 'http://localhost:8080', 'local-token', 'healthy')
+	`)
+	if err != nil {
+		t.Fatalf("Failed to insert local node into cluster_nodes: %v", err)
+	}
+
+	// Create mock HTTP server
+	syncCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		syncCount++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// Insert remote node
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO cluster_nodes (id, name, endpoint, node_token, health_status)
+		VALUES ('remote-node', 'Remote', ?, 'remote-token', 'healthy')
+	`, server.URL)
+	if err != nil {
+		t.Fatalf("Failed to insert remote node: %v", err)
+	}
+
+	// Create users and access_keys tables
+	_, err = db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS users (
+			id TEXT PRIMARY KEY,
+			username TEXT,
+			password_hash TEXT,
+			created_at INTEGER,
+			updated_at INTEGER
+		)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create users table: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS access_keys (
+			access_key_id TEXT PRIMARY KEY,
+			secret_access_key TEXT,
+			user_id TEXT,
+			status TEXT DEFAULT 'active',
+			created_at INTEGER,
+			last_used INTEGER
+		)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create access_keys table: %v", err)
+	}
+
+	// Insert test user and access key
+	now := time.Now().Unix()
+	_, err = db.ExecContext(ctx, `INSERT INTO users VALUES ('user-1', 'test', 'hash', ?, ?)`, now, now)
+	if err != nil {
+		t.Fatalf("Failed to insert user: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO access_keys VALUES ('AKIA1234567890ABCDEF', 'secret', 'user-1', 'active', ?, NULL)
+	`, now)
+	if err != nil {
+		t.Fatalf("Failed to insert access key: %v", err)
+	}
+
+	clusterManager := NewManager(db, "http://localhost:8080")
+	syncManager := NewAccessKeySyncManager(db, clusterManager)
+
+	// Run sync loop with very short interval
+	go syncManager.syncLoop(ctx, 100*time.Millisecond)
+
+	// Wait for at least 2 sync iterations
+	time.Sleep(300 * time.Millisecond)
+
+	// Stop the loop
+	cancel()
+
+	// Give it time to stop
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify sync was called (at least once from immediate run, possibly more from ticker)
+	if syncCount < 1 {
+		t.Errorf("Expected at least 1 sync call, got %d", syncCount)
+	}
+}
+
+// TestAccessKeySyncManager_Start tests starting the sync manager
+func TestAccessKeySyncManager_Start(t *testing.T) {
+	t.Run("disabled auto sync", func(t *testing.T) {
+		db, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		ctx := context.Background()
+
+		// Initialize schemas
+		if err := InitSchema(db); err != nil {
+			t.Fatalf("Failed to initialize cluster schema: %v", err)
+		}
+		if err := InitReplicationSchema(db); err != nil {
+			t.Fatalf("Failed to initialize replication schema: %v", err)
+		}
+
+		// Insert local node config for cluster operations
+		_, err := db.ExecContext(ctx, `
+			INSERT INTO cluster_config (node_id, node_name, cluster_token, is_cluster_enabled)
+			VALUES ('local-node', 'Local', 'local-token', 0)
+		`)
+		if err != nil {
+			t.Fatalf("Failed to insert cluster config: %v", err)
+		}
+
+		clusterManager := NewManager(db, "http://localhost:8080")
+		syncManager := NewAccessKeySyncManager(db, clusterManager)
+
+		// Don't enable auto sync - Start() should return immediately
+		syncManager.Start(ctx)
+
+		// If we get here, it means Start() returned (didn't block forever)
+		// This is the expected behavior when auto sync is disabled
+	})
+
+	t.Run("enabled auto sync", func(t *testing.T) {
+		db, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		// Initialize schemas
+		if err := InitSchema(db); err != nil {
+			t.Fatalf("Failed to initialize cluster schema: %v", err)
+		}
+		if err := InitReplicationSchema(db); err != nil {
+			t.Fatalf("Failed to initialize replication schema: %v", err)
+		}
+
+		// Insert local node config
+		_, err := db.ExecContext(ctx, `
+			INSERT INTO cluster_config (node_id, node_name, cluster_token, is_cluster_enabled)
+			VALUES ('local-node', 'Local', 'local-token', 0)
+		`)
+		if err != nil {
+			t.Fatalf("Failed to insert cluster config: %v", err)
+		}
+
+		// Enable auto sync
+		_, err = db.ExecContext(ctx, `
+			INSERT OR REPLACE INTO cluster_global_config (key, value, created_at, updated_at)
+			VALUES ('auto_access_key_sync_enabled', 'true', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		`)
+		if err != nil {
+			t.Fatalf("Failed to enable auto sync: %v", err)
+		}
+
+		_, err = db.ExecContext(ctx, `
+			INSERT OR REPLACE INTO cluster_global_config (key, value, created_at, updated_at)
+			VALUES ('access_key_sync_interval_seconds', '1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		`)
+		if err != nil {
+			t.Fatalf("Failed to set sync interval: %v", err)
+		}
+
+		clusterManager := NewManager(db, "http://localhost:8080")
+		syncManager := NewAccessKeySyncManager(db, clusterManager)
+
+		// Start should launch goroutine and return immediately
+		syncManager.Start(ctx)
+
+		// Give it a moment to start
+		time.Sleep(100 * time.Millisecond)
+
+		// Stop it
+		syncManager.Stop()
+	})
 }

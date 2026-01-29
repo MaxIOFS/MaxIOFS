@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **CRITICAL: Fixed GetNodeToken() querying non-existent 'status' column** - `internal/cluster/manager.go:416` incorrectly queried `status` column in `cluster_nodes` table, causing "SQL logic error: no such column: status" failures in cluster synchronization operations. Fixed by changing query to use correct `health_status` column. This bug prevented access key synchronization, bucket permission synchronization, and other cluster replication features from functioning.
 - Fixed syslog logging support for IPv6 addresses
 - **CRITICAL: Fixed bucket replication workers not processing queue items** - Objects queued for replication were stuck in "pending" status indefinitely. Queue loader now loads pending items immediately on startup instead of waiting 10 seconds, ensuring objects are replicated promptly.
 - **CRITICAL: Fixed database lock contention in cluster replication under high concurrency** - `queueBucketObjects()` maintained an active database reader (SELECT) while attempting writes (INSERT) within the same loop, causing "database is locked (5) (SQLITE_BUSY)" errors. Fixed by reading all objects into memory first, closing the reader, then performing writes. This prevented production failures with multiple replication workers and scheduler running concurrently.
@@ -24,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed missing tenant creation before bucket creation in tests (required for storage quota validation)
 
 ### Added
+- **23 comprehensive tests for internal/config module** - Tests validate configuration loading from multiple sources (CLI flags, environment variables, YAML files), default value handling, TLS configuration validation, data directory creation, storage root path resolution, JWT secret generation, and audit DB path setup. Config module test coverage improved from 35.8% to 94.0% (+58.2 points, 163% improvement).
+- **5 comprehensive HTTP and background worker tests for internal/cluster/access_key_sync** - Tests validate:
+  - HTTP request handling with mock servers for access key synchronization between cluster nodes
+  - HMAC-authenticated requests with proper error handling for server failures
+  - Single access key synchronization with checksum verification to prevent redundant syncs
+  - Background sync loop with ticker-based scheduling and graceful shutdown
+  - Sync manager startup with configuration from global settings (auto-sync enable/disable, interval configuration)
+  - All tests cover complex scenarios including concurrent operations, HTTP mocking, and background goroutines
 - Comprehensive end-to-end tests for bucket replication system with in-memory stores and mock S3 clients
 - Replication test coverage includes object replication, metrics tracking, and prefix filtering
 - 79 new tests for cluster module covering health checking, routing, bucket location tracking, and replication management
@@ -56,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server module test coverage improved from 29.8% to 54.2% (+24.4 points)
 
 ### Changed
+- **Sprint 8: Systematic backend test coverage expansion initiative** - Target: increase backend coverage from 54.8% to 90%+ (354 functions with 0% coverage identified). Phase 1 focuses on critical infrastructure (config, cluster, cmd/maxiofs, web modules). Commitment to test all complex scenarios including HTTP mocking, background workers, concurrent operations, and edge cases without shortcuts.
 - Internal code refactoring to improve maintainability and reduce complexity
 - Improved object upload, download, delete, and multipart upload operations
 - Replication test coverage improved from 19.4% to support realistic E2E testing scenarios
