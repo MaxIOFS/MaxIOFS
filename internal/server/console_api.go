@@ -19,6 +19,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/notifications"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/presigned"
@@ -51,6 +52,10 @@ type BucketResponse struct {
 	Lifecycle           *bucket.LifecycleConfig   `json:"lifecycle,omitempty"`
 	Tags                map[string]string         `json:"tags,omitempty"`
 	Metadata            map[string]string         `json:"metadata,omitempty"`
+	// Cluster-specific fields (only populated in multi-node cluster mode)
+	NodeID              string                    `json:"node_id,omitempty"`
+	NodeName            string                    `json:"node_name,omitempty"`
+	NodeStatus          string                    `json:"node_status,omitempty"`
 }
 
 type ObjectResponse struct {
@@ -667,52 +672,108 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 	// Extract tenant ID from user context
 	tenantID := user.TenantID
 
-	buckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
-	if err != nil {
-		s.writeError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Global admin = admin role WITHOUT tenant
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	// Check if cluster mode is enabled
+	isClusterEnabled := s.clusterManager != nil && s.clusterManager.IsClusterEnabled()
 
 	var filteredBuckets []bucket.Bucket
+	var bucketsWithLocation []cluster.BucketWithLocation
 
-	if isGlobalAdmin {
-		// ONLY global admins see all buckets
-		filteredBuckets = buckets
-	} else if user.TenantID != "" {
-		// Tenant users (including tenant admins) see only their tenant's buckets
-		for _, b := range buckets {
-			if (b.OwnerType == "tenant" && b.OwnerID == user.TenantID) ||
-				(b.OwnerType == "user" && b.OwnerID == user.ID) {
-				filteredBuckets = append(filteredBuckets, b)
+	if isClusterEnabled {
+		// Cluster mode: aggregate buckets from all healthy nodes
+		allBuckets, err := s.bucketAggregator.ListAllBuckets(r.Context(), tenantID)
+		if err != nil {
+			s.writeError(w, "Failed to list buckets from cluster: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		bucketsWithLocation = allBuckets
+
+		// Convert BucketWithLocation to bucket.Bucket for permission filtering
+		localBuckets := make([]bucket.Bucket, len(allBuckets))
+		for i, bwl := range allBuckets {
+			localBuckets[i] = bucket.Bucket{
+				Name:        bwl.Name,
+				TenantID:    bwl.TenantID,
+				CreatedAt:   bwl.CreatedAt,
+				Versioning:  parseVersioningFromString(bwl.Versioning),
+				ObjectCount: bwl.ObjectCount,
+				TotalSize:   bwl.SizeBytes,
+				Metadata:    bwl.Metadata,
+				Tags:        bwl.Tags,
+			}
+		}
+
+		// Apply permission filtering
+		isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+		if isGlobalAdmin {
+			filteredBuckets = localBuckets
+		} else if user.TenantID != "" {
+			for _, b := range localBuckets {
+				if b.TenantID == user.TenantID {
+					filteredBuckets = append(filteredBuckets, b)
+				}
+			}
+		} else {
+			// Non-admin users without tenant: use permission filtering
+			bucketPointers := make([]*bucket.Bucket, len(localBuckets))
+			for i := range localBuckets {
+				bucketPointers[i] = &localBuckets[i]
+			}
+			filteredPointers, err := bucket.FilterBucketsByPermissions(r.Context(), bucketPointers, user.ID, user.Roles, s.authManager)
+			if err != nil {
+				s.writeError(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			filteredBuckets = make([]bucket.Bucket, len(filteredPointers))
+			for i, bp := range filteredPointers {
+				filteredBuckets[i] = *bp
 			}
 		}
 	} else {
-		// Non-admin users without tenant: use permission filtering
-		bucketPointers := make([]*bucket.Bucket, len(buckets))
-		for i := range buckets {
-			bucketPointers[i] = &buckets[i]
-		}
-
-		filteredPointers, err := bucket.FilterBucketsByPermissions(r.Context(), bucketPointers, user.ID, user.Roles, s.authManager)
+		// Standalone mode: list local buckets only
+		buckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
 		if err != nil {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		filteredBuckets = make([]bucket.Bucket, len(filteredPointers))
-		for i, bp := range filteredPointers {
-			filteredBuckets[i] = *bp
+		// Global admin = admin role WITHOUT tenant
+		isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+
+		if isGlobalAdmin {
+			// ONLY global admins see all buckets
+			filteredBuckets = buckets
+		} else if user.TenantID != "" {
+			// Tenant users (including tenant admins) see only their tenant's buckets
+			for _, b := range buckets {
+				if (b.OwnerType == "tenant" && b.OwnerID == user.TenantID) ||
+					(b.OwnerType == "user" && b.OwnerID == user.ID) {
+					filteredBuckets = append(filteredBuckets, b)
+				}
+			}
+		} else {
+			// Non-admin users without tenant: use permission filtering
+			bucketPointers := make([]*bucket.Bucket, len(buckets))
+			for i := range buckets {
+				bucketPointers[i] = &buckets[i]
+			}
+
+			filteredPointers, err := bucket.FilterBucketsByPermissions(r.Context(), bucketPointers, user.ID, user.Roles, s.authManager)
+			if err != nil {
+				s.writeError(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			filteredBuckets = make([]bucket.Bucket, len(filteredPointers))
+			for i, bp := range filteredPointers {
+				filteredBuckets[i] = *bp
+			}
 		}
 	}
 
+	// Build response
 	response := make([]BucketResponse, len(filteredBuckets))
 	for i, b := range filteredBuckets {
-		// Use cached metrics from bucket metadata (fast!)
-		// No need to list objects anymore - metrics are updated incrementally
-		response[i] = BucketResponse{
+		bucketResp := BucketResponse{
 			Name:                b.Name,
 			TenantID:            b.TenantID,
 			CreationDate:        b.CreatedAt.Format("2006-01-02T15:04:05Z"),
@@ -731,9 +792,28 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 			Tags:                b.Tags,
 			Metadata:            b.Metadata,
 		}
+
+		// Add node location info if in cluster mode
+		if isClusterEnabled && i < len(bucketsWithLocation) {
+			bucketResp.NodeID = bucketsWithLocation[i].NodeID
+			bucketResp.NodeName = bucketsWithLocation[i].NodeName
+			bucketResp.NodeStatus = bucketsWithLocation[i].NodeStatus
+		}
+
+		response[i] = bucketResp
 	}
 
 	s.writeJSON(w, response)
+}
+
+// parseVersioningFromString converts versioning string to VersioningConfig
+func parseVersioningFromString(versioningStr string) *bucket.VersioningConfig {
+	if versioningStr == "" {
+		return nil
+	}
+	return &bucket.VersioningConfig{
+		Status: versioningStr,
+	}
 }
 
 func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {

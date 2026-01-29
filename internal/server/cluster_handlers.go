@@ -368,3 +368,66 @@ func (s *Server) handleInvalidateCache(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+
+// handleGetLocalBuckets returns buckets from this node only (internal cluster API)
+func (s *Server) handleGetLocalBuckets(w http.ResponseWriter, r *http.Request) {
+	// Extract tenant_id from query parameters
+	tenantID := r.URL.Query().Get("tenant_id")
+
+	// List buckets from local node only
+	buckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to list local buckets")
+		s.writeError(w, "Failed to list buckets: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert to BucketWithLocation format
+	bucketsWithLocation := make([]cluster.BucketWithLocation, len(buckets))
+	for i, bucket := range buckets {
+		versioningStr := ""
+		if bucket.Versioning != nil {
+			versioningStr = bucket.Versioning.Status
+		}
+
+		bucketsWithLocation[i] = cluster.BucketWithLocation{
+			Name:        bucket.Name,
+			TenantID:    bucket.TenantID,
+			CreatedAt:   bucket.CreatedAt,
+			Versioning:  versioningStr,
+			ObjectCount: bucket.ObjectCount,
+			SizeBytes:   bucket.TotalSize,
+			Metadata:    bucket.Metadata,
+			Tags:        bucket.Tags,
+			// NodeID and NodeName will be filled by the aggregator
+		}
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"buckets": bucketsWithLocation,
+	})
+}
+
+// handleGetTenantStorage returns tenant storage usage from this node only (internal cluster API)
+func (s *Server) handleGetTenantStorage(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	tenantID := vars["tenantID"]
+
+	// Get tenant from auth manager
+	tenant, err := s.authManager.GetTenant(r.Context(), tenantID)
+	if err != nil {
+		logrus.WithError(err).WithField("tenant_id", tenantID).Error("Failed to get tenant")
+		s.writeError(w, "Failed to get tenant: "+err.Error(), http.StatusNotFound)
+		return
+	}
+
+	// Return storage info in TenantStorageInfo format
+	storageInfo := cluster.TenantStorageInfo{
+		TenantID:            tenant.ID,
+		CurrentStorageBytes: tenant.CurrentStorageBytes,
+		NodeID:              "", // Will be filled by aggregator
+		NodeName:            "", // Will be filled by aggregator
+	}
+
+	s.writeJSON(w, storageInfo)
+}

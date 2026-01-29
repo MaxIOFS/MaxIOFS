@@ -56,6 +56,8 @@ type Server struct {
 	clusterManager          *cluster.Manager
 	clusterRouter           *cluster.Router
 	clusterReplicationMgr   *cluster.ClusterReplicationManager
+	bucketAggregator        *cluster.BucketAggregator
+	quotaAggregator         *cluster.QuotaAggregator
 	tenantSyncMgr           *cluster.TenantSyncManager
 	userSyncMgr             *cluster.UserSyncManager
 	accessKeySyncMgr        *cluster.AccessKeySyncManager
@@ -271,6 +273,29 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize cluster router with adapters
 	clusterRouter := cluster.NewRouter(clusterManager, bucketManagerAdapter, replicationManagerAdapter, localNodeID)
 
+	// Initialize bucket aggregator for cross-node bucket listing
+	bucketAggregator := cluster.NewBucketAggregator(clusterManager)
+
+	// Initialize quota aggregator for cross-node quota checking
+	quotaAggregator := cluster.NewQuotaAggregator(clusterManager)
+
+	// Connect cluster manager and quota aggregator to auth manager for cluster-aware quota checking
+	if am, ok := authManager.(interface {
+		SetClusterManager(interface {
+			IsClusterEnabled() bool
+		})
+	}); ok {
+		am.SetClusterManager(clusterManager)
+	}
+
+	if am, ok := authManager.(interface {
+		SetQuotaAggregator(interface {
+			GetTenantTotalStorage(ctx context.Context, tenantID string) (int64, error)
+		})
+	}); ok {
+		am.SetQuotaAggregator(quotaAggregator)
+	}
+
 	// Initialize tenant synchronization manager
 	tenantSyncMgr := cluster.NewTenantSyncManager(db, clusterManager)
 
@@ -321,6 +346,8 @@ func New(cfg *config.Config) (*Server, error) {
 		clusterManager:          clusterManager,
 		clusterRouter:           clusterRouter,
 		clusterReplicationMgr:   clusterReplicationMgr,
+		bucketAggregator:        bucketAggregator,
+		quotaAggregator:         quotaAggregator,
 		tenantSyncMgr:           tenantSyncMgr,
 		userSyncMgr:             userSyncMgr,
 		accessKeySyncMgr:        accessKeySyncMgr,
@@ -672,6 +699,8 @@ func (s *Server) setupRoutes() error {
 		s.config.PublicAPIURL,
 		s.config.PublicConsoleURL,
 		s.config.DataDir,
+		s.clusterManager,
+		s.bucketAggregator,
 	)
 
 	// Apply middleware only to S3 subrouter (not to /metrics)
@@ -715,6 +744,12 @@ func (s *Server) setupRoutes() error {
 		// Synchronization endpoints
 		internalClusterRouter.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
 		internalClusterRouter.HandleFunc("/bucket-permission-sync", s.handleReceiveBucketPermissionSync).Methods("POST")
+
+		// Bucket aggregation endpoint (for cross-node bucket listing)
+		internalClusterRouter.HandleFunc("/buckets", s.handleGetLocalBuckets).Methods("GET")
+
+		// Quota aggregation endpoint (for cross-node quota checking)
+		internalClusterRouter.HandleFunc("/tenant/{tenantID}/storage", s.handleGetTenantStorage).Methods("GET")
 
 		logrus.Info("Internal cluster API routes registered with HMAC authentication")
 	}

@@ -163,9 +163,28 @@ jobs:
           echo "Building RPM packages (AMD64 + ARM64) using Docker..."
           docker run --rm \
             -v $(pwd):/workspace \
-            -e VERSION=${{ steps.nightly_version.outputs.version }} \
             maxiofs-rpm-builder
           echo "RPM packages built successfully"
+          
+          # Rename RPMs to include nightly version info
+          NIGHTLY_VERSION="${{ steps.nightly_version.outputs.version }}"
+          COMMIT_SHORT="${{ steps.nightly_version.outputs.commit_short }}"
+          echo "Renaming RPMs to include nightly identifier..."
+          
+          for rpm in build/*.rpm; do
+            if [ -f "$rpm" ]; then
+              # Extract architecture from filename (x86_64 or aarch64)
+              ARCH=$(echo "$rpm" | grep -oE '(x86_64|aarch64)')
+              # Extract distro tag (e.g., el9)
+              DIST=$(echo "$rpm" | grep -oE '\.el[0-9]+\.' | tr -d '.')
+              # Create new filename with nightly info
+              NEW_NAME="build/maxiofs-${NIGHTLY_VERSION}-1.${DIST}.${ARCH}.rpm"
+              echo "Renaming: $rpm -> $NEW_NAME"
+              mv "$rpm" "$NEW_NAME"
+            fi
+          done
+          
+          echo "Final RPM packages:"
           ls -lah build/*.rpm || echo "Warning: No RPM files found"
 
       - name: Prepare artifacts

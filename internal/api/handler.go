@@ -8,6 +8,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/metrics"
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -38,6 +39,8 @@ func NewHandler(
 	publicAPIURL string,
 	publicConsoleURL string,
 	dataDir string,
+	clusterManager *cluster.Manager,
+	bucketAggregator *cluster.BucketAggregator,
 ) *Handler {
 	s3Handler := s3compat.NewHandler(bucketManager, objectManager)
 
@@ -59,6 +62,16 @@ func NewHandler(
 
 	// Configure dataDir for SOSAPI capacity calculations
 	s3Handler.SetDataDir(dataDir)
+
+	// Configure cluster manager for cluster mode detection
+	if clusterManager != nil {
+		s3Handler.SetClusterManager(clusterManager)
+	}
+
+	// Configure bucket aggregator for cross-node bucket listing
+	if bucketAggregator != nil {
+		s3Handler.SetBucketAggregator(bucketAggregator)
+	}
 
 	return &Handler{
 		bucketManager:    bucketManager,

@@ -29,12 +29,12 @@ func (s *SQLiteStore) CreateTenant(tenant *Tenant) error {
 	metadataJSON, _ := json.Marshal(tenant.Metadata)
 
 	// Set default quota values if not specified
+	// NOTE: MaxStorageBytes = 0 means UNLIMITED (no quota checking)
+	//       If you want a specific quota, set it explicitly (e.g., 107374182400 for 100GB)
 	if tenant.MaxAccessKeys == 0 {
 		tenant.MaxAccessKeys = 10
 	}
-	if tenant.MaxStorageBytes == 0 {
-		tenant.MaxStorageBytes = 107374182400 // 100GB
-	}
+	// DO NOT set default for MaxStorageBytes - 0 means unlimited
 	if tenant.MaxBuckets == 0 {
 		tenant.MaxBuckets = 100
 	}

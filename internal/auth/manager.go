@@ -181,6 +181,12 @@ type authManager struct {
 	auditManager       *audit.Manager
 	userLockedCallback func(*User)
 	settingsManager    SettingsManager
+	clusterManager     interface {
+		IsClusterEnabled() bool
+	}
+	quotaAggregator interface {
+		GetTenantTotalStorage(ctx context.Context, tenantID string) (int64, error)
+	}
 }
 
 // SettingsManager interface for retrieving system settings
@@ -898,6 +904,20 @@ func (am *authManager) SetSettingsManager(settingsMgr SettingsManager) {
 	}
 }
 
+// SetClusterManager sets the cluster manager for cluster-aware quota checking
+func (am *authManager) SetClusterManager(cm interface {
+	IsClusterEnabled() bool
+}) {
+	am.clusterManager = cm
+}
+
+// SetQuotaAggregator sets the quota aggregator for cross-node quota checking
+func (am *authManager) SetQuotaAggregator(qa interface {
+	GetTenantTotalStorage(ctx context.Context, tenantID string) (int64, error)
+}) {
+	am.quotaAggregator = qa
+}
+
 // GetDB returns the underlying SQLite database connection
 // This allows other managers (like settings) to share the same database
 func (am *authManager) GetDB() interface{} {
@@ -950,7 +970,77 @@ func (am *authManager) DecrementTenantStorage(ctx context.Context, tenantID stri
 }
 
 func (am *authManager) CheckTenantStorageQuota(ctx context.Context, tenantID string, additionalBytes int64) error {
-	return am.store.CheckTenantStorageQuota(tenantID, additionalBytes)
+	if tenantID == "" {
+		// Global admin has no quota
+		logrus.Debug("CheckTenantStorageQuota: empty tenantID, no quota check")
+		return nil
+	}
+
+	// Get tenant to check max storage bytes
+	tenant, err := am.store.GetTenant(tenantID)
+	if err != nil {
+		logrus.WithError(err).WithField("tenantID", tenantID).Error("CheckTenantStorageQuota: failed to get tenant")
+		return fmt.Errorf("failed to get tenant: %w", err)
+	}
+
+	// If no quota configured (-1 or <= 0 means unlimited), allow
+	if tenant.MaxStorageBytes <= 0 {
+		logrus.WithFields(logrus.Fields{
+			"tenantID":    tenantID,
+			"maxStorage":  tenant.MaxStorageBytes,
+		}).Debug("CheckTenantStorageQuota: unlimited quota (no quota check)")
+		return nil
+	}
+
+	// Check if cluster mode is enabled
+	isClusterEnabled := am.clusterManager != nil && am.clusterManager.IsClusterEnabled()
+
+	var currentStorage int64
+	if isClusterEnabled && am.quotaAggregator != nil {
+		// Cluster mode: aggregate storage from all healthy nodes
+		logrus.WithField("tenantID", tenantID).Debug("CheckTenantStorageQuota: using cluster-wide quota aggregation")
+
+		totalStorage, err := am.quotaAggregator.GetTenantTotalStorage(ctx, tenantID)
+		if err != nil {
+			logrus.WithError(err).WithField("tenantID", tenantID).Error("CheckTenantStorageQuota: failed to get cluster-wide storage")
+			// Fallback to local storage check on error
+			currentStorage = tenant.CurrentStorageBytes
+			logrus.WithField("tenantID", tenantID).Warn("CheckTenantStorageQuota: falling back to local storage check")
+		} else {
+			currentStorage = totalStorage
+		}
+	} else {
+		// Standalone mode: use local storage only
+		currentStorage = tenant.CurrentStorageBytes
+		logrus.WithField("tenantID", tenantID).Debug("CheckTenantStorageQuota: using local storage check")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"tenantID":           tenantID,
+		"currentStorage":     currentStorage,
+		"maxStorage":         tenant.MaxStorageBytes,
+		"additionalBytes":    additionalBytes,
+		"projectedTotal":     currentStorage + additionalBytes,
+		"wouldExceed":        currentStorage+additionalBytes > tenant.MaxStorageBytes,
+		"clusterMode":        isClusterEnabled,
+	}).Info("CheckTenantStorageQuota: validating quota")
+
+	// Check if adding these bytes would exceed quota
+	newTotal := currentStorage + additionalBytes
+	if newTotal > tenant.MaxStorageBytes {
+		logrus.WithFields(logrus.Fields{
+			"currentStorage":  currentStorage,
+			"maxStorage":      tenant.MaxStorageBytes,
+			"additionalBytes": additionalBytes,
+			"newTotal":        newTotal,
+			"clusterMode":     isClusterEnabled,
+		}).Warn("CheckTenantStorageQuota: QUOTA EXCEEDED")
+		return fmt.Errorf("storage quota exceeded: %d/%d bytes (attempting to add %d bytes)",
+			currentStorage, tenant.MaxStorageBytes, additionalBytes)
+	}
+
+	logrus.Debug("CheckTenantStorageQuota: quota check passed")
+	return nil
 }
 
 // Bucket permission management methods

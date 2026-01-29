@@ -17,6 +17,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/presigned"
@@ -87,6 +88,12 @@ type Handler struct {
 		ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error)
 		GetBucketByName(ctx context.Context, name string) (*metadata.BucketMetadata, error)
 	}
+	clusterManager interface {
+		IsClusterEnabled() bool
+	}
+	bucketAggregator interface {
+		ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
+	}
 	publicAPIURL string
 	dataDir      string // For calculating disk capacity in SOSAPI
 }
@@ -120,6 +127,20 @@ func (h *Handler) SetPublicAPIURL(url string) {
 // SetDataDir sets the data directory for disk capacity calculations
 func (h *Handler) SetDataDir(dataDir string) {
 	h.dataDir = dataDir
+}
+
+// SetClusterManager sets the cluster manager for checking cluster status
+func (h *Handler) SetClusterManager(cm interface {
+	IsClusterEnabled() bool
+}) {
+	h.clusterManager = cm
+}
+
+// SetBucketAggregator sets the bucket aggregator for cross-node bucket listing
+func (h *Handler) SetBucketAggregator(ba interface {
+	ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
+}) {
+	h.bucketAggregator = ba
 }
 
 // SetMetadataStore sets the metadata store for accessing object versions
@@ -212,18 +233,47 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	// Empty string for global admins (who can see all tenants)
 	tenantID := h.getTenantIDFromRequest(r)
 
-	// List buckets for this tenant (or all if tenantID is empty for global admin)
-	buckets, err := h.bucketManager.ListBuckets(r.Context(), tenantID)
-	if err != nil {
-		h.writeError(w, "InternalError", err.Error(), "", r)
-		return
-	}
-
 	// Filter buckets by tenant ownership and user permissions
 	user, userExists := auth.GetUserFromContext(r.Context())
 	if !userExists {
 		h.writeError(w, "AccessDenied", "Access Denied.", "", r)
 		return
+	}
+
+	// Check if cluster mode is enabled
+	isClusterEnabled := h.clusterManager != nil && h.clusterManager.IsClusterEnabled()
+
+	var buckets []bucket.Bucket
+
+	if isClusterEnabled && h.bucketAggregator != nil {
+		// Cluster mode: aggregate buckets from all healthy nodes
+		bucketsWithLocation, err := h.bucketAggregator.ListAllBuckets(r.Context(), tenantID)
+		if err != nil {
+			h.writeError(w, "InternalError", "Failed to list buckets from cluster: "+err.Error(), "", r)
+			return
+		}
+
+		// Convert BucketWithLocation to bucket.Bucket for filtering
+		buckets = make([]bucket.Bucket, len(bucketsWithLocation))
+		for i, bwl := range bucketsWithLocation {
+			buckets[i] = bucket.Bucket{
+				Name:        bwl.Name,
+				TenantID:    bwl.TenantID,
+				CreatedAt:   bwl.CreatedAt,
+				ObjectCount: bwl.ObjectCount,
+				TotalSize:   bwl.SizeBytes,
+				Metadata:    bwl.Metadata,
+				Tags:        bwl.Tags,
+			}
+		}
+	} else {
+		// Standalone mode: list buckets from local node only
+		localBuckets, err := h.bucketManager.ListBuckets(r.Context(), tenantID)
+		if err != nil {
+			h.writeError(w, "InternalError", err.Error(), "", r)
+			return
+		}
+		buckets = localBuckets
 	}
 
 	// Global admin = admin WITHOUT tenant
