@@ -165,6 +165,13 @@ export interface Bucket {
   objectCount?: number; // Alias for compatibility
   size?: number; // Backend uses 'size'
   totalSize?: number; // Alias for compatibility
+  // Cluster-specific fields (only populated in multi-node cluster mode)
+  node_id?: string; // Backend uses snake_case
+  nodeId?: string; // Alias for compatibility
+  node_name?: string; // Backend uses snake_case
+  nodeName?: string; // Alias for compatibility
+  node_status?: string; // Backend uses snake_case
+  nodeStatus?: string; // Alias for compatibility
 }
 
 export interface VersioningConfig {

@@ -675,105 +675,121 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 	// Check if cluster mode is enabled
 	isClusterEnabled := s.clusterManager != nil && s.clusterManager.IsClusterEnabled()
 
-	var filteredBuckets []bucket.Bucket
-	var bucketsWithLocation []cluster.BucketWithLocation
+	// Get local node name
+	var localNodeName string
+	var localNodeID string
+	if isClusterEnabled {
+		config, err := s.clusterManager.GetConfig(r.Context())
+		if err == nil {
+			localNodeName = config.NodeName
+			localNodeID = config.NodeID
+		}
+	}
+	if localNodeName == "" {
+		localNodeName = "standalone"
+	}
+
+	// STEP 1: ALWAYS get local buckets from database (source of truth)
+	localBuckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// STEP 2: If cluster mode, get buckets from OTHER nodes (not local)
+	var allBuckets []bucket.Bucket
+	var bucketNodeMap map[string]string // bucket name -> node name
 
 	if isClusterEnabled {
-		// Cluster mode: aggregate buckets from all healthy nodes
-		allBuckets, err := s.bucketAggregator.ListAllBuckets(r.Context(), tenantID)
-		if err != nil {
-			s.writeError(w, "Failed to list buckets from cluster: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		bucketsWithLocation = allBuckets
+		// Start with local buckets
+		allBuckets = localBuckets
+		bucketNodeMap = make(map[string]string)
 
-		// Convert BucketWithLocation to bucket.Bucket for permission filtering
-		localBuckets := make([]bucket.Bucket, len(allBuckets))
-		for i, bwl := range allBuckets {
-			localBuckets[i] = bucket.Bucket{
-				Name:        bwl.Name,
-				TenantID:    bwl.TenantID,
-				CreatedAt:   bwl.CreatedAt,
-				Versioning:  parseVersioningFromString(bwl.Versioning),
-				ObjectCount: bwl.ObjectCount,
-				TotalSize:   bwl.SizeBytes,
-				Metadata:    bwl.Metadata,
-				Tags:        bwl.Tags,
-			}
+		// Mark local buckets
+		for _, b := range localBuckets {
+			bucketNodeMap[b.Name] = localNodeName
 		}
 
-		// Apply permission filtering
-		isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-		if isGlobalAdmin {
-			filteredBuckets = localBuckets
-		} else if user.TenantID != "" {
-			for _, b := range localBuckets {
-				if b.TenantID == user.TenantID {
-					filteredBuckets = append(filteredBuckets, b)
+		// Get OTHER nodes (exclude local node)
+		nodes, err := s.clusterManager.GetHealthyNodes(r.Context())
+		if err == nil {
+			for _, node := range nodes {
+				// Skip if this is the local node
+				if node.ID == localNodeID {
+					continue
 				}
-			}
-		} else {
-			// Non-admin users without tenant: use permission filtering
-			bucketPointers := make([]*bucket.Bucket, len(localBuckets))
-			for i := range localBuckets {
-				bucketPointers[i] = &localBuckets[i]
-			}
-			filteredPointers, err := bucket.FilterBucketsByPermissions(r.Context(), bucketPointers, user.ID, user.Roles, s.authManager)
-			if err != nil {
-				s.writeError(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			filteredBuckets = make([]bucket.Bucket, len(filteredPointers))
-			for i, bp := range filteredPointers {
-				filteredBuckets[i] = *bp
+
+				// Query buckets from this remote node
+				remoteBuckets, err := s.queryBucketsFromNode(r.Context(), node, tenantID)
+				if err != nil {
+					logrus.WithError(err).WithFields(logrus.Fields{
+						"node_id":   node.ID,
+						"node_name": node.Name,
+					}).Warn("Failed to query buckets from remote node, skipping")
+					continue
+				}
+
+				// Add remote buckets to the list
+				for _, rb := range remoteBuckets {
+					allBuckets = append(allBuckets, rb)
+					bucketNodeMap[rb.Name] = node.Name
+				}
 			}
 		}
 	} else {
-		// Standalone mode: list local buckets only
-		buckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
+		// Standalone mode: only local buckets
+		allBuckets = localBuckets
+		bucketNodeMap = make(map[string]string)
+		for _, b := range localBuckets {
+			bucketNodeMap[b.Name] = localNodeName
+		}
+	}
+
+	// STEP 3: Apply permission filtering
+	var filteredBuckets []bucket.Bucket
+
+	// Global admin = admin role WITHOUT tenant
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+
+	if isGlobalAdmin {
+		// ONLY global admins see all buckets
+		filteredBuckets = allBuckets
+	} else if user.TenantID != "" {
+		// Tenant users (including tenant admins) see only their tenant's buckets
+		for _, b := range allBuckets {
+			if (b.OwnerType == "tenant" && b.OwnerID == user.TenantID) ||
+				(b.OwnerType == "user" && b.OwnerID == user.ID) {
+				filteredBuckets = append(filteredBuckets, b)
+			}
+		}
+	} else {
+		// Non-admin users without tenant: use permission filtering
+		bucketPointers := make([]*bucket.Bucket, len(allBuckets))
+		for i := range allBuckets {
+			bucketPointers[i] = &allBuckets[i]
+		}
+
+		filteredPointers, err := bucket.FilterBucketsByPermissions(r.Context(), bucketPointers, user.ID, user.Roles, s.authManager)
 		if err != nil {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		// Global admin = admin role WITHOUT tenant
-		isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-
-		if isGlobalAdmin {
-			// ONLY global admins see all buckets
-			filteredBuckets = buckets
-		} else if user.TenantID != "" {
-			// Tenant users (including tenant admins) see only their tenant's buckets
-			for _, b := range buckets {
-				if (b.OwnerType == "tenant" && b.OwnerID == user.TenantID) ||
-					(b.OwnerType == "user" && b.OwnerID == user.ID) {
-					filteredBuckets = append(filteredBuckets, b)
-				}
-			}
-		} else {
-			// Non-admin users without tenant: use permission filtering
-			bucketPointers := make([]*bucket.Bucket, len(buckets))
-			for i := range buckets {
-				bucketPointers[i] = &buckets[i]
-			}
-
-			filteredPointers, err := bucket.FilterBucketsByPermissions(r.Context(), bucketPointers, user.ID, user.Roles, s.authManager)
-			if err != nil {
-				s.writeError(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			filteredBuckets = make([]bucket.Bucket, len(filteredPointers))
-			for i, bp := range filteredPointers {
-				filteredBuckets[i] = *bp
-			}
+		filteredBuckets = make([]bucket.Bucket, len(filteredPointers))
+		for i, bp := range filteredPointers {
+			filteredBuckets[i] = *bp
 		}
 	}
 
-	// Build response
+	// STEP 4: Build response with node information
 	response := make([]BucketResponse, len(filteredBuckets))
 	for i, b := range filteredBuckets {
-		bucketResp := BucketResponse{
+		nodeName := bucketNodeMap[b.Name]
+		if nodeName == "" {
+			nodeName = localNodeName
+		}
+
+		response[i] = BucketResponse{
 			Name:                b.Name,
 			TenantID:            b.TenantID,
 			CreationDate:        b.CreatedAt.Format("2006-01-02T15:04:05Z"),
@@ -791,19 +807,74 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 			Lifecycle:           b.Lifecycle,
 			Tags:                b.Tags,
 			Metadata:            b.Metadata,
+			NodeName:            nodeName,
+			NodeStatus:          "healthy", // All nodes in list are healthy
 		}
-
-		// Add node location info if in cluster mode
-		if isClusterEnabled && i < len(bucketsWithLocation) {
-			bucketResp.NodeID = bucketsWithLocation[i].NodeID
-			bucketResp.NodeName = bucketsWithLocation[i].NodeName
-			bucketResp.NodeStatus = bucketsWithLocation[i].NodeStatus
-		}
-
-		response[i] = bucketResp
 	}
 
 	s.writeJSON(w, response)
+}
+
+// queryBucketsFromNode queries buckets from a remote node via internal cluster API
+func (s *Server) queryBucketsFromNode(ctx context.Context, node *cluster.Node, tenantID string) ([]bucket.Bucket, error) {
+	// Get local node credentials for HMAC authentication
+	config, err := s.clusterManager.GetConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get local node config: %w", err)
+	}
+
+	// Build URL for internal cluster API
+	url := fmt.Sprintf("%s/api/internal/cluster/buckets?tenant_id=%s", node.Endpoint, tenantID)
+
+	// Create authenticated request
+	proxyClient := cluster.NewProxyClient()
+	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "GET", url, nil, config.NodeID, config.ClusterToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Execute request with timeout
+	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req = req.WithContext(reqCtx)
+
+	resp, err := proxyClient.DoAuthenticatedRequest(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check response status
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Parse response
+	var response struct {
+		Buckets []cluster.BucketWithLocation `json:"buckets"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Convert BucketWithLocation to bucket.Bucket
+	buckets := make([]bucket.Bucket, len(response.Buckets))
+	for i, bwl := range response.Buckets {
+		buckets[i] = bucket.Bucket{
+			Name:        bwl.Name,
+			TenantID:    bwl.TenantID,
+			CreatedAt:   bwl.CreatedAt,
+			Versioning:  parseVersioningFromString(bwl.Versioning),
+			ObjectCount: bwl.ObjectCount,
+			TotalSize:   bwl.SizeBytes,
+			Metadata:    bwl.Metadata,
+			Tags:        bwl.Tags,
+		}
+	}
+
+	return buckets, nil
 }
 
 // parseVersioningFromString converts versioning string to VersioningConfig

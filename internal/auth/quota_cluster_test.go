@@ -139,12 +139,12 @@ func TestCheckTenantStorageQuota_ClusterMode(t *testing.T) {
 		assert.NoError(t, err, "Global admin should have no quota")
 	})
 
-	// Test 6: Tenant with no quota configured (MaxStorageBytes = -1)
-	t.Run("Tenant with no quota configured", func(t *testing.T) {
+	// Test 6: Tenant with unlimited storage (MaxStorageBytes = 0)
+	t.Run("Tenant with unlimited storage", func(t *testing.T) {
 		tenant2 := &Tenant{
 			ID:                  "tenant2",
 			Name:                "Unlimited Tenant",
-			MaxStorageBytes:     -1, // -1 = unlimited (no quota)
+			MaxStorageBytes:     0, // 0 = unlimited (no quota checking)
 			CurrentStorageBytes: 5 * 1024 * 1024 * 1024, // 5GB used
 		}
 		err := store.CreateTenant(tenant2)
@@ -155,8 +155,8 @@ func TestCheckTenantStorageQuota_ClusterMode(t *testing.T) {
 			totalStorage: 10 * 1024 * 1024 * 1024, // 10GB
 		})
 
-		// Should allow any amount when quota is not configured (MaxStorageBytes = -1)
+		// Should allow any amount when MaxStorageBytes = 0 (unlimited)
 		err = mgr.CheckTenantStorageQuota(context.Background(), "tenant2", 999*1024*1024*1024)
-		assert.NoError(t, err, "Should allow unlimited when MaxStorageBytes = -1")
+		assert.NoError(t, err, "Should allow unlimited when MaxStorageBytes = 0")
 	})
 }

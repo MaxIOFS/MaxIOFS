@@ -29,17 +29,25 @@ type BucketWithLocation struct {
 
 // BucketAggregator aggregates bucket listings from all cluster nodes
 type BucketAggregator struct {
-	clusterManager ClusterManagerInterface
-	proxyClient    *ProxyClient
-	log            *logrus.Entry
+	clusterManager  ClusterManagerInterface
+	proxyClient     *ProxyClient
+	circuitBreakers *CircuitBreakerManager
+	log             *logrus.Entry
 }
 
 // NewBucketAggregator creates a new bucket aggregator
 func NewBucketAggregator(clusterManager ClusterManagerInterface) *BucketAggregator {
+	// Circuit breaker config:
+	// - Open after 3 consecutive failures
+	// - Require 2 successes to close from half-open
+	// - 30 seconds timeout before retry
+	circuitBreakers := NewCircuitBreakerManager(3, 2, 30*time.Second)
+
 	return &BucketAggregator{
-		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(),
-		log:            logrus.WithField("component", "bucket-aggregator"),
+		clusterManager:  clusterManager,
+		proxyClient:     NewProxyClient(),
+		circuitBreakers: circuitBreakers,
+		log:             logrus.WithField("component", "bucket-aggregator"),
 	}
 }
 
@@ -79,7 +87,27 @@ func (ba *BucketAggregator) ListAllBuckets(ctx context.Context, tenantID string)
 		go func(n *Node) {
 			defer wg.Done()
 
-			buckets, err := ba.queryBucketsFromNode(ctx, n, tenantID)
+			// Get circuit breaker for this node
+			circuitBreaker := ba.circuitBreakers.GetBreaker(n.ID)
+
+			// Wrap query in circuit breaker
+			var buckets []BucketWithLocation
+			err := circuitBreaker.Call(func() error {
+				b, err := ba.queryBucketsFromNode(ctx, n, tenantID)
+				if err != nil {
+					return err
+				}
+				buckets = b
+				return nil
+			})
+
+			if err == ErrCircuitOpen {
+				ba.log.WithFields(logrus.Fields{
+					"node_id":   n.ID,
+					"node_name": n.Name,
+				}).Warn("Circuit breaker open for node, skipping query")
+			}
+
 			resultsChan <- nodeResult{
 				nodeID:   n.ID,
 				nodeName: n.Name,
@@ -201,4 +229,9 @@ func (ba *BucketAggregator) IsLocalNode(ctx context.Context, nodeID string) (boo
 		return false, err
 	}
 	return localNodeID == nodeID, nil
+}
+
+// GetCircuitBreakerStats returns statistics for all circuit breakers
+func (ba *BucketAggregator) GetCircuitBreakerStats() map[string]interface{} {
+	return ba.circuitBreakers.GetAllStats()
 }

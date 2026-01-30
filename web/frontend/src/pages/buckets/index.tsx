@@ -313,6 +313,9 @@ export default function BucketsPage() {
                     Region
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                    Node
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                     Owner
                   </th>
                   <th className="px-6 py-3 text-left">
@@ -381,6 +384,22 @@ export default function BucketsPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-gray-900 dark:text-gray-300">{bucket.region || 'us-east-1'}</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {bucket.node_name || bucket.nodeName ? (
+                          <div className="flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full ${
+                              (bucket.node_status || bucket.nodeStatus) === 'healthy'
+                                ? 'bg-green-500 dark:bg-green-400'
+                                : 'bg-yellow-500 dark:bg-yellow-400'
+                            }`} />
+                            <span className="text-sm text-gray-900 dark:text-gray-300">
+                              {bucket.node_name || bucket.nodeName}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400 dark:text-gray-500 italic">Local</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-2">

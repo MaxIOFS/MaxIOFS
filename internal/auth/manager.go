@@ -983,12 +983,9 @@ func (am *authManager) CheckTenantStorageQuota(ctx context.Context, tenantID str
 		return fmt.Errorf("failed to get tenant: %w", err)
 	}
 
-	// If no quota configured (-1 or <= 0 means unlimited), allow
-	if tenant.MaxStorageBytes <= 0 {
-		logrus.WithFields(logrus.Fields{
-			"tenantID":    tenantID,
-			"maxStorage":  tenant.MaxStorageBytes,
-		}).Debug("CheckTenantStorageQuota: unlimited quota (no quota check)")
+	// If MaxStorageBytes = 0, tenant has unlimited storage (no quota check)
+	if tenant.MaxStorageBytes == 0 {
+		logrus.WithField("tenantID", tenantID).Debug("CheckTenantStorageQuota: unlimited storage (MaxStorageBytes = 0)")
 		return nil
 	}
 

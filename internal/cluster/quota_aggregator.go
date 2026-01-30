@@ -29,17 +29,25 @@ type ClusterManagerInterface interface {
 
 // QuotaAggregator aggregates storage quota usage from all cluster nodes
 type QuotaAggregator struct {
-	clusterManager ClusterManagerInterface
-	proxyClient    *ProxyClient
-	log            *logrus.Entry
+	clusterManager    ClusterManagerInterface
+	proxyClient       *ProxyClient
+	circuitBreakers   *CircuitBreakerManager
+	log               *logrus.Entry
 }
 
 // NewQuotaAggregator creates a new quota aggregator
 func NewQuotaAggregator(clusterManager ClusterManagerInterface) *QuotaAggregator {
+	// Circuit breaker config:
+	// - Open after 3 consecutive failures
+	// - Require 2 successes to close from half-open
+	// - 30 seconds timeout before retry
+	circuitBreakers := NewCircuitBreakerManager(3, 2, 30*time.Second)
+
 	return &QuotaAggregator{
-		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(),
-		log:            logrus.WithField("component", "quota-aggregator"),
+		clusterManager:  clusterManager,
+		proxyClient:     NewProxyClient(),
+		circuitBreakers: circuitBreakers,
+		log:             logrus.WithField("component", "quota-aggregator"),
 	}
 }
 
@@ -80,8 +88,27 @@ func (qa *QuotaAggregator) GetTenantTotalStorage(ctx context.Context, tenantID s
 		go func(n *Node) {
 			defer wg.Done()
 
-			storageInfo, err := qa.queryStorageFromNode(ctx, n, tenantID)
+			// Get circuit breaker for this node
+			circuitBreaker := qa.circuitBreakers.GetBreaker(n.ID)
+
+			// Wrap query in circuit breaker
+			var storageInfo *TenantStorageInfo
+			err := circuitBreaker.Call(func() error {
+				info, err := qa.queryStorageFromNode(ctx, n, tenantID)
+				if err != nil {
+					return err
+				}
+				storageInfo = info
+				return nil
+			})
+
 			if err != nil {
+				if err == ErrCircuitOpen {
+					qa.log.WithFields(logrus.Fields{
+						"node_id":   n.ID,
+						"node_name": n.Name,
+					}).Warn("Circuit breaker open for node, skipping query")
+				}
 				resultsChan <- nodeResult{
 					nodeID:   n.ID,
 					nodeName: n.Name,
@@ -247,4 +274,9 @@ func (qa *QuotaAggregator) GetTenantStorageByNode(ctx context.Context, tenantID 
 	wg.Wait()
 
 	return result, nil
+}
+
+// GetCircuitBreakerStats returns statistics for all circuit breakers
+func (qa *QuotaAggregator) GetCircuitBreakerStats() map[string]interface{} {
+	return qa.circuitBreakers.GetAllStats()
 }

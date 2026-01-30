@@ -58,6 +58,7 @@ type Server struct {
 	clusterReplicationMgr   *cluster.ClusterReplicationManager
 	bucketAggregator        *cluster.BucketAggregator
 	quotaAggregator         *cluster.QuotaAggregator
+	rateLimiter             *cluster.RateLimiter
 	tenantSyncMgr           *cluster.TenantSyncManager
 	userSyncMgr             *cluster.UserSyncManager
 	accessKeySyncMgr        *cluster.AccessKeySyncManager
@@ -279,6 +280,11 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize quota aggregator for cross-node quota checking
 	quotaAggregator := cluster.NewQuotaAggregator(clusterManager)
 
+	// Initialize rate limiter for internal cluster APIs
+	// 100 requests per second per IP, burst of 200
+	rateLimiter := cluster.NewRateLimiter(100, 200)
+	logrus.Info("Rate limiter initialized for internal cluster APIs (100 req/s, burst: 200)")
+
 	// Connect cluster manager and quota aggregator to auth manager for cluster-aware quota checking
 	if am, ok := authManager.(interface {
 		SetClusterManager(interface {
@@ -348,6 +354,7 @@ func New(cfg *config.Config) (*Server, error) {
 		clusterReplicationMgr:   clusterReplicationMgr,
 		bucketAggregator:        bucketAggregator,
 		quotaAggregator:         quotaAggregator,
+		rateLimiter:             rateLimiter,
 		tenantSyncMgr:           tenantSyncMgr,
 		userSyncMgr:             userSyncMgr,
 		accessKeySyncMgr:        accessKeySyncMgr,
@@ -683,6 +690,47 @@ func (s *Server) setupRoutes() error {
 		logrus.Info("Prometheus metrics endpoint enabled at /metrics on S3 API")
 	}
 
+	// IMPORTANT: Register internal cluster API routes FIRST (before S3 routes)
+	// to prevent S3 handler from capturing /api/internal/cluster/* routes
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		clusterAuthMiddleware := middleware.NewClusterAuthMiddleware(s.db)
+		internalClusterRouter := apiRouter.PathPrefix("/api/internal/cluster").Subrouter()
+
+		// Apply rate limiting to internal cluster APIs
+		internalClusterRouter.Use(s.rateLimiter.Middleware())
+
+		// Apply HMAC authentication
+		internalClusterRouter.Use(clusterAuthMiddleware.ClusterAuth)
+
+		// Tenant synchronization endpoint
+		internalClusterRouter.HandleFunc("/tenant-sync", s.handleReceiveTenantSync).Methods("POST")
+
+		// User synchronization endpoint
+		internalClusterRouter.HandleFunc("/user-sync", s.handleReceiveUserSync).Methods("POST")
+
+		// Object replication endpoints
+		internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectReplication).Methods("PUT")
+		internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectDeletion).Methods("DELETE")
+
+		// Bucket migration endpoints
+		internalClusterRouter.HandleFunc("/bucket-permissions", s.handleReceiveBucketPermission).Methods("POST")
+		internalClusterRouter.HandleFunc("/bucket-acl", s.handleReceiveBucketACL).Methods("POST")
+		internalClusterRouter.HandleFunc("/bucket-config", s.handleReceiveBucketConfiguration).Methods("POST")
+		internalClusterRouter.HandleFunc("/bucket-inventory", s.handleReceiveBucketInventory).Methods("POST")
+
+		// Synchronization endpoints
+		internalClusterRouter.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
+		internalClusterRouter.HandleFunc("/bucket-permission-sync", s.handleReceiveBucketPermissionSync).Methods("POST")
+
+		// Bucket aggregation endpoint (for cross-node bucket listing)
+		internalClusterRouter.HandleFunc("/buckets", s.handleGetLocalBuckets).Methods("GET")
+
+		// Quota aggregation endpoint (for cross-node quota checking)
+		internalClusterRouter.HandleFunc("/tenant/{tenantID}/storage", s.handleGetTenantStorage).Methods("GET")
+
+		logrus.Info("Internal cluster API routes registered with HMAC authentication")
+	}
+
 	// Create subrouter for authenticated S3 API routes
 	s3Router := apiRouter.PathPrefix("/").Subrouter()
 
@@ -718,41 +766,6 @@ func (s *Server) setupRoutes() error {
 
 	// Register API routes on the authenticated subrouter
 	apiHandler.RegisterRoutes(s3Router)
-
-	// Setup internal cluster API routes (authenticated with HMAC)
-	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
-		clusterAuthMiddleware := middleware.NewClusterAuthMiddleware(s.db)
-		internalClusterRouter := apiRouter.PathPrefix("/api/internal/cluster").Subrouter()
-		internalClusterRouter.Use(clusterAuthMiddleware.ClusterAuth)
-
-		// Tenant synchronization endpoint
-		internalClusterRouter.HandleFunc("/tenant-sync", s.handleReceiveTenantSync).Methods("POST")
-
-		// User synchronization endpoint
-		internalClusterRouter.HandleFunc("/user-sync", s.handleReceiveUserSync).Methods("POST")
-
-		// Object replication endpoints
-		internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectReplication).Methods("PUT")
-		internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectDeletion).Methods("DELETE")
-
-		// Bucket migration endpoints
-		internalClusterRouter.HandleFunc("/bucket-permissions", s.handleReceiveBucketPermission).Methods("POST")
-		internalClusterRouter.HandleFunc("/bucket-acl", s.handleReceiveBucketACL).Methods("POST")
-		internalClusterRouter.HandleFunc("/bucket-config", s.handleReceiveBucketConfiguration).Methods("POST")
-		internalClusterRouter.HandleFunc("/bucket-inventory", s.handleReceiveBucketInventory).Methods("POST")
-
-		// Synchronization endpoints
-		internalClusterRouter.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
-		internalClusterRouter.HandleFunc("/bucket-permission-sync", s.handleReceiveBucketPermissionSync).Methods("POST")
-
-		// Bucket aggregation endpoint (for cross-node bucket listing)
-		internalClusterRouter.HandleFunc("/buckets", s.handleGetLocalBuckets).Methods("GET")
-
-		// Quota aggregation endpoint (for cross-node quota checking)
-		internalClusterRouter.HandleFunc("/tenant/{tenantID}/storage", s.handleGetTenantStorage).Methods("GET")
-
-		logrus.Info("Internal cluster API routes registered with HMAC authentication")
-	}
 
 	// Setup CORS and other middleware
 	s.httpServer.Handler = handlers.RecoveryHandler()(apiRouter)

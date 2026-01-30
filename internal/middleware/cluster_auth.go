@@ -108,7 +108,7 @@ func (m *ClusterAuthMiddleware) ClusterAuth(next http.Handler) http.Handler {
 // getNodeToken retrieves the node_token for a given node ID
 func (m *ClusterAuthMiddleware) getNodeToken(ctx context.Context, nodeID string) (string, error) {
 	var nodeToken string
-	query := `SELECT node_token FROM cluster_nodes WHERE id = ? AND status != 'removed'`
+	query := `SELECT node_token FROM cluster_nodes WHERE id = ? AND health_status != 'removed'`
 	err := m.db.QueryRowContext(ctx, query, nodeID).Scan(&nodeToken)
 	if err != nil {
 		return "", err
