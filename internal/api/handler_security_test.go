@@ -845,6 +845,8 @@ func setupTestHandler() (*Handler, *MockBucketManager, *MockObjectManager, *Mock
 		"http://localhost:8080",
 		"http://localhost:5173",
 		"/tmp",
+		nil, // clusterManager
+		nil, // bucketAggregator
 	)
 
 	return handler, mockBucket, mockObject, mockAuth
