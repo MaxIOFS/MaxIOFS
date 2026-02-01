@@ -692,43 +692,57 @@ func (s *Server) setupRoutes() error {
 
 	// IMPORTANT: Register internal cluster API routes FIRST (before S3 routes)
 	// to prevent S3 handler from capturing /api/internal/cluster/* routes
-	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
-		clusterAuthMiddleware := middleware.NewClusterAuthMiddleware(s.db)
-		internalClusterRouter := apiRouter.PathPrefix("/api/internal/cluster").Subrouter()
+	if s.clusterManager != nil {
+		// Register cluster join endpoints (no HMAC auth required, uses cluster token)
+		// These must be available even when cluster is not yet enabled on this node
+		internalPublicRouter := apiRouter.PathPrefix("/api/internal/cluster").Subrouter()
+		internalPublicRouter.Use(s.rateLimiter.Middleware())
 
-		// Apply rate limiting to internal cluster APIs
-		internalClusterRouter.Use(s.rateLimiter.Middleware())
+		// Cluster join endpoints (token-based auth, not HMAC)
+		internalPublicRouter.HandleFunc("/validate-token", s.handleValidateClusterToken).Methods("POST")
+		internalPublicRouter.HandleFunc("/register-node", s.handleRegisterNode).Methods("POST")
+		internalPublicRouter.HandleFunc("/nodes", s.handleGetClusterNodesInternal).Methods("GET")
 
-		// Apply HMAC authentication
-		internalClusterRouter.Use(clusterAuthMiddleware.ClusterAuth)
+		if s.clusterManager.IsClusterEnabled() {
+			clusterAuthMiddleware := middleware.NewClusterAuthMiddleware(s.db)
+			internalClusterRouter := apiRouter.PathPrefix("/api/internal/cluster").Subrouter()
 
-		// Tenant synchronization endpoint
-		internalClusterRouter.HandleFunc("/tenant-sync", s.handleReceiveTenantSync).Methods("POST")
+			// Apply rate limiting to internal cluster APIs
+			internalClusterRouter.Use(s.rateLimiter.Middleware())
 
-		// User synchronization endpoint
-		internalClusterRouter.HandleFunc("/user-sync", s.handleReceiveUserSync).Methods("POST")
+			// Apply HMAC authentication
+			internalClusterRouter.Use(clusterAuthMiddleware.ClusterAuth)
 
-		// Object replication endpoints
-		internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectReplication).Methods("PUT")
-		internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectDeletion).Methods("DELETE")
+			// Tenant synchronization endpoint
+			internalClusterRouter.HandleFunc("/tenant-sync", s.handleReceiveTenantSync).Methods("POST")
 
-		// Bucket migration endpoints
-		internalClusterRouter.HandleFunc("/bucket-permissions", s.handleReceiveBucketPermission).Methods("POST")
-		internalClusterRouter.HandleFunc("/bucket-acl", s.handleReceiveBucketACL).Methods("POST")
-		internalClusterRouter.HandleFunc("/bucket-config", s.handleReceiveBucketConfiguration).Methods("POST")
-		internalClusterRouter.HandleFunc("/bucket-inventory", s.handleReceiveBucketInventory).Methods("POST")
+			// User synchronization endpoint
+			internalClusterRouter.HandleFunc("/user-sync", s.handleReceiveUserSync).Methods("POST")
 
-		// Synchronization endpoints
-		internalClusterRouter.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
-		internalClusterRouter.HandleFunc("/bucket-permission-sync", s.handleReceiveBucketPermissionSync).Methods("POST")
+			// Object replication endpoints
+			internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectReplication).Methods("PUT")
+			internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectDeletion).Methods("DELETE")
 
-		// Bucket aggregation endpoint (for cross-node bucket listing)
-		internalClusterRouter.HandleFunc("/buckets", s.handleGetLocalBuckets).Methods("GET")
+			// Bucket migration endpoints
+			internalClusterRouter.HandleFunc("/bucket-permissions", s.handleReceiveBucketPermission).Methods("POST")
+			internalClusterRouter.HandleFunc("/bucket-acl", s.handleReceiveBucketACL).Methods("POST")
+			internalClusterRouter.HandleFunc("/bucket-config", s.handleReceiveBucketConfiguration).Methods("POST")
+			internalClusterRouter.HandleFunc("/bucket-inventory", s.handleReceiveBucketInventory).Methods("POST")
 
-		// Quota aggregation endpoint (for cross-node quota checking)
-		internalClusterRouter.HandleFunc("/tenant/{tenantID}/storage", s.handleGetTenantStorage).Methods("GET")
+			// Synchronization endpoints
+			internalClusterRouter.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
+			internalClusterRouter.HandleFunc("/bucket-permission-sync", s.handleReceiveBucketPermissionSync).Methods("POST")
 
-		logrus.Info("Internal cluster API routes registered with HMAC authentication")
+			// Bucket aggregation endpoint (for cross-node bucket listing)
+			internalClusterRouter.HandleFunc("/buckets", s.handleGetLocalBuckets).Methods("GET")
+
+			// Quota aggregation endpoint (for cross-node quota checking)
+			internalClusterRouter.HandleFunc("/tenant/{tenantID}/storage", s.handleGetTenantStorage).Methods("GET")
+
+			logrus.Info("Internal cluster API routes registered with HMAC authentication")
+		}
+
+		logrus.Info("Cluster join API routes registered (token-based authentication)")
 	}
 
 	// Create subrouter for authenticated S3 API routes

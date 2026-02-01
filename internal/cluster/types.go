@@ -54,6 +54,13 @@ type ClusterConfig struct {
 	CreatedAt        time.Time `json:"created_at"`
 }
 
+// ClusterInfo contains information about a cluster for validation
+type ClusterInfo struct {
+	ClusterID string `json:"cluster_id"`
+	Region    string `json:"region"`
+	NodeCount int    `json:"node_count"`
+}
+
 // HealthCheckResult is returned by health check operations
 type HealthCheckResult struct {
 	Healthy      bool   `json:"healthy"`

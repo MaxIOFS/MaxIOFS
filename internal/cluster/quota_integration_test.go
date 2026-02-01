@@ -35,6 +35,10 @@ func (m *mockManager) GetLocalNodeToken(ctx context.Context) (string, error) {
 	return m.localNodeToken, nil
 }
 
+func (m *mockManager) GetLocalNodeName(ctx context.Context) (string, error) {
+	return "local-node", nil
+}
+
 func (m *mockManager) IsClusterEnabled() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

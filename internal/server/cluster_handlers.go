@@ -431,3 +431,142 @@ func (s *Server) handleGetTenantStorage(w http.ResponseWriter, r *http.Request) 
 
 	s.writeJSON(w, storageInfo)
 }
+
+// handleValidateClusterToken validates a cluster token for node join operations
+func (s *Server) handleValidateClusterToken(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ClusterToken string `json:"cluster_token"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.ClusterToken == "" {
+		s.writeError(w, "Cluster token is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get local cluster config
+	config, err := s.clusterManager.GetConfig(r.Context())
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get cluster config")
+		s.writeError(w, "Failed to get cluster config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Validate token matches local cluster token
+	if config.ClusterToken != req.ClusterToken {
+		s.writeError(w, "Invalid cluster token", http.StatusUnauthorized)
+		return
+	}
+
+	// Get cluster node count
+	nodes, err := s.clusterManager.ListNodes(r.Context())
+	if err != nil {
+		logrus.WithError(err).Error("Failed to list nodes")
+		s.writeError(w, "Failed to list nodes: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return cluster info
+	clusterInfo := cluster.ClusterInfo{
+		ClusterID: config.NodeID, // Use first node ID as cluster ID
+		Region:    config.Region,
+		NodeCount: len(nodes),
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"valid":        true,
+		"cluster_info": clusterInfo,
+	})
+}
+
+// handleRegisterNode registers a new node joining the cluster
+func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ClusterToken string        `json:"cluster_token"`
+		Node         *cluster.Node `json:"node"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.ClusterToken == "" {
+		s.writeError(w, "Cluster token is required", http.StatusBadRequest)
+		return
+	}
+
+	if req.Node == nil {
+		s.writeError(w, "Node information is required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate cluster token
+	config, err := s.clusterManager.GetConfig(r.Context())
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get cluster config")
+		s.writeError(w, "Failed to get cluster config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if config.ClusterToken != req.ClusterToken {
+		s.writeError(w, "Invalid cluster token", http.StatusUnauthorized)
+		return
+	}
+
+	// Add node to cluster
+	err = s.clusterManager.AddNode(r.Context(), req.Node)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to register node")
+		s.writeError(w, "Failed to register node: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"node_id":   req.Node.ID,
+		"node_name": req.Node.Name,
+		"endpoint":  req.Node.Endpoint,
+	}).Info("Node registered successfully")
+
+	s.writeJSON(w, map[string]interface{}{
+		"node": req.Node,
+	})
+}
+
+// handleGetClusterNodesInternal returns cluster nodes for internal cluster sync (with token auth)
+func (s *Server) handleGetClusterNodesInternal(w http.ResponseWriter, r *http.Request) {
+	clusterToken := r.URL.Query().Get("cluster_token")
+	if clusterToken == "" {
+		s.writeError(w, "Cluster token is required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate cluster token
+	config, err := s.clusterManager.GetConfig(r.Context())
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get cluster config")
+		s.writeError(w, "Failed to get cluster config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if config.ClusterToken != clusterToken {
+		s.writeError(w, "Invalid cluster token", http.StatusUnauthorized)
+		return
+	}
+
+	// Get all nodes
+	nodes, err := s.clusterManager.ListNodes(r.Context())
+	if err != nil {
+		logrus.WithError(err).Error("Failed to list nodes")
+		s.writeError(w, "Failed to list nodes: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"nodes": nodes,
+	})
+}

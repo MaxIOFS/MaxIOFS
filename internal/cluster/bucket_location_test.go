@@ -97,7 +97,7 @@ func (m *MockBucketManagerForLocation) UpdateBucket(ctx context.Context, tenantI
 	return nil
 }
 
-func (m *MockBucketManagerForLocation) CreateBucket(ctx context.Context, tenantID, bucketName string) error {
+func (m *MockBucketManagerForLocation) CreateBucket(ctx context.Context, tenantID, bucketName, ownerID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -105,6 +105,7 @@ func (m *MockBucketManagerForLocation) CreateBucket(ctx context.Context, tenantI
 	m.buckets[key] = &bucket.Bucket{
 		Name:     bucketName,
 		TenantID: tenantID,
+		OwnerID:  ownerID,
 		Metadata: make(map[string]string),
 	}
 	return nil

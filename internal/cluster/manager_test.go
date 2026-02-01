@@ -494,24 +494,6 @@ func TestSetACLManager(t *testing.T) {
 	}
 }
 
-func TestJoinCluster(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	manager := NewManager(db, "http://localhost:8080")
-	ctx := context.Background()
-
-	// JoinCluster should return "not implemented yet" error
-	err := manager.JoinCluster(ctx, "test-token", "http://localhost:8081")
-	if err == nil {
-		t.Fatal("Expected error from JoinCluster, got nil")
-	}
-
-	if err.Error() != "not implemented yet" {
-		t.Errorf("Expected 'not implemented yet' error, got: %v", err)
-	}
-}
-
 func TestUpdateNodeBucketCount(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

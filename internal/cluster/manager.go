@@ -1,11 +1,15 @@
 package cluster
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -99,13 +103,217 @@ func (m *Manager) InitializeCluster(ctx context.Context, nodeName, region string
 
 // JoinCluster joins an existing cluster
 func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint string) error {
-	// TODO: Implement cluster join logic
-	// This would involve:
-	// 1. Validate cluster token with another node
-	// 2. Exchange node information
-	// 3. Update cluster_config
-	// 4. Add this node to the cluster
-	return fmt.Errorf("not implemented yet")
+	// Step 1: Validate cluster token with the existing cluster node
+	valid, nodeInfo, err := m.validateClusterToken(ctx, clusterToken, nodeEndpoint)
+	if err != nil {
+		return fmt.Errorf("failed to validate cluster token: %w", err)
+	}
+	if !valid {
+		return fmt.Errorf("invalid cluster token")
+	}
+
+	m.log.WithFields(logrus.Fields{
+		"cluster_id": nodeInfo.ClusterID,
+		"region":     nodeInfo.Region,
+	}).Info("Cluster token validated successfully")
+
+	// Step 2: Generate node information for this node
+	thisNodeID := uuid.New().String()
+	thisNodeToken, err := generateClusterToken()
+	if err != nil {
+		return fmt.Errorf("failed to generate node token: %w", err)
+	}
+	thisNodeName := fmt.Sprintf("node-%s", thisNodeID[:8])
+
+	// Step 3: Register this node with the existing cluster node
+	registeredNode, err := m.registerWithCluster(ctx, nodeEndpoint, clusterToken, &Node{
+		ID:        thisNodeID,
+		Name:      thisNodeName,
+		Endpoint:  m.publicAPIURL,
+		NodeToken: thisNodeToken,
+		Region:    nodeInfo.Region,
+		Priority:  5, // Default priority
+	})
+	if err != nil {
+		return fmt.Errorf("failed to register with cluster: %w", err)
+	}
+
+	m.log.WithFields(logrus.Fields{
+		"node_id":   registeredNode.ID,
+		"node_name": registeredNode.Name,
+	}).Info("Successfully registered with cluster")
+
+	// Step 4: Update local cluster_config to enable cluster mode
+	// Delete any existing config and insert new one (since node_id is primary key)
+	_, err = m.db.ExecContext(ctx, `DELETE FROM cluster_config`)
+	if err != nil {
+		return fmt.Errorf("failed to clear cluster config: %w", err)
+	}
+
+	_, err = m.db.ExecContext(ctx, `
+		INSERT INTO cluster_config (node_id, node_name, cluster_token, is_cluster_enabled, region)
+		VALUES (?, ?, ?, 1, ?)
+	`, thisNodeID, thisNodeName, clusterToken, nodeInfo.Region)
+
+	if err != nil {
+		return fmt.Errorf("failed to update cluster config: %w", err)
+	}
+
+	// Step 5: Fetch and store all other nodes from the cluster
+	nodes, err := m.fetchClusterNodes(ctx, nodeEndpoint, clusterToken)
+	if err != nil {
+		m.log.WithError(err).Warn("Failed to fetch cluster nodes, will sync later")
+	} else {
+		for _, node := range nodes {
+			// Skip self
+			if node.ID == thisNodeID {
+				continue
+			}
+			// Add each node to local cluster_nodes table
+			if err := m.AddNode(ctx, node); err != nil {
+				m.log.WithError(err).WithField("node_id", node.ID).Warn("Failed to add node to local registry")
+			}
+		}
+		m.log.WithField("node_count", len(nodes)-1).Info("Synchronized cluster nodes")
+	}
+
+	m.log.WithFields(logrus.Fields{
+		"node_id":     thisNodeID,
+		"node_name":   thisNodeName,
+		"cluster_id":  nodeInfo.ClusterID,
+	}).Info("Successfully joined cluster")
+
+	return nil
+}
+
+// validateClusterToken validates a cluster token with an existing cluster node
+func (m *Manager) validateClusterToken(ctx context.Context, clusterToken, nodeEndpoint string) (bool, *ClusterInfo, error) {
+	// Build URL for validation endpoint
+	url := fmt.Sprintf("%s/api/internal/cluster/validate-token", nodeEndpoint)
+
+	// Create request payload
+	payload := map[string]string{
+		"cluster_token": clusterToken,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Execute request
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusUnauthorized {
+			return false, nil, fmt.Errorf("invalid cluster token")
+		}
+		return false, nil, fmt.Errorf("validation failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Parse response
+	var response struct {
+		Valid       bool         `json:"valid"`
+		ClusterInfo *ClusterInfo `json:"cluster_info"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return false, nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return response.Valid, response.ClusterInfo, nil
+}
+
+// registerWithCluster registers this node with an existing cluster node
+func (m *Manager) registerWithCluster(ctx context.Context, nodeEndpoint, clusterToken string, node *Node) (*Node, error) {
+	// Build URL for node registration endpoint
+	url := fmt.Sprintf("%s/api/internal/cluster/register-node", nodeEndpoint)
+
+	// Create request payload
+	payload := map[string]interface{}{
+		"cluster_token": clusterToken,
+		"node":          node,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Execute request
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("registration failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Parse response
+	var response struct {
+		Node *Node `json:"node"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return response.Node, nil
+}
+
+// fetchClusterNodes fetches all nodes from an existing cluster node
+func (m *Manager) fetchClusterNodes(ctx context.Context, nodeEndpoint, clusterToken string) ([]*Node, error) {
+	// Build URL for nodes list endpoint
+	url := fmt.Sprintf("%s/api/internal/cluster/nodes?cluster_token=%s", nodeEndpoint, clusterToken)
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Execute request
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to fetch nodes with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Parse response
+	var response struct {
+		Nodes []*Node `json:"nodes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return response.Nodes, nil
 }
 
 // LeaveCluster removes this node from the cluster

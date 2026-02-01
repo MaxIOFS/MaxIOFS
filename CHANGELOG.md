@@ -18,6 +18,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **🔗 Cluster Join Functionality (JoinCluster)** - February 1, 2026. Implemented complete cluster join functionality allowing new nodes to join existing clusters via cluster token. Features:
+  - Multi-step join protocol: token validation → node registration → config update → cluster sync
+  - Token-based authentication separate from HMAC for join endpoints
+  - HTTP-based node registration and synchronization
+  - Automatic node information generation (node ID, name, token)
+  - Cluster node fetching and local registration
+  - Three new HTTP endpoints for cluster joining:
+    - `POST /api/internal/cluster/validate-token` - Validates cluster token and returns cluster info
+    - `POST /api/internal/cluster/register-node` - Registers new node with cluster
+    - `GET /api/internal/cluster/nodes` - Fetches list of all cluster nodes
+  - Modified `internal/cluster/manager.go` - Implemented JoinCluster() and helper methods (validateClusterToken, registerWithCluster, fetchClusterNodes)
+  - Modified `internal/cluster/types.go` - Added ClusterInfo struct for validation response
+  - Modified `internal/server/cluster_handlers.go` - Added 3 handler functions for join endpoints
+  - Modified `internal/server/server.go` - Registered new endpoints with separate public router (no HMAC required for join)
+  - 5 comprehensive tests (`internal/cluster/join_cluster_test.go` - 292 lines):
+    - TestJoinCluster_Success - Full join flow with node synchronization
+    - TestJoinCluster_InvalidToken - Token validation failure handling
+    - TestJoinCluster_NodeRegistrationFailure - Registration endpoint failure
+    - TestJoinCluster_NetworkError - Network connectivity failure
+    - TestJoinCluster_NodeSynchronization - Multi-node sync verification
+  - Mock HTTP servers for testing cluster communication
+  - Fixed SQL schema compatibility (cluster_config table)
+  - Removed placeholder test expecting "not implemented yet"
+  - **Impact**: Enables dynamic cluster expansion without manual configuration, simplifies multi-node cluster setup
+
 - **🔒 ACL Security Tests & AWS S3 Compatible Bucket Ownership** - January 31, 2026. Implemented comprehensive ACL security test suite (10 tests) and fixed critical security bug in bucket creation to match AWS S3 behavior.
 
   **SECURITY FIX - CreateBucket now AWS S3 compatible:**

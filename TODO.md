@@ -1,7 +1,7 @@
 # MaxIOFS - TODO & Roadmap
 
 **Version**: 0.7.0-beta
-**Last Updated**: January 30, 2026
+**Last Updated**: January 31, 2026
 **Status**: Beta - 98% S3 Compatible - Cluster Production Ready
 
 ## 📊 Project Status
@@ -381,6 +381,18 @@ Tenant with 1TB quota on 3-node cluster:
 
 **Status**: READY TO RESUME - Sprint 9 cluster architecture fixes complete
 
+**⚠️ IMPORTANT**: Before creating new tests, ALWAYS verify existing test coverage:
+- Use `go test -v ./path/to/package -run "TestFunctionName"` to check if tests exist
+- Search for test files with `Glob` or `Grep` for test functions
+- Many CORE functions already have comprehensive tests in existing test files
+- Avoid duplicating tests that already exist and are passing
+
+**Recent Work (January 31, 2026)**:
+- ✅ ACL Security Tests (10 tests) - `pkg/s3compat/acl_security_test.go`
+- ✅ Storage Leak Prevention (6 tests) - `internal/bucket/delete_bucket_test.go`
+- ✅ ListBuckets bug fix (cluster aggregator always includes local buckets)
+- ✅ Verified CORE S3 operations already have full test coverage
+
 **Approach**:
 - Test modules in priority order (0% → 90%+ coverage)
 - Focus on core functionality, edge cases, and error handling
@@ -398,6 +410,13 @@ Tenant with 1TB quota on 3-node cluster:
   - replication_worker_test.go (11 tests - new file)
   - migration_test.go (8 new tests)
 - 🚧 internal/cluster: Remaining 9 migration functions pending
+- ✅ pkg/s3compat: ACL security tests (10 tests - acl_security_test.go)
+  - checkBucketACLPermission (6 tests)
+  - checkObjectACLPermission (2 tests - SECURITY CRITICAL)
+  - checkPublicBucketAccess (2 tests - SECURITY CRITICAL)
+- ✅ internal/bucket: Storage leak prevention tests (6 tests - delete_bucket_test.go)
+  - DeleteBucket tests (3 tests)
+  - ForceDeleteBucket tests (3 tests - CRITICAL for storage management)
 - ⏸️ cmd/maxiofs: 0% → 90%+ (paused)
 - ⏸️ web: 0% → 90%+ (paused)
 
@@ -522,13 +541,17 @@ Tenant with 1TB quota on 3-node cluster:
 #### Phase 2: Core Functionality (40-50% coverage)
 - [ ] **internal/bucket** - 45.9% coverage (20+ functions with 0%)
   - Files needing tests:
-    - `manager_badger.go` (7 functions) - ForceDeleteBucket, RecalculateMetrics, ACL operations
+    - ✅ `manager_badger.go` - DeleteBucket, ForceDeleteBucket tests completed (6 tests)
+    - `manager_badger.go` (5 functions remaining) - RecalculateMetrics, ACL operations
     - `validation.go` (9 functions) - Policy, versioning, lifecycle, object lock validation
     - `filter.go` (3 functions) - Permission filtering and access checks
 
 - [ ] **pkg/s3compat** - 45.7% coverage (42+ functions with 0%)
+  - Files with comprehensive tests already implemented:
+    - ✅ `s3_test.go` - CORE S3 operations fully tested (PutObject, GetObject, DeleteObject, CopyObject, ListObjectVersions, ObjectVersioning)
+    - ✅ `acl_security_test.go` - ACL security tests completed (10 tests - checkBucketACLPermission, checkObjectACLPermission, checkPublicBucketAccess)
   - Files needing tests:
-    - `handler.go` (24 functions) - S3 API request handlers
+    - `handler.go` (24 functions) - S3 API request handlers (authentication, error handling)
     - `presigned.go` (13 functions) - Pre-signed URL generation and validation
     - `batch.go` (5 functions) - Batch operations (DeleteObjects)
 
