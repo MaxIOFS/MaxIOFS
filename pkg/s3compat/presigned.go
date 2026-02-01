@@ -1,6 +1,7 @@
 package s3compat
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -159,15 +160,15 @@ func (h *Handler) validatePresignedURLV4(r *http.Request) error {
 	credential := query.Get("X-Amz-Credential")
 	date := query.Get("X-Amz-Date")
 	expires := query.Get("X-Amz-Expires")
-	_ = query.Get("X-Amz-SignedHeaders") // signedHeaders - validated but not used in MVP
-	signature := query.Get("X-Amz-Signature")
+	signedHeaders := query.Get("X-Amz-SignedHeaders")
+	providedSignature := query.Get("X-Amz-Signature")
 
 	// Validate required parameters
 	if algorithm != "AWS4-HMAC-SHA256" {
 		return fmt.Errorf("invalid algorithm: %s", algorithm)
 	}
 
-	if credential == "" || date == "" || expires == "" || signature == "" {
+	if credential == "" || date == "" || expires == "" || providedSignature == "" {
 		return fmt.Errorf("missing required presigned URL parameters")
 	}
 
@@ -189,16 +190,72 @@ func (h *Handler) validatePresignedURLV4(r *http.Request) error {
 		return fmt.Errorf("presigned URL has expired")
 	}
 
-	// Extract access key from credential
+	// Extract access key and credential components
 	credParts := strings.Split(credential, "/")
-	if len(credParts) < 1 {
+	if len(credParts) < 5 {
 		return fmt.Errorf("invalid credential format")
 	}
 	accessKey := credParts[0]
+	dateStamp := credParts[1]
+	region := credParts[2]
+	service := credParts[3]
 
-	// TODO: Validate signature by reconstructing canonical request
-	// For MVP, we'll do basic validation
-	logrus.Debugf("Presigned URL validation passed for access key: %s", accessKey)
+	// Get the secret key for this access key
+	secretKey, err := h.getSecretKeyForAccessKey(r.Context(), accessKey)
+	if err != nil {
+		return fmt.Errorf("invalid access key: %v", err)
+	}
+
+	// Reconstruct the canonical request
+	// Extract host from request
+	host := r.Host
+	if host == "" {
+		host = r.URL.Host
+	}
+
+	// Build canonical query string (without signature)
+	canonicalQuery := url.Values{}
+	for k, v := range query {
+		if k != "X-Amz-Signature" {
+			canonicalQuery[k] = v
+		}
+	}
+	canonicalQueryString := canonicalQuery.Encode()
+
+	// Build canonical headers
+	canonicalHeaders := fmt.Sprintf("host:%s\n", host)
+
+	// Build canonical request
+	payloadHash := "UNSIGNED-PAYLOAD"
+	canonicalRequest := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s",
+		r.Method,
+		r.URL.Path,
+		canonicalQueryString,
+		canonicalHeaders,
+		signedHeaders,
+		payloadHash,
+	)
+
+	// Create string to sign
+	credentialScope := fmt.Sprintf("%s/%s/%s/aws4_request", dateStamp, region, service)
+	hashedCanonicalRequest := sha256Hash(canonicalRequest)
+	stringToSign := fmt.Sprintf("AWS4-HMAC-SHA256\n%s\n%s\n%s",
+		date,
+		credentialScope,
+		hashedCanonicalRequest,
+	)
+
+	// Calculate expected signature
+	expectedSignature := h.calculateSignatureV4(stringToSign, secretKey, dateStamp, region, service)
+
+	// Compare signatures using constant-time comparison
+	if !hmac.Equal([]byte(expectedSignature), []byte(providedSignature)) {
+		logrus.Warnf("Signature validation failed for access key: %s (expected: %s, got: %s)",
+			accessKey, expectedSignature, providedSignature)
+		return fmt.Errorf("signature does not match")
+	}
+
+	logrus.Debugf("Presigned URL V4 validation passed for access key: %s", accessKey)
 
 	return nil
 }
@@ -210,10 +267,10 @@ func (h *Handler) validatePresignedURLV2(r *http.Request) error {
 	// Extract query parameters
 	accessKey := query.Get("AWSAccessKeyId")
 	expires := query.Get("Expires")
-	signature := query.Get("Signature")
+	providedSignature := query.Get("Signature")
 
 	// Validate required parameters
-	if accessKey == "" || expires == "" || signature == "" {
+	if accessKey == "" || expires == "" || providedSignature == "" {
 		return fmt.Errorf("missing required presigned URL parameters")
 	}
 
@@ -228,7 +285,26 @@ func (h *Handler) validatePresignedURLV2(r *http.Request) error {
 		return fmt.Errorf("presigned URL has expired")
 	}
 
-	// TODO: Validate signature
+	// Get the secret key for this access key
+	secretKey, err := h.getSecretKeyForAccessKey(r.Context(), accessKey)
+	if err != nil {
+		return fmt.Errorf("invalid access key: %v", err)
+	}
+
+	// Reconstruct the string to sign for V2
+	// V2 format: METHOD\n\n\nEXPIRES\nPATH
+	stringToSign := fmt.Sprintf("%s\n\n\n%s\n%s", r.Method, expires, r.URL.Path)
+
+	// Calculate expected signature
+	expectedSignature := h.calculateSignatureV2(stringToSign, secretKey)
+
+	// Compare signatures using constant-time comparison
+	if !hmac.Equal([]byte(expectedSignature), []byte(providedSignature)) {
+		logrus.Warnf("Signature V2 validation failed for access key: %s (expected: %s, got: %s)",
+			accessKey, expectedSignature, providedSignature)
+		return fmt.Errorf("signature does not match")
+	}
+
 	logrus.Debugf("Presigned URL V2 validation passed for access key: %s", accessKey)
 
 	return nil
@@ -284,6 +360,21 @@ func (h *Handler) calculateSignatureV2(stringToSign, secretKey string) string {
 }
 
 // Helper functions
+
+// getSecretKeyForAccessKey retrieves the secret key for a given access key
+func (h *Handler) getSecretKeyForAccessKey(ctx context.Context, accessKeyID string) (string, error) {
+	// Get access key from auth manager
+	accessKey, err := h.authManager.GetAccessKey(ctx, accessKeyID)
+	if err != nil {
+		return "", fmt.Errorf("access key not found: %w", err)
+	}
+
+	if accessKey.Status != "active" {
+		return "", fmt.Errorf("access key is inactive")
+	}
+
+	return accessKey.SecretAccessKey, nil
+}
 
 func hmacSHA256(key, data []byte) []byte {
 	mac := hmac.New(sha256.New, key)

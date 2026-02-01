@@ -347,9 +347,45 @@ func (h *Handler) userHasBucketPermission(ctx context.Context, tenantID, bucketN
 		}
 	}
 
-	// Also check bucket policy (S3 style)
-	// TODO: Implement bucket policy checking if needed (would need tenantID for scoped lookup)
-	return false
+	// Check bucket policy (S3 style)
+	// For ListBuckets, we check if user has any S3 action permission on the bucket
+	return h.checkBucketPolicyPermission(ctx, tenantID, bucketName, userID, "s3:ListBucket")
+}
+
+// checkBucketPolicyPermission evaluates bucket policy for a specific action
+func (h *Handler) checkBucketPolicyPermission(ctx context.Context, tenantID, bucketName, userID, action string) bool {
+	if h.bucketManager == nil {
+		return false
+	}
+
+	// Get bucket policy
+	policy, err := h.bucketManager.GetBucketPolicy(ctx, tenantID, bucketName)
+	if err != nil {
+		// No policy or error retrieving it = no policy-based permission
+		return false
+	}
+
+	// Construct resource ARN for the bucket
+	// For bucket-level actions (ListBucket, etc.), use bucket ARN
+	// For object-level actions (GetObject, PutObject), caller should pass object path
+	resource := fmt.Sprintf("arn:aws:s3:::%s", bucketName)
+	if strings.Contains(action, "Object") {
+		// Object-level actions need /* wildcard
+		resource = fmt.Sprintf("arn:aws:s3:::%s/*", bucketName)
+	}
+
+	// Construct principal - use canonical user ID
+	principal := userID
+
+	// Evaluate policy
+	request := bucket.PolicyEvaluationRequest{
+		Principal: principal,
+		Action:    action,
+		Resource:  resource,
+		Bucket:    bucketName,
+	}
+
+	return bucket.IsActionAllowed(ctx, policy, request)
 }
 
 // Bucket operations
