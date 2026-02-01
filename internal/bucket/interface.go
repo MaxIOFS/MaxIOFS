@@ -35,7 +35,7 @@ type Bucket struct {
 // Manager defines the interface for bucket management
 type Manager interface {
 	// Basic bucket operations
-	CreateBucket(ctx context.Context, tenantID, name string) error
+	CreateBucket(ctx context.Context, tenantID, name string, ownerID string) error
 	DeleteBucket(ctx context.Context, tenantID, name string) error
 	ForceDeleteBucket(ctx context.Context, tenantID, name string) error // Force delete even if not empty (admin only)
 	ListBuckets(ctx context.Context, tenantID string) ([]Bucket, error)

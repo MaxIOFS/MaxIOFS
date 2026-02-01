@@ -435,6 +435,15 @@ func (m *Manager) GetLocalNodeID(ctx context.Context) (string, error) {
 	return config.NodeID, nil
 }
 
+// GetLocalNodeName returns the node_name of the local node
+func (m *Manager) GetLocalNodeName(ctx context.Context) (string, error) {
+	config, err := m.GetConfig(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get cluster config: %w", err)
+	}
+	return config.NodeName, nil
+}
+
 // GetLocalNodeToken returns the node_token of the local node
 // This is used for signing outgoing cluster replication requests
 func (m *Manager) GetLocalNodeToken(ctx context.Context) (string, error) {

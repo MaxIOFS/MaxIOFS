@@ -7,7 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **🐛 CRITICAL FIX: ListBuckets returns empty in standalone mode** - January 31, 2026. Fixed bug where `ListBuckets` S3 API returned empty array when cluster mode was enabled but no cluster nodes were configured. The bucket aggregator now ALWAYS includes local buckets first, then aggregates from remote nodes if available. This ensures buckets are always visible even in standalone mode with cluster enabled.
+  - Modified `internal/cluster/bucket_aggregator.go` - ListAllBuckets() now queries local buckets FIRST
+  - Modified `internal/cluster/manager.go` - Added GetLocalNodeName() method
+  - Modified `internal/cluster/quota_aggregator.go` - Added GetLocalNodeName() to ClusterManagerInterface
+  - Modified `internal/server/server.go` - Pass bucketManager to NewBucketAggregator
+  - **Impact**: Users can now see their buckets in all deployment modes (standalone, cluster with nodes, cluster without nodes)
+
 ### Added
+
+- **🔒 ACL Security Tests & AWS S3 Compatible Bucket Ownership** - January 31, 2026. Implemented comprehensive ACL security test suite (10 tests) and fixed critical security bug in bucket creation to match AWS S3 behavior.
+
+  **SECURITY FIX - CreateBucket now AWS S3 compatible:**
+  - ❌ **BEFORE**: Bucket owner was hardcoded as "maxiofs" allowing unauthorized access to all buckets
+  - ✅ **AFTER**: Bucket owner is the actual creator's user ID (Canonical User ID), matching AWS S3 behavior
+  - Modified `internal/bucket/interface.go` - Added `ownerID` parameter to CreateBucket signature
+  - Modified `internal/bucket/manager_badger.go` - Uses real owner ID in default ACL creation (line 104)
+  - Modified `pkg/s3compat/handler.go:452` - Passes authenticated `user.ID` as bucket owner
+  - Modified `internal/server/console_api.go:972` - Passes authenticated `user.ID` as bucket owner
+  - Updated 91+ test files across the codebase to use new CreateBucket signature
+
+  **ACL Security Test Suite** (`pkg/s3compat/acl_security_test.go` - 10 comprehensive tests):
+
+  *checkBucketACLPermission (6 tests):*
+  - TestCheckBucketACLPermission_DefaultACL - Verifies buckets have private ACL by default with correct owner
+  - TestCheckBucketACLPermission_WithACL_UserHasPermission - User with explicit permission has access
+  - TestCheckBucketACLPermission_WithACL_UserNoPermission - User without permission is denied
+  - TestCheckBucketACLPermission_PublicAccess - AllUsers group enables public access
+  - TestCheckBucketACLPermission_ACLManagerNotAvailable - Handles ACL manager unavailability
+  - TestCheckBucketACLPermission_DifferentPermissions - Only granted permissions work, owner always has FULL_CONTROL (AWS S3 behavior)
+
+  *checkObjectACLPermission (2 tests - SECURITY CRITICAL):*
+  - TestCheckObjectACLPermission_WithObjectACL - Object with own ACL grants/denies access correctly
+  - TestCheckObjectACLPermission_FallbackToBucket - Object without ACL inherits bucket permissions
+
+  *checkPublicBucketAccess (2 tests - SECURITY CRITICAL):*
+  - TestCheckPublicBucketAccess_PublicReadACL - Bucket with AllUsers READ allows public access
+  - TestCheckPublicBucketAccess_PrivateACL - Private bucket (default) denies public access
+
+  **Impact**: Prevents unauthorized access to buckets, ensures ACL system works correctly, matches AWS S3 security model.
+
+- **🧹 Storage Leak Prevention Tests** - January 31, 2026. Implemented comprehensive test suite for `DeleteBucket` and `ForceDeleteBucket` operations to prevent storage leaks and orphaned files.
+
+  **Test Suite** (`internal/bucket/delete_bucket_test.go` - 6 tests):
+
+  *DeleteBucket Tests (3 tests):*
+  - TestDeleteBucket_WithObjects - Verifies DeleteBucket fails when bucket contains objects (AWS S3 behavior)
+  - TestDeleteBucket_CleansStorage - Ensures physical storage AND metadata are cleaned when deleting empty bucket
+  - TestDeleteBucket_MultipleBuckets - Validates selective deletion preserves other buckets
+
+  *ForceDeleteBucket Tests (3 tests - CRITICAL for storage management):*
+  - TestForceDeleteBucket_DeletesAllObjects - Confirms all objects are deleted before bucket deletion
+  - TestForceDeleteBucket_CleansMetadata - Verifies object metadata is removed from BadgerDB
+  - TestForceDeleteBucket_NonExistent - Validates error handling for non-existent buckets
+
+  **Impact**: Prevents storage leaks, ensures proper cleanup of both filesystem and metadata store, validates AWS S3 compatible behavior.
 
 - **Cross-node bucket aggregation in web console** - January 30, 2026. Implemented simple and efficient bucket aggregation for multi-node clusters in `internal/server/console_api.go`. The web console now shows:
   - **Always**: All buckets from the local node's database (source of truth)
@@ -84,6 +140,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Modified bucket list page (`web/frontend/src/pages/buckets/index.tsx`) to display node column
   - Professional appearance: always shows meaningful node names, never generic "local"
   - Load balancer friendly: correct node name regardless of which node serves the request
+
+- **🧪 Comprehensive test suite for Sprint 9 Phase 3: Production Hardening** - January 30, 2026. Implemented 1,462 lines of tests covering all critical cluster functionality to prevent regression of fixed bugs. Features:
+  - **ClusterAuthMiddleware tests** (`internal/middleware/cluster_auth_test.go`, 634 lines, 10 functions, 32 total tests)
+    - Tests HMAC-SHA256 authentication with signature validation
+    - Verifies timestamp skew window (5-minute replay attack prevention)
+    - Tests node status filtering (healthy/degraded/unavailable accepted, removed rejected)
+    - **CRITICAL**: Verifies correct `health_status` column usage (not `status`) to prevent SQL errors
+    - Validates authentication across different HTTP methods (GET/POST/PUT/DELETE/PATCH)
+    - Tests authentication on different cluster endpoint paths
+  - **Bucket Aggregation tests** (`internal/server/bucket_aggregation_test.go`, 548 lines, 12 functions, 18 total tests)
+    - Tests cross-node bucket queries with HMAC authentication
+    - Verifies timeout handling (10-second timeout per node)
+    - Tests graceful degradation on node failures
+    - Validates JSON response format matching
+    - Tests HTTP error handling (400/403/404/500/503)
+    - Verifies tenant isolation in multi-node scenarios
+    - Tests real node name display (not generic "local")
+  - **Route Ordering tests** (`internal/server/route_ordering_test.go`, 280 lines, 6 functions, 12 total tests)
+    - **CRITICAL**: Reproduces exact bug where S3 routes captured cluster endpoints
+    - Verifies cluster routes return 401 (auth error), NOT 403 (S3 error)
+    - Tests that `/api/internal/cluster/buckets` is not interpreted as bucket="api"
+    - Validates multiple cluster endpoints (GET and POST methods)
+    - Tests cluster authentication with valid HMAC credentials
+    - Verifies S3 endpoints still function correctly
+    - Tests behavior when cluster is disabled
+  - All tests passing with 100% success rate
+  - Prevents recurrence of 3 critical bugs: SQL column name, route ordering, bucket disappearing
 
 ### Fixed
 

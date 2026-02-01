@@ -259,6 +259,8 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 			buckets[i] = bucket.Bucket{
 				Name:        bwl.Name,
 				TenantID:    bwl.TenantID,
+				OwnerID:     bwl.OwnerID,
+				OwnerType:   bwl.OwnerType,
 				CreatedAt:   bwl.CreatedAt,
 				ObjectCount: bwl.ObjectCount,
 				TotalSize:   bwl.SizeBytes,
@@ -449,7 +451,7 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.bucketManager.CreateBucket(r.Context(), tenantID, bucketName); err != nil {
+	if err := h.bucketManager.CreateBucket(r.Context(), tenantID, bucketName, user.ID); err != nil {
 		if err == bucket.ErrBucketAlreadyExists {
 			h.writeError(w, "BucketAlreadyExists", "The requested bucket name is not available", bucketName, r)
 			return

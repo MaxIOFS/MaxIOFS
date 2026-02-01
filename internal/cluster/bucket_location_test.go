@@ -232,7 +232,7 @@ func TestGetBucketLocation_FromMetadata(t *testing.T) {
 	bucketName := "test-bucket"
 	expectedNodeID := "node-2"
 
-	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName)
+	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName, "")
 	bkt, _ := bucketMgr.GetBucketInfo(context.Background(), tenantID, bucketName)
 	bkt.Metadata[MetadataKeyLocation] = expectedNodeID
 	bucketMgr.UpdateBucket(context.Background(), tenantID, bucketName, bkt)
@@ -256,7 +256,7 @@ func TestGetBucketLocation_NoMetadata_DefaultsToLocalNode(t *testing.T) {
 	// Create bucket without location metadata
 	tenantID := "tenant-1"
 	bucketName := "test-bucket"
-	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName)
+	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName, "")
 
 	ctx := context.Background()
 	nodeID, err := blm.GetBucketLocation(ctx, tenantID, bucketName)
@@ -302,7 +302,7 @@ func TestSetBucketLocation_Success(t *testing.T) {
 	// Create bucket with initial location
 	tenantID := "tenant-1"
 	bucketName := "test-bucket"
-	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName)
+	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName, "")
 	bkt, _ := bucketMgr.GetBucketInfo(context.Background(), tenantID, bucketName)
 	bkt.Metadata[MetadataKeyLocation] = "node-1"
 	bucketMgr.UpdateBucket(context.Background(), tenantID, bucketName, bkt)
@@ -333,7 +333,7 @@ func TestSetBucketLocation_BucketWithoutMetadata(t *testing.T) {
 	// Create bucket without metadata map
 	tenantID := "tenant-1"
 	bucketName := "test-bucket"
-	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName)
+	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName, "")
 	bkt, _ := bucketMgr.GetBucketInfo(context.Background(), tenantID, bucketName)
 	bkt.Metadata = nil // Explicitly set to nil
 	bucketMgr.UpdateBucket(context.Background(), tenantID, bucketName, bkt)
@@ -369,7 +369,7 @@ func TestSetBucketLocation_UpdateError(t *testing.T) {
 	// Create bucket
 	tenantID := "tenant-1"
 	bucketName := "test-bucket"
-	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName)
+	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName, "")
 
 	// Get the bucket first to populate metadata
 	bkt, _ := bucketMgr.GetBucketInfo(context.Background(), tenantID, bucketName)
@@ -393,7 +393,7 @@ func TestInitializeBucketLocation_NewBucket(t *testing.T) {
 	// Create bucket without location
 	tenantID := "tenant-1"
 	bucketName := "test-bucket"
-	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName)
+	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName, "")
 
 	// Initialize location
 	expectedNodeID := "node-2"
@@ -419,7 +419,7 @@ func TestInitializeBucketLocation_AlreadyInitialized(t *testing.T) {
 	tenantID := "tenant-1"
 	bucketName := "test-bucket"
 	existingNodeID := "node-2"
-	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName)
+	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName, "")
 	bkt, _ := bucketMgr.GetBucketInfo(context.Background(), tenantID, bucketName)
 	bkt.Metadata[MetadataKeyLocation] = existingNodeID
 	bucketMgr.UpdateBucket(context.Background(), tenantID, bucketName, bkt)
@@ -453,7 +453,7 @@ func TestInitializeBucketLocation_UpdateError(t *testing.T) {
 	// Create bucket
 	tenantID := "tenant-1"
 	bucketName := "test-bucket"
-	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName)
+	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName, "")
 
 	// Set error on UpdateBucket only - GetBucketInfo will succeed
 	bucketMgr.updateErr = errors.New("database write failed")
@@ -491,7 +491,7 @@ func TestBucketLocationManager_ConcurrentAccess(t *testing.T) {
 	tenantID := "tenant-1"
 	for i := 0; i < 10; i++ {
 		bucketName := fmt.Sprintf("bucket-%d", i)
-		bucketMgr.CreateBucket(context.Background(), tenantID, bucketName)
+		bucketMgr.CreateBucket(context.Background(), tenantID, bucketName, "")
 		bkt, _ := bucketMgr.GetBucketInfo(context.Background(), tenantID, bucketName)
 		bkt.Metadata[MetadataKeyLocation] = fmt.Sprintf("node-%d", i%3)
 		bucketMgr.UpdateBucket(context.Background(), tenantID, bucketName, bkt)
@@ -548,7 +548,7 @@ func TestBucketLocationManager_CacheExpiration(t *testing.T) {
 	tenantID := "tenant-1"
 	bucketName := "test-bucket"
 	expectedNodeID := "node-2"
-	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName)
+	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName, "")
 	bkt, _ := bucketMgr.GetBucketInfo(context.Background(), tenantID, bucketName)
 	bkt.Metadata[MetadataKeyLocation] = expectedNodeID
 	bucketMgr.UpdateBucket(context.Background(), tenantID, bucketName, bkt)
@@ -582,7 +582,7 @@ func TestBucketLocationManager_MetadataUpdateAfterCache(t *testing.T) {
 	tenantID := "tenant-1"
 	bucketName := "test-bucket"
 	initialNodeID := "node-2"
-	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName)
+	bucketMgr.CreateBucket(context.Background(), tenantID, bucketName, "")
 	bkt, _ := bucketMgr.GetBucketInfo(context.Background(), tenantID, bucketName)
 	bkt.Metadata[MetadataKeyLocation] = initialNodeID
 	bucketMgr.UpdateBucket(context.Background(), tenantID, bucketName, bkt)

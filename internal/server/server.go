@@ -275,7 +275,7 @@ func New(cfg *config.Config) (*Server, error) {
 	clusterRouter := cluster.NewRouter(clusterManager, bucketManagerAdapter, replicationManagerAdapter, localNodeID)
 
 	// Initialize bucket aggregator for cross-node bucket listing
-	bucketAggregator := cluster.NewBucketAggregator(clusterManager)
+	bucketAggregator := cluster.NewBucketAggregator(clusterManager, bucketManager)
 
 	// Initialize quota aggregator for cross-node quota checking
 	quotaAggregator := cluster.NewQuotaAggregator(clusterManager)

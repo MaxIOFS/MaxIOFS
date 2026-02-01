@@ -969,7 +969,7 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	tenantID := user.TenantID
 
 	// Crear el bucket
-	if err := s.bucketManager.CreateBucket(r.Context(), tenantID, req.Name); err != nil {
+	if err := s.bucketManager.CreateBucket(r.Context(), tenantID, req.Name, user.ID); err != nil {
 		if err == bucket.ErrBucketAlreadyExists {
 			s.writeError(w, "Bucket already exists", http.StatusConflict)
 		} else {

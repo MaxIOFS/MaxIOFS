@@ -68,7 +68,7 @@ func TestBucketManagerIntegration(t *testing.T) {
 	bucketName := "test-bucket"
 
 	t.Run("CreateBucket", func(t *testing.T) {
-		err := bm.CreateBucket(ctx, tenantID, bucketName)
+		err := bm.CreateBucket(ctx, tenantID, bucketName, "")
 		if err != nil {
 			t.Fatalf("Failed to create bucket: %v", err)
 		}
@@ -356,7 +356,7 @@ func TestBucketManagerMultiTenant(t *testing.T) {
 	for _, tenantID := range tenants {
 		for i := 1; i <= 3; i++ {
 			bucketName := tenantID + "-bucket-" + string(rune('0'+i))
-			err := bm.CreateBucket(ctx, tenantID, bucketName)
+			err := bm.CreateBucket(ctx, tenantID, bucketName, "")
 			if err != nil {
 				t.Fatalf("Failed to create bucket %s for tenant %s: %v", bucketName, tenantID, err)
 			}
@@ -392,7 +392,7 @@ func TestBucketManagerConcurrency(t *testing.T) {
 
 	// Create bucket
 	bucketName := "concurrent-bucket"
-	err := bm.CreateBucket(ctx, tenantID, bucketName)
+	err := bm.CreateBucket(ctx, tenantID, bucketName, "")
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
@@ -480,7 +480,7 @@ func TestBucketManagerPersistence(t *testing.T) {
 		bm := NewManager(storageBackend, metadataStore)
 
 		// Create bucket
-		err = bm.CreateBucket(ctx, tenantID, bucketName)
+		err = bm.CreateBucket(ctx, tenantID, bucketName, "")
 		if err != nil {
 			t.Fatalf("Failed to create bucket: %v", err)
 		}

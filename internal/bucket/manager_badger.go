@@ -58,18 +58,17 @@ func (bm *badgerBucketManager) logAuditEvent(ctx context.Context, event *audit.A
 }
 
 // CreateBucket creates a new bucket
-func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name string) error {
+func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name string, ownerID string) error {
 	// Validate bucket name
 	if err := ValidateBucketName(name); err != nil {
 		return err
 	}
 
-	// Determine ownership based on tenantID
-	// If tenantID is set, the bucket is owned by the tenant
-	// Otherwise it's a global bucket (no owner)
-	ownerType := ""
-	ownerID := ""
-	if tenantID != "" {
+	// Determine ownership - AWS S3 compatible behavior
+	// Owner is the user who created the bucket (Canonical User ID)
+	ownerType := "user"
+	if ownerID == "" && tenantID != "" {
+		// Fallback for backward compatibility if no owner specified
 		ownerType = "tenant"
 		ownerID = tenantID
 	}
@@ -99,9 +98,10 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 	}
 
 	// Solo crear ACL por defecto si no existe uno explícito
+	// AWS S3 compatible: Owner is the user who created the bucket (Canonical User ID)
 	if bm.aclManager != nil {
 		aclActual, err := bm.aclManager.GetBucketACL(ctx, tenantID, name)
-		defaultACL := acl.CreateDefaultACL("maxiofs", "MaxIOFS")
+		defaultACL := acl.CreateDefaultACL(ownerID, "Bucket Owner")
 		if err != nil {
 			// Si hay error inesperado, loguear pero no fallar bucket creation
 			fmt.Printf("Warning: Error al consultar ACL para bucket %s: %v\n", name, err)

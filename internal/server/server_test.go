@@ -328,7 +328,7 @@ func TestServerBucketOperations(t *testing.T) {
 
 		// Create multiple buckets
 		for _, name := range bucketNames {
-			err := server.bucketManager.CreateBucket(testCtx, tenantID, name)
+			err := server.bucketManager.CreateBucket(testCtx, tenantID, name, "")
 			assert.NoError(t, err, "Should create bucket %s", name)
 		}
 
@@ -407,7 +407,7 @@ func TestHandleListObjects(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test bucket and add objects
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Upload some test objects
@@ -537,7 +537,7 @@ func TestHandleGetObject(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create bucket and upload object
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	headers := http.Header{}
@@ -622,7 +622,7 @@ func TestHandleUploadObject(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create bucket
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should upload object successfully", func(t *testing.T) {
@@ -688,7 +688,7 @@ func TestHandleDeleteObject(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create bucket and upload object
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	content := []byte("This will be deleted")
@@ -953,7 +953,7 @@ func TestHandleShareObject(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create bucket and upload object
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	content := []byte("This is a shared file")
@@ -1069,7 +1069,7 @@ func TestServerInterfaceMethods(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create bucket and object
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	content := []byte("test content for interface")
@@ -1124,7 +1124,7 @@ func TestHandleGetBucketLifecycle(t *testing.T) {
 	cleanupTestData(t, tenantID, bucketName)
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should return empty lifecycle when not configured", func(t *testing.T) {
@@ -1160,7 +1160,7 @@ func TestHandlePutBucketLifecycle(t *testing.T) {
 	cleanupTestData(t, tenantID, bucketName)
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should set lifecycle configuration", func(t *testing.T) {
@@ -1207,7 +1207,7 @@ func TestHandleDeleteBucketLifecycle(t *testing.T) {
 	bucketName := "test-bucket-lifecycle-delete"
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should delete lifecycle configuration", func(t *testing.T) {
@@ -1240,7 +1240,7 @@ func TestHandleGetBucketTagging(t *testing.T) {
 	bucketName := "test-bucket-tagging"
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should return bucket tags", func(t *testing.T) {
@@ -1284,7 +1284,7 @@ func TestHandlePutBucketTagging(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create bucket
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should set bucket tags", func(t *testing.T) {
@@ -1333,7 +1333,7 @@ func TestHandleDeleteBucketTagging(t *testing.T) {
 	bucketName := "test-bucket-tagging-delete"
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should delete bucket tags", func(t *testing.T) {
@@ -1356,7 +1356,7 @@ func TestHandleGetBucketCors(t *testing.T) {
 	bucketName := "test-bucket-cors"
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should return CORS configuration", func(t *testing.T) {
@@ -1390,7 +1390,7 @@ func TestHandlePutBucketCors(t *testing.T) {
 	bucketName := "test-bucket-cors-put"
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should set CORS configuration", func(t *testing.T) {
@@ -1436,7 +1436,7 @@ func TestHandleDeleteBucketCors(t *testing.T) {
 	bucketName := "test-bucket-cors-delete"
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should delete CORS configuration", func(t *testing.T) {
@@ -1459,7 +1459,7 @@ func TestHandleGetBucketPolicy(t *testing.T) {
 	bucketName := "test-bucket-policy"
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should return bucket policy", func(t *testing.T) {
@@ -1493,7 +1493,7 @@ func TestHandlePutBucketPolicy(t *testing.T) {
 	bucketName := "test-bucket-policy-put"
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should set bucket policy", func(t *testing.T) {
@@ -1540,7 +1540,7 @@ func TestHandleDeleteBucketPolicy(t *testing.T) {
 	bucketName := "test-bucket-policy-delete"
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should delete bucket policy", func(t *testing.T) {
@@ -1563,7 +1563,7 @@ func TestHandleGetBucketVersioning(t *testing.T) {
 	bucketName := "test-bucket-versioning"
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should return versioning status", func(t *testing.T) {
@@ -1605,7 +1605,7 @@ func TestHandlePutBucketVersioning(t *testing.T) {
 	bucketName := "test-bucket-versioning-put"
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should enable versioning", func(t *testing.T) {
@@ -1644,7 +1644,7 @@ func TestHandleGetBucketACL(t *testing.T) {
 	bucketName := "test-bucket-acl"
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should return bucket ACL", func(t *testing.T) {
@@ -1686,7 +1686,7 @@ func TestHandlePutBucketACL(t *testing.T) {
 	bucketName := "test-bucket-acl-put"
 
 	// Create bucket
-	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err := server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should set bucket ACL", func(t *testing.T) {
@@ -1975,7 +1975,7 @@ func TestHandleListBucketPermissions(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should list bucket permissions", func(t *testing.T) {
@@ -2007,7 +2007,7 @@ func TestHandleGrantBucketPermission(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should grant permission with userId", func(t *testing.T) {
@@ -2089,7 +2089,7 @@ func TestHandleRevokeBucketPermission(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should revoke permission with userId", func(t *testing.T) {
@@ -2131,7 +2131,7 @@ func TestHandleUpdateBucketOwner(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should update bucket owner", func(t *testing.T) {
@@ -2207,7 +2207,7 @@ func TestHandleGetObjectACL(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Upload test object
@@ -2265,7 +2265,7 @@ func TestHandlePutObjectACL(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Upload test object
@@ -2328,7 +2328,7 @@ func TestHandleListBucketShares(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should list bucket shares", func(t *testing.T) {
@@ -2380,7 +2380,7 @@ func TestHandleDeleteShare(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should return 404 for non-existent share", func(t *testing.T) {
@@ -2437,7 +2437,7 @@ func TestHandleGeneratePresignedURL(t *testing.T) {
 	_, err = server.authManager.GenerateAccessKey(testCtx, user.ID)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should generate presigned URL", func(t *testing.T) {
@@ -2716,7 +2716,7 @@ func TestHandleGetBucketNotification(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should get bucket notification config", func(t *testing.T) {
@@ -2890,7 +2890,7 @@ func TestHandleListObjectVersions(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should list object versions", func(t *testing.T) {
@@ -3179,7 +3179,7 @@ func TestHandleGetBucketReplicas(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should get bucket replicas", func(t *testing.T) {
@@ -3260,10 +3260,10 @@ func TestHandlePutBucketInventory(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, destBucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, destBucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should require authentication", func(t *testing.T) {
@@ -3357,7 +3357,7 @@ func TestHandleGetBucketInventory(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should require authentication", func(t *testing.T) {
@@ -3399,7 +3399,7 @@ func TestHandleDeleteBucketInventory(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should require authentication", func(t *testing.T) {
@@ -3442,7 +3442,7 @@ func TestHandleListBucketInventoryReports(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should require authentication", func(t *testing.T) {
@@ -3498,7 +3498,7 @@ func TestHandleCreateReplicationRule(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should require authentication", func(t *testing.T) {
@@ -3580,7 +3580,7 @@ func TestHandleListReplicationRules(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should require authentication", func(t *testing.T) {
@@ -3821,7 +3821,7 @@ func TestHandlePutObjectLockConfiguration(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should require authentication", func(t *testing.T) {
@@ -3916,7 +3916,7 @@ func TestHandleGetObjectLegalHold(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should require authentication", func(t *testing.T) {
@@ -3958,7 +3958,7 @@ func TestHandlePutObjectLegalHold(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Create admin user for this tenant
@@ -4128,7 +4128,7 @@ func TestHandlePutBucketNotification(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should require authentication", func(t *testing.T) {
@@ -4162,7 +4162,7 @@ func TestHandleDeleteBucketNotification(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Create user for this tenant
@@ -4410,7 +4410,7 @@ func TestHandleReceiveObjectReplication(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should reject request without cluster node ID", func(t *testing.T) {
@@ -4473,7 +4473,7 @@ func TestHandleReceiveObjectDeletion(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("should reject request without cluster node ID", func(t *testing.T) {
@@ -4725,7 +4725,7 @@ func TestHandleCreateClusterReplication(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName)
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Initialize cluster for this test

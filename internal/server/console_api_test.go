@@ -101,9 +101,26 @@ func setupTestServer(t *testing.T) (*Server, string, func()) {
 	// Initialize share manager (pass nil if it needs a different store)
 	var shareManager share.Manager
 
+	// Create HTTP servers (required for setupRoutes)
+	httpServer := &http.Server{
+		Addr:         cfg.Listen,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	consoleServer := &http.Server{
+		Addr:         cfg.ConsoleListen,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
 	// Create server instance
 	server := &Server{
 		config:          cfg,
+		httpServer:      httpServer,
+		consoleServer:   consoleServer,
 		storageBackend:  storageBackend,
 		metadataStore:   metadataStore,
 		bucketManager:   bucketManager,

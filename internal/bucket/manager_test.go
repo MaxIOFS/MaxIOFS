@@ -93,7 +93,7 @@ func TestCreateBucket(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Create bucket successfully", func(t *testing.T) {
-		err := manager.CreateBucket(ctx, "tenant-1", "test-bucket")
+		err := manager.CreateBucket(ctx, "tenant-1", "test-bucket", "")
 		assert.NoError(t, err)
 
 		// Verify bucket exists
@@ -103,38 +103,38 @@ func TestCreateBucket(t *testing.T) {
 	})
 
 	t.Run("Create bucket with invalid name", func(t *testing.T) {
-		err := manager.CreateBucket(ctx, "tenant-1", "Invalid-Bucket")
+		err := manager.CreateBucket(ctx, "tenant-1", "Invalid-Bucket", "")
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, ErrInvalidBucketName)
 	})
 
 	t.Run("Create duplicate bucket", func(t *testing.T) {
-		err := manager.CreateBucket(ctx, "tenant-1", "duplicate-bucket")
+		err := manager.CreateBucket(ctx, "tenant-1", "duplicate-bucket", "")
 		require.NoError(t, err)
 
 		// Try to create again
-		err = manager.CreateBucket(ctx, "tenant-1", "duplicate-bucket")
+		err = manager.CreateBucket(ctx, "tenant-1", "duplicate-bucket", "")
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, ErrBucketAlreadyExists)
 	})
 
 	t.Run("Create bucket for different tenants", func(t *testing.T) {
 		// Bucket names must be globally unique (like real S3)
-		err := manager.CreateBucket(ctx, "tenant-a", "shared-name")
+		err := manager.CreateBucket(ctx, "tenant-a", "shared-name", "")
 		assert.NoError(t, err)
 
 		// Same name, different tenant should fail
-		err = manager.CreateBucket(ctx, "tenant-b", "shared-name")
+		err = manager.CreateBucket(ctx, "tenant-b", "shared-name", "")
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, ErrBucketAlreadyExists)
 
 		// But different names work fine
-		err = manager.CreateBucket(ctx, "tenant-b", "tenant-b-bucket")
+		err = manager.CreateBucket(ctx, "tenant-b", "tenant-b-bucket", "")
 		assert.NoError(t, err)
 	})
 
 	t.Run("Create global bucket (no tenant)", func(t *testing.T) {
-		err := manager.CreateBucket(ctx, "", "global-bucket")
+		err := manager.CreateBucket(ctx, "", "global-bucket", "")
 		assert.NoError(t, err)
 
 		exists, err := manager.BucketExists(ctx, "", "global-bucket")
@@ -150,7 +150,7 @@ func TestGetBucketInfo(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Get existing bucket info", func(t *testing.T) {
-		err := manager.CreateBucket(ctx, "tenant-1", "info-bucket")
+		err := manager.CreateBucket(ctx, "tenant-1", "info-bucket", "")
 		require.NoError(t, err)
 
 		info, err := manager.GetBucketInfo(ctx, "tenant-1", "info-bucket")
@@ -188,7 +188,7 @@ func TestListBuckets(t *testing.T) {
 	}
 
 	for _, b := range buckets {
-		err := manager.CreateBucket(ctx, b.tenantID, b.name)
+		err := manager.CreateBucket(ctx, b.tenantID, b.name, "")
 		require.NoError(t, err)
 	}
 
@@ -241,7 +241,7 @@ func TestDeleteBucket(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Delete empty bucket", func(t *testing.T) {
-		err := manager.CreateBucket(ctx, "tenant-1", "delete-bucket")
+		err := manager.CreateBucket(ctx, "tenant-1", "delete-bucket", "")
 		require.NoError(t, err)
 
 		err = manager.DeleteBucket(ctx, "tenant-1", "delete-bucket")
@@ -267,7 +267,7 @@ func TestBucketExists(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Check existing bucket", func(t *testing.T) {
-		err := manager.CreateBucket(ctx, "tenant-1", "exists-bucket")
+		err := manager.CreateBucket(ctx, "tenant-1", "exists-bucket", "")
 		require.NoError(t, err)
 
 		exists, err := manager.BucketExists(ctx, "tenant-1", "exists-bucket")
@@ -289,7 +289,7 @@ func TestBucketPolicy(t *testing.T) {
 	ctx := context.Background()
 
 	// Create bucket first
-	err := manager.CreateBucket(ctx, "tenant-1", "policy-bucket")
+	err := manager.CreateBucket(ctx, "tenant-1", "policy-bucket", "")
 	require.NoError(t, err)
 
 	t.Run("Set and get bucket policy", func(t *testing.T) {
@@ -324,7 +324,7 @@ func TestBucketPolicy(t *testing.T) {
 	})
 
 	t.Run("Get policy for bucket without policy", func(t *testing.T) {
-		err := manager.CreateBucket(ctx, "tenant-1", "no-policy-bucket")
+		err := manager.CreateBucket(ctx, "tenant-1", "no-policy-bucket", "")
 		require.NoError(t, err)
 
 		policy, err := manager.GetBucketPolicy(ctx, "tenant-1", "no-policy-bucket")
@@ -340,7 +340,7 @@ func TestBucketVersioning(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	err := manager.CreateBucket(ctx, "tenant-1", "versioning-bucket")
+	err := manager.CreateBucket(ctx, "tenant-1", "versioning-bucket", "")
 	require.NoError(t, err)
 
 	t.Run("Set and get versioning config", func(t *testing.T) {
@@ -377,7 +377,7 @@ func TestBucketLifecycle(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	err := manager.CreateBucket(ctx, "tenant-1", "lifecycle-bucket")
+	err := manager.CreateBucket(ctx, "tenant-1", "lifecycle-bucket", "")
 	require.NoError(t, err)
 
 	t.Run("Set and get lifecycle config", func(t *testing.T) {
@@ -423,7 +423,7 @@ func TestBucketCORS(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	err := manager.CreateBucket(ctx, "tenant-1", "cors-bucket")
+	err := manager.CreateBucket(ctx, "tenant-1", "cors-bucket", "")
 	require.NoError(t, err)
 
 	t.Run("Set and get CORS config", func(t *testing.T) {
@@ -463,7 +463,7 @@ func TestBucketTags(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	err := manager.CreateBucket(ctx, "tenant-1", "tags-bucket")
+	err := manager.CreateBucket(ctx, "tenant-1", "tags-bucket", "")
 	require.NoError(t, err)
 
 	t.Run("Set bucket tags", func(t *testing.T) {
@@ -489,7 +489,7 @@ func TestBucketMetrics(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	err := manager.CreateBucket(ctx, "tenant-1", "metrics-bucket")
+	err := manager.CreateBucket(ctx, "tenant-1", "metrics-bucket", "")
 	require.NoError(t, err)
 
 	t.Run("Increment object count", func(t *testing.T) {
@@ -532,7 +532,7 @@ func TestUpdateBucket(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	err := manager.CreateBucket(ctx, "tenant-1", "update-bucket")
+	err := manager.CreateBucket(ctx, "tenant-1", "update-bucket", "")
 	require.NoError(t, err)
 
 	t.Run("Update bucket metadata", func(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/sirupsen/logrus"
 )
 
@@ -16,6 +17,8 @@ import (
 type BucketWithLocation struct {
 	Name        string            `json:"name"`
 	TenantID    string            `json:"tenant_id"`
+	OwnerID     string            `json:"owner_id"`
+	OwnerType   string            `json:"owner_type"`
 	CreatedAt   time.Time         `json:"created_at"`
 	Versioning  string            `json:"versioning"`
 	ObjectCount int64             `json:"object_count"`
@@ -30,13 +33,14 @@ type BucketWithLocation struct {
 // BucketAggregator aggregates bucket listings from all cluster nodes
 type BucketAggregator struct {
 	clusterManager  ClusterManagerInterface
+	bucketManager   bucket.Manager
 	proxyClient     *ProxyClient
 	circuitBreakers *CircuitBreakerManager
 	log             *logrus.Entry
 }
 
 // NewBucketAggregator creates a new bucket aggregator
-func NewBucketAggregator(clusterManager ClusterManagerInterface) *BucketAggregator {
+func NewBucketAggregator(clusterManager ClusterManagerInterface, bucketManager bucket.Manager) *BucketAggregator {
 	// Circuit breaker config:
 	// - Open after 3 consecutive failures
 	// - Require 2 successes to close from half-open
@@ -45,6 +49,7 @@ func NewBucketAggregator(clusterManager ClusterManagerInterface) *BucketAggregat
 
 	return &BucketAggregator{
 		clusterManager:  clusterManager,
+		bucketManager:   bucketManager,
 		proxyClient:     NewProxyClient(),
 		circuitBreakers: circuitBreakers,
 		log:             logrus.WithField("component", "bucket-aggregator"),
@@ -55,15 +60,50 @@ func NewBucketAggregator(clusterManager ClusterManagerInterface) *BucketAggregat
 func (ba *BucketAggregator) ListAllBuckets(ctx context.Context, tenantID string) ([]BucketWithLocation, error) {
 	startTime := time.Now()
 
-	// Get all healthy nodes
+	// ALWAYS start with local buckets (source of truth)
+	localBuckets, err := ba.bucketManager.ListBuckets(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list local buckets: %w", err)
+	}
+
+	// Get local node info for metadata
+	localNodeID, _ := ba.clusterManager.GetLocalNodeID(ctx)
+	localNodeName, _ := ba.clusterManager.GetLocalNodeName(ctx)
+
+	// Convert local buckets to BucketWithLocation
+	allBuckets := make([]BucketWithLocation, 0, len(localBuckets))
+	for _, b := range localBuckets {
+		allBuckets = append(allBuckets, BucketWithLocation{
+			Name:        b.Name,
+			TenantID:    b.TenantID,
+			OwnerID:     b.OwnerID,
+			OwnerType:   b.OwnerType,
+			CreatedAt:   b.CreatedAt,
+			ObjectCount: b.ObjectCount,
+			SizeBytes:   b.TotalSize,
+			Metadata:    b.Metadata,
+			Tags:        b.Tags,
+			NodeID:      localNodeID,
+			NodeName:    localNodeName,
+			NodeStatus:  "local",
+		})
+	}
+
+	ba.log.WithFields(logrus.Fields{
+		"local_buckets": len(allBuckets),
+		"tenant_id":     tenantID,
+	}).Debug("Listed local buckets")
+
+	// Get all healthy nodes (excluding self)
 	nodes, err := ba.clusterManager.GetHealthyNodes(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get healthy nodes: %w", err)
+		ba.log.WithError(err).Warn("Failed to get healthy nodes, returning local buckets only")
+		return allBuckets, nil
 	}
 
 	if len(nodes) == 0 {
-		ba.log.Warn("No healthy nodes found in cluster")
-		return []BucketWithLocation{}, nil
+		ba.log.Debug("No remote nodes in cluster, returning local buckets only")
+		return allBuckets, nil
 	}
 
 	ba.log.WithFields(logrus.Fields{
@@ -123,17 +163,17 @@ func (ba *BucketAggregator) ListAllBuckets(ctx context.Context, tenantID string)
 		close(resultsChan)
 	}()
 
-	// Collect results
-	allBuckets := []BucketWithLocation{}
+	// Collect results from remote nodes and add to local buckets
 	successCount := 0
 	failureCount := 0
+	remoteBucketsCount := 0
 
 	for result := range resultsChan {
 		if result.err != nil {
 			ba.log.WithError(result.err).WithFields(logrus.Fields{
 				"node_id":   result.nodeID,
 				"node_name": result.nodeName,
-			}).Warn("Failed to query buckets from node")
+			}).Warn("Failed to query buckets from remote node")
 			failureCount++
 			continue
 		}
@@ -142,26 +182,27 @@ func (ba *BucketAggregator) ListAllBuckets(ctx context.Context, tenantID string)
 		for i := range result.buckets {
 			result.buckets[i].NodeID = result.nodeID
 			result.buckets[i].NodeName = result.nodeName
+			result.buckets[i].NodeStatus = "remote"
 		}
 
 		allBuckets = append(allBuckets, result.buckets...)
+		remoteBucketsCount += len(result.buckets)
 		successCount++
 	}
 
 	duration := time.Since(startTime)
 
 	ba.log.WithFields(logrus.Fields{
-		"total_buckets": len(allBuckets),
-		"success_nodes": successCount,
-		"failed_nodes":  failureCount,
-		"duration_ms":   duration.Milliseconds(),
+		"total_buckets":  len(allBuckets),
+		"local_buckets":  len(allBuckets) - remoteBucketsCount,
+		"remote_buckets": remoteBucketsCount,
+		"success_nodes":  successCount,
+		"failed_nodes":   failureCount,
+		"duration_ms":    duration.Milliseconds(),
 	}).Info("Bucket aggregation completed")
 
-	// Return error only if ALL nodes failed
-	if failureCount > 0 && successCount == 0 {
-		return nil, fmt.Errorf("failed to query buckets from all %d nodes", failureCount)
-	}
-
+	// Note: We always have local buckets, so never return error
+	// Even if all remote nodes fail, local buckets are still available
 	return allBuckets, nil
 }
 

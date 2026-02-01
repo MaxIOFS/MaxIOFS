@@ -383,7 +383,7 @@ func TestS3ListBuckets(t *testing.T) {
 	// Create some buckets first
 	testBuckets := []string{"bucket1", "bucket2", "bucket3"}
 	for _, bucketName := range testBuckets {
-		err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+		err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 		require.NoError(t, err)
 	}
 
@@ -411,7 +411,7 @@ func TestS3PutObject(t *testing.T) {
 	objectContent := []byte("Hello from S3 API test!")
 
 	// Create bucket first
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Upload object via S3 API
@@ -434,7 +434,7 @@ func TestS3GetObject(t *testing.T) {
 	objectContent := []byte("Test content for GET operation")
 
 	// Create bucket and upload object
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	bucketPath := env.tenantID + "/" + bucketName
@@ -464,7 +464,7 @@ func TestS3DeleteObject(t *testing.T) {
 	objectContent := []byte("Content to be deleted")
 
 	// Create bucket and upload object
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	bucketPath := env.tenantID + "/" + bucketName
@@ -488,7 +488,7 @@ func TestS3HeadBucket(t *testing.T) {
 	bucketName := "test-bucket"
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// HEAD bucket via S3 API
@@ -509,7 +509,7 @@ func TestS3HeadObject(t *testing.T) {
 	objectContent := []byte("Content for HEAD test")
 
 	// Create bucket and upload object
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	bucketPath := env.tenantID + "/" + bucketName
@@ -536,7 +536,7 @@ func TestS3ListObjects(t *testing.T) {
 	bucketName := "test-bucket"
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Upload multiple objects
@@ -570,7 +570,7 @@ func TestS3BucketPolicy(t *testing.T) {
 	bucketName := "policy-test-bucket"
 
 	// Create bucket first
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Create a test policy
@@ -623,7 +623,7 @@ func TestS3BucketLifecycle(t *testing.T) {
 	bucketName := "lifecycle-test-bucket"
 
 	// Create bucket first
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	lifecycleXML := `<LifecycleConfiguration>
@@ -671,7 +671,7 @@ func TestS3BucketCORS(t *testing.T) {
 	bucketName := "cors-test-bucket"
 
 	// Create bucket first
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	corsXML := `<CORSConfiguration>
@@ -719,7 +719,7 @@ func TestS3ObjectTagging(t *testing.T) {
 	objectKey := "test-object.txt"
 
 	// Create bucket and object
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	bucketPath := env.tenantID + "/" + bucketName
@@ -775,7 +775,7 @@ func TestS3MultipartUpload(t *testing.T) {
 	objectKey := "large-file.dat"
 
 	// Create bucket first
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	var uploadID string
@@ -877,7 +877,7 @@ func TestS3BucketVersioning(t *testing.T) {
 	bucketName := "versioning-test-bucket"
 
 	// Create bucket first
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("Get versioning on new bucket (Unversioned)", func(t *testing.T) {
@@ -975,7 +975,7 @@ func TestS3DeleteObjects(t *testing.T) {
 	bucketName := "batch-delete-bucket"
 
 	// Create bucket first
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Create multiple test objects
@@ -1080,9 +1080,9 @@ func TestS3CopyObject(t *testing.T) {
 	destBucket := "dest-bucket"
 
 	// Create both buckets
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, sourceBucket)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, sourceBucket, "")
 	require.NoError(t, err)
-	err = env.bucketManager.CreateBucket(ctx, env.tenantID, destBucket)
+	err = env.bucketManager.CreateBucket(ctx, env.tenantID, destBucket, "")
 	require.NoError(t, err)
 
 	// Create source object
@@ -1167,7 +1167,7 @@ func TestS3RangeRequests(t *testing.T) {
 	bucketName := "range-test-bucket"
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Create object with known content
@@ -1250,7 +1250,7 @@ func TestS3ListObjectVersions(t *testing.T) {
 	bucketName := "versioned-bucket"
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Enable versioning on the bucket
@@ -1320,7 +1320,7 @@ func TestS3ListObjectVersions(t *testing.T) {
 	t.Run("List versions in non-versioned bucket", func(t *testing.T) {
 		// Create a non-versioned bucket
 		nonVersionedBucket := "non-versioned-bucket"
-		err := env.bucketManager.CreateBucket(ctx, env.tenantID, nonVersionedBucket)
+		err := env.bucketManager.CreateBucket(ctx, env.tenantID, nonVersionedBucket, "")
 		require.NoError(t, err)
 
 		// Put an object (will have null version)
@@ -1369,7 +1369,7 @@ func TestSOSAPICapacityQuota(t *testing.T) {
 	bucketPath := env.tenantID + "/" + bucketName
 
 	// Create a bucket for testing
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err, "Should create bucket")
 
 	// Upload some test data to generate tenant usage
@@ -1481,7 +1481,7 @@ func TestListMultipartUploads(t *testing.T) {
 	bucketName := "test-multipart-bucket"
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Initiate multipart upload
@@ -1535,7 +1535,7 @@ func TestAbortMultipartUpload(t *testing.T) {
 	bucketName := "test-abort-multipart"
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Initiate multipart upload
@@ -1585,7 +1585,7 @@ func TestUploadPartCopy(t *testing.T) {
 	sourceContent := []byte("This is the source content to be copied")
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Upload source object
@@ -1632,7 +1632,7 @@ func TestBucketTagging(t *testing.T) {
 	bucketName := "test-bucket-tagging"
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("PutBucketTagging", func(t *testing.T) {
@@ -1674,7 +1674,7 @@ func TestBucketACL(t *testing.T) {
 	bucketName := "test-bucket-acl"
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("GetBucketACL", func(t *testing.T) {
@@ -1702,7 +1702,7 @@ func TestObjectRetention(t *testing.T) {
 	objectContent := []byte("Test content for retention")
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Upload object
@@ -1745,7 +1745,7 @@ func TestGetBucketLocation(t *testing.T) {
 	bucketName := "test-bucket-location"
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Get bucket location
@@ -1855,7 +1855,7 @@ func TestObjectACL(t *testing.T) {
 	objectContent := []byte("Test content for ACL")
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Upload object
@@ -1891,7 +1891,7 @@ func TestObjectVersioning(t *testing.T) {
 	objectKey := "test-versioned-object.txt"
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Enable versioning on bucket
@@ -2058,7 +2058,7 @@ func TestHeadObjectErrorCases(t *testing.T) {
 	objectContent := []byte("Test content for HEAD")
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Upload object
@@ -2138,7 +2138,7 @@ func TestDeleteObjectErrorCases(t *testing.T) {
 	objectContent := []byte("Test content for DELETE")
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	// Upload object
@@ -2238,7 +2238,7 @@ func TestPutObjectErrorCases(t *testing.T) {
 	bucketName := "test-put-bucket"
 
 	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName)
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
 	require.NoError(t, err)
 
 	t.Run("PutObject to non-existent bucket", func(t *testing.T) {

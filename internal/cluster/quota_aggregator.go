@@ -24,6 +24,7 @@ type TenantStorageInfo struct {
 type ClusterManagerInterface interface {
 	GetHealthyNodes(ctx context.Context) ([]*Node, error)
 	GetLocalNodeID(ctx context.Context) (string, error)
+	GetLocalNodeName(ctx context.Context) (string, error)
 	GetLocalNodeToken(ctx context.Context) (string, error)
 }
 

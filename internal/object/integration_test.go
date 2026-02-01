@@ -91,7 +91,7 @@ func TestObjectManagerBasicOperations(t *testing.T) {
 	objectKey := "test-object.txt"
 
 	// Create bucket first
-	err := bm.CreateBucket(ctx, tenantID, bucketName)
+	err := bm.CreateBucket(ctx, tenantID, bucketName, "")
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestObjectManagerTagging(t *testing.T) {
 	objectKey := "tagged-object.txt"
 
 	// Create bucket
-	err := bm.CreateBucket(ctx, "", bucketName)
+	err := bm.CreateBucket(ctx, "", bucketName, "")
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestObjectManagerObjectLock(t *testing.T) {
 	objectKey := "locked-object.txt"
 
 	// Create bucket with Object Lock enabled
-	err := bm.CreateBucket(ctx, "", bucketName)
+	err := bm.CreateBucket(ctx, "", bucketName, "")
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestObjectManagerMultipartUpload(t *testing.T) {
 	objectKey := "large-file.bin"
 
 	// Create bucket
-	err := bm.CreateBucket(ctx, "", bucketName)
+	err := bm.CreateBucket(ctx, "", bucketName, "")
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
@@ -595,7 +595,7 @@ func TestObjectManagerBucketMetricsIntegration(t *testing.T) {
 	bucketName := "metrics-bucket"
 
 	// Create bucket
-	err := bm.CreateBucket(ctx, tenantID, bucketName)
+	err := bm.CreateBucket(ctx, tenantID, bucketName, "")
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
@@ -681,7 +681,7 @@ func TestObjectManagerPersistence(t *testing.T) {
 		om := NewManager(storageBackend, metadataStore, cfg)
 
 		// Create bucket
-		bm.CreateBucket(ctx, "", bucketName)
+		bm.CreateBucket(ctx, "", bucketName, "")
 
 		// Put object with tags
 		headers := http.Header{}
