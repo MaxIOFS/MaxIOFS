@@ -23,8 +23,8 @@ type MockBucketManager struct {
 	mock.Mock
 }
 
-func (m *MockBucketManager) CreateBucket(ctx context.Context, tenantID, name string) error {
-	args := m.Called(ctx, tenantID, name)
+func (m *MockBucketManager) CreateBucket(ctx context.Context, tenantID, name string, ownerID string) error {
+	args := m.Called(ctx, tenantID, name, ownerID)
 	return args.Error(0)
 }
 
