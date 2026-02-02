@@ -57,43 +57,58 @@ func (s *Server) handleReceiveObjectReplication(w http.ResponseWriter, r *http.R
 		"size":             size,
 	}).Info("Receiving object replication")
 
-	// Read object data from request body
-	// In real implementation, this would be the actual object data
-	// For now, we handle the metadata
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to read request body")
-		http.Error(w, "Failed to read object data", http.StatusInternalServerError)
-		return
-	}
-	defer r.Body.Close()
-
-	// TODO: Store object using ObjectManager.PutObject()
+	// Store object using ObjectManager.PutObject()
 	// This will automatically encrypt the object with this node's encryption key
-	// For now, we'll store metadata in database
-	/*
-	err = s.objectManager.PutObject(ctx, tenantID, bucket, key, bytes.NewReader(body), size, contentType, metadataMap)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to store replicated object")
-		http.Error(w, fmt.Sprintf("Failed to store object: %v", err), http.StatusInternalServerError)
-		return
-	}
-	*/
+	if s.objectManager != nil {
+		// Create HTTP headers with metadata
+		headers := http.Header{}
+		headers.Set("Content-Type", contentType)
 
-	// Store object metadata in database (placeholder)
-	err = s.storeReplicatedObjectMetadata(ctx, tenantID, bucket, key, size, etag, contentType, metadata, sourceVersionID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to store object metadata")
-		http.Error(w, fmt.Sprintf("Failed to store object: %v", err), http.StatusInternalServerError)
-		return
-	}
+		if metadata != "" {
+			// Metadata is already stored as JSON string in header
+			// The object manager will handle it
+			headers.Set("X-Amz-Meta-Original", metadata)
+		}
 
-	logrus.WithFields(logrus.Fields{
-		"tenant_id": tenantID,
-		"bucket":    bucket,
-		"key":       key,
-		"size":      len(body),
-	}).Info("Object replicated successfully")
+		_, err := s.objectManager.PutObject(ctx, bucket, key, r.Body, headers)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to store replicated object")
+			http.Error(w, fmt.Sprintf("Failed to store object: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"tenant_id": tenantID,
+			"bucket":    bucket,
+			"key":       key,
+			"size":      size,
+		}).Info("Object replicated and stored successfully")
+	} else {
+		// Fallback: If no object manager, store metadata in database (backward compatibility)
+		logrus.Warn("ObjectManager not available, storing metadata only")
+
+		// Read body (needed for placeholder)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to read request body")
+			http.Error(w, "Failed to read object data", http.StatusInternalServerError)
+			return
+		}
+
+		err = s.storeReplicatedObjectMetadata(ctx, tenantID, bucket, key, size, etag, contentType, metadata, sourceVersionID)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to store object metadata")
+			http.Error(w, fmt.Sprintf("Failed to store object: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"tenant_id": tenantID,
+			"bucket":    bucket,
+			"key":       key,
+			"size":      len(body),
+		}).Info("Object metadata replicated successfully (fallback mode)")
+	}
 
 	// Return success
 	w.Header().Set("Content-Type", "application/json")
@@ -131,29 +146,37 @@ func (s *Server) handleReceiveObjectDeletion(w http.ResponseWriter, r *http.Requ
 		"source_node_id": sourceNodeID,
 	}).Info("Receiving object deletion replication")
 
-	// TODO: Delete object using ObjectManager.DeleteObject()
-	/*
-	err := s.objectManager.DeleteObject(ctx, tenantID, bucket, key)
-	if err != nil && err != ErrObjectNotFound {
-		logrus.WithError(err).Error("Failed to delete replicated object")
-		http.Error(w, fmt.Sprintf("Failed to delete object: %v", err), http.StatusInternalServerError)
-		return
-	}
-	*/
+	// Delete object using ObjectManager.DeleteObject()
+	if s.objectManager != nil {
+		_, err := s.objectManager.DeleteObject(ctx, bucket, key, false)
+		if err != nil {
+			// Object not found is acceptable (idempotent delete)
+			logrus.WithError(err).Warn("Failed to delete replicated object (may already be deleted)")
+			// Continue anyway - deletion is idempotent
+		}
 
-	// Soft delete object in database (placeholder)
-	err := s.deleteReplicatedObject(ctx, tenantID, bucket, key)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to delete object")
-		http.Error(w, fmt.Sprintf("Failed to delete object: %v", err), http.StatusInternalServerError)
-		return
-	}
+		logrus.WithFields(logrus.Fields{
+			"tenant_id": tenantID,
+			"bucket":    bucket,
+			"key":       key,
+		}).Info("Object deletion replicated successfully")
+	} else {
+		// Fallback: If no object manager, soft delete in database (backward compatibility)
+		logrus.Warn("ObjectManager not available, performing soft delete in database")
 
-	logrus.WithFields(logrus.Fields{
-		"tenant_id": tenantID,
-		"bucket":    bucket,
-		"key":       key,
-	}).Info("Object deletion replicated successfully")
+		err := s.deleteReplicatedObject(ctx, tenantID, bucket, key)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to delete object")
+			http.Error(w, fmt.Sprintf("Failed to delete object: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"tenant_id": tenantID,
+			"bucket":    bucket,
+			"key":       key,
+		}).Info("Object deletion replicated successfully (fallback mode)")
+	}
 
 	// Return success
 	w.Header().Set("Content-Type", "application/json")

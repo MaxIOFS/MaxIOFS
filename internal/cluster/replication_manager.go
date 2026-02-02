@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
 
@@ -16,6 +17,7 @@ import (
 type ClusterReplicationManager struct {
 	db                *sql.DB
 	clusterManager    *Manager
+	objectManager     object.Manager
 	tenantSyncManager *TenantSyncManager
 	proxyClient       *ProxyClient
 	workers           []*ClusterReplicationWorker
@@ -27,7 +29,7 @@ type ClusterReplicationManager struct {
 }
 
 // NewClusterReplicationManager creates a new cluster replication manager
-func NewClusterReplicationManager(db *sql.DB, clusterManager *Manager, tenantSyncManager *TenantSyncManager) *ClusterReplicationManager {
+func NewClusterReplicationManager(db *sql.DB, clusterManager *Manager, objectManager object.Manager, tenantSyncManager *TenantSyncManager) *ClusterReplicationManager {
 	// Get worker count from config
 	workerCountStr, err := GetGlobalConfig(context.Background(), db, "replication_worker_count")
 	if err != nil {
@@ -44,6 +46,7 @@ func NewClusterReplicationManager(db *sql.DB, clusterManager *Manager, tenantSyn
 	return &ClusterReplicationManager{
 		db:                db,
 		clusterManager:    clusterManager,
+		objectManager:     objectManager,
 		tenantSyncManager: tenantSyncManager,
 		proxyClient:       NewProxyClient(),
 		workerCount:       workerCount,
@@ -64,7 +67,7 @@ func (m *ClusterReplicationManager) Start(ctx context.Context) {
 
 	// Start workers
 	for i := 0; i < m.workerCount; i++ {
-		worker := NewClusterReplicationWorker(i, m.db, m.clusterManager, m.proxyClient, m.queueChan)
+		worker := NewClusterReplicationWorker(i, m.db, m.clusterManager, m.objectManager, m.proxyClient, m.queueChan)
 		m.workers = append(m.workers, worker)
 		m.wg.Add(1)
 		go func(w *ClusterReplicationWorker) {

@@ -20,7 +20,7 @@ func TestNewClusterReplicationWorker(t *testing.T) {
 	proxyClient := NewProxyClient()
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
 
-	worker := NewClusterReplicationWorker(1, db, clusterManager, proxyClient, queueChan)
+	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
 	assert.NotNil(t, worker)
 	assert.Equal(t, 1, worker.id)
@@ -52,7 +52,7 @@ func TestClusterReplicationWorker_UpdateItemStatus(t *testing.T) {
 	clusterManager := NewManager(db, "http://localhost:8080")
 	proxyClient := NewProxyClient()
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
-	worker := NewClusterReplicationWorker(1, db, clusterManager, proxyClient, queueChan)
+	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
 	// Update status
 	err = worker.updateItemStatus(ctx, itemID, "processing", "")
@@ -95,7 +95,7 @@ func TestClusterReplicationWorker_UpdateItemRetry(t *testing.T) {
 	clusterManager := NewManager(db, "http://localhost:8080")
 	proxyClient := NewProxyClient()
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
-	worker := NewClusterReplicationWorker(1, db, clusterManager, proxyClient, queueChan)
+	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
 	// Update for retry
 	err = worker.updateItemRetry(ctx, itemID, 2, "retry error")
@@ -136,7 +136,7 @@ func TestClusterReplicationWorker_UpdateItemCompleted(t *testing.T) {
 	clusterManager := NewManager(db, "http://localhost:8080")
 	proxyClient := NewProxyClient()
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
-	worker := NewClusterReplicationWorker(1, db, clusterManager, proxyClient, queueChan)
+	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
 	// Mark as completed
 	err = worker.updateItemCompleted(ctx, itemID)
@@ -176,7 +176,7 @@ func TestClusterReplicationWorker_UpdateReplicationStats(t *testing.T) {
 	clusterManager := NewManager(db, "http://localhost:8080")
 	proxyClient := NewProxyClient()
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
-	worker := NewClusterReplicationWorker(1, db, clusterManager, proxyClient, queueChan)
+	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
 	// Update stats
 	err = worker.updateReplicationStats(ctx, ruleID)
@@ -204,7 +204,7 @@ func TestClusterReplicationWorker_UpdateReplicationStatus(t *testing.T) {
 	clusterManager := NewManager(db, "http://localhost:8080")
 	proxyClient := NewProxyClient()
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
-	worker := NewClusterReplicationWorker(1, db, clusterManager, proxyClient, queueChan)
+	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
 	item := &ClusterReplicationQueueItem{
 		ID:                  "item-1",
@@ -291,7 +291,7 @@ func TestClusterReplicationWorker_ReplicateDelete(t *testing.T) {
 	clusterManager := NewManager(db, "http://localhost:8080")
 	proxyClient := NewProxyClient()
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
-	worker := NewClusterReplicationWorker(1, db, clusterManager, proxyClient, queueChan)
+	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
 	item := &ClusterReplicationQueueItem{
 		ID:                  "item-1",
@@ -321,7 +321,7 @@ func TestClusterReplicationWorker_Start(t *testing.T) {
 	clusterManager := NewManager(db, "http://localhost:8080")
 	proxyClient := NewProxyClient()
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
-	worker := NewClusterReplicationWorker(1, db, clusterManager, proxyClient, queueChan)
+	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
 	// Start worker in background
 	go worker.Start(ctx)
@@ -345,7 +345,7 @@ func TestClusterReplicationWorker_Start_ChannelClosed(t *testing.T) {
 	clusterManager := NewManager(db, "http://localhost:8080")
 	proxyClient := NewProxyClient()
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
-	worker := NewClusterReplicationWorker(1, db, clusterManager, proxyClient, queueChan)
+	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
 	// Close channel before starting
 	close(queueChan)
@@ -374,7 +374,7 @@ func TestClusterReplicationWorker_ProcessItem_UnknownOperation(t *testing.T) {
 	clusterManager := NewManager(db, "http://localhost:8080")
 	proxyClient := NewProxyClient()
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
-	worker := NewClusterReplicationWorker(1, db, clusterManager, proxyClient, queueChan)
+	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
 	item := &ClusterReplicationQueueItem{
 		ID:                  itemID,
@@ -475,7 +475,7 @@ func TestClusterReplicationWorker_ReplicateObject(t *testing.T) {
 	clusterManager := NewManager(db, "http://localhost:8080")
 	proxyClient := NewProxyClient()
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
-	worker := NewClusterReplicationWorker(1, db, clusterManager, proxyClient, queueChan)
+	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
 	item := &ClusterReplicationQueueItem{
 		ID:                  "item-1",
@@ -531,7 +531,7 @@ func TestClusterReplicationWorker_ReplicateObject_NotFound(t *testing.T) {
 	clusterManager := NewManager(db, "http://localhost:8080")
 	proxyClient := NewProxyClient()
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
-	worker := NewClusterReplicationWorker(1, db, clusterManager, proxyClient, queueChan)
+	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
 	item := &ClusterReplicationQueueItem{
 		ID:                  "item-1",

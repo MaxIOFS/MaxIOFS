@@ -79,7 +79,7 @@ func TestNewClusterReplicationManager(t *testing.T) {
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
 
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	assert.NotNil(t, replMgr)
 	assert.NotNil(t, replMgr.db)
@@ -103,7 +103,7 @@ func TestNewClusterReplicationManager_InvalidWorkerCount(t *testing.T) {
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
 
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	// Should fallback to default 5
 	assert.Equal(t, 5, replMgr.workerCount)
@@ -115,7 +115,7 @@ func TestCreateReplicationRule_Success(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	rule := &ClusterReplicationRule{
 		TenantID:            "tenant-1",
@@ -151,7 +151,7 @@ func TestCreateReplicationRule_WithProvidedID(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	customID := "custom-rule-id"
 	rule := &ClusterReplicationRule{
@@ -177,7 +177,7 @@ func TestCreateReplicationRule_IntervalTooShort(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	rule := &ClusterReplicationRule{
 		TenantID:            "tenant-1",
@@ -201,7 +201,7 @@ func TestGetEnabledRules_Success(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	// Insert test rules (use empty string for last_error to avoid NULL issues)
 	now := time.Now()
@@ -232,7 +232,7 @@ func TestGetEnabledRules_NoRules(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	ctx := context.Background()
 	rules, err := replMgr.getEnabledRules(ctx)
@@ -247,7 +247,7 @@ func TestInsertQueueItem_NewItem(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	item := &ClusterReplicationQueueItem{
 		ID:                "item-1",
@@ -284,7 +284,7 @@ func TestInsertQueueItem_DuplicateSkipped(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	// Insert existing pending item
 	now := time.Now()
@@ -333,7 +333,7 @@ func TestGetPendingQueueItems_Success(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	// Insert test queue items
 	now := time.Now()
@@ -365,7 +365,7 @@ func TestGetPendingQueueItems_LimitApplied(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	// Insert 5 pending items
 	now := time.Now()
@@ -393,7 +393,7 @@ func TestUpdateRuleLastSync(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	// Insert test rule
 	now := time.Now()
@@ -426,7 +426,7 @@ func TestQueueBucketObjects_Success(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	// Insert test objects
 	now := time.Now()
@@ -468,7 +468,7 @@ func TestQueueBucketObjects_WithPrefix(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	// Insert test objects
 	now := time.Now()
@@ -517,7 +517,7 @@ func TestQueueBucketObjects_SkipsDeletedObjects(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	// Insert test objects (one deleted)
 	now := time.Now()
@@ -560,7 +560,7 @@ func TestLoadPendingQueueItems_Success(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	// Insert pending items
 	now := time.Now()
@@ -588,7 +588,7 @@ func TestLoadPendingQueueItems_NoItems(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	ctx := context.Background()
 	replMgr.loadPendingQueueItems(ctx)
@@ -608,7 +608,7 @@ func TestCheckReplicationRules_SkipsRecentSync(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	// Insert rule with recent sync
 	recentSync := time.Now().Add(-1 * time.Minute) // Synced 1 minute ago
@@ -637,7 +637,7 @@ func TestCheckReplicationRules_QueuesObjectsWhenDue(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	// Insert rule with old sync
 	oldSync := time.Now().Add(-10 * time.Minute) // Synced 10 minutes ago
@@ -684,7 +684,7 @@ func TestStop(t *testing.T) {
 
 	clusterMgr := createTestReplicationClusterManager(t, db)
 	tenantSyncMgr := NewTenantSyncManager(db, clusterMgr)
-	replMgr := NewClusterReplicationManager(db, clusterMgr, tenantSyncMgr)
+	replMgr := NewClusterReplicationManager(db, clusterMgr, nil, tenantSyncMgr)
 
 	// Start should be tested separately, but we'll test Stop can be called
 	replMgr.Stop()

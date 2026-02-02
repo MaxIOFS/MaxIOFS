@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/bucket"
 )
 
 // ObjectLock constants
@@ -45,15 +46,24 @@ type ObjectLocker interface {
 	IsLegalHoldActiveInternal(legalHold *LegalHoldConfig) bool
 }
 
+// BucketConfigManager defines the interface for bucket configuration operations needed by ObjectLocker
+type BucketConfigManager interface {
+	GetObjectLockConfig(ctx context.Context, tenantID, name string) (*bucket.ObjectLockConfig, error)
+	SetObjectLockConfig(ctx context.Context, tenantID, name string, config *bucket.ObjectLockConfig) error
+}
+
 // objectLock implements the ObjectLocker interface
 type objectLock struct {
-	manager Manager
+	manager       Manager
+	bucketManager BucketConfigManager
 }
 
 // NewObjectLocker creates a new ObjectLocker instance
-func NewObjectLocker(manager Manager) ObjectLocker {
+// bucketManager is optional and can be nil if bucket-level operations are not needed
+func NewObjectLocker(manager Manager, bucketManager BucketConfigManager) ObjectLocker {
 	return &objectLock{
-		manager: manager,
+		manager:       manager,
+		bucketManager: bucketManager,
 	}
 }
 
@@ -252,25 +262,121 @@ func (ol *objectLock) ValidateLegalHold(legalHold *ObjectLockLegalHold) error {
 }
 
 // SetDefaultRetention sets default retention configuration for a bucket
-func (ol *objectLock) SetDefaultRetention(ctx context.Context, bucket string, retention *ObjectLockRetention, user *auth.User) error {
-	// This would typically be stored in bucket metadata
-	// For MVP, we'll store it as a special object in the bucket
-	// In production, this should be in bucket configuration
+func (ol *objectLock) SetDefaultRetention(ctx context.Context, bucketName string, retention *ObjectLockRetention, user *auth.User) error {
+	if ol.bucketManager == nil {
+		return fmt.Errorf("bucket manager not available")
+	}
 
 	if err := ol.ValidateRetention(retention); err != nil {
 		return fmt.Errorf("invalid default retention: %w", err)
 	}
 
-	// Store as a special metadata object
-	// This is a simplified implementation - in production, this would be in bucket metadata
-	return nil // TODO: Implement bucket-level default retention storage
+	// Get tenant ID from context
+	tenantID := auth.GetTenantIDFromContext(ctx)
+	if tenantID == "" {
+		// Fall back to extracting from user if available
+		if user != nil {
+			tenantID = user.TenantID
+		}
+		if tenantID == "" {
+			return fmt.Errorf("tenant ID not found in context or user")
+		}
+	}
+
+	// Get current bucket Object Lock configuration
+	config, err := ol.bucketManager.GetObjectLockConfig(ctx, tenantID, bucketName)
+	if err != nil {
+		return fmt.Errorf("failed to get bucket object lock config: %w", err)
+	}
+
+	// Ensure Object Lock is enabled
+	if !config.ObjectLockEnabled {
+		return fmt.Errorf("object lock is not enabled for bucket %s", bucketName)
+	}
+
+	// Convert ObjectLockRetention (with RetainUntilDate) to DefaultRetention (with Days/Years)
+	// Calculate days from now until the retention date
+	now := time.Now()
+	duration := retention.RetainUntilDate.Sub(now)
+	days := int(duration.Hours() / 24)
+
+	if days < 0 {
+		return fmt.Errorf("retention date must be in the future")
+	}
+
+	// Create default retention configuration
+	defaultRetention := &bucket.DefaultRetention{
+		Mode: retention.Mode,
+		Days: &days,
+	}
+
+	// Update the Object Lock configuration with the new default retention
+	if config.Rule == nil {
+		config.Rule = &bucket.ObjectLockRule{}
+	}
+	config.Rule.DefaultRetention = defaultRetention
+
+	// Save the updated configuration
+	if err := ol.bucketManager.SetObjectLockConfig(ctx, tenantID, bucketName, config); err != nil {
+		return fmt.Errorf("failed to set object lock config: %w", err)
+	}
+
+	return nil
 }
 
 // GetDefaultRetention gets default retention configuration for a bucket
-func (ol *objectLock) GetDefaultRetention(ctx context.Context, bucket string, user *auth.User) (*ObjectLockRetention, error) {
-	// This would typically be retrieved from bucket metadata
-	// For MVP, return nil (no default retention)
-	return nil, ErrNoRetentionConfiguration
+func (ol *objectLock) GetDefaultRetention(ctx context.Context, bucketName string, user *auth.User) (*ObjectLockRetention, error) {
+	if ol.bucketManager == nil {
+		return nil, fmt.Errorf("bucket manager not available")
+	}
+
+	// Get tenant ID from context
+	tenantID := auth.GetTenantIDFromContext(ctx)
+	if tenantID == "" {
+		// Fall back to extracting from user if available
+		if user != nil {
+			tenantID = user.TenantID
+		}
+		if tenantID == "" {
+			return nil, fmt.Errorf("tenant ID not found in context or user")
+		}
+	}
+
+	// Get bucket Object Lock configuration
+	config, err := ol.bucketManager.GetObjectLockConfig(ctx, tenantID, bucketName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bucket object lock config: %w", err)
+	}
+
+	// Check if Object Lock is enabled
+	if !config.ObjectLockEnabled {
+		return nil, ErrNoRetentionConfiguration
+	}
+
+	// Check if default retention is configured
+	if config.Rule == nil || config.Rule.DefaultRetention == nil {
+		return nil, ErrNoRetentionConfiguration
+	}
+
+	defaultRetention := config.Rule.DefaultRetention
+
+	// Convert DefaultRetention (with Days/Years) to ObjectLockRetention (with RetainUntilDate)
+	// Calculate RetainUntilDate from current time + days/years
+	now := time.Now()
+	var retainUntilDate time.Time
+
+	if defaultRetention.Years != nil && *defaultRetention.Years > 0 {
+		retainUntilDate = now.AddDate(*defaultRetention.Years, 0, 0)
+	} else if defaultRetention.Days != nil && *defaultRetention.Days > 0 {
+		retainUntilDate = now.AddDate(0, 0, *defaultRetention.Days)
+	} else {
+		return nil, fmt.Errorf("invalid default retention configuration: neither days nor years specified")
+	}
+
+	return &ObjectLockRetention{
+		Mode:            defaultRetention.Mode,
+		RetainUntilDate: retainUntilDate,
+	}, nil
 }
 
 // IsRetentionActive checks if retention is currently active for the given configuration

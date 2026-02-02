@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
 
@@ -17,17 +18,19 @@ type ClusterReplicationWorker struct {
 	id             int
 	db             *sql.DB
 	clusterManager *Manager
+	objectManager  object.Manager
 	proxyClient    *ProxyClient
 	queueChan      chan *ClusterReplicationQueueItem
 	log            *logrus.Entry
 }
 
 // NewClusterReplicationWorker creates a new replication worker
-func NewClusterReplicationWorker(id int, db *sql.DB, clusterManager *Manager, proxyClient *ProxyClient, queueChan chan *ClusterReplicationQueueItem) *ClusterReplicationWorker {
+func NewClusterReplicationWorker(id int, db *sql.DB, clusterManager *Manager, objectManager object.Manager, proxyClient *ProxyClient, queueChan chan *ClusterReplicationQueueItem) *ClusterReplicationWorker {
 	return &ClusterReplicationWorker{
 		id:             id,
 		db:             db,
 		clusterManager: clusterManager,
+		objectManager:  objectManager,
 		proxyClient:    proxyClient,
 		queueChan:      queueChan,
 		log:            logrus.WithField("component", fmt.Sprintf("replication-worker-%d", id)),
@@ -131,11 +134,30 @@ func (w *ClusterReplicationWorker) replicateObject(ctx context.Context, item *Cl
 		return fmt.Errorf("failed to get object metadata: %w", err)
 	}
 
-	// TODO: Get actual object data via ObjectManager.GetObject()
-	// For now, we'll send metadata only as placeholder
-	// In real implementation:
-	// reader, size, contentType, metadata, err := objectManager.GetObject(ctx, item.TenantID, item.SourceBucket, item.ObjectKey)
+	// Get actual object data via ObjectManager.GetObject()
 	// The GetObject call will automatically decrypt the object
+	var objectData io.ReadCloser
+	if w.objectManager != nil {
+		_, objectData, err = w.objectManager.GetObject(ctx, item.SourceBucket, item.ObjectKey)
+		if err != nil {
+			return fmt.Errorf("failed to get object data: %w", err)
+		}
+		defer objectData.Close()
+
+		// Read object data into buffer
+		// For large objects, we could stream directly, but for now read into memory
+		objectBytes, err := io.ReadAll(objectData)
+		if err != nil {
+			return fmt.Errorf("failed to read object data: %w", err)
+		}
+
+		// Use the actual object data
+		objectData = io.NopCloser(bytes.NewReader(objectBytes))
+	} else {
+		// Fallback: If no object manager, create empty reader (backward compatibility)
+		w.log.Warn("ObjectManager not available, replicating metadata only")
+		objectData = io.NopCloser(bytes.NewReader([]byte{}))
+	}
 
 	// Get destination node info
 	node, err := w.clusterManager.GetNode(ctx, item.DestinationNodeID)
@@ -162,11 +184,8 @@ func (w *ClusterReplicationWorker) replicateObject(ctx context.Context, item *Cl
 		item.ObjectKey,
 	)
 
-	// Create placeholder body (in real implementation, this would be the actual object data)
-	body := bytes.NewReader([]byte{})
-
-	// Create authenticated request
-	req, err := w.proxyClient.CreateAuthenticatedRequest(ctx, "PUT", url, body, localNodeID, nodeToken)
+	// Create authenticated request with actual object data
+	req, err := w.proxyClient.CreateAuthenticatedRequest(ctx, "PUT", url, objectData, localNodeID, nodeToken)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

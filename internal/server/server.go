@@ -315,7 +315,7 @@ func New(cfg *config.Config) (*Server, error) {
 	bucketPermissionSyncMgr := cluster.NewBucketPermissionSyncManager(db, clusterManager)
 
 	// Initialize cluster replication manager
-	clusterReplicationMgr := cluster.NewClusterReplicationManager(db, clusterManager, tenantSyncMgr)
+	clusterReplicationMgr := cluster.NewClusterReplicationManager(db, clusterManager, objectManager, tenantSyncMgr)
 
 	// Create HTTP servers
 	httpServer := &http.Server{

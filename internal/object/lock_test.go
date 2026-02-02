@@ -13,7 +13,7 @@ import (
 
 // TestValidateRetention tests retention configuration validation
 func TestValidateRetention(t *testing.T) {
-	ol := NewObjectLocker(nil)
+	ol := NewObjectLocker(nil, nil)
 	futureDate := time.Now().Add(24 * time.Hour)
 
 	tests := []struct {
@@ -82,7 +82,7 @@ func TestValidateRetention(t *testing.T) {
 
 // TestValidateLegalHold tests legal hold configuration validation
 func TestValidateLegalHold(t *testing.T) {
-	ol := NewObjectLocker(nil)
+	ol := NewObjectLocker(nil, nil)
 
 	tests := []struct {
 		name      string
@@ -131,7 +131,7 @@ func TestValidateLegalHold(t *testing.T) {
 
 // TestIsRetentionActive tests retention active status check
 func TestIsRetentionActive(t *testing.T) {
-	ol := NewObjectLocker(nil)
+	ol := NewObjectLocker(nil, nil)
 
 	tests := []struct {
 		name      string
@@ -171,7 +171,7 @@ func TestIsRetentionActive(t *testing.T) {
 
 // TestIsLegalHoldActive tests legal hold active status check
 func TestIsLegalHoldActive(t *testing.T) {
-	ol := NewObjectLocker(nil)
+	ol := NewObjectLocker(nil, nil)
 
 	tests := []struct {
 		name      string
@@ -209,7 +209,7 @@ func TestIsLegalHoldActive(t *testing.T) {
 
 // TestGetRetentionExpiryTime tests retention expiry time retrieval
 func TestGetRetentionExpiryTime(t *testing.T) {
-	ol := NewObjectLocker(nil)
+	ol := NewObjectLocker(nil, nil)
 	futureDate := time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC)
 
 	tests := []struct {
@@ -243,7 +243,7 @@ func TestGetRetentionExpiryTime(t *testing.T) {
 // TestCanDeleteObject tests object deletion permission checks
 func TestCanDeleteObject(t *testing.T) {
 	mockMgr := &mockManager{}
-	ol := NewObjectLocker(mockMgr)
+	ol := NewObjectLocker(mockMgr, nil)
 	ctx := context.Background()
 
 	adminUser := &auth.User{
@@ -323,7 +323,7 @@ func TestCanDeleteObject(t *testing.T) {
 // TestPutObjectRetention tests setting object retention
 func TestPutObjectRetention(t *testing.T) {
 	mockMgr := &mockManager{}
-	ol := NewObjectLocker(mockMgr)
+	ol := NewObjectLocker(mockMgr, nil)
 	ctx := context.Background()
 
 	adminUser := &auth.User{
@@ -417,7 +417,7 @@ func TestPutObjectRetention(t *testing.T) {
 // TestGetObjectRetention tests retrieving object retention
 func TestGetObjectRetention(t *testing.T) {
 	mockMgr := &mockManager{}
-	ol := NewObjectLocker(mockMgr)
+	ol := NewObjectLocker(mockMgr, nil)
 	ctx := context.Background()
 
 	adminUser := &auth.User{
@@ -450,7 +450,7 @@ func TestGetObjectRetention(t *testing.T) {
 // TestPutObjectLegalHold tests setting legal hold
 func TestPutObjectLegalHold(t *testing.T) {
 	mockMgr := &mockManager{}
-	ol := NewObjectLocker(mockMgr)
+	ol := NewObjectLocker(mockMgr, nil)
 	ctx := context.Background()
 
 	adminUser := &auth.User{
@@ -493,7 +493,7 @@ func TestPutObjectLegalHold(t *testing.T) {
 // TestGetObjectLegalHold tests retrieving legal hold
 func TestGetObjectLegalHold(t *testing.T) {
 	mockMgr := &mockManager{}
-	ol := NewObjectLocker(mockMgr)
+	ol := NewObjectLocker(mockMgr, nil)
 	ctx := context.Background()
 
 	adminUser := &auth.User{
