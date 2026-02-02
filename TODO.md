@@ -7,7 +7,7 @@
 ## 📊 Project Status
 
 - S3 API Compatibility: 98%
-- Backend Test Coverage: 54.8% (500+ tests) → Target: 90%+
+- Backend Test Coverage: **69.1%** (27 packages, 600+ tests) → Target: 90%+
 - Frontend Test Coverage: 100% (64 tests)
 - Features Complete: ~97%
 - Production Ready: Testing Phase
@@ -502,9 +502,10 @@ Tenant with 1TB quota on 3-node cluster:
 ## 🔴 HIGH PRIORITY
 
 ### Backend Test Coverage Expansion - 🚧 IN PROGRESS (Sprint 8)
-**Goal**: Increase backend test coverage from 54.8% to 90%+ (Target: +35.2 percentage points)
+**Goal**: Increase backend test coverage from 69.1% to 90%+ (Target: +20.9 percentage points)
 
-**Current Status**: 54.8% coverage (500 tests), 354 functions with 0% coverage
+**Current Status**: 69.1% coverage (600+ tests across 27 packages)
+**Progress**: +14.3 points from initial 54.8%
 
 **Critical Commitment**:
 - Test ALL modules systematically without skipping difficult/complex tests
@@ -514,52 +515,57 @@ Tenant with 1TB quota on 3-node cluster:
 **Priority Order** (by coverage % and criticality):
 
 #### Phase 1: Critical Infrastructure (0-40% coverage)
-- [ ] **cmd/maxiofs** - 0.0% coverage (3 functions: main, runServer, setupLogging)
-  - Integration tests for CLI initialization and server startup
+- [x] ✅ **cmd/maxiofs** - 51.0% coverage (main_test.go completed)
+  - CLI initialization and server startup tests
   - Configuration loading and validation tests
-  - Logging setup verification tests
+  - Version format and Cobra flag tests
 
-- [ ] **web** - 0.0% coverage (2 functions: GetFrontendFS, embed)
+- [x] ✅ **web** - 100.0% coverage (embed_test.go completed)
   - Frontend file serving tests
   - Embedded filesystem tests
+  - Subdirectory structure validation tests
 
-- [ ] **internal/cluster** - 32.7% coverage (70+ functions with 0%)
-  - Files needing tests:
-    - `migration.go` (15 functions) - Bucket migration orchestration
-    - `user_sync.go` (11 functions) - User synchronization across nodes
-    - `tenant_sync.go` (11 functions) - Tenant synchronization
-    - `replication_worker.go` (10 functions) - Cluster replication worker
-    - `manager.go` (9 functions) - Cluster manager operations
-    - `proxy.go` (8 functions) - Request proxying between nodes
+- [x] ✅ **internal/cluster** - 65.9% coverage (up from 32.7%)
+  - Comprehensive tests for bucket aggregation, quota aggregation, migrations
+  - Circuit breakers, rate limiting, metrics tracking
+  - 47+ cluster tests passing
 
-- [ ] **internal/config** - 35.8% coverage
-  - Configuration parsing and validation
-  - Environment variable loading
-  - Default value handling
-  - Configuration migration/upgrade tests
+- [x] ✅ **internal/config** - 94.0% coverage (up from 35.8%)
+  - Configuration parsing and validation tests complete
+  - Environment variable loading tests
+  - 23 comprehensive tests
 
-#### Phase 2: Core Functionality (40-50% coverage)
-- [ ] **internal/bucket** - 45.9% coverage (20+ functions with 0%)
-  - Files needing tests:
-    - ✅ `manager_badger.go` - DeleteBucket, ForceDeleteBucket tests completed (6 tests)
-    - `manager_badger.go` (5 functions remaining) - RecalculateMetrics, ACL operations
-    - `validation.go` (9 functions) - Policy, versioning, lifecycle, object lock validation
-    - `filter.go` (3 functions) - Permission filtering and access checks
+#### Phase 2: Core Functionality (40-55% coverage) - 🔴 CRITICAL PRIORITY
 
-- [ ] **pkg/s3compat** - 45.7% coverage (42+ functions with 0%)
-  - Files with comprehensive tests already implemented:
-    - ✅ `s3_test.go` - CORE S3 operations fully tested (PutObject, GetObject, DeleteObject, CopyObject, ListObjectVersions, ObjectVersioning)
-    - ✅ `acl_security_test.go` - ACL security tests completed (10 tests - checkBucketACLPermission, checkObjectACLPermission, checkPublicBucketAccess)
-  - Files needing tests:
-    - `handler.go` (24 functions) - S3 API request handlers (authentication, error handling)
-    - `presigned.go` (13 functions) - Pre-signed URL generation and validation
-    - `batch.go` (5 functions) - Batch operations (DeleteObjects)
+**🔴 MOST CRITICAL MODULES (lowest coverage):**
 
-- [ ] **internal/object** - 48.2% coverage (28+ functions with 0%)
-  - Files needing tests:
-    - `manager.go` (15 functions) - Object operations
+- [ ] **internal/object** - 49.5% coverage ⚠️ HIGHEST PRIORITY
+  - Core object operations (PutObject, GetObject, DeleteObject)
+  - Files needing more tests:
+    - `manager.go` (15 functions) - Object manager operations
     - `retention.go` (9 functions) - Object retention and compliance mode
-    - `lock.go` (4 functions) - Object locking mechanisms
+    - `lock.go` - Object locking mechanisms (default retention now tested)
+  - Already tested: lock_test.go, lock_default_retention_test.go, adapter_test.go, integration_test.go
+
+- [ ] **cmd/maxiofs** - 51.0% coverage ⚠️ HIGH PRIORITY
+  - Core server startup and initialization
+  - Already has main_test.go but needs more coverage for main(), runServer()
+  - Configuration loading edge cases
+
+- [ ] **internal/metadata** - 52.4% coverage ⚠️ HIGH PRIORITY
+  - BadgerDB operations (critical metadata store)
+  - Files needing tests:
+    - `badger.go` (14 functions) - Core BadgerDB operations
+    - `badger_objects.go` (4 functions) - Object metadata
+    - `badger_multipart.go` (4 functions) - Multipart upload metadata
+    - `badger_buckets.go` - Bucket metadata operations
+
+- [ ] **internal/replication** - 54.0% coverage
+  - S3 client operations, replication worker
+  - Files needing tests:
+    - `s3client.go` (9 functions) - S3 remote client operations
+    - `adapter.go` (4 functions) - Object adapter for replication
+    - `worker.go` - Replication worker operations
 
 #### Phase 3: Storage & Metadata (50-55% coverage)
 - [ ] **internal/metadata** - 52.4% coverage (32+ functions with 0%)

@@ -63,9 +63,6 @@ type Manager interface {
 	AbortMultipartUpload(ctx context.Context, uploadID string) error
 	ListMultipartUploads(ctx context.Context, bucket string) ([]MultipartUpload, error)
 
-	// Copy operations
-	CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string, headers http.Header) (*Object, error)
-
 	// Health check
 	IsReady() bool
 }
@@ -1555,10 +1552,6 @@ func (om *objectManager) ListMultipartUploads(ctx context.Context, bucket string
 }
 
 // Placeholder implementation for copy operations
-func (om *objectManager) CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string, headers http.Header) (*Object, error) {
-	panic("not implemented - Fase 4.1")
-}
-
 // IsReady checks if the object manager is ready
 func (om *objectManager) IsReady() bool {
 	// TODO: Implement readiness check
