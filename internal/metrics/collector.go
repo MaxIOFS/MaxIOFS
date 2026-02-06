@@ -109,7 +109,6 @@ type collector struct {
 	running   bool
 	stopChan  chan struct{}
 	interval  time.Duration
-	lastCPU   time.Duration
 	lastTime  time.Time
 	startTime time.Time
 	dataDir   string

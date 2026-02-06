@@ -394,7 +394,7 @@ func TestPagination(t *testing.T) {
 	}
 
 	// Test: Page 2 with 10 items
-	logs, total, err = mgr.GetLogs(ctx, &AuditLogFilters{
+	logs, _, err = mgr.GetLogs(ctx, &AuditLogFilters{
 		Page:     2,
 		PageSize: 10,
 	})
@@ -407,7 +407,7 @@ func TestPagination(t *testing.T) {
 	}
 
 	// Test: Page 3 with 10 items (should have 5 remaining)
-	logs, total, err = mgr.GetLogs(ctx, &AuditLogFilters{
+	logs, _, err = mgr.GetLogs(ctx, &AuditLogFilters{
 		Page:     3,
 		PageSize: 10,
 	})

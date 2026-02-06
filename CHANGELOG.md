@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **🔄 AWS SDK v2 Endpoint Configuration Updated** - February 6, 2026. Migrated from deprecated global endpoint resolver to service-specific endpoint configuration.
+  - Modified `internal/replication/s3client.go` - Replaced deprecated `aws.EndpointResolverWithOptionsFunc` and `aws.Endpoint` with `o.BaseEndpoint` in S3 client options
+  - This is the recommended approach for custom endpoints in AWS SDK v2
+  - Eliminates staticcheck SA1019 deprecation warnings
+
 ### Fixed
+
+- **🔧 Lint Error: Tautological Condition in Cluster Tenant Handlers** - February 6, 2026. Fixed staticcheck warnings SA4010 (tautological condition: non-nil != nil) in cluster tenant sync handlers.
+  - Modified `internal/server/cluster_tenant_handlers.go` - Removed redundant `err != nil` checks inside existing `if err != nil` blocks (lines 167, 355)
+  - Conditions now correctly check only `err.Error() == "UNIQUE constraint failed: ..."` without redundant nil check
 
 - **🐛 CRITICAL FIX: ListBuckets returns empty in standalone mode** - January 31, 2026. Fixed bug where `ListBuckets` S3 API returned empty array when cluster mode was enabled but no cluster nodes were configured. The bucket aggregator now ALWAYS includes local buckets first, then aggregates from remote nodes if available. This ensures buckets are always visible even in standalone mode with cluster enabled.
   - Modified `internal/cluster/bucket_aggregator.go` - ListAllBuckets() now queries local buckets FIRST
@@ -15,6 +26,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Modified `internal/cluster/quota_aggregator.go` - Added GetLocalNodeName() to ClusterManagerInterface
   - Modified `internal/server/server.go` - Pass bucketManager to NewBucketAggregator
   - **Impact**: Users can now see their buckets in all deployment modes (standalone, cluster with nodes, cluster without nodes)
+
+### Removed
+
+- **🧹 Dead Code Cleanup** - February 6, 2026. Removed unused functions and fields identified by staticcheck (U1000).
+  - Removed `generateRandomString()` from `internal/auth/manager.go` - Unused helper function
+  - Removed `initSchema()` from `internal/auth/sqlite.go` - Deprecated, replaced by migration system
+  - Removed `runMigrations()` from `internal/auth/sqlite.go` - Deprecated, replaced by migration system  
+  - Removed `isDuplicateColumnError()` from `internal/auth/sqlite.go` - Only used by removed functions
+  - Removed `contains()` from `internal/auth/sqlite.go` - Only used by removed functions
+  - Removed `findSubstring()` from `internal/auth/sqlite.go` - Only used by removed functions
+  - Removed `lastCPU` field from `internal/metrics/collector.go` - Unused struct field
+  - Removed `createTestUser()` from `internal/server/console_api_test.go` - Unused test helper function
+  - Fixed unused variable `total` in `internal/audit/sqlite_test.go` - Changed to blank identifier `_`
+- Removed unused `.env.example` file
+- Cleaned up unused dependencies
 
 ### Added
 
@@ -457,10 +483,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved object upload, download, delete, and multipart upload operations
 - Replication test coverage improved from 19.4% to support realistic E2E testing scenarios
 - Cluster module now properly separates database read and write operations to prevent SQLite lock contention
-
-### Removed
-- Removed unused `.env.example` file
-- Cleaned up unused dependencies
 
 ## [0.7.0-beta] - 2026-01-16
 

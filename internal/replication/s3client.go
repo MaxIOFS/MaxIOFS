@@ -33,24 +33,15 @@ type S3RemoteClient struct {
 
 // NewS3RemoteClient creates a new S3 client configured for a remote endpoint
 func NewS3RemoteClient(endpoint, region, accessKey, secretKey string) *S3RemoteClient {
-	// Create custom endpoint resolver
-	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-		return aws.Endpoint{
-			URL:               endpoint,
-			HostnameImmutable: true,
-			SigningRegion:     region,
-		}, nil
-	})
-
 	// Create AWS config with static credentials
 	cfg := aws.Config{
-		Region:                      region,
-		Credentials:                 credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
-		EndpointResolverWithOptions: customResolver,
+		Region:      region,
+		Credentials: credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
 	}
 
-	// Create S3 client
+	// Create S3 client with service-specific endpoint configuration
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
 		o.UsePathStyle = true // Use path-style URLs for compatibility
 	})
 
@@ -202,7 +193,7 @@ func (c *S3RemoteClient) CopyObject(ctx context.Context, sourceBucket, sourceKey
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"endpoint":   c.endpoint,
+		"endpoint":    c.endpoint,
 		"dest_bucket": destBucket,
 		"dest_key":    destKey,
 	}).Info("Successfully copied object on remote S3")

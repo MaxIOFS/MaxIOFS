@@ -148,32 +148,6 @@ func setupTestServer(t *testing.T) (*Server, string, func()) {
 	return server, tmpDir, cleanup
 }
 
-// createTestUser creates a test user and returns the user and a JWT token
-func createTestUser(t *testing.T, authManager auth.Manager, username, password string, roles []string) (*auth.User, string) {
-	ctx := context.Background()
-
-	user := &auth.User{
-		ID:          username + "-id",
-		Username:    username,
-		Password:    password,
-		DisplayName: username + " Test User",
-		Email:       username + "@example.com",
-		Status:      auth.UserStatusActive,
-		Roles:       roles,
-		CreatedAt:   time.Now().Unix(),
-		UpdatedAt:   time.Now().Unix(),
-	}
-
-	err := authManager.CreateUser(ctx, user)
-	require.NoError(t, err)
-
-	// Generate JWT token
-	token, err := authManager.GenerateJWT(ctx, user)
-	require.NoError(t, err)
-
-	return user, token
-}
-
 // LoginResponse represents the response from handleLogin
 type LoginResponse struct {
 	Success bool   `json:"success"`

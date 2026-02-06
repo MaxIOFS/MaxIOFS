@@ -53,9 +53,9 @@ type BucketResponse struct {
 	Tags                map[string]string         `json:"tags,omitempty"`
 	Metadata            map[string]string         `json:"metadata,omitempty"`
 	// Cluster-specific fields (only populated in multi-node cluster mode)
-	NodeID              string                    `json:"node_id,omitempty"`
-	NodeName            string                    `json:"node_name,omitempty"`
-	NodeStatus          string                    `json:"node_status,omitempty"`
+	NodeID     string `json:"node_id,omitempty"`
+	NodeName   string `json:"node_name,omitempty"`
+	NodeStatus string `json:"node_status,omitempty"`
 }
 
 type ObjectResponse struct {
@@ -1204,11 +1204,12 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Normal delete (requires bucket to be empty)
 		if err := s.bucketManager.DeleteBucket(r.Context(), tenantID, bucketName); err != nil {
-			if err == bucket.ErrBucketNotFound {
+			switch err {
+			case bucket.ErrBucketNotFound:
 				s.writeError(w, "Bucket not found", http.StatusNotFound)
-			} else if err == bucket.ErrBucketNotEmpty {
+			case bucket.ErrBucketNotEmpty:
 				s.writeError(w, "Bucket is not empty", http.StatusConflict)
-			} else {
+			default:
 				s.writeError(w, err.Error(), http.StatusInternalServerError)
 			}
 			return
@@ -3235,9 +3236,9 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 		if force {
 			// Force delete all buckets associated with this tenant
 			logrus.WithFields(logrus.Fields{
-				"tenantID":     tenantID,
-				"bucketCount":  len(buckets),
-				"user":         currentUser.Username,
+				"tenantID":    tenantID,
+				"bucketCount": len(buckets),
+				"user":        currentUser.Username,
 			}).Warn("Force deleting all tenant buckets before deleting tenant")
 
 			deletedBuckets := 0

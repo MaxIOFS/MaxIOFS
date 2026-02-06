@@ -1013,13 +1013,13 @@ func (am *authManager) CheckTenantStorageQuota(ctx context.Context, tenantID str
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"tenantID":           tenantID,
-		"currentStorage":     currentStorage,
-		"maxStorage":         tenant.MaxStorageBytes,
-		"additionalBytes":    additionalBytes,
-		"projectedTotal":     currentStorage + additionalBytes,
-		"wouldExceed":        currentStorage+additionalBytes > tenant.MaxStorageBytes,
-		"clusterMode":        isClusterEnabled,
+		"tenantID":        tenantID,
+		"currentStorage":  currentStorage,
+		"maxStorage":      tenant.MaxStorageBytes,
+		"additionalBytes": additionalBytes,
+		"projectedTotal":  currentStorage + additionalBytes,
+		"wouldExceed":     currentStorage+additionalBytes > tenant.MaxStorageBytes,
+		"clusterMode":     isClusterEnabled,
 	}).Info("CheckTenantStorageQuota: validating quota")
 
 	// Check if adding these bytes would exceed quota
@@ -1062,15 +1062,6 @@ func (am *authManager) ListUserBucketPermissions(ctx context.Context, userID str
 }
 
 // Helper methods
-
-// generateRandomString generates a random string of specified length
-func (am *authManager) generateRandomString(length int) (string, error) {
-	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return base64.URLEncoding.EncodeToString(bytes)[:length], nil
-}
 
 // generateAccessKeyID generates an AWS-compatible access key ID
 // Format: AKIA + 16 random uppercase alphanumeric characters (total 20 chars)

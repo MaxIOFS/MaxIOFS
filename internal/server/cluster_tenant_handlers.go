@@ -164,7 +164,7 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 		)
 		if err != nil {
 			// Check if it's a unique constraint violation (race condition)
-			if err == sql.ErrNoRows || (err != nil && err.Error() == "UNIQUE constraint failed: tenants.id") {
+			if err == sql.ErrNoRows || err.Error() == "UNIQUE constraint failed: tenants.id" {
 				// Try update instead
 				logrus.WithField("tenant_id", tenant.ID).Debug("Tenant created concurrently, updating instead")
 				return s.upsertTenant(ctx, tenant) // Retry as update
@@ -352,7 +352,7 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 		)
 		if err != nil {
 			// Check if it's a unique constraint violation (race condition)
-			if err == sql.ErrNoRows || (err != nil && err.Error() == "UNIQUE constraint failed: users.id") {
+			if err == sql.ErrNoRows || err.Error() == "UNIQUE constraint failed: users.id" {
 				// Try update instead
 				logrus.WithField("user_id", user.ID).Debug("User created concurrently, updating instead")
 				return s.upsertUser(ctx, user) // Retry as update
