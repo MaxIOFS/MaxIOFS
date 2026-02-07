@@ -1,12 +1,12 @@
 # MaxIOFS Architecture
 
-**Version**: 0.7.0-beta
+**Version**: 0.8.0-beta
 **S3 Compatibility**: 98%
 **Last Updated**: January 16, 2026
 
 ## Overview
 
-MaxIOFS is a single-binary S3-compatible object storage system built in Go with an embedded React (Vite) frontend. The architecture emphasizes simplicity, portability, and ease of deployment with tenant-scoped bucket namespaces. **Version 0.7.0-beta introduces multi-node cluster support** with high availability, intelligent routing, and automatic node-to-node replication.
+MaxIOFS is a single-binary S3-compatible object storage system built in Go with an embedded React (Vite) frontend. The architecture emphasizes simplicity, portability, and ease of deployment with tenant-scoped bucket namespaces. **Version 0.8.0-beta introduces multi-node cluster support** with high availability, intelligent routing, and automatic node-to-node replication.
 
 **Testing Status**: Successfully validated with MinIO Warp stress testing (7000+ objects, bulk operations, metadata consistency under load). **98% S3 compatible** with all core operations fully functional. Production-ready for beta testing environments.
 
@@ -42,7 +42,7 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 └─────────────────────────────────────┘
 ```
 
-### Multi-Node Cluster Mode (v0.7.0-beta)
+### Multi-Node Cluster Mode (v0.8.0-beta)
 
 ```
                  ┌──────────────────┐
@@ -148,7 +148,7 @@ type Manager interface {
 - Multi-tenant isolation (global/tenant admin access)
 - Tracks 20+ event types (authentication, user management, buckets, 2FA, etc.)
 
-**Cluster Manager** (v0.7.0-beta)
+**Cluster Manager** (v0.8.0-beta)
 ```go
 type Manager interface {
     // Cluster initialization
@@ -171,13 +171,13 @@ type Manager interface {
 }
 ```
 
-**Smart Router** (v0.7.0-beta)
+**Smart Router** (v0.8.0-beta)
 - Bucket location resolution with 5-minute TTL cache
 - Health-aware request routing with automatic failover
 - Internal proxy mode for cross-node requests
 - Latency tracking per node
 
-**Replication Manager** (v0.7.0-beta)
+**Replication Manager** (v0.8.0-beta)
 - HMAC-SHA256 authentication between nodes
 - Automatic tenant synchronization (30s intervals)
 - Configurable bucket replication (10s minimum interval)
@@ -209,7 +209,7 @@ type Manager interface {
   │   ├── 000001.vlog
   │   └── 000001.sst
   ├── audit.db                     ← SQLite audit logs (v0.4.0+)
-  ├── cluster.db                   ← SQLite cluster state (v0.7.0-beta)
+  ├── cluster.db                   ← SQLite cluster state (v0.8.0-beta)
   ├── replication.db               ← SQLite bucket replication (v0.5.0-beta)
   ├── settings.db                  ← SQLite dynamic settings (v0.4.1-beta)
   └── metrics/                     ← BadgerDB metrics history (v0.4.1-beta)
@@ -233,7 +233,7 @@ type Manager interface {
 - Automatic retention management (default: 90 days)
 - Path: `{data_dir}/audit.db`
 
-**SQLite Cluster Database** (v0.7.0-beta)
+**SQLite Cluster Database** (v0.8.0-beta)
 - Cluster configuration and node state
 - 3 tables: `cluster_config`, `cluster_nodes`, `cluster_health_history`
 - Stores node endpoints, regions, health status, and latency metrics
@@ -265,7 +265,7 @@ type Manager interface {
 - AWS Signature v2 and v4
 - Compatible with AWS CLI, SDKs, and S3 tools
 
-### Cluster Authentication (v0.7.0-beta)
+### Cluster Authentication (v0.8.0-beta)
 - **HMAC-SHA256 signatures** for inter-node communication
 - Each node has a unique `node_token` (32-byte secure random)
 - Request signing: `HMAC-SHA256(node_token, method + path + timestamp + nonce + body)`
@@ -348,7 +348,7 @@ Global Admin (No tenant)
 
 **Key Point**: Client requests "backups/file.txt", backend serves from "tenant-abc123/backups/file.txt"
 
-### Cluster Request Routing (v0.7.0-beta)
+### Cluster Request Routing (v0.8.0-beta)
 
 **Scenario**: Client uploads object to bucket located on different node
 
@@ -373,7 +373,7 @@ Global Admin (No tenant)
 
 **Performance Optimization**: Subsequent requests hit cache (5ms vs 50ms)
 
-### Cluster Replication Flow (v0.7.0-beta)
+### Cluster Replication Flow (v0.8.0-beta)
 
 **Scenario**: Automatic bucket replication from Node 1 to Node 2
 
@@ -460,7 +460,7 @@ Global Admin (No tenant)
 - ⚠️ Filesystem backend only (cloud storage backends planned)
 - ⚠️ Object versioning (basic implementation, not fully validated)
 - ⚠️ No automatic compression
-- ⚠️ Limited encryption key management (master key in config, HSM planned for v0.7.0)
+- ⚠️ Limited encryption key management (master key in config, HSM planned for future release)
 
 **Performance**
 - ✅ **Validated with MinIO Warp stress testing**
@@ -525,8 +525,8 @@ ExecStart=/usr/local/bin/maxiofs --data-dir /var/lib/maxiofs
 - Cross-region replication
 
 **Recently Implemented**
-- ✅ Multi-node clustering (v0.7.0-beta)
-- ✅ Cluster data replication with HA (v0.7.0-beta)
+- ✅ Multi-node clustering (v0.8.0-beta)
+- ✅ Cluster data replication with HA (v0.8.0-beta)
 - ✅ Server-Side Encryption at Rest (v0.4.1-beta)
 - ✅ Prometheus/Grafana monitoring (v0.3.2-beta)
 - ✅ Comprehensive audit logging (v0.4.0-beta)

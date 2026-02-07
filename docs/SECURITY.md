@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 0.7.0-beta
+**Version**: 0.8.0-beta
 **Last Updated**: January 16, 2026
 
 > **BETA SOFTWARE DISCLAIMER**: MaxIOFS is in beta stage. Core security features are implemented, but third-party security audits have not been conducted. Production use requires thorough testing in your environment.
@@ -144,7 +144,7 @@ chmod 400 master_key.key
 1. Store master key outside data directory
 2. Restrict permissions (400 or 600)
 3. Backup master key securely (encrypted backups)
-4. Use Hardware Security Module (HSM) for production (planned v0.7.0)
+4. Use Hardware Security Module (HSM) for production (planned for future release)
 5. Rotate keys regularly (manual process currently)
 
 **Key Rotation** (manual):
@@ -469,7 +469,7 @@ aws s3api put-object-retention \
 2. **Limited Encryption Options**
    - Single master key for all tenants
    - No per-tenant encryption keys
-   - No HSM integration (planned v0.7.0)
+   - No HSM integration (planned for future release)
    - Manual key rotation required
 
 3. **Authentication Limitations**
@@ -479,7 +479,7 @@ aws s3api put-object-retention \
 
 4. **Audit Log Retention**
    - SQLite storage (size limits for very high volume)
-   - No external log shipping (syslog planned v0.7.0)
+   - No external log shipping (syslog planned for future release)
    - Manual export required for long-term archival
 
 ### Mitigations
@@ -566,7 +566,7 @@ aws s3api put-object-retention \
 
 ---
 
-**Version**: 0.7.0-beta
+**Version**: 0.8.0-beta
 **Last Updated**: January 16, 2026
 
 For additional security information, see:

@@ -1,3 +1,19 @@
+maxiofs (0.8.0-beta) unstable; urgency=medium
+
+  * Release v0.8.0-beta
+  * Object Filters & Advanced Search - content-type, size range, date range, tag filtering
+  * New /objects/search endpoint with server-side filtering in BadgerDB
+  * Frontend filter panel with content-type checkboxes, size/date ranges, tag management
+  * Backend test coverage at practical ceiling (metadata 87.4%, object 77.3%, server 66.1%)
+  * S3 API headers corrected for VEEAM compatibility
+  * Cluster production hardening (rate limiting, circuit breakers, metrics)
+  * ListBuckets cross-node aggregation fix
+  * Cluster-aware quota enforcement security fix
+  * Version check notification badge for global admins (fetches from maxiofs.com)
+  * Fixed dark mode toggle freeze and persistence to user profile
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Fri, 07 Feb 2026 12:00:00 +0000
+
 maxiofs (0.7.0-beta) unstable; urgency=medium
 
   * Feature release: Bucket Inventory, Performance Profiling & Database Migrations

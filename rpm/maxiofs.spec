@@ -239,6 +239,15 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Fri Feb 07 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 0.8.0-1
+- Version 0.8.0-beta
+- Object Filters & Advanced Search with server-side filtering
+- Backend test coverage at practical ceiling
+- S3 API headers corrected for VEEAM compatibility
+- Cluster production hardening and security fixes
+- Version check notification badge for global admins
+- Fixed dark mode toggle freeze and persistence to user profile
+
 * Sun Jan 05 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 0.7.0-1
 - Version 0.7.0
 - CRITICAL FIX: RPM packages now preserve /etc/maxiofs/config.yaml

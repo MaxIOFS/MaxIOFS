@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Home,
@@ -20,12 +20,15 @@ import {
   Info,
   FileText,
   Server,
+  ArrowUpCircle,
+  CheckCircle2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useTheme } from '@/contexts/ThemeContext';
 import ModalManager, { ModalRenderer, ToastNotifications } from '@/lib/modals';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import APIClient from '@/lib/api';
 import type { ServerConfig } from '@/types';
 
@@ -111,7 +114,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
-  const [darkMode, setDarkMode] = useState(false);
+  const { theme, effectiveTheme, setTheme } = useTheme();
 
   // Get base path from window (injected by backend based on public_console_url)
   const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
@@ -122,10 +125,37 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     queryFn: APIClient.getServerConfig,
   });
 
+  // Check for new version (fetches from maxiofs.com)
+  const { data: latestVersionData, isError: versionCheckFailed, isLoading: versionCheckLoading } = useQuery<{ version: string }>({
+    queryKey: ['latestVersion'],
+    queryFn: async () => {
+      const res = await fetch('https://maxiofs.com/version.json');
+      if (!res.ok) throw new Error('Failed to fetch version');
+      return res.json();
+    },
+    staleTime: 1000 * 60 * 60, // check once per hour
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+
   // Check if user is global admin (admin role + no tenant)
   const isGlobalAdmin = (user?.roles?.includes('admin') ?? false) && !user?.tenantId;
   const isTenantAdmin = (user?.roles?.includes('admin') ?? false) && !!user?.tenantId;
   const isAnyAdmin = isGlobalAdmin || isTenantAdmin;
+
+  // Compare semver strings (strips leading 'v' and trailing labels like '-beta')
+  const isNewerVersion = (latest: string, current: string): boolean => {
+    const parse = (v: string) => v.replace(/^v/, '').replace(/-.*$/, '').split('.').map(Number);
+    const [lMaj, lMin = 0, lPat = 0] = parse(latest);
+    const [cMaj, cMin = 0, cPat = 0] = parse(current);
+    if (lMaj !== cMaj) return lMaj > cMaj;
+    if (lMin !== cMin) return lMin > cMin;
+    return lPat > cPat;
+  };
+
+  const currentVersion = serverConfig?.version || '';
+  const latestVersion = latestVersionData?.version || '';
+  const hasNewVersion = isGlobalAdmin && !!latestVersion && !!currentVersion && isNewerVersion(latestVersion, currentVersion);
 
   const { data: tenant } = useQuery({
     queryKey: ['tenant', user?.tenantId],
@@ -167,23 +197,17 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return item;
   });
 
-  // Dark Mode Toggle
-  useEffect(() => {
-    const isDark = localStorage.getItem('darkMode') === 'true';
-    setDarkMode(isDark);
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-    }
-  }, []);
+  // Save theme preference to user profile
+  const saveThemeMutation = useMutation({
+    mutationFn: (newTheme: 'light' | 'dark' | 'system') =>
+      APIClient.updateUserPreferences(user?.id || '', newTheme, user?.languagePreference || 'en'),
+  });
 
   const toggleDarkMode = () => {
-    const newDarkMode = !darkMode;
-    setDarkMode(newDarkMode);
-    localStorage.setItem('darkMode', String(newDarkMode));
-    if (newDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    const newTheme = effectiveTheme === 'dark' ? 'light' : 'dark';
+    setTheme(newTheme);
+    if (user?.id) {
+      saveThemeMutation.mutate(newTheme);
     }
   };
 
@@ -338,9 +362,29 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <p className="text-xs text-gray-500 dark:text-gray-400">All systems operational</p>
             </div>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-3">
-            {serverConfig?.version || 'Loading...'}
-          </p>
+          <div className="text-center mt-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {serverConfig?.version || 'Loading...'}
+            </p>
+            {isGlobalAdmin && (
+              hasNewVersion ? (
+                <a
+                  href="https://maxiofs.com/downloads"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-full bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 text-xs font-medium hover:bg-amber-100 dark:hover:bg-amber-500/30 transition-colors duration-200 border border-amber-200 dark:border-amber-500/30 animate-pulse"
+                >
+                  <ArrowUpCircle className="h-3.5 w-3.5" />
+                  New Release: {latestVersion}
+                </a>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-medium border border-emerald-200 dark:border-emerald-500/30">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Latest Version
+                </span>
+              )
+            )}
+          </div>
         </div>
       </aside>
 
@@ -376,9 +420,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <button
                 onClick={toggleDarkMode}
                 className="flex h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 shadow-soft hover:shadow-soft-md"
-                title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+                title={effectiveTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
               >
-                {darkMode ? (
+                {effectiveTheme === 'dark' ? (
                   <Sun className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-yellow-500" />
                 ) : (
                   <Moon className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-gray-600" />

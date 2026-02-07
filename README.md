@@ -1,7 +1,7 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.7.0-beta
-**Status**: Beta - 98% S3 Compatible
+**Version**: 0.8.0-beta
+**Status**: Beta - 100% S3 Compatible
 **License**: MIT
 **Website**: [maxiofs.com](https://maxiofs.com)
 
@@ -185,9 +185,8 @@ make build-all
 **See [CHANGELOG.md](CHANGELOG.md) for complete version history and roadmap**
 
 Recent releases:
-- **v0.7.0-beta** - Bucket inventory, performance profiling, database migrations, metrics test expansion
-- **v0.6.2-beta** - API documentation fixes, Console API endpoint enhancements, LICENSE file addition
-- **v0.6.1-beta** - Build requirements update, frontend dependencies upgrade, S3 test coverage expansion
+- **v0.8.0-beta** - Object search & filters, security fixes, cluster production hardening
+- **v0.7.0-beta** - Bucket inventory, performance profiling, database migrations
 - **v0.6.0-beta** - Multi-node cluster support with HA replication
 - **v0.5.0-beta** - S3-compatible bucket replication
 

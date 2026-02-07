@@ -35,7 +35,7 @@ endif
 # Build variables
 BINARY_NAME=maxiofs$(BINARY_EXT)
 # Default version - update this when releasing new versions
-DEFAULT_VERSION=v0.7.0-beta
+DEFAULT_VERSION=v0.8.0-beta
 # Try to get VERSION from environment, fallback to DEFAULT_VERSION
 ifeq ($(DETECTED_OS),Windows)
 	VERSION?=$(if $(VERSION_ENV),$(VERSION_ENV),$(DEFAULT_VERSION))
@@ -1018,8 +1018,8 @@ help:
 	@echo "  make build-all                                 - Build for all platforms"
 	@echo "  make deb VERSION=v0.4.1-beta                   - Build Debian AMD64 package"
 	@echo "  make deb-arm64 VERSION=v0.4.1-beta             - Build Debian ARM64 package"
-	@echo "  make rpm VERSION=v0.7.0                        - Build RPM AMD64 package"
-	@echo "  make rpm-arm64 VERSION=v0.7.0                  - Build RPM ARM64 package"
+	@echo "  make rpm VERSION=v0.8.0                        - Build RPM AMD64 package"
+	@echo "  make rpm-arm64 VERSION=v0.8.0                  - Build RPM ARM64 package"
 	@echo "  make rpm-docker                                - Build RPM using Docker"
 	@echo "  make deb-install                               - Build and install package"
 	@echo "  make docker-up                                 - Start MaxIOFS in Docker"

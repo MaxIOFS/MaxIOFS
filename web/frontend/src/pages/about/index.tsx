@@ -329,88 +329,48 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New Features in v0.7.0-beta
+            New Features in v0.8.0-beta
           </h2>
           <div className="space-y-4">
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Bucket Inventory System - Automated Report Generation
+                Object Filters & Advanced Search
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Complete S3-compatible inventory system with automated periodic report generation (daily/weekly schedules). Supports CSV and
-                JSON formats with 12 configurable fields including size, ETag, storage class, and encryption status. Includes REST API
-                endpoints for configuration management, frontend UI with inventory tab in bucket settings, and cluster migration integration.
-                11 comprehensive tests with 100% coverage ensure reliability.
+                New /objects/search endpoint with server-side filtering by content-type (prefix match), size range, date range,
+                and tags (AND semantics). Frontend filter panel with content-type checkboxes, size range with unit selector,
+                date range inputs, and dynamic tag management. Integrated into bucket detail page with active filter count badge.
               </p>
             </div>
 
             <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Database Migration System - Schema Versioning Framework
+                Backend Test Coverage at Practical Ceiling
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Comprehensive database schema versioning with automatic migration execution on startup. Features 8 historical migrations
-                (v0.1.0 to v0.6.2), version tracking with schema_version table, and transaction-based migrations for data integrity.
-                Supports incremental migrations to specific versions and prevents accidental downgrades. 18 comprehensive tests validate
-                all migration scenarios with 100% pass rate.
+                All testable business logic covered: metadata 87.4%, object 77.3%, server 66.1%, cmd 71.4%.
+                Remaining uncovered code is infrastructure that cannot be unit-tested (server lifecycle, remote node communication,
+                filesystem operations, database error branches).
               </p>
             </div>
 
             <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Performance Profiling & Benchmarking Infrastructure
+                Cluster Production Hardening
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Production-ready performance monitoring with 36 Go benchmarks covering storage operations (12 tests), encryption (13 tests),
-                and authentication. CI/CD integration executes benchmarks in nightly builds with results published to S3. Cross-platform
-                Makefile targets (make bench, make bench-profile) support local profiling. Added pprof endpoints (/debug/pprof/*) for live
-                production profiling with admin-only access.
+                Rate limiting, circuit breakers, and metrics improvements. ListBuckets cross-node aggregation fix.
+                Cluster-aware quota enforcement security fix preventing quota bypass across nodes.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Metrics Test Suite Expansion - 102 New Test Functions
+                S3 API Compatibility Improvements
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Dramatically improved monitoring test coverage from 25.8% to 36.2% (+10.4 points, +40.3% improvement). Added 102 test
-                functions including 28 system metrics tests (CPU, memory, disk, requests), 17 collector tests (metrics collection, health
-                checks), 29 SQLite history tests, and 28 BadgerDB history tests. 45 tests currently active with 57 pending database
-                refactoring for test isolation.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-red-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                CI/CD Improvements - RPM Package Generation
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Enhanced build pipeline with RPM package generation for RHEL/CentOS/Fedora distributions. Docker-based builds using Rocky
-                Linux 9 produce both AMD64 (x86_64) and ARM64 (aarch64) packages. Fixed permission issues in artifact preparation with sudo
-                commands for Docker-created directories. Automated benchmark execution integrated into nightly builds with results uploaded
-                to S3.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-green-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                AWS-Compatible Access Key Format
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Access keys now follow AWS standard format with AKIA prefix for access key IDs (20 characters total) and 40-character
-                base64-encoded secret keys. New functions generateAccessKeyID() and generateSecretAccessKey() ensure compatibility with AWS
-                tools and SDKs. Fully backward compatible with existing access keys - only new keys use the updated format.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-blue-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Dependencies Cleanup & Code Quality
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Removed unused github.com/mattn/go-sqlite3 dependency identified by go mod tidy, reducing build complexity. Deleted
-                .env.example file that wasn't loaded by the application (no godotenv integration), preventing developer confusion about
-                configuration. Application continues to support environment variables via viper's AutomaticEnv() and command-line flags.
+                Corrected S3 API response headers for better compatibility with VEEAM and other S3 clients.
+                SOSAPI improvements for capacity reporting and tenant quota integration.
               </p>
             </div>
 

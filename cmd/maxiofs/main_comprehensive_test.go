@@ -278,7 +278,7 @@ built in Go with an embedded React web interface.`,
 func TestCobraCommand_VersionOutput(t *testing.T) {
 	rootCmd := &cobra.Command{
 		Use:     "maxiofs",
-		Version: "v0.7.0-beta (commit: abc123, built: 20260116)",
+		Version: "v0.8.0-beta (commit: abc123, built: 20260207)",
 	}
 
 	var buf bytes.Buffer
@@ -289,7 +289,7 @@ func TestCobraCommand_VersionOutput(t *testing.T) {
 	require.NoError(t, err)
 
 	versionOutput := buf.String()
-	assert.Contains(t, versionOutput, "v0.7.0-beta")
+	assert.Contains(t, versionOutput, "v0.8.0-beta")
 }
 
 // TestCobraCommand_FlagParsing tests parsing of various flag combinations

@@ -5,515 +5,40 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.0-beta] - 2026-02-07
 
 ### Added
-
-- **🔍 Object Filters & Advanced Search** - February 6, 2026. Implemented server-side object filtering with a new console API endpoint and frontend filter panel, enabling users to search objects by content type, size range, date range, and tags.
-  - **New endpoint**: `GET /api/v1/buckets/{bucket}/objects/search` — separate from S3-compatible listing to keep S3 path clean
-  - **Metadata layer** (`internal/metadata/store.go`):
-    - Added `ObjectFilter` struct: `ContentTypes` (prefix match), `MinSize`/`MaxSize` (byte range, inclusive), `ModifiedAfter`/`ModifiedBefore`, `Tags` (AND semantics)
-    - Added `SearchObjects()` method to the `Store` interface
-  - **BadgerDB implementation** (`internal/metadata/badger_objects.go`):
-    - `matchesFilter()` — content-type prefix match, size range, date range, tag AND-match
-    - Two search strategies: prefix-scan with 100k scan limit (no tags) or tag-index-first candidate selection (with tags)
-  - **Object Manager** (`internal/object/manager.go`):
-    - Added `SearchObjects()` to `Manager` interface and implementation
-    - Handles bucket validation, delimiter/common-prefix logic, skips internal files and delete markers
-  - **Console API** (`internal/server/console_api.go`):
-    - Query params: `content_type` (comma-separated prefixes), `min_size`/`max_size` (int64), `modified_after`/`modified_before` (RFC3339), `tag` (repeatable, `key:value` format)
-    - Same auth/tenant pattern and JSON response shape as `handleListObjects`
-  - **Frontend** — Types (`ObjectSearchFilter`, `SearchObjectsRequest`), API client (`APIClient.searchObjects()`), new `ObjectFilterPanel` component with:
-    - Content-type checkboxes (Images, Documents, Videos, Archives, Text)
-    - Size range inputs with unit selector (B/KB/MB/GB)
-    - Date range with native date inputs
-    - Dynamic tag key=value pair management
-    - Active filter count badge on Filters button
-  - **Bucket detail page** (`web/frontend/src/pages/buckets/[bucket]/index.tsx`):
-    - Filters button next to search bar; React Query switches to `searchObjects()` when filters are active
-    - Collapsible `ObjectFilterPanel` rendered below toolbar
-  - **Test coverage** — 22 new tests across 3 layers:
-    - 12 metadata tests: content-type, size range, date range, tags (single/multi), combined, pagination, prefix, empty bucket, min-size-only, multiple content types
-    - 4 object manager tests: basic filtering, bucket not found, delimiter handling, empty filter
-    - 6 server endpoint tests: auth required, no filters, content-type, min_size, bucket not found, combined filters
-  - All tests passing, full project builds cleanly
-
-### Changed
-
-- **🔄 AWS SDK v2 Endpoint Configuration Updated** - February 6, 2026. Migrated from deprecated global endpoint resolver to service-specific endpoint configuration.
-  - Modified `internal/replication/s3client.go` - Replaced deprecated `aws.EndpointResolverWithOptionsFunc` and `aws.Endpoint` with `o.BaseEndpoint` in S3 client options
-  - This is the recommended approach for custom endpoints in AWS SDK v2
-  - Eliminates staticcheck SA1019 deprecation warnings
+- Object Filters & Advanced Search — new `GET /api/v1/buckets/{bucket}/objects/search` endpoint with server-side filtering by content-type (prefix match), size range, date range, and tags (AND semantics)
+- Frontend filter panel with content-type checkboxes, size range with unit selector, date range inputs, and dynamic tag management
+- Object Lock default retention storage — bucket-level default retention configuration completing the Object Lock feature set
+- Bucket policy enforcement — complete AWS S3-compatible policy evaluation engine (Default Deny → Explicit Allow → Explicit Deny)
+- Presigned URL signature validation — AWS Signature V4 and V2 validation preventing unauthorized access and parameter tampering
+- Cluster join functionality — multi-step join protocol for dynamic cluster expansion
+- Cross-node bucket aggregation — web console and S3 API show buckets from all cluster nodes
+- Cross-node storage quota aggregation — tenant quotas enforced cluster-wide instead of per-node
+- Production hardening: rate limiting (token bucket, 100 req/s), circuit breakers (3-state), and cluster metrics
+- Node location column in bucket list UI with health status indicators
+- Comprehensive test coverage expansion across all modules (metadata 87.4%, object 77.3%, server 66.1%, cmd 71.4%)
+- Version check notification — global admins see a badge in the sidebar indicating if a new release is available (fetches from maxiofs.com/version.json), clickable to downloads page
 
 ### Fixed
-
-- **🔧 Lint Error: Tautological Condition in Cluster Tenant Handlers** - February 6, 2026. Fixed staticcheck warnings SA4010 (tautological condition: non-nil != nil) in cluster tenant sync handlers.
-  - Modified `internal/server/cluster_tenant_handlers.go` - Removed redundant `err != nil` checks inside existing `if err != nil` blocks (lines 167, 355)
-  - Conditions now correctly check only `err.Error() == "UNIQUE constraint failed: ..."` without redundant nil check
-
-- **🐛 CRITICAL FIX: ListBuckets returns empty in standalone mode** - January 31, 2026. Fixed bug where `ListBuckets` S3 API returned empty array when cluster mode was enabled but no cluster nodes were configured. The bucket aggregator now ALWAYS includes local buckets first, then aggregates from remote nodes if available. This ensures buckets are always visible even in standalone mode with cluster enabled.
-  - Modified `internal/cluster/bucket_aggregator.go` - ListAllBuckets() now queries local buckets FIRST
-  - Modified `internal/cluster/manager.go` - Added GetLocalNodeName() method
-  - Modified `internal/cluster/quota_aggregator.go` - Added GetLocalNodeName() to ClusterManagerInterface
-  - Modified `internal/server/server.go` - Pass bucketManager to NewBucketAggregator
-  - **Impact**: Users can now see their buckets in all deployment modes (standalone, cluster with nodes, cluster without nodes)
-
-### Removed
-
-- **🧹 Dead Code Cleanup** - February 6, 2026. Removed unused functions and fields identified by staticcheck (U1000).
-  - Removed `generateRandomString()` from `internal/auth/manager.go` - Unused helper function
-  - Removed `initSchema()` from `internal/auth/sqlite.go` - Deprecated, replaced by migration system
-  - Removed `runMigrations()` from `internal/auth/sqlite.go` - Deprecated, replaced by migration system  
-  - Removed `isDuplicateColumnError()` from `internal/auth/sqlite.go` - Only used by removed functions
-  - Removed `contains()` from `internal/auth/sqlite.go` - Only used by removed functions
-  - Removed `findSubstring()` from `internal/auth/sqlite.go` - Only used by removed functions
-  - Removed `lastCPU` field from `internal/metrics/collector.go` - Unused struct field
-  - Removed `createTestUser()` from `internal/server/console_api_test.go` - Unused test helper function
-  - Fixed unused variable `total` in `internal/audit/sqlite_test.go` - Changed to blank identifier `_`
-- Removed unused `.env.example` file
-- Cleaned up unused dependencies
-
-### Added
-
-- **🔒 Object Lock Default Retention Storage** - February 1, 2026. Implemented bucket-level default retention configuration storage, completing the Object Lock feature set. Features:
-  - **Modified `internal/object/lock.go`**:
-    - Added `BucketConfigManager` interface for bucket configuration operations
-    - Updated `objectLock` struct to include optional `bucketManager` field
-    - Updated `NewObjectLocker()` to accept `bucketManager` parameter
-    - Implemented `SetDefaultRetention()` - Stores bucket-level default retention in bucket ObjectLock configuration
-    - Implemented `GetDefaultRetention()` - Retrieves bucket-level default retention from bucket configuration
-    - Converts between `ObjectLockRetention` (with absolute RetainUntilDate) and `bucket.DefaultRetention` (with relative Days/Years)
-    - Extracts tenant ID from context using `auth.GetTenantIDFromContext()`
-    - Validates Object Lock is enabled before setting default retention
-    - Proper error handling for missing bucket manager or invalid configurations
-  - **Integration with bucket manager**:
-    - Uses `bucket.Manager.GetObjectLockConfig()` and `SetObjectLockConfig()` for persistence
-    - Stores default retention in `bucket.ObjectLock.Rule.DefaultRetention` structure
-    - Supports both Days and Years retention periods (AWS S3 compatible format)
-  - **Comprehensive test suite** (`internal/object/lock_default_retention_test.go` - 5 test functions, 13 test cases):
-    - `TestSetDefaultRetention()` - Tests setting default retention (5 scenarios)
-    - `TestSetDefaultRetentionNoBucketManager()` - Error handling when bucket manager unavailable
-    - `TestGetDefaultRetention()` - Tests retrieving default retention (5 scenarios)
-    - `TestGetDefaultRetentionNoBucketManager()` - Error handling for missing bucket manager
-    - `TestDefaultRetentionRoundTrip()` - End-to-end test: set then get default retention
-    - Tests cover: Governance/Compliance modes, Days/Years periods, disabled Object Lock, missing config, invalid retention
-    - All tests passing with proper validation
-  - **Backward compatibility**:
-    - `bucketManager` parameter is optional (can be nil)
-    - Existing code without bucket manager integration continues to work
-    - All existing tests updated with nil bucket manager parameter
-  - **Impact**:
-    - **BEFORE**: Bucket-level default retention had TODO placeholder, returned error
-    - **AFTER**: Full bucket-level default retention support
-    - When configured, new objects automatically inherit bucket's default retention period
-    - Completes Object Lock implementation (object retention + legal hold + default retention)
-    - AWS S3 compatible default retention API support
-
-- **🔴 CRITICAL FIX: Cluster Replication Now Replicates Real Object Data** - February 1, 2026. Fixed critical bug where cluster replication only replicated metadata but NOT the actual object content, making cluster replication non-functional for real use. Features:
-  - **Modified `internal/cluster/replication_worker.go`**:
-    - Added `objectManager object.Manager` field to `ClusterReplicationWorker`
-    - Implemented real object data retrieval using `objectManager.GetObject()` (replaces metadata-only placeholder)
-    - Sends actual object content in HTTP PUT requests (replaces empty byte array)
-    - Automatic decryption handled by ObjectManager before replication
-    - Backward compatibility: Falls back to metadata-only if objectManager is nil
-  - **Modified `internal/server/cluster_object_handlers.go`**:
-    - Implemented `handleReceiveObject()` to use `objectManager.PutObject()` for real storage
-    - Automatic encryption with destination node's encryption key
-    - Implemented `handleReceiveObjectDeletion()` to use `objectManager.DeleteObject()` for real deletion
-    - Removed all TODO placeholders and commented-out code
-    - Both handlers include fallback mode for backward compatibility
-  - **Modified `internal/cluster/replication_manager.go`**:
-    - Added `objectManager` field to `ClusterReplicationManager`
-    - Updated `NewClusterReplicationManager()` signature to accept `objectManager`
-    - Passes objectManager to all replication workers
-  - **Modified `internal/server/server.go`**:
-    - Updated `NewClusterReplicationManager()` call to pass real `objectManager`
-  - **Test compatibility**:
-    - All tests updated to pass `nil` objectManager (backward compatible)
-    - Compilation successful - all packages build correctly
-  - **Impact**:
-    - **BEFORE**: Cluster replication was "fake" - only metadata replicated, no actual file content
-    - **AFTER**: Full cluster replication - objects AND their content replicated correctly
-    - Enables actual multi-node cluster deployments with working replication
-    - Object deletions now propagate correctly across cluster
-    - **Production blocker resolved** - cluster replication now fully functional
-
-- **🔒 CRITICAL: Bucket Policy Enforcement** - February 1, 2026. Implemented complete AWS S3-compatible bucket policy evaluation engine, fixing critical gap where policies could be configured but were never enforced. Features:
-  - **Created `internal/bucket/policy_evaluation.go`** - Complete policy evaluation engine (318 lines):
-    - `EvaluatePolicy()` - Main evaluation function implementing AWS policy logic
-    - Supports all AWS evaluation rules: Default Deny → Explicit Allow → Explicit Deny (deny always wins)
-    - Wildcard matching for Principal, Action, and Resource
-    - ARN normalization (handles both "arn:aws:s3:::bucket/*" and "bucket/*" formats)
-    - Multiple statement evaluation with proper precedence
-    - Convenience functions: `IsActionAllowed()`, `IsActionDenied()`
-  - **Modified `pkg/s3compat/handler.go`**:
-    - Implemented `checkBucketPolicyPermission()` - Evaluates policies for specific S3 actions
-    - Updated `userHasBucketPermission()` - Now checks BOTH ACLs AND bucket policies
-    - Removed TODO at line 351 - Bucket policy checking is now fully implemented
-  - **Policy evaluation features**:
-    - **Principal matching**: Supports "*", string, "AWS" map, "CanonicalUser" map, arrays
-    - **Action matching**: Supports exact match, wildcards (s3:*, s3:Get*), arrays
-    - **Resource matching**: Supports exact match, wildcards (bucket/*, bucket/prefix/*), arrays
-    - **ARN formats**: Normalizes "bucket/object", "arn:aws:s3:::bucket/object" to same format
-    - **Multi-statement**: Evaluates all statements with correct precedence
-  - **Comprehensive test suite** (`internal/bucket/policy_evaluation_test.go` - 12 test functions, 50+ test cases):
-    - Default deny behavior (no policy = deny)
-    - Explicit allow grants access
-    - Explicit deny overrides allows (deny always wins)
-    - Wildcard matching (principal, action, resource)
-    - ARN normalization tests
-    - Multiple statements evaluation
-    - Real-world scenarios: Public read policy, cross-account access
-    - All principal formats (string, map, array)
-    - All 12 tests passing with 50+ sub-tests
-  - **Supported AWS policy features**:
-    - Effect: "Allow", "Deny"
-    - Principal: "*", string, {"AWS": "user"}, {"AWS": ["user1", "user2"]}, {"CanonicalUser": "id"}
-    - Action: "s3:*", "s3:GetObject", "s3:Get*", ["s3:GetObject", "s3:PutObject"]
-    - Resource: "*", "arn:aws:s3:::bucket/*", ["resource1", "resource2"]
-    - Sid: Optional statement identifier
-  - **AWS S3 compatibility**: Implements same evaluation logic as AWS S3 bucket policies
-  - **Impact**: Bucket policies configured by users are now actually enforced. Critical security fix - policies were configurable but had zero effect before this implementation.
-
-- **🔒 SECURITY FIX: Presigned URL Signature Validation** - February 1, 2026. Implemented complete AWS Signature V4 and V2 validation for presigned URLs, fixing two critical security vulnerabilities that allowed unauthorized access. Features:
-  - **Modified `pkg/s3compat/presigned.go`**:
-    - Implemented `validatePresignedURLV4()` with full signature reconstruction and validation (lines 154-254)
-    - Implemented `validatePresignedURLV2()` with full signature validation (lines 257-296)
-    - Added `getSecretKeyForAccessKey()` helper to retrieve secret keys via authManager (lines 361-373)
-    - Uses constant-time comparison (`hmac.Equal`) to prevent timing attacks
-    - Validates signature matches after parameter extraction
-    - Detects parameter tampering (e.g., X-Amz-Expires modification)
-  - **Security vulnerabilities fixed**:
-    - ✅ **BUG 1 FIXED**: Invalid signatures now properly rejected with "signature does not match" error
-    - ✅ **BUG 2 FIXED**: Parameter tampering detection working - signature fails when params are modified
-  - **Comprehensive test suite** (`pkg/s3compat/presigned_test.go` - 18 test functions, 51 total test cases):
-    - V4 Signature Generation tests (4 tests): Success, default expiration, max expiration, custom expiration
-    - V4 Signature Validation tests (8 tests): Valid/invalid signature, tampered parameters, expired URLs, missing parameters, invalid algorithm, different HTTP methods, special characters
-    - V2 Signature tests (4 tests): V2 generation, V2 validation, consistency, format validation
-    - Mock authManager for unit testing
-    - All 18 tests passing (17 passing + 1 intentionally skipped integration test)
-  - **Algorithm details**:
-    - V4: HMAC-SHA256 with canonical request reconstruction (method + path + query + headers + payload)
-    - V2: HMAC-SHA256 with legacy format (method + "\n\n\n" + expires + "\n" + path)
-    - Both algorithms validate against secret key from authManager
-  - **Impact**: Prevents unauthorized access via forged presigned URLs, ensures URL parameters cannot be tampered with after signature generation. Critical security fix for production deployments.
-
-- **🧪 web Package Test Suite - Embedded Filesystem Testing** - February 1, 2026. Implemented comprehensive test suite for the embedded frontend filesystem, achieving 100% coverage. Features:
-  - Created `web/embed_test.go` with 16 test functions (all passing)
-  - **GetFrontendFS() tests** (13 tests):
-    - Success: Verifies function returns valid filesystem without errors
-    - Contains index.html: Validates main HTML file exists and is accessible
-    - Read index.html: Tests reading and validating HTML content structure
-    - Contains assets directory: Verifies asset directory structure
-    - Contains JavaScript files: Validates JS files are embedded
-    - Contains CSS files: Validates stylesheet files are embedded
-    - Contains images: Verifies image assets (PNG, SVG, etc.)
-    - Walk directory: Tests filesystem traversal (found 12 files, 3 directories)
-    - Read specific asset: Tests reading large JS files (~383KB)
-    - File info: Validates file metadata (name, size, type, modtime)
-    - Open non-existent file: Tests error handling for missing files
-    - Path separators: Validates forward slash paths work correctly
-    - Consistent results: Ensures multiple calls return identical content
-    - Glob pattern: Tests pattern matching for file discovery
-  - **FrontendAssets tests** (2 tests):
-    - Direct access: Verifies embed.FS variable is accessible
-    - Subdirectory structure: Maps complete filesystem structure
-  - **File validation**:
-    - HTML validation (DOCTYPE, html tags)
-    - Asset discovery (JS, CSS, images)
-    - Path handling (forward slashes, subdirectories)
-    - Error handling (fs.ErrNotExist for missing files)
-  - Coverage: **0% → 100.0%** (perfect coverage)
-  - All 16 tests passing
-  - **Impact**: Ensures embedded frontend assets are correctly bundled, accessible, and serve-able by the web server
-
-- **🧪 cmd/maxiofs Test Suite - CLI Testing** - February 1, 2026. Implemented comprehensive test suite for the main CLI application, bringing coverage from 0% to 71.4%. Features:
-  - Created `cmd/maxiofs/main_test.go` with 20 test functions (24 total tests including sub-tests)
-  - **setupLogging() tests** (10 tests):
-    - Debug, Info, Warn, Error level configuration
-    - Default level handling for invalid inputs
-    - JSON formatter configuration and preservation
-    - Output format validation
-    - Concurrent calls safety
-    - Formatter preservation across all levels
-  - **runServer() tests** (4 tests):
-    - TLS validation (both cert and key required together)
-    - Configuration loading from flags
-    - Log level configuration
-    - TLS enablement when both cert and key provided
-  - **Cobra command setup tests** (6 tests):
-    - Version information format validation
-    - Command metadata (Use, Short, Long, Version)
-    - Flag registration (config, data-dir, listen, console-listen, log-level, tls-cert, tls-key)
-    - Flag shortcuts (-c, -d, -l)
-    - Flag type validation
-    - Default values verification
-  - Coverage: **0% → 71.4%** (significant improvement)
-  - All 20 tests passing
-  - **Impact**: Ensures CLI initialization, configuration loading, logging setup, and TLS validation work correctly
-
-- **🔗 Cluster Join Functionality (JoinCluster)** - February 1, 2026. Implemented complete cluster join functionality allowing new nodes to join existing clusters via cluster token. Features:
-  - Multi-step join protocol: token validation → node registration → config update → cluster sync
-  - Token-based authentication separate from HMAC for join endpoints
-  - HTTP-based node registration and synchronization
-  - Automatic node information generation (node ID, name, token)
-  - Cluster node fetching and local registration
-  - Three new HTTP endpoints for cluster joining:
-    - `POST /api/internal/cluster/validate-token` - Validates cluster token and returns cluster info
-    - `POST /api/internal/cluster/register-node` - Registers new node with cluster
-    - `GET /api/internal/cluster/nodes` - Fetches list of all cluster nodes
-  - Modified `internal/cluster/manager.go` - Implemented JoinCluster() and helper methods (validateClusterToken, registerWithCluster, fetchClusterNodes)
-  - Modified `internal/cluster/types.go` - Added ClusterInfo struct for validation response
-  - Modified `internal/server/cluster_handlers.go` - Added 3 handler functions for join endpoints
-  - Modified `internal/server/server.go` - Registered new endpoints with separate public router (no HMAC required for join)
-  - 5 comprehensive tests (`internal/cluster/join_cluster_test.go` - 292 lines):
-    - TestJoinCluster_Success - Full join flow with node synchronization
-    - TestJoinCluster_InvalidToken - Token validation failure handling
-    - TestJoinCluster_NodeRegistrationFailure - Registration endpoint failure
-    - TestJoinCluster_NetworkError - Network connectivity failure
-    - TestJoinCluster_NodeSynchronization - Multi-node sync verification
-  - Mock HTTP servers for testing cluster communication
-  - Fixed SQL schema compatibility (cluster_config table)
-  - Removed placeholder test expecting "not implemented yet"
-  - **Impact**: Enables dynamic cluster expansion without manual configuration, simplifies multi-node cluster setup
-
-- **🔒 ACL Security Tests & AWS S3 Compatible Bucket Ownership** - January 31, 2026. Implemented comprehensive ACL security test suite (10 tests) and fixed critical security bug in bucket creation to match AWS S3 behavior.
-
-  **SECURITY FIX - CreateBucket now AWS S3 compatible:**
-  - ❌ **BEFORE**: Bucket owner was hardcoded as "maxiofs" allowing unauthorized access to all buckets
-  - ✅ **AFTER**: Bucket owner is the actual creator's user ID (Canonical User ID), matching AWS S3 behavior
-  - Modified `internal/bucket/interface.go` - Added `ownerID` parameter to CreateBucket signature
-  - Modified `internal/bucket/manager_badger.go` - Uses real owner ID in default ACL creation (line 104)
-  - Modified `pkg/s3compat/handler.go:452` - Passes authenticated `user.ID` as bucket owner
-  - Modified `internal/server/console_api.go:972` - Passes authenticated `user.ID` as bucket owner
-  - Updated 91+ test files across the codebase to use new CreateBucket signature
-
-  **ACL Security Test Suite** (`pkg/s3compat/acl_security_test.go` - 10 comprehensive tests):
-
-  *checkBucketACLPermission (6 tests):*
-  - TestCheckBucketACLPermission_DefaultACL - Verifies buckets have private ACL by default with correct owner
-  - TestCheckBucketACLPermission_WithACL_UserHasPermission - User with explicit permission has access
-  - TestCheckBucketACLPermission_WithACL_UserNoPermission - User without permission is denied
-  - TestCheckBucketACLPermission_PublicAccess - AllUsers group enables public access
-  - TestCheckBucketACLPermission_ACLManagerNotAvailable - Handles ACL manager unavailability
-  - TestCheckBucketACLPermission_DifferentPermissions - Only granted permissions work, owner always has FULL_CONTROL (AWS S3 behavior)
-
-  *checkObjectACLPermission (2 tests - SECURITY CRITICAL):*
-  - TestCheckObjectACLPermission_WithObjectACL - Object with own ACL grants/denies access correctly
-  - TestCheckObjectACLPermission_FallbackToBucket - Object without ACL inherits bucket permissions
-
-  *checkPublicBucketAccess (2 tests - SECURITY CRITICAL):*
-  - TestCheckPublicBucketAccess_PublicReadACL - Bucket with AllUsers READ allows public access
-  - TestCheckPublicBucketAccess_PrivateACL - Private bucket (default) denies public access
-
-  **Impact**: Prevents unauthorized access to buckets, ensures ACL system works correctly, matches AWS S3 security model.
-
-- **🧹 Storage Leak Prevention Tests** - January 31, 2026. Implemented comprehensive test suite for `DeleteBucket` and `ForceDeleteBucket` operations to prevent storage leaks and orphaned files.
-
-  **Test Suite** (`internal/bucket/delete_bucket_test.go` - 6 tests):
-
-  *DeleteBucket Tests (3 tests):*
-  - TestDeleteBucket_WithObjects - Verifies DeleteBucket fails when bucket contains objects (AWS S3 behavior)
-  - TestDeleteBucket_CleansStorage - Ensures physical storage AND metadata are cleaned when deleting empty bucket
-  - TestDeleteBucket_MultipleBuckets - Validates selective deletion preserves other buckets
-
-  *ForceDeleteBucket Tests (3 tests - CRITICAL for storage management):*
-  - TestForceDeleteBucket_DeletesAllObjects - Confirms all objects are deleted before bucket deletion
-  - TestForceDeleteBucket_CleansMetadata - Verifies object metadata is removed from BadgerDB
-  - TestForceDeleteBucket_NonExistent - Validates error handling for non-existent buckets
-
-  **Impact**: Prevents storage leaks, ensures proper cleanup of both filesystem and metadata store, validates AWS S3 compatible behavior.
-
-- **Cross-node bucket aggregation in web console** - January 30, 2026. Implemented simple and efficient bucket aggregation for multi-node clusters in `internal/server/console_api.go`. The web console now shows:
-  - **Always**: All buckets from the local node's database (source of truth)
-  - **In cluster mode**: Also queries and displays buckets from OTHER healthy nodes (excludes self to avoid circular HTTP calls)
-  - **Real node names**: Shows the actual node name from cluster config (e.g., "node-01", "node-02") instead of generic "local"
-  - **Permission filtering**: Applies after aggregation, respecting tenant isolation and user permissions
-  - **Graceful degradation**: If remote node queries fail, local buckets are still shown
-  - **Load balancer friendly**: Node name is always correct regardless of which node serves the request
-  Features:
-  - `ListAllBuckets()` queries all nodes in parallel using goroutines for optimal performance
-  - HMAC-authenticated internal API endpoint `/api/internal/cluster/buckets` for secure node-to-node communication
-  - 5-second timeout per node with graceful degradation (continues if some nodes fail)
-  - Bucket responses include node location metadata (`node_id`, `node_name`, `node_status`)
-  - Modified `internal/server/console_api.go` handleListBuckets() to use aggregator in cluster mode
-  - Modified `pkg/s3compat/handler.go` ListBuckets() to use aggregator for S3 API
-  - Modified `internal/api/handler.go` to wire cluster components to S3 handler
-  - 6 comprehensive unit tests validating HTTP requests, timeouts, error handling, JSON parsing
-  - Dual-mode operation: cluster mode (aggregated) and standalone mode (local only)
-  - Added `BucketResponse` fields for cluster info in `internal/server/console_api.go`
-
-- **Cross-node storage quota aggregation system (QuotaAggregator)** - January 30, 2026. Implemented `internal/cluster/quota_aggregator.go` to aggregate tenant storage usage from all cluster nodes in real-time. Tenant storage quotas are now enforced cluster-wide instead of per-node. Features:
-  - `GetTenantTotalStorage()` sums storage from all healthy nodes in parallel
-  - HMAC-authenticated internal API endpoint `/api/internal/cluster/tenant/{tenantID}/storage`
-  - Modified `internal/auth/manager.go` CheckTenantStorageQuota() to use cluster-wide storage in cluster mode
-  - Modified `internal/server/cluster_handlers.go` with handleGetTenantStorage() handler
-  - 8 comprehensive unit tests + 6 end-to-end integration tests validating:
-    - Multi-node storage aggregation (3 nodes: 100MB + 200MB + 300MB = 600MB)
-    - Partial node failure handling (gracefully continues with available nodes)
-    - Complete failure detection (errors only when all nodes fail)
-    - Large scale performance (10 nodes queried in 2.8ms)
-    - Storage breakdown by node for monitoring
-  - Fallback to local storage check if aggregation fails
-  - Comprehensive logging with cluster mode detection
-
-- **🚀 Production hardening: Rate limiting for internal cluster APIs** - January 30, 2026. Implemented token bucket rate limiter (`internal/cluster/rate_limiter.go`) to protect internal cluster endpoints from abuse and DoS attacks. Features:
-  - Token bucket algorithm with configurable requests per second (100 req/s) and burst size (200)
-  - Per-IP rate limiting with automatic bucket creation and cleanup
-  - HTTP middleware integration applied to all `/api/internal/cluster` endpoints
-  - Returns HTTP 429 (Too Many Requests) when rate limit exceeded
-  - Automatic token refill based on elapsed time
-  - Stale bucket cleanup every 5 minutes to prevent memory leaks
-  - Statistics API for monitoring tracked IPs, configured rates, and burst size
-  - 16 comprehensive tests validating burst handling, token refill, concurrent requests, middleware integration
-  - Production-ready with minimal performance overhead
-
-- **🚀 Production hardening: Circuit breaker for node communication** - January 30, 2026. Implemented circuit breaker pattern (`internal/cluster/circuit_breaker.go`) to prevent cascading failures when cluster nodes are down or experiencing issues. Features:
-  - Three-state circuit breaker (Closed → Open → Half-Open → Closed)
-  - Opens after 3 consecutive failures, preventing further requests to failing nodes
-  - 30-second timeout before attempting recovery (Half-Open state)
-  - Requires 2 successful requests to close from Half-Open state
-  - Integrated into `BucketAggregator` and `QuotaAggregator` for all node communications
-  - Per-node circuit breakers managed by `CircuitBreakerManager`
-  - Statistics API showing state, failure/success counts, time until retry
-  - Automatic recovery testing and manual reset capability
-  - 19 comprehensive tests validating state transitions, concurrent calls, recovery logic
-  - Prevents resource exhaustion and reduces latency when nodes are unhealthy
-
-- **🚀 Production hardening: Metrics and monitoring for cluster operations** - January 30, 2026. Implemented comprehensive metrics tracking system (`internal/cluster/metrics.go`) for cluster health monitoring and performance analysis. Features:
-  - Request counters for bucket/quota aggregation (total, successes, failures, success rates)
-  - Node communication metrics (total requests, success/failure counts)
-  - Circuit breaker metrics (total opens, state changes)
-  - Rate limiting metrics (hits, misses, total requests)
-  - Latency tracking with min/max/avg calculations for all operations
-  - Atomic operations for thread-safe concurrent metric recording
-  - Statistics API returning structured JSON for monitoring dashboards
-  - Reset capability for metric windows
-  - 15 comprehensive tests validating concurrent recording, success rate calculations, latency tracking
-  - Production-ready for integration with Prometheus, Grafana, or custom monitoring solutions
-
-- **Web UI: Node location column in bucket list** - January 30, 2026. Added "Node" column to the buckets table showing the actual cluster node name where each bucket is stored. Features:
-  - Displays real node name from cluster configuration (e.g., "node-01", "node-02", "standalone")
-  - Health status indicator: green dot for healthy nodes
-  - Updated TypeScript types (`web/frontend/src/types/index.ts`) to include `node_id`, `node_name`, `node_status` fields
-  - Modified bucket list page (`web/frontend/src/pages/buckets/index.tsx`) to display node column
-  - Professional appearance: always shows meaningful node names, never generic "local"
-  - Load balancer friendly: correct node name regardless of which node serves the request
-
-- **🧪 Comprehensive test suite for Sprint 9 Phase 3: Production Hardening** - January 30, 2026. Implemented 1,462 lines of tests covering all critical cluster functionality to prevent regression of fixed bugs. Features:
-  - **ClusterAuthMiddleware tests** (`internal/middleware/cluster_auth_test.go`, 634 lines, 10 functions, 32 total tests)
-    - Tests HMAC-SHA256 authentication with signature validation
-    - Verifies timestamp skew window (5-minute replay attack prevention)
-    - Tests node status filtering (healthy/degraded/unavailable accepted, removed rejected)
-    - **CRITICAL**: Verifies correct `health_status` column usage (not `status`) to prevent SQL errors
-    - Validates authentication across different HTTP methods (GET/POST/PUT/DELETE/PATCH)
-    - Tests authentication on different cluster endpoint paths
-  - **Bucket Aggregation tests** (`internal/server/bucket_aggregation_test.go`, 548 lines, 12 functions, 18 total tests)
-    - Tests cross-node bucket queries with HMAC authentication
-    - Verifies timeout handling (10-second timeout per node)
-    - Tests graceful degradation on node failures
-    - Validates JSON response format matching
-    - Tests HTTP error handling (400/403/404/500/503)
-    - Verifies tenant isolation in multi-node scenarios
-    - Tests real node name display (not generic "local")
-  - **Route Ordering tests** (`internal/server/route_ordering_test.go`, 280 lines, 6 functions, 12 total tests)
-    - **CRITICAL**: Reproduces exact bug where S3 routes captured cluster endpoints
-    - Verifies cluster routes return 401 (auth error), NOT 403 (S3 error)
-    - Tests that `/api/internal/cluster/buckets` is not interpreted as bucket="api"
-    - Validates multiple cluster endpoints (GET and POST methods)
-    - Tests cluster authentication with valid HMAC credentials
-    - Verifies S3 endpoints still function correctly
-    - Tests behavior when cluster is disabled
-  - All tests passing with 100% success rate
-  - Prevents recurrence of 3 critical bugs: SQL column name, route ordering, bucket disappearing
-
-### Fixed
-
-- **🔥 CRITICAL SECURITY: Fixed tenant storage quota bypass vulnerability in multi-node clusters** - January 30, 2026. Tenant storage quotas were enforced per-node only, allowing tenants to exceed quota by a factor of N (number of nodes). Example: Tenant with 1TB quota could store 3TB on a 3-node cluster. **SECURITY FIX**: Modified `CheckTenantStorageQuota()` in `internal/auth/manager.go` to aggregate storage from ALL cluster nodes in real-time before allowing uploads. End-to-end tests confirm quota bypass attack is now prevented - tenants are correctly rejected when cluster-wide storage exceeds quota. CVE risk eliminated. Affects all upload code paths: `PutObject`, multipart uploads. Production blocker resolved.
-
-- **⚠️ CRITICAL: Fixed multi-node cluster bucket aggregation** - January 30, 2026. Web interface and S3 API now correctly show all tenant buckets across the cluster, not just buckets from the local node. Users see consistent bucket lists regardless of which node serves the request. Implemented BucketAggregator with parallel node queries (see Added section). Multi-node clusters are now production-ready for bucket listing operations.
-
-- **Fixed tenant unlimited storage quota incorrectly setting default** - January 30, 2026. `CreateTenant()` in `internal/auth/tenant.go` was automatically converting `MaxStorageBytes = 0` to 100GB default, making it impossible to create tenants with unlimited storage. This caused "quota exceeded" errors when tenants reached 100GB even though UI showed "unlimited". **FIX**: `MaxStorageBytes = 0` now correctly means UNLIMITED (no quota checking). If specific quota is desired, it must be set explicitly (e.g., 107374182400 for 100GB). Modified `CheckTenantStorageQuota()` to skip quota check when `MaxStorageBytes = 0`. Tests confirm tenants with `MaxStorageBytes = 0` can upload unlimited data without errors.
-
-- **🔥 CRITICAL: Fixed cluster authentication failure due to incorrect column name** - January 30, 2026. Both `internal/cluster/manager.go:416` and `internal/middleware/cluster_auth.go:111` incorrectly queried `status` column in `cluster_nodes` table, causing "SQL logic error: no such column: status (1)" failures. This prevented ALL cluster internal API authentication, breaking:
-  - Cross-node bucket aggregation (BucketAggregator)
-  - Cross-node quota aggregation (QuotaAggregator)
-  - Access key synchronization
-  - Bucket permission synchronization
-  - Tenant/user synchronization
-  - Object replication
-  **FIX**: Changed queries to use correct `health_status` column. Cluster authentication now works correctly, enabling all multi-node cluster features.
+- Dark mode toggle now uses ThemeContext instead of a separate localStorage-based system, eliminating UI freeze on theme switch and persisting the preference to the user's profile via API
+- CRITICAL: Cluster replication now replicates real object data (was metadata-only)
+- CRITICAL: Tenant storage quota bypass vulnerability in multi-node clusters
+- CRITICAL: ListBuckets returns empty in standalone mode when cluster enabled
+- CRITICAL: Cluster authentication failure due to incorrect column name (`status` → `health_status`)
+- Tenant unlimited storage quota incorrectly defaulting to 100GB
+- Bucket replication workers not processing queue items on startup
+- Database lock contention in cluster replication under high concurrency
+- AWS SDK v2 endpoint configuration migrated from deprecated resolver
+- Multiple server test suite failures (15+ tests corrected)
+- Dead code cleanup — removed unused functions identified by staticcheck
 
 ### Changed
-
-- **Refactored cluster aggregators to use interfaces for testability** - January 30, 2026. Changed `BucketAggregator` and `QuotaAggregator` from using concrete `*Manager` type to `ClusterManagerInterface` with methods `GetHealthyNodes()`, `GetLocalNodeID()`, `GetLocalNodeToken()`. This enables proper unit testing with mock implementations and reduces coupling.
-
-- **Enhanced CheckTenantStorageQuota() with cluster-aware logic** - January 30, 2026. Added detection of cluster mode, real-time aggregation of storage from all nodes, fallback to local storage on aggregation errors, and comprehensive logging showing `clusterMode`, `currentStorage` (cluster-wide or local), `maxStorage`, `projectedTotal`. Maintains backward compatibility - standalone mode unchanged.
-
-- **Integrated circuit breakers into cluster aggregators** - January 30, 2026. Modified `BucketAggregator` and `QuotaAggregator` to wrap all node communication calls with circuit breaker protection. Each node gets its own circuit breaker managed by `CircuitBreakerManager`. Prevents cascading failures and reduces latency when nodes are unhealthy. Circuit breaker state (open/closed/half-open) is logged for troubleshooting.
-
-### Known Issues
-- Fixed syslog logging support for IPv6 addresses
-- **CRITICAL: Fixed bucket replication workers not processing queue items** - Objects queued for replication were stuck in "pending" status indefinitely. Queue loader now loads pending items immediately on startup instead of waiting 10 seconds, ensuring objects are replicated promptly.
-- **CRITICAL: Fixed database lock contention in cluster replication under high concurrency** - `queueBucketObjects()` maintained an active database reader (SELECT) while attempting writes (INSERT) within the same loop, causing "database is locked (5) (SQLITE_BUSY)" errors. Fixed by reading all objects into memory first, closing the reader, then performing writes. This prevented production failures with multiple replication workers and scheduler running concurrently.
-- **Fixed non-atomic queue item insertion in cluster replication** - `insertQueueItem()` used separate SELECT + INSERT operations leading to race conditions. Replaced with single atomic `INSERT OR IGNORE` with subquery to prevent duplicate queue items and reduce lock contention.
-- **Fixed missing storage backend validation** - `NewBackend()` accepted any backend type without validation, always defaulting to filesystem. Now properly validates backend type and returns error for unsupported backends (currently only 'filesystem' is supported).
-- **Fixed server_test.go test suite failures** - Corrected 15+ failing tests with multiple issues:
-  - Fixed `ListObjects` returning empty list for non-existent buckets instead of 404 error (added `BucketExists()` check in object manager)
-  - Fixed API response parsing in tests - handlers wrap responses in `APIResponse{success, data}` structure
-  - Fixed double-wrap issue in `handleGetSecurityStatus` and similar handlers where `writeJSON()` wraps response twice
-  - Fixed `handleShareObject` test using wrong user ID and field names (`url`/`id` not `shareUrl`/`shareID`)
-  - Fixed `handleUpdateTenant` test using wrong URL variable (`tenant` not `id`)
-  - Fixed DELETE handlers expecting 200 instead of 204 No Content (lifecycle, tagging, CORS, policy, object)
-  - Fixed PUT handlers receiving JSON instead of required XML format (lifecycle, tagging, CORS)
-  - Fixed missing tenant creation before bucket creation in tests (required for storage quota validation)
-
-### Added
-- **23 comprehensive tests for internal/config module** - Tests validate configuration loading from multiple sources (CLI flags, environment variables, YAML files), default value handling, TLS configuration validation, data directory creation, storage root path resolution, JWT secret generation, and audit DB path setup. Config module test coverage improved from 35.8% to 94.0% (+58.2 points, 163% improvement).
-- **5 comprehensive HTTP and background worker tests for internal/cluster/access_key_sync** - Tests validate:
-  - HTTP request handling with mock servers for access key synchronization between cluster nodes
-  - HMAC-authenticated requests with proper error handling for server failures
-  - Single access key synchronization with checksum verification to prevent redundant syncs
-  - Background sync loop with ticker-based scheduling and graceful shutdown
-  - Sync manager startup with configuration from global settings (auto-sync enable/disable, interval configuration)
-  - All tests cover complex scenarios including concurrent operations, HTTP mocking, and background goroutines
-- Comprehensive end-to-end tests for bucket replication system with in-memory stores and mock S3 clients
-- Replication test coverage includes object replication, metrics tracking, and prefix filtering
-- 79 new tests for cluster module covering health checking, routing, bucket location tracking, and replication management
-- Test coverage for cluster module improved from 17.8% to 32.7%
-- **10 comprehensive security tests for internal/api module** - Tests validate authentication, authorization, input validation (XSS, SQL injection, path traversal), oversized headers, and concurrent request handling
-- **API module test coverage improved from 0% to 91.6%** with security-focused tests for S3 API handlers
-- **7 comprehensive lifecycle tests for internal/server module** - Tests validate background workers (lifecycle, inventory, replication), graceful shutdown, configuration variations, error handling, and component initialization
-- Inventory worker tests with 73.4% coverage (0% → 73.4%) including bucket validation, circular reference detection, and CSV/JSON generation
-- Inventory module test coverage improved from 30.1% to 80.6%
-- **28 comprehensive tests for internal/notifications module** - Tests validate webhook delivery with retries, event dispatching, rule matching with prefix/suffix filters, wildcard event type matching, configuration validation, and AWS event format creation
-- Notifications module test coverage improved from 30.7% to 85.0%
-- **46 comprehensive tests for internal/server module** - Tests validate HTTP handlers for object operations (list, get, upload, delete), metrics endpoints (system, S3, historical), security status, bucket advanced features (lifecycle, tagging, CORS, policy, versioning, ACL), server lifecycle, and configuration management
-- **30+ additional tests for console API handlers** - Tests validate 2FA workflows (enable, verify, regenerate backup codes), bucket permissions (list, grant, revoke), bucket owner updates, object ACL operations, shares and presigned URLs, settings management, audit logs, notifications, and tenant user management
-- **60+ comprehensive tests for cluster, inventory, replication, and profiling handlers** - Tests validate:
-  - Cluster operations: initialize, join, leave cluster, node CRUD, health checks, cache stats
-  - Inventory handlers: put/get/delete bucket inventory, list reports, validation
-  - Replication rules: create, list, get, update, delete rules, metrics, manual sync
-  - Object lock and legal hold: configuration validation, status management
-  - Bulk settings: global admin permissions, validation
-  - Bucket notifications: put/delete configuration
-  - Profiling endpoints: pprof handlers (heap, goroutine, threadcreate, block, mutex, allocs)
-  - Global admin middleware: authentication and authorization validation
-- **25+ additional tests for cluster internal sync handlers** - Tests validate:
-  - Object replication sync: receive object, HMAC authentication, size validation
-  - Object deletion sync: receive deletion requests with proper cluster node authentication
-  - Tenant/User sync: create/update tenants and users across cluster nodes
-  - Bucket permissions, ACLs, configurations, access keys, inventory sync handlers
-  - Cluster replication rules CRUD: create, list, update, delete, bulk create
-  - Proper context-based authentication (cluster_node_id for internal, username for console)
-- Server module test coverage improved from 29.8% to 54.2% (+24.4 points)
-
-### Changed
-- **Sprint 8: Systematic backend test coverage expansion initiative** - Target: increase backend coverage from 54.8% to 90%+ (354 functions with 0% coverage identified). Phase 1 focuses on critical infrastructure (config, cluster, cmd/maxiofs, web modules). Commitment to test all complex scenarios including HTTP mocking, background workers, concurrent operations, and edge cases without shortcuts.
-- Internal code refactoring to improve maintainability and reduce complexity
-- Improved object upload, download, delete, and multipart upload operations
-- Replication test coverage improved from 19.4% to support realistic E2E testing scenarios
-- Cluster module now properly separates database read and write operations to prevent SQLite lock contention
+- CreateBucket now uses actual creator's user ID as owner (AWS S3 compatible, was hardcoded "maxiofs")
+- Cluster aggregators refactored to use interfaces for testability
+- CheckTenantStorageQuota enhanced with cluster-aware logic and fallback
+- Circuit breakers integrated into cluster aggregators for all node communications
 
 ## [0.7.0-beta] - 2026-01-16
 
@@ -785,23 +310,22 @@ MaxIOFS follows semantic versioning:
 - **0.x.x-rc**: Release candidates - Production-ready testing
 - **1.x.x**: Stable releases - Production-ready
 
-### Current Status: BETA (v0.7.0-beta)
+### Current Status: BETA (v0.8.0-beta)
 
 **Completed Core Features:**
-- ✅ All S3 core operations validated with AWS CLI
-- ✅ 98% S3 API compatibility
-- ✅ Multi-node cluster support with replication
+- ✅ All S3 core operations validated with AWS CLI (100% compatible)
+- ✅ Multi-node cluster support with real object replication
+- ✅ Object Filters & Advanced Search
 - ✅ Production monitoring (Prometheus, Grafana, performance metrics)
-- ✅ Visual UI for all bucket configurations
 - ✅ Server-side encryption (AES-256-CTR)
+- ✅ Bucket policy enforcement (AWS S3-compatible evaluation engine)
+- ✅ Presigned URL signature validation (V4 and V2)
 - ✅ Audit logging and compliance features
 - ✅ Two-Factor Authentication (2FA)
-- ✅ Load testing and benchmarking infrastructure
 
 **Current Metrics:**
-- Backend Test Coverage: 36.2% (improved from 25.8%)
-- Frontend Test Coverage: 100% (64 tests)
-- Total Backend Tests: 500+
+- Backend Test Coverage: ~75% (at practical ceiling)
+- Frontend Test Coverage: 100%
 - Performance: P95 <10ms (Linux production)
 
 **Path to v1.0.0 Stable:**
@@ -811,7 +335,14 @@ See [TODO.md](TODO.md) for detailed roadmap and requirements.
 
 ## Version History
 
-### Completed Features (v0.1.0 - v0.7.0-beta)
+### Completed Features (v0.1.0 - v0.8.0-beta)
+
+**v0.8.0-beta (February 2026)** - Object Search, Security Fixes & Production Hardening
+- ✅ Object Filters & Advanced Search (content-type, size, date, tags)
+- ✅ Bucket policy enforcement and presigned URL signature validation
+- ✅ Cluster replication with real object data
+- ✅ Cross-node quota enforcement and bucket aggregation
+- ✅ Production hardening (rate limiting, circuit breakers, cluster metrics)
 
 **v0.6.0-beta (December 2025)** - Multi-Node Cluster & Replication
 - ✅ Multi-node cluster support with intelligent routing
