@@ -268,6 +268,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 
 	// Server configuration endpoint
 	router.HandleFunc("/config", s.handleGetServerConfig).Methods("GET", "OPTIONS")
+	router.HandleFunc("/version-check", s.handleVersionCheck).Methods("GET", "OPTIONS")
 
 	// Security endpoints
 	router.HandleFunc("/security/status", s.handleGetSecurityStatus).Methods("GET", "OPTIONS")
@@ -2486,6 +2487,25 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, config)
+}
+
+// handleVersionCheck proxies the version check to maxiofs.com to avoid CORS issues
+func (s *Server) handleVersionCheck(w http.ResponseWriter, r *http.Request) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("https://maxiofs.com/version.json")
+	if err != nil {
+		s.writeJSON(w, map[string]interface{}{"version": "", "error": "unable to check"})
+		return
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		s.writeJSON(w, map[string]interface{}{"version": "", "error": "invalid response"})
+		return
+	}
+
+	s.writeJSON(w, result)
 }
 
 func (s *Server) handleAPIHealth(w http.ResponseWriter, r *http.Request) {

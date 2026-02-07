@@ -125,23 +125,20 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     queryFn: APIClient.getServerConfig,
   });
 
-  // Check for new version (fetches from maxiofs.com)
-  const { data: latestVersionData, isError: versionCheckFailed, isLoading: versionCheckLoading } = useQuery<{ version: string }>({
-    queryKey: ['latestVersion'],
-    queryFn: async () => {
-      const res = await fetch('https://maxiofs.com/version.json');
-      if (!res.ok) throw new Error('Failed to fetch version');
-      return res.json();
-    },
-    staleTime: 1000 * 60 * 60, // check once per hour
-    retry: 1,
-    refetchOnWindowFocus: false,
-  });
-
   // Check if user is global admin (admin role + no tenant)
   const isGlobalAdmin = (user?.roles?.includes('admin') ?? false) && !user?.tenantId;
   const isTenantAdmin = (user?.roles?.includes('admin') ?? false) && !!user?.tenantId;
   const isAnyAdmin = isGlobalAdmin || isTenantAdmin;
+
+  // Check for new version (proxied through backend to avoid CORS)
+  const { data: latestVersionData } = useQuery<{ version: string }>({
+    queryKey: ['latestVersion'],
+    queryFn: () => APIClient.getVersionCheck(),
+    staleTime: 1000 * 60 * 60, // check once per hour
+    retry: 1,
+    refetchOnWindowFocus: false,
+    enabled: isGlobalAdmin,
+  });
 
   // Compare semver strings (strips leading 'v' and trailing labels like '-beta')
   const isNewerVersion = (latest: string, current: string): boolean => {

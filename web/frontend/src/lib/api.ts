@@ -701,6 +701,11 @@ export class APIClient {
     return response.data.data!;
   }
 
+  static async getVersionCheck(): Promise<{ version: string }> {
+    const response = await apiClient.get<APIResponse<{ version: string }>>('/version-check');
+    return response.data.data!;
+  }
+
   // Objects - Additional methods
   static async getAllObjects(): Promise<APIResponse<any[]>> {
     const response = await apiClient.get<APIResponse<any[]>>('/objects');
