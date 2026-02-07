@@ -668,6 +668,222 @@ func (s *BadgerStore) ListObjectsByTags(ctx context.Context, bucket string, tags
 	return objects, nil
 }
 
+// matchesFilter checks if an object matches all filter criteria
+func matchesFilter(obj *ObjectMetadata, filter *ObjectFilter) bool {
+	if filter == nil {
+		return true
+	}
+
+	// Content-type prefix match
+	if len(filter.ContentTypes) > 0 {
+		matched := false
+		for _, ct := range filter.ContentTypes {
+			if strings.HasPrefix(obj.ContentType, ct) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+
+	// Size range
+	if filter.MinSize != nil && obj.Size < *filter.MinSize {
+		return false
+	}
+	if filter.MaxSize != nil && obj.Size > *filter.MaxSize {
+		return false
+	}
+
+	// Date range
+	if filter.ModifiedAfter != nil && !obj.LastModified.After(*filter.ModifiedAfter) {
+		return false
+	}
+	if filter.ModifiedBefore != nil && !obj.LastModified.Before(*filter.ModifiedBefore) {
+		return false
+	}
+
+	// Tags (AND semantics)
+	if len(filter.Tags) > 0 {
+		if !matchesTags(obj.Tags, filter.Tags) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// SearchObjects searches objects with filters and pagination
+func (s *BadgerStore) SearchObjects(ctx context.Context, bucket, prefix, marker string, maxKeys int, filter *ObjectFilter) ([]*ObjectMetadata, string, error) {
+	if bucket == "" {
+		return nil, "", fmt.Errorf("bucket name is required")
+	}
+
+	if maxKeys <= 0 {
+		maxKeys = 1000
+	}
+
+	// If filter has tags, use tag index to get candidates first
+	if filter != nil && len(filter.Tags) > 0 {
+		return s.searchObjectsWithTags(ctx, bucket, prefix, marker, maxKeys, filter)
+	}
+
+	return s.searchObjectsByScan(ctx, bucket, prefix, marker, maxKeys, filter)
+}
+
+// searchObjectsByScan does a prefix scan and applies filters on each object
+func (s *BadgerStore) searchObjectsByScan(ctx context.Context, bucket, prefix, marker string, maxKeys int, filter *ObjectFilter) ([]*ObjectMetadata, string, error) {
+	var objects []*ObjectMetadata
+	var nextMarker string
+	scanLimit := 100000 // scan up to 100k to handle sparse matches
+
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchSize = 100
+
+		if prefix != "" {
+			opts.Prefix = objectPrefixKey(bucket, prefix)
+		} else {
+			opts.Prefix = objectListPrefix(bucket)
+		}
+
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		var seekKey []byte
+		if marker != "" {
+			seekKey = objectKey(bucket, marker)
+		} else {
+			seekKey = opts.Prefix
+		}
+
+		count := 0
+		scanned := 0
+		started := marker == ""
+
+		for it.Seek(seekKey); it.ValidForPrefix(opts.Prefix); it.Next() {
+			if count >= maxKeys {
+				item := it.Item()
+				k := string(item.Key())
+				nextMarker = extractObjectKeyFromKey(k)
+				break
+			}
+
+			if scanned >= scanLimit {
+				// Set next marker to allow pagination to continue
+				item := it.Item()
+				k := string(item.Key())
+				nextMarker = extractObjectKeyFromKey(k)
+				break
+			}
+			scanned++
+
+			item := it.Item()
+			k := string(item.Key())
+			objKeyStr := extractObjectKeyFromKey(k)
+
+			if !started {
+				if objKeyStr == marker {
+					started = true
+				}
+				continue
+			}
+
+			var obj ObjectMetadata
+			err := item.Value(func(val []byte) error {
+				return json.Unmarshal(val, &obj)
+			})
+			if err != nil {
+				s.logger.WithError(err).Warn("Failed to unmarshal object metadata during search")
+				continue
+			}
+
+			if matchesFilter(&obj, filter) {
+				objects = append(objects, &obj)
+				count++
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, "", err
+	}
+
+	return objects, nextMarker, nil
+}
+
+// searchObjectsWithTags uses tag index to find candidates then applies remaining filters
+func (s *BadgerStore) searchObjectsWithTags(ctx context.Context, bucket, prefix, marker string, maxKeys int, filter *ObjectFilter) ([]*ObjectMetadata, string, error) {
+	// Get candidate keys from tag index using the first tag
+	var firstTagKey, firstTagValue string
+	for k, v := range filter.Tags {
+		firstTagKey = k
+		firstTagValue = v
+		break
+	}
+
+	var candidateKeys []string
+
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.Prefix = tagIndexPrefix(bucket, firstTagKey, firstTagValue)
+
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		for it.Rewind(); it.Valid(); it.Next() {
+			item := it.Item()
+			k := string(item.Key())
+			parts := strings.SplitN(k, ":", 5)
+			if len(parts) == 5 {
+				objKey := parts[4]
+				// Apply prefix filter
+				if prefix != "" && !strings.HasPrefix(objKey, prefix) {
+					continue
+				}
+				// Apply marker filter
+				if marker != "" && objKey <= marker {
+					continue
+				}
+				candidateKeys = append(candidateKeys, objKey)
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Sort candidate keys for consistent ordering
+	sort.Strings(candidateKeys)
+
+	// Fetch full metadata and apply remaining filters
+	var objects []*ObjectMetadata
+	var nextMarker string
+
+	for _, objKey := range candidateKeys {
+		if len(objects) >= maxKeys {
+			nextMarker = objKey
+			break
+		}
+
+		obj, err := s.GetObject(ctx, bucket, objKey)
+		if err != nil {
+			continue
+		}
+
+		if matchesFilter(obj, filter) {
+			objects = append(objects, obj)
+		}
+	}
+
+	return objects, nextMarker, nil
+}
+
 // matchesTags checks if object tags match all required tags
 func matchesTags(objectTags, requiredTags map[string]string) bool {
 	if len(requiredTags) == 0 {

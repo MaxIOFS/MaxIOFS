@@ -31,13 +31,15 @@ import { Clock as ClockIcon } from 'lucide-react';
 import { Share2 as Share2Icon } from 'lucide-react';
 import { History as HistoryIcon } from 'lucide-react';
 import { Link as LinkIcon } from 'lucide-react';
+import { Filter as FilterIcon } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import { UploadRequest } from '@/types';
+import { UploadRequest, ObjectSearchFilter } from '@/types';
 import ModalManager from '@/lib/modals';
 import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 import { ObjectVersionsModal } from '@/components/ObjectVersionsModal';
 import { PresignedURLModal } from '@/components/PresignedURLModal';
+import { ObjectFilterPanel } from '@/components/ObjectFilterPanel';
 import { useAuth } from '@/hooks/useAuth';
 
 // Helper function for responsive modal widths
@@ -66,6 +68,8 @@ export default function BucketDetailsPage() {
   const [newFolderName, setNewFolderName] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [selectedObjects, setSelectedObjects] = useState<Set<string>>(new Set());
+  const [objectFilter, setObjectFilter] = useState<ObjectSearchFilter>({});
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const queryClient = useQueryClient();
 
   // Check if user is global admin (no tenantId) accessing a tenant bucket
@@ -77,14 +81,40 @@ export default function BucketDetailsPage() {
     queryFn: () => APIClient.getBucket(bucketName, tenantId || undefined),
   });
 
+  const hasActiveFilters = !!(
+    (objectFilter.contentTypes && objectFilter.contentTypes.length > 0) ||
+    objectFilter.minSize !== undefined ||
+    objectFilter.maxSize !== undefined ||
+    objectFilter.modifiedAfter ||
+    objectFilter.modifiedBefore ||
+    (objectFilter.tags && Object.keys(objectFilter.tags).length > 0)
+  );
+
+  const activeFilterCount = [
+    objectFilter.contentTypes && objectFilter.contentTypes.length > 0,
+    objectFilter.minSize !== undefined,
+    objectFilter.maxSize !== undefined,
+    objectFilter.modifiedAfter,
+    objectFilter.modifiedBefore,
+    objectFilter.tags && Object.keys(objectFilter.tags).length > 0,
+  ].filter(Boolean).length;
+
   const { data: objectsResponse, isLoading: objectsLoading } = useQuery({
-    queryKey: ['objects', bucketName, currentPrefix, tenantId],
-    queryFn: () => APIClient.getObjects({
-      bucket: bucketName,
-      ...(tenantId && { tenantId }),
-      prefix: currentPrefix,
-      delimiter: '/', // This groups objects by folder
-    }),
+    queryKey: ['objects', bucketName, currentPrefix, tenantId, hasActiveFilters ? objectFilter : null],
+    queryFn: () => hasActiveFilters
+      ? APIClient.searchObjects({
+          bucket: bucketName,
+          ...(tenantId && { tenantId }),
+          prefix: currentPrefix,
+          delimiter: '/',
+          filter: objectFilter,
+        })
+      : APIClient.getObjects({
+          bucket: bucketName,
+          ...(tenantId && { tenantId }),
+          prefix: currentPrefix,
+          delimiter: '/',
+        }),
   });
 
   const { data: sharesMap = {} } = useQuery({
@@ -996,18 +1026,43 @@ export default function BucketDetailsPage() {
 
       {/* Enhanced Search Bar */}
       <div className="bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-4">
-        <div className="relative max-w-md">
-          <div className="absolute left-4 top-1/2 transform -translate-y-1/2">
-            <SearchIcon className="text-gray-400 dark:text-gray-500 h-5 w-5" />
+        <div className="flex items-center gap-3">
+          <div className="relative max-w-md flex-1">
+            <div className="absolute left-4 top-1/2 transform -translate-y-1/2">
+              <SearchIcon className="text-gray-400 dark:text-gray-500 h-5 w-5" />
+            </div>
+            <Input
+              placeholder="Search objects..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-12 bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 rounded-lg shadow-sm"
+            />
           </div>
-          <Input
-            placeholder="Search objects..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-12 bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 rounded-lg shadow-sm"
-          />
+          <Button
+            onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
+            variant={isFilterPanelOpen ? 'default' : 'outline'}
+            size="sm"
+            className="gap-2 relative"
+          >
+            <FilterIcon className="h-4 w-4" />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-brand-600 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
         </div>
       </div>
+
+      {/* Filter Panel */}
+      {isFilterPanelOpen && (
+        <ObjectFilterPanel
+          filters={objectFilter}
+          onFiltersChange={setObjectFilter}
+          onClear={() => setObjectFilter({})}
+        />
+      )}
 
       {/* Objects Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">

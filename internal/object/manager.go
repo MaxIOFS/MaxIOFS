@@ -31,6 +31,7 @@ type Manager interface {
 	PutObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (*Object, error)
 	DeleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (deleteMarkerVersionID string, err error)
 	ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*ListObjectsResult, error)
+	SearchObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int, filter *metadata.ObjectFilter) (*ListObjectsResult, error)
 
 	// Metadata operations
 	GetObjectMetadata(ctx context.Context, bucket, key string) (*Object, error)
@@ -933,6 +934,117 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 		isTruncated = true
 
 		// Prioritize showing common prefixes first, then objects
+		if len(commonPrefixes) > maxKeys {
+			commonPrefixes = commonPrefixes[:maxKeys]
+			objects = []Object{}
+			if len(commonPrefixes) > 0 {
+				nextMarker = commonPrefixes[len(commonPrefixes)-1].Prefix
+			}
+		} else {
+			remainingSlots := maxKeys - len(commonPrefixes)
+			if len(objects) > remainingSlots {
+				objects = objects[:remainingSlots]
+			}
+			if len(objects) > 0 {
+				nextMarker = objects[len(objects)-1].Key
+			}
+		}
+	}
+
+	result := &ListObjectsResult{
+		Objects:        objects,
+		CommonPrefixes: commonPrefixes,
+		IsTruncated:    isTruncated,
+		NextMarker:     nextMarker,
+		MaxKeys:        maxKeys,
+		Prefix:         prefix,
+		Delimiter:      delimiter,
+		Marker:         marker,
+	}
+
+	return result, nil
+}
+
+// SearchObjects searches objects with filters applied server-side
+func (om *objectManager) SearchObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int, filter *metadata.ObjectFilter) (*ListObjectsResult, error) {
+	if maxKeys <= 0 {
+		maxKeys = 1000
+	}
+
+	// Check if bucket exists first
+	tenantID, bucketName := om.parseBucketPath(bucket)
+	exists, err := om.metadataStore.BucketExists(ctx, tenantID, bucketName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check bucket existence: %w", err)
+	}
+	if !exists {
+		return nil, ErrBucketNotFound
+	}
+
+	// When using delimiter, scan more to find all unique folders
+	scanLimit := maxKeys
+	if delimiter != "" {
+		scanLimit = 100000
+	}
+
+	metadataObjects, nextMarker, err := om.metadataStore.SearchObjects(ctx, bucket, prefix, marker, scanLimit, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search objects: %w", err)
+	}
+
+	var objects []Object
+	commonPrefixesMap := make(map[string]bool)
+
+	for _, metaObj := range metadataObjects {
+		key := metaObj.Key
+
+		// Skip internal MaxIOFS files
+		if strings.HasPrefix(key, ".maxiofs-") || strings.Contains(key, "/.maxiofs-") {
+			continue
+		}
+
+		// Skip implicit folders
+		if metaObj.Metadata != nil {
+			if implicit, ok := metaObj.Metadata["x-maxiofs-implicit-folder"]; ok && implicit == "true" {
+				continue
+			}
+		}
+
+		// Skip Delete Markers
+		if metaObj.Size == 0 && metaObj.ETag == "" {
+			continue
+		}
+
+		// Handle delimiter (common prefixes / folders)
+		if delimiter != "" {
+			remainingKey := key[len(prefix):]
+			delimiterIndex := strings.Index(remainingKey, delimiter)
+
+			if delimiterIndex >= 0 {
+				commonPrefix := prefix + remainingKey[:delimiterIndex+len(delimiter)]
+				commonPrefixesMap[commonPrefix] = true
+				continue
+			}
+		}
+
+		objects = append(objects, *fromMetadataObject(metaObj))
+	}
+
+	// Convert commonPrefixesMap to slice and sort
+	var commonPrefixes []CommonPrefix
+	for pfx := range commonPrefixesMap {
+		commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: pfx})
+	}
+	sort.Slice(commonPrefixes, func(i, j int) bool {
+		return commonPrefixes[i].Prefix < commonPrefixes[j].Prefix
+	})
+
+	isTruncated := nextMarker != ""
+
+	// Apply maxKeys limit
+	totalItems := len(objects) + len(commonPrefixes)
+	if totalItems > maxKeys {
+		isTruncated = true
 		if len(commonPrefixes) > maxKeys {
 			commonPrefixes = commonPrefixes[:maxKeys]
 			objects = []Object{}

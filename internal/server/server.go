@@ -22,12 +22,12 @@ import (
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/inventory"
 	"github.com/maxiofs/maxiofs/internal/lifecycle"
+	"github.com/maxiofs/maxiofs/internal/logging"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/metrics"
 	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/notifications"
 	"github.com/maxiofs/maxiofs/internal/object"
-	"github.com/maxiofs/maxiofs/internal/logging"
 	"github.com/maxiofs/maxiofs/internal/replication"
 	"github.com/maxiofs/maxiofs/internal/settings"
 	"github.com/maxiofs/maxiofs/internal/share"
@@ -37,21 +37,21 @@ import (
 
 // Server represents the MaxIOFS server
 type Server struct {
-	config          *config.Config
-	httpServer      *http.Server
-	consoleServer   *http.Server
-	storageBackend  storage.Backend
-	metadataStore   metadata.Store
-	bucketManager   bucket.Manager
-	objectManager   object.Manager
-	authManager     auth.Manager
-	db              *sql.DB
-	auditManager    *audit.Manager
-	metricsManager      metrics.Manager
-	settingsManager     *settings.Manager
-	loggingManager      *logging.Manager
-	shareManager        share.Manager
-	notificationManager *notifications.Manager
+	config                  *config.Config
+	httpServer              *http.Server
+	consoleServer           *http.Server
+	storageBackend          storage.Backend
+	metadataStore           metadata.Store
+	bucketManager           bucket.Manager
+	objectManager           object.Manager
+	authManager             auth.Manager
+	db                      *sql.DB
+	auditManager            *audit.Manager
+	metricsManager          metrics.Manager
+	settingsManager         *settings.Manager
+	loggingManager          *logging.Manager
+	shareManager            share.Manager
+	notificationManager     *notifications.Manager
 	replicationManager      *replication.Manager
 	clusterManager          *cluster.Manager
 	clusterRouter           *cluster.Router
@@ -333,21 +333,21 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	server := &Server{
-		config:              cfg,
-		httpServer:          httpServer,
-		consoleServer:       consoleServer,
-		storageBackend:      storageBackend,
-		metadataStore:       metadataStore,
-		bucketManager:       bucketManager,
-		objectManager:       objectManager,
-		authManager:         authManager,
-		db:                  db,
-		auditManager:        auditManager,
-		metricsManager:      metricsManager,
-		settingsManager:     settingsManager,
-		loggingManager:      loggingManager,
-		shareManager:        shareManager,
-		notificationManager: notificationManager,
+		config:                  cfg,
+		httpServer:              httpServer,
+		consoleServer:           consoleServer,
+		storageBackend:          storageBackend,
+		metadataStore:           metadataStore,
+		bucketManager:           bucketManager,
+		objectManager:           objectManager,
+		authManager:             authManager,
+		db:                      db,
+		auditManager:            auditManager,
+		metricsManager:          metricsManager,
+		settingsManager:         settingsManager,
+		loggingManager:          loggingManager,
+		shareManager:            shareManager,
+		notificationManager:     notificationManager,
 		replicationManager:      replicationManager,
 		clusterManager:          clusterManager,
 		clusterRouter:           clusterRouter,
@@ -372,8 +372,8 @@ func New(cfg *config.Config) (*Server, error) {
 	authManager.SetUserLockedCallback(func(user *auth.User) {
 		// Send notification to SSE clients
 		notification := &Notification{
-			Type:      "user_locked",
-			Message:   fmt.Sprintf("User %s has been locked due to failed login attempts", user.Username),
+			Type:    "user_locked",
+			Message: fmt.Sprintf("User %s has been locked due to failed login attempts", user.Username),
 			Data: map[string]interface{}{
 				"userId":   user.ID,
 				"username": user.Username,
@@ -766,6 +766,8 @@ func (s *Server) setupRoutes() error {
 	)
 
 	// Apply middleware only to S3 subrouter (not to /metrics)
+	// S3 HEADERS MUST BE FIRST - ensures headers are present on ALL responses including auth errors
+	s3Router.Use(middleware.S3Headers())
 	// VERBOSE LOGGING - logs EVERY request with full details
 	s3Router.Use(middleware.VerboseLogging())
 	s3Router.Use(middleware.CORS())

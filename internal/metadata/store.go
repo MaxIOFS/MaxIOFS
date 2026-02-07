@@ -3,6 +3,7 @@ package metadata
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // Common errors
@@ -59,6 +60,9 @@ type Store interface {
 
 	// ListObjects lists objects in a bucket with optional prefix and pagination
 	ListObjects(ctx context.Context, bucket, prefix, marker string, maxKeys int) ([]*ObjectMetadata, string, error)
+
+	// SearchObjects searches objects with filters, returning matching objects with pagination
+	SearchObjects(ctx context.Context, bucket, prefix, marker string, maxKeys int, filter *ObjectFilter) ([]*ObjectMetadata, string, error)
 
 	// ObjectExists checks if an object exists
 	ObjectExists(ctx context.Context, bucket, key string) (bool, error)
@@ -138,6 +142,22 @@ type Store interface {
 
 	// IsReady returns true if the store is ready to serve requests
 	IsReady() bool
+}
+
+// ObjectFilter provides filter criteria for searching objects
+type ObjectFilter struct {
+	// ContentTypes filters by content-type prefix match (e.g., "image/" matches "image/png")
+	ContentTypes []string
+	// MinSize filters objects with size >= MinSize (bytes, inclusive)
+	MinSize *int64
+	// MaxSize filters objects with size <= MaxSize (bytes, inclusive)
+	MaxSize *int64
+	// ModifiedAfter filters objects modified after this time
+	ModifiedAfter *time.Time
+	// ModifiedBefore filters objects modified before this time
+	ModifiedBefore *time.Time
+	// Tags filters objects that have all specified tags (AND semantics)
+	Tags map[string]string
 }
 
 // ListObjectsOptions provides options for listing objects

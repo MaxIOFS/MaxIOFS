@@ -440,6 +440,25 @@ export interface ListObjectsRequest {
   startAfter?: string;
 }
 
+export interface ObjectSearchFilter {
+  contentTypes?: string[];
+  minSize?: number;
+  maxSize?: number;
+  modifiedAfter?: string; // RFC3339
+  modifiedBefore?: string; // RFC3339
+  tags?: Record<string, string>;
+}
+
+export interface SearchObjectsRequest {
+  bucket: string;
+  tenantId?: string;
+  prefix?: string;
+  delimiter?: string;
+  maxKeys?: number;
+  marker?: string;
+  filter?: ObjectSearchFilter;
+}
+
 // Upload Types
 export interface UploadRequest {
   bucket: string;

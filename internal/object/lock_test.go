@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -564,6 +565,10 @@ func (m *mockManager) DeleteObject(ctx context.Context, bucket, key string, bypa
 }
 
 func (m *mockManager) ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*ListObjectsResult, error) {
+	return nil, nil
+}
+
+func (m *mockManager) SearchObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int, filter *metadata.ObjectFilter) (*ListObjectsResult, error) {
 	return nil, nil
 }
 

@@ -65,6 +65,7 @@ import type {
   ListMigrationsResponse,
   LatenciesResponse,
   ThroughputResponse,
+  SearchObjectsRequest,
 } from '@/types';
 
 // API Configuration
@@ -446,6 +447,36 @@ export class APIClient {
 
     const response = await apiClient.get<APIResponse<ListObjectsResponse>>(
       `/buckets/${request.bucket}/objects?${params.toString()}`
+    );
+    return response.data.data!;
+  }
+
+  static async searchObjects(request: SearchObjectsRequest): Promise<ListObjectsResponse> {
+    const params = new URLSearchParams();
+    if (request.prefix) params.append('prefix', request.prefix);
+    if (request.delimiter) params.append('delimiter', request.delimiter);
+    if (request.maxKeys) params.append('max_keys', request.maxKeys.toString());
+    if (request.marker) params.append('marker', request.marker);
+    if (request.tenantId) params.append('tenantId', request.tenantId);
+
+    if (request.filter) {
+      const f = request.filter;
+      if (f.contentTypes && f.contentTypes.length > 0) {
+        params.append('content_type', f.contentTypes.join(','));
+      }
+      if (f.minSize !== undefined) params.append('min_size', f.minSize.toString());
+      if (f.maxSize !== undefined) params.append('max_size', f.maxSize.toString());
+      if (f.modifiedAfter) params.append('modified_after', f.modifiedAfter);
+      if (f.modifiedBefore) params.append('modified_before', f.modifiedBefore);
+      if (f.tags) {
+        for (const [key, value] of Object.entries(f.tags)) {
+          params.append('tag', `${key}:${value}`);
+        }
+      }
+    }
+
+    const response = await apiClient.get<APIResponse<ListObjectsResponse>>(
+      `/buckets/${request.bucket}/objects/search?${params.toString()}`
     );
     return response.data.data!;
   }

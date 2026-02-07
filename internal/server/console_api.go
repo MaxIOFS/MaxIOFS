@@ -20,6 +20,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/notifications"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/presigned"
@@ -226,6 +227,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 
 	// Object versioning endpoints
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/versions", s.handleListObjectVersions).Methods("GET", "OPTIONS")
+
+	// Object search endpoint (advanced filtering)
+	router.HandleFunc("/buckets/{bucket}/objects/search", s.handleSearchObjects).Methods("GET", "OPTIONS")
 
 	// Object endpoints
 	router.HandleFunc("/buckets/{bucket}/objects", s.handleListObjects).Methods("GET", "OPTIONS")
@@ -1265,6 +1269,138 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := s.objectManager.ListObjects(r.Context(), bucketPath, prefix, delimiter, marker, maxKeys)
+	if err != nil {
+		if err == object.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Convert objects to response format
+	objectsResponse := make([]ObjectResponse, len(result.Objects))
+	for i, obj := range result.Objects {
+		objectsResponse[i] = ObjectResponse{
+			Key:          obj.Key,
+			Size:         obj.Size,
+			LastModified: obj.LastModified.Format("2006-01-02T15:04:05Z"),
+			ETag:         obj.ETag,
+			ContentType:  obj.ContentType,
+			Metadata:     obj.Metadata,
+			Retention:    obj.Retention,
+			LegalHold:    obj.LegalHold,
+		}
+	}
+
+	// Convert common prefixes to response format
+	commonPrefixesResponse := make([]string, len(result.CommonPrefixes))
+	for i, cp := range result.CommonPrefixes {
+		commonPrefixesResponse[i] = cp.Prefix
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"objects":        objectsResponse,
+		"commonPrefixes": commonPrefixesResponse,
+		"isTruncated":    result.IsTruncated,
+		"nextMarker":     result.NextMarker,
+		"prefix":         result.Prefix,
+		"delimiter":      result.Delimiter,
+	})
+}
+
+func (s *Server) handleSearchObjects(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	queryTenantID := r.URL.Query().Get("tenantId")
+	tenantID := user.TenantID
+
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
+
+	bucketPath := tenantID + "/" + bucketName
+	if tenantID == "" {
+		bucketPath = bucketName
+	}
+
+	prefix := r.URL.Query().Get("prefix")
+	delimiter := r.URL.Query().Get("delimiter")
+	marker := r.URL.Query().Get("marker")
+	maxKeys := 1000
+
+	if maxKeysStr := r.URL.Query().Get("max_keys"); maxKeysStr != "" {
+		if parsed, err := strconv.Atoi(maxKeysStr); err == nil && parsed > 0 {
+			maxKeys = parsed
+		}
+	}
+
+	// Build ObjectFilter from query params
+	filter := &metadata.ObjectFilter{}
+	hasFilter := false
+
+	// content_type: comma-separated content-type prefixes
+	if ct := r.URL.Query().Get("content_type"); ct != "" {
+		filter.ContentTypes = strings.Split(ct, ",")
+		hasFilter = true
+	}
+
+	// min_size, max_size: byte values
+	if minStr := r.URL.Query().Get("min_size"); minStr != "" {
+		if v, err := strconv.ParseInt(minStr, 10, 64); err == nil {
+			filter.MinSize = &v
+			hasFilter = true
+		}
+	}
+	if maxStr := r.URL.Query().Get("max_size"); maxStr != "" {
+		if v, err := strconv.ParseInt(maxStr, 10, 64); err == nil {
+			filter.MaxSize = &v
+			hasFilter = true
+		}
+	}
+
+	// modified_after, modified_before: RFC3339
+	if after := r.URL.Query().Get("modified_after"); after != "" {
+		if t, err := time.Parse(time.RFC3339, after); err == nil {
+			filter.ModifiedAfter = &t
+			hasFilter = true
+		}
+	}
+	if before := r.URL.Query().Get("modified_before"); before != "" {
+		if t, err := time.Parse(time.RFC3339, before); err == nil {
+			filter.ModifiedBefore = &t
+			hasFilter = true
+		}
+	}
+
+	// tag: repeatable param, format "key:value"
+	if tagParams := r.URL.Query()["tag"]; len(tagParams) > 0 {
+		tags := make(map[string]string)
+		for _, tagParam := range tagParams {
+			parts := strings.SplitN(tagParam, ":", 2)
+			if len(parts) == 2 {
+				tags[parts[0]] = parts[1]
+			}
+		}
+		if len(tags) > 0 {
+			filter.Tags = tags
+			hasFilter = true
+		}
+	}
+
+	if !hasFilter {
+		filter = nil
+	}
+
+	result, err := s.objectManager.SearchObjects(r.Context(), bucketPath, prefix, delimiter, marker, maxKeys, filter)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)

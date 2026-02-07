@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **🔍 Object Filters & Advanced Search** - February 6, 2026. Implemented server-side object filtering with a new console API endpoint and frontend filter panel, enabling users to search objects by content type, size range, date range, and tags.
+  - **New endpoint**: `GET /api/v1/buckets/{bucket}/objects/search` — separate from S3-compatible listing to keep S3 path clean
+  - **Metadata layer** (`internal/metadata/store.go`):
+    - Added `ObjectFilter` struct: `ContentTypes` (prefix match), `MinSize`/`MaxSize` (byte range, inclusive), `ModifiedAfter`/`ModifiedBefore`, `Tags` (AND semantics)
+    - Added `SearchObjects()` method to the `Store` interface
+  - **BadgerDB implementation** (`internal/metadata/badger_objects.go`):
+    - `matchesFilter()` — content-type prefix match, size range, date range, tag AND-match
+    - Two search strategies: prefix-scan with 100k scan limit (no tags) or tag-index-first candidate selection (with tags)
+  - **Object Manager** (`internal/object/manager.go`):
+    - Added `SearchObjects()` to `Manager` interface and implementation
+    - Handles bucket validation, delimiter/common-prefix logic, skips internal files and delete markers
+  - **Console API** (`internal/server/console_api.go`):
+    - Query params: `content_type` (comma-separated prefixes), `min_size`/`max_size` (int64), `modified_after`/`modified_before` (RFC3339), `tag` (repeatable, `key:value` format)
+    - Same auth/tenant pattern and JSON response shape as `handleListObjects`
+  - **Frontend** — Types (`ObjectSearchFilter`, `SearchObjectsRequest`), API client (`APIClient.searchObjects()`), new `ObjectFilterPanel` component with:
+    - Content-type checkboxes (Images, Documents, Videos, Archives, Text)
+    - Size range inputs with unit selector (B/KB/MB/GB)
+    - Date range with native date inputs
+    - Dynamic tag key=value pair management
+    - Active filter count badge on Filters button
+  - **Bucket detail page** (`web/frontend/src/pages/buckets/[bucket]/index.tsx`):
+    - Filters button next to search bar; React Query switches to `searchObjects()` when filters are active
+    - Collapsible `ObjectFilterPanel` rendered below toolbar
+  - **Test coverage** — 22 new tests across 3 layers:
+    - 12 metadata tests: content-type, size range, date range, tags (single/multi), combined, pagination, prefix, empty bucket, min-size-only, multiple content types
+    - 4 object manager tests: basic filtering, bucket not found, delimiter handling, empty filter
+    - 6 server endpoint tests: auth required, no filters, content-type, min_size, bucket not found, combined filters
+  - All tests passing, full project builds cleanly
+
 ### Changed
 
 - **🔄 AWS SDK v2 Endpoint Configuration Updated** - February 6, 2026. Migrated from deprecated global endpoint resolver to service-specific endpoint configuration.
