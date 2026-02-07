@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/metrics"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/stretchr/testify/assert"
@@ -355,6 +356,14 @@ func (m *MockObjectManager) CopyObject(ctx context.Context, srcBucket, srcKey, d
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*object.Object), args.Error(1)
+}
+
+func (m *MockObjectManager) SearchObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int, filter *metadata.ObjectFilter) (*object.ListObjectsResult, error) {
+	args := m.Called(ctx, bucket, prefix, delimiter, marker, maxKeys, filter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*object.ListObjectsResult), args.Error(1)
 }
 
 func (m *MockObjectManager) IsReady() bool {

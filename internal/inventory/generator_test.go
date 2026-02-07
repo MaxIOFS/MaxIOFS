@@ -403,6 +403,14 @@ func (m *MockMetadataStore) Close() error {
 	return args.Error(0)
 }
 
+func (m *MockMetadataStore) SearchObjects(ctx context.Context, bucket, prefix, marker string, maxKeys int, filter *metadata.ObjectFilter) ([]*metadata.ObjectMetadata, string, error) {
+	args := m.Called(ctx, bucket, prefix, marker, maxKeys, filter)
+	if args.Get(0) == nil {
+		return nil, args.String(1), args.Error(2)
+	}
+	return args.Get(0).([]*metadata.ObjectMetadata), args.String(1), args.Error(2)
+}
+
 func (m *MockMetadataStore) IsReady() bool {
 	args := m.Called()
 	return args.Bool(0)
