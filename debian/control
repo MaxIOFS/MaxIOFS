@@ -9,7 +9,7 @@ Vcs-Git: https://github.com/maxiofs/maxiofs.git
 Vcs-Browser: https://github.com/maxiofs/maxiofs
  .
 Package: maxiofs
-Version: 0.6.2-beta
+Version: 0.8.0-beta
 Architecture: amd64
 Depends: libc6, adduser
 Recommends: nginx, logrotate

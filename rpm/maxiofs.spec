@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 0.7.1}
+%{!?version: %define version 0.8.0}
 %define release 1
 %define debug_package %{nil}
 
