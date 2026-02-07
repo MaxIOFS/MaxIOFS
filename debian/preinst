@@ -1,0 +1,34 @@
+#!/bin/bash
+# preinst script for maxiofs
+# This script runs BEFORE the package files are unpacked
+# CRITICAL: Backup config.yaml to prevent loss during upgrade
+
+set -e
+
+case "$1" in
+    install|upgrade)
+        # CRITICAL: Backup existing config.yaml before dpkg unpacks new files
+        # This protects against:
+        # 1. Old packages that included config.yaml being upgraded to new packages that don't
+        # 2. Any dpkg conffile handling issues
+        # 3. Accidental deletion during package operations
+        
+        if [ -f /etc/maxiofs/config.yaml ]; then
+            echo "Backing up existing config.yaml (contains encryption keys)..."
+            cp -p /etc/maxiofs/config.yaml /etc/maxiofs/config.yaml.dpkg-backup
+            echo "Backup created at /etc/maxiofs/config.yaml.dpkg-backup"
+        fi
+        ;;
+
+    abort-upgrade)
+        ;;
+
+    *)
+        echo "preinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

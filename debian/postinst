@@ -18,12 +18,22 @@ case "$1" in
         chown -R maxiofs:maxiofs /var/lib/maxiofs
         chown -R maxiofs:maxiofs /var/log/maxiofs
 
-        # Create config.yaml from example if it doesn't exist (NEVER overwrite existing config)
-        if [ ! -f /etc/maxiofs/config.yaml ]; then
+        # CRITICAL: Restore config.yaml from backup if it was deleted during upgrade
+        # This handles the case where old packages included config.yaml and new ones don't
+        if [ ! -f /etc/maxiofs/config.yaml ] && [ -f /etc/maxiofs/config.yaml.dpkg-backup ]; then
+            echo "Restoring config.yaml from backup (preserving encryption keys)..."
+            cp -p /etc/maxiofs/config.yaml.dpkg-backup /etc/maxiofs/config.yaml
+            rm -f /etc/maxiofs/config.yaml.dpkg-backup
+            echo "✅ Configuration restored successfully!"
+        elif [ ! -f /etc/maxiofs/config.yaml ]; then
+            # Fresh install - create from example
             echo "Creating initial config.yaml from example..."
             cp /etc/maxiofs/config.example.yaml /etc/maxiofs/config.yaml
         else
+            # Config exists and no backup needed
             echo "Preserving existing config.yaml (contains encryption keys)"
+            # Clean up backup if it exists
+            rm -f /etc/maxiofs/config.yaml.dpkg-backup
         fi
 
         # Set ownership and permissions for config files

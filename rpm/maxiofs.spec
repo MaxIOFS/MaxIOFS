@@ -95,19 +95,36 @@ if ! getent passwd maxiofs >/dev/null 2>&1; then
             --shell /sbin/nologin maxiofs
 fi
 
+# CRITICAL: Backup existing config.yaml before rpm unpacks new files
+# This protects encryption keys during upgrades
+if [ -f /etc/maxiofs/config.yaml ]; then
+    echo "Backing up existing config.yaml (contains encryption keys)..."
+    cp -p /etc/maxiofs/config.yaml /etc/maxiofs/config.yaml.rpm-backup
+    echo "Backup created at /etc/maxiofs/config.yaml.rpm-backup"
+fi
+
 %post
 # Set ownership of directories
 chown -R maxiofs:maxiofs /var/lib/maxiofs
 chown -R maxiofs:maxiofs /var/log/maxiofs
 
-# Create config.yaml from example if it doesn't exist (NEVER overwrite existing config)
-if [ ! -f /etc/maxiofs/config.yaml ]; then
+# CRITICAL: Restore config.yaml from backup if it was deleted during upgrade
+if [ ! -f /etc/maxiofs/config.yaml ] && [ -f /etc/maxiofs/config.yaml.rpm-backup ]; then
+    echo "Restoring config.yaml from backup (preserving encryption keys)..."
+    cp -p /etc/maxiofs/config.yaml.rpm-backup /etc/maxiofs/config.yaml
+    rm -f /etc/maxiofs/config.yaml.rpm-backup
+    echo "✅ Configuration restored successfully!"
+elif [ ! -f /etc/maxiofs/config.yaml ]; then
+    # Fresh install - create from example
     echo "Creating initial config.yaml from example..."
     cp /etc/maxiofs/config.example.yaml /etc/maxiofs/config.yaml
     # Adjust data_dir for system installation
     sed -i 's|data_dir: "./data"|data_dir: "/var/lib/maxiofs"|' /etc/maxiofs/config.yaml
 else
+    # Config exists and no backup needed
     echo "Preserving existing config.yaml (contains encryption keys)"
+    # Clean up backup if it exists
+    rm -f /etc/maxiofs/config.yaml.rpm-backup
 fi
 
 # Set ownership and permissions for config files
