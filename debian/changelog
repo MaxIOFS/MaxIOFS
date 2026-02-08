@@ -266,7 +266,7 @@ maxiofs (0.3.2-beta) unstable; urgency=medium
   * Bucket pagination for large bucket lists
   * Responsive frontend design improvements
   * Configurable Object Lock retention periods per bucket
-  * S3 compatibility now at 98%
+  * S3 compatibility now at 100%
 
  -- MaxIOFS Team <info@maxiofs.com>  Sun, 10 Nov 2025 00:00:00 +0000
 

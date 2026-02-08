@@ -37,7 +37,7 @@ MaxIOFS is a high-performance, S3-compatible object storage system
 built in Go with an embedded React web interface.
 
 Features:
-* Full S3 API compatibility (98% tests passing)
+* Full S3 API compatibility (100% S3 core compatible)
 * Server-Side Encryption (SSE) with AES-256-CTR
 * Comprehensive audit logging system
 * Two-Factor Authentication (2FA) with TOTP

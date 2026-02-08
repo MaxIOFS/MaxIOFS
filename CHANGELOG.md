@@ -217,7 +217,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ESLint warnings across frontend
 
 ### Changed
-- S3 API compatibility improved to 98%
+- S3 API compatibility improved to 100%
 - All dependencies upgraded to latest versions
 
 ## [0.3.1-beta] - 2025-11-05

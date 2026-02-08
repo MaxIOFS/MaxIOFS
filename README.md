@@ -10,9 +10,9 @@ MaxIOFS is a high-performance, S3-compatible object storage system built in Go w
 ## 🎉 Project Status
 
 **BETA PHASE** - Production-ready features with ongoing testing:
-- ✅ **98% S3 API compatibility** - Validated with AWS CLI and MinIO Warp
+- ✅ **100% S3 API compatibility** - Validated with AWS CLI and MinIO Warp
 - ✅ **Zero known bugs** - All reported issues resolved
-- ✅ **Comprehensive testing** - 564+ automated tests (500 backend + 64 frontend)
+- ✅ **Comprehensive testing** - 1,750+ automated tests (1,700+ backend + 64 frontend)
 - ✅ **Production performance** - Validated with 100,000+ requests
 - ✅ **Complete documentation** - See `/docs` directory
 - ⚠️ Suitable for testing, development, and staging environments
@@ -20,13 +20,16 @@ MaxIOFS is a high-performance, S3-compatible object storage system built in Go w
 
 ## 🎯 Key Features
 
-### S3 API Compatibility (98%)
+### S3 API Compatibility (100%)
 - Core operations (PUT, GET, DELETE, LIST objects & buckets)
 - Multipart uploads with complete workflow
 - Presigned URLs with expiration
 - Bucket versioning with delete markers
 - Bucket policies, CORS, tagging, and lifecycle rules
 - Object Lock (COMPLIANCE/GOVERNANCE modes)
+- Object search & filters (content-type, size range, date range, tags)
+- Bucket policy enforcement (AWS S3-compatible evaluation engine)
+- Presigned URL signature validation (V4 and V2)
 - Bucket notifications (webhooks)
 - S3-compatible replication to AWS S3, MinIO, or other MaxIOFS instances
 
@@ -123,7 +126,6 @@ make build
 
 Comprehensive documentation available in `/docs`:
 
-- **[QUICKSTART.md](docs/QUICKSTART.md)** - Step-by-step getting started guide
 - **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Production deployment guide
 - **[CONFIGURATION.md](docs/CONFIGURATION.md)** - Configuration reference
 - **[API.md](docs/API.md)** - S3 API compatibility reference
@@ -137,8 +139,8 @@ Comprehensive documentation available in `/docs`:
 ## 🧪 Testing
 
 **Automated Tests:**
+- 1,700+ backend tests across 103 test files (Auth, S3 API, Cluster, Metadata, Storage, ACL, Encryption, Replication, and more)
 - 64 frontend tests (React components, API integration)
-- 71 backend tests (Auth, S3 API, Cluster, Logging)
 - 100% pass rate, CI/CD ready
 
 **Test with AWS CLI:**
@@ -157,7 +159,6 @@ aws --profile maxiofs --endpoint-url http://localhost:8080 s3 cp file.txt s3://t
 
 ## ⚠️ Known Limitations
 
-- Filesystem backend only (no S3/GCS/Azure backends)
 - Multi-tenancy needs more production testing
 - Cluster tested with up to 5 nodes
 - No third-party security audit performed

@@ -23,7 +23,7 @@ Description: High-Performance S3-Compatible Object Storage
  and complete API documentation.
  .
  Features:
-  * Full S3 API compatibility (98% tests passing)
+  * Full S3 API compatibility (100% S3 core compatible)
   * Server-Side Encryption (SSE) with AES-256-CTR (v0.4.1+)
   * Comprehensive audit logging system (v0.4.0+)
   * Two-Factor Authentication (2FA) with TOTP

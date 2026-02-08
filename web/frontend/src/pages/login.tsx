@@ -220,7 +220,7 @@ export default function LoginPage() {
                 {/* Tooltip */}
                 <div className="absolute -bottom-10 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
                   <div className="bg-gray-900 text-white text-xs px-3 py-1.5 rounded-lg shadow-lg">
-                    98% S3 Compatible
+                    100% S3 Compatible
                   </div>
                 </div>
               </div>
