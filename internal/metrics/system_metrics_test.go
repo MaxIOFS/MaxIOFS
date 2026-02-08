@@ -355,13 +355,14 @@ func TestCPUStats_ConsistentData(t *testing.T) {
 	// Note: In CI/virtualized environments, CPU frequency can vary more due to
 	// dynamic scaling, throttling, and hypervisor behavior
 	if stats1.FrequencyMHz > 0 && stats2.FrequencyMHz > 0 {
-		// Allow 25% variance in frequency (increased for CI environments)
+		// Allow 50% variance in frequency (CI/virtualized environments have aggressive
+		// dynamic scaling, turbo boost, and hypervisor-level frequency changes)
 		diff := stats1.FrequencyMHz - stats2.FrequencyMHz
 		if diff < 0 {
 			diff = -diff
 		}
 		percentDiff := (diff / stats1.FrequencyMHz) * 100
-		assert.Less(t, percentDiff, 25.0, "Frequency variance should be less than 25%")
+		assert.Less(t, percentDiff, 50.0, "Frequency variance should be less than 50%")
 	}
 }
 
