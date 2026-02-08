@@ -1097,7 +1097,7 @@ func (am *authManager) generateSecretAccessKey() (string, error) {
 	return base64.StdEncoding.EncodeToString(bytes), nil
 }
 
-// parseBasicToken parses a basic JWT-like token (MVP implementation)
+// parseBasicToken parses and verifies a JWT token with HMAC-SHA256 signature
 func (am *authManager) parseBasicToken(token string) (*JWTClaims, error) {
 	// Split token into parts (header.payload.signature)
 	parts := strings.Split(token, ".")
@@ -1105,7 +1105,18 @@ func (am *authManager) parseBasicToken(token string) (*JWTClaims, error) {
 		return nil, ErrInvalidToken
 	}
 
-	// Decode payload (base64)
+	// Verify signature BEFORE trusting the payload
+	message := parts[0] + "." + parts[1]
+	expectedMAC := hmac.New(sha256.New, []byte(am.config.SecretKey))
+	expectedMAC.Write([]byte(message))
+	expectedSignature := base64.URLEncoding.EncodeToString(expectedMAC.Sum(nil))
+
+	// Constant-time comparison to prevent timing attacks
+	if !hmac.Equal([]byte(parts[2]), []byte(expectedSignature)) {
+		return nil, ErrInvalidToken
+	}
+
+	// Signature verified — now decode payload
 	payload, err := base64.URLEncoding.DecodeString(parts[1])
 	if err != nil {
 		return nil, ErrInvalidToken

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/config"
+	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/server"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -58,6 +59,11 @@ func runServer(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+
+	// Configure trusted proxies for rate limiting
+	if len(cfg.TrustedProxies) > 0 {
+		middleware.TrustedProxies = cfg.TrustedProxies
 	}
 
 	// Setup logging

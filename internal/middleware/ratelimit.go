@@ -2,7 +2,9 @@ package middleware
 
 import (
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -244,16 +246,98 @@ func RateLimitWithConfig(config *RateLimitConfig) func(http.Handler) http.Handle
 
 // Key extraction functions
 
-// IPKeyExtractor extracts the IP address as the rate limiting key
+// TrustedProxies holds additional trusted proxy IPs/CIDRs beyond private networks.
+// By default, all RFC 1918 private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+// and loopback (127.0.0.0/8, ::1) are trusted automatically.
+// Add entries here only for public IPs that act as proxies (e.g., Cloudflare ranges).
+var TrustedProxies []string
+
+// privateNetworks contains RFC 1918 private ranges + loopback.
+// Connections from these IPs are assumed to come from internal infrastructure
+// (load balancers, reverse proxies, Docker networks, etc.)
+var privateNetworks []*net.IPNet
+
+func init() {
+	privateCIDRs := []string{
+		"127.0.0.0/8",    // Loopback
+		"10.0.0.0/8",     // RFC 1918 Class A
+		"172.16.0.0/12",  // RFC 1918 Class B
+		"192.168.0.0/16", // RFC 1918 Class C
+		"::1/128",        // IPv6 loopback
+		"fc00::/7",       // IPv6 unique local
+	}
+	for _, cidr := range privateCIDRs {
+		_, network, _ := net.ParseCIDR(cidr)
+		privateNetworks = append(privateNetworks, network)
+	}
+}
+
+// IPKeyExtractor extracts the real client IP address as the rate limiting key.
+// Trusts X-Forwarded-For/X-Real-IP when the request comes from a private network
+// or an explicitly trusted proxy — no configuration needed for standard deployments.
 func IPKeyExtractor(r *http.Request) string {
-	// Check for forwarded headers first
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return xff
+	remoteIP := stripPort(r.RemoteAddr)
+
+	// Trust proxy headers if the direct connection is from a private/trusted source
+	if isTrustedProxy(remoteIP) {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			// X-Forwarded-For is comma-separated: client, proxy1, proxy2
+			// The first IP is the original client
+			parts := strings.SplitN(xff, ",", 2)
+			clientIP := strings.TrimSpace(parts[0])
+			if clientIP != "" {
+				return clientIP
+			}
+		}
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			return strings.TrimSpace(xri)
+		}
 	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
+
+	return remoteIP
+}
+
+// stripPort removes the port from an address like "192.168.1.1:12345"
+func stripPort(addr string) string {
+	// Handle IPv6 addresses like "[::1]:8080"
+	if idx := strings.LastIndex(addr, ":"); idx != -1 {
+		// Make sure we're not stripping part of an IPv6 address
+		if bracketIdx := strings.LastIndex(addr, "]"); bracketIdx != -1 {
+			if idx > bracketIdx {
+				return addr[:idx]
+			}
+			return addr
+		}
+		return addr[:idx]
 	}
-	return r.RemoteAddr
+	return addr
+}
+
+// isTrustedProxy checks if the IP is a private network address or in the explicit trusted list
+func isTrustedProxy(ip string) bool {
+	// Check private networks (RFC 1918 + loopback)
+	parsedIP := net.ParseIP(ip)
+	if parsedIP != nil {
+		for _, network := range privateNetworks {
+			if network.Contains(parsedIP) {
+				return true
+			}
+		}
+	}
+
+	// Check explicit trusted proxies list (for public proxy IPs like Cloudflare)
+	for _, trusted := range TrustedProxies {
+		// Support CIDR notation (e.g., "104.16.0.0/12")
+		if strings.Contains(trusted, "/") {
+			_, network, err := net.ParseCIDR(trusted)
+			if err == nil && parsedIP != nil && network.Contains(parsedIP) {
+				return true
+			}
+		} else if trusted == ip {
+			return true
+		}
+	}
+	return false
 }
 
 // UserIDKeyExtractor extracts the user ID as the rate limiting key

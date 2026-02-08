@@ -2,6 +2,10 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -254,6 +258,171 @@ func TestValidateJWT(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestValidateJWT_ForgedSignature tests that tokens signed with a different key are rejected
+func TestValidateJWT_ForgedSignature(t *testing.T) {
+	manager, tmpDir := setupTestAuthManager(t)
+	defer cleanupTestAuthManager(t, tmpDir)
+
+	ctx := context.Background()
+
+	// Create a user
+	user := &User{
+		ID:          "test-user-forged",
+		Username:    "forgeduser",
+		Password:    "TestPassword123!",
+		DisplayName: "Forged User",
+		Email:       "forged@example.com",
+		Status:      UserStatusActive,
+		Roles:       []string{"admin"},
+		CreatedAt:   time.Now().Unix(),
+		UpdatedAt:   time.Now().Unix(),
+	}
+	err := manager.CreateUser(ctx, user)
+	require.NoError(t, err)
+
+	// Generate a valid token first to confirm it works
+	validToken, err := manager.GenerateJWT(ctx, user)
+	require.NoError(t, err)
+
+	validatedUser, err := manager.ValidateJWT(ctx, validToken)
+	require.NoError(t, err)
+	require.NotNil(t, validatedUser)
+
+	// Now forge a token with a DIFFERENT secret key
+	forgeToken := func(secretKey string) string {
+		header := map[string]string{"typ": "JWT", "alg": "HS256"}
+		headerJSON, _ := json.Marshal(header)
+		headerB64 := base64.URLEncoding.EncodeToString(headerJSON)
+
+		claims := JWTClaims{
+			UserID:    user.ID,
+			AccessKey: user.Username,
+			Roles:     []string{"admin"},
+			ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+			IssuedAt:  time.Now().Unix(),
+			NotBefore: time.Now().Unix(),
+			Issuer:    "maxiofs",
+			Subject:   user.ID,
+			Audience:  "maxiofs-api",
+		}
+		payloadJSON, _ := json.Marshal(claims)
+		payloadB64 := base64.URLEncoding.EncodeToString(payloadJSON)
+
+		message := headerB64 + "." + payloadB64
+		mac := hmac.New(sha256.New, []byte(secretKey))
+		mac.Write([]byte(message))
+		signature := base64.URLEncoding.EncodeToString(mac.Sum(nil))
+
+		return message + "." + signature
+	}
+
+	tests := []struct {
+		name    string
+		token   string
+		wantErr bool
+	}{
+		{
+			name:    "Token signed with different secret key",
+			token:   forgeToken("attacker-secret-key-totally-different"),
+			wantErr: true,
+		},
+		{
+			name:    "Token signed with empty key (when server has non-empty key)",
+			token:   forgeToken("any-other-key"),
+			wantErr: true,
+		},
+		{
+			name:    "Token with tampered signature",
+			token:   validToken[:len(validToken)-5] + "XXXXX",
+			wantErr: true,
+		},
+		{
+			name:    "Token with swapped payload but valid-looking structure",
+			token:   forgeToken("wrong-key-12345678901234567890"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := manager.ValidateJWT(ctx, tt.token)
+			if tt.wantErr {
+				assert.Error(t, err, "Forged token should be rejected")
+				assert.Nil(t, result, "No user should be returned for forged token")
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, result)
+			}
+		})
+	}
+}
+
+// TestValidateJWT_TamperedPayload tests that modifying the payload invalidates the signature
+func TestValidateJWT_TamperedPayload(t *testing.T) {
+	manager, tmpDir := setupTestAuthManager(t)
+	defer cleanupTestAuthManager(t, tmpDir)
+
+	ctx := context.Background()
+
+	// Create a regular user
+	user := &User{
+		ID:          "test-user-tamper",
+		Username:    "regularuser",
+		Password:    "TestPassword123!",
+		DisplayName: "Regular User",
+		Email:       "regular@example.com",
+		Status:      UserStatusActive,
+		Roles:       []string{"user"},
+		CreatedAt:   time.Now().Unix(),
+		UpdatedAt:   time.Now().Unix(),
+	}
+	err := manager.CreateUser(ctx, user)
+	require.NoError(t, err)
+
+	// Generate a valid token
+	validToken, err := manager.GenerateJWT(ctx, user)
+	require.NoError(t, err)
+
+	// Tamper with the payload — change roles to admin by modifying the base64 payload
+	// Split the token, decode payload, modify it, re-encode, but keep old signature
+	parts := splitToken(validToken)
+	require.Len(t, parts, 3)
+
+	payloadBytes, err := base64.URLEncoding.DecodeString(parts[1])
+	require.NoError(t, err)
+
+	var claims map[string]interface{}
+	err = json.Unmarshal(payloadBytes, &claims)
+	require.NoError(t, err)
+
+	// Escalate privileges
+	claims["roles"] = []string{"admin", "superadmin"}
+	tamperedPayload, _ := json.Marshal(claims)
+	tamperedPayloadB64 := base64.URLEncoding.EncodeToString(tamperedPayload)
+
+	// Reconstruct token with tampered payload but original signature
+	tamperedToken := parts[0] + "." + tamperedPayloadB64 + "." + parts[2]
+
+	// This should fail because the signature doesn't match the tampered payload
+	result, err := manager.ValidateJWT(ctx, tamperedToken)
+	assert.Error(t, err, "Tampered token should be rejected")
+	assert.Nil(t, result, "No user should be returned for tampered token")
+}
+
+// splitToken splits a JWT token into its parts (helper for tests)
+func splitToken(token string) []string {
+	parts := make([]string, 0)
+	start := 0
+	for i := 0; i < len(token); i++ {
+		if token[i] == '.' {
+			parts = append(parts, token[start:i])
+			start = i + 1
+		}
+	}
+	parts = append(parts, token[start:])
+	return parts
 }
 
 // TestValidateConsoleCredentials tests console login validation

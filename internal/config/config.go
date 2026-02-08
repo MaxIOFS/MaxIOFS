@@ -27,6 +27,9 @@ type Config struct {
 	CertFile  string `mapstructure:"cert_file"`
 	KeyFile   string `mapstructure:"key_file"`
 
+	// Trusted proxies (public IPs only — private networks are trusted automatically)
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
+
 	// Storage configuration
 	Storage StorageConfig `mapstructure:"storage"`
 

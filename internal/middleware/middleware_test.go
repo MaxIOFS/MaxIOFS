@@ -551,23 +551,194 @@ func TestGenerousRateLimitConfig(t *testing.T) {
 }
 
 func TestIPKeyExtractor(t *testing.T) {
-	t.Run("X-Forwarded-For", func(t *testing.T) {
+	t.Run("Private network proxy trusts X-Forwarded-For", func(t *testing.T) {
+		// 10.0.0.1 is RFC 1918 — automatically trusted as proxy
 		req := httptest.NewRequest("GET", "/", nil)
-		req.Header.Set("X-Forwarded-For", "192.168.1.1")
+		req.Header.Set("X-Forwarded-For", "203.0.113.50")
 		req.RemoteAddr = "10.0.0.1:1234"
 
 		key := IPKeyExtractor(req)
 
-		assert.Equal(t, "192.168.1.1", key)
+		assert.Equal(t, "203.0.113.50", key)
 	})
 
-	t.Run("RemoteAddr", func(t *testing.T) {
+	t.Run("Private network proxy trusts X-Real-IP", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("X-Real-IP", "203.0.113.51")
+		req.RemoteAddr = "192.168.1.1:8080"
+
+		key := IPKeyExtractor(req)
+
+		assert.Equal(t, "203.0.113.51", key)
+	})
+
+	t.Run("Loopback trusts proxy headers", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("X-Forwarded-For", "203.0.113.52")
+		req.RemoteAddr = "127.0.0.1:1234"
+
+		key := IPKeyExtractor(req)
+
+		assert.Equal(t, "203.0.113.52", key)
+	})
+
+	t.Run("172.16.x.x trusts proxy headers", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("X-Forwarded-For", "8.8.4.4")
+		req.RemoteAddr = "172.17.0.1:3000"
+
+		key := IPKeyExtractor(req)
+
+		// Docker default bridge network (172.17.x.x) is RFC 1918 — trusted
+		assert.Equal(t, "8.8.4.4", key)
+	})
+
+	t.Run("XFF first IP only from private proxy", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("X-Forwarded-For", "203.0.113.60, 10.0.0.2, 10.0.0.3")
 		req.RemoteAddr = "10.0.0.1:1234"
 
 		key := IPKeyExtractor(req)
 
-		assert.Equal(t, "10.0.0.1:1234", key)
+		assert.Equal(t, "203.0.113.60", key)
+	})
+
+	t.Run("Prefers XFF over X-Real-IP", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("X-Forwarded-For", "1.2.3.4")
+		req.Header.Set("X-Real-IP", "5.6.7.8")
+		req.RemoteAddr = "10.0.0.1:1234"
+
+		key := IPKeyExtractor(req)
+
+		assert.Equal(t, "1.2.3.4", key)
+	})
+
+	t.Run("Public IP ignores X-Forwarded-For", func(t *testing.T) {
+		// Direct connection from public IP — attacker sending forged XFF
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("X-Forwarded-For", "8.8.8.8")
+		req.RemoteAddr = "198.51.100.10:9999"
+
+		key := IPKeyExtractor(req)
+
+		// Must use RemoteAddr, NOT the forged header
+		assert.Equal(t, "198.51.100.10", key)
+		assert.NotEqual(t, "8.8.8.8", key)
+	})
+
+	t.Run("Public IP ignores X-Real-IP", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("X-Real-IP", "8.8.8.8")
+		req.RemoteAddr = "198.51.100.10:9999"
+
+		key := IPKeyExtractor(req)
+
+		assert.Equal(t, "198.51.100.10", key)
+	})
+
+	t.Run("Explicit trusted public proxy", func(t *testing.T) {
+		// Cloudflare-style: public IP explicitly added to TrustedProxies
+		oldProxies := TrustedProxies
+		TrustedProxies = []string{"104.16.0.1"}
+		defer func() { TrustedProxies = oldProxies }()
+
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("X-Forwarded-For", "203.0.113.99")
+		req.RemoteAddr = "104.16.0.1:443"
+
+		key := IPKeyExtractor(req)
+
+		assert.Equal(t, "203.0.113.99", key)
+	})
+
+	t.Run("No proxy headers uses RemoteAddr", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.RemoteAddr = "203.0.113.10:1234"
+
+		key := IPKeyExtractor(req)
+
+		assert.Equal(t, "203.0.113.10", key)
+	})
+}
+
+func TestStripPort(t *testing.T) {
+	tests := []struct {
+		name     string
+		addr     string
+		expected string
+	}{
+		{"IPv4 with port", "192.168.1.1:8080", "192.168.1.1"},
+		{"IPv4 without port", "192.168.1.1", "192.168.1.1"},
+		{"IPv6 with port", "[::1]:8080", "[::1]"},
+		{"IPv6 without port", "[::1]", "[::1]"},
+		{"IPv6 full with port", "[2001:db8::1]:443", "[2001:db8::1]"},
+		{"Hostname with port", "localhost:3000", "localhost"},
+		{"Empty string", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := stripPort(tt.addr)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestIsTrustedProxy(t *testing.T) {
+	t.Run("RFC 1918 private IPs are trusted", func(t *testing.T) {
+		assert.True(t, isTrustedProxy("10.0.0.1"))
+		assert.True(t, isTrustedProxy("10.255.255.255"))
+		assert.True(t, isTrustedProxy("172.16.0.1"))
+		assert.True(t, isTrustedProxy("172.31.255.255"))
+		assert.True(t, isTrustedProxy("192.168.0.1"))
+		assert.True(t, isTrustedProxy("192.168.255.255"))
+	})
+
+	t.Run("Loopback is trusted", func(t *testing.T) {
+		assert.True(t, isTrustedProxy("127.0.0.1"))
+		assert.True(t, isTrustedProxy("127.0.0.2"))
+	})
+
+	t.Run("Public IPs are NOT trusted by default", func(t *testing.T) {
+		assert.False(t, isTrustedProxy("8.8.8.8"))
+		assert.False(t, isTrustedProxy("203.0.113.1"))
+		assert.False(t, isTrustedProxy("198.51.100.1"))
+		assert.False(t, isTrustedProxy("104.16.0.1"))
+	})
+
+	t.Run("172.32.x.x is NOT private", func(t *testing.T) {
+		// 172.16-31 is private, 172.32+ is public
+		assert.False(t, isTrustedProxy("172.32.0.1"))
+	})
+
+	t.Run("Explicit trusted proxy overrides", func(t *testing.T) {
+		oldProxies := TrustedProxies
+		TrustedProxies = []string{"104.16.0.1", "104.16.0.2"}
+		defer func() { TrustedProxies = oldProxies }()
+
+		assert.True(t, isTrustedProxy("104.16.0.1"))
+		assert.True(t, isTrustedProxy("104.16.0.2"))
+		assert.False(t, isTrustedProxy("104.16.0.3"))
+	})
+
+	t.Run("Explicit trusted proxy with CIDR range", func(t *testing.T) {
+		oldProxies := TrustedProxies
+		TrustedProxies = []string{"104.16.0.0/12"}
+		defer func() { TrustedProxies = oldProxies }()
+
+		// IPs within the CIDR range
+		assert.True(t, isTrustedProxy("104.16.0.1"))
+		assert.True(t, isTrustedProxy("104.31.255.255"))
+
+		// IPs outside the CIDR range
+		assert.False(t, isTrustedProxy("104.32.0.1"))
+		assert.False(t, isTrustedProxy("8.8.8.8"))
+	})
+
+	t.Run("Non-parseable IP is not trusted", func(t *testing.T) {
+		assert.False(t, isTrustedProxy("not-an-ip"))
+		assert.False(t, isTrustedProxy(""))
 	})
 }
 
@@ -587,7 +758,7 @@ func TestUserIDKeyExtractor(t *testing.T) {
 
 		key := UserIDKeyExtractor(req)
 
-		assert.Equal(t, "192.168.1.1:1234", key)
+		assert.Equal(t, "192.168.1.1", key)
 	})
 }
 

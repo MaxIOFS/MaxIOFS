@@ -21,6 +21,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/notifications"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/presigned"
@@ -132,21 +133,14 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 			isError := wrapped.statusCode >= 500 // Only count 5xx as errors (server errors), not 4xx (client errors)
 			s.systemMetrics.RecordRequest(latencyMs, isError)
 		})
-	}) // Apply CORS middleware for API
-	router.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-			if r.Method == "OPTIONS" {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	})
+	}) // Apply CORS middleware for Console API
+	// Use the proper CORS middleware with origin validation instead of wildcard "*"
+	corsConfig := middleware.DefaultCORSConfig()
+	// Add the console's own origin (same-origin requests send Origin header)
+	if s.config.PublicConsoleURL != "" {
+		corsConfig.AllowedOrigins = append(corsConfig.AllowedOrigins, s.config.PublicConsoleURL)
+	}
+	router.Use(middleware.CORSWithConfig(corsConfig))
 
 	// Authentication middleware - validates JWT and adds user to context
 	router.Use(func(next http.Handler) http.Handler {

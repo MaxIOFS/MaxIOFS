@@ -177,6 +177,37 @@ key_file: ""
 #   key_file: "/etc/letsencrypt/live/s3.example.com/privkey.pem"
 
 # =============================================================================
+# TRUSTED PROXIES (Rate Limiting & IP Detection)
+# =============================================================================
+# MaxIOFS automatically trusts connections from private/internal networks
+# (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8) to read the
+# real client IP from X-Forwarded-For and X-Real-IP headers.
+#
+# This means:
+#   - Behind nginx, HAProxy, Docker, Kubernetes → works automatically
+#   - Direct connections from public IPs → headers are ignored (secure by default)
+#
+# You ONLY need to configure trusted_proxies if your proxy has a PUBLIC IP,
+# for example when using Cloudflare, AWS ALB/ELB, or any external CDN/proxy.
+# Add the public IP or IP range of the proxy so MaxIOFS trusts its headers.
+#
+# Without this, all requests through a public proxy will appear to come from
+# the proxy's IP instead of the real client, causing all users to share the
+# same rate limit.
+#
+# Examples:
+#   trusted_proxies:
+#     - "104.16.0.0/12"      # Cloudflare IPv4 range
+#     - "198.41.128.0/17"    # Cloudflare IPv4 range
+#     - "52.0.0.1"           # Specific AWS ALB IP
+#
+# Cloudflare full IP ranges: https://www.cloudflare.com/ips/
+# AWS IP ranges: https://ip-ranges.amazonaws.com/ip-ranges.json
+#
+# Environment variable: MAXIOFS_TRUSTED_PROXIES="104.16.0.0/12,198.41.128.0/17"
+trusted_proxies: []
+
+# =============================================================================
 # STORAGE CONFIGURATION
 # =============================================================================
 storage:
