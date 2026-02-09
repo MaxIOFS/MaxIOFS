@@ -88,6 +88,7 @@ export default {
           600: 'rgb(var(--color-success-600) / <alpha-value>)',
           700: 'rgb(var(--color-success-700) / <alpha-value>)',
           800: 'rgb(var(--color-success-800) / <alpha-value>)',
+          900: 'rgb(var(--color-success-900) / <alpha-value>)',
         },
         // Error colors (Red)
         error: {
@@ -100,6 +101,7 @@ export default {
           600: 'rgb(var(--color-error-600) / <alpha-value>)',
           700: 'rgb(var(--color-error-700) / <alpha-value>)',
           800: 'rgb(var(--color-error-800) / <alpha-value>)',
+          900: 'rgb(var(--color-error-900) / <alpha-value>)',
         },
         // Warning colors (Orange/Yellow)
         warning: {
@@ -112,6 +114,7 @@ export default {
           600: 'rgb(var(--color-warning-600) / <alpha-value>)',
           700: 'rgb(var(--color-warning-700) / <alpha-value>)',
           800: 'rgb(var(--color-warning-800) / <alpha-value>)',
+          900: 'rgb(var(--color-warning-900) / <alpha-value>)',
         },
         // Blue Light
         'blue-light': {

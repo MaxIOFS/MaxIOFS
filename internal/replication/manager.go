@@ -328,6 +328,12 @@ func (m *Manager) DeleteRule(ctx context.Context, tenantID, ruleID string) error
 	if rows == 0 {
 		return fmt.Errorf("rule not found")
 	}
+
+	// Clean up lock for deleted rule to prevent unbounded map growth
+	m.locksMu.Lock()
+	delete(m.ruleLocks, ruleID)
+	m.locksMu.Unlock()
+
 	return nil
 }
 
@@ -543,6 +549,9 @@ func (m *Manager) ruleScheduler(ctx context.Context) {
 
 // processScheduledRules checks and processes rules that need to be synced
 func (m *Manager) processScheduledRules(ctx context.Context, lastSync map[string]time.Time) {
+	// Track active rule IDs to clean up stale lastSync entries
+	activeRuleIDs := make(map[string]bool)
+
 	// Get all enabled scheduled rules
 	query := `
 		SELECT id, tenant_id, source_bucket, schedule_interval, mode
@@ -596,6 +605,15 @@ func (m *Manager) processScheduledRules(ctx context.Context, lastSync map[string
 				// Update last sync time
 				lastSync[rID] = time.Now()
 			}(ruleID)
+
+			activeRuleIDs[ruleID] = true
+		}
+	}
+
+	// Clean up lastSync entries for rules that no longer exist
+	for id := range lastSync {
+		if !activeRuleIDs[id] {
+			delete(lastSync, id)
 		}
 	}
 }

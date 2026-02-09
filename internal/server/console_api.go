@@ -562,11 +562,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"ip":       clientIP,
 	}).Info("Successful login")
 
+	// Check if user is still using default password (admin/admin)
+	defaultPassword := loginReq.Username == "admin" && loginReq.Password == "admin"
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"token":   token,
+		"success":          true,
+		"token":            token,
+		"default_password": defaultPassword,
 		"user": UserResponse{
 			ID:                  user.ID,
 			Username:            user.Username,

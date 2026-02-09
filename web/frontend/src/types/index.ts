@@ -59,6 +59,7 @@ export interface LoginResponse {
   requires_2fa?: boolean;
   user_id?: string;
   message?: string;
+  default_password?: boolean;
 }
 
 export interface CreateUserRequest {

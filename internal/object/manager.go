@@ -204,7 +204,10 @@ func (om *objectManager) parseBucketPath(bucketPath string) (tenantID, bucketNam
 func generateVersionID() string {
 	timestamp := time.Now().UnixNano()
 	randomBytes := make([]byte, 4)
-	rand.Read(randomBytes)
+	if _, err := rand.Read(randomBytes); err != nil {
+		// Fallback to timestamp-only version ID if crypto/rand fails
+		return fmt.Sprintf("%d", timestamp)
+	}
 	randomHex := hex.EncodeToString(randomBytes)
 	return fmt.Sprintf("%d.%s", timestamp, randomHex)
 }
@@ -314,19 +317,34 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 			Algorithm: "AES-256-GCM",
 		}
 
-		// Decrypt in a goroutine
+		// Decrypt in a goroutine — monitor context to prevent goroutine leak
 		go func() {
-			defer pipeWriter.Close()
 			defer encryptedReader.Close()
 
-			if err := om.encryptionService.DecryptStream(encryptedReader, pipeWriter, encryptionMeta); err != nil {
+			// If the caller abandons the reader (e.g., client disconnects),
+			// the context will be cancelled, unblocking pipeWriter.Write()
+			done := make(chan struct{})
+			go func() {
+				select {
+				case <-ctx.Done():
+					pipeWriter.CloseWithError(ctx.Err())
+				case <-done:
+				}
+			}()
+
+			err := om.encryptionService.DecryptStream(encryptedReader, pipeWriter, encryptionMeta)
+			close(done)
+
+			if err != nil {
 				// Ignore "closed pipe" errors - these occur during range requests when client
 				// closes connection after receiving requested bytes, which is expected behavior
 				if err.Error() != "io: read/write on closed pipe" && !strings.Contains(err.Error(), "closed pipe") {
 					logrus.WithError(err).Error("Failed to decrypt object data")
 					pipeWriter.CloseWithError(fmt.Errorf("decryption failed: %w", err))
+					return
 				}
 			}
+			pipeWriter.Close()
 		}()
 
 		return object, pipeReader, nil

@@ -25,7 +25,8 @@
     --color-success-600: 3 152 85;
     --color-success-700: 2 122 72;
     --color-success-800: 5 96 58;
-    
+    --color-success-900: 3 70 43;
+
     /* Error Colors */
     --color-error-50: 254 243 242;
     --color-error-100: 254 228 226;
@@ -36,7 +37,8 @@
     --color-error-600: 217 45 32;
     --color-error-700: 180 35 24;
     --color-error-800: 145 32 24;
-    
+    --color-error-900: 120 27 20;
+
     /* Warning Colors */
     --color-warning-50: 255 250 235;
     --color-warning-100: 254 240 199;
@@ -47,6 +49,7 @@
     --color-warning-600: 220 104 3;
     --color-warning-700: 181 71 8;
     --color-warning-800: 147 55 13;
+    --color-warning-900: 122 44 10;
     
     /* Blue Light Colors */
     --color-blue-light-50: 240 249 255;

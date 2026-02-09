@@ -297,10 +297,17 @@ export class APIClient {
       requires_2fa: response.data.requires_2fa,
       user_id: response.data.user_id,
       message: response.data.message,
+      default_password: response.data.default_password,
     };
 
     if (result.success && result.token) {
       tokenManager.setTokens(result.token, result.refreshToken);
+      // Track default password warning
+      if (result.default_password) {
+        localStorage.setItem('default_password_warning', 'true');
+      } else {
+        localStorage.removeItem('default_password_warning');
+      }
     }
 
     return result;
@@ -369,6 +376,9 @@ export class APIClient {
       currentPassword,
       newPassword,
     });
+    // Clear default password warning after successful password change
+    localStorage.removeItem('default_password_warning');
+    window.dispatchEvent(new Event('default-password-changed'));
   }
 
   static async updateUserPreferences(userId: string, themePreference: string, languagePreference: string): Promise<User> {

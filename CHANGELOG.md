@@ -5,6 +5,30 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+- **CRITICAL**: JWT signature verification — `parseBasicToken()` now verifies HMAC-SHA256 signature with `hmac.Equal()` constant-time comparison before trusting payload
+- **CRITICAL**: CORS wildcard removal — replaced hardcoded `Access-Control-Allow-Origin: *` with proper origin validation via `middleware.CORSWithConfig()`
+- **CRITICAL**: Rate limiting IP spoofing — `IPKeyExtractor` now auto-trusts RFC 1918 private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, ::1, fc00::/7) and only honors `X-Forwarded-For`/`X-Real-IP` from trusted proxies. Supports explicit CIDR ranges for public proxies (Cloudflare, AWS ALB)
+
+### Added
+- Default password change notification — backend returns `default_password: true` on login with admin/admin, frontend shows persistent amber security warning in notification bell linking to user profile
+- `trusted_proxies` configuration option in `config.yaml` for public proxy IP/CIDR ranges
+
+### Fixed
+- Goroutine leak in decryption pipeline — added context cancellation monitoring to unblock `pipeWriter` when caller abandons the reader
+- Unbounded map growth in replication manager — `DeleteRule()` now cleans up `ruleLocks`, `processScheduledRules()` prunes stale `lastSync` entries
+- Unchecked `crypto/rand.Read` error — added fallback to timestamp-only version ID on failure
+- Toast notifications rendering in light theme when dark mode active — added missing CSS variable shades (success-900, error-900, warning-900)
+- Notification badge count not clearing reactively after password change — converted to `useState` with custom event dispatch
+
+### Verified (No Changes Needed)
+- Race condition in cluster cache — all `c.entries` accesses already properly protected with `sync.RWMutex`
+- Array bounds in S3 signature parsing — `parseS3SignatureV4` and `parseS3SignatureV2` already have proper bounds checks
+
+---
+
 ## [0.8.0-beta] - 2026-02-07
 
 ### Added

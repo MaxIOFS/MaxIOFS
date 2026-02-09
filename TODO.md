@@ -48,35 +48,32 @@
 
 ## 🟠 HIGH — v0.8.1-beta (Stability & Robustness)
 
-### 4. Default Password Change Notification
-- [ ] When admin user still has default password, show persistent notification in the bell icon warning to change it
-- **Files**: `internal/server/console_api.go` (detect default password on login), `web/frontend/src/hooks/useNotifications.ts` (show notification)
-- **Fix**: On login, if username is "admin" and password matches "admin", include a `password_change_required` flag in the response. Frontend shows a persistent notification that cannot be dismissed until password is changed
+### 4. Default Password Change Notification ✅
+- [x] Backend returns `default_password: true` in login response when admin/admin is used
+- [x] Frontend shows persistent security warning in notification bell with amber icon, links to user profile
+- [x] Warning clears automatically when password is changed via `APIClient.changePassword()`
+- **Files**: `internal/server/console_api.go`, `web/frontend/src/lib/api.ts`, `web/frontend/src/components/layout/AppLayout.tsx`
 
-### 5. Goroutine Leak in Decryption Pipeline
-- [ ] If the pipe reader is abandoned (early return from caller), the decryption goroutine blocks forever on `pipeWriter.Write()`
-- **File**: `internal/object/manager.go:318-330`
-- **Fix**: Use `context.Context` cancellation or `defer pipeWriter.CloseWithError()` to ensure the goroutine exits when the reader is gone
+### 5. Goroutine Leak in Decryption Pipeline ✅
+- [x] Added context cancellation monitoring — when caller abandons the reader, `ctx.Done()` triggers `pipeWriter.CloseWithError()`, unblocking the goroutine
+- **File**: `internal/object/manager.go:318-340`
 
-### 6. Unbounded Map Growth in Replication Manager
-- [ ] `lastSync` and `ruleLocks` maps grow indefinitely, never cleaned up — causes slow memory leak
-- **File**: `internal/replication/manager.go:528, 701`
-- **Fix**: Implement periodic cleanup (remove entries for deleted rules) or use `sync.Map` with TTL-based eviction
+### 6. Unbounded Map Growth in Replication Manager ✅
+- [x] `DeleteRule()` now cleans up `ruleLocks` entry for deleted rules
+- [x] `processScheduledRules()` now cleans up `lastSync` entries for rules no longer in the database
+- **File**: `internal/replication/manager.go`
 
-### 7. Race Condition in Cluster Cache
-- [ ] `c.entries` map accessed without read lock in some code paths
-- **File**: `internal/cluster/cache.go:23, 76`
-- **Fix**: Use `sync.RWMutex` consistently — `RLock` for reads, `Lock` for writes
+### 7. Race Condition in Cluster Cache ✅ (False Positive)
+- [x] Verified: all `c.entries` accesses are correctly protected with `sync.RWMutex` — `RLock` for reads, `Lock` for writes
+- **File**: `internal/cluster/cache.go` — no changes needed
 
-### 8. Unchecked `crypto/rand.Read` Error
-- [ ] `rand.Read(randomBytes)` error is ignored — crypto random can fail on resource-exhausted systems
+### 8. Unchecked `crypto/rand.Read` Error ✅
+- [x] Added error check — falls back to timestamp-only version ID if `crypto/rand` fails
 - **File**: `internal/object/manager.go:207`
-- **Fix**: Check the error and return it if `rand.Read` fails
 
-### 9. Array Bounds Check in S3 Signature Parsing
-- [ ] `credParts[1]` accessed without verifying `len(credParts) >= 2` — can panic on malformed auth headers
-- **File**: `internal/auth/manager.go:1193-1200`
-- **Fix**: Add bounds check before each array access in signature parsing
+### 9. Array Bounds Check in S3 Signature Parsing ✅ (False Positive)
+- [x] Verified: all array accesses in `parseS3SignatureV4` and `parseS3SignatureV2` already have proper bounds checks (`len(credParts) >= 2`, `len(kv) != 2`, `len(parts) != 2`)
+- **File**: `internal/auth/manager.go:1189-1212` — no changes needed
 
 ---
 

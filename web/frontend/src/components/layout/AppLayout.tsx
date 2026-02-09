@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Home,
@@ -22,6 +22,7 @@ import {
   Server,
   ArrowUpCircle,
   CheckCircle2,
+  ShieldAlert,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -115,6 +116,26 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
   const { theme, effectiveTheme, setTheme } = useTheme();
+
+  // Check if admin is still using default password (reactive to changes)
+  const [hasDefaultPassword, setHasDefaultPassword] = useState(
+    () => localStorage.getItem('default_password_warning') === 'true'
+  );
+
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setHasDefaultPassword(localStorage.getItem('default_password_warning') === 'true');
+    };
+    // Listen for cross-tab storage events and custom in-tab event
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('default-password-changed', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('default-password-changed', handleStorageChange);
+    };
+  }, []);
+
+  const totalUnread = unreadCount + (hasDefaultPassword ? 1 : 0);
 
   // Get base path from window (injected by backend based on public_console_url)
   const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
@@ -433,9 +454,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   className="relative flex h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 shadow-soft hover:shadow-soft-md"
                 >
                   <Bell className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-gray-600 dark:text-gray-400" />
-                  {unreadCount > 0 && (
+                  {totalUnread > 0 && (
                     <span className="absolute -top-0.5 -right-0.5 z-1 h-5 w-5 rounded-full bg-error-600 flex items-center justify-center">
-                      <span className="text-[10px] font-medium text-white">{unreadCount}</span>
+                      <span className="text-[10px] font-medium text-white">{totalUnread}</span>
                     </span>
                   )}
                 </button>
@@ -469,7 +490,31 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       </div>
 
                       <div className="max-h-96 overflow-y-auto">
-                        {notifications.length === 0 ? (
+                        {/* Default password security warning */}
+                        {hasDefaultPassword && (
+                          <Link
+                            to={`/users/${user?.id || 'admin'}`}
+                            onClick={() => setShowNotifications(false)}
+                            className="flex gap-4 border-b border-gray-200 dark:border-gray-700 px-5 py-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors bg-amber-50/50 dark:bg-amber-900/10"
+                          >
+                            <div className="h-12 w-12 rounded-full bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+                              <ShieldAlert className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2 mb-1">
+                                <h6 className="text-sm text-gray-900 dark:text-white font-semibold">
+                                  Security Warning
+                                </h6>
+                                <span className="h-2 w-2 rounded-full bg-amber-500 flex-shrink-0 mt-1.5" />
+                              </div>
+                              <p className="text-xs text-gray-600 dark:text-gray-400">
+                                You are using the default admin password. Please change it immediately to secure your system.
+                              </p>
+                            </div>
+                          </Link>
+                        )}
+
+                        {notifications.length === 0 && !hasDefaultPassword ? (
                           <div className="px-5 py-8 text-center">
                             <Bell className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
                             <p className="text-sm text-gray-500 dark:text-gray-400">No notifications</p>
