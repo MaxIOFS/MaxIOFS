@@ -504,7 +504,7 @@ export default function AuditLogsPage() {
       </div>
 
       {/* Audit Logs Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow relative">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden relative">
         {/* Loading overlay */}
         {isFetching && !isLoading && (
           <div className="absolute inset-0 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">

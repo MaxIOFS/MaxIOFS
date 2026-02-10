@@ -4,6 +4,14 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Loading } from '@/components/ui/Loading';
 import { MetricCard } from '@/components/ui/MetricCard';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/Table';
 import { Database, Plus, Search, Settings, Trash2, Calendar, HardDrive, Lock, Shield, Building2, Users, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -279,7 +287,7 @@ export default function BucketsPage() {
 
       {/* Enhanced Buckets Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-800">
+        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             <Database className="h-5 w-5 text-brand-600 dark:text-brand-400" />
             All Buckets ({sortedBuckets.length})
@@ -297,10 +305,10 @@ export default function BucketsPage() {
               showAction={!searchTerm}
             />
           ) : (
-            <table className="w-full">
-              <thead className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
-                <tr>
-                  <th className="px-6 py-3 text-left">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>
                     <button
                       onClick={() => handleSort('name')}
                       className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
@@ -308,17 +316,11 @@ export default function BucketsPage() {
                       Name
                       {getSortIcon('name')}
                     </button>
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                    Region
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                    Node
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                    Owner
-                  </th>
-                  <th className="px-6 py-3 text-left">
+                  </TableHead>
+                  <TableHead>Region</TableHead>
+                  <TableHead>Node</TableHead>
+                  <TableHead>Owner</TableHead>
+                  <TableHead>
                     <button
                       onClick={() => handleSort('objectCount')}
                       className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
@@ -326,8 +328,8 @@ export default function BucketsPage() {
                       Objects
                       {getSortIcon('objectCount')}
                     </button>
-                  </th>
-                  <th className="px-6 py-3 text-left">
+                  </TableHead>
+                  <TableHead>
                     <button
                       onClick={() => handleSort('size')}
                       className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
@@ -335,8 +337,8 @@ export default function BucketsPage() {
                       Size
                       {getSortIcon('size')}
                     </button>
-                  </th>
-                  <th className="px-6 py-3 text-left">
+                  </TableHead>
+                  <TableHead>
                     <button
                       onClick={() => handleSort('creationDate')}
                       className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
@@ -344,13 +346,11 @@ export default function BucketsPage() {
                       Created
                       {getSortIcon('creationDate')}
                     </button>
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  </TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {paginatedBuckets.map((bucket) => {
                   const tenantId = bucket.tenant_id || bucket.tenantId;
                   const bucketPath = tenantId ? `/buckets/${tenantId}/${bucket.name}` : `/buckets/${bucket.name}`;
@@ -358,8 +358,8 @@ export default function BucketsPage() {
                   const OwnerIcon = owner.icon;
 
                   return (
-                    <tr key={`${tenantId || 'global'}-${bucket.name}`} className="hover:bg-gradient-to-r hover:from-brand-50/30 hover:to-blue-50/30 dark:hover:from-brand-900/10 dark:hover:to-blue-900/10 transition-all duration-200 border-l-2 border-transparent hover:border-brand-500">
-                      <td className="px-6 py-4 whitespace-nowrap">
+                    <TableRow key={`${tenantId || 'global'}-${bucket.name}`}>
+                      <TableCell className="whitespace-nowrap">
                         <div className="flex items-center gap-3">
                           <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br from-brand-50 to-blue-50 dark:from-brand-900/30 dark:to-blue-900/30 shadow-sm">
                             <Database className="h-4 w-4 text-brand-600 dark:text-brand-400" />
@@ -381,11 +381,11 @@ export default function BucketsPage() {
                             )}
                           </div>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-gray-900 dark:text-gray-300">{bucket.region || 'us-east-1'}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        <span className="text-sm">{bucket.region || 'us-east-1'}</span>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
                         {bucket.node_name || bucket.nodeName ? (
                           <div className="flex items-center gap-2">
                             <div className={`w-2 h-2 rounded-full ${
@@ -393,39 +393,39 @@ export default function BucketsPage() {
                                 ? 'bg-green-500 dark:bg-green-400'
                                 : 'bg-yellow-500 dark:bg-yellow-400'
                             }`} />
-                            <span className="text-sm text-gray-900 dark:text-gray-300">
+                            <span className="text-sm">
                               {bucket.node_name || bucket.nodeName}
                             </span>
                           </div>
                         ) : (
                           <span className="text-xs text-gray-400 dark:text-gray-500 italic">Local</span>
                         )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <OwnerIcon className="h-4 w-4 text-gray-400 dark:text-gray-500" />
-                          <span className={owner.type === 'global' ? 'text-sm text-gray-500 dark:text-gray-400 italic' : 'text-sm text-gray-900 dark:text-gray-300'}>
+                          <span className={owner.type === 'global' ? 'text-sm text-gray-500 dark:text-gray-400 italic' : 'text-sm'}>
                             {owner.name}
                           </span>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-gray-900 dark:text-gray-300">
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        <span className="text-sm">
                           {(bucket.object_count || bucket.objectCount || 0).toLocaleString()}
                         </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-gray-900 dark:text-gray-300">
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        <span className="text-sm">
                           {formatSize(bucket.size || bucket.totalSize || 0)}
                         </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
                           <Calendar className="h-3 w-3" />
                           {formatDate(bucket.creation_date || bucket.creationDate || '')}
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => navigate(`${bucketPath}/settings`)}
@@ -443,12 +443,12 @@ export default function BucketsPage() {
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           )}
         </div>
 

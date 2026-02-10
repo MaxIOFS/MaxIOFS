@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -45,8 +46,20 @@ func (p *ProxyClient) ProxyRequest(ctx context.Context, node *Node, originalReq 
 		"method":      originalReq.Method,
 	}).Debug("Proxying request to remote node")
 
+	// Buffer the original request body so it can be read by the proxy request
+	// (originalReq.Body is single-read; if already consumed upstream, it would be empty)
+	var bodyReader io.Reader
+	if originalReq.Body != nil {
+		bodyBytes, err := io.ReadAll(originalReq.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read request body: %w", err)
+		}
+		originalReq.Body.Close()
+		bodyReader = bytes.NewReader(bodyBytes)
+	}
+
 	// Create new request to remote node
-	proxyReq, err := http.NewRequestWithContext(ctx, originalReq.Method, remoteURL, originalReq.Body)
+	proxyReq, err := http.NewRequestWithContext(ctx, originalReq.Method, remoteURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create proxy request: %w", err)
 	}

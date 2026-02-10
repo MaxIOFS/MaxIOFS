@@ -22,10 +22,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unchecked `crypto/rand.Read` error — added fallback to timestamp-only version ID on failure
 - Toast notifications rendering in light theme when dark mode active — added missing CSS variable shades (success-900, error-900, warning-900)
 - Notification badge count not clearing reactively after password change — converted to `useState` with custom event dispatch
+- Audit logging errors silently ignored in 12 locations — added `logAuditEvent()` helper that logs warnings on failure
+- Temp file handle leak on panic in `PutObject` — added `defer tempFile.Close()` immediately after creation
+- Tag index deletion error ignored in `SetObjectTags` — `txn.Delete()` error now checked and propagated
+- **CRITICAL**: XSS via `dangerouslySetInnerHTML` in modal renderer — added `sanitizeHtml()` that strips script/iframe/embed tags and event handler attributes
+- Cluster proxy request body consumed before forwarding — buffered with `io.ReadAll` + `bytes.NewReader` to prevent empty body on retry
+- Storage delete error silently ignored on quota rollback in `PutObject` — now logs error to identify orphaned files
+- Added React Error Boundary around protected routes to catch render crashes with recovery UI
 
 ### Verified (No Changes Needed)
 - Race condition in cluster cache — all `c.entries` accesses already properly protected with `sync.RWMutex`
 - Array bounds in S3 signature parsing — `parseS3SignatureV4` and `parseS3SignatureV2` already have proper bounds checks
+- Path traversal with URL-encoded `%2e%2e%2f` — Go's `net/http` decodes before handlers, `validatePath` catches `..`, `filepath.Join` normalizes as defense-in-depth
+- HTTP response body leak — all `resp.Body.Close()` already properly deferred
 
 ---
 

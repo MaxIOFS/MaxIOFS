@@ -546,7 +546,7 @@ export default function UserDetailsPage() {
       {/* Security & Preferences Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Two-Factor Authentication Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -668,7 +668,7 @@ export default function UserDetailsPage() {
 
         {/* User Preferences - Only visible for current user */}
         {isCurrentUser && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <Settings className="h-4 w-4 text-gray-600 dark:text-gray-400" />
@@ -755,7 +755,7 @@ export default function UserDetailsPage() {
       </Modal>
 
       {/* Access Keys */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             <Key className="h-5 w-5 text-gray-600 dark:text-gray-400" />
@@ -763,7 +763,7 @@ export default function UserDetailsPage() {
           </h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Manage S3-compatible access credentials</p>
         </div>
-        <div className="p-6">
+        <div className="overflow-x-auto">
           {keysLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loading size="md" />

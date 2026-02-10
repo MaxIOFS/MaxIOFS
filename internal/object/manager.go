@@ -388,14 +388,14 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		return nil, fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tempPath := tempFile.Name()
-	defer os.Remove(tempPath) // Clean up temp file when done
+	defer os.Remove(tempPath)       // Clean up temp file when done
+	defer tempFile.Close()          // Ensure handle is closed on panic
 
 	// Write to temp file while calculating MD5 hash
 	hasher := md5.New()
 	multiWriter := io.MultiWriter(tempFile, hasher)
 	originalSize, err := io.Copy(multiWriter, data)
 	if err != nil {
-		tempFile.Close()
 		return nil, fmt.Errorf("failed to write to temp file: %w", err)
 	}
 	tempFile.Close()
@@ -448,7 +448,9 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		if sizeIncrement > 0 {
 			if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
 				// Quota exceeded - delete the stored object file
-				om.storage.Delete(ctx, objectPath)
+				if delErr := om.storage.Delete(ctx, objectPath); delErr != nil {
+					logrus.WithError(delErr).WithField("path", objectPath).Error("Failed to delete object after quota exceeded — orphaned file may remain")
+				}
 				return nil, fmt.Errorf("storage quota exceeded: %w", err)
 			}
 		}

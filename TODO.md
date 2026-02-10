@@ -83,11 +83,11 @@
 - [ ] `TestDeleteSpecificVersion_*` tests fail on Windows due to file-locking during BadgerDB cleanup — OS-specific, not a bug
 
 ### Code Quality
-- [ ] HTTP response body not always closed via `defer` immediately after assignment (`internal/server/console_api.go:850`)
-- [ ] Audit logging errors silently ignored in 6+ locations in `console_api.go` — should at least log warnings
-- [ ] Temp file handle leak potential in `internal/object/manager.go:368-383` — `defer cleanup` placement
-- [ ] Tag index deletion error ignored in `internal/metadata/badger_objects.go:563` — can cause inconsistent state
-- [ ] Path traversal with URL-encoded `%2e%2e%2f` — verify if Go's HTTP router decodes before reaching validation (`internal/storage/filesystem.go:400-416`)
+- [x] HTTP response body not always closed via `defer` immediately after assignment — Verified: all `resp.Body.Close()` are properly deferred (false positive)
+- [x] Audit logging errors silently ignored in 12 locations in `console_api.go` — Added `logAuditEvent()` helper that logs warnings on failure, migrated all 12 call sites
+- [x] Temp file handle leak potential in `internal/object/manager.go:368-383` — Added `defer tempFile.Close()` immediately after creation to ensure cleanup on panic
+- [x] Tag index deletion error ignored in `internal/metadata/badger_objects.go:563` — Now returns error on failed `txn.Delete()` to prevent inconsistent state
+- [x] Path traversal with URL-encoded `%2e%2e%2f` — Verified safe: Go's `net/http` decodes URL-encoded paths before handlers, `strings.Contains(path, "..")` catches decoded traversal, and `filepath.Join` normalizes as defense-in-depth
 
 ---
 

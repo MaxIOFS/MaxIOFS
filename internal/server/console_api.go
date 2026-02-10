@@ -530,24 +530,22 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	s.authManager.RecordSuccessfulLogin(r.Context(), user.ID)
 
 	// Log audit event for successful login with IP and User Agent
-	if s.auditManager != nil {
-		s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
-			TenantID:     user.TenantID,
-			UserID:       user.ID,
-			Username:     user.Username,
-			EventType:    audit.EventTypeLoginSuccess,
-			ResourceType: audit.ResourceTypeUser,
-			ResourceID:   user.ID,
-			ResourceName: user.Username,
-			Action:       audit.ActionLogin,
-			Status:       audit.StatusSuccess,
-			IPAddress:    clientIP,
-			UserAgent:    r.Header.Get("User-Agent"),
-			Details: map[string]interface{}{
-				"method": "password",
-			},
-		})
-	}
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		TenantID:     user.TenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    audit.EventTypeLoginSuccess,
+		ResourceType: audit.ResourceTypeUser,
+		ResourceID:   user.ID,
+		ResourceName: user.Username,
+		Action:       audit.ActionLogin,
+		Status:       audit.StatusSuccess,
+		IPAddress:    clientIP,
+		UserAgent:    r.Header.Get("User-Agent"),
+		Details: map[string]interface{}{
+			"method": "password",
+		},
+	})
 
 	// Step 7: Generate JWT token
 	token, err := s.authManager.GenerateJWT(r.Context(), user)
@@ -616,10 +614,10 @@ func getClientIP(r *http.Request) string {
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	// Get user from context
 	user, userExists := auth.GetUserFromContext(r.Context())
-	if userExists && s.auditManager != nil {
+	if userExists {
 		// Log audit event for logout
 		clientIP := getClientIP(r)
-		s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+		s.logAuditEvent(r.Context(), &audit.AuditEvent{
 			TenantID:     user.TenantID,
 			UserID:       user.ID,
 			Username:     user.Username,
@@ -2524,6 +2522,16 @@ func (s *Server) writeError(w http.ResponseWriter, message string, statusCode in
 	logrus.WithField("error", message).WithField("status", statusCode).Warn("API error")
 }
 
+// logAuditEvent logs an audit event and warns if the logging fails.
+func (s *Server) logAuditEvent(ctx context.Context, event *audit.AuditEvent) {
+	if s.auditManager == nil {
+		return
+	}
+	if err := s.auditManager.LogEvent(ctx, event); err != nil {
+		logrus.WithError(err).WithField("event_type", event.EventType).Warn("Failed to log audit event")
+	}
+}
+
 // Access Key handlers
 func (s *Server) handleListAllAccessKeys(w http.ResponseWriter, r *http.Request) {
 	currentUser, userExists := auth.GetUserFromContext(r.Context())
@@ -2681,22 +2689,20 @@ func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log audit event for access key created
-	if s.auditManager != nil {
-		_ = s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
-			TenantID:     user.TenantID,
-			UserID:       user.ID,
-			Username:     user.Username,
-			EventType:    audit.EventTypeAccessKeyCreated,
-			ResourceType: audit.ResourceTypeAccessKey,
-			ResourceID:   accessKey.AccessKeyID,
-			ResourceName: accessKey.AccessKeyID,
-			Action:       audit.ActionCreate,
-			Status:       audit.StatusSuccess,
-			Details: map[string]interface{}{
-				"owner_user_id": userID,
-			},
-		})
-	}
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		TenantID:     user.TenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    audit.EventTypeAccessKeyCreated,
+		ResourceType: audit.ResourceTypeAccessKey,
+		ResourceID:   accessKey.AccessKeyID,
+		ResourceName: accessKey.AccessKeyID,
+		Action:       audit.ActionCreate,
+		Status:       audit.StatusSuccess,
+		Details: map[string]interface{}{
+			"owner_user_id": userID,
+		},
+	})
 
 	s.writeJSON(w, response)
 }
@@ -2729,10 +2735,10 @@ func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log audit event for access key deleted
-	if s.auditManager != nil && user != nil {
+	if user != nil {
 		currentUser, _ := auth.GetUserFromContext(r.Context())
 		if currentUser != nil {
-			_ = s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+			s.logAuditEvent(r.Context(), &audit.AuditEvent{
 				TenantID:     user.TenantID,
 				UserID:       currentUser.ID,
 				Username:     currentUser.Username,
@@ -2847,30 +2853,28 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log audit event for password changed
-	if s.auditManager != nil {
-		auditEvent := &audit.AuditEvent{
-			TenantID:     user.TenantID,
-			UserID:       currentUser.ID,
-			Username:     currentUser.Username,
-			EventType:    audit.EventTypePasswordChanged,
-			ResourceType: audit.ResourceTypeUser,
-			ResourceID:   user.ID,
-			ResourceName: user.Username,
-			Action:       audit.ActionUpdate,
-			Status:       audit.StatusSuccess,
-		}
-
-		// Add details about who changed the password
-		if !isChangingSelf {
-			auditEvent.Details = map[string]interface{}{
-				"changed_by":    currentUser.Username,
-				"changed_by_id": currentUser.ID,
-				"target_user":   user.Username,
-			}
-		}
-
-		_ = s.auditManager.LogEvent(r.Context(), auditEvent)
+	auditEvent := &audit.AuditEvent{
+		TenantID:     user.TenantID,
+		UserID:       currentUser.ID,
+		Username:     currentUser.Username,
+		EventType:    audit.EventTypePasswordChanged,
+		ResourceType: audit.ResourceTypeUser,
+		ResourceID:   user.ID,
+		ResourceName: user.Username,
+		Action:       audit.ActionUpdate,
+		Status:       audit.StatusSuccess,
 	}
+
+	// Add details about who changed the password
+	if !isChangingSelf {
+		auditEvent.Details = map[string]interface{}{
+			"changed_by":    currentUser.Username,
+			"changed_by_id": currentUser.ID,
+			"target_user":   user.Username,
+		}
+	}
+
+	s.logAuditEvent(r.Context(), auditEvent)
 
 	s.writeJSON(w, map[string]string{"message": "Password changed successfully"})
 }
@@ -3205,25 +3209,23 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log audit event for tenant created
-	if s.auditManager != nil {
-		_ = s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
-			TenantID:     "", // Tenant operations are global
-			UserID:       currentUser.ID,
-			Username:     currentUser.Username,
-			EventType:    audit.EventTypeTenantCreated,
-			ResourceType: audit.ResourceTypeTenant,
-			ResourceID:   tenant.ID,
-			ResourceName: tenant.Name,
-			Action:       audit.ActionCreate,
-			Status:       audit.StatusSuccess,
-			Details: map[string]interface{}{
-				"display_name":      tenant.DisplayName,
-				"max_access_keys":   tenant.MaxAccessKeys,
-				"max_storage_bytes": tenant.MaxStorageBytes,
-				"max_buckets":       tenant.MaxBuckets,
-			},
-		})
-	}
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		TenantID:     "", // Tenant operations are global
+		UserID:       currentUser.ID,
+		Username:     currentUser.Username,
+		EventType:    audit.EventTypeTenantCreated,
+		ResourceType: audit.ResourceTypeTenant,
+		ResourceID:   tenant.ID,
+		ResourceName: tenant.Name,
+		Action:       audit.ActionCreate,
+		Status:       audit.StatusSuccess,
+		Details: map[string]interface{}{
+			"display_name":      tenant.DisplayName,
+			"max_access_keys":   tenant.MaxAccessKeys,
+			"max_storage_bytes": tenant.MaxStorageBytes,
+			"max_buckets":       tenant.MaxBuckets,
+		},
+	})
 
 	s.writeJSON(w, tenant)
 }
@@ -3326,23 +3328,21 @@ func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log audit event for tenant updated
-	if s.auditManager != nil {
-		_ = s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
-			TenantID:     "", // Tenant operations are global
-			UserID:       currentUser.ID,
-			Username:     currentUser.Username,
-			EventType:    audit.EventTypeTenantUpdated,
-			ResourceType: audit.ResourceTypeTenant,
-			ResourceID:   tenant.ID,
-			ResourceName: tenant.Name,
-			Action:       audit.ActionUpdate,
-			Status:       audit.StatusSuccess,
-			Details: map[string]interface{}{
-				"display_name": tenant.DisplayName,
-				"status":       tenant.Status,
-			},
-		})
-	}
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		TenantID:     "", // Tenant operations are global
+		UserID:       currentUser.ID,
+		Username:     currentUser.Username,
+		EventType:    audit.EventTypeTenantUpdated,
+		ResourceType: audit.ResourceTypeTenant,
+		ResourceID:   tenant.ID,
+		ResourceName: tenant.Name,
+		Action:       audit.ActionUpdate,
+		Status:       audit.StatusSuccess,
+		Details: map[string]interface{}{
+			"display_name": tenant.DisplayName,
+			"status":       tenant.Status,
+		},
+	})
 
 	s.writeJSON(w, tenant)
 }
@@ -3429,19 +3429,17 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log audit event for tenant deleted
-	if s.auditManager != nil {
-		_ = s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
-			TenantID:     "", // Tenant operations are global
-			UserID:       currentUser.ID,
-			Username:     currentUser.Username,
-			EventType:    audit.EventTypeTenantDeleted,
-			ResourceType: audit.ResourceTypeTenant,
-			ResourceID:   tenant.ID,
-			ResourceName: tenant.Name,
-			Action:       audit.ActionDelete,
-			Status:       audit.StatusSuccess,
-		})
-	}
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		TenantID:     "", // Tenant operations are global
+		UserID:       currentUser.ID,
+		Username:     currentUser.Username,
+		EventType:    audit.EventTypeTenantDeleted,
+		ResourceType: audit.ResourceTypeTenant,
+		ResourceID:   tenant.ID,
+		ResourceName: tenant.Name,
+		Action:       audit.ActionDelete,
+		Status:       audit.StatusSuccess,
+	})
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -5790,24 +5788,22 @@ func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log audit event
-	if s.auditManager != nil {
-		s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
-			EventType:    "setting_updated",
-			UserID:       user.ID,
-			Username:     user.Username,
-			TenantID:     user.TenantID,
-			ResourceType: "setting",
-			ResourceID:   key,
-			Action:       "update",
-			Status:       "success",
-			IPAddress:    r.RemoteAddr,
-			UserAgent:    r.UserAgent(),
-			Details: map[string]interface{}{
-				"key":   key,
-				"value": req.Value,
-			},
-		})
-	}
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		EventType:    "setting_updated",
+		UserID:       user.ID,
+		Username:     user.Username,
+		TenantID:     user.TenantID,
+		ResourceType: "setting",
+		ResourceID:   key,
+		Action:       "update",
+		Status:       "success",
+		IPAddress:    r.RemoteAddr,
+		UserAgent:    r.UserAgent(),
+		Details: map[string]interface{}{
+			"key":   key,
+			"value": req.Value,
+		},
+	})
 
 	// Return the updated setting
 	setting, err := s.settingsManager.GetSetting(key)
@@ -5860,23 +5856,21 @@ func (s *Server) handleBulkUpdateSettings(w http.ResponseWriter, r *http.Request
 	}
 
 	// Log audit event
-	if s.auditManager != nil {
-		s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
-			EventType:    "settings_bulk_updated",
-			UserID:       user.ID,
-			Username:     user.Username,
-			TenantID:     user.TenantID,
-			ResourceType: "settings",
-			Action:       "bulk_update",
-			Status:       "success",
-			IPAddress:    r.RemoteAddr,
-			UserAgent:    r.UserAgent(),
-			Details: map[string]interface{}{
-				"count":    len(req.Settings),
-				"settings": req.Settings,
-			},
-		})
-	}
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		EventType:    "settings_bulk_updated",
+		UserID:       user.ID,
+		Username:     user.Username,
+		TenantID:     user.TenantID,
+		ResourceType: "settings",
+		Action:       "bulk_update",
+		Status:       "success",
+		IPAddress:    r.RemoteAddr,
+		UserAgent:    r.UserAgent(),
+		Details: map[string]interface{}{
+			"count":    len(req.Settings),
+			"settings": req.Settings,
+		},
+	})
 
 	s.writeJSON(w, map[string]interface{}{
 		"success": true,
@@ -5977,18 +5971,16 @@ func (s *Server) handlePutBucketNotification(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Log audit event
-	if s.auditManager != nil {
-		s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
-			EventType:    "bucket_notification_configured",
-			UserID:       user.ID,
-			TenantID:     tenantID,
-			ResourceType: "bucket",
-			ResourceID:   bucketName,
-			Status:       "success",
-			IPAddress:    r.RemoteAddr,
-			UserAgent:    r.UserAgent(),
-		})
-	}
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		EventType:    "bucket_notification_configured",
+		UserID:       user.ID,
+		TenantID:     tenantID,
+		ResourceType: "bucket",
+		ResourceID:   bucketName,
+		Status:       "success",
+		IPAddress:    r.RemoteAddr,
+		UserAgent:    r.UserAgent(),
+	})
 
 	s.writeJSON(w, map[string]interface{}{
 		"success": true,
@@ -6026,18 +6018,16 @@ func (s *Server) handleDeleteBucketNotification(w http.ResponseWriter, r *http.R
 	}
 
 	// Log audit event
-	if s.auditManager != nil {
-		s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
-			EventType:    "bucket_notification_deleted",
-			UserID:       user.ID,
-			TenantID:     tenantID,
-			ResourceType: "bucket",
-			ResourceID:   bucketName,
-			Status:       "success",
-			IPAddress:    r.RemoteAddr,
-			UserAgent:    r.UserAgent(),
-		})
-	}
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		EventType:    "bucket_notification_deleted",
+		UserID:       user.ID,
+		TenantID:     tenantID,
+		ResourceType: "bucket",
+		ResourceID:   bucketName,
+		Status:       "success",
+		IPAddress:    r.RemoteAddr,
+		UserAgent:    r.UserAgent(),
+	})
 
 	s.writeJSON(w, map[string]interface{}{
 		"success": true,

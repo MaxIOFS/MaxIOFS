@@ -32,15 +32,10 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      // Show loading indicator
-      ModalManager.loading('Signing in...', 'Verifying credentials');
-
       const response = await APIClient.login({
         username: formData.username,
         password: formData.password,
       });
-
-      ModalManager.close();
 
       // Check if 2FA is required
       if (response.requires_2fa && response.user_id) {
@@ -51,28 +46,18 @@ export default function LoginPage() {
       }
 
       if (response.success && response.token) {
-        // Show welcome message (don't await - let it show while redirecting)
-        ModalManager.successLogin(formData.username);
-
         // Redirect to dashboard using hard redirect to ensure auth state is initialized
-        // Use BASE_PATH from window (injected by backend based on public_console_url)
         const basePath = (window as any).BASE_PATH || '/';
         window.location.href = basePath;
       } else {
-        await ModalManager.error('Authentication error', response.error || 'Invalid credentials');
-        setError(response.error || 'Login failed');
+        setError(response.error || 'Invalid credentials');
       }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
-      ModalManager.close();
-
-      // Handle 401 specifically for login - invalid credentials
       if (err.response?.status === 401 || err.message?.includes('401')) {
-        await ModalManager.error('Invalid Credentials', 'Username or password is incorrect. Please try again.');
         setError('Username or password is incorrect');
       } else {
-        await ModalManager.apiError(err);
-        setError(err.message || 'Failed to login. Please check your credentials.');
+        setError(err.response?.data?.error || err.message || 'Failed to login. Please check your credentials.');
       }
     } finally {
       setLoading(false);

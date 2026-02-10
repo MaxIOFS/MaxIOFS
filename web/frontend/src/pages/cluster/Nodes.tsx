@@ -4,6 +4,14 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Loading } from '@/components/ui/Loading';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   Server,
   Plus,
   RefreshCw,
@@ -230,31 +238,37 @@ export default function ClusterNodes() {
       </div>
 
       {/* Nodes Table */}
-      <Card className="overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
+        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <Server className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+            Cluster Nodes ({nodes.length})
+          </h3>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Endpoint</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Latency</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Buckets</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Priority</th>
-                <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Endpoint</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Latency</TableHead>
+                <TableHead>Buckets</TableHead>
+                <TableHead>Priority</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {nodes.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-gray-500 dark:text-gray-400">
                     No nodes added yet. Add your first node to start building the cluster.
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 nodes.map((node) => (
-                  <tr key={node.id} className="hover:bg-gradient-to-r hover:from-brand-50/30 hover:to-blue-50/30 dark:hover:from-brand-900/10 dark:hover:to-blue-900/10 transition-all duration-200 border-l-2 border-transparent hover:border-brand-500">
-                    <td className="px-6 py-4 whitespace-nowrap">
+                  <TableRow key={node.id}>
+                    <TableCell className="whitespace-nowrap">
                       <div className="flex items-center gap-3">
                         <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br from-brand-50 to-blue-50 dark:from-brand-900/30 dark:to-blue-900/30 shadow-sm">
                           <Server className="h-4 w-4 text-brand-600 dark:text-brand-400" />
@@ -264,21 +278,21 @@ export default function ClusterNodes() {
                           {getHealthIcon(node.health_status)}
                         </div>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-900 dark:text-gray-300">{node.endpoint}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">{getHealthBadge(node.health_status)}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-900 dark:text-gray-300">{node.latency_ms}ms</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-900 dark:text-gray-300">{node.bucket_count}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-900 dark:text-gray-300">{node.priority}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <span className="text-sm">{node.endpoint}</span>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">{getHealthBadge(node.health_status)}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <span className="text-sm">{node.latency_ms}ms</span>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <span className="text-sm">{node.bucket_count}</span>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <span className="text-sm">{node.priority}</span>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => handleCheckHealth(node.id)}
@@ -302,14 +316,14 @@ export default function ClusterNodes() {
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
-      </Card>
+      </div>
 
       {/* Add Node Dialog */}
       {showAddNodeDialog && (

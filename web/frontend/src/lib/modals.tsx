@@ -5,6 +5,25 @@ import { Button } from '@/components/ui/Button';
 import { AlertTriangle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+// Simple HTML sanitizer — strips script tags, event handlers, and dangerous attributes
+function sanitizeHtml(html: string): string {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  // Remove script, iframe, object, embed, form tags
+  const dangerous = div.querySelectorAll('script, iframe, object, embed, form, link, style');
+  dangerous.forEach((el) => el.remove());
+  // Remove event handler attributes (onclick, onerror, onload, etc.)
+  const allElements = div.querySelectorAll('*');
+  allElements.forEach((el) => {
+    for (const attr of Array.from(el.attributes)) {
+      if (attr.name.startsWith('on') || attr.value.startsWith('javascript:')) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  });
+  return div.innerHTML;
+}
+
 // Modal state types
 type ModalType = 'confirm' | 'success' | 'error' | 'warning' | 'info' | 'confirmInput' | 'loading';
 
@@ -263,7 +282,7 @@ export function ModalRenderer() {
           {/* HTML Message */}
           <div
             className="text-sm text-gray-600 dark:text-gray-400 mb-6"
-            dangerouslySetInnerHTML={{ __html: modal.message }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(modal.message) }}
           />
 
           {/* Actions */}

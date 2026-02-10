@@ -560,7 +560,9 @@ func (s *BadgerStore) PutObjectTags(ctx context.Context, bucket, key string, tag
 		if len(obj.Tags) > 0 {
 			for tagKey, tagValue := range obj.Tags {
 				tagIdxKey := tagIndexKey(bucket, tagKey, tagValue, key)
-				txn.Delete(tagIdxKey)
+				if err := txn.Delete(tagIdxKey); err != nil {
+					return fmt.Errorf("failed to delete tag index %s=%s: %w", tagKey, tagValue, err)
+				}
 			}
 		}
 

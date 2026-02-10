@@ -320,7 +320,7 @@ export default function UsersPage() {
       </div>
 
       {/* Users Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">All Users ({filteredUsers.length})</h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Manage user accounts and permissions</p>
@@ -336,7 +336,7 @@ export default function UsersPage() {
             />
           </div>
         </div>
-        <div className="p-6">
+        <div className="overflow-x-auto">
           {filteredUsers.length === 0 ? (
             <EmptyState
               icon={Users}
