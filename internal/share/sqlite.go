@@ -39,7 +39,7 @@ func (s *SQLiteStore) initialize() error {
 				!contains(tableSql, "UNIQUE (bucket_name, object_key, tenant_id)"))
 
 	if needsMigration {
-		fmt.Println("⚠️  Shares table has incorrect structure, migrating...")
+		logrus.Warn("Shares table has incorrect structure, migrating...")
 
 		// Get all existing shares first
 		var existingShares []map[string]interface{}

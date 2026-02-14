@@ -30,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Storage delete error silently ignored on quota rollback in `PutObject` — now logs error to identify orphaned files
 - Added React Error Boundary around protected routes to catch render crashes with recovery UI
 
+### Removed
+- Dead code: `GetPresignedURL` handler in `pkg/s3compat/presigned.go` — unused endpoint with hardcoded test credentials, never registered in any router
+- Dead code: `CopyObjects`, `ExecuteBatchOperation`, `copyObject`, `parseJSONBody`, `writeJSONResponse` and related types (`CopyObjectsRequest`, `CopySource`, `CopyObjectsResult`, `CopySuccess`, `CopyFailure`, `BatchOperation`) from `pkg/s3compat/batch.go` — stub implementations never wired to routes
+- Dead code: 13 associated test functions for the above removed code in `handler_coverage_test.go`
+- Dead code: 10 unused utility functions from `web/frontend/src/lib/utils.ts` (`truncateText`, `generateRandomId`, `isValidEmail`, `getFileExtension`, `getMimeTypeIcon`, `calculateProgress`, `formatSpeed`, `formatDuration`, `debounce`, `throttle`)
+- Dead code: `DarkModeToggle` component — duplicate of ThemeContext-based toggle already in use
+
+### Changed
+- Replaced `fmt.Println` with `logrus.Warn` in `internal/share/sqlite.go` for table migration logging
+
 ### Verified (No Changes Needed)
 - Race condition in cluster cache — all `c.entries` accesses already properly protected with `sync.RWMutex`
 - Array bounds in S3 signature parsing — `parseS3SignatureV4` and `parseS3SignatureV2` already have proper bounds checks

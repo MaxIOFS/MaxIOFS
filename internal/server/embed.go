@@ -223,25 +223,9 @@ func (s *Server) setupEmbeddedFrontend(router http.Handler) (http.Handler, error
 
 	// Extract base path from public console URL (DYNAMIC - from config.yaml)
 	basePath := extractBasePath(s.config.PublicConsoleURL)
-	logrus.WithFields(logrus.Fields{
-		"public_console_url": s.config.PublicConsoleURL,
-		"base_path":          basePath,
-	}).Info("Setting up embedded frontend with dynamic base path from public_console_url")
+	logrus.WithField("base_path", basePath).Info("Setting up embedded frontend")
 
-	// List files in embedded filesystem to verify they exist
 	httpFS := http.FS(frontendFS)
-	assetsDir, err := httpFS.Open("assets")
-	if err == nil {
-		defer assetsDir.Close()
-		files, _ := assetsDir.(fs.ReadDirFile).ReadDir(10)
-		var fileNames []string
-		for _, f := range files {
-			fileNames = append(fileNames, f.Name())
-		}
-		logrus.WithField("sample_assets", fileNames).Info("Embedded filesystem contains assets")
-	} else {
-		logrus.WithError(err).Error("Cannot open assets directory in embedded filesystem")
-	}
 
 	// Create SPA handler with dynamic base path
 	spaHandler, err := newSPAHandler(httpFS, basePath)

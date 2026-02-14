@@ -3,7 +3,6 @@ package s3compat
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"io"
@@ -557,81 +556,6 @@ func TestCheckBucketPolicyPermission_ObjectAction(t *testing.T) {
 }
 
 // ============================================
-// Tests for Batch Operations (0% coverage)
-// ============================================
-
-func TestCopyObjects_EmptySources(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	// CopyObjects expects JSON body - parseJSONBody returns error
-	// This tests the validation path
-	body := `{"sources": []}`
-	req := httptest.NewRequest(http.MethodPost, "/target-bucket?batch-copy", strings.NewReader(body))
-	req = mux.SetURLVars(req, map[string]string{"bucket": "target-bucket"})
-	req.Header.Set("Content-Type", "application/json")
-
-	w := httptest.NewRecorder()
-	env.handler.CopyObjects(w, req)
-
-	// Should fail due to parseJSONBody returning error (stub implementation)
-	assert.NotEqual(t, http.StatusOK, w.Code)
-}
-
-func TestCopyObjects_MissingBucket(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	req := httptest.NewRequest(http.MethodPost, "/?batch-copy", nil)
-	req = mux.SetURLVars(req, map[string]string{"bucket": ""})
-
-	w := httptest.NewRecorder()
-	env.handler.CopyObjects(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "InvalidBucketName")
-}
-
-func TestExecuteBatchOperation_InvalidJSON(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	req := httptest.NewRequest(http.MethodPost, "/bucket?batch", strings.NewReader("invalid json"))
-	req = mux.SetURLVars(req, map[string]string{"bucket": "test-bucket"})
-
-	w := httptest.NewRecorder()
-	env.handler.ExecuteBatchOperation(w, req)
-
-	// Should fail due to parseJSONBody returning error
-	assert.NotEqual(t, http.StatusOK, w.Code)
-}
-
-func TestParseJSONBody_Error(t *testing.T) {
-	// Test the stub implementation of parseJSONBody
-	body := strings.NewReader(`{"test": "value"}`)
-	req := httptest.NewRequest(http.MethodPost, "/", body)
-
-	var result map[string]interface{}
-	err := parseJSONBody(req, &result)
-
-	// Current implementation returns error
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not fully implemented")
-}
-
-func TestWriteJSONResponse_Error(t *testing.T) {
-	// Test the stub implementation of writeJSONResponse
-	w := httptest.NewRecorder()
-	data := map[string]string{"test": "value"}
-
-	err := writeJSONResponse(w, data)
-
-	// Current implementation returns error
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not fully implemented")
-}
-
-// ============================================
 // Tests for DeleteObjects (batch delete)
 // ============================================
 
@@ -1100,85 +1024,6 @@ func TestWriteError_VariousCodes(t *testing.T) {
 }
 
 // ============================================
-// Tests for copyObject helper function
-// ============================================
-
-func TestCopyObject_Success(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	ctx := context.Background()
-
-	// Create source bucket and object
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "source-bucket", env.userID)
-	require.NoError(t, err)
-
-	err = env.bucketManager.CreateBucket(ctx, env.tenantID, "dest-bucket", env.userID)
-	require.NoError(t, err)
-
-	sourceBucketPath := env.tenantID + "/source-bucket"
-	_, err = env.objectManager.PutObject(ctx, sourceBucketPath, "source.txt",
-		strings.NewReader("test content"), http.Header{"Content-Type": []string{"text/plain"}})
-	require.NoError(t, err)
-
-	destBucketPath := env.tenantID + "/dest-bucket"
-
-	// Test copy
-	err = env.handler.copyObject(ctx, sourceBucketPath, "source.txt", destBucketPath, "dest.txt", nil)
-	require.NoError(t, err)
-
-	// Verify copy
-	obj, _, err := env.objectManager.GetObject(ctx, destBucketPath, "dest.txt")
-	require.NoError(t, err)
-	assert.Equal(t, "dest.txt", obj.Key)
-}
-
-func TestCopyObject_WithMetadata(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	ctx := context.Background()
-
-	// Create buckets
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "meta-source", env.userID)
-	require.NoError(t, err)
-	err = env.bucketManager.CreateBucket(ctx, env.tenantID, "meta-dest", env.userID)
-	require.NoError(t, err)
-
-	sourcePath := env.tenantID + "/meta-source"
-	_, err = env.objectManager.PutObject(ctx, sourcePath, "meta.txt",
-		strings.NewReader("content"), http.Header{})
-	require.NoError(t, err)
-
-	destPath := env.tenantID + "/meta-dest"
-
-	// Copy with custom metadata
-	customMeta := map[string]string{
-		"custom-key": "custom-value",
-	}
-	err = env.handler.copyObject(ctx, sourcePath, "meta.txt", destPath, "meta-copy.txt", customMeta)
-	require.NoError(t, err)
-}
-
-func TestCopyObject_SourceNotFound(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	ctx := context.Background()
-
-	// Create only destination bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "only-dest", env.userID)
-	require.NoError(t, err)
-
-	sourcePath := env.tenantID + "/nonexistent"
-	destPath := env.tenantID + "/only-dest"
-
-	err = env.handler.copyObject(ctx, sourcePath, "missing.txt", destPath, "copy.txt", nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get source object")
-}
-
-// ============================================
 // Tests for XML response writing
 // ============================================
 
@@ -1266,35 +1111,6 @@ func TestDeleteObjects_NonexistentObjects(t *testing.T) {
 
 	// Non-existent objects are reported as deleted (S3 behavior)
 	assert.Equal(t, 2, len(result.Deleted))
-}
-
-// ============================================
-// JSON encoding test with real encoder
-// ============================================
-
-func TestCopyObjectsResult_JSONMarshal(t *testing.T) {
-	result := CopyObjectsResult{
-		Successful: []CopySuccess{
-			{
-				SourceKey:      "bucket/key",
-				DestinationKey: "dest-key",
-				ETag:           "etag123",
-			},
-		},
-		Failed: []CopyFailure{
-			{
-				SourceKey: "bucket/failed",
-				Error:     "not found",
-			},
-		},
-	}
-
-	data, err := json.Marshal(result)
-	require.NoError(t, err)
-
-	assert.Contains(t, string(data), "bucket/key")
-	assert.Contains(t, string(data), "etag123")
-	assert.Contains(t, string(data), "not found")
 }
 
 func TestDeleteObjectsRequest_XMLUnmarshal(t *testing.T) {
@@ -1864,69 +1680,6 @@ func TestHandlePresignedRequest_InvalidSignature(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "InvalidRequest")
 }
 
-// ============================================
-// Tests for GetPresignedURL (0% coverage)
-// ============================================
-
-func TestGetPresignedURL_DefaultMethod(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	// Request without method param defaults to GET
-	req := httptest.NewRequest(http.MethodGet, "/test-bucket/test.txt?presign", nil)
-	req = mux.SetURLVars(req, map[string]string{"bucket": "test-bucket", "key": "test.txt"})
-
-	w := httptest.NewRecorder()
-	env.handler.GetPresignedURL(w, req)
-
-	// Should return OK with presigned URL
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "presigned_url") // JSON field name
-	assert.Contains(t, w.Body.String(), "test-bucket")
-	assert.Contains(t, w.Body.String(), "test.txt")
-}
-
-func TestGetPresignedURL_WithMethod(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	req := httptest.NewRequest(http.MethodGet, "/test-bucket/test.txt?presign&method=PUT", nil)
-	req = mux.SetURLVars(req, map[string]string{"bucket": "test-bucket", "key": "test.txt"})
-
-	w := httptest.NewRecorder()
-	env.handler.GetPresignedURL(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-}
-
-func TestGetPresignedURL_WithExpires(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	// Custom expiration in seconds
-	req := httptest.NewRequest(http.MethodGet, "/test-bucket/test.txt?presign&expires=3600", nil)
-	req = mux.SetURLVars(req, map[string]string{"bucket": "test-bucket", "key": "test.txt"})
-
-	w := httptest.NewRecorder()
-	env.handler.GetPresignedURL(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-}
-
-func TestGetPresignedURL_InvalidExpires(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	// Invalid expires value (not a number) - should use default
-	req := httptest.NewRequest(http.MethodGet, "/test-bucket/test.txt?presign&expires=invalid", nil)
-	req = mux.SetURLVars(req, map[string]string{"bucket": "test-bucket", "key": "test.txt"})
-
-	w := httptest.NewRecorder()
-	env.handler.GetPresignedURL(w, req)
-
-	// Should still succeed with default expiration
-	assert.Equal(t, http.StatusOK, w.Code)
-}
 
 // ============================================
 // Tests for generateSystemXML (0% coverage)
