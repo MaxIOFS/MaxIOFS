@@ -1,6 +1,6 @@
 # MaxIOFS - Development Roadmap
 
-**Version**: 0.8.1-beta
+**Version**: 0.8.0-beta
 **Last Updated**: February 15, 2026
 **Status**: Beta - S3 Core 100% Compatible
 
@@ -27,7 +27,7 @@
 
 ---
 
-## 🔴 CRITICAL — v0.8.1-beta (Security Hardening)
+## 🔴 CRITICAL (Security Hardening)
 
 ### 1. JWT Signature Verification (CRITICAL) ✅
 - [x] `parseBasicToken()` now verifies HMAC-SHA256 signature before trusting payload using `hmac.Equal()` for constant-time comparison
@@ -46,7 +46,7 @@
 
 ---
 
-## 🟠 HIGH — v0.8.1-beta (Stability & Robustness)
+## 🟠 HIGH (Stability & Robustness)
 
 ### 4. Default Password Change Notification ✅
 - [x] Backend returns `default_password: true` in login response when admin/admin is used
@@ -143,6 +143,13 @@
 - [x] Group-to-role mapping with manual and automatic sync
 - [x] OAuth login flow with CSRF protection and 2FA support
 - [x] Auth provider badge on user list (Local/LDAP/SSO)
+- [x] OAuth auto-provisioning with group mapping authorization (admin must define authorized groups)
+- [x] SSO one-button-per-type login (one "Sign in with Google" button, not one per provider)
+- [x] Cross-provider user lookup (search ALL OAuth providers on callback for multi-tenant routing)
+- [x] SSO user creation from Users page (auth provider dropdown, conditional password)
+- [x] Email auto-sync for SSO users (populated from OAuth profile on login)
+- [x] Redirect URI auto-generation from PublicConsoleURL
+- [x] SSO documentation (`docs/SSO.md`)
 - [ ] Integration test infrastructure (multi-node, remote S3) for cluster/replication coverage
 - [ ] Chaos engineering tests
 - [ ] Storage tiering (hot/warm/cold)

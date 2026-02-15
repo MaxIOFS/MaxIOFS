@@ -35,6 +35,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Frontend: OAuth complete page** — token receiver for OAuth callback redirect flow
 - **Frontend: Auth provider badge** — user list shows Local/LDAP/SSO badge per user via `IDPStatusBadge` component
 - **Frontend: Identity Providers sidebar entry** — added under Users submenu, visible to admins only
+- **OAuth SSO auto-provisioning** — users auto-created on first SSO login if they belong to a mapped group; role resolved from group mappings (admin > user > readonly)
+- **SSO one-button-per-type login** — login page shows one "Sign in with Google" / "Sign in with Microsoft" button regardless of how many providers are configured; user enters email first, backend resolves the correct provider
+- **SSO start endpoint** — `POST /api/v1/auth/oauth/start` accepts email + preset, finds correct provider across tenants, redirects to OAuth provider with `login_hint`
+- **SSO hint on login** — when a user types an email address in the password login form, backend returns `sso_hint: true` to highlight the SSO buttons
+- **Cross-provider user lookup** — OAuth callback searches ALL active OAuth providers for existing users, not just the one used for authentication; enables multi-tenant SSO routing by email domain
+- **Redirect URI auto-generation** — OAuth providers auto-fill `redirect_uri` from `PublicConsoleURL` if left empty; frontend shows the computed callback URL with copy hint
+- **SSO user creation from Users page** — Create User modal includes an "Authentication" dropdown listing active OAuth providers; password field hidden for SSO users; email auto-populated from username
+- **Email auto-sync for SSO users** — on each SSO login, if the user's email field is empty, it's populated from the OAuth provider profile; manual SSO user creation also auto-fills email from username
+- **SSO documentation** — comprehensive `docs/SSO.md` covering setup guide (Google, Microsoft), authorization model (group-based + individual), multi-tenant configuration, login page behavior, error reference
 - Default password change notification — backend returns `default_password: true` on login with admin/admin, frontend shows persistent amber security warning in notification bell linking to user profile
 - `trusted_proxies` configuration option in `config.yaml` for public proxy IP/CIDR ranges
 
@@ -53,6 +62,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added React Error Boundary around protected routes to catch render crashes with recovery UI
 - Duplicate username creation returned 500 with raw SQLite constraint error — now returns 409 Conflict with clear `"username 'x' already exists"` message and frontend shows "Duplicate entry" dialog
 - Duplicate tenant name creation had the same raw SQLite error — now returns 409 Conflict with `"tenant name 'x' already exists"`
+- **OAuth redirect method** — changed `startOAuthFlow` from `307 Temporary Redirect` to `302 Found`; 307 preserves the POST method and body, causing the form data (`email`, `preset`) to be forwarded to Google/Microsoft which reject unknown parameters
+- **OAuth test connection response** — `handleTestIDPConnection` success response now wrapped in `APIResponse` format; frontend was reading `response.data.data` which was undefined without the wrapper
+- **OAuth group sync username** — group sync handlers now use `member.Email` as username when provider type is `oauth2` instead of the LDAP-style username
 
 ### Removed
 - Dead code: `GetPresignedURL` handler in `pkg/s3compat/presigned.go` — unused endpoint with hardcoded test credentials, never registered in any router
