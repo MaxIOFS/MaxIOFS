@@ -86,8 +86,12 @@ func (p *Provider) GetGroupMembers(ctx context.Context, groupID string) ([]idp.E
 	return nil, fmt.Errorf("OAuth2 provider does not support group member listing")
 }
 
-func (p *Provider) GetAuthURL(state string) (string, error) {
-	url := p.oauthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline)
+func (p *Provider) GetAuthURL(state string, loginHint string) (string, error) {
+	var opts []oauth2.AuthCodeOption
+	if loginHint != "" {
+		opts = append(opts, oauth2.SetAuthURLParam("login_hint", loginHint))
+	}
+	url := p.oauthConfig.AuthCodeURL(state, opts...)
 	return url, nil
 }
 

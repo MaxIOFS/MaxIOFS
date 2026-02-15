@@ -28,7 +28,8 @@ type Provider interface {
 	GetGroupMembers(ctx context.Context, groupID string) ([]ExternalUser, error)
 
 	// GetAuthURL returns the OAuth authorization URL (OAuth only)
-	GetAuthURL(state string) (string, error)
+	// loginHint is optional — if set, pre-fills the email on the OAuth provider's login page
+	GetAuthURL(state string, loginHint string) (string, error)
 
 	// ExchangeCode exchanges an OAuth code for user info (OAuth only)
 	ExchangeCode(ctx context.Context, code string) (*ExternalUser, error)

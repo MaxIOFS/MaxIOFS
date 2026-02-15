@@ -214,13 +214,34 @@ func (m *Manager) AuthenticateExternal(ctx context.Context, providerID, username
 }
 
 // GetOAuthAuthURL gets the OAuth authorization URL for a provider
-func (m *Manager) GetOAuthAuthURL(ctx context.Context, providerID, state string) (string, error) {
+func (m *Manager) GetOAuthAuthURL(ctx context.Context, providerID, state, loginHint string) (string, error) {
 	provider, err := m.getOrCreateProvider(providerID)
 	if err != nil {
 		return "", err
 	}
 
-	return provider.GetAuthURL(state)
+	return provider.GetAuthURL(state, loginHint)
+}
+
+// FindOAuthProvidersByPreset returns all active OAuth providers matching a preset type
+func (m *Manager) FindOAuthProvidersByPreset(ctx context.Context, preset string) ([]*IdentityProvider, error) {
+	providers, err := m.store.ListActiveOAuthProviders()
+	if err != nil {
+		return nil, err
+	}
+
+	var result []*IdentityProvider
+	for _, p := range providers {
+		pPreset := "custom"
+		if p.Config.OAuth2 != nil && p.Config.OAuth2.Preset != "" {
+			pPreset = p.Config.OAuth2.Preset
+		}
+		if pPreset == preset {
+			result = append(result, p)
+		}
+	}
+
+	return result, nil
 }
 
 // HandleOAuthCallback exchanges an OAuth code for user info

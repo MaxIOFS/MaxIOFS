@@ -260,6 +260,7 @@ function LDAPFields({ config, onChange }: { config: LDAPConfig; onChange: (c: LD
 
 function OAuthFields({ config, onChange, onPresetChange }: { config: OAuth2Config; onChange: (c: OAuth2Config) => void; onPresetChange: (p: string) => void }) {
   const update = (key: keyof OAuth2Config, value: any) => onChange({ ...config, [key]: value });
+  const callbackUrl = `${window.location.origin}/api/v1/auth/oauth/callback`;
 
   return (
     <div className="space-y-4">
@@ -301,8 +302,12 @@ function OAuthFields({ config, onChange, onPresetChange }: { config: OAuth2Confi
         <Input value={config.userinfo_url} onChange={(e) => update('userinfo_url', e.target.value)} placeholder="https://provider.com/userinfo" />
       </div>
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Redirect URI (auto-set if empty)</label>
-        <Input value={config.redirect_uri} onChange={(e) => update('redirect_uri', e.target.value)} placeholder="https://your-server.com/api/v1/auth/oauth/callback" />
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Redirect URI</label>
+        <Input value={config.redirect_uri} onChange={(e) => update('redirect_uri', e.target.value)} placeholder={callbackUrl} />
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          Leave empty to auto-detect: <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded text-xs select-all cursor-pointer" title="Click to select">{callbackUrl}</code>
+          <br />Configure this URL in your OAuth provider's redirect/callback URI settings.
+        </p>
       </div>
 
       <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2 pt-2">Claim Mapping</h3>

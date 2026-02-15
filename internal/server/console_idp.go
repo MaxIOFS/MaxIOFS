@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -76,6 +77,13 @@ func (s *Server) handleCreateIDP(w http.ResponseWriter, r *http.Request) {
 
 	if !s.isGlobalAdmin(user) {
 		provider.TenantID = user.TenantID
+	}
+
+	// Auto-fill redirect_uri for OAuth providers if not set
+	if provider.Type == idp.TypeOAuth2 && provider.Config.OAuth2 != nil && provider.Config.OAuth2.RedirectURI == "" {
+		if s.config.PublicConsoleURL != "" {
+			provider.Config.OAuth2.RedirectURI = strings.TrimRight(s.config.PublicConsoleURL, "/") + "/api/v1/auth/oauth/callback"
+		}
 	}
 
 	if err := s.idpManager.CreateProvider(r.Context(), &provider); err != nil {
@@ -164,6 +172,13 @@ func (s *Server) handleUpdateIDP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Auto-fill redirect_uri for OAuth providers if not set
+	if updated.Type == idp.TypeOAuth2 && updated.Config.OAuth2 != nil && updated.Config.OAuth2.RedirectURI == "" {
+		if s.config.PublicConsoleURL != "" {
+			updated.Config.OAuth2.RedirectURI = strings.TrimRight(s.config.PublicConsoleURL, "/") + "/api/v1/auth/oauth/callback"
+		}
+	}
+
 	if err := s.idpManager.UpdateProvider(r.Context(), &updated); err != nil {
 		logrus.WithError(err).Error("Failed to update identity provider")
 		s.writeError(w, "Failed to update identity provider", http.StatusInternalServerError)
@@ -243,9 +258,13 @@ func (s *Server) handleTestIDPConnection(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	s.writeJSON(w, map[string]interface{}{
-		"status":  "success",
-		"message": "Connection successful",
+	s.writeJSONWithStatus(w, http.StatusOK, APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"success": true,
+			"status":  "success",
+			"message": "Connection successful",
+		},
 	})
 }
 
@@ -744,7 +763,66 @@ func (s *Server) handleSyncAllMappings(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOAuthLogin(w http.ResponseWriter, r *http.Request) {
 	providerID := mux.Vars(r)["id"]
+	loginHint := r.URL.Query().Get("login_hint")
 
+	s.startOAuthFlow(w, r, providerID, loginHint)
+}
+
+// handleOAuthStart resolves the correct provider from a preset+email and starts the OAuth flow.
+// This allows the login page to show one button per type (Google, Microsoft) instead of one per provider.
+// Accepts both form data (HTML form submit) and JSON.
+func (s *Server) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
+	var email, preset string
+
+	contentType := r.Header.Get("Content-Type")
+	if strings.Contains(contentType, "application/json") {
+		var req struct {
+			Email  string `json:"email"`
+			Preset string `json:"preset"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Redirect(w, r, "/login?error=invalid_request", http.StatusFound)
+			return
+		}
+		email = req.Email
+		preset = req.Preset
+	} else {
+		r.ParseForm()
+		email = r.FormValue("email")
+		preset = r.FormValue("preset")
+	}
+
+	if email == "" || preset == "" {
+		http.Redirect(w, r, "/login?error=invalid_request", http.StatusFound)
+		return
+	}
+
+	candidates, err := s.idpManager.FindOAuthProvidersByPreset(r.Context(), preset)
+	if err != nil || len(candidates) == 0 {
+		http.Redirect(w, r, "/login?error=provider_unavailable", http.StatusFound)
+		return
+	}
+
+	// If only one provider for this preset, use it directly
+	provider := candidates[0]
+
+	// If multiple providers, try to find one where the user already exists
+	if len(candidates) > 1 {
+		for _, p := range candidates {
+			authProviderValue := "oauth:" + p.ID
+			existing, _ := s.authManager.FindUserByExternalID(r.Context(), email, authProviderValue)
+			if existing != nil {
+				provider = p
+				break
+			}
+		}
+	}
+
+	s.startOAuthFlow(w, r, provider.ID, email)
+}
+
+// startOAuthFlow initiates the OAuth redirect with CSRF protection and optional login_hint
+func (s *Server) startOAuthFlow(w http.ResponseWriter, r *http.Request, providerID, loginHint string) {
 	stateBytes := make([]byte, 16)
 	rand.Read(stateBytes)
 	csrfToken := base64.URLEncoding.EncodeToString(stateBytes)
@@ -760,14 +838,20 @@ func (s *Server) handleOAuthLogin(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	authURL, err := s.idpManager.GetOAuthAuthURL(r.Context(), providerID, state)
+	authURL, err := s.idpManager.GetOAuthAuthURL(r.Context(), providerID, state, loginHint)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to get OAuth auth URL")
-		http.Redirect(w, r, "/login?error=provider_unavailable", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/login?error=provider_unavailable", http.StatusFound)
 		return
 	}
 
-	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
+	logrus.WithFields(logrus.Fields{
+		"provider_id": providerID,
+		"login_hint":  loginHint,
+		"auth_url":    authURL,
+	}).Info("OAuth: redirecting to provider")
+
+	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
 func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
@@ -777,18 +861,18 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	if errorParam != "" {
 		logrus.WithField("error", errorParam).Warn("OAuth callback received error")
-		http.Redirect(w, r, "/login?error=oauth_denied", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/login?error=oauth_denied", http.StatusFound)
 		return
 	}
 
 	if code == "" || state == "" {
-		http.Redirect(w, r, "/login?error=invalid_callback", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/login?error=invalid_callback", http.StatusFound)
 		return
 	}
 
 	parts := strings.SplitN(state, ":", 2)
 	if len(parts) != 2 {
-		http.Redirect(w, r, "/login?error=invalid_state", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/login?error=invalid_state", http.StatusFound)
 		return
 	}
 	providerID := parts[0]
@@ -797,7 +881,7 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("oauth_state")
 	if err != nil || cookie.Value != csrfToken {
 		logrus.Warn("OAuth CSRF validation failed")
-		http.Redirect(w, r, "/login?error=csrf_failed", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/login?error=csrf_failed", http.StatusFound)
 		return
 	}
 
@@ -812,128 +896,51 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	externalUser, err := s.idpManager.HandleOAuthCallback(r.Context(), providerID, code)
 	if err != nil {
 		logrus.WithError(err).Error("OAuth code exchange failed")
-		http.Redirect(w, r, "/login?error=exchange_failed", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/login?error=exchange_failed", http.StatusFound)
 		return
 	}
 
-	authProviderValue := "oauth:" + providerID
-	user, err := s.authManager.FindUserByExternalID(r.Context(), externalUser.Email, authProviderValue)
-	if err != nil {
-		// Auto-provision: only allowed if user belongs to a mapped group
-		if externalUser.Email == "" {
-			logrus.WithField("provider", providerID).Warn("OAuth login: no email from provider")
-			http.Redirect(w, r, "/login?error=missing_email", http.StatusTemporaryRedirect)
+	if externalUser.Email == "" {
+		logrus.WithField("provider", providerID).Warn("OAuth login: no email from provider")
+		http.Redirect(w, r, "/login?error=missing_email", http.StatusFound)
+		return
+	}
+
+	// Step 1: Look for existing user across ALL OAuth providers (not just the one used for auth)
+	user, resolvedProviderID := s.findOAuthUser(r.Context(), externalUser.Email)
+
+	// Step 2: If no existing user, try auto-provisioning via group mappings
+	if user == nil {
+		var errCode string
+		user, resolvedProviderID, errCode = s.tryAutoProvision(r.Context(), r, externalUser)
+		if user == nil {
+			http.Redirect(w, r, "/login?error="+errCode, http.StatusFound)
 			return
 		}
+	}
 
-		provider, provErr := s.idpManager.GetProviderMasked(r.Context(), providerID)
-		if provErr != nil {
-			logrus.WithError(provErr).Error("OAuth auto-provision: failed to get provider")
-			http.Redirect(w, r, "/login?error=provisioning_failed", http.StatusTemporaryRedirect)
-			return
-		}
+	_ = resolvedProviderID
 
-		// Require group mappings — admin must define which groups can access
-		mappings, _ := s.idpManager.ListGroupMappings(r.Context(), providerID)
-		if len(mappings) == 0 {
-			logrus.WithFields(logrus.Fields{
-				"email":    externalUser.Email,
-				"provider": providerID,
-			}).Warn("OAuth login rejected: no group mappings configured for this provider")
-			http.Redirect(w, r, "/login?error=no_group_mappings", http.StatusTemporaryRedirect)
-			return
-		}
-
-		// User must belong to at least one mapped group
-		role, matched := resolveRoleFromMappings(externalUser.Groups, mappings)
-		if !matched {
-			logrus.WithFields(logrus.Fields{
-				"email":       externalUser.Email,
-				"provider":    providerID,
-				"user_groups": externalUser.Groups,
-			}).Warn("OAuth login rejected: user does not belong to any authorized group")
-			http.Redirect(w, r, "/login?error=not_in_authorized_group", http.StatusTemporaryRedirect)
-			return
-		}
-
-		// Safety check: reject if a local/LDAP user already has this email as username
-		existingUser, _ := s.authManager.GetUser(r.Context(), externalUser.Email)
-		if existingUser != nil && !strings.HasPrefix(existingUser.AuthProvider, "oauth:") {
-			logrus.WithFields(logrus.Fields{
-				"email":    externalUser.Email,
-				"provider": providerID,
-				"conflict": existingUser.AuthProvider,
-			}).Warn("OAuth auto-provision blocked: email conflicts with existing user")
-			http.Redirect(w, r, "/login?error=email_conflict", http.StatusTemporaryRedirect)
-			return
-		}
-
-		// Determine tenant from provider config
-		targetTenant := provider.TenantID
-
-		newUser := &auth.User{
-			ID:           "user-" + uuid.New().String()[:8],
-			Username:     externalUser.Email,
-			Password:     "",
-			DisplayName:  externalUser.DisplayName,
-			Email:        externalUser.Email,
-			Status:       auth.UserStatusActive,
-			TenantID:     targetTenant,
-			Roles:        []string{role},
-			AuthProvider: authProviderValue,
-			ExternalID:   externalUser.Email,
-			CreatedAt:    time.Now().Unix(),
-			UpdatedAt:    time.Now().Unix(),
-		}
-
-		if createErr := s.authManager.CreateUser(r.Context(), newUser); createErr != nil {
-			logrus.WithError(createErr).WithField("email", externalUser.Email).Error("OAuth auto-provision: failed to create user")
-			http.Redirect(w, r, "/login?error=provisioning_failed", http.StatusTemporaryRedirect)
-			return
-		}
-
-		s.logAuditEvent(r.Context(), &audit.AuditEvent{
-			UserID:       newUser.ID,
-			Username:     newUser.Username,
-			TenantID:     targetTenant,
-			EventType:    audit.EventTypeUserCreated,
-			ResourceType: audit.ResourceTypeUser,
-			ResourceID:   newUser.ID,
-			ResourceName: newUser.Username,
-			Action:       "auto_provision_oauth",
-			Status:       audit.StatusSuccess,
-			IPAddress:    getClientIP(r),
-			UserAgent:    r.Header.Get("User-Agent"),
-			Details: map[string]interface{}{
-				"provider_id": providerID,
-				"role":        role,
-			},
-		})
-
-		logrus.WithFields(logrus.Fields{
-			"user_id":  newUser.ID,
-			"username": newUser.Username,
-			"provider": providerID,
-			"role":     role,
-		}).Info("Auto-provisioned OAuth user")
-
-		user = newUser
+	// Ensure email field is populated for SSO users (username is email, so sync it)
+	if user.Email == "" && externalUser.Email != "" {
+		user.Email = externalUser.Email
+		s.authManager.UpdateUser(r.Context(), user)
 	}
 
 	if user.Status != auth.UserStatusActive {
-		http.Redirect(w, r, "/login?error=account_inactive", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/login?error=account_inactive", http.StatusFound)
 		return
 	}
 
 	isLocked, _, _ := s.authManager.IsAccountLocked(r.Context(), user.ID)
 	if isLocked {
-		http.Redirect(w, r, "/login?error=account_locked", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/login?error=account_locked", http.StatusFound)
 		return
 	}
 
 	twoFactorEnabled, _, _ := s.authManager.Get2FAStatus(r.Context(), user.ID)
 	if twoFactorEnabled {
-		http.Redirect(w, r, fmt.Sprintf("/login?pending_2fa=true&user_id=%s", user.ID), http.StatusTemporaryRedirect)
+		http.Redirect(w, r, fmt.Sprintf("/login?pending_2fa=true&user_id=%s", user.ID), http.StatusFound)
 		return
 	}
 
@@ -942,7 +949,7 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	token, err := s.authManager.GenerateJWT(r.Context(), user)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to generate JWT after OAuth login")
-		http.Redirect(w, r, "/login?error=token_failed", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/login?error=token_failed", http.StatusFound)
 		return
 	}
 
@@ -970,7 +977,7 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		"provider": providerID,
 	}).Info("Successful OAuth login")
 
-	http.Redirect(w, r, "/auth/oauth/complete?token="+token, http.StatusTemporaryRedirect)
+	http.Redirect(w, r, "/auth/oauth/complete?token="+token, http.StatusFound)
 }
 
 func (s *Server) handleListOAuthProviders(w http.ResponseWriter, r *http.Request) {
@@ -981,21 +988,25 @@ func (s *Server) handleListOAuthProviders(w http.ResponseWriter, r *http.Request
 	}
 
 	type oauthProviderInfo struct {
-		ID     string `json:"id"`
-		Name   string `json:"name"`
 		Preset string `json:"preset"`
+		Name   string `json:"name"`
 	}
 
+	// Deduplicate by preset — one button per provider type (google, microsoft, etc.)
+	seen := make(map[string]bool)
 	var result []oauthProviderInfo
 	for _, p := range providers {
-		preset := ""
-		if p.Config.OAuth2 != nil {
+		preset := "custom"
+		if p.Config.OAuth2 != nil && p.Config.OAuth2.Preset != "" {
 			preset = p.Config.OAuth2.Preset
 		}
+		if seen[preset] {
+			continue
+		}
+		seen[preset] = true
 		result = append(result, oauthProviderInfo{
-			ID:     p.ID,
-			Name:   p.Name,
 			Preset: preset,
+			Name:   p.Name,
 		})
 	}
 
@@ -1027,9 +1038,111 @@ func (s *Server) isGlobalAdmin(user *auth.User) bool {
 	return s.isAdmin(user) && user.TenantID == ""
 }
 
-// resolveRoleFromMappings checks if a user belongs to any mapped group and returns
-// the highest-privilege role. Priority: admin > user > readonly.
-// Returns (role, true) if the user matched at least one group, ("", false) otherwise.
+// findOAuthUser searches for an existing user across ALL active OAuth providers
+func (s *Server) findOAuthUser(ctx context.Context, email string) (*auth.User, string) {
+	providers, err := s.idpManager.ListActiveOAuthProviders(ctx)
+	if err != nil {
+		return nil, ""
+	}
+
+	for _, p := range providers {
+		authProviderValue := "oauth:" + p.ID
+		user, err := s.authManager.FindUserByExternalID(ctx, email, authProviderValue)
+		if err == nil && user != nil {
+			return user, p.ID
+		}
+	}
+
+	return nil, ""
+}
+
+// tryAutoProvision attempts to auto-provision an OAuth user by checking group mappings
+// across ALL active OAuth providers. Returns (nil, "", errorCode) if not authorized.
+func (s *Server) tryAutoProvision(ctx context.Context, r *http.Request, externalUser *idp.ExternalUser) (*auth.User, string, string) {
+	// Safety check: reject if a local/LDAP user already has this email as username
+	existingUser, _ := s.authManager.GetUser(ctx, externalUser.Email)
+	if existingUser != nil && !strings.HasPrefix(existingUser.AuthProvider, "oauth:") {
+		logrus.WithFields(logrus.Fields{
+			"email":    externalUser.Email,
+			"conflict": existingUser.AuthProvider,
+		}).Warn("OAuth auto-provision blocked: email conflicts with existing user")
+		return nil, "", "email_conflict"
+	}
+
+	// Check group mappings across ALL OAuth providers
+	providers, err := s.idpManager.ListActiveOAuthProviders(ctx)
+	if err != nil || len(providers) == 0 {
+		return nil, "", "provider_unavailable"
+	}
+
+	for _, provider := range providers {
+		mappings, _ := s.idpManager.ListGroupMappings(ctx, provider.ID)
+		if len(mappings) == 0 {
+			continue
+		}
+
+		role, matched := resolveRoleFromMappings(externalUser.Groups, mappings)
+		if !matched {
+			continue
+		}
+
+		// Found a matching provider with authorized group — provision the user
+		authProviderValue := "oauth:" + provider.ID
+		newUser := &auth.User{
+			ID:           "user-" + uuid.New().String()[:8],
+			Username:     externalUser.Email,
+			Password:     "",
+			DisplayName:  externalUser.DisplayName,
+			Email:        externalUser.Email,
+			Status:       auth.UserStatusActive,
+			TenantID:     provider.TenantID,
+			Roles:        []string{role},
+			AuthProvider: authProviderValue,
+			ExternalID:   externalUser.Email,
+			CreatedAt:    time.Now().Unix(),
+			UpdatedAt:    time.Now().Unix(),
+		}
+
+		if createErr := s.authManager.CreateUser(ctx, newUser); createErr != nil {
+			logrus.WithError(createErr).WithField("email", externalUser.Email).Error("OAuth auto-provision: failed to create user")
+			continue
+		}
+
+		s.logAuditEvent(ctx, &audit.AuditEvent{
+			UserID:       newUser.ID,
+			Username:     newUser.Username,
+			TenantID:     provider.TenantID,
+			EventType:    audit.EventTypeUserCreated,
+			ResourceType: audit.ResourceTypeUser,
+			ResourceID:   newUser.ID,
+			ResourceName: newUser.Username,
+			Action:       "auto_provision_oauth",
+			Status:       audit.StatusSuccess,
+			IPAddress:    getClientIP(r),
+			UserAgent:    r.Header.Get("User-Agent"),
+			Details: map[string]interface{}{
+				"provider_id": provider.ID,
+				"role":        role,
+			},
+		})
+
+		logrus.WithFields(logrus.Fields{
+			"user_id":  newUser.ID,
+			"username": newUser.Username,
+			"provider": provider.ID,
+			"role":     role,
+		}).Info("Auto-provisioned OAuth user")
+
+		return newUser, provider.ID, ""
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"email":       externalUser.Email,
+		"user_groups": externalUser.Groups,
+	}).Warn("OAuth login rejected: user not authorized in any provider")
+	return nil, "", "not_in_authorized_group"
+}
+
 func resolveRoleFromMappings(userGroups []string, mappings []*idp.GroupMapping) (string, bool) {
 	groupSet := make(map[string]bool, len(userGroups))
 	for _, g := range userGroups {

@@ -699,6 +699,14 @@ func (m *MockAuthManager) GetDB() interface{} {
 	return args.Get(0)
 }
 
+func (m *MockAuthManager) FindUserByExternalID(ctx context.Context, externalID, authProvider string) (*auth.User, error) {
+	args := m.Called(ctx, externalID, authProvider)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*auth.User), args.Error(1)
+}
+
 type MockMetricsManager struct {
 	mock.Mock
 }

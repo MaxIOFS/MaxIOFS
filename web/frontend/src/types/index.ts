@@ -72,6 +72,8 @@ export interface CreateUserRequest {
   roles?: string[];
   status?: 'active' | 'inactive' | 'suspended';
   tenantId?: string;
+  authProvider?: string;
+  externalId?: string;
 }
 
 export interface EditUserForm {
@@ -1219,9 +1221,8 @@ export interface SyncResult {
 }
 
 export interface OAuthProviderInfo {
-  id: string;
+  preset: string;
   name: string;
-  type: string;
 }
 
 // Re-export common types

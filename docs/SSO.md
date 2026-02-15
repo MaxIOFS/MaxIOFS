@@ -18,10 +18,12 @@ MaxIOFS supports Single Sign-On (SSO) via OAuth2/OIDC providers. Users authentic
 ## How SSO Login Works
 
 1. User clicks the **"Sign in with Google"** (or Microsoft, etc.) button on the login page
-2. User authenticates with the external identity provider
-3. The provider redirects back to MaxIOFS with the user's profile (email, name, groups)
-4. MaxIOFS checks if the user is authorized (see [Authorization Model](#authorization-model))
-5. If authorized, the user is logged in. If it's their first login, an account is automatically created
+2. User enters their **email address**
+3. MaxIOFS redirects to the identity provider with the email pre-filled (`login_hint`)
+4. User authenticates with the provider
+5. The provider redirects back to MaxIOFS with the user's profile (email, name, groups)
+6. MaxIOFS searches **all configured OAuth providers** to check if the user is authorized (see [Authorization Model](#authorization-model))
+7. If authorized, the user is logged in. If it's their first login, an account is automatically created
 
 ---
 
@@ -150,7 +152,11 @@ Both methods work together:
 
 ### SSO Buttons
 
-When OAuth providers are configured and active, the login page shows SSO buttons below the standard username/password form (e.g., "Sign in with Google", "Sign in with Microsoft").
+When OAuth providers are configured and active, the login page shows **one button per provider type** below the standard username/password form (e.g., "Sign in with Google", "Sign in with Microsoft"). Even if multiple tenants configure the same provider type (e.g., multiple Google Workspace configurations), only one "Sign in with Google" button is shown.
+
+When the user clicks an SSO button, they are prompted to enter their email address. MaxIOFS uses this email to:
+- Pre-fill the provider's login page (`login_hint`)
+- Determine which provider configuration to use (if multiple exist for the same type)
 
 ### Email Detection
 
@@ -197,6 +203,19 @@ Each identity provider can be scoped to a specific tenant:
 - **Tenant-scoped providers**: Only users in that tenant can use the provider
 
 When a user is auto-provisioned, they are assigned to the provider's tenant.
+
+### Multiple Tenants with the Same Provider Type
+
+Multiple tenants can each configure their own Google (or Microsoft) OAuth provider. For example:
+- **Tenant A**: Google OAuth for `companyA.com` Workspace
+- **Tenant B**: Google OAuth for `companyB.com` Workspace
+
+The login page shows a single "Sign in with Google" button. When the user enters their email and authenticates:
+1. MaxIOFS checks **all** OAuth providers for an existing account matching that email
+2. If no existing account, it checks **all** providers' group mappings for authorization
+3. The user is assigned to the tenant of the provider where authorization was found
+
+This means the email domain naturally routes users to the correct tenant — `alice@companyA.com` matches Tenant A's group mappings, and `bob@companyB.com` matches Tenant B's. No tenant information is exposed on the login page.
 
 ---
 

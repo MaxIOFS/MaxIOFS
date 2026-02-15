@@ -77,13 +77,23 @@ export default function UsersPage() {
     queryFn: APIClient.getTenants,
   });
 
+  // Fetch identity providers for SSO user creation
+  const { data: idps } = useQuery({
+    queryKey: ['identity-providers'],
+    queryFn: APIClient.listIDPs,
+    enabled: isAnyAdmin,
+  });
+
+  const oauthProviders = idps?.filter(p => p.type === 'oauth2' && p.status === 'active') || [];
+  const isExternalUser = !!(newUser as any).authProvider && (newUser as any).authProvider !== 'local';
+
   const createUserMutation = useMutation({
     mutationFn: (data: CreateUserRequest) => APIClient.createUser(data),
     onSuccess: (response, variables) => {
       queryClient.refetchQueries({ queryKey: ['users'] });
       queryClient.refetchQueries({ queryKey: ['tenants'] });
       setIsCreateModalOpen(false);
-      setNewUser({ roles: ['user'], status: 'active' });
+      setNewUser({ roles: ['user'], status: 'active', authProvider: undefined, externalId: undefined });
       ModalManager.successUserCreated(variables.username);
     },
     onError: (error: Error) => {
@@ -137,14 +147,18 @@ export default function UsersPage() {
 
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
-    if (newUser.username && newUser.password) {
-      // Clean up empty string values - convert to undefined
-      const userData: CreateUserRequest = {
-        ...newUser as CreateUserRequest,
-        tenantId: newUser.tenantId && newUser.tenantId !== '' ? newUser.tenantId : undefined,
-      };
-      createUserMutation.mutate(userData);
-    }
+    if (!newUser.username) return;
+    if (!isExternalUser && !newUser.password) return;
+
+    // Clean up empty string values - convert to undefined
+    const userData: CreateUserRequest = {
+      ...newUser as CreateUserRequest,
+      tenantId: newUser.tenantId && newUser.tenantId !== '' ? newUser.tenantId : undefined,
+      authProvider: isExternalUser ? newUser.authProvider : undefined,
+      externalId: isExternalUser ? (newUser.externalId || newUser.username) : undefined,
+      password: isExternalUser ? '' : newUser.password!,
+    };
+    createUserMutation.mutate(userData);
   };
 
   const handleDeleteUser = async (userId: string) => {
@@ -506,13 +520,14 @@ export default function UsersPage() {
         <form onSubmit={handleCreateUser} className="space-y-4">
           <div>
             <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Username
+              {isExternalUser ? 'Email (Username)' : 'Username'}
             </label>
             <Input
               id="username"
+              type={isExternalUser ? 'email' : 'text'}
               value={newUser.username || ''}
               onChange={(e) => updateNewUser('username', e.target.value)}
-              placeholder="john.doe"
+              placeholder={isExternalUser ? 'user@example.com' : 'john.doe'}
               className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
               required
             />
@@ -532,20 +547,56 @@ export default function UsersPage() {
             />
           </div>
 
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Password
-            </label>
-            <Input
-              id="password"
-              type="password"
-              value={newUser.password || ''}
-              onChange={(e) => updateNewUser('password', e.target.value)}
-              placeholder="Enter password"
-              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
-              required
-            />
-          </div>
+          {/* Auth Provider selector */}
+          {oauthProviders.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Authentication
+              </label>
+              <select
+                value={newUser.authProvider || 'local'}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value === 'local') {
+                    setNewUser(prev => ({ ...prev, authProvider: undefined, externalId: undefined }));
+                  } else {
+                    setNewUser(prev => ({ ...prev, authProvider: value, password: '' }));
+                  }
+                }}
+                className="w-full border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+              >
+                <option value="local">Local (password)</option>
+                {oauthProviders.map((provider) => (
+                  <option key={provider.id} value={`oauth:${provider.id}`}>
+                    {provider.name} (SSO)
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {isExternalUser
+                  ? 'This user will authenticate via SSO. Use their email as username.'
+                  : 'This user will authenticate with a local password.'}
+              </p>
+            </div>
+          )}
+
+          {/* Password - only for local users */}
+          {!isExternalUser && (
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Password
+              </label>
+              <Input
+                id="password"
+                type="password"
+                value={newUser.password || ''}
+                onChange={(e) => updateNewUser('password', e.target.value)}
+                placeholder="Enter password"
+                className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                required
+              />
+            </div>
+          )}
 
           {/* Tenant selector - only for global admins */}
           {isGlobalAdmin ? (
@@ -629,7 +680,7 @@ export default function UsersPage() {
             </Button>
             <Button
               type="submit"
-              disabled={createUserMutation.isPending || !newUser.username || !newUser.password}
+              disabled={createUserMutation.isPending || !newUser.username || (!isExternalUser && !newUser.password)}
             >
               {createUserMutation.isPending ? 'Creating...' : 'Create User'}
             </Button>

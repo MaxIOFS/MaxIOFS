@@ -184,7 +184,7 @@ func (p *Provider) GetGroupMembers(ctx context.Context, groupID string) ([]idp.E
 	return users, nil
 }
 
-func (p *Provider) GetAuthURL(state string) (string, error) {
+func (p *Provider) GetAuthURL(state string, loginHint string) (string, error) {
 	return "", fmt.Errorf("LDAP provider does not support OAuth redirect flow")
 }
 

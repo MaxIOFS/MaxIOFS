@@ -184,6 +184,9 @@ func (m *mockAuthManager) IsReady() bool {
 func (m *mockAuthManager) GetDB() interface{} {
 	return nil
 }
+func (m *mockAuthManager) FindUserByExternalID(ctx context.Context, externalID, authProvider string) (*auth.User, error) {
+	return nil, fmt.Errorf("not implemented")
+}
 
 // TestGeneratePresignedURLV4_Success tests successful V4 presigned URL generation
 func TestGeneratePresignedURLV4_Success(t *testing.T) {

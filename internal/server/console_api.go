@@ -411,6 +411,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 
 	// OAuth flow endpoints (public — no JWT required)
 	router.HandleFunc("/auth/oauth/{id}/login", s.handleOAuthLogin).Methods("GET", "OPTIONS")
+	router.HandleFunc("/auth/oauth/start", s.handleOAuthStart).Methods("POST", "OPTIONS")
 	router.HandleFunc("/auth/oauth/callback", s.handleOAuthCallback).Methods("GET", "OPTIONS")
 	router.HandleFunc("/auth/oauth/providers", s.handleListOAuthProviders).Methods("GET", "OPTIONS")
 
@@ -2012,12 +2013,14 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	var createRequest struct {
-		Username string   `json:"username"`
-		Email    string   `json:"email,omitempty"`
-		Password string   `json:"password"`
-		Roles    []string `json:"roles,omitempty"`
-		Status   string   `json:"status,omitempty"`
-		TenantID string   `json:"tenantId,omitempty"`
+		Username     string   `json:"username"`
+		Email        string   `json:"email,omitempty"`
+		Password     string   `json:"password"`
+		Roles        []string `json:"roles,omitempty"`
+		Status       string   `json:"status,omitempty"`
+		TenantID     string   `json:"tenantId,omitempty"`
+		AuthProvider string   `json:"authProvider,omitempty"`
+		ExternalID   string   `json:"externalId,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&createRequest); err != nil {
@@ -2026,8 +2029,14 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate required fields
-	if createRequest.Username == "" || createRequest.Password == "" {
-		s.writeError(w, "Username and password are required", http.StatusBadRequest)
+	if createRequest.Username == "" {
+		s.writeError(w, "Username is required", http.StatusBadRequest)
+		return
+	}
+	// Password is required for local users, optional for SSO users
+	isExternalUser := createRequest.AuthProvider != "" && createRequest.AuthProvider != "local"
+	if !isExternalUser && createRequest.Password == "" {
+		s.writeError(w, "Password is required for local users", http.StatusBadRequest)
 		return
 	}
 
@@ -2060,15 +2069,27 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 	// Create user (password will be hashed by CreateUser)
 	user := &auth.User{
-		ID:          createRequest.Username,
-		Username:    createRequest.Username,
-		Password:    createRequest.Password, // Will be hashed with bcrypt by SQLiteStore
-		DisplayName: createRequest.Username,
-		Email:       createRequest.Email,
-		Status:      createRequest.Status,
-		Roles:       createRequest.Roles,
-		TenantID:    createRequest.TenantID,
-		CreatedAt:   time.Now().Unix(),
+		ID:           createRequest.Username,
+		Username:     createRequest.Username,
+		Password:     createRequest.Password, // Will be hashed with bcrypt by SQLiteStore
+		DisplayName:  createRequest.Username,
+		Email:        createRequest.Email,
+		Status:       createRequest.Status,
+		Roles:        createRequest.Roles,
+		TenantID:     createRequest.TenantID,
+		AuthProvider: createRequest.AuthProvider,
+		ExternalID:   createRequest.ExternalID,
+		CreatedAt:    time.Now().Unix(),
+	}
+
+	// For SSO users: username is email, so ensure email field is populated
+	if isExternalUser {
+		if user.Email == "" {
+			user.Email = user.Username
+		}
+		if user.ExternalID == "" {
+			user.ExternalID = user.Email
+		}
 	}
 
 	if err := s.authManager.CreateUser(r.Context(), user); err != nil {
