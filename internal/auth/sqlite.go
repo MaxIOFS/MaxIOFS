@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/db/migrations"
@@ -79,13 +80,22 @@ func (s *SQLiteStore) CreateUser(user *User) error {
 	}
 	defer tx.Rollback()
 
+	authProvider := user.AuthProvider
+	if authProvider == "" {
+		authProvider = "local"
+	}
+
 	_, err = tx.Exec(`
-		INSERT INTO users (id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO users (id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at, auth_provider, external_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, user.ID, user.Username, hashedPassword, user.DisplayName, user.Email, user.Status,
-		nullString(user.TenantID), string(rolesJSON), string(policiesJSON), string(metadataJSON), user.CreatedAt, user.UpdatedAt)
+		nullString(user.TenantID), string(rolesJSON), string(policiesJSON), string(metadataJSON),
+		user.CreatedAt, user.UpdatedAt, authProvider, nullString(user.ExternalID))
 
 	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed: users.username") {
+			return fmt.Errorf("username '%s' already exists", user.Username)
+		}
 		return fmt.Errorf("failed to create user: %w", err)
 	}
 
@@ -111,18 +121,20 @@ func (s *SQLiteStore) GetUserByUsername(username string) (*User, error) {
 	var backupCodesUsedJSON sql.NullString
 	var themePreference sql.NullString
 	var languagePreference sql.NullString
+	var authProvider sql.NullString
+	var externalID sql.NullString
 
 	err := s.db.QueryRow(`
 		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
 		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used,
-		       theme_preference, language_preference
+		       theme_preference, language_preference, auth_provider, external_id
 		FROM users
 		WHERE username = ? AND status != 'deleted'
 	`, username).Scan(
 		&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
 		&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 		&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON,
-		&themePreference, &languagePreference,
+		&themePreference, &languagePreference, &authProvider, &externalID,
 	)
 
 	if tenantID.Valid {
@@ -147,6 +159,15 @@ func (s *SQLiteStore) GetUserByUsername(username string) (*User, error) {
 		user.LanguagePreference = languagePreference.String
 	} else {
 		user.LanguagePreference = "en" // Default
+	}
+
+	if authProvider.Valid && authProvider.String != "" {
+		user.AuthProvider = authProvider.String
+	} else {
+		user.AuthProvider = "local"
+	}
+	if externalID.Valid {
+		user.ExternalID = externalID.String
 	}
 
 	if err == sql.ErrNoRows {
@@ -183,18 +204,20 @@ func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
 	var backupCodesUsedJSON sql.NullString
 	var themePreference sql.NullString
 	var languagePreference sql.NullString
+	var authProvider sql.NullString
+	var externalID sql.NullString
 
 	err := s.db.QueryRow(`
 		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
 		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used,
-		       theme_preference, language_preference
+		       theme_preference, language_preference, auth_provider, external_id
 		FROM users
 		WHERE id = ? AND status != 'deleted'
 	`, userID).Scan(
 		&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
 		&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 		&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON,
-		&themePreference, &languagePreference,
+		&themePreference, &languagePreference, &authProvider, &externalID,
 	)
 
 	if tenantID.Valid {
@@ -221,6 +244,15 @@ func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
 		user.LanguagePreference = "en" // Default
 	}
 
+	if authProvider.Valid && authProvider.String != "" {
+		user.AuthProvider = authProvider.String
+	} else {
+		user.AuthProvider = "local"
+	}
+	if externalID.Valid {
+		user.ExternalID = externalID.String
+	}
+
 	if err == sql.ErrNoRows {
 		return nil, ErrUserNotFound
 	}
@@ -240,6 +272,57 @@ func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
 	if backupCodesUsedJSON.Valid && backupCodesUsedJSON.String != "" {
 		json.Unmarshal([]byte(backupCodesUsedJSON.String), &user.BackupCodesUsed)
 	}
+
+	return &user, nil
+}
+
+// GetUserByExternalID retrieves a user by their external ID and auth provider
+func (s *SQLiteStore) GetUserByExternalID(externalID, authProvider string) (*User, error) {
+	var user User
+	var rolesJSON, policiesJSON, metadataJSON string
+	var tenantID sql.NullString
+	var themePreference sql.NullString
+	var languagePreference sql.NullString
+	var extID sql.NullString
+	var authProv sql.NullString
+
+	err := s.db.QueryRow(`
+		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
+		       two_factor_enabled, theme_preference, language_preference, auth_provider, external_id
+		FROM users
+		WHERE external_id = ? AND auth_provider = ? AND status != 'deleted'
+	`, externalID, authProvider).Scan(
+		&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
+		&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
+		&user.TwoFactorEnabled, &themePreference, &languagePreference, &authProv, &extID,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if tenantID.Valid {
+		user.TenantID = tenantID.String
+	}
+	if themePreference.Valid {
+		user.ThemePreference = themePreference.String
+	}
+	if languagePreference.Valid {
+		user.LanguagePreference = languagePreference.String
+	}
+	if authProv.Valid {
+		user.AuthProvider = authProv.String
+	}
+	if extID.Valid {
+		user.ExternalID = extID.String
+	}
+
+	json.Unmarshal([]byte(rolesJSON), &user.Roles)
+	json.Unmarshal([]byte(policiesJSON), &user.Policies)
+	json.Unmarshal([]byte(metadataJSON), &user.Metadata)
 
 	return &user, nil
 }
@@ -340,7 +423,7 @@ func (s *SQLiteStore) ListUsers() ([]*User, error) {
 	rows, err := s.db.Query(`
 		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
 		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used, locked_until,
-		       theme_preference, language_preference
+		       theme_preference, language_preference, auth_provider, external_id
 		FROM users
 		WHERE status != 'deleted'
 		ORDER BY created_at DESC
@@ -362,12 +445,14 @@ func (s *SQLiteStore) ListUsers() ([]*User, error) {
 		var lockedUntil sql.NullInt64
 		var themePreference sql.NullString
 		var languagePreference sql.NullString
+		var authProvider sql.NullString
+		var externalID sql.NullString
 
 		err := rows.Scan(
 			&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
 			&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 			&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON, &lockedUntil,
-			&themePreference, &languagePreference,
+			&themePreference, &languagePreference, &authProvider, &externalID,
 		)
 		if err != nil {
 			return nil, err
@@ -399,6 +484,15 @@ func (s *SQLiteStore) ListUsers() ([]*User, error) {
 			user.LanguagePreference = languagePreference.String
 		} else {
 			user.LanguagePreference = "en" // Default
+		}
+
+		if authProvider.Valid && authProvider.String != "" {
+			user.AuthProvider = authProvider.String
+		} else {
+			user.AuthProvider = "local"
+		}
+		if externalID.Valid {
+			user.ExternalID = externalID.String
 		}
 
 		// Deserialize JSON fields

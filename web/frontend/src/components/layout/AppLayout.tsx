@@ -23,6 +23,7 @@ import {
   ArrowUpCircle,
   CheckCircle2,
   ShieldAlert,
+  Shield,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -70,6 +71,11 @@ const navigation: NavItem[] = [
         name: 'Tenants',
         href: '/tenants',
         icon: Building2,
+      },
+      {
+        name: 'Identity Providers',
+        href: '/identity-providers',
+        icon: Shield,
       },
     ],
   },
@@ -206,6 +212,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         ...item,
         children: item.children.filter(child => {
           if (child.name === 'Tenants' && !isAnyAdmin) {
+            return false;
+          }
+          if (child.name === 'Identity Providers' && !isAnyAdmin) {
             return false;
           }
           return true;

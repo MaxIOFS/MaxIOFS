@@ -612,6 +612,8 @@ class ModalManager {
       if (!text.includes('retention') && !text.includes('COMPLIANCE') && !text.includes('GOVERNANCE') && !text.includes('protected by')) {
         text = 'You do not have permission to perform this operation';
       }
+    } else if (text.includes('already exists')) {
+      title = 'Duplicate entry';
     } else if (text.includes('500')) {
       title = 'Server error';
       text = 'An internal server error has occurred. Please try again later';

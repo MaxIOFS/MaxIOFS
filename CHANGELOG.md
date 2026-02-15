@@ -11,8 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CRITICAL**: JWT signature verification — `parseBasicToken()` now verifies HMAC-SHA256 signature with `hmac.Equal()` constant-time comparison before trusting payload
 - **CRITICAL**: CORS wildcard removal — replaced hardcoded `Access-Control-Allow-Origin: *` with proper origin validation via `middleware.CORSWithConfig()`
 - **CRITICAL**: Rate limiting IP spoofing — `IPKeyExtractor` now auto-trusts RFC 1918 private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, ::1, fc00::/7) and only honors `X-Forwarded-For`/`X-Real-IP` from trusted proxies. Supports explicit CIDR ranges for public proxies (Cloudflare, AWS ALB)
+- LDAP bind passwords and OAuth client secrets encrypted at rest with AES-256-GCM using config secret key
+- LDAP search filter injection protection via `ldap.EscapeFilter()` (RFC 4515)
+- OAuth CSRF protection with random state parameter + secure cookie validation on callback
+- External users (LDAP/OAuth) have no password hash — `ValidateConsoleCredentials` rejects them with "Use SSO login"
 
 ### Added
+- **Identity Provider System** — extensible framework for external authentication with LDAP/AD and OAuth2/OIDC support
+  - `internal/idp/` package: Provider interface, factory registry, SQLite store, AES-256-GCM crypto, manager with CRUD/auth/import/sync
+  - `internal/idp/ldap/` package: LDAP client (connect, bind, search, browse) with TLS/StartTLS support and AD attribute mapping
+  - `internal/idp/oauth/` package: OAuth2 provider with Google and Microsoft presets, configurable claim mapping
+  - Database migration 9: `identity_providers`, `idp_group_mappings` tables, `auth_provider` and `external_id` columns on `users`
+- **IDP Console API** — 20+ new endpoints for identity provider management
+  - CRUD: `GET/POST/PUT/DELETE /api/v1/identity-providers`, `POST /api/v1/identity-providers/{id}/test`
+  - LDAP browse: `POST .../search-users`, `POST .../search-groups`, `POST .../group-members`, `POST .../import-users`
+  - Group mappings: `GET/POST/PUT/DELETE .../group-mappings`, `POST .../group-mappings/{id}/sync`, `POST .../sync`
+  - OAuth flow: `GET /api/v1/auth/oauth/{id}/login`, `GET /api/v1/auth/oauth/callback`, `GET /api/v1/auth/oauth/providers`
+- **Login flow routing** — `handleLogin()` now routes by `auth_provider`: local (bcrypt), `ldap:*` (LDAP bind), `oauth:*` (rejects with SSO message)
+- **Frontend: Identity Providers page** — full CRUD with type selector (LDAP/OAuth), config forms, test connection, status badges
+- **Frontend: LDAP Browser** — search LDAP directory users, select and bulk import with role assignment
+- **Frontend: Group Mapping Manager** — map external groups to MaxIOFS roles, manual and auto sync, sync status tracking
+- **Frontend: OAuth login buttons** — login page shows SSO buttons for active OAuth providers (Google/Microsoft icons)
+- **Frontend: OAuth complete page** — token receiver for OAuth callback redirect flow
+- **Frontend: Auth provider badge** — user list shows Local/LDAP/SSO badge per user via `IDPStatusBadge` component
+- **Frontend: Identity Providers sidebar entry** — added under Users submenu, visible to admins only
 - Default password change notification — backend returns `default_password: true` on login with admin/admin, frontend shows persistent amber security warning in notification bell linking to user profile
 - `trusted_proxies` configuration option in `config.yaml` for public proxy IP/CIDR ranges
 
@@ -29,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cluster proxy request body consumed before forwarding — buffered with `io.ReadAll` + `bytes.NewReader` to prevent empty body on retry
 - Storage delete error silently ignored on quota rollback in `PutObject` — now logs error to identify orphaned files
 - Added React Error Boundary around protected routes to catch render crashes with recovery UI
+- Duplicate username creation returned 500 with raw SQLite constraint error — now returns 409 Conflict with clear `"username 'x' already exists"` message and frontend shows "Duplicate entry" dialog
+- Duplicate tenant name creation had the same raw SQLite error — now returns 409 Conflict with `"tenant name 'x' already exists"`
 
 ### Removed
 - Dead code: `GetPresignedURL` handler in `pkg/s3compat/presigned.go` — unused endpoint with hardcoded test credentials, never registered in any router
@@ -39,6 +63,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Replaced `fmt.Println` with `logrus.Warn` in `internal/share/sqlite.go` for table migration logging
+
+### Tests
+- IDP crypto: encrypt/decrypt roundtrip, empty string, wrong key, tampered ciphertext, unique nonces, key derivation (9 tests)
+- IDP store: SQLite CRUD for providers and group mappings, tenant filtering, cascade delete, unique constraint, sync time (17 tests)
+- IDP manager: create/get/update/delete with encryption, masking, cache invalidation, group mapping CRUD (13 tests)
+- Frontend IDP: page rendering, search filtering, delete confirmation, test connection, permission check, badge component (11 tests)
 
 ### Verified (No Changes Needed)
 - Race condition in cluster cache — all `c.entries` accesses already properly protected with `sync.RWMutex`

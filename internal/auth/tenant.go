@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -53,6 +54,9 @@ func (s *SQLiteStore) CreateTenant(tenant *Tenant) error {
 		string(metadataJSON), tenant.CreatedAt, tenant.UpdatedAt)
 
 	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed: tenants.name") {
+			return fmt.Errorf("tenant name '%s' already exists", tenant.Name)
+		}
 		return fmt.Errorf("failed to create tenant: %w", err)
 	}
 

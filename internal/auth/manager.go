@@ -42,6 +42,7 @@ type Manager interface {
 	// User management
 	CreateUser(ctx context.Context, user *User) error
 	UpdateUser(ctx context.Context, user *User) error
+	FindUserByExternalID(ctx context.Context, externalID, authProvider string) (*User, error)
 	UpdateUserPreferences(ctx context.Context, userID, themePreference, languagePreference string) error
 	DeleteUser(ctx context.Context, userID string) error
 	GetUser(ctx context.Context, accessKey string) (*User, error)
@@ -131,6 +132,10 @@ type User struct {
 	// User preferences
 	ThemePreference    string `json:"themePreference,omitempty"`    // 'light', 'dark', 'system'
 	LanguagePreference string `json:"languagePreference,omitempty"` // 'en', 'es', etc.
+
+	// Identity provider fields
+	AuthProvider string `json:"authProvider,omitempty"` // "local" | "ldap:{provider-id}" | "oauth:{provider-id}"
+	ExternalID   string `json:"externalId,omitempty"`   // LDAP DN or OAuth email/sub
 }
 
 // Tenant represents an organizational unit for multi-tenancy
@@ -301,6 +306,18 @@ func (am *authManager) ValidateConsoleCredentials(ctx context.Context, username,
 	user, err := am.store.GetUserByUsername(username)
 	if err != nil {
 		return nil, ErrInvalidCredentials
+	}
+
+	// Reject external users from password-based login
+	if user.AuthProvider != "" && user.AuthProvider != "local" {
+		if strings.HasPrefix(user.AuthProvider, "oauth:") {
+			return nil, fmt.Errorf("this account uses SSO. Please use the SSO login button")
+		}
+		// LDAP users will be authenticated via the IDP manager, not here
+		// But if they somehow reach here, reject them
+		if strings.HasPrefix(user.AuthProvider, "ldap:") {
+			return nil, ErrInvalidCredentials
+		}
 	}
 
 	// Try bcrypt verification first
@@ -709,6 +726,10 @@ func (am *authManager) DeleteUser(ctx context.Context, userID string) error {
 
 func (am *authManager) GetUser(ctx context.Context, userID string) (*User, error) {
 	return am.store.GetUserByID(userID)
+}
+
+func (am *authManager) FindUserByExternalID(ctx context.Context, externalID, authProvider string) (*User, error) {
+	return am.store.GetUserByExternalID(externalID, authProvider)
 }
 
 func (am *authManager) ListUsers(ctx context.Context) ([]User, error) {

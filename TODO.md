@@ -1,7 +1,7 @@
 # MaxIOFS - Development Roadmap
 
 **Version**: 0.8.1-beta
-**Last Updated**: February 8, 2026
+**Last Updated**: February 15, 2026
 **Status**: Beta - S3 Core 100% Compatible
 
 ## 📊 Project Status
@@ -136,14 +136,24 @@
 ## 🗺️ Long-Term Roadmap
 
 ### v0.9.0-beta (Q2 2026)
+- [x] LDAP/Active Directory integration
+- [x] OAuth2/OIDC SSO (Google, Microsoft presets)
+- [x] Identity Provider management UI (CRUD, test connection, LDAP browser, group mappings)
+- [x] External user import with role assignment (no auto-provisioning)
+- [x] Group-to-role mapping with manual and automatic sync
+- [x] OAuth login flow with CSRF protection and 2FA support
+- [x] Auth provider badge on user list (Local/LDAP/SSO)
 - [ ] Integration test infrastructure (multi-node, remote S3) for cluster/replication coverage
 - [ ] Chaos engineering tests
 - [ ] Storage tiering (hot/warm/cold)
 - [ ] Deduplication
+- [x] Unit tests for IDP crypto, store (SQLite CRUD), manager (encrypt/decrypt/mask/cache)
+- [x] Frontend tests for IDP page (list, search, delete, test connection, permissions, badges)
+- [ ] Unit tests for LDAP provider (mock), OAuth provider (mock HTTP), modified handleLogin
+- [ ] Integration tests for IDP import/sync flows
 
 ### v1.0.0-RC (Q3 2026)
-- [ ] LDAP/Active Directory integration
-- [ ] SAML/OAuth2 SSO
+- [ ] SAML SSO
 - [ ] Automatic cluster scaling
 - [ ] Security audit completion
 

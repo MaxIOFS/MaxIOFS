@@ -36,6 +36,7 @@ import { User, CreateUserRequest, EditUserForm } from '@/types';
 import ModalManager from '@/lib/modals';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { IDPStatusBadge } from '@/components/identity-providers/IDPStatusBadge';
 
 export default function UsersPage() {
   const navigate = useNavigate();
@@ -355,6 +356,7 @@ export default function UsersPage() {
                   <TableHead>Tenant</TableHead>
                   <TableHead>Roles</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Auth</TableHead>
                   <TableHead>2FA</TableHead>
                   <TableHead>Access Keys</TableHead>
                   <TableHead>Created</TableHead>
@@ -412,6 +414,9 @@ export default function UsersPage() {
                       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getStatusBadgeClasses(user.status)}`}>
                         {user.status}
                       </span>
+                    </TableCell>
+                    <TableCell>
+                      <IDPStatusBadge authProvider={user.authProvider} />
                     </TableCell>
                     <TableCell>
                       {user.twoFactorEnabled ? (

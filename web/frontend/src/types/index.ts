@@ -24,6 +24,8 @@ export interface User {
   twoFactorEnabled?: boolean;
   themePreference?: string;
   languagePreference?: string;
+  authProvider?: string;
+  externalId?: string;
 }
 
 export interface AccessKey {
@@ -1115,6 +1117,110 @@ export interface MigrateBucketRequest {
 export interface ListMigrationsResponse {
   migrations: MigrationJob[];
   count: number;
+}
+
+// Identity Provider Types
+export type IDPType = 'ldap' | 'oauth2';
+export type IDPStatus = 'active' | 'inactive' | 'testing';
+
+export interface LDAPConfig {
+  host: string;
+  port: number;
+  security: 'none' | 'tls' | 'starttls';
+  bind_dn: string;
+  bind_password: string;
+  base_dn: string;
+  user_search_base: string;
+  user_filter: string;
+  group_search_base: string;
+  group_filter: string;
+  attr_username: string;
+  attr_email: string;
+  attr_display_name: string;
+  attr_member_of: string;
+}
+
+export interface OAuth2Config {
+  preset: string;
+  client_id: string;
+  client_secret: string;
+  auth_url: string;
+  token_url: string;
+  userinfo_url: string;
+  scopes: string[];
+  redirect_uri: string;
+  claim_email: string;
+  claim_name: string;
+  claim_groups: string;
+}
+
+export interface IDPProviderConfig {
+  ldap?: LDAPConfig;
+  oauth2?: OAuth2Config;
+}
+
+export interface IdentityProvider {
+  id: string;
+  name: string;
+  type: IDPType;
+  tenant_id: string;
+  status: IDPStatus;
+  config: IDPProviderConfig;
+  created_by: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ExternalUser {
+  external_id: string;
+  username: string;
+  email: string;
+  display_name: string;
+  groups: string[];
+  raw_attrs: Record<string, string>;
+}
+
+export interface ExternalGroup {
+  external_id: string;
+  name: string;
+  member_count: number;
+}
+
+export interface GroupMapping {
+  id: string;
+  provider_id: string;
+  external_group: string;
+  external_group_name: string;
+  role: string;
+  tenant_id: string;
+  auto_sync: boolean;
+  last_synced_at: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ImportUserEntry {
+  external_id: string;
+  username: string;
+}
+
+export interface ImportResult {
+  imported: number;
+  skipped: number;
+  errors: { external_id: string; error: string }[];
+}
+
+export interface SyncResult {
+  imported: number;
+  updated: number;
+  removed: number;
+  errors: string[];
+}
+
+export interface OAuthProviderInfo {
+  id: string;
+  name: string;
+  type: string;
 }
 
 // Re-export common types

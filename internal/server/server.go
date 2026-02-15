@@ -20,6 +20,9 @@ import (
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/config"
+	idpkg "github.com/maxiofs/maxiofs/internal/idp"
+	_ "github.com/maxiofs/maxiofs/internal/idp/ldap"  // Register LDAP provider
+	_ "github.com/maxiofs/maxiofs/internal/idp/oauth" // Register OAuth provider
 	"github.com/maxiofs/maxiofs/internal/inventory"
 	"github.com/maxiofs/maxiofs/internal/lifecycle"
 	"github.com/maxiofs/maxiofs/internal/logging"
@@ -68,6 +71,7 @@ type Server struct {
 	lifecycleWorker         *lifecycle.Worker
 	inventoryManager        *inventory.Manager
 	inventoryWorker         *inventory.Worker
+	idpManager              *idpkg.Manager
 	startTime               time.Time // Server start time for uptime calculation
 	version                 string    // Server version
 	commit                  string    // Git commit hash
@@ -218,6 +222,14 @@ func New(cfg *config.Config) (*Server, error) {
 	inventoryManager := inventory.NewManager(db)
 	inventoryWorker := inventory.NewWorker(inventoryManager, bucketManager, metadataStore, storageBackend)
 
+	// Initialize IDP manager
+	idpStore := idpkg.NewStore(db)
+	cryptoSecret := cfg.Auth.SecretKey
+	if cryptoSecret == "" {
+		cryptoSecret = cfg.Auth.JWTSecret // fallback
+	}
+	idpManager := idpkg.NewManager(idpStore, cryptoSecret)
+
 	// Initialize replication manager
 	replicationConfig := replication.ReplicationConfig{
 		Enable:          true, // Now enabled with AWS SDK implementation
@@ -364,6 +376,7 @@ func New(cfg *config.Config) (*Server, error) {
 		lifecycleWorker:         lifecycleWorker,
 		inventoryManager:        inventoryManager,
 		inventoryWorker:         inventoryWorker,
+		idpManager:              idpManager,
 		startTime:               time.Now(), // Record server start time
 	}
 

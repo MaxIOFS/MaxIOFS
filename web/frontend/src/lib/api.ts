@@ -66,6 +66,13 @@ import type {
   LatenciesResponse,
   ThroughputResponse,
   SearchObjectsRequest,
+  IdentityProvider,
+  ExternalUser,
+  ExternalGroup,
+  GroupMapping,
+  ImportResult,
+  SyncResult,
+  OAuthProviderInfo,
 } from '@/types';
 
 // API Configuration
@@ -1342,6 +1349,92 @@ export class APIClient {
   static async getMigration(id: number): Promise<MigrationJob> {
     const response = await apiClient.get<APIResponse<MigrationJob>>(`/cluster/migrations/${id}`);
     return response.data.data!;
+  }
+
+  // Identity Provider Management
+  static async listIDPs(): Promise<IdentityProvider[]> {
+    const response = await apiClient.get<APIResponse<IdentityProvider[]>>('/identity-providers');
+    return response.data.data || [];
+  }
+
+  static async getIDP(id: string): Promise<IdentityProvider> {
+    const response = await apiClient.get<APIResponse<IdentityProvider>>(`/identity-providers/${id}`);
+    return response.data.data!;
+  }
+
+  static async createIDP(data: Partial<IdentityProvider>): Promise<IdentityProvider> {
+    const response = await apiClient.post<APIResponse<IdentityProvider>>('/identity-providers', data);
+    return response.data.data!;
+  }
+
+  static async updateIDP(id: string, data: Partial<IdentityProvider>): Promise<IdentityProvider> {
+    const response = await apiClient.put<APIResponse<IdentityProvider>>(`/identity-providers/${id}`, data);
+    return response.data.data!;
+  }
+
+  static async deleteIDP(id: string): Promise<void> {
+    await apiClient.delete(`/identity-providers/${id}`);
+  }
+
+  static async testIDPConnection(id: string): Promise<{ success: boolean; message: string }> {
+    const response = await apiClient.post<APIResponse<{ success: boolean; message: string }>>(`/identity-providers/${id}/test`);
+    return response.data.data!;
+  }
+
+  static async idpSearchUsers(id: string, query: string, limit?: number): Promise<ExternalUser[]> {
+    const response = await apiClient.post<APIResponse<ExternalUser[]>>(`/identity-providers/${id}/search-users`, { query, limit: limit || 50 });
+    return response.data.data || [];
+  }
+
+  static async idpSearchGroups(id: string, query: string, limit?: number): Promise<ExternalGroup[]> {
+    const response = await apiClient.post<APIResponse<ExternalGroup[]>>(`/identity-providers/${id}/search-groups`, { query, limit: limit || 50 });
+    return response.data.data || [];
+  }
+
+  static async idpGetGroupMembers(id: string, groupId: string): Promise<ExternalUser[]> {
+    const response = await apiClient.post<APIResponse<ExternalUser[]>>(`/identity-providers/${id}/group-members`, { group_id: groupId });
+    return response.data.data || [];
+  }
+
+  static async idpImportUsers(id: string, users: { external_id: string; username: string }[], role: string, tenantId?: string): Promise<ImportResult> {
+    const response = await apiClient.post<APIResponse<ImportResult>>(`/identity-providers/${id}/import-users`, { users, role, tenant_id: tenantId });
+    return response.data.data!;
+  }
+
+  // Group Mappings
+  static async listGroupMappings(providerId: string): Promise<GroupMapping[]> {
+    const response = await apiClient.get<APIResponse<GroupMapping[]>>(`/identity-providers/${providerId}/group-mappings`);
+    return response.data.data || [];
+  }
+
+  static async createGroupMapping(providerId: string, data: Partial<GroupMapping>): Promise<GroupMapping> {
+    const response = await apiClient.post<APIResponse<GroupMapping>>(`/identity-providers/${providerId}/group-mappings`, data);
+    return response.data.data!;
+  }
+
+  static async updateGroupMapping(providerId: string, mapId: string, data: Partial<GroupMapping>): Promise<GroupMapping> {
+    const response = await apiClient.put<APIResponse<GroupMapping>>(`/identity-providers/${providerId}/group-mappings/${mapId}`, data);
+    return response.data.data!;
+  }
+
+  static async deleteGroupMapping(providerId: string, mapId: string): Promise<void> {
+    await apiClient.delete(`/identity-providers/${providerId}/group-mappings/${mapId}`);
+  }
+
+  static async syncGroupMapping(providerId: string, mapId: string): Promise<SyncResult> {
+    const response = await apiClient.post<APIResponse<SyncResult>>(`/identity-providers/${providerId}/group-mappings/${mapId}/sync`);
+    return response.data.data!;
+  }
+
+  static async syncAllMappings(providerId: string): Promise<{ message: string }> {
+    const response = await apiClient.post<APIResponse<{ message: string }>>(`/identity-providers/${providerId}/sync`);
+    return response.data.data!;
+  }
+
+  // OAuth Providers (public)
+  static async listOAuthProviders(): Promise<OAuthProviderInfo[]> {
+    const response = await apiClient.get<APIResponse<OAuthProviderInfo[]>>('/auth/oauth/providers');
+    return response.data.data || [];
   }
 
   // Utility methods

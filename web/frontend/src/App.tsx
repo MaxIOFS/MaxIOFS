@@ -34,6 +34,8 @@ import ClusterOverview from '@/pages/cluster/Overview';
 import ClusterBuckets from '@/pages/cluster/BucketReplication';
 import ClusterNodes from '@/pages/cluster/Nodes';
 import ClusterMigrations from '@/pages/cluster/Migrations';
+import IdentityProviders from '@/pages/identity-providers/index';
+import OAuthComplete from '@/pages/auth/oauth-complete';
 
 // Error Boundary to catch React render crashes and show a recovery UI
 class ErrorBoundary extends React.Component<
@@ -115,8 +117,9 @@ function App() {
           <QueryProvider>
             <AuthProvider>
                 <Routes>
-            {/* Public route */}
+            {/* Public routes */}
             <Route path="/login" element={<Login />} />
+            <Route path="/auth/oauth/complete" element={<OAuthComplete />} />
 
             {/* Protected routes with layout */}
             <Route
@@ -317,6 +320,16 @@ function App() {
                 <ProtectedRoute>
                   <AppLayout>
                     <ClusterMigrations />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/identity-providers"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <IdentityProviders />
                   </AppLayout>
                 </ProtectedRoute>
               }

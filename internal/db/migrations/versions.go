@@ -16,6 +16,7 @@ func getAllMigrations() []Migration {
 		migration6_v061_ClusterReplication(),
 		migration7_v062_BucketInventoryAndPermissions(),
 		migration8_v062_CurrentSchema(),
+		migration9_v090_IdentityProviders(),
 	}
 }
 
@@ -916,6 +917,81 @@ func migration8_v062_CurrentSchema() Migration {
 			// This migration ensures all tables from previous migrations exist
 			// It's essentially a no-op if all previous migrations ran successfully
 			// But it serves as a checkpoint for the current schema version
+			return nil
+		},
+		Down: func(tx *sql.Tx) error {
+			return nil
+		},
+	}
+}
+
+// migration9_v090_IdentityProviders creates IDP tables and adds auth_provider/external_id to users
+// Corresponds to MaxIOFS v0.9.0 - Identity Provider (IDP) System
+func migration9_v090_IdentityProviders() Migration {
+	return Migration{
+		Version:     9,
+		Description: "v0.9.0 - Add identity provider tables and user auth_provider fields",
+		Up: func(tx *sql.Tx) error {
+			// Identity providers table
+			if _, err := tx.Exec(`
+				CREATE TABLE IF NOT EXISTS identity_providers (
+					id TEXT PRIMARY KEY,
+					name TEXT NOT NULL,
+					type TEXT NOT NULL,
+					tenant_id TEXT,
+					status TEXT NOT NULL DEFAULT 'active',
+					config TEXT NOT NULL,
+					created_by TEXT NOT NULL,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+				)
+			`); err != nil {
+				return err
+			}
+
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_idp_tenant ON identity_providers(tenant_id)`); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_idp_type ON identity_providers(type)`); err != nil {
+				return err
+			}
+
+			// IDP group mappings table
+			if _, err := tx.Exec(`
+				CREATE TABLE IF NOT EXISTS idp_group_mappings (
+					id TEXT PRIMARY KEY,
+					provider_id TEXT NOT NULL,
+					external_group TEXT NOT NULL,
+					external_group_name TEXT,
+					role TEXT NOT NULL,
+					tenant_id TEXT,
+					auto_sync BOOLEAN DEFAULT 0,
+					last_synced_at INTEGER,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					FOREIGN KEY (provider_id) REFERENCES identity_providers(id) ON DELETE CASCADE,
+					UNIQUE(provider_id, external_group)
+				)
+			`); err != nil {
+				return err
+			}
+
+			// Add auth_provider and external_id columns to users table
+			if _, err := tx.Exec(`ALTER TABLE users ADD COLUMN auth_provider TEXT NOT NULL DEFAULT 'local'`); err != nil {
+				// Column might already exist, ignore error
+			}
+			if _, err := tx.Exec(`ALTER TABLE users ADD COLUMN external_id TEXT`); err != nil {
+				// Column might already exist, ignore error
+			}
+
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_users_auth_provider ON users(auth_provider)`); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_users_external_id ON users(external_id)`); err != nil {
+				return err
+			}
+
 			return nil
 		},
 		Down: func(tx *sql.Tx) error {

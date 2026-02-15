@@ -85,6 +85,8 @@ type UserResponse struct {
 	LastFailedLogin     int64    `json:"lastFailedLogin,omitempty"`
 	ThemePreference     string   `json:"themePreference,omitempty"`
 	LanguagePreference  string   `json:"languagePreference,omitempty"`
+	AuthProvider        string   `json:"authProvider,omitempty"`
+	ExternalID          string   `json:"externalId,omitempty"`
 	CreatedAt           int64    `json:"createdAt"`
 }
 
@@ -152,7 +154,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 			}
 
 			// Skip authentication for public endpoints
-			publicPaths := []string{"/auth/login", "/auth/2fa/verify", "/health"}
+			publicPaths := []string{"/auth/login", "/auth/2fa/verify", "/health", "/auth/oauth/"}
 			for _, path := range publicPaths {
 				if strings.Contains(r.URL.Path, path) {
 					next.ServeHTTP(w, r)
@@ -389,6 +391,29 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Profiling endpoints (global admins only)
 	router.HandleFunc("/profiling/stats", s.HandleGetProfilingStats).Methods("GET", "OPTIONS")
 
+	// Identity Provider endpoints
+	router.HandleFunc("/identity-providers", s.handleListIDPs).Methods("GET", "OPTIONS")
+	router.HandleFunc("/identity-providers", s.handleCreateIDP).Methods("POST", "OPTIONS")
+	router.HandleFunc("/identity-providers/{id}", s.handleGetIDP).Methods("GET", "OPTIONS")
+	router.HandleFunc("/identity-providers/{id}", s.handleUpdateIDP).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/identity-providers/{id}", s.handleDeleteIDP).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/identity-providers/{id}/test", s.handleTestIDPConnection).Methods("POST", "OPTIONS")
+	router.HandleFunc("/identity-providers/{id}/search-users", s.handleIDPSearchUsers).Methods("POST", "OPTIONS")
+	router.HandleFunc("/identity-providers/{id}/search-groups", s.handleIDPSearchGroups).Methods("POST", "OPTIONS")
+	router.HandleFunc("/identity-providers/{id}/group-members", s.handleIDPGroupMembers).Methods("POST", "OPTIONS")
+	router.HandleFunc("/identity-providers/{id}/import-users", s.handleIDPImportUsers).Methods("POST", "OPTIONS")
+	router.HandleFunc("/identity-providers/{id}/group-mappings", s.handleListGroupMappings).Methods("GET", "OPTIONS")
+	router.HandleFunc("/identity-providers/{id}/group-mappings", s.handleCreateGroupMapping).Methods("POST", "OPTIONS")
+	router.HandleFunc("/identity-providers/{id}/group-mappings/{mapId}", s.handleUpdateGroupMapping).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/identity-providers/{id}/group-mappings/{mapId}", s.handleDeleteGroupMapping).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/identity-providers/{id}/group-mappings/{mapId}/sync", s.handleSyncGroupMapping).Methods("POST", "OPTIONS")
+	router.HandleFunc("/identity-providers/{id}/sync", s.handleSyncAllMappings).Methods("POST", "OPTIONS")
+
+	// OAuth flow endpoints (public — no JWT required)
+	router.HandleFunc("/auth/oauth/{id}/login", s.handleOAuthLogin).Methods("GET", "OPTIONS")
+	router.HandleFunc("/auth/oauth/callback", s.handleOAuthCallback).Methods("GET", "OPTIONS")
+	router.HandleFunc("/auth/oauth/providers", s.handleListOAuthProviders).Methods("GET", "OPTIONS")
+
 	// Health check
 	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET", "OPTIONS")
 }
@@ -489,12 +514,46 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 4: Now validate credentials
-	user, err := s.authManager.ValidateConsoleCredentials(r.Context(), loginReq.Username, loginReq.Password)
-	if err != nil {
-		// Record failed login attempt
-		s.authManager.RecordFailedLogin(r.Context(), userByName.ID, clientIP)
-		s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
+	// Step 4: Now validate credentials (routing based on auth_provider)
+	var user *auth.User
+
+	switch {
+	case userByName.AuthProvider == "" || userByName.AuthProvider == "local":
+		// Local authentication — existing bcrypt/SHA256 flow
+		user, err = s.authManager.ValidateConsoleCredentials(r.Context(), loginReq.Username, loginReq.Password)
+		if err != nil {
+			s.authManager.RecordFailedLogin(r.Context(), userByName.ID, clientIP)
+			s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
+			return
+		}
+
+	case strings.HasPrefix(userByName.AuthProvider, "ldap:"):
+		// LDAP authentication
+		if s.idpManager == nil {
+			s.writeError(w, "Identity provider system not available", http.StatusServiceUnavailable)
+			return
+		}
+		providerID := strings.TrimPrefix(userByName.AuthProvider, "ldap:")
+		_, err = s.idpManager.AuthenticateExternal(r.Context(), providerID, userByName.ExternalID, loginReq.Password)
+		if err != nil {
+			s.authManager.RecordFailedLogin(r.Context(), userByName.ID, clientIP)
+			logrus.WithFields(logrus.Fields{
+				"user_id":     userByName.ID,
+				"provider_id": providerID,
+				"error":       err.Error(),
+			}).Warn("LDAP authentication failed")
+			s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
+			return
+		}
+		user = userByName
+
+	case strings.HasPrefix(userByName.AuthProvider, "oauth:"):
+		// OAuth users cannot log in with username/password
+		s.writeError(w, "This account uses SSO. Please use the SSO login button.", http.StatusBadRequest)
+		return
+
+	default:
+		s.writeError(w, "Unknown authentication provider", http.StatusInternalServerError)
 		return
 	}
 
@@ -581,6 +640,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			LockedUntil:         user.LockedUntil,
 			FailedLoginAttempts: user.FailedLoginAttempts,
 			LastFailedLogin:     user.LastFailedLogin,
+			AuthProvider:        user.AuthProvider,
 			CreatedAt:           user.CreatedAt,
 		},
 	})
@@ -1994,7 +2054,11 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.authManager.CreateUser(r.Context(), user); err != nil {
-		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		if strings.Contains(err.Error(), "already exists") {
+			s.writeError(w, err.Error(), http.StatusConflict)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -3204,7 +3268,11 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.authManager.CreateTenant(r.Context(), tenant); err != nil {
-		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		if strings.Contains(err.Error(), "already exists") {
+			s.writeError(w, err.Error(), http.StatusConflict)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -5405,6 +5473,7 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 			LockedUntil:         user.LockedUntil,
 			FailedLoginAttempts: user.FailedLoginAttempts,
 			LastFailedLogin:     user.LastFailedLogin,
+			AuthProvider:        user.AuthProvider,
 			CreatedAt:           user.CreatedAt,
 		},
 	})
