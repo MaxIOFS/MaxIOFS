@@ -482,6 +482,19 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Step 2: Get user by username first (don't validate password yet)
 	userByName, err := s.authManager.GetUser(r.Context(), loginReq.Username)
 	if err != nil {
+		// If input looks like an email and OAuth providers exist, hint to use SSO
+		if strings.Contains(loginReq.Username, "@") && s.idpManager != nil {
+			providers, _ := s.idpManager.ListActiveOAuthProviders(r.Context())
+			if len(providers) > 0 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"error":    "This email may use SSO. Please use the SSO login button below.",
+					"sso_hint": true,
+				})
+				return
+			}
+		}
 		// User doesn't exist - return generic error to avoid username enumeration
 		s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
 		return
@@ -549,7 +562,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	case strings.HasPrefix(userByName.AuthProvider, "oauth:"):
 		// OAuth users cannot log in with username/password
-		s.writeError(w, "This account uses SSO. Please use the SSO login button.", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":    "This account uses SSO. Please use the SSO login button below.",
+			"sso_hint": true,
+		})
 		return
 
 	default:

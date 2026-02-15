@@ -62,6 +62,7 @@ export interface LoginResponse {
   user_id?: string;
   message?: string;
   default_password?: boolean;
+  sso_hint?: boolean;
 }
 
 export interface CreateUserRequest {

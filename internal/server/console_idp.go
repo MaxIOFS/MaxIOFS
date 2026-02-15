@@ -604,7 +604,11 @@ func (s *Server) handleSyncGroupMapping(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 
+		// OAuth providers use email as username for consistency with auto-provisioning
 		username := member.Username
+		if provider.Type == idp.TypeOAuth2 {
+			username = member.Email
+		}
 		if username == "" {
 			username = member.Email
 		}
@@ -690,7 +694,11 @@ func (s *Server) handleSyncAllMappings(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
+			// OAuth providers use email as username for consistency with auto-provisioning
 			username := member.Username
+			if provider.Type == idp.TypeOAuth2 {
+				username = member.Email
+			}
 			if username == "" {
 				username = member.Email
 			}
@@ -811,12 +819,105 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	authProviderValue := "oauth:" + providerID
 	user, err := s.authManager.FindUserByExternalID(r.Context(), externalUser.Email, authProviderValue)
 	if err != nil {
+		// Auto-provision: only allowed if user belongs to a mapped group
+		if externalUser.Email == "" {
+			logrus.WithField("provider", providerID).Warn("OAuth login: no email from provider")
+			http.Redirect(w, r, "/login?error=missing_email", http.StatusTemporaryRedirect)
+			return
+		}
+
+		provider, provErr := s.idpManager.GetProviderMasked(r.Context(), providerID)
+		if provErr != nil {
+			logrus.WithError(provErr).Error("OAuth auto-provision: failed to get provider")
+			http.Redirect(w, r, "/login?error=provisioning_failed", http.StatusTemporaryRedirect)
+			return
+		}
+
+		// Require group mappings — admin must define which groups can access
+		mappings, _ := s.idpManager.ListGroupMappings(r.Context(), providerID)
+		if len(mappings) == 0 {
+			logrus.WithFields(logrus.Fields{
+				"email":    externalUser.Email,
+				"provider": providerID,
+			}).Warn("OAuth login rejected: no group mappings configured for this provider")
+			http.Redirect(w, r, "/login?error=no_group_mappings", http.StatusTemporaryRedirect)
+			return
+		}
+
+		// User must belong to at least one mapped group
+		role, matched := resolveRoleFromMappings(externalUser.Groups, mappings)
+		if !matched {
+			logrus.WithFields(logrus.Fields{
+				"email":       externalUser.Email,
+				"provider":    providerID,
+				"user_groups": externalUser.Groups,
+			}).Warn("OAuth login rejected: user does not belong to any authorized group")
+			http.Redirect(w, r, "/login?error=not_in_authorized_group", http.StatusTemporaryRedirect)
+			return
+		}
+
+		// Safety check: reject if a local/LDAP user already has this email as username
+		existingUser, _ := s.authManager.GetUser(r.Context(), externalUser.Email)
+		if existingUser != nil && !strings.HasPrefix(existingUser.AuthProvider, "oauth:") {
+			logrus.WithFields(logrus.Fields{
+				"email":    externalUser.Email,
+				"provider": providerID,
+				"conflict": existingUser.AuthProvider,
+			}).Warn("OAuth auto-provision blocked: email conflicts with existing user")
+			http.Redirect(w, r, "/login?error=email_conflict", http.StatusTemporaryRedirect)
+			return
+		}
+
+		// Determine tenant from provider config
+		targetTenant := provider.TenantID
+
+		newUser := &auth.User{
+			ID:           "user-" + uuid.New().String()[:8],
+			Username:     externalUser.Email,
+			Password:     "",
+			DisplayName:  externalUser.DisplayName,
+			Email:        externalUser.Email,
+			Status:       auth.UserStatusActive,
+			TenantID:     targetTenant,
+			Roles:        []string{role},
+			AuthProvider: authProviderValue,
+			ExternalID:   externalUser.Email,
+			CreatedAt:    time.Now().Unix(),
+			UpdatedAt:    time.Now().Unix(),
+		}
+
+		if createErr := s.authManager.CreateUser(r.Context(), newUser); createErr != nil {
+			logrus.WithError(createErr).WithField("email", externalUser.Email).Error("OAuth auto-provision: failed to create user")
+			http.Redirect(w, r, "/login?error=provisioning_failed", http.StatusTemporaryRedirect)
+			return
+		}
+
+		s.logAuditEvent(r.Context(), &audit.AuditEvent{
+			UserID:       newUser.ID,
+			Username:     newUser.Username,
+			TenantID:     targetTenant,
+			EventType:    audit.EventTypeUserCreated,
+			ResourceType: audit.ResourceTypeUser,
+			ResourceID:   newUser.ID,
+			ResourceName: newUser.Username,
+			Action:       "auto_provision_oauth",
+			Status:       audit.StatusSuccess,
+			IPAddress:    getClientIP(r),
+			UserAgent:    r.Header.Get("User-Agent"),
+			Details: map[string]interface{}{
+				"provider_id": providerID,
+				"role":        role,
+			},
+		})
+
 		logrus.WithFields(logrus.Fields{
-			"email":    externalUser.Email,
+			"user_id":  newUser.ID,
+			"username": newUser.Username,
 			"provider": providerID,
-		}).Warn("OAuth login: user not registered")
-		http.Redirect(w, r, "/login?error=user_not_registered", http.StatusTemporaryRedirect)
-		return
+			"role":     role,
+		}).Info("Auto-provisioned OAuth user")
+
+		user = newUser
 	}
 
 	if user.Status != auth.UserStatusActive {
@@ -924,4 +1025,36 @@ func (s *Server) isAdmin(user *auth.User) bool {
 
 func (s *Server) isGlobalAdmin(user *auth.User) bool {
 	return s.isAdmin(user) && user.TenantID == ""
+}
+
+// resolveRoleFromMappings checks if a user belongs to any mapped group and returns
+// the highest-privilege role. Priority: admin > user > readonly.
+// Returns (role, true) if the user matched at least one group, ("", false) otherwise.
+func resolveRoleFromMappings(userGroups []string, mappings []*idp.GroupMapping) (string, bool) {
+	groupSet := make(map[string]bool, len(userGroups))
+	for _, g := range userGroups {
+		groupSet[g] = true
+	}
+
+	bestRole := ""
+	for _, m := range mappings {
+		if !groupSet[m.ExternalGroup] && !groupSet[m.ExternalGroupName] {
+			continue
+		}
+		switch m.Role {
+		case auth.RoleAdmin:
+			return auth.RoleAdmin, true // highest possible, return immediately
+		case auth.RoleUser:
+			bestRole = auth.RoleUser
+		case auth.RoleReadOnly:
+			if bestRole == "" {
+				bestRole = auth.RoleReadOnly
+			}
+		}
+	}
+
+	if bestRole == "" {
+		return "", false
+	}
+	return bestRole, true
 }

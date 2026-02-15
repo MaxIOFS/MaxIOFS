@@ -10,7 +10,27 @@ export default function LoginPage() {
   // Check URL for OAuth error
   const urlParams = new URLSearchParams(window.location.search);
   const oauthError = urlParams.get('error');
-  const [error, setError] = useState<string | null>(oauthError);
+  const oauthErrorMessages: Record<string, string> = {
+    missing_email: 'Your SSO provider did not return an email address. Please contact your administrator.',
+    email_conflict: 'This email is already associated with a local account. Please contact your administrator.',
+    provisioning_failed: 'Failed to create your account automatically. Please contact your administrator.',
+    user_not_registered: 'Your account is not registered. Please contact your administrator.',
+    no_group_mappings: 'SSO access has not been configured for this provider yet. Please contact your administrator.',
+    not_in_authorized_group: 'You are not authorized to access this system. Your account is not in any authorized group.',
+    oauth_denied: 'SSO login was cancelled or denied.',
+    exchange_failed: 'SSO authentication failed. Please try again.',
+    provider_unavailable: 'The SSO provider is currently unavailable. Please try again later.',
+    account_inactive: 'Your account is inactive. Please contact your administrator.',
+    account_locked: 'Your account is locked due to multiple failed attempts.',
+    csrf_failed: 'Security validation failed. Please try again.',
+    invalid_callback: 'Invalid SSO callback. Please try again.',
+    invalid_state: 'Invalid SSO state. Please try again.',
+    token_failed: 'Failed to generate session. Please try again.',
+  };
+  const [error, setError] = useState<string | null>(
+    oauthError ? (oauthErrorMessages[oauthError] || oauthError) : null
+  );
+  const [ssoHighlight, setSsoHighlight] = useState(false);
   const [formData, setFormData] = useState({
     username: '',
     password: '',
@@ -51,6 +71,13 @@ export default function LoginPage() {
       if (response.requires_2fa && response.user_id) {
         setUserId(response.user_id);
         setShow2FA(true);
+        setLoading(false);
+        return;
+      }
+
+      if (response.sso_hint) {
+        setError(response.error || 'This account uses SSO. Please use the SSO login button below.');
+        setSsoHighlight(true);
         setLoading(false);
         return;
       }
@@ -420,13 +447,15 @@ export default function LoginPage() {
 
                   {/* OAuth SSO Buttons */}
                   {oauthProviders && oauthProviders.length > 0 && (
-                    <div className="mt-6">
+                    <div className={`mt-6 transition-all duration-300 ${ssoHighlight ? 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-gray-900 rounded-2xl p-4 bg-blue-50/50 dark:bg-blue-500/10' : ''}`}>
                       <div className="relative">
                         <div className="absolute inset-0 flex items-center">
                           <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
                         </div>
                         <div className="relative flex justify-center text-sm">
-                          <span className="px-4 bg-white/95 dark:bg-gray-900/90 text-gray-500 dark:text-gray-400">or continue with</span>
+                          <span className={`px-4 ${ssoHighlight ? 'bg-blue-50/50 dark:bg-blue-500/10' : 'bg-white/95 dark:bg-gray-900/90'} text-gray-500 dark:text-gray-400`}>
+                            {ssoHighlight ? 'Sign in with SSO' : 'or continue with'}
+                          </span>
                         </div>
                       </div>
                       <div className="mt-4 space-y-3">
@@ -434,7 +463,7 @@ export default function LoginPage() {
                           <a
                             key={provider.id}
                             href={`${basePath}/api/v1/auth/oauth/${provider.id}/login`}
-                            className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-full border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-200 text-sm font-medium shadow-sm hover:shadow-md"
+                            className={`w-full flex items-center justify-center gap-3 px-4 py-3 rounded-full border-2 ${ssoHighlight ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/30 animate-pulse' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'} text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-200 text-sm font-medium shadow-sm hover:shadow-md`}
                           >
                             {provider.name.toLowerCase().includes('google') && (
                               <svg className="h-5 w-5" viewBox="0 0 24 24">

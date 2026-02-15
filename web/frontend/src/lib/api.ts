@@ -293,31 +293,45 @@ export class APIClient {
       password: credentials.password,
     };
 
-    const response = await apiClient.post<any>('/auth/login', payload);
+    try {
+      const response = await apiClient.post<any>('/auth/login', payload);
 
-    const result: LoginResponse = {
-      success: response.data.success,
-      token: response.data.token,
-      refreshToken: response.data.refreshToken,
-      user: response.data.user,
-      error: response.data.error,
-      requires_2fa: response.data.requires_2fa,
-      user_id: response.data.user_id,
-      message: response.data.message,
-      default_password: response.data.default_password,
-    };
+      const result: LoginResponse = {
+        success: response.data.success,
+        token: response.data.token,
+        refreshToken: response.data.refreshToken,
+        user: response.data.user,
+        error: response.data.error,
+        requires_2fa: response.data.requires_2fa,
+        user_id: response.data.user_id,
+        message: response.data.message,
+        default_password: response.data.default_password,
+        sso_hint: response.data.sso_hint,
+      };
 
-    if (result.success && result.token) {
-      tokenManager.setTokens(result.token, result.refreshToken);
-      // Track default password warning
-      if (result.default_password) {
-        localStorage.setItem('default_password_warning', 'true');
-      } else {
-        localStorage.removeItem('default_password_warning');
+      if (result.success && result.token) {
+        tokenManager.setTokens(result.token, result.refreshToken);
+        // Track default password warning
+        if (result.default_password) {
+          localStorage.setItem('default_password_warning', 'true');
+        } else {
+          localStorage.removeItem('default_password_warning');
+        }
       }
-    }
 
-    return result;
+      return result;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      // Extract sso_hint from error responses (400 status)
+      if (err.response?.data?.sso_hint) {
+        return {
+          success: false,
+          error: err.response.data.error,
+          sso_hint: true,
+        };
+      }
+      throw err;
+    }
   }
 
   static async logout(): Promise<void> {
