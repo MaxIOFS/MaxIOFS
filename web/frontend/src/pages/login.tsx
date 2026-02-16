@@ -362,7 +362,7 @@ export default function LoginPage() {
                           name="username"
                           type="text"
                           required
-                          className="peer w-full pl-8 pr-4 py-3 pt-6 pb-2 border-b-2 border-gray-300 dark:border-gray-500 bg-transparent text-gray-900 dark:text-white placeholder-transparent focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 transition-colors duration-200 hover:bg-gray-50 dark:hover:bg-white/5"
+                          className="peer w-full pl-8 pr-4 py-3 pt-6 pb-2 border-b-2 border-gray-300 dark:border-gray-500 bg-transparent text-gray-900 dark:text-white placeholder-transparent focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 transition-colors duration-200"
                           placeholder="Username"
                           value={formData.username}
                           onChange={handleChange}
@@ -403,7 +403,7 @@ export default function LoginPage() {
                           name="password"
                           type="password"
                           required
-                          className="peer w-full pl-8 pr-4 py-3 pt-6 pb-2 border-b-2 border-gray-300 dark:border-gray-500 bg-transparent text-gray-900 dark:text-white placeholder-transparent focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 transition-colors duration-200 hover:bg-gray-50 dark:hover:bg-white/5"
+                          className="peer w-full pl-8 pr-4 py-3 pt-6 pb-2 border-b-2 border-gray-300 dark:border-gray-500 bg-transparent text-gray-900 dark:text-white placeholder-transparent focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 transition-colors duration-200"
                           placeholder="Password"
                           value={formData.password}
                           onChange={handleChange}
