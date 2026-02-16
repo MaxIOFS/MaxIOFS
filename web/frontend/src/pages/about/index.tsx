@@ -22,7 +22,8 @@ import {
   Layers,
   Network,
   Copy,
-  BarChart3
+  BarChart3,
+  KeyRound
 } from 'lucide-react';
 
 export default function AboutPage() {
@@ -85,8 +86,9 @@ export default function AboutPage() {
                   MaxIOFS is a high-performance S3-compatible object storage system built with Go and React.
                   Designed to be simple, portable, and deployable as a single binary with an embedded modern
                   web interface. Features full multi-tenancy support, multi-node cluster with HA replication,
-                  BadgerDB-powered metadata storage, and comprehensive S3 API compatibility with 40+ operations
-                  including bulk operations, object lock, and advanced bucket management.
+                  SSO authentication (Google, Microsoft), LDAP/AD integration, BadgerDB-powered metadata storage,
+                  and comprehensive S3 API compatibility with 40+ operations including bulk operations, object lock,
+                  and advanced bucket management.
                 </p>
               </div>
 
@@ -246,6 +248,11 @@ export default function AboutPage() {
               title="Monitoring & Observability"
               description="Prometheus metrics endpoint, Grafana dashboards, performance SLOs, real-time latency tracking (p50/p95/p99), and alerting"
             />
+            <FeatureCard
+              icon={KeyRound}
+              title="SSO & Identity Providers"
+              description="OAuth2/OIDC SSO with Google and Microsoft presets, LDAP/AD integration, auto-provisioning via group mappings, multi-tenant provider routing by email domain"
+            />
           </div>
         </div>
       </Card>
@@ -329,48 +336,50 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New Features in v0.8.0-beta
+            New in v0.9.0-beta
           </h2>
           <div className="space-y-4">
-            <div className="border-l-4 border-blue-500 pl-4">
+            <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Object Filters & Advanced Search
+                Identity Provider System (LDAP & OAuth2/OIDC)
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                New /objects/search endpoint with server-side filtering by content-type (prefix match), size range, date range,
-                and tags (AND semantics). Frontend filter panel with content-type checkboxes, size range with unit selector,
-                date range inputs, and dynamic tag management. Integrated into bucket detail page with active filter count badge.
+                Full LDAP/Active Directory integration and OAuth2 SSO with Google and Microsoft presets.
+                Identity provider management UI with CRUD, test connection, LDAP browser, and group mapping configuration.
+                External user import with role assignment and group-to-role mapping with manual and automatic sync.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-blue-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                SSO Auto-Provisioning & Multi-Tenant Routing
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Users are auto-provisioned on first SSO login when they belong to a mapped group.
+                One "Sign in with Google/Microsoft" button per provider type with email-first UX.
+                Cross-provider user lookup enables multi-tenant SSO routing by email domain — no tenant info exposed on login page.
               </p>
             </div>
 
             <div className="border-l-4 border-green-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Backend Test Coverage at Practical Ceiling
+                SSO User Management
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                All testable business logic covered: metadata 87.4%, object 77.3%, server 66.1%, cmd 71.4%.
-                Remaining uncovered code is infrastructure that cannot be unit-tested (server lifecycle, remote node communication,
-                filesystem operations, database error branches).
-              </p>
-            </div>
-
-            <div className="border-l-4 border-purple-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Cluster Production Hardening
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Rate limiting, circuit breakers, and metrics improvements. ListBuckets cross-node aggregation fix.
-                Cluster-aware quota enforcement security fix preventing quota bypass across nodes.
+                Create users linked to SSO providers directly from the Users page with auth provider selector.
+                Email auto-sync for SSO users on each login. Redirect URI auto-generated from server configuration.
+                Auth provider badge (Local/LDAP/SSO) displayed on user list.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                S3 API Compatibility Improvements
+                Security Hardening
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Corrected S3 API response headers for better compatibility with VEEAM and other S3 clients.
-                SOSAPI improvements for capacity reporting and tenant quota integration.
+                LDAP bind passwords and OAuth client secrets encrypted at rest with AES-256-GCM.
+                OAuth CSRF protection with state parameter and secure cookie validation.
+                Rate limiting IP spoofing fix with trusted proxy support. JWT signature verification with constant-time comparison.
               </p>
             </div>
 

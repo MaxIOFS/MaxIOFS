@@ -1,6 +1,6 @@
 # MaxIOFS Architecture
 
-**Version**: 0.8.0-beta
+**Version**: 0.9.0-beta
 **S3 Compatibility**: 100%
 **Last Updated**: January 16, 2026
 

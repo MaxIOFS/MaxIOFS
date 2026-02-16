@@ -1,6 +1,6 @@
 # MaxIOFS Testing Guide
 
-**Version**: 0.8.0-beta
+**Version**: 0.9.0-beta
 **Last Updated**: January 16, 2026
 
 ---
@@ -462,5 +462,5 @@ jobs:
 
 ---
 
-**Version**: 0.8.0-beta
+**Version**: 0.9.0-beta
 **Last Updated**: January 16, 2026

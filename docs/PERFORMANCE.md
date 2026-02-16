@@ -2,7 +2,7 @@
 
 **Date:** January 16, 2026
 **Test Suite:** K6 Performance Benchmarks
-**MaxIOFS Version:** 0.8.0-beta
+**MaxIOFS Version:** 0.9.0-beta
 
 ---
 

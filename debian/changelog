@@ -1,6 +1,6 @@
-maxiofs (0.8.0-beta) unstable; urgency=medium
+maxiofs (0.9.0-beta) unstable; urgency=medium
 
-  * Release v0.8.0-beta
+  * Release v0.9.0-beta
   * Object Filters & Advanced Search - content-type, size range, date range, tag filtering
   * New /objects/search endpoint with server-side filtering in BadgerDB
   * Frontend filter panel with content-type checkboxes, size/date ranges, tag management

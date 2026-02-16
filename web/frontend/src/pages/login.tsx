@@ -3,7 +3,7 @@ import APIClient from '@/lib/api';
 import ModalManager from '@/lib/modals';
 import { TwoFactorInput } from '@/components/TwoFactorInput';
 import { useQuery } from '@tanstack/react-query';
-import type { ServerConfig, OAuthProviderInfo } from '@/types';
+import type { OAuthProviderInfo } from '@/types';
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
@@ -41,10 +41,10 @@ export default function LoginPage() {
   const [show2FA, setShow2FA] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
-  // Get server config for version
-  const { data: config } = useQuery<ServerConfig>({
-    queryKey: ['serverConfig'],
-    queryFn: APIClient.getServerConfig,
+  // Get version from public endpoint (no auth required)
+  const { data: versionData } = useQuery({
+    queryKey: ['version'],
+    queryFn: APIClient.getVersion,
   });
 
   // Get available OAuth providers for SSO buttons
@@ -56,7 +56,7 @@ export default function LoginPage() {
 
   // Get base path from window (injected by backend)
   const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
-  const version = config?.version || 'v0.8.0-beta';
+  const version = versionData?.version || '';
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -450,15 +450,12 @@ export default function LoginPage() {
                   {/* OAuth SSO Buttons */}
                   {oauthProviders && oauthProviders.length > 0 && (
                     <div className={`mt-6 transition-all duration-300 ${ssoHighlight ? 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-gray-900 rounded-2xl p-4 bg-blue-50/50 dark:bg-blue-500/10' : ''}`}>
-                      <div className="relative">
-                        <div className="absolute inset-0 flex items-center">
-                          <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
-                        </div>
-                        <div className="relative flex justify-center text-sm">
-                          <span className={`px-4 ${ssoHighlight ? 'bg-blue-50/50 dark:bg-blue-500/10' : 'bg-white/95 dark:bg-gray-900/90'} text-gray-500 dark:text-gray-400`}>
-                            {ssoHighlight ? 'Sign in with SSO' : 'or continue with'}
-                          </span>
-                        </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
+                        <span className="text-sm text-gray-500 dark:text-gray-400 shrink-0">
+                          or continue with
+                        </span>
+                        <div className="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
                       </div>
 
                       {/* SSO Email input — shown when user clicks an SSO button */}

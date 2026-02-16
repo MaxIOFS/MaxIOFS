@@ -1,6 +1,6 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.8.0-beta
+**Version**: 0.9.0-beta
 **Status**: Beta - 100% S3 Compatible
 **License**: MIT
 **Website**: [maxiofs.com](https://maxiofs.com)

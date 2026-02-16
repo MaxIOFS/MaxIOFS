@@ -395,7 +395,7 @@ MaxIOFS follows semantic versioning:
 - **0.x.x-rc**: Release candidates - Production-ready testing
 - **1.x.x**: Stable releases - Production-ready
 
-### Current Status: BETA (v0.8.0-beta)
+### Current Status: BETA (v0.9.0-beta)
 
 **Completed Core Features:**
 - ✅ All S3 core operations validated with AWS CLI (100% compatible)
@@ -420,7 +420,7 @@ See [TODO.md](TODO.md) for detailed roadmap and requirements.
 
 ## Version History
 
-### Completed Features (v0.1.0 - v0.8.0-beta)
+### Completed Features (v0.1.0 - v0.9.0-beta)
 
 **v0.8.0-beta (February 2026)** - Object Search, Security Fixes & Production Hardening
 - ✅ Object Filters & Advanced Search (content-type, size, date, tags)

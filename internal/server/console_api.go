@@ -154,7 +154,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 			}
 
 			// Skip authentication for public endpoints
-			publicPaths := []string{"/auth/login", "/auth/2fa/verify", "/health", "/auth/oauth/"}
+			publicPaths := []string{"/auth/login", "/auth/2fa/verify", "/health", "/auth/oauth/", "/version"}
 			for _, path := range publicPaths {
 				if strings.Contains(r.URL.Path, path) {
 					next.ServeHTTP(w, r)
@@ -184,6 +184,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	})
+
+	// Public endpoints (no auth required)
+	router.HandleFunc("/version", s.handleGetVersion).Methods("GET", "OPTIONS")
 
 	// Auth endpoints
 	router.HandleFunc("/auth/login", s.handleLogin).Methods("POST", "OPTIONS")
@@ -2529,6 +2532,15 @@ func (s *Server) handleGetHistoryStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, stats)
+}
+
+// handleGetVersion returns only the server version (public, no auth required)
+func (s *Server) handleGetVersion(w http.ResponseWriter, r *http.Request) {
+	version := s.version
+	if version == "" {
+		version = "unknown"
+	}
+	s.writeJSON(w, map[string]string{"version": version})
 }
 
 // handleGetServerConfig returns the server configuration (excluding sensitive data)

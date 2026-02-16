@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 0.8.0-beta
+**Version**: 0.9.0-beta
 **Last Updated**: January 16, 2026
 
 > **BETA SOFTWARE DISCLAIMER**: MaxIOFS is in beta stage. Core security features are implemented, but third-party security audits have not been conducted. Production use requires thorough testing in your environment.
@@ -566,7 +566,7 @@ aws s3api put-object-retention \
 
 ---
 
-**Version**: 0.8.0-beta
+**Version**: 0.9.0-beta
 **Last Updated**: January 16, 2026
 
 For additional security information, see:
