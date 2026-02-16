@@ -68,6 +68,7 @@ type Server struct {
 	bucketPermissionSyncMgr *cluster.BucketPermissionSyncManager
 	idpProviderSyncMgr      *cluster.IDPProviderSyncManager
 	groupMappingSyncMgr     *cluster.GroupMappingSyncManager
+	deletionLogSyncMgr      *cluster.DeletionLogSyncManager
 	notificationHub         *NotificationHub
 	systemMetrics           *metrics.SystemMetricsTracker
 	lifecycleWorker         *lifecycle.Worker
@@ -334,6 +335,9 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize group mapping synchronization manager
 	groupMappingSyncMgr := cluster.NewGroupMappingSyncManager(db, clusterManager)
 
+	// Initialize deletion log synchronization manager
+	deletionLogSyncMgr := cluster.NewDeletionLogSyncManager(db, clusterManager)
+
 	// Initialize cluster replication manager
 	clusterReplicationMgr := cluster.NewClusterReplicationManager(db, clusterManager, objectManager, tenantSyncMgr)
 
@@ -381,6 +385,7 @@ func New(cfg *config.Config) (*Server, error) {
 		bucketPermissionSyncMgr: bucketPermissionSyncMgr,
 		idpProviderSyncMgr:      idpProviderSyncMgr,
 		groupMappingSyncMgr:     groupMappingSyncMgr,
+		deletionLogSyncMgr:      deletionLogSyncMgr,
 		notificationHub:         notificationHub,
 		systemMetrics:           systemMetrics,
 		lifecycleWorker:         lifecycleWorker,
@@ -508,6 +513,16 @@ func (s *Server) Start(ctx context.Context) error {
 			s.groupMappingSyncMgr.Start(ctx)
 			logrus.Info("Group mapping synchronization manager started")
 		}
+
+		// Start deletion log synchronization manager
+		if s.deletionLogSyncMgr != nil {
+			s.deletionLogSyncMgr.Start(ctx)
+			logrus.Info("Deletion log synchronization manager started")
+		}
+
+		// Start deletion log cleanup (every 1 hour, remove entries older than 7 days)
+		cluster.StartDeletionLogCleanup(ctx, s.db, 1*time.Hour, 7*24*time.Hour)
+		logrus.Info("Deletion log cleanup started")
 
 		// Start cluster replication manager
 		if s.clusterReplicationMgr != nil {
@@ -750,9 +765,11 @@ func (s *Server) setupRoutes() error {
 
 			// Tenant synchronization endpoint
 			internalClusterRouter.HandleFunc("/tenant-sync", s.handleReceiveTenantSync).Methods("POST")
+			internalClusterRouter.HandleFunc("/tenant-delete-sync", s.handleReceiveTenantDeleteSync).Methods("POST")
 
 			// User synchronization endpoint
 			internalClusterRouter.HandleFunc("/user-sync", s.handleReceiveUserSync).Methods("POST")
+			internalClusterRouter.HandleFunc("/user-delete-sync", s.handleReceiveUserDeleteSync).Methods("POST")
 
 			// Object replication endpoints
 			internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectReplication).Methods("PUT")
@@ -766,9 +783,14 @@ func (s *Server) setupRoutes() error {
 
 			// Synchronization endpoints
 			internalClusterRouter.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
+			internalClusterRouter.HandleFunc("/access-key-delete-sync", s.handleReceiveAccessKeyDeleteSync).Methods("POST")
 			internalClusterRouter.HandleFunc("/bucket-permission-sync", s.handleReceiveBucketPermissionSync).Methods("POST")
+			internalClusterRouter.HandleFunc("/bucket-permission-delete-sync", s.handleReceiveBucketPermissionDeleteSync).Methods("POST")
 			internalClusterRouter.HandleFunc("/idp-provider-sync", s.handleReceiveIDPProviderSync).Methods("POST")
+			internalClusterRouter.HandleFunc("/idp-provider-delete-sync", s.handleReceiveIDPProviderDeleteSync).Methods("POST")
 			internalClusterRouter.HandleFunc("/group-mapping-sync", s.handleReceiveGroupMappingSync).Methods("POST")
+			internalClusterRouter.HandleFunc("/group-mapping-delete-sync", s.handleReceiveGroupMappingDeleteSync).Methods("POST")
+			internalClusterRouter.HandleFunc("/deletion-log-sync", s.handleReceiveDeletionLogSync).Methods("POST")
 
 			// Bucket aggregation endpoint (for cross-node bucket listing)
 			internalClusterRouter.HandleFunc("/buckets", s.handleGetLocalBuckets).Methods("GET")

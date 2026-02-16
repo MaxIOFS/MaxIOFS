@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/idp"
 	"github.com/sirupsen/logrus"
 )
@@ -214,6 +215,14 @@ func (s *Server) handleDeleteIDP(w http.ResponseWriter, r *http.Request) {
 		logrus.WithError(err).Error("Failed to delete identity provider")
 		s.writeError(w, "Failed to delete identity provider", http.StatusInternalServerError)
 		return
+	}
+
+	// Record tombstone for cluster deletion sync
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		nodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
+		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeIDPProvider, providerID, nodeID); err != nil {
+			logrus.WithError(err).WithField("provider_id", providerID).Warn("Failed to record IDP provider deletion tombstone")
+		}
 	}
 
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
@@ -574,6 +583,14 @@ func (s *Server) handleDeleteGroupMapping(w http.ResponseWriter, r *http.Request
 	if err := s.idpManager.DeleteGroupMapping(r.Context(), mappingID); err != nil {
 		s.writeError(w, "Failed to delete group mapping", http.StatusInternalServerError)
 		return
+	}
+
+	// Record tombstone for cluster deletion sync
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		nodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
+		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeGroupMapping, mappingID, nodeID); err != nil {
+			logrus.WithError(err).WithField("mapping_id", mappingID).Warn("Failed to record group mapping deletion tombstone")
+		}
 	}
 
 	s.writeJSON(w, map[string]string{"message": "Group mapping deleted"})

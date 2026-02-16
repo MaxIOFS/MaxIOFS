@@ -156,6 +156,9 @@ func (m *BucketPermissionSyncManager) syncAllBucketPermissions(ctx context.Conte
 			}
 		}
 	}
+
+	// Phase 2: Sync deletion tombstones
+	m.syncDeletions(ctx, targetNodes, localNodeID)
 }
 
 // syncPermissionToNode synchronizes a single bucket permission to a target node
@@ -354,6 +357,64 @@ func (m *BucketPermissionSyncManager) updateSyncStatus(ctx context.Context, perm
 	id := fmt.Sprintf("%s-%s", permissionID, destNodeID)
 	_, err := m.db.ExecContext(ctx, query, id, permissionID, sourceNodeID, destNodeID, checksum, now, now, now)
 	return err
+}
+
+// syncDeletions sends deletion tombstones for bucket permissions to all target nodes
+func (m *BucketPermissionSyncManager) syncDeletions(ctx context.Context, targetNodes []*Node, localNodeID string) {
+	deletions, err := ListDeletions(ctx, m.db, EntityTypeBucketPermission)
+	if err != nil {
+		m.log.WithError(err).Error("Failed to list bucket permission deletion tombstones")
+		return
+	}
+
+	if len(deletions) == 0 {
+		return
+	}
+
+	nodeToken, err := m.clusterManager.GetLocalNodeToken(ctx)
+	if err != nil {
+		m.log.WithError(err).Error("Failed to get node token for deletion sync")
+		return
+	}
+
+	for _, deletion := range deletions {
+		for _, node := range targetNodes {
+			if err := m.sendDeletionToNode(ctx, deletion.EntityID, node, localNodeID, nodeToken); err != nil {
+				m.log.WithFields(logrus.Fields{
+					"permission_id": deletion.EntityID,
+					"node_id":       node.ID,
+					"error":         err,
+				}).Warn("Failed to send bucket permission deletion to node")
+			}
+		}
+	}
+}
+
+// sendDeletionToNode sends a bucket permission deletion request to a target node
+func (m *BucketPermissionSyncManager) sendDeletionToNode(ctx context.Context, permissionID string, node *Node, sourceNodeID, nodeToken string) error {
+	payload, _ := json.Marshal(map[string]string{"id": permissionID})
+
+	url := fmt.Sprintf("%s/api/internal/cluster/bucket-permission-delete-sync", node.Endpoint)
+
+	req, err := m.proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(payload), sourceNodeID, nodeToken)
+	if err != nil {
+		return fmt.Errorf("failed to create deletion request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := m.proxyClient.DoAuthenticatedRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute deletion request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
 }
 
 // Stop stops the bucket permission sync manager

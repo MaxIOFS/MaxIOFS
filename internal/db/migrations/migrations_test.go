@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	_ "modernc.org/sqlite"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 )
 
 func createTestDB(t *testing.T) *sql.DB {
@@ -70,8 +70,7 @@ func TestMigrationManager_GetTargetVersion(t *testing.T) {
 
 	targetVersion := manager.GetTargetVersion()
 	assert.Greater(t, targetVersion, 0)
-	// Should be 9 for current schema (migration 9 = IDP tables)
-	assert.Equal(t, 9, targetVersion)
+	assert.Equal(t, 10, targetVersion)
 }
 
 func TestMigrationManager_Migrate_EmptyDB(t *testing.T) {

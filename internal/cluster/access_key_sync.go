@@ -154,6 +154,9 @@ func (m *AccessKeySyncManager) syncAllAccessKeys(ctx context.Context) {
 			}
 		}
 	}
+
+	// Phase 2: Sync deletion tombstones
+	m.syncDeletions(ctx, targetNodes, localNodeID)
 }
 
 // syncAccessKeyToNode synchronizes a single access key to a target node
@@ -324,6 +327,64 @@ func (m *AccessKeySyncManager) updateSyncStatus(ctx context.Context, accessKeyID
 	id := fmt.Sprintf("%s-%s", accessKeyID, destNodeID)
 	_, err := m.db.ExecContext(ctx, query, id, accessKeyID, sourceNodeID, destNodeID, checksum, now, now, now)
 	return err
+}
+
+// syncDeletions sends deletion tombstones for access keys to all target nodes
+func (m *AccessKeySyncManager) syncDeletions(ctx context.Context, targetNodes []*Node, localNodeID string) {
+	deletions, err := ListDeletions(ctx, m.db, EntityTypeAccessKey)
+	if err != nil {
+		m.log.WithError(err).Error("Failed to list access key deletion tombstones")
+		return
+	}
+
+	if len(deletions) == 0 {
+		return
+	}
+
+	nodeToken, err := m.clusterManager.GetLocalNodeToken(ctx)
+	if err != nil {
+		m.log.WithError(err).Error("Failed to get node token for deletion sync")
+		return
+	}
+
+	for _, deletion := range deletions {
+		for _, node := range targetNodes {
+			if err := m.sendDeletionToNode(ctx, deletion.EntityID, node, localNodeID, nodeToken); err != nil {
+				m.log.WithFields(logrus.Fields{
+					"access_key_id": deletion.EntityID,
+					"node_id":       node.ID,
+					"error":         err,
+				}).Warn("Failed to send access key deletion to node")
+			}
+		}
+	}
+}
+
+// sendDeletionToNode sends an access key deletion request to a target node
+func (m *AccessKeySyncManager) sendDeletionToNode(ctx context.Context, accessKeyID string, node *Node, sourceNodeID, nodeToken string) error {
+	payload, _ := json.Marshal(map[string]string{"id": accessKeyID})
+
+	url := fmt.Sprintf("%s/api/internal/cluster/access-key-delete-sync", node.Endpoint)
+
+	req, err := m.proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(payload), sourceNodeID, nodeToken)
+	if err != nil {
+		return fmt.Errorf("failed to create deletion request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := m.proxyClient.DoAuthenticatedRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute deletion request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
 }
 
 // Stop stops the access key sync manager

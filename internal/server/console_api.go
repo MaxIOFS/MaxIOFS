@@ -2237,6 +2237,14 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Record tombstone for cluster deletion sync
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		nodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
+		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeUser, userID, nodeID); err != nil {
+			logrus.WithError(err).WithField("user_id", userID).Warn("Failed to record user deletion tombstone")
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -2847,6 +2855,14 @@ func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
+	}
+
+	// Record tombstone for cluster deletion sync
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		nodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
+		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeAccessKey, accessKeyID, nodeID); err != nil {
+			logrus.WithError(err).WithField("access_key_id", accessKeyID).Warn("Failed to record access key deletion tombstone")
+		}
 	}
 
 	// Log audit event for access key deleted
@@ -3547,6 +3563,14 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Record tombstone for cluster deletion sync
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		nodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
+		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeTenant, tenantID, nodeID); err != nil {
+			logrus.WithError(err).WithField("tenant_id", tenantID).Warn("Failed to record tenant deletion tombstone")
+		}
+	}
+
 	// Log audit event for tenant deleted
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		TenantID:     "", // Tenant operations are global
@@ -3664,10 +3688,26 @@ func (s *Server) handleRevokeBucketPermission(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Look up the permission ID before deleting (needed for tombstone)
+	var permissionID string
+	if userID != "" {
+		_ = s.db.QueryRowContext(r.Context(), `SELECT id FROM bucket_permissions WHERE bucket_name = ? AND user_id = ?`, bucketName, userID).Scan(&permissionID)
+	} else {
+		_ = s.db.QueryRowContext(r.Context(), `SELECT id FROM bucket_permissions WHERE bucket_name = ? AND tenant_id = ?`, bucketName, tenantID).Scan(&permissionID)
+	}
+
 	err := s.authManager.RevokeBucketAccess(r.Context(), bucketName, userID, tenantID)
 	if err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Record tombstone for cluster deletion sync
+	if permissionID != "" && s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		nodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
+		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeBucketPermission, permissionID, nodeID); err != nil {
+			logrus.WithError(err).WithField("permission_id", permissionID).Warn("Failed to record bucket permission deletion tombstone")
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)

@@ -160,6 +160,9 @@ func (m *TenantSyncManager) syncAllTenants(ctx context.Context) {
 			}
 		}
 	}
+
+	// Phase 2: Sync deletion tombstones
+	m.syncDeletions(ctx, targetNodes, localNodeID)
 }
 
 // syncTenantToNode synchronizes a single tenant to a target node
@@ -363,6 +366,64 @@ func (m *TenantSyncManager) updateSyncStatus(ctx context.Context, tenantID, sour
 	`, id, tenantID, sourceNodeID, destNodeID, checksum, now, now, now, checksum, now, now)
 
 	return err
+}
+
+// syncDeletions sends deletion tombstones for tenants to all target nodes
+func (m *TenantSyncManager) syncDeletions(ctx context.Context, targetNodes []*Node, localNodeID string) {
+	deletions, err := ListDeletions(ctx, m.db, EntityTypeTenant)
+	if err != nil {
+		m.log.WithError(err).Error("Failed to list tenant deletion tombstones")
+		return
+	}
+
+	if len(deletions) == 0 {
+		return
+	}
+
+	nodeToken, err := m.clusterManager.GetLocalNodeToken(ctx)
+	if err != nil {
+		m.log.WithError(err).Error("Failed to get node token for deletion sync")
+		return
+	}
+
+	for _, deletion := range deletions {
+		for _, node := range targetNodes {
+			if err := m.sendDeletionToNode(ctx, deletion.EntityID, node, localNodeID, nodeToken); err != nil {
+				m.log.WithFields(logrus.Fields{
+					"tenant_id": deletion.EntityID,
+					"node_id":   node.ID,
+					"error":     err,
+				}).Warn("Failed to send tenant deletion to node")
+			}
+		}
+	}
+}
+
+// sendDeletionToNode sends a tenant deletion request to a target node
+func (m *TenantSyncManager) sendDeletionToNode(ctx context.Context, tenantID string, node *Node, sourceNodeID, nodeToken string) error {
+	payload, _ := json.Marshal(map[string]string{"id": tenantID})
+
+	url := fmt.Sprintf("%s/api/internal/cluster/tenant-delete-sync", node.Endpoint)
+
+	req, err := m.proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(payload), sourceNodeID, nodeToken)
+	if err != nil {
+		return fmt.Errorf("failed to create deletion request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := m.proxyClient.DoAuthenticatedRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute deletion request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
 }
 
 // Stop stops the tenant sync manager

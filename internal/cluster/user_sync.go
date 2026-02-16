@@ -167,6 +167,9 @@ func (m *UserSyncManager) syncAllUsers(ctx context.Context) {
 			}
 		}
 	}
+
+	// Phase 2: Sync deletion tombstones
+	m.syncDeletions(ctx, targetNodes, localNodeID)
 }
 
 // syncUserToNode synchronizes a single user to a target node
@@ -363,6 +366,64 @@ func (m *UserSyncManager) updateSyncStatus(ctx context.Context, userID, sourceNo
 	id := fmt.Sprintf("%s-%s", userID, destNodeID)
 	_, err := m.db.ExecContext(ctx, query, id, userID, sourceNodeID, destNodeID, checksum, now, now, now)
 	return err
+}
+
+// syncDeletions sends deletion tombstones for users to all target nodes
+func (m *UserSyncManager) syncDeletions(ctx context.Context, targetNodes []*Node, localNodeID string) {
+	deletions, err := ListDeletions(ctx, m.db, EntityTypeUser)
+	if err != nil {
+		m.log.WithError(err).Error("Failed to list user deletion tombstones")
+		return
+	}
+
+	if len(deletions) == 0 {
+		return
+	}
+
+	nodeToken, err := m.clusterManager.GetLocalNodeToken(ctx)
+	if err != nil {
+		m.log.WithError(err).Error("Failed to get node token for deletion sync")
+		return
+	}
+
+	for _, deletion := range deletions {
+		for _, node := range targetNodes {
+			if err := m.sendDeletionToNode(ctx, deletion.EntityID, node, localNodeID, nodeToken); err != nil {
+				m.log.WithFields(logrus.Fields{
+					"user_id": deletion.EntityID,
+					"node_id": node.ID,
+					"error":   err,
+				}).Warn("Failed to send user deletion to node")
+			}
+		}
+	}
+}
+
+// sendDeletionToNode sends a user deletion request to a target node
+func (m *UserSyncManager) sendDeletionToNode(ctx context.Context, userID string, node *Node, sourceNodeID, nodeToken string) error {
+	payload, _ := json.Marshal(map[string]string{"id": userID})
+
+	url := fmt.Sprintf("%s/api/internal/cluster/user-delete-sync", node.Endpoint)
+
+	req, err := m.proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(payload), sourceNodeID, nodeToken)
+	if err != nil {
+		return fmt.Errorf("failed to create deletion request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := m.proxyClient.DoAuthenticatedRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute deletion request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
 }
 
 // Stop stops the user sync manager

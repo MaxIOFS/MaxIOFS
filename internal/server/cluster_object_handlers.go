@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/acl"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/sirupsen/logrus"
 )
 
@@ -532,6 +533,14 @@ func (s *Server) handleReceiveAccessKeySync(w http.ResponseWriter, r *http.Reque
 		"user_id":        accessKeyData.UserID,
 	}).Info("Receiving access key from synchronization")
 
+	// Skip if this entity has been deleted (tombstone exists)
+	if hasDeletion, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeAccessKey, accessKeyData.AccessKeyID); hasDeletion {
+		logrus.WithField("access_key_id", accessKeyData.AccessKeyID).Debug("Skipping sync for deleted access key (tombstone exists)")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (deleted)"})
+		return
+	}
+
 	// Upsert access key in database (INSERT OR REPLACE)
 	query := `
 		INSERT OR REPLACE INTO access_keys
@@ -605,6 +614,14 @@ func (s *Server) handleReceiveBucketPermissionSync(w http.ResponseWriter, r *htt
 		"permission_id":  permissionData.ID,
 		"bucket":         permissionData.BucketName,
 	}).Info("Receiving bucket permission from synchronization")
+
+	// Skip if this entity has been deleted (tombstone exists)
+	if hasDeletion, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeBucketPermission, permissionData.ID); hasDeletion {
+		logrus.WithField("permission_id", permissionData.ID).Debug("Skipping sync for deleted bucket permission (tombstone exists)")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (deleted)"})
+		return
+	}
 
 	// Upsert permission in database (INSERT OR REPLACE)
 	query := `
@@ -808,6 +825,14 @@ func (s *Server) handleReceiveIDPProviderSync(w http.ResponseWriter, r *http.Req
 		"provider_type":  providerData.Type,
 	}).Info("Receiving IDP provider from synchronization")
 
+	// Skip if this entity has been deleted (tombstone exists)
+	if hasDeletion, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeIDPProvider, providerData.ID); hasDeletion {
+		logrus.WithField("provider_id", providerData.ID).Debug("Skipping sync for deleted IDP provider (tombstone exists)")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (deleted)"})
+		return
+	}
+
 	// Handle NULL tenant_id
 	var tenantID interface{}
 	if providerData.TenantID != "" {
@@ -884,6 +909,75 @@ func (s *Server) handleReceiveIDPProviderSync(w http.ResponseWriter, r *http.Req
 	})
 }
 
+// handleReceiveIDPProviderDeleteSync handles incoming IDP provider deletion from cluster sync
+// POST /api/internal/cluster/idp-provider-delete-sync
+func (s *Server) handleReceiveIDPProviderDeleteSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
+	if !ok {
+		logrus.Warn("Cluster node ID not found in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var deleteData struct {
+		ID string `json:"id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&deleteData); err != nil {
+		logrus.WithError(err).Error("Failed to decode IDP provider deletion data")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if deleteData.ID == "" {
+		http.Error(w, "Missing provider ID", http.StatusBadRequest)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"source_node_id": sourceNodeID,
+		"provider_id":    deleteData.ID,
+	}).Info("Receiving IDP provider deletion from synchronization")
+
+	// Delete group mappings for this provider first (cascade)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM idp_group_mappings WHERE provider_id = ?`, deleteData.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to delete group mappings for provider")
+		http.Error(w, fmt.Sprintf("Failed to delete mappings: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Delete the provider
+	result, err := s.db.ExecContext(ctx, `DELETE FROM identity_providers WHERE id = ?`, deleteData.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to delete IDP provider")
+		http.Error(w, fmt.Sprintf("Failed to delete provider: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+
+	// Record tombstone locally so this node doesn't re-sync the item
+	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeIDPProvider, deleteData.ID, sourceNodeID); err != nil {
+		logrus.WithError(err).WithField("provider_id", deleteData.ID).Warn("Failed to record IDP provider deletion tombstone")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"provider_id":   deleteData.ID,
+		"rows_affected": rowsAffected,
+	}).Info("IDP provider deletion synchronized successfully")
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "IDP provider deleted successfully",
+	})
+}
+
 // handleReceiveGroupMappingSync handles incoming IDP group mapping synchronization from other nodes
 // POST /api/internal/cluster/group-mapping-sync
 func (s *Server) handleReceiveGroupMappingSync(w http.ResponseWriter, r *http.Request) {
@@ -924,6 +1018,14 @@ func (s *Server) handleReceiveGroupMappingSync(w http.ResponseWriter, r *http.Re
 		"provider_id":    mappingData.ProviderID,
 		"external_group": mappingData.ExternalGroupName,
 	}).Info("Receiving group mapping from synchronization")
+
+	// Skip if this entity has been deleted (tombstone exists)
+	if hasDeletion, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeGroupMapping, mappingData.ID); hasDeletion {
+		logrus.WithField("mapping_id", mappingData.ID).Debug("Skipping sync for deleted group mapping (tombstone exists)")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (deleted)"})
+		return
+	}
 
 	// Handle NULL tenant_id
 	var tenantID interface{}
@@ -1009,5 +1111,237 @@ func (s *Server) handleReceiveGroupMappingSync(w http.ResponseWriter, r *http.Re
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Group mapping synchronized successfully",
+	})
+}
+
+// handleReceiveGroupMappingDeleteSync handles incoming group mapping deletion from cluster sync
+// POST /api/internal/cluster/group-mapping-delete-sync
+func (s *Server) handleReceiveGroupMappingDeleteSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
+	if !ok {
+		logrus.Warn("Cluster node ID not found in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var deleteData struct {
+		ID string `json:"id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&deleteData); err != nil {
+		logrus.WithError(err).Error("Failed to decode group mapping deletion data")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if deleteData.ID == "" {
+		http.Error(w, "Missing mapping ID", http.StatusBadRequest)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"source_node_id": sourceNodeID,
+		"mapping_id":     deleteData.ID,
+	}).Info("Receiving group mapping deletion from synchronization")
+
+	result, err := s.db.ExecContext(ctx, `DELETE FROM idp_group_mappings WHERE id = ?`, deleteData.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to delete group mapping")
+		http.Error(w, fmt.Sprintf("Failed to delete mapping: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+
+	// Record tombstone locally so this node doesn't re-sync the item
+	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeGroupMapping, deleteData.ID, sourceNodeID); err != nil {
+		logrus.WithError(err).WithField("mapping_id", deleteData.ID).Warn("Failed to record group mapping deletion tombstone")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"mapping_id":    deleteData.ID,
+		"rows_affected": rowsAffected,
+	}).Info("Group mapping deletion synchronized successfully")
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Group mapping deleted successfully",
+	})
+}
+
+// handleReceiveAccessKeyDeleteSync handles incoming access key deletion from cluster sync
+// POST /api/internal/cluster/access-key-delete-sync
+func (s *Server) handleReceiveAccessKeyDeleteSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
+	if !ok {
+		logrus.Warn("Cluster node ID not found in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var deleteData struct {
+		ID string `json:"id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&deleteData); err != nil {
+		logrus.WithError(err).Error("Failed to decode access key deletion data")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if deleteData.ID == "" {
+		http.Error(w, "Missing access key ID", http.StatusBadRequest)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"source_node_id": sourceNodeID,
+		"access_key_id":  deleteData.ID,
+	}).Info("Receiving access key deletion from synchronization")
+
+	result, err := s.db.ExecContext(ctx, `DELETE FROM access_keys WHERE access_key_id = ?`, deleteData.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to delete access key")
+		http.Error(w, fmt.Sprintf("Failed to delete access key: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+
+	// Record tombstone locally so this node doesn't re-sync the item
+	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeAccessKey, deleteData.ID, sourceNodeID); err != nil {
+		logrus.WithError(err).WithField("access_key_id", deleteData.ID).Warn("Failed to record access key deletion tombstone")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"access_key_id": deleteData.ID,
+		"rows_affected": rowsAffected,
+	}).Info("Access key deletion synchronized successfully")
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Access key deleted successfully",
+	})
+}
+
+// handleReceiveBucketPermissionDeleteSync handles incoming bucket permission deletion from cluster sync
+// POST /api/internal/cluster/bucket-permission-delete-sync
+func (s *Server) handleReceiveBucketPermissionDeleteSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
+	if !ok {
+		logrus.Warn("Cluster node ID not found in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var deleteData struct {
+		ID string `json:"id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&deleteData); err != nil {
+		logrus.WithError(err).Error("Failed to decode bucket permission deletion data")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if deleteData.ID == "" {
+		http.Error(w, "Missing permission ID", http.StatusBadRequest)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"source_node_id": sourceNodeID,
+		"permission_id":  deleteData.ID,
+	}).Info("Receiving bucket permission deletion from synchronization")
+
+	result, err := s.db.ExecContext(ctx, `DELETE FROM bucket_permissions WHERE id = ?`, deleteData.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to delete bucket permission")
+		http.Error(w, fmt.Sprintf("Failed to delete permission: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+
+	// Record tombstone locally so this node doesn't re-sync the item
+	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeBucketPermission, deleteData.ID, sourceNodeID); err != nil {
+		logrus.WithError(err).WithField("permission_id", deleteData.ID).Warn("Failed to record bucket permission deletion tombstone")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"permission_id": deleteData.ID,
+		"rows_affected": rowsAffected,
+	}).Info("Bucket permission deletion synchronized successfully")
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Bucket permission deleted successfully",
+	})
+}
+
+// handleReceiveDeletionLogSync handles incoming deletion log entries from other nodes
+// POST /api/internal/cluster/deletion-log-sync
+func (s *Server) handleReceiveDeletionLogSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
+	if !ok {
+		logrus.Warn("Cluster node ID not found in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var entries []*cluster.DeletionEntry
+	if err := json.NewDecoder(r.Body).Decode(&entries); err != nil {
+		logrus.WithError(err).Error("Failed to decode deletion log entries")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	logrus.WithFields(logrus.Fields{
+		"source_node_id": sourceNodeID,
+		"entry_count":    len(entries),
+	}).Debug("Receiving deletion log entries from synchronization")
+
+	recorded := 0
+	for _, entry := range entries {
+		if err := cluster.RecordDeletion(ctx, s.db, entry.EntityType, entry.EntityID, entry.DeletedByNodeID); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"entity_type": entry.EntityType,
+				"entity_id":   entry.EntityID,
+			}).Warn("Failed to record deletion log entry")
+			continue
+		}
+		recorded++
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"source_node_id": sourceNodeID,
+		"recorded":       recorded,
+		"total":          len(entries),
+	}).Debug("Deletion log entries synchronized")
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"message":  "Deletion log entries synchronized",
+		"recorded": recorded,
 	})
 }

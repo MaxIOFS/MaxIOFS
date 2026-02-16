@@ -17,6 +17,7 @@ func getAllMigrations() []Migration {
 		migration7_v062_BucketInventoryAndPermissions(),
 		migration8_v062_CurrentSchema(),
 		migration9_v090_IdentityProviders(),
+		migration10_v091_ClusterDeletionLog(),
 	}
 }
 
@@ -989,6 +990,41 @@ func migration9_v090_IdentityProviders() Migration {
 				return err
 			}
 			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_users_external_id ON users(external_id)`); err != nil {
+				return err
+			}
+
+			return nil
+		},
+		Down: func(tx *sql.Tx) error {
+			return nil
+		},
+	}
+}
+
+// migration10_v091_ClusterDeletionLog creates the cluster deletion log table for tombstone-based deletion sync
+// Corresponds to MaxIOFS v0.9.1 - Cluster deletion synchronization
+func migration10_v091_ClusterDeletionLog() Migration {
+	return Migration{
+		Version:     10,
+		Description: "v0.9.1 - Add cluster_deletion_log table for tombstone-based deletion sync",
+		Up: func(tx *sql.Tx) error {
+			if _, err := tx.Exec(`
+				CREATE TABLE IF NOT EXISTS cluster_deletion_log (
+					id TEXT PRIMARY KEY,
+					entity_type TEXT NOT NULL,
+					entity_id TEXT NOT NULL,
+					deleted_by_node_id TEXT NOT NULL,
+					deleted_at INTEGER NOT NULL,
+					UNIQUE(entity_type, entity_id)
+				)
+			`); err != nil {
+				return err
+			}
+
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_deletion_log_type ON cluster_deletion_log(entity_type)`); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_deletion_log_deleted_at ON cluster_deletion_log(deleted_at)`); err != nil {
 				return err
 			}
 

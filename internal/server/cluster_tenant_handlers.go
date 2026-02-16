@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/sirupsen/logrus"
 )
 
@@ -52,6 +53,14 @@ func (s *Server) handleReceiveTenantSync(w http.ResponseWriter, r *http.Request)
 		"tenant_name":    tenantData.Name,
 		"source_node_id": sourceNodeID,
 	}).Info("Receiving tenant synchronization")
+
+	// Skip if this entity has been deleted (tombstone exists)
+	if hasDeletion, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeTenant, tenantData.ID); hasDeletion {
+		logrus.WithField("tenant_id", tenantData.ID).Debug("Skipping sync for deleted tenant (tombstone exists)")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (deleted)"})
+		return
+	}
 
 	// Upsert tenant in local database
 	if err := s.upsertTenant(ctx, &tenantData); err != nil {
@@ -226,6 +235,14 @@ func (s *Server) handleReceiveUserSync(w http.ResponseWriter, r *http.Request) {
 		"source_node_id": sourceNodeID,
 	}).Info("Receiving user synchronization")
 
+	// Skip if this entity has been deleted (tombstone exists)
+	if hasDeletion, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeUser, userData.ID); hasDeletion {
+		logrus.WithField("user_id", userData.ID).Debug("Skipping sync for deleted user (tombstone exists)")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (deleted)"})
+		return
+	}
+
 	// Upsert user in local database
 	if err := s.upsertUser(ctx, &userData); err != nil {
 		logrus.WithError(err).WithField("user_id", userData.ID).Error("Failed to upsert user")
@@ -374,4 +391,149 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 	}
 
 	return nil
+}
+
+// handleReceiveTenantDeleteSync handles incoming tenant deletion from cluster sync
+// POST /api/internal/cluster/tenant-delete-sync
+func (s *Server) handleReceiveTenantDeleteSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
+	if !ok {
+		logrus.Warn("Cluster node ID not found in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var deleteData struct {
+		ID string `json:"id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&deleteData); err != nil {
+		logrus.WithError(err).Error("Failed to decode tenant deletion data")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if deleteData.ID == "" {
+		http.Error(w, "Missing tenant ID", http.StatusBadRequest)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"source_node_id": sourceNodeID,
+		"tenant_id":      deleteData.ID,
+	}).Info("Receiving tenant deletion from synchronization")
+
+	// Delete users belonging to this tenant first (cascade)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM access_keys WHERE user_id IN (SELECT id FROM users WHERE tenant_id = ?)`, deleteData.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to delete access keys for tenant users")
+		http.Error(w, fmt.Sprintf("Failed to delete access keys: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	_, err = s.db.ExecContext(ctx, `DELETE FROM users WHERE tenant_id = ?`, deleteData.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to delete users for tenant")
+		http.Error(w, fmt.Sprintf("Failed to delete users: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Delete the tenant
+	result, err := s.db.ExecContext(ctx, `DELETE FROM tenants WHERE id = ?`, deleteData.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to delete tenant")
+		http.Error(w, fmt.Sprintf("Failed to delete tenant: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+
+	// Record tombstone locally so this node doesn't re-sync the item
+	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeTenant, deleteData.ID, sourceNodeID); err != nil {
+		logrus.WithError(err).WithField("tenant_id", deleteData.ID).Warn("Failed to record tenant deletion tombstone")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"tenant_id":     deleteData.ID,
+		"rows_affected": rowsAffected,
+	}).Info("Tenant deletion synchronized successfully")
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Tenant deleted successfully",
+	})
+}
+
+// handleReceiveUserDeleteSync handles incoming user deletion from cluster sync
+// POST /api/internal/cluster/user-delete-sync
+func (s *Server) handleReceiveUserDeleteSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
+	if !ok {
+		logrus.Warn("Cluster node ID not found in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var deleteData struct {
+		ID string `json:"id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&deleteData); err != nil {
+		logrus.WithError(err).Error("Failed to decode user deletion data")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if deleteData.ID == "" {
+		http.Error(w, "Missing user ID", http.StatusBadRequest)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"source_node_id": sourceNodeID,
+		"user_id":        deleteData.ID,
+	}).Info("Receiving user deletion from synchronization")
+
+	// Delete access keys for this user first (cascade)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM access_keys WHERE user_id = ?`, deleteData.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to delete access keys for user")
+		http.Error(w, fmt.Sprintf("Failed to delete access keys: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Delete the user
+	result, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, deleteData.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to delete user")
+		http.Error(w, fmt.Sprintf("Failed to delete user: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+
+	// Record tombstone locally so this node doesn't re-sync the item
+	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeUser, deleteData.ID, sourceNodeID); err != nil {
+		logrus.WithError(err).WithField("user_id", deleteData.ID).Warn("Failed to record user deletion tombstone")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":       deleteData.ID,
+		"rows_affected": rowsAffected,
+	}).Info("User deletion synchronized successfully")
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "User deleted successfully",
+	})
 }

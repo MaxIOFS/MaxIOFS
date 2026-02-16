@@ -158,6 +158,9 @@ func (m *GroupMappingSyncManager) syncAllMappings(ctx context.Context) {
 			}
 		}
 	}
+
+	// Phase 2: Sync deletion tombstones
+	m.syncDeletions(ctx, targetNodes, localNodeID)
 }
 
 // syncMappingToNode synchronizes a single group mapping to a target node
@@ -333,6 +336,64 @@ func (m *GroupMappingSyncManager) updateSyncStatus(ctx context.Context, mappingI
 	id := fmt.Sprintf("%s-%s", mappingID, destNodeID)
 	_, err := m.db.ExecContext(ctx, query, id, mappingID, sourceNodeID, destNodeID, checksum, now, now, now)
 	return err
+}
+
+// syncDeletions sends deletion tombstones for group mappings to all target nodes
+func (m *GroupMappingSyncManager) syncDeletions(ctx context.Context, targetNodes []*Node, localNodeID string) {
+	deletions, err := ListDeletions(ctx, m.db, EntityTypeGroupMapping)
+	if err != nil {
+		m.log.WithError(err).Error("Failed to list group mapping deletion tombstones")
+		return
+	}
+
+	if len(deletions) == 0 {
+		return
+	}
+
+	nodeToken, err := m.clusterManager.GetLocalNodeToken(ctx)
+	if err != nil {
+		m.log.WithError(err).Error("Failed to get node token for deletion sync")
+		return
+	}
+
+	for _, deletion := range deletions {
+		for _, node := range targetNodes {
+			if err := m.sendDeletionToNode(ctx, deletion.EntityID, node, localNodeID, nodeToken); err != nil {
+				m.log.WithFields(logrus.Fields{
+					"mapping_id": deletion.EntityID,
+					"node_id":    node.ID,
+					"error":      err,
+				}).Warn("Failed to send group mapping deletion to node")
+			}
+		}
+	}
+}
+
+// sendDeletionToNode sends a group mapping deletion request to a target node
+func (m *GroupMappingSyncManager) sendDeletionToNode(ctx context.Context, mappingID string, node *Node, sourceNodeID, nodeToken string) error {
+	payload, _ := json.Marshal(map[string]string{"id": mappingID})
+
+	url := fmt.Sprintf("%s/api/internal/cluster/group-mapping-delete-sync", node.Endpoint)
+
+	req, err := m.proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(payload), sourceNodeID, nodeToken)
+	if err != nil {
+		return fmt.Errorf("failed to create deletion request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := m.proxyClient.DoAuthenticatedRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute deletion request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
 }
 
 // Stop stops the group mapping sync manager
