@@ -53,7 +53,6 @@ func TestHTTPOutputWrite(t *testing.T) {
 	defer server.Close()
 
 	output := NewHTTPOutput(server.URL, "token123", 2, 100*time.Millisecond)
-	defer output.Close()
 
 	// Write entries
 	entry1 := &LogEntry{
@@ -76,8 +75,8 @@ func TestHTTPOutputWrite(t *testing.T) {
 	err = output.Write(entry2)
 	require.NoError(t, err)
 
-	// Wait for flush with longer timeout for CI/CD environments
-	time.Sleep(500 * time.Millisecond)
+	// Close waits for all in-flight sendBatch goroutines to complete
+	output.Close()
 
 	// Check received entries
 	mu.Lock()
@@ -100,7 +99,6 @@ func TestHTTPOutputBatching(t *testing.T) {
 	defer server.Close()
 
 	output := NewHTTPOutput(server.URL, "", 3, 100*time.Millisecond)
-	defer output.Close()
 
 	// Write 5 entries (should result in 2 batches: 3 + 2)
 	for i := 0; i < 5; i++ {
@@ -113,8 +111,8 @@ func TestHTTPOutputBatching(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Wait for flush with longer timeout for CI/CD environments
-	time.Sleep(500 * time.Millisecond)
+	// Close waits for all in-flight sendBatch goroutines to complete
+	output.Close()
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -141,7 +139,6 @@ func TestHTTPOutputFlushInterval(t *testing.T) {
 
 	// Small flush interval
 	output := NewHTTPOutput(server.URL, "", 100, 50*time.Millisecond)
-	defer output.Close()
 
 	// Write one entry
 	entry := &LogEntry{
@@ -151,8 +148,8 @@ func TestHTTPOutputFlushInterval(t *testing.T) {
 	}
 	output.Write(entry)
 
-	// Should flush within interval (longer timeout for CI/CD environments)
-	time.Sleep(300 * time.Millisecond)
+	// Close flushes remaining entries and waits for all sends to complete
+	output.Close()
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -189,7 +186,6 @@ func TestHTTPOutputNoAuth(t *testing.T) {
 	defer server.Close()
 
 	output := NewHTTPOutput(server.URL, "", 1, 100*time.Millisecond)
-	defer output.Close()
 
 	entry := &LogEntry{
 		Timestamp: time.Now(),
@@ -198,7 +194,8 @@ func TestHTTPOutputNoAuth(t *testing.T) {
 	}
 	output.Write(entry)
 
-	time.Sleep(200 * time.Millisecond)
+	// Close flushes and waits for all sends to complete
+	output.Close()
 }
 
 func TestHTTPOutputServerError(t *testing.T) {
@@ -208,7 +205,6 @@ func TestHTTPOutputServerError(t *testing.T) {
 	defer server.Close()
 
 	output := NewHTTPOutput(server.URL, "", 1, 50*time.Millisecond)
-	defer output.Close()
 
 	entry := &LogEntry{
 		Timestamp: time.Now(),
@@ -220,6 +216,6 @@ func TestHTTPOutputServerError(t *testing.T) {
 	err := output.Write(entry)
 	assert.NoError(t, err) // Write only adds to buffer
 
-	// Wait for flush attempt
-	time.Sleep(100 * time.Millisecond)
+	// Close flushes and waits for all sends (including failed ones)
+	output.Close()
 }

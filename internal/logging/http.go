@@ -97,8 +97,12 @@ func (h *HTTPOutput) flushLocked() error {
 	copy(entries, h.buffer)
 	h.buffer = h.buffer[:0] // Clear buffer
 
-	// Send in background to avoid blocking
-	go h.sendBatch(entries)
+	// Send in background to avoid blocking, track goroutine for graceful shutdown
+	h.wg.Add(1)
+	go func() {
+		defer h.wg.Done()
+		h.sendBatch(entries)
+	}()
 
 	return nil
 }

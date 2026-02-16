@@ -198,12 +198,12 @@ func (a *FailingReplicationAdapter) GetObjectMetadata(ctx context.Context, bucke
 
 // MockS3Client implements S3Client interface for testing
 type MockS3Client struct {
-	sourceStore      *InMemoryObjectStore
-	destStore        *InMemoryObjectStore
-	tenantID         string
-	sourceBucket     string
+	sourceStore       *InMemoryObjectStore
+	destStore         *InMemoryObjectStore
+	tenantID          string
+	sourceBucket      string
 	destinationBucket string
-	t                *testing.T
+	t                 *testing.T
 }
 
 func (m *MockS3Client) PutObject(ctx context.Context, bucket, key string, data io.Reader, size int64, contentType string, metadata map[string]string) error {
@@ -414,12 +414,12 @@ func TestReplicationEndToEnd_WithInMemoryStores(t *testing.T) {
 	// Create mock S3 client factory
 	mockS3Factory := func(endpoint, region, accessKey, secretKey string) S3Client {
 		return &MockS3Client{
-			sourceStore:      sourceStore,
-			destStore:        destStore,
-			tenantID:         tenantID,
-			sourceBucket:     sourceBucket,
+			sourceStore:       sourceStore,
+			destStore:         destStore,
+			tenantID:          tenantID,
+			sourceBucket:      sourceBucket,
 			destinationBucket: destBucket,
-			t:                t,
+			t:                 t,
 		}
 	}
 
@@ -734,8 +734,13 @@ func TestReplicationRetries(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for retries and eventual success
-	// Queue loader runs every 10 seconds, and we need 3 attempts: 10s + 10s + 10s + buffer = 35s
-	time.Sleep(35 * time.Second)
+	// Queue loader runs every 10 seconds, and we need 3 attempts with retries
+	// Under heavy CI/CD load, the queue loader may be delayed, so we poll instead of sleep
+	require.Eventually(t, func() bool {
+		attemptMu.Lock()
+		defer attemptMu.Unlock()
+		return attemptCount >= 3
+	}, 90*time.Second, 1*time.Second, "Should have attempted 3 times within timeout")
 
 	attemptMu.Lock()
 	finalAttempts := attemptCount

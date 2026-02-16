@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,18 +19,34 @@ import (
 )
 
 func setupTestStore(t *testing.T) *metadata.BadgerStore {
-	tmpDir := t.TempDir()
+	tmpDir, err := os.MkdirTemp("", "maxiofs-notif-test-*")
+	require.NoError(t, err)
 	opts := metadata.BadgerOptions{
 		DataDir: tmpDir,
 	}
 	store, err := metadata.NewBadgerStore(opts)
 	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		store.Close()
+		// On Windows, BadgerDB may hold file handles briefly after Close().
+		// Retry removal to avoid flaky test failures in CI/CD.
+		if runtime.GOOS == "windows" {
+			for i := 0; i < 10; i++ {
+				if err := os.RemoveAll(tmpDir); err == nil {
+					return
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+		os.RemoveAll(tmpDir)
+	})
+
 	return store
 }
 
 func TestNewManager(t *testing.T) {
 	store := setupTestStore(t)
-	defer store.Close()
 
 	manager := NewManager(store)
 	assert.NotNil(t, manager)
@@ -38,7 +56,6 @@ func TestNewManager(t *testing.T) {
 
 func TestGetConfiguration_NotFound(t *testing.T) {
 	store := setupTestStore(t)
-	defer store.Close()
 
 	manager := NewManager(store)
 	ctx := context.Background()
@@ -50,7 +67,6 @@ func TestGetConfiguration_NotFound(t *testing.T) {
 
 func TestPutConfiguration(t *testing.T) {
 	store := setupTestStore(t)
-	defer store.Close()
 
 	manager := NewManager(store)
 	ctx := context.Background()
@@ -74,7 +90,6 @@ func TestPutConfiguration(t *testing.T) {
 
 func TestGetConfiguration(t *testing.T) {
 	store := setupTestStore(t)
-	defer store.Close()
 
 	manager := NewManager(store)
 	ctx := context.Background()
@@ -106,7 +121,6 @@ func TestGetConfiguration(t *testing.T) {
 
 func TestGetConfiguration_Cache(t *testing.T) {
 	store := setupTestStore(t)
-	defer store.Close()
 
 	manager := NewManager(store)
 	ctx := context.Background()
@@ -139,7 +153,6 @@ func TestGetConfiguration_Cache(t *testing.T) {
 
 func TestDeleteConfiguration(t *testing.T) {
 	store := setupTestStore(t)
-	defer store.Close()
 
 	manager := NewManager(store)
 	ctx := context.Background()
@@ -170,7 +183,6 @@ func TestDeleteConfiguration(t *testing.T) {
 
 func TestPutConfiguration_MultipleRules(t *testing.T) {
 	store := setupTestStore(t)
-	defer store.Close()
 
 	manager := NewManager(store)
 	ctx := context.Background()
@@ -204,7 +216,6 @@ func TestPutConfiguration_MultipleRules(t *testing.T) {
 
 func TestPutConfiguration_WithPrefix(t *testing.T) {
 	store := setupTestStore(t)
-	defer store.Close()
 
 	manager := NewManager(store)
 	ctx := context.Background()
@@ -233,7 +244,6 @@ func TestPutConfiguration_WithPrefix(t *testing.T) {
 
 func TestPutConfiguration_WithSuffix(t *testing.T) {
 	store := setupTestStore(t)
-	defer store.Close()
 
 	manager := NewManager(store)
 	ctx := context.Background()
@@ -299,7 +309,6 @@ func TestEventInfo_Validation(t *testing.T) {
 
 func TestNotificationRule_Disabled(t *testing.T) {
 	store := setupTestStore(t)
-	defer store.Close()
 
 	manager := NewManager(store)
 	ctx := context.Background()
@@ -327,7 +336,6 @@ func TestNotificationRule_Disabled(t *testing.T) {
 
 func TestNotificationConfiguration_UpdatedAt(t *testing.T) {
 	store := setupTestStore(t)
-	defer store.Close()
 
 	manager := NewManager(store)
 	ctx := context.Background()
@@ -361,7 +369,6 @@ func TestEventTypes(t *testing.T) {
 
 func TestNotificationRule_CustomHeaders(t *testing.T) {
 	store := setupTestStore(t)
-	defer store.Close()
 
 	manager := NewManager(store)
 	ctx := context.Background()
@@ -609,7 +616,6 @@ func TestGenerateSequencer(t *testing.T) {
 // Tests for createEvent method
 func TestCreateEvent(t *testing.T) {
 	store := setupTestStore(t)
-	defer store.Close()
 
 	manager := NewManager(store)
 
@@ -660,7 +666,6 @@ func TestCreateEvent(t *testing.T) {
 // Tests for matchesRule method
 func TestMatchesRule(t *testing.T) {
 	store := setupTestStore(t)
-	defer store.Close()
 
 	manager := NewManager(store)
 
@@ -862,8 +867,6 @@ func TestSendWebhook(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		defer store.Close()
-
 		manager := NewManager(store)
 
 		rule := NotificationRule{
@@ -895,8 +898,6 @@ func TestSendWebhook(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		defer store.Close()
-
 		manager := NewManager(store)
 
 		rule := NotificationRule{
@@ -937,8 +938,6 @@ func TestSendWebhook(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		defer store.Close()
-
 		manager := NewManager(store)
 
 		rule := NotificationRule{
@@ -972,8 +971,6 @@ func TestSendWebhook(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		defer store.Close()
-
 		manager := NewManager(store)
 
 		rule := NotificationRule{
@@ -1008,8 +1005,6 @@ func TestSendWebhook(t *testing.T) {
 				defer server.Close()
 
 				store := setupTestStore(t)
-				defer store.Close()
-
 				manager := NewManager(store)
 
 				rule := NotificationRule{
@@ -1046,8 +1041,6 @@ func TestSendEvent(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		defer store.Close()
-
 		manager := NewManager(store)
 		ctx := context.Background()
 
@@ -1098,8 +1091,6 @@ func TestSendEvent(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		defer store.Close()
-
 		manager := NewManager(store)
 		ctx := context.Background()
 
@@ -1129,8 +1120,6 @@ func TestSendEvent(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		defer store.Close()
-
 		manager := NewManager(store)
 		ctx := context.Background()
 
@@ -1176,8 +1165,6 @@ func TestSendEvent(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		defer store.Close()
-
 		manager := NewManager(store)
 		ctx := context.Background()
 
@@ -1233,8 +1220,6 @@ func TestSendEvent(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		defer store.Close()
-
 		manager := NewManager(store)
 		ctx := context.Background()
 
@@ -1292,8 +1277,6 @@ func TestSendEvent(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		defer store.Close()
-
 		manager := NewManager(store)
 		ctx := context.Background()
 
@@ -1349,8 +1332,6 @@ func TestSendEvent(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		defer store.Close()
-
 		manager := NewManager(store)
 		ctx := context.Background()
 
