@@ -70,8 +70,8 @@ func TestMigrationManager_GetTargetVersion(t *testing.T) {
 
 	targetVersion := manager.GetTargetVersion()
 	assert.Greater(t, targetVersion, 0)
-	// Should be 8 for current schema
-	assert.Equal(t, 8, targetVersion)
+	// Should be 9 for current schema (migration 9 = IDP tables)
+	assert.Equal(t, 9, targetVersion)
 }
 
 func TestMigrationManager_Migrate_EmptyDB(t *testing.T) {
