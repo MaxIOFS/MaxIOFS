@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SSO user creation from Users page** — Create User modal includes an "Authentication" dropdown listing active OAuth providers; password field hidden for SSO users; email auto-populated from username
 - **Email auto-sync for SSO users** — on each SSO login, if the user's email field is empty, it's populated from the OAuth provider profile; manual SSO user creation also auto-fills email from username
 - **SSO documentation** — comprehensive `docs/SSO.md` covering setup guide (Google, Microsoft), authorization model (group-based + individual), multi-tenant configuration, login page behavior, error reference
+- **Public version endpoint** — `GET /api/v1/version` returns server version without authentication; login page fetches version dynamically instead of relying on auth-required `/config` endpoint
 - Default password change notification — backend returns `default_password: true` on login with admin/admin, frontend shows persistent amber security warning in notification bell linking to user profile
 - `trusted_proxies` configuration option in `config.yaml` for public proxy IP/CIDR ranges
 
@@ -62,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added React Error Boundary around protected routes to catch render crashes with recovery UI
 - Duplicate username creation returned 500 with raw SQLite constraint error — now returns 409 Conflict with clear `"username 'x' already exists"` message and frontend shows "Duplicate entry" dialog
 - Duplicate tenant name creation had the same raw SQLite error — now returns 409 Conflict with `"tenant name 'x' already exists"`
+- **Login page UI** — removed visible background rectangles on "or continue with" divider and input hover states that clashed with the card design; divider now uses flex+gap layout instead of absolute-positioned text with opaque background
 - **OAuth redirect method** — changed `startOAuthFlow` from `307 Temporary Redirect` to `302 Found`; 307 preserves the POST method and body, causing the form data (`email`, `preset`) to be forwarded to Google/Microsoft which reject unknown parameters
 - **OAuth test connection response** — `handleTestIDPConnection` success response now wrapped in `APIResponse` format; frontend was reading `response.data.data` which was undefined without the wrapper
 - **OAuth group sync username** — group sync handlers now use `member.Email` as username when provider type is `oauth2` instead of the LDAP-style username
@@ -81,6 +83,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - IDP store: SQLite CRUD for providers and group mappings, tenant filtering, cascade delete, unique constraint, sync time (17 tests)
 - IDP manager: create/get/update/delete with encryption, masking, cache invalidation, group mapping CRUD (13 tests)
 - Frontend IDP: page rendering, search filtering, delete confirmation, test connection, permission check, badge component (11 tests)
+- OAuth provider: NewProvider with Google/Microsoft/custom presets, TestConnection field validation, GetAuthURL with/without login_hint, fetchUserInfo with mock HTTP (standard claims, custom claims, groups, missing email, errors), ExchangeCode error handling, ApplyGooglePreset (24 sub-tests)
+- LDAP provider: EscapeFilter with LDAP injection prevention (8 cases), EntryToExternalUser with default/custom attribute mapping and fallback chain (uid→sAMAccountName→cn), getUserAttributes default vs custom, connection error handling for all provider methods, unsupported OAuth methods (14 tests)
+- Server IDP handlers: resolveRoleFromMappings role priority (admin>user>readonly, 10 scenarios), CRUD handler auth/validation/404 checks, group mapping handlers, OAuth callback CSRF validation and state parsing, handleOAuthStart JSON/form data, handleListOAuthProviders preset deduplication, sync handlers, helper functions (getAuthUser, isAdmin, isGlobalAdmin) (55+ sub-tests)
 
 ### Verified (No Changes Needed)
 - Race condition in cluster cache — all `c.entries` accesses already properly protected with `sync.RWMutex`

@@ -1,7 +1,7 @@
 # MaxIOFS - Development Roadmap
 
 **Version**: 0.9.0-beta
-**Last Updated**: February 15, 2026
+**Last Updated**: February 16, 2026
 **Status**: Beta - S3 Core 100% Compatible
 
 ## 📊 Project Status
@@ -156,7 +156,10 @@
 - [ ] Deduplication
 - [x] Unit tests for IDP crypto, store (SQLite CRUD), manager (encrypt/decrypt/mask/cache)
 - [x] Frontend tests for IDP page (list, search, delete, test connection, permissions, badges)
-- [ ] Unit tests for LDAP provider (mock), OAuth provider (mock HTTP), modified handleLogin
+- [x] Unit tests for OAuth provider: presets, TestConnection, GetAuthURL, fetchUserInfo with mock HTTP, ExchangeCode error handling (24 sub-tests)
+- [x] Unit tests for LDAP provider: EscapeFilter injection prevention, EntryToExternalUser attribute mapping/fallbacks, getUserAttributes, connection error handling (14 tests)
+- [x] Unit tests for server IDP handlers: resolveRoleFromMappings role priority, CRUD auth/validation, OAuth callback CSRF/state, handleOAuthStart, preset deduplication, sync handlers, helpers (55+ sub-tests)
+- [x] Public version endpoint (`GET /api/v1/version`) — login page fetches version dynamically
 - [ ] Integration tests for IDP import/sync flows
 
 ### v1.0.0-RC (Q3 2026)
