@@ -18,7 +18,6 @@ import {
   Heart,
   Send,
   FileJson,
-  RefreshCw,
   Layers,
   Network,
   Copy,
@@ -191,7 +190,7 @@ export default function AboutPage() {
             <FeatureCard
               icon={Database}
               title="S3 Compatible"
-              description="Full S3 API implementation with 40+ operations including multipart uploads, presigned URLs, and bulk operations (up to 1000 objects)"
+              description="Full S3 API implementation with 40+ operations including multipart uploads, presigned URLs, DeleteObjects bulk API (up to 1000), and bucket notifications (webhooks)"
             />
             <FeatureCard
               icon={Shield}
@@ -232,11 +231,6 @@ export default function AboutPage() {
               icon={Network}
               title="High Availability Cluster"
               description="Multi-node cluster with intelligent routing, HMAC-authenticated HA replication, health monitoring, and automatic failover"
-            />
-            <FeatureCard
-              icon={RefreshCw}
-              title="Bulk Operations"
-              description="DeleteObjects API (up to 1000 objects), sequential processing to avoid conflicts, complete metadata consistency"
             />
             <FeatureCard
               icon={Layers}

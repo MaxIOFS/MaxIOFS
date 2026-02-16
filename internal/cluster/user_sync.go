@@ -33,6 +33,8 @@ type UserData struct {
 	LastFailedLogin     int64  `json:"last_failed_login"`
 	ThemePreference     string `json:"theme_preference"`
 	LanguagePreference  string `json:"language_preference"`
+	AuthProvider        string `json:"auth_provider"`
+	ExternalID          string `json:"external_id"`
 	CreatedAt           int64  `json:"created_at"`
 	UpdatedAt           int64  `json:"updated_at"`
 }
@@ -157,10 +159,10 @@ func (m *UserSyncManager) syncAllUsers(ctx context.Context) {
 		for _, node := range targetNodes {
 			if err := m.syncUserToNode(ctx, user, node, localNodeID); err != nil {
 				m.log.WithFields(logrus.Fields{
-					"user_id": user.ID,
+					"user_id":  user.ID,
 					"username": user.Username,
-					"node_id": node.ID,
-					"error":   err,
+					"node_id":  node.ID,
+					"error":    err,
 				}).Warn("Failed to sync user to node")
 			}
 		}
@@ -255,6 +257,7 @@ func (m *UserSyncManager) listLocalUsers(ctx context.Context) ([]*UserData, erro
 		       COALESCE(tenant_id, ''), COALESCE(roles, ''), COALESCE(policies, ''),
 		       COALESCE(metadata, ''), failed_login_attempts, locked_until,
 		       last_failed_login, theme_preference, language_preference,
+		       COALESCE(auth_provider, 'local'), COALESCE(external_id, ''),
 		       created_at, updated_at
 		FROM users
 		WHERE status != 'deleted'
@@ -285,6 +288,8 @@ func (m *UserSyncManager) listLocalUsers(ctx context.Context) ([]*UserData, erro
 			&user.LastFailedLogin,
 			&user.ThemePreference,
 			&user.LanguagePreference,
+			&user.AuthProvider,
+			&user.ExternalID,
 			&user.CreatedAt,
 			&user.UpdatedAt,
 		)
@@ -300,7 +305,7 @@ func (m *UserSyncManager) listLocalUsers(ctx context.Context) ([]*UserData, erro
 // computeUserChecksum computes a checksum for user data to detect changes
 func (m *UserSyncManager) computeUserChecksum(user *UserData) string {
 	// Create a string representation of relevant user fields
-	data := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%d|%d|%s|%s|%d",
+	data := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%d|%d|%s|%s|%s|%s|%d",
 		user.Username,
 		user.PasswordHash,
 		user.DisplayName,
@@ -314,6 +319,8 @@ func (m *UserSyncManager) computeUserChecksum(user *UserData) string {
 		user.LockedUntil,
 		user.ThemePreference,
 		user.LanguagePreference,
+		user.AuthProvider,
+		user.ExternalID,
 		user.UpdatedAt,
 	)
 

@@ -66,6 +66,8 @@ type Server struct {
 	userSyncMgr             *cluster.UserSyncManager
 	accessKeySyncMgr        *cluster.AccessKeySyncManager
 	bucketPermissionSyncMgr *cluster.BucketPermissionSyncManager
+	idpProviderSyncMgr      *cluster.IDPProviderSyncManager
+	groupMappingSyncMgr     *cluster.GroupMappingSyncManager
 	notificationHub         *NotificationHub
 	systemMetrics           *metrics.SystemMetricsTracker
 	lifecycleWorker         *lifecycle.Worker
@@ -326,6 +328,12 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize bucket permission synchronization manager
 	bucketPermissionSyncMgr := cluster.NewBucketPermissionSyncManager(db, clusterManager)
 
+	// Initialize IDP provider synchronization manager
+	idpProviderSyncMgr := cluster.NewIDPProviderSyncManager(db, clusterManager)
+
+	// Initialize group mapping synchronization manager
+	groupMappingSyncMgr := cluster.NewGroupMappingSyncManager(db, clusterManager)
+
 	// Initialize cluster replication manager
 	clusterReplicationMgr := cluster.NewClusterReplicationManager(db, clusterManager, objectManager, tenantSyncMgr)
 
@@ -371,6 +379,8 @@ func New(cfg *config.Config) (*Server, error) {
 		userSyncMgr:             userSyncMgr,
 		accessKeySyncMgr:        accessKeySyncMgr,
 		bucketPermissionSyncMgr: bucketPermissionSyncMgr,
+		idpProviderSyncMgr:      idpProviderSyncMgr,
+		groupMappingSyncMgr:     groupMappingSyncMgr,
 		notificationHub:         notificationHub,
 		systemMetrics:           systemMetrics,
 		lifecycleWorker:         lifecycleWorker,
@@ -485,6 +495,18 @@ func (s *Server) Start(ctx context.Context) error {
 		if s.bucketPermissionSyncMgr != nil {
 			s.bucketPermissionSyncMgr.Start(ctx)
 			logrus.Info("Bucket permission synchronization manager started")
+		}
+
+		// Start IDP provider synchronization manager
+		if s.idpProviderSyncMgr != nil {
+			s.idpProviderSyncMgr.Start(ctx)
+			logrus.Info("IDP provider synchronization manager started")
+		}
+
+		// Start group mapping synchronization manager
+		if s.groupMappingSyncMgr != nil {
+			s.groupMappingSyncMgr.Start(ctx)
+			logrus.Info("Group mapping synchronization manager started")
 		}
 
 		// Start cluster replication manager
@@ -745,6 +767,8 @@ func (s *Server) setupRoutes() error {
 			// Synchronization endpoints
 			internalClusterRouter.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
 			internalClusterRouter.HandleFunc("/bucket-permission-sync", s.handleReceiveBucketPermissionSync).Methods("POST")
+			internalClusterRouter.HandleFunc("/idp-provider-sync", s.handleReceiveIDPProviderSync).Methods("POST")
+			internalClusterRouter.HandleFunc("/group-mapping-sync", s.handleReceiveGroupMappingSync).Methods("POST")
 
 			// Bucket aggregation endpoint (for cross-node bucket listing)
 			internalClusterRouter.HandleFunc("/buckets", s.handleGetLocalBuckets).Methods("GET")

@@ -49,12 +49,12 @@ func (s *Server) handleReceiveObjectReplication(w http.ResponseWriter, r *http.R
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"tenant_id":        tenantID,
-		"bucket":           bucket,
-		"key":              key,
-		"source_node_id":   sourceNodeID,
-		"source_version":   sourceVersionID,
-		"size":             size,
+		"tenant_id":      tenantID,
+		"bucket":         bucket,
+		"key":            key,
+		"source_node_id": sourceNodeID,
+		"source_version": sourceVersionID,
+		"size":           size,
 	}).Info("Receiving object replication")
 
 	// Store object using ObjectManager.PutObject()
@@ -207,30 +207,30 @@ func (s *Server) storeReplicatedObjectMetadata(ctx context.Context, tenantID, bu
 	// For now, just log that we would store the object
 	// In real implementation, this would call ObjectManager.PutObject()
 	logrus.WithFields(logrus.Fields{
-		"tenant_id":  tenantID,
-		"bucket":     bucket,
-		"key":        key,
-		"size":       size,
-		"etag":       etag,
-		"content_type": contentType,
+		"tenant_id":      tenantID,
+		"bucket":         bucket,
+		"key":            key,
+		"size":           size,
+		"etag":           etag,
+		"content_type":   contentType,
 		"source_version": sourceVersionID,
 	}).Debug("Would store replicated object via ObjectManager")
 
 	// TODO: Uncomment when ObjectManager integration is ready
 	/*
-	// Parse metadata JSON
-	var metadataMap map[string]string
-	if metadata != "" {
-		if err := json.Unmarshal([]byte(metadata), &metadataMap); err != nil {
-			return fmt.Errorf("failed to parse metadata: %w", err)
+		// Parse metadata JSON
+		var metadataMap map[string]string
+		if metadata != "" {
+			if err := json.Unmarshal([]byte(metadata), &metadataMap); err != nil {
+				return fmt.Errorf("failed to parse metadata: %w", err)
+			}
 		}
-	}
 
-	// Store object via ObjectManager (will auto-encrypt with this node's key)
-	err = s.objectManager.PutObject(ctx, tenantID, bucket, key, reader, size, contentType, metadataMap)
-	if err != nil {
-		return fmt.Errorf("failed to store object: %w", err)
-	}
+		// Store object via ObjectManager (will auto-encrypt with this node's key)
+		err = s.objectManager.PutObject(ctx, tenantID, bucket, key, reader, size, contentType, metadataMap)
+		if err != nil {
+			return fmt.Errorf("failed to store object: %w", err)
+		}
 	*/
 
 	return nil
@@ -249,10 +249,10 @@ func (s *Server) deleteReplicatedObject(ctx context.Context, tenantID, bucket, k
 
 	// TODO: Uncomment when ObjectManager integration is ready
 	/*
-	err := s.objectManager.DeleteObject(ctx, tenantID, bucket, key)
-	if err != nil && err != ErrObjectNotFound {
-		return fmt.Errorf("failed to delete object: %w", err)
-	}
+		err := s.objectManager.DeleteObject(ctx, tenantID, bucket, key)
+		if err != nil && err != ErrObjectNotFound {
+			return fmt.Errorf("failed to delete object: %w", err)
+		}
 	*/
 
 	return nil
@@ -273,14 +273,14 @@ func (s *Server) handleReceiveBucketPermission(w http.ResponseWriter, r *http.Re
 
 	// Parse permission data from JSON body
 	var permissionData struct {
-		ID              string  `json:"id"`
-		BucketName      string  `json:"bucket_name"`
-		UserID          string  `json:"user_id"`
-		TenantID        string  `json:"tenant_id"`
-		PermissionLevel string  `json:"permission_level"`
-		GrantedBy       string  `json:"granted_by"`
-		GrantedAt       int64   `json:"granted_at"`
-		ExpiresAt       *int64  `json:"expires_at,omitempty"`
+		ID              string `json:"id"`
+		BucketName      string `json:"bucket_name"`
+		UserID          string `json:"user_id"`
+		TenantID        string `json:"tenant_id"`
+		PermissionLevel string `json:"permission_level"`
+		GrantedBy       string `json:"granted_by"`
+		GrantedAt       int64  `json:"granted_at"`
+		ExpiresAt       *int64 `json:"expires_at,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&permissionData); err != nil {
@@ -765,5 +765,249 @@ func (s *Server) handleReceiveBucketInventory(w http.ResponseWriter, r *http.Req
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Inventory configuration migrated successfully",
+	})
+}
+
+// handleReceiveIDPProviderSync handles incoming IDP provider synchronization from other nodes
+// POST /api/internal/cluster/idp-provider-sync
+func (s *Server) handleReceiveIDPProviderSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get source node ID from context (set by auth middleware)
+	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
+	if !ok {
+		logrus.Warn("Cluster node ID not found in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse IDP provider data from JSON body
+	var providerData struct {
+		ID        string `json:"id"`
+		Name      string `json:"name"`
+		Type      string `json:"type"`
+		TenantID  string `json:"tenant_id"`
+		Status    string `json:"status"`
+		Config    string `json:"config"`
+		CreatedBy string `json:"created_by"`
+		CreatedAt int64  `json:"created_at"`
+		UpdatedAt int64  `json:"updated_at"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&providerData); err != nil {
+		logrus.WithError(err).Error("Failed to decode IDP provider data")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	logrus.WithFields(logrus.Fields{
+		"source_node_id": sourceNodeID,
+		"provider_id":    providerData.ID,
+		"provider_name":  providerData.Name,
+		"provider_type":  providerData.Type,
+	}).Info("Receiving IDP provider from synchronization")
+
+	// Handle NULL tenant_id
+	var tenantID interface{}
+	if providerData.TenantID != "" {
+		tenantID = providerData.TenantID
+	}
+
+	// Check if provider exists
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM identity_providers WHERE id = ?)`, providerData.ID).Scan(&exists)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to check IDP provider existence")
+		http.Error(w, fmt.Sprintf("Failed to check provider: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	now := time.Now().Unix()
+
+	if exists {
+		// Update existing provider
+		_, err = s.db.ExecContext(ctx, `
+			UPDATE identity_providers SET
+				name = ?, type = ?, tenant_id = ?, status = ?, config = ?, updated_at = ?
+			WHERE id = ?
+		`,
+			providerData.Name,
+			providerData.Type,
+			tenantID,
+			providerData.Status,
+			providerData.Config,
+			now,
+			providerData.ID,
+		)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to update IDP provider")
+			http.Error(w, fmt.Sprintf("Failed to sync provider: %v", err), http.StatusInternalServerError)
+			return
+		}
+		logrus.WithField("provider_id", providerData.ID).Debug("Updated existing IDP provider")
+	} else {
+		// Insert new provider
+		_, err = s.db.ExecContext(ctx, `
+			INSERT INTO identity_providers (id, name, type, tenant_id, status, config, created_by, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`,
+			providerData.ID,
+			providerData.Name,
+			providerData.Type,
+			tenantID,
+			providerData.Status,
+			providerData.Config,
+			providerData.CreatedBy,
+			providerData.CreatedAt,
+			now,
+		)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to insert IDP provider")
+			http.Error(w, fmt.Sprintf("Failed to sync provider: %v", err), http.StatusInternalServerError)
+			return
+		}
+		logrus.WithField("provider_id", providerData.ID).Debug("Inserted new IDP provider")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"provider_id":   providerData.ID,
+		"provider_name": providerData.Name,
+	}).Info("IDP provider synchronized successfully")
+
+	// Return success
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "IDP provider synchronized successfully",
+	})
+}
+
+// handleReceiveGroupMappingSync handles incoming IDP group mapping synchronization from other nodes
+// POST /api/internal/cluster/group-mapping-sync
+func (s *Server) handleReceiveGroupMappingSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get source node ID from context (set by auth middleware)
+	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
+	if !ok {
+		logrus.Warn("Cluster node ID not found in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse group mapping data from JSON body
+	var mappingData struct {
+		ID                string `json:"id"`
+		ProviderID        string `json:"provider_id"`
+		ExternalGroup     string `json:"external_group"`
+		ExternalGroupName string `json:"external_group_name"`
+		Role              string `json:"role"`
+		TenantID          string `json:"tenant_id"`
+		AutoSync          bool   `json:"auto_sync"`
+		LastSyncedAt      int64  `json:"last_synced_at"`
+		CreatedAt         int64  `json:"created_at"`
+		UpdatedAt         int64  `json:"updated_at"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&mappingData); err != nil {
+		logrus.WithError(err).Error("Failed to decode group mapping data")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	logrus.WithFields(logrus.Fields{
+		"source_node_id": sourceNodeID,
+		"mapping_id":     mappingData.ID,
+		"provider_id":    mappingData.ProviderID,
+		"external_group": mappingData.ExternalGroupName,
+	}).Info("Receiving group mapping from synchronization")
+
+	// Handle NULL tenant_id
+	var tenantID interface{}
+	if mappingData.TenantID != "" {
+		tenantID = mappingData.TenantID
+	}
+
+	// Handle NULL last_synced_at
+	var lastSyncedAt interface{}
+	if mappingData.LastSyncedAt > 0 {
+		lastSyncedAt = mappingData.LastSyncedAt
+	}
+
+	// Check if mapping exists
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM idp_group_mappings WHERE id = ?)`, mappingData.ID).Scan(&exists)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to check group mapping existence")
+		http.Error(w, fmt.Sprintf("Failed to check mapping: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	now := time.Now().Unix()
+
+	if exists {
+		// Update existing mapping
+		_, err = s.db.ExecContext(ctx, `
+			UPDATE idp_group_mappings SET
+				provider_id = ?, external_group = ?, external_group_name = ?,
+				role = ?, tenant_id = ?, auto_sync = ?, last_synced_at = ?, updated_at = ?
+			WHERE id = ?
+		`,
+			mappingData.ProviderID,
+			mappingData.ExternalGroup,
+			mappingData.ExternalGroupName,
+			mappingData.Role,
+			tenantID,
+			mappingData.AutoSync,
+			lastSyncedAt,
+			now,
+			mappingData.ID,
+		)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to update group mapping")
+			http.Error(w, fmt.Sprintf("Failed to sync mapping: %v", err), http.StatusInternalServerError)
+			return
+		}
+		logrus.WithField("mapping_id", mappingData.ID).Debug("Updated existing group mapping")
+	} else {
+		// Insert new mapping
+		_, err = s.db.ExecContext(ctx, `
+			INSERT INTO idp_group_mappings (id, provider_id, external_group, external_group_name,
+				role, tenant_id, auto_sync, last_synced_at, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`,
+			mappingData.ID,
+			mappingData.ProviderID,
+			mappingData.ExternalGroup,
+			mappingData.ExternalGroupName,
+			mappingData.Role,
+			tenantID,
+			mappingData.AutoSync,
+			lastSyncedAt,
+			mappingData.CreatedAt,
+			now,
+		)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to insert group mapping")
+			http.Error(w, fmt.Sprintf("Failed to sync mapping: %v", err), http.StatusInternalServerError)
+			return
+		}
+		logrus.WithField("mapping_id", mappingData.ID).Debug("Inserted new group mapping")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"mapping_id":     mappingData.ID,
+		"external_group": mappingData.ExternalGroupName,
+	}).Info("Group mapping synchronized successfully")
+
+	// Return success
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Group mapping synchronized successfully",
 	})
 }

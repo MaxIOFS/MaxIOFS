@@ -46,6 +46,16 @@ func InitReplicationSchema(db *sql.DB) error {
 		return fmt.Errorf("failed to create cluster_bucket_permission_sync table: %w", err)
 	}
 
+	// Create cluster_idp_provider_sync table
+	if err := createClusterIDPProviderSyncTable(ctx, db); err != nil {
+		return fmt.Errorf("failed to create cluster_idp_provider_sync table: %w", err)
+	}
+
+	// Create cluster_group_mapping_sync table
+	if err := createClusterGroupMappingSyncTable(ctx, db); err != nil {
+		return fmt.Errorf("failed to create cluster_group_mapping_sync table: %w", err)
+	}
+
 	// Create cluster_global_config table
 	if err := createClusterGlobalConfigTable(ctx, db); err != nil {
 		return fmt.Errorf("failed to create cluster_global_config table: %w", err)
@@ -309,6 +319,22 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 			value:       "30",
 			description: "Interval for bucket permission synchronization checks in seconds",
 		},
+		"auto_idp_provider_sync_enabled": {
+			value:       "true",
+			description: "Enable automatic IDP provider synchronization between all nodes",
+		},
+		"idp_provider_sync_interval_seconds": {
+			value:       "30",
+			description: "Interval for IDP provider synchronization checks in seconds",
+		},
+		"auto_group_mapping_sync_enabled": {
+			value:       "true",
+			description: "Enable automatic IDP group mapping synchronization between all nodes",
+		},
+		"group_mapping_sync_interval_seconds": {
+			value:       "30",
+			description: "Interval for IDP group mapping synchronization checks in seconds",
+		},
 		"replication_worker_count": {
 			value:       "5",
 			description: "Number of concurrent replication workers",
@@ -332,6 +358,54 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// createClusterIDPProviderSyncTable creates the table for tracking IDP provider synchronization
+func createClusterIDPProviderSyncTable(ctx context.Context, db *sql.DB) error {
+	query := `
+	CREATE TABLE IF NOT EXISTS cluster_idp_provider_sync (
+		id TEXT PRIMARY KEY,
+		provider_id TEXT NOT NULL,
+		source_node_id TEXT NOT NULL,
+		destination_node_id TEXT NOT NULL,
+		provider_checksum TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		last_sync_at TIMESTAMP,
+		last_error TEXT,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL,
+		UNIQUE(provider_id, destination_node_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_cluster_idp_provider_sync_provider ON cluster_idp_provider_sync(provider_id);
+	CREATE INDEX IF NOT EXISTS idx_cluster_idp_provider_sync_dest ON cluster_idp_provider_sync(destination_node_id);
+	CREATE INDEX IF NOT EXISTS idx_cluster_idp_provider_sync_status ON cluster_idp_provider_sync(status);
+	`
+	_, err := db.ExecContext(ctx, query)
+	return err
+}
+
+// createClusterGroupMappingSyncTable creates the table for tracking IDP group mapping synchronization
+func createClusterGroupMappingSyncTable(ctx context.Context, db *sql.DB) error {
+	query := `
+	CREATE TABLE IF NOT EXISTS cluster_group_mapping_sync (
+		id TEXT PRIMARY KEY,
+		mapping_id TEXT NOT NULL,
+		source_node_id TEXT NOT NULL,
+		destination_node_id TEXT NOT NULL,
+		mapping_checksum TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		last_sync_at TIMESTAMP,
+		last_error TEXT,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL,
+		UNIQUE(mapping_id, destination_node_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_cluster_group_mapping_sync_mapping ON cluster_group_mapping_sync(mapping_id);
+	CREATE INDEX IF NOT EXISTS idx_cluster_group_mapping_sync_dest ON cluster_group_mapping_sync(destination_node_id);
+	CREATE INDEX IF NOT EXISTS idx_cluster_group_mapping_sync_status ON cluster_group_mapping_sync(status);
+	`
+	_, err := db.ExecContext(ctx, query)
+	return err
 }
 
 // GetGlobalConfig retrieves a global configuration value

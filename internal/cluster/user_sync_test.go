@@ -51,6 +51,8 @@ func TestUserSyncManager_ListLocalUsers(t *testing.T) {
 			last_failed_login INTEGER DEFAULT 0,
 			theme_preference TEXT DEFAULT 'light',
 			language_preference TEXT DEFAULT 'en',
+			auth_provider TEXT NOT NULL DEFAULT 'local',
+			external_id TEXT,
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL
 		)
@@ -392,6 +394,8 @@ func TestUserSyncManager_SyncLoop(t *testing.T) {
 			last_failed_login INTEGER DEFAULT 0,
 			theme_preference TEXT DEFAULT 'light',
 			language_preference TEXT DEFAULT 'en',
+			auth_provider TEXT NOT NULL DEFAULT 'local',
+			external_id TEXT,
 			created_at INTEGER,
 			updated_at INTEGER
 		)

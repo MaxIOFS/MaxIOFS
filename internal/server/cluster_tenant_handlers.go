@@ -208,6 +208,8 @@ func (s *Server) handleReceiveUserSync(w http.ResponseWriter, r *http.Request) {
 		LastFailedLogin     int64  `json:"last_failed_login"`
 		ThemePreference     string `json:"theme_preference"`
 		LanguagePreference  string `json:"language_preference"`
+		AuthProvider        string `json:"auth_provider"`
+		ExternalID          string `json:"external_id"`
 		CreatedAt           int64  `json:"created_at"`
 		UpdatedAt           int64  `json:"updated_at"`
 	}
@@ -261,6 +263,8 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 	LastFailedLogin     int64  `json:"last_failed_login"`
 	ThemePreference     string `json:"theme_preference"`
 	LanguagePreference  string `json:"language_preference"`
+	AuthProvider        string `json:"auth_provider"`
+	ExternalID          string `json:"external_id"`
 	CreatedAt           int64  `json:"created_at"`
 	UpdatedAt           int64  `json:"updated_at"`
 }) error {
@@ -297,6 +301,8 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 				last_failed_login = ?,
 				theme_preference = ?,
 				language_preference = ?,
+				auth_provider = ?,
+				external_id = ?,
 				updated_at = ?
 			WHERE id = ?
 		`,
@@ -314,6 +320,8 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 			user.LastFailedLogin,
 			user.ThemePreference,
 			user.LanguagePreference,
+			user.AuthProvider,
+			user.ExternalID,
 			now,
 			user.ID,
 		)
@@ -329,8 +337,8 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 				id, username, password_hash, display_name, email, status, tenant_id,
 				roles, policies, metadata, failed_login_attempts, locked_until,
 				last_failed_login, theme_preference, language_preference,
-				created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				auth_provider, external_id, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
 			user.ID,
 			user.Username,
@@ -347,6 +355,8 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 			user.LastFailedLogin,
 			user.ThemePreference,
 			user.LanguagePreference,
+			user.AuthProvider,
+			user.ExternalID,
 			user.CreatedAt,
 			now,
 		)
