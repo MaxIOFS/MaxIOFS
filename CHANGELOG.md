@@ -8,8 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **Frontend: IDP tenant column always showed "Global"** — `IdentityProvider` TypeScript type used `tenant_id` (snake_case) but backend sends `tenantId` (camelCase), causing the field to always be `undefined`. Fixed JSON key mismatch and resolved tenant IDs to display names.
-- **Frontend: No tenant selector when creating IDPs** — global admins could not assign an IDP to a specific tenant. Added tenant dropdown to the Create/Edit IDP modal (visible only to global admins), defaulting to "Global (all tenants)".
+- **IDP tenant isolation** — Tenant admins could see global IDPs and IDPs from other tenants. `ListProviders` SQL query included `OR tenant_id IS NULL`; `handleGetIDP`, `handleUpdateIDP`, and `handleDeleteIDP` had a `TenantID != ""` bypass that granted access to global IDPs. All handlers now enforce strict tenant scoping: tenant admins can only list, view, update, and delete IDPs belonging to their own tenant.
+- **IDP tenant column always showed "Global"** — `IdentityProvider` TypeScript type used `tenant_id` (snake_case) but backend JSON tag is `tenantId` (camelCase), so the field was always `undefined`. Fixed the type and all references (page, modal, tests). IDP list now resolves tenant IDs to display names via a tenants query.
+- **No tenant selector when creating/editing IDPs** — Global admins had no way to assign an IDP to a specific tenant from the UI. Added a tenant dropdown to `CreateIDPModal` (only visible to global admins) with "Global (all tenants)" as default, populated from the tenants API. `handleSubmit` now includes `tenantId` in the payload; edit mode pre-populates the current value.
 
 ---
 

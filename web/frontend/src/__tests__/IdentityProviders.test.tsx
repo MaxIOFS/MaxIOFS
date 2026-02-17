@@ -64,7 +64,7 @@ describe('Identity Providers Page', () => {
       name: 'Corporate AD',
       type: 'ldap',
       status: 'active',
-      tenant_id: '',
+      tenantId: '',
       config: {
         ldap: {
           host: 'ldap.corp.com',
@@ -92,7 +92,7 @@ describe('Identity Providers Page', () => {
       name: 'Google SSO',
       type: 'oauth2',
       status: 'active',
-      tenant_id: '',
+      tenantId: '',
       config: {
         oauth2: {
           preset: 'google',

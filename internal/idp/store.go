@@ -131,11 +131,11 @@ func (s *Store) ListProviders(tenantID string) ([]*IdentityProvider, error) {
 			ORDER BY created_at DESC
 		`)
 	} else {
-		// Tenant admin: see own + global
+		// Tenant admin: see only own tenant's providers
 		rows, err = s.db.Query(`
 			SELECT id, name, type, tenant_id, status, config, created_by, created_at, updated_at
 			FROM identity_providers
-			WHERE tenant_id = ? OR tenant_id IS NULL
+			WHERE tenant_id = ?
 			ORDER BY created_at DESC
 		`, tenantID)
 	}

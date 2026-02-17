@@ -124,7 +124,7 @@ func (s *Server) handleGetIDP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.isGlobalAdmin(user) && provider.TenantID != "" && provider.TenantID != user.TenantID {
+	if !s.isGlobalAdmin(user) && provider.TenantID != user.TenantID {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}
@@ -147,7 +147,7 @@ func (s *Server) handleUpdateIDP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.isGlobalAdmin(user) && existing.TenantID != "" && existing.TenantID != user.TenantID {
+	if !s.isGlobalAdmin(user) && existing.TenantID != user.TenantID {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}
@@ -204,7 +204,7 @@ func (s *Server) handleDeleteIDP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.isGlobalAdmin(user) && existing.TenantID != "" && existing.TenantID != user.TenantID {
+	if !s.isGlobalAdmin(user) && existing.TenantID != user.TenantID {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}

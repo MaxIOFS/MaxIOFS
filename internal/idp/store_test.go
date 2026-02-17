@@ -247,14 +247,11 @@ func TestListProviders_TenantFiltered(t *testing.T) {
 	require.NoError(t, store.CreateProvider(makeTestProvider("idp-a", "Tenant A IDP", TypeOAuth2, "tenant-a")))
 	require.NoError(t, store.CreateProvider(makeTestProvider("idp-b", "Tenant B IDP", TypeLDAP, "tenant-b")))
 
-	// Tenant A admin sees global + own
+	// Tenant A admin sees only own tenant's providers
 	filtered, err := store.ListProviders("tenant-a")
 	require.NoError(t, err)
-	assert.Len(t, filtered, 2)
-
-	ids := []string{filtered[0].ID, filtered[1].ID}
-	assert.Contains(t, ids, "idp-g")
-	assert.Contains(t, ids, "idp-a")
+	assert.Len(t, filtered, 1)
+	assert.Equal(t, "idp-a", filtered[0].ID)
 }
 
 func TestListActiveOAuthProviders(t *testing.T) {
