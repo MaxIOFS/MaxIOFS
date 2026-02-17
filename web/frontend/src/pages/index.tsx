@@ -222,10 +222,10 @@ export default function Dashboard() {
       </div>
 
       {/* Charts and Analytics */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
         {/* Storage Distribution Pie Chart */}
-        <Card>
-          <CardHeader>
+        <Card className="flex flex-col">
+          <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
               <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
                 <BarChart3 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
@@ -234,11 +234,11 @@ export default function Dashboard() {
             </CardTitle>
             <p className="text-sm text-gray-500 dark:text-gray-400">Top 5 buckets by size</p>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex-1 flex flex-col justify-center">
             {storageDistribution.length > 0 ? (
-              <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-                <div className="w-full md:w-1/2 min-h-[200px]">
-                  <ResponsiveContainer width="100%" height={200} minWidth={200}>
+              <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="w-full md:w-1/2">
+                  <ResponsiveContainer width="100%" height={180} minWidth={180}>
                     <PieChart>
                       <Pie
                         data={storageDistribution}
@@ -277,9 +277,9 @@ export default function Dashboard() {
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="w-full md:w-1/2 space-y-2">
+                <div className="w-full md:w-1/2 space-y-1.5">
                   {storageDistribution.map((item: any, index: number) => (
-                    <div key={index} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                    <div key={index} className="flex items-center justify-between p-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
                         <div
                           className="w-3 h-3 rounded-full flex-shrink-0"
@@ -308,7 +308,7 @@ export default function Dashboard() {
         </Card>
 
         {/* Top Buckets Bar Chart */}
-        <Card>
+        <Card className="flex flex-col">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-lg">
@@ -318,10 +318,10 @@ export default function Dashboard() {
             </CardTitle>
             <p className="text-sm text-gray-500 dark:text-gray-400">Largest buckets by storage</p>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex-1">
             {topBuckets.length > 0 ? (
               <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={topBuckets} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+                <BarChart data={topBuckets} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
                   <CartesianGrid
                     strokeDasharray="3 3"
                     stroke={isDarkMode ? '#4b5563' : '#e5e7eb'}
@@ -338,13 +338,22 @@ export default function Dashboard() {
                     height={60}
                   />
                   <YAxis
+                    width={70}
                     tick={{
-                      fontSize: 12,
+                      fontSize: 11,
                       fill: isDarkMode ? '#d1d5db' : '#6b7280'
                     }}
-                    tickFormatter={(value) => formatBytes(value)}
+                    tickFormatter={(value) => {
+                      if (value === 0) return '0';
+                      const k = 1024;
+                      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                      const i = Math.floor(Math.log(value) / Math.log(k));
+                      const num = value / Math.pow(k, i);
+                      return `${num % 1 === 0 ? num.toFixed(0) : num.toFixed(1)} ${sizes[i]}`;
+                    }}
                   />
                   <RechartsTooltip
+                    cursor={{ fill: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)', radius: 4 }}
                     formatter={(value: any, name: string) => {
                       if (name === 'size') return formatBytes(value);
                       return value.toLocaleString();
@@ -368,11 +377,15 @@ export default function Dashboard() {
                       color: isDarkMode ? '#f9fafb' : '#1f2937'
                     }}
                   />
-                  <Bar dataKey="size" fill="url(#colorGradient)" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="size" fill="url(#colorGradient)" radius={[8, 8, 0, 0]} activeBar={{ fill: 'url(#colorGradientHover)', stroke: isDarkMode ? 'rgba(6, 182, 212, 0.4)' : 'rgba(6, 182, 212, 0.3)', strokeWidth: 1 }} />
                   <defs>
                     <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#06B6D4" stopOpacity={0.9}/>
                       <stop offset="100%" stopColor="#0891B2" stopOpacity={0.7}/>
+                    </linearGradient>
+                    <linearGradient id="colorGradientHover" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#22D3EE" stopOpacity={1}/>
+                      <stop offset="100%" stopColor="#06B6D4" stopOpacity={0.85}/>
                     </linearGradient>
                   </defs>
                 </BarChart>

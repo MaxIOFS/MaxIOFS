@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Globe, Shield, X } from 'lucide-react';
-import type { IdentityProvider, IDPType, LDAPConfig, OAuth2Config } from '@/types';
+import type { IdentityProvider, IDPType, LDAPConfig, OAuth2Config, Tenant } from '@/types';
 import ModalManager from '@/lib/modals';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 interface CreateIDPModalProps {
   idp?: IdentityProvider | null;
@@ -47,11 +48,19 @@ const defaultOAuth: OAuth2Config = {
 
 export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps) {
   const isEdit = !!idp;
+  const { isGlobalAdmin } = useCurrentUser();
   const [name, setName] = useState(idp?.name || '');
   const [type, setType] = useState<IDPType>(idp?.type || 'ldap');
   const [status, setStatus] = useState(idp?.status || 'testing');
+  const [tenantId, setTenantId] = useState(idp?.tenantId || '');
   const [ldapConfig, setLdapConfig] = useState<LDAPConfig>(idp?.config?.ldap || defaultLDAP);
   const [oauthConfig, setOauthConfig] = useState<OAuth2Config>(idp?.config?.oauth2 || defaultOAuth);
+
+  const { data: tenants } = useQuery({
+    queryKey: ['tenants'],
+    queryFn: APIClient.getTenants,
+    enabled: isGlobalAdmin,
+  });
 
   const createMutation = useMutation({
     mutationFn: (data: any) => isEdit ? APIClient.updateIDP(idp!.id, data) : APIClient.createIDP(data),
@@ -89,6 +98,9 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
       status,
       config: type === 'ldap' ? { ldap: ldapConfig } : { oauth2: oauthConfig },
     };
+    if (isGlobalAdmin && tenantId) {
+      data.tenantId = tenantId;
+    }
     createMutation.mutate(data);
   };
 
@@ -152,6 +164,22 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
               <option value="inactive">Inactive</option>
             </select>
           </div>
+
+          {isGlobalAdmin && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tenant</label>
+              <select
+                value={tenantId}
+                onChange={(e) => setTenantId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white"
+              >
+                <option value="">Global (all tenants)</option>
+                {(tenants || []).map((t: Tenant) => (
+                  <option key={t.id} value={t.id}>{t.displayName || t.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Type-specific config */}

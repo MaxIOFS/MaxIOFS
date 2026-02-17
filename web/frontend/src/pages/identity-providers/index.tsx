@@ -23,7 +23,7 @@ import {
   Users as UsersIcon,
   FolderTree,
 } from 'lucide-react';
-import type { IdentityProvider } from '@/types';
+import type { IdentityProvider, Tenant } from '@/types';
 import ModalManager from '@/lib/modals';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { CreateIDPModal } from '@/components/identity-providers/CreateIDPModal';
@@ -46,6 +46,18 @@ export default function IdentityProvidersPage() {
     queryFn: APIClient.listIDPs,
     enabled: isAnyAdmin,
   });
+
+  const { data: tenants } = useQuery({
+    queryKey: ['tenants'],
+    queryFn: APIClient.getTenants,
+    enabled: isGlobalAdmin,
+  });
+
+  const tenantMap = new Map((tenants || []).map((t: Tenant) => [t.id, t.displayName || t.name]));
+  const getTenantName = (tenantId?: string) => {
+    if (!tenantId) return 'Global';
+    return tenantMap.get(tenantId) || tenantId;
+  };
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => APIClient.deleteIDP(id),
@@ -196,7 +208,7 @@ export default function IdentityProvidersPage() {
                     </span>
                   </TableCell>
                   <TableCell className="text-sm text-gray-500 dark:text-gray-400">
-                    {idp.tenant_id || 'Global'}
+                    {getTenantName(idp.tenantId)}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">

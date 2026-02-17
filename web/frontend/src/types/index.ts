@@ -1166,7 +1166,7 @@ export interface IdentityProvider {
   id: string;
   name: string;
   type: IDPType;
-  tenant_id: string;
+  tenantId: string;
   status: IDPStatus;
   config: IDPProviderConfig;
   created_by: string;

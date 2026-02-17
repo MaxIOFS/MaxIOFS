@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Frontend: IDP tenant column always showed "Global"** — `IdentityProvider` TypeScript type used `tenant_id` (snake_case) but backend sends `tenantId` (camelCase), causing the field to always be `undefined`. Fixed JSON key mismatch and resolved tenant IDs to display names.
+- **Frontend: No tenant selector when creating IDPs** — global admins could not assign an IDP to a specific tenant. Added tenant dropdown to the Create/Edit IDP modal (visible only to global admins), defaulting to "Global (all tenants)".
+
 ---
 
 ## [0.9.0-beta] - 2026-02-17
