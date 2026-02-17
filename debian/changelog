@@ -8,14 +8,19 @@ maxiofs (0.9.0-beta) unstable; urgency=medium
   * Tombstone-based cluster deletion sync - prevents entity resurrection in bidirectional sync
   * Cluster sync for all 6 entity types (users, tenants, access keys, bucket permissions, IDPs, group mappings)
   * Delete-sync endpoints for all entity types with DeletionLogSyncManager
+  * JWT secret persistence across restarts - sessions survive server restart
+  * Cluster JWT secret synchronization - nodes share JWT key on join via HMAC-authenticated endpoint
   * Database migration 9: identity_providers, idp_group_mappings tables
   * Database migration 10: cluster_deletion_log table for tombstone sync
   * CRITICAL: JWT signature verification with HMAC-SHA256 constant-time comparison
+  * CRITICAL: JWT signing used wrong key (secret_key instead of jwt_secret) - fixed
   * CRITICAL: CORS wildcard removal - proper origin validation
   * CRITICAL: Rate limiting IP spoofing fix - RFC 1918 trusted proxy support
   * CRITICAL: XSS fix via sanitizeHtml() in modal renderer
   * LDAP/OAuth secrets encrypted at rest with AES-256-GCM
-  * Dead code cleanup and 190+ new tests
+  * Fixed Docker env vars silently ignored (MAXIOFS_JWT_SECRET → MAXIOFS_AUTH_JWT_SECRET)
+  * Fixed session invalidation on server restart (JWT secret now persisted in DB)
+  * Dead code cleanup and 200+ new tests
 
  -- Aluisco Ricardo <aluisco@maxiofs.com>  Mon, 17 Feb 2026 12:00:00 +0000
 

@@ -263,9 +263,14 @@ fi
 - IDP Console API with 20+ endpoints, LDAP browser, group mappings
 - Tombstone-based cluster deletion sync prevents entity resurrection
 - Cluster sync for all 6 entity types with delete propagation
+- JWT secret persistence across restarts (sessions survive server restart)
+- Cluster JWT secret synchronization (nodes share JWT key on join)
 - CRITICAL: JWT signature verification, CORS fix, rate limiting IP spoofing fix
+- CRITICAL: JWT signing used wrong key (secret_key instead of jwt_secret)
 - LDAP/OAuth secrets encrypted at rest with AES-256-GCM
-- Dead code cleanup and 190+ new tests
+- Fixed Docker env vars silently ignored (wrong Viper naming convention)
+- Fixed session invalidation on server restart
+- Dead code cleanup and 200+ new tests
 
 * Fri Feb 07 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 0.8.0-1
 - Version 0.8.0-beta

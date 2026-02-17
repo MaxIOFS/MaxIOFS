@@ -59,6 +59,10 @@ MaxIOFS is a high-performance, S3-compatible object storage system built in Go w
   - Tombstone-based deletion sync prevents entity resurrection in bidirectional sync
   - Checksum-based change detection to minimize network traffic
   - Configurable sync intervals (default: 30 seconds)
+- **JWT Secret Persistence & Cluster Sync** ✅
+  - JWT secrets persisted in database — sessions survive server restarts
+  - Automatic JWT secret synchronization on cluster join via HMAC-authenticated endpoint
+  - Users authenticated on one node are valid across all cluster nodes
 - Bucket location caching for performance
 - Web console for cluster management
 
@@ -189,7 +193,7 @@ make build-all
 **See [CHANGELOG.md](CHANGELOG.md) for complete version history and roadmap**
 
 Recent releases:
-- **v0.9.0-beta** - Identity providers (LDAP/OAuth SSO), tombstone-based cluster deletion sync, security fixes
+- **v0.9.0-beta** - Identity providers (LDAP/OAuth SSO), tombstone-based cluster deletion sync, JWT secret persistence & cluster sync, security fixes
 - **v0.8.0-beta** - Object search & filters, security fixes, cluster production hardening
 - **v0.7.0-beta** - Bucket inventory, performance profiling, database migrations
 - **v0.6.0-beta** - Multi-node cluster support with HA replication

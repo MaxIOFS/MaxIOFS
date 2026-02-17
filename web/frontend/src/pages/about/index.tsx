@@ -366,6 +366,18 @@ export default function AboutPage() {
               </p>
             </div>
 
+            <div className="border-l-4 border-cyan-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Cluster Resilience & JWT Persistence
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                JWT secrets are now persisted in the database, so user sessions survive server restarts.
+                When a node joins a cluster, it automatically fetches the JWT secret from the existing node,
+                ensuring seamless authentication across all cluster nodes without re-login.
+                Tombstone-based deletion sync prevents entity resurrection in bidirectional cluster sync.
+              </p>
+            </div>
+
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
                 Security Hardening
@@ -374,6 +386,7 @@ export default function AboutPage() {
                 LDAP bind passwords and OAuth client secrets encrypted at rest with AES-256-GCM.
                 OAuth CSRF protection with state parameter and secure cookie validation.
                 Rate limiting IP spoofing fix with trusted proxy support. JWT signature verification with constant-time comparison.
+                Fixed critical bug where JWT tokens were signed with the wrong key.
               </p>
             </div>
 
