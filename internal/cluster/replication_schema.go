@@ -61,6 +61,11 @@ func InitReplicationSchema(db *sql.DB) error {
 		return fmt.Errorf("failed to create cluster_global_config table: %w", err)
 	}
 
+	// Create cluster_deletion_log table for tombstone-based deletion sync
+	if err := createClusterDeletionLogTable(ctx, db); err != nil {
+		return fmt.Errorf("failed to create cluster_deletion_log table: %w", err)
+	}
+
 	return nil
 }
 
@@ -403,6 +408,24 @@ func createClusterGroupMappingSyncTable(ctx context.Context, db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_cluster_group_mapping_sync_mapping ON cluster_group_mapping_sync(mapping_id);
 	CREATE INDEX IF NOT EXISTS idx_cluster_group_mapping_sync_dest ON cluster_group_mapping_sync(destination_node_id);
 	CREATE INDEX IF NOT EXISTS idx_cluster_group_mapping_sync_status ON cluster_group_mapping_sync(status);
+	`
+	_, err := db.ExecContext(ctx, query)
+	return err
+}
+
+// createClusterDeletionLogTable creates the table for tombstone-based deletion sync
+func createClusterDeletionLogTable(ctx context.Context, db *sql.DB) error {
+	query := `
+	CREATE TABLE IF NOT EXISTS cluster_deletion_log (
+		id TEXT PRIMARY KEY,
+		entity_type TEXT NOT NULL,
+		entity_id TEXT NOT NULL,
+		deleted_by_node_id TEXT NOT NULL,
+		deleted_at INTEGER NOT NULL,
+		UNIQUE(entity_type, entity_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_deletion_log_type ON cluster_deletion_log(entity_type);
+	CREATE INDEX IF NOT EXISTS idx_deletion_log_deleted_at ON cluster_deletion_log(deleted_at);
 	`
 	_, err := db.ExecContext(ctx, query)
 	return err
