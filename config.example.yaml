@@ -298,6 +298,7 @@ auth:
   # JWT Secret for token signing
   # Will be auto-generated if not provided
   # For production, set a strong random string
+  # In cluster mode, jwt_secret MUST be identical across all nodes
   # Example: openssl rand -base64 32
   jwt_secret: ""
 

@@ -65,6 +65,21 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// After successful join, fetch JWT secret from the existing node
+	// so all cluster nodes share the same JWT signing key
+	jwtSecret, err := s.clusterManager.FetchJWTSecretFromNode(r.Context(), req.NodeEndpoint)
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to fetch JWT secret from cluster node (sessions may not be shared across nodes)")
+	} else {
+		// Update the auth manager's JWT secret at runtime
+		if setter, ok := s.authManager.(interface{ SetJWTSecret(string) }); ok {
+			setter.SetJWTSecret(jwtSecret)
+			logrus.Info("JWT secret synchronized from cluster node")
+		} else {
+			logrus.Warn("Auth manager does not support SetJWTSecret")
+		}
+	}
+
 	s.writeJSON(w, map[string]interface{}{
 		"message": "Successfully joined cluster",
 	})
@@ -534,6 +549,22 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 
 	s.writeJSON(w, map[string]interface{}{
 		"node": req.Node,
+	})
+}
+
+// handleGetClusterJWTSecret returns the JWT secret for cluster synchronization (HMAC-authenticated)
+func (s *Server) handleGetClusterJWTSecret(w http.ResponseWriter, r *http.Request) {
+	// Read JWT secret from system_settings
+	var jwtSecret string
+	err := s.db.QueryRow(`SELECT value FROM system_settings WHERE key = ?`, "jwt_secret").Scan(&jwtSecret)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to read JWT secret from database")
+		s.writeError(w, "Failed to read JWT secret", http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]string{
+		"jwt_secret": jwtSecret,
 	})
 }
 

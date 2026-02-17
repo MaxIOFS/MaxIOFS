@@ -167,11 +167,11 @@ MAXIOFS_PUBLIC_API_URL: "http://localhost:8080"
 MAXIOFS_PUBLIC_CONSOLE_URL: "http://localhost:8081"
 
 # Security (⚠️ CHANGE IN PRODUCTION)
-MAXIOFS_ENABLE_AUTH: "true"
-MAXIOFS_JWT_SECRET: "change-this-secret-key-in-production"
+MAXIOFS_AUTH_ENABLE_AUTH: "true"
+MAXIOFS_AUTH_JWT_SECRET: "change-this-secret-key-in-production"
 
 # Metrics
-MAXIOFS_ENABLE_METRICS: "true"
+MAXIOFS_METRICS_ENABLE: "true"
 ```
 
 ### Custom Configuration File
@@ -199,7 +199,7 @@ volumes:
 ### Build with Specific Version
 
 ```bash
-VERSION=0.6.2-beta make docker-build
+VERSION=0.9.0-beta make docker-build
 ```
 
 ### Build Without Cache
@@ -211,7 +211,7 @@ docker compose build --no-cache
 ### Multi-platform Build
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t maxiofs:0.6.2-beta .
+docker buildx build --platform linux/amd64,linux/arm64 -t maxiofs:0.9.0-beta .
 ```
 
 ## Volumes
@@ -275,7 +275,7 @@ The default HOME dashboard provides a comprehensive view with **14 panels** orga
 GF_SECURITY_ADMIN_PASSWORD: "strong-random-password-here"
 
 # MaxIOFS
-MAXIOFS_JWT_SECRET: "use-long-random-secret-at-least-32-chars"
+MAXIOFS_AUTH_JWT_SECRET: "use-long-random-secret-at-least-32-chars"
 ```
 
 **Enable HTTPS with Reverse Proxy:**
@@ -378,7 +378,7 @@ curl -X POST http://localhost:9091/-/reload
 1. Check target status: http://localhost:9091/targets
 2. Verify MaxIOFS is running: `docker compose ps`
 3. Check network: `docker network inspect maxiofs-network`
-4. Ensure metrics are enabled: `MAXIOFS_ENABLE_METRICS=true`
+4. Ensure metrics are enabled: `MAXIOFS_METRICS_ENABLE=true`
 
 ### Grafana Dashboards Not Loading
 
@@ -476,7 +476,7 @@ make docker-clean
 
 ## Version Information
 
-- **MaxIOFS**: 0.6.2-beta
+- **MaxIOFS**: 0.9.0-beta
 - **Prometheus**: 3.0.1
 - **Grafana**: 11.5.0
 - **Docker Compose**: v2.x required

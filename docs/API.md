@@ -2,7 +2,7 @@
 
 **Version**: 0.9.0-beta
 **S3 Compatibility**: 100%
-**Last Updated**: January 16, 2026
+**Last Updated**: February 17, 2026
 
 ## Overview
 
@@ -11,13 +11,21 @@ MaxIOFS provides two APIs:
 1. **S3 API** (Port 8080) - 100% AWS S3-compatible REST API
 2. **Console API** (Port 8081) - Management REST API for web console
 
-### Recent Updates (v0.8.0-beta)
+### Recent Updates (v0.9.0-beta)
 
+- ✅ **Identity Provider System** - LDAP/AD and OAuth2/OIDC with Google/Microsoft presets
+- ✅ **SSO Login Flow** - Auto-provisioning via group-to-role mappings
+- ✅ **IDP Console API** - 20+ endpoints for provider management, LDAP browser, group mappings
+- ✅ **Tombstone-Based Cluster Deletion Sync** - Prevents entity resurrection in bidirectional sync
+- ✅ **Cluster Sync for 6 Entity Types** - Users, tenants, access keys, bucket permissions, IDPs, group mappings
+
+### Previous Updates (v0.8.0-beta)
+
+- ✅ **Object Filters & Advanced Search** - Server-side filtering with prefix, suffix, size, date ranges
 - ✅ **Multi-Node Cluster Support** - Complete cluster infrastructure with HA
 - ✅ **Cluster Management API** - 18 REST endpoints for cluster management
 - ✅ **Smart Router** - Health-aware request routing with automatic failover
 - ✅ **Cluster Replication** - HMAC-authenticated node-to-node replication
-- ✅ **Health Monitoring** - Background health checker with latency tracking
 
 ### Previous Updates (v0.4.2-beta)
 

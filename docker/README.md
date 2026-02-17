@@ -169,7 +169,7 @@ Check target status: http://localhost:9091/targets
 Common issues:
 - MaxIOFS not running: `docker-compose ps`
 - Network issue: Verify `maxiofs-network` exists
-- Metrics disabled: Check `MAXIOFS_ENABLE_METRICS=true`
+- Metrics disabled: Check `MAXIOFS_METRICS_ENABLE=true`
 
 ### Grafana dashboards not loading
 
@@ -196,7 +196,7 @@ Common issues:
 
 1. **Change Default Passwords**
    - Grafana: Set `GF_SECURITY_ADMIN_PASSWORD` in docker-compose.yaml
-   - MaxIOFS: Set `MAXIOFS_JWT_SECRET` to a strong random value
+   - MaxIOFS: Set `MAXIOFS_AUTH_JWT_SECRET` to a strong random value
 
 2. **Persistent Storage**
    - Volumes are created automatically
@@ -219,7 +219,7 @@ Common issues:
 
 ## Version Information
 
-- **MaxIOFS**: 0.6.2-beta
+- **MaxIOFS**: 0.9.0-beta
 - **Prometheus**: 3.0.1
 - **Grafana**: 11.5.0
 - **Docker Compose**: v2.x required

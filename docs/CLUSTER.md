@@ -2,7 +2,7 @@
 
 **Version**: 0.9.0-beta
 **Status**: Production-Ready
-**Last Updated**: January 16, 2026
+**Last Updated**: February 17, 2026
 
 ---
 
@@ -26,14 +26,14 @@
 
 ## Overview
 
-MaxIOFS v0.8.0-beta introduces complete multi-node cluster support for high availability (HA) and automatic failover. Multiple MaxIOFS instances work together as a unified storage cluster with intelligent request routing, automatic health monitoring, and seamless failover.
+MaxIOFS provides complete multi-node cluster support for high availability (HA) and automatic failover. Multiple MaxIOFS instances work together as a unified storage cluster with intelligent request routing, automatic health monitoring, and seamless failover. In v0.9.0-beta, cluster sync was extended to 6 entity types with tombstone-based deletion sync to prevent entity resurrection.
 
 ### Key Features
 
 - ✅ Multi-node cluster support with smart routing
 - ✅ HMAC-authenticated node-to-node replication
-- ✅ Automatic tenant synchronization
-- ✅ Automatic user synchronization
+- ✅ Automatic synchronization for 6 entity types (users, tenants, access keys, bucket permissions, IDPs, group mappings)
+- ✅ Tombstone-based deletion sync (prevents entity resurrection)
 - ✅ Health monitoring (30-second intervals)
 - ✅ Bucket location cache (5ms vs 50ms latency)
 - ✅ Bucket migration between nodes for capacity rebalancing
@@ -309,33 +309,47 @@ X-MaxIOFS-Signature: <hex-encoded-hmac>
 - Compares with provided signature (constant-time)
 - Checks timestamp skew (max 5 minutes)
 
-### Automatic Tenant Synchronization
+### Automatic Entity Synchronization (6 types)
 
-- Runs every 30 seconds
-- Computes tenant data checksum
-- Syncs if checksum doesn't match on destination
-- Endpoint: `POST /api/internal/cluster/tenant-sync` (HMAC-authenticated)
+All 6 entity types are **automatically synchronized** across all cluster nodes every 30 seconds:
 
-### Automatic User Synchronization
-
-Users and their credentials are **automatically synchronized** across all cluster nodes every 30 seconds. When you create or modify a user on any node, the changes are automatically replicated to all other nodes in the cluster.
-
-**What gets synchronized:**
-- Username and password
-- Display name and email
-- Roles, policies, and tenant assignment
-- Theme and language preferences
-- All user metadata
+| Entity Type | Endpoint | What Gets Synced |
+|-------------|----------|------------------|
+| **Users** | `/api/internal/cluster/user-sync` | Credentials, roles, tenant, preferences |
+| **Tenants** | `/api/internal/cluster/tenant-sync` | Quotas, settings, status |
+| **Access Keys** | `/api/internal/cluster/access-key-sync` | Key ID, secret, user association |
+| **Bucket Permissions** | `/api/internal/cluster/bucket-permission-sync` | ACLs, policies |
+| **IDP Providers** | `/api/internal/cluster/idp-provider-sync` | LDAP/OAuth config (encrypted secrets) |
+| **Group Mappings** | `/api/internal/cluster/group-mapping-sync` | IDP group → MaxIOFS role mappings |
 
 **How it works:**
 - SHA256 checksum-based change detection (only syncs when data changes)
 - HMAC-authenticated node-to-node communication
-- Endpoint: `POST /api/internal/cluster/user-sync`
+- 30-second sync interval per entity type
 
 **Result:**
 - Admin password is identical across all nodes
 - Users created on one node are immediately available on all nodes
 - User sessions work correctly after node failover
+- IDP/SSO configurations available on all nodes
+
+### Tombstone-Based Deletion Sync (v0.9.0-beta)
+
+Deletions are synchronized using a **tombstone-based** approach to prevent entity resurrection in bidirectional sync.
+
+**Problem solved:** Without tombstones, if you delete a user on Node1, Node2 still has it and would push it back to Node1 on the next sync cycle — causing the deleted entity to reappear indefinitely.
+
+**How it works:**
+1. When an entity is deleted on any node, a tombstone is recorded in `cluster_deletion_log`
+2. Tombstones are synced to all other nodes alongside regular entity sync
+3. When a node receives an entity via sync, it checks for a tombstone — if found, the entity is rejected
+4. Tombstones are automatically cleaned up after 7 days
+5. Endpoint: `POST /api/internal/cluster/deletion-log-sync` (HMAC-authenticated)
+
+**Key design decisions:**
+- Tombstones are authoritative: a deletion entry always wins over an item
+- Single table for all 6 entity types (not 6 separate tables)
+- 7-day TTL is safe because all nodes will have processed the deletion by then
 
 ### Configuring Replication
 
@@ -1138,9 +1152,8 @@ go tool cover -html=coverage.out
 | TestSelfReplicationPrevention | Verify nodes can't replicate to self | HTTP 400 error validation |
 
 **Test Results:**
-- 27 total cluster tests (22 management + 5 replication)
+- 90+ total cluster tests (management, replication, sync managers, deletion log)
 - 100% pass rate
-- <2 seconds execution time
 - Pure Go (no CGO dependencies)
 
 ---
@@ -1231,6 +1244,21 @@ CREATE TABLE cluster_replication_queue (
 );
 ```
 
+### cluster_deletion_log Table (v0.9.0-beta)
+
+```sql
+CREATE TABLE cluster_deletion_log (
+    id TEXT PRIMARY KEY,
+    entity_type TEXT NOT NULL,       -- 'user', 'tenant', 'access_key', 'bucket_permission', 'idp_provider', 'group_mapping'
+    entity_id TEXT NOT NULL,
+    deleted_by_node_id TEXT NOT NULL,
+    deleted_at INTEGER NOT NULL,
+    UNIQUE(entity_type, entity_id)
+);
+CREATE INDEX idx_deletion_log_type ON cluster_deletion_log(entity_type);
+CREATE INDEX idx_deletion_log_deleted_at ON cluster_deletion_log(deleted_at);
+```
+
 ### cluster_migrations Table
 
 ```sql
@@ -1264,7 +1292,7 @@ CREATE INDEX idx_cluster_migrations_tenant ON cluster_migrations(tenant_id);
 ---
 
 **Version**: 0.9.0-beta
-**Last Updated**: January 16, 2026
+**Last Updated**: February 17, 2026
 **Documentation Status**: Complete
 
 For questions or issues, see [README.md](../README.md).

@@ -256,6 +256,17 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Mon Feb 17 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 0.9.0-1
+- Version 0.9.0-beta
+- Identity Provider System: LDAP/AD and OAuth2/OIDC with Google/Microsoft presets
+- SSO login flow with auto-provisioning via group-to-role mappings
+- IDP Console API with 20+ endpoints, LDAP browser, group mappings
+- Tombstone-based cluster deletion sync prevents entity resurrection
+- Cluster sync for all 6 entity types with delete propagation
+- CRITICAL: JWT signature verification, CORS fix, rate limiting IP spoofing fix
+- LDAP/OAuth secrets encrypted at rest with AES-256-GCM
+- Dead code cleanup and 190+ new tests
+
 * Fri Feb 07 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 0.8.0-1
 - Version 0.8.0-beta
 - Object Filters & Advanced Search with server-side filtering

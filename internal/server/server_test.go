@@ -9555,3 +9555,313 @@ func TestHandleAddClusterNodeMoreCases(t *testing.T) {
 		assert.Contains(t, []int{http.StatusBadRequest, http.StatusForbidden, http.StatusUnauthorized, http.StatusInternalServerError}, rr.Code)
 	})
 }
+
+// TestHandleReceiveIDPProviderSync tests receiving IDP provider synchronization
+func TestHandleReceiveIDPProviderSync(t *testing.T) {
+	server := getSharedServer()
+
+	t.Run("should reject request without cluster node ID", func(t *testing.T) {
+		body := `{"id": "idp-sync-1", "name": "Test LDAP", "type": "ldap", "status": "active", "config": "{}"}`
+		req := httptest.NewRequest("POST", "/api/internal/cluster/idp-provider-sync", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveIDPProviderSync(rr, req)
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	})
+
+	t.Run("should reject invalid JSON", func(t *testing.T) {
+		body := `{invalid}`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/idp-provider-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveIDPProviderSync(rr, req)
+
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+	})
+
+	t.Run("should sync IDP provider with valid node ID", func(t *testing.T) {
+		body := `{"id": "idp-sync-test-1", "name": "Test LDAP Provider", "type": "ldap", "status": "active", "config": "{\"url\":\"ldap://localhost\"}", "created_by": "admin", "created_at": 1700000000}`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/idp-provider-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveIDPProviderSync(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var resp map[string]interface{}
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, true, resp["success"])
+	})
+
+	t.Run("should update existing IDP provider on re-sync", func(t *testing.T) {
+		body := `{"id": "idp-sync-test-1", "name": "Updated LDAP Provider", "type": "ldap", "status": "inactive", "config": "{\"url\":\"ldap://newhost\"}", "created_by": "admin", "created_at": 1700000000}`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/idp-provider-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveIDPProviderSync(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+}
+
+// TestHandleReceiveIDPProviderDeleteSync tests receiving IDP provider deletion sync
+func TestHandleReceiveIDPProviderDeleteSync(t *testing.T) {
+	server := getSharedServer()
+
+	t.Run("should reject request without cluster node ID", func(t *testing.T) {
+		body := `{"id": "idp-del-1"}`
+		req := httptest.NewRequest("POST", "/api/internal/cluster/idp-provider-delete-sync", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveIDPProviderDeleteSync(rr, req)
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	})
+
+	t.Run("should reject invalid JSON", func(t *testing.T) {
+		body := `{invalid}`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/idp-provider-delete-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveIDPProviderDeleteSync(rr, req)
+
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+	})
+
+	t.Run("should reject missing provider ID", func(t *testing.T) {
+		body := `{"id": ""}`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/idp-provider-delete-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveIDPProviderDeleteSync(rr, req)
+
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+	})
+
+	t.Run("should delete IDP provider successfully", func(t *testing.T) {
+		// First create a provider to delete
+		createBody := `{"id": "idp-to-delete", "name": "Delete Me", "type": "ldap", "status": "active", "config": "{}", "created_by": "admin", "created_at": 1700000000}`
+		createReq := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/idp-provider-sync", strings.NewReader(createBody), "node-1")
+		createReq.Header.Set("Content-Type", "application/json")
+		createRR := httptest.NewRecorder()
+		server.handleReceiveIDPProviderSync(createRR, createReq)
+		require.Equal(t, http.StatusOK, createRR.Code)
+
+		// Now delete it
+		body := `{"id": "idp-to-delete"}`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/idp-provider-delete-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveIDPProviderDeleteSync(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var resp map[string]interface{}
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, true, resp["success"])
+	})
+}
+
+// TestHandleReceiveGroupMappingSync tests receiving group mapping synchronization
+func TestHandleReceiveGroupMappingSync(t *testing.T) {
+	server := getSharedServer()
+
+	t.Run("should reject request without cluster node ID", func(t *testing.T) {
+		body := `{"id": "gm-sync-1", "provider_id": "prov-1", "external_group": "cn=admins", "role": "admin"}`
+		req := httptest.NewRequest("POST", "/api/internal/cluster/group-mapping-sync", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveGroupMappingSync(rr, req)
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	})
+
+	t.Run("should reject invalid JSON", func(t *testing.T) {
+		body := `{invalid}`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/group-mapping-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveGroupMappingSync(rr, req)
+
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+	})
+
+	t.Run("should sync group mapping with valid node ID", func(t *testing.T) {
+		// First create the provider this mapping references
+		provBody := `{"id": "prov-for-gm", "name": "GM Provider", "type": "ldap", "status": "active", "config": "{}", "created_by": "admin", "created_at": 1700000000}`
+		provReq := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/idp-provider-sync", strings.NewReader(provBody), "node-1")
+		provReq.Header.Set("Content-Type", "application/json")
+		provRR := httptest.NewRecorder()
+		server.handleReceiveIDPProviderSync(provRR, provReq)
+		require.Equal(t, http.StatusOK, provRR.Code)
+
+		body := `{"id": "gm-sync-test-1", "provider_id": "prov-for-gm", "external_group": "cn=admins,dc=example,dc=com", "external_group_name": "Admins", "role": "admin", "auto_sync": true, "created_at": 1700000000}`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/group-mapping-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveGroupMappingSync(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var resp map[string]interface{}
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, true, resp["success"])
+	})
+
+	t.Run("should update existing group mapping on re-sync", func(t *testing.T) {
+		body := `{"id": "gm-sync-test-1", "provider_id": "prov-for-gm", "external_group": "cn=admins,dc=example,dc=com", "external_group_name": "Admins Updated", "role": "user", "auto_sync": false, "created_at": 1700000000}`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/group-mapping-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveGroupMappingSync(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+}
+
+// TestHandleReceiveGroupMappingDeleteSync tests receiving group mapping deletion sync
+func TestHandleReceiveGroupMappingDeleteSync(t *testing.T) {
+	server := getSharedServer()
+
+	t.Run("should reject request without cluster node ID", func(t *testing.T) {
+		body := `{"id": "gm-del-1"}`
+		req := httptest.NewRequest("POST", "/api/internal/cluster/group-mapping-delete-sync", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveGroupMappingDeleteSync(rr, req)
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	})
+
+	t.Run("should reject invalid JSON", func(t *testing.T) {
+		body := `{invalid}`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/group-mapping-delete-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveGroupMappingDeleteSync(rr, req)
+
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+	})
+
+	t.Run("should reject missing mapping ID", func(t *testing.T) {
+		body := `{"id": ""}`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/group-mapping-delete-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveGroupMappingDeleteSync(rr, req)
+
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+	})
+
+	t.Run("should delete group mapping successfully", func(t *testing.T) {
+		// First create a mapping to delete
+		provBody := `{"id": "prov-for-gm-del", "name": "GM Del Provider", "type": "ldap", "status": "active", "config": "{}", "created_by": "admin", "created_at": 1700000000}`
+		provReq := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/idp-provider-sync", strings.NewReader(provBody), "node-1")
+		provReq.Header.Set("Content-Type", "application/json")
+		provRR := httptest.NewRecorder()
+		server.handleReceiveIDPProviderSync(provRR, provReq)
+		require.Equal(t, http.StatusOK, provRR.Code)
+
+		createBody := `{"id": "gm-to-delete", "provider_id": "prov-for-gm-del", "external_group": "cn=users", "external_group_name": "Users", "role": "user", "created_at": 1700000000}`
+		createReq := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/group-mapping-sync", strings.NewReader(createBody), "node-1")
+		createReq.Header.Set("Content-Type", "application/json")
+		createRR := httptest.NewRecorder()
+		server.handleReceiveGroupMappingSync(createRR, createReq)
+		require.Equal(t, http.StatusOK, createRR.Code)
+
+		// Now delete it
+		body := `{"id": "gm-to-delete"}`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/group-mapping-delete-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveGroupMappingDeleteSync(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var resp map[string]interface{}
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, true, resp["success"])
+	})
+}
+
+// TestHandleReceiveDeletionLogSync tests receiving deletion log synchronization
+func TestHandleReceiveDeletionLogSync(t *testing.T) {
+	server := getSharedServer()
+
+	t.Run("should reject request without cluster node ID", func(t *testing.T) {
+		body := `[{"entity_type": "idp_provider", "entity_id": "prov-1", "deleted_by_node_id": "node-2"}]`
+		req := httptest.NewRequest("POST", "/api/internal/cluster/deletion-log-sync", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveDeletionLogSync(rr, req)
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	})
+
+	t.Run("should reject invalid JSON", func(t *testing.T) {
+		body := `{invalid}`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/deletion-log-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveDeletionLogSync(rr, req)
+
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+	})
+
+	t.Run("should sync deletion log entries", func(t *testing.T) {
+		body := `[{"entity_type": "idp_provider", "entity_id": "del-log-prov-1", "deleted_by_node_id": "node-2", "deleted_at": 1700000000}, {"entity_type": "group_mapping", "entity_id": "del-log-gm-1", "deleted_by_node_id": "node-2", "deleted_at": 1700000001}]`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/deletion-log-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveDeletionLogSync(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var resp map[string]interface{}
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, true, resp["success"])
+		assert.Equal(t, float64(2), resp["recorded"])
+	})
+
+	t.Run("should handle empty entries array", func(t *testing.T) {
+		body := `[]`
+		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/deletion-log-sync", strings.NewReader(body), "node-1")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveDeletionLogSync(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var resp map[string]interface{}
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, true, resp["success"])
+		assert.Equal(t, float64(0), resp["recorded"])
+	})
+}

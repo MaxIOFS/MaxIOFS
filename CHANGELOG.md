@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- **CRITICAL**: JWT tokens were signed with `auth.secret_key` (`SecretKey`) instead of `auth.jwt_secret` (`JWTSecret`). `SecretKey` is meant for S3 default credentials, not JWT signing. If `secret_key` was not configured (the common case), JWTs were signed with an empty string. Fixed `parseBasicToken()` and `createBasicToken()` to use `JWTSecret`, which auto-generates a 32-char random string on startup when not explicitly configured.
+
+### Fixed
+- **Docker env vars silently ignored** — `MAXIOFS_JWT_SECRET`, `MAXIOFS_ENABLE_AUTH`, and `MAXIOFS_ENABLE_METRICS` in `docker-compose.yaml` did not match Viper's `MAXIOFS_` prefix + nested key convention. Fixed to `MAXIOFS_AUTH_JWT_SECRET`, `MAXIOFS_AUTH_ENABLE_AUTH`, and `MAXIOFS_METRICS_ENABLE` respectively. All 3 cluster nodes affected.
+- Added cluster note to `config.example.yaml`: `jwt_secret` MUST be identical across all nodes
+- Updated `DOCKER.md` and `docker/README.md` with correct env var names
+
+### Tests
+- Server: `TestHandleReceiveIDPProviderSync`, `TestHandleReceiveIDPProviderDeleteSync`, `TestHandleReceiveGroupMappingSync`, `TestHandleReceiveGroupMappingDeleteSync`, `TestHandleReceiveDeletionLogSync` — 5 new handler tests (19 sub-tests) covering auth rejection, JSON validation, create/update/delete flows, and edge cases
+
+---
+
+## [0.9.0-beta] - 2026-02-17
+
+### Security
 - **CRITICAL**: JWT signature verification — `parseBasicToken()` now verifies HMAC-SHA256 signature with `hmac.Equal()` constant-time comparison before trusting payload
 - **CRITICAL**: CORS wildcard removal — replaced hardcoded `Access-Control-Allow-Origin: *` with proper origin validation via `middleware.CORSWithConfig()`
 - **CRITICAL**: Rate limiting IP spoofing — `IPKeyExtractor` now auto-trusts RFC 1918 private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, ::1, fc00::/7) and only honors `X-Forwarded-For`/`X-Real-IP` from trusted proxies. Supports explicit CIDR ranges for public proxies (Cloudflare, AWS ALB)
@@ -47,8 +62,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Public version endpoint** — `GET /api/v1/version` returns server version without authentication; login page fetches version dynamically instead of relying on auth-required `/config` endpoint
 - Default password change notification — backend returns `default_password: true` on login with admin/admin, frontend shows persistent amber security warning in notification bell linking to user profile
 - `trusted_proxies` configuration option in `config.yaml` for public proxy IP/CIDR ranges
+- **Tombstone-based cluster deletion sync** — solves the "entity resurrection" bug where deleted entities reappear after bidirectional sync
+  - New `cluster_deletion_log` table (migration 10) stores tombstone records for all deleted entities
+  - `RecordDeletion()`, `ListDeletions()`, `HasDeletion()`, `CleanupOldDeletions()` helper functions in `internal/cluster/deletion_log.go`
+  - `DeletionLogSyncManager` pushes all tombstones to other cluster nodes every 30 seconds
+  - Tombstones are authoritative: upsert handlers check for tombstones before accepting synced entities, preventing resurrection
+  - All 6 entity types covered: users, tenants, access keys, bucket permissions, IDP providers, group mappings
+  - Automatic tombstone cleanup after 7 days (configurable) via background goroutine
+  - New internal cluster endpoint: `POST /api/internal/cluster/deletion-log-sync`
+- **Cluster sync for IDP providers and group mappings** — identity providers and their group mappings now sync automatically between cluster nodes (same pattern as users/tenants/access keys)
+- **Delete-sync endpoints for all entity types** — 6 new internal cluster endpoints for propagating deletions between nodes
 
 ### Fixed
+- **CRITICAL**: Cluster deletion sync race condition — deleted entities no longer "resurrect" when another node pushes them back during its sync cycle. Previous `reconcileDeletions()` approach only worked if the deleting node was the origin node; replaced with tombstone-based architecture that works regardless of which node performs the delete
+- **CRITICAL**: XSS via `dangerouslySetInnerHTML` in modal renderer — added `sanitizeHtml()` that strips script/iframe/embed tags and event handler attributes
 - Goroutine leak in decryption pipeline — added context cancellation monitoring to unblock `pipeWriter` when caller abandons the reader
 - Unbounded map growth in replication manager — `DeleteRule()` now cleans up `ruleLocks`, `processScheduledRules()` prunes stale `lastSync` entries
 - Unchecked `crypto/rand.Read` error — added fallback to timestamp-only version ID on failure
@@ -57,7 +84,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Audit logging errors silently ignored in 12 locations — added `logAuditEvent()` helper that logs warnings on failure
 - Temp file handle leak on panic in `PutObject` — added `defer tempFile.Close()` immediately after creation
 - Tag index deletion error ignored in `SetObjectTags` — `txn.Delete()` error now checked and propagated
-- **CRITICAL**: XSS via `dangerouslySetInnerHTML` in modal renderer — added `sanitizeHtml()` that strips script/iframe/embed tags and event handler attributes
 - Cluster proxy request body consumed before forwarding — buffered with `io.ReadAll` + `bytes.NewReader` to prevent empty body on retry
 - Storage delete error silently ignored on quota rollback in `PutObject` — now logs error to identify orphaned files
 - Added React Error Boundary around protected routes to catch render crashes with recovery UI
@@ -79,6 +105,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced `fmt.Println` with `logrus.Warn` in `internal/share/sqlite.go` for table migration logging
 
 ### Tests
+- Deletion log: RecordDeletion (idempotency, multi-type), ListDeletions (filtering), HasDeletion, CleanupOldDeletions (TTL), DeletionLogSyncManager (new, stop, checksum, sync-to-node, server error), StartDeletionLogCleanup (12 tests)
+- IDP provider sync: New, ListLocalProviders, ComputeChecksum, NeedsSynchronization, UpdateSyncStatus, Stop, SendProviderToNode, SyncProviderToNode, SyncLoop, Start, SendDeletionToNode (12 tests)
+- Group mapping sync: New, ListLocalMappings, ComputeChecksum, NeedsSynchronization, UpdateSyncStatus, Stop, SendMappingToNode, SyncMappingToNode, SyncLoop, Start, SendDeletionToNode (12 tests)
 - IDP crypto: encrypt/decrypt roundtrip, empty string, wrong key, tampered ciphertext, unique nonces, key derivation (9 tests)
 - IDP store: SQLite CRUD for providers and group mappings, tenant filtering, cascade delete, unique constraint, sync time (17 tests)
 - IDP manager: create/get/update/delete with encryption, masking, cache invalidation, group mapping CRUD (13 tests)
@@ -405,6 +434,8 @@ MaxIOFS follows semantic versioning:
 **Completed Core Features:**
 - ✅ All S3 core operations validated with AWS CLI (100% compatible)
 - ✅ Multi-node cluster support with real object replication
+- ✅ Tombstone-based cluster deletion sync (all 6 entity types)
+- ✅ LDAP/AD and OAuth2/OIDC identity provider system with SSO
 - ✅ Object Filters & Advanced Search
 - ✅ Production monitoring (Prometheus, Grafana, performance metrics)
 - ✅ Server-side encryption (AES-256-CTR)
@@ -426,6 +457,15 @@ See [TODO.md](TODO.md) for detailed roadmap and requirements.
 ## Version History
 
 ### Completed Features (v0.1.0 - v0.9.0-beta)
+
+**v0.9.0-beta (February 2026)** - Identity Providers, SSO & Cluster Deletion Sync
+- ✅ LDAP/Active Directory and OAuth2/OIDC identity provider system
+- ✅ SSO login flow (Google, Microsoft presets) with auto-provisioning
+- ✅ IDP management UI (CRUD, LDAP browser, group mappings, test connection)
+- ✅ Tombstone-based cluster deletion sync (prevents entity resurrection)
+- ✅ Cluster sync for all 6 entity types with delete propagation
+- ✅ 3 critical security fixes (JWT verification, CORS, rate limiting IP spoofing)
+- ✅ XSS fix, dead code cleanup, 190+ new tests
 
 **v0.8.0-beta (February 2026)** - Object Search, Security Fixes & Production Hardening
 - ✅ Object Filters & Advanced Search (content-type, size, date, tags)

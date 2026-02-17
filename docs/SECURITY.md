@@ -1,7 +1,7 @@
 # MaxIOFS Security Guide
 
 **Version**: 0.9.0-beta
-**Last Updated**: January 16, 2026
+**Last Updated**: February 17, 2026
 
 > **BETA SOFTWARE DISCLAIMER**: MaxIOFS is in beta stage. Core security features are implemented, but third-party security audits have not been conducted. Production use requires thorough testing in your environment.
 
@@ -473,8 +473,9 @@ aws s3api put-object-retention \
    - Manual key rotation required
 
 3. **Authentication Limitations**
-   - No LDAP/Active Directory integration (planned v0.8.0)
-   - No SAML/OAuth2 SSO (planned v0.8.0)
+   - LDAP/Active Directory integration available (v0.9.0-beta)
+   - OAuth2/OIDC SSO with Google/Microsoft presets available (v0.9.0-beta)
+   - No SAML SSO (OAuth2/OIDC recommended instead)
    - Session management basic (no device tracking)
 
 4. **Audit Log Retention**
@@ -567,7 +568,7 @@ aws s3api put-object-retention \
 ---
 
 **Version**: 0.9.0-beta
-**Last Updated**: January 16, 2026
+**Last Updated**: February 17, 2026
 
 For additional security information, see:
 - [CLUSTER.md](CLUSTER.md#security) - Cluster security details

@@ -792,6 +792,9 @@ func (s *Server) setupRoutes() error {
 			internalClusterRouter.HandleFunc("/group-mapping-delete-sync", s.handleReceiveGroupMappingDeleteSync).Methods("POST")
 			internalClusterRouter.HandleFunc("/deletion-log-sync", s.handleReceiveDeletionLogSync).Methods("POST")
 
+			// JWT secret endpoint (for cluster JWT synchronization)
+			internalClusterRouter.HandleFunc("/jwt-secret", s.handleGetClusterJWTSecret).Methods("GET")
+
 			// Bucket aggregation endpoint (for cross-node bucket listing)
 			internalClusterRouter.HandleFunc("/buckets", s.handleGetLocalBuckets).Methods("GET")
 

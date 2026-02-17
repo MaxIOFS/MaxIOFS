@@ -1,7 +1,7 @@
 # MaxIOFS - Development Roadmap
 
 **Version**: 0.9.0-beta
-**Last Updated**: February 16, 2026
+**Last Updated**: February 17, 2026
 **Status**: Beta - S3 Core 100% Compatible
 
 ## 📊 Project Status
@@ -95,11 +95,18 @@
 
 - [ ] Video tutorials and getting started guides
 - [ ] Migration guides from MinIO/AWS S3
+- [ ] Tombstone expiration edge case: if a node is offline for >7 days and reconnects, it could re-push a deleted entity after its tombstone was cleaned up. Consider extending TTL or adding a "last seen" check.
 - [ ] Integration test infrastructure (multi-node cluster) for cluster/replication coverage
 
 ---
 
 ## ✅ COMPLETED
+
+### v0.9.0-beta (February 2026)
+- ✅ Tombstone-based cluster deletion sync — new `cluster_deletion_log` table, `DeletionLogSyncManager`, tombstone checks in all upsert handlers
+- ✅ IDP provider and group mapping cluster sync with automatic synchronization
+- ✅ Delete-sync endpoints for all 6 entity types (users, tenants, access keys, bucket permissions, IDP providers, group mappings)
+- ✅ 36 new cluster sync tests (deletion log, IDP provider sync, group mapping sync)
 
 ### v0.8.0-beta (February 2026)
 - ✅ Object Filters & Advanced Search (content-type, size range, date range, tags) — new `/objects/search` endpoint + frontend filter panel
@@ -160,6 +167,9 @@
 - [x] Unit tests for LDAP provider: EscapeFilter injection prevention, EntryToExternalUser attribute mapping/fallbacks, getUserAttributes, connection error handling (14 tests)
 - [x] Unit tests for server IDP handlers: resolveRoleFromMappings role priority, CRUD auth/validation, OAuth callback CSRF/state, handleOAuthStart, preset deduplication, sync handlers, helpers (55+ sub-tests)
 - [x] Public version endpoint (`GET /api/v1/version`) — login page fetches version dynamically
+- [x] Tombstone-based cluster deletion sync — prevents entity resurrection in bidirectional sync
+- [x] Cluster sync for IDP providers and group mappings (automatic, checksum-based skip)
+- [x] Unit tests for deletion log, IDP provider sync, and group mapping sync (36 new tests)
 - [ ] Integration tests for IDP import/sync flows
 
 ### v1.0.0-RC (Q3 2026)

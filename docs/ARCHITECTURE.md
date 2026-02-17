@@ -2,11 +2,11 @@
 
 **Version**: 0.9.0-beta
 **S3 Compatibility**: 100%
-**Last Updated**: January 16, 2026
+**Last Updated**: February 17, 2026
 
 ## Overview
 
-MaxIOFS is a single-binary S3-compatible object storage system built in Go with an embedded React (Vite) frontend. The architecture emphasizes simplicity, portability, and ease of deployment with tenant-scoped bucket namespaces. **Version 0.8.0-beta introduces multi-node cluster support** with high availability, intelligent routing, and automatic node-to-node replication.
+MaxIOFS is a single-binary S3-compatible object storage system built in Go with an embedded React (Vite) frontend. The architecture emphasizes simplicity, portability, and ease of deployment with tenant-scoped bucket namespaces. **Version 0.9.0-beta adds Identity Provider (IDP) integration** with LDAP/AD and OAuth2/OIDC SSO, plus tombstone-based cluster deletion sync. Multi-node cluster support provides high availability, intelligent routing, and automatic node-to-node replication.
 
 **Testing Status**: Successfully validated with MinIO Warp stress testing (7000+ objects, bulk operations, metadata consistency under load). **100% S3 compatible** with all core operations fully functional. Production-ready for beta testing environments.
 
@@ -42,7 +42,7 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 └─────────────────────────────────────┘
 ```
 
-### Multi-Node Cluster Mode (v0.8.0-beta)
+### Multi-Node Cluster Mode (v0.6.0-beta)
 
 ```
                  ┌──────────────────┐
@@ -148,7 +148,7 @@ type Manager interface {
 - Multi-tenant isolation (global/tenant admin access)
 - Tracks 20+ event types (authentication, user management, buckets, 2FA, etc.)
 
-**Cluster Manager** (v0.8.0-beta)
+**Cluster Manager** (v0.6.0-beta)
 ```go
 type Manager interface {
     // Cluster initialization
@@ -171,18 +171,31 @@ type Manager interface {
 }
 ```
 
-**Smart Router** (v0.8.0-beta)
+**Smart Router** (v0.6.0-beta)
 - Bucket location resolution with 5-minute TTL cache
 - Health-aware request routing with automatic failover
 - Internal proxy mode for cross-node requests
 - Latency tracking per node
 
-**Replication Manager** (v0.8.0-beta)
+**Replication Manager** (v0.6.0-beta)
 - HMAC-SHA256 authentication between nodes
 - Automatic tenant synchronization (30s intervals)
 - Configurable bucket replication (10s minimum interval)
 - Queue-based async processing with retry logic
 - Self-replication prevention
+
+**Identity Provider Manager** (v0.9.0-beta)
+- LDAP/Active Directory integration with bind authentication
+- OAuth2/OIDC support with Google and Microsoft presets
+- SSO login flow with auto-provisioning via group-to-role mappings
+- Secrets encrypted at rest with AES-256-GCM
+- SQLite store for provider configurations and group mappings
+
+**Cluster Sync Managers** (v0.9.0-beta)
+- 6 entity sync managers: users, tenants, access keys, bucket permissions, IDP providers, group mappings
+- Tombstone-based deletion sync prevents entity resurrection in bidirectional sync
+- `cluster_deletion_log` table with 7-day TTL cleanup
+- Checksum-based change detection (only syncs when data changes)
 
 ### 3. Storage Layer
 
@@ -209,7 +222,7 @@ type Manager interface {
   │   ├── 000001.vlog
   │   └── 000001.sst
   ├── audit.db                     ← SQLite audit logs (v0.4.0+)
-  ├── cluster.db                   ← SQLite cluster state (v0.8.0-beta)
+  ├── cluster.db                   ← SQLite cluster state (v0.6.0-beta)
   ├── replication.db               ← SQLite bucket replication (v0.5.0-beta)
   ├── settings.db                  ← SQLite dynamic settings (v0.4.1-beta)
   └── metrics/                     ← BadgerDB metrics history (v0.4.1-beta)
@@ -233,11 +246,12 @@ type Manager interface {
 - Automatic retention management (default: 90 days)
 - Path: `{data_dir}/audit.db`
 
-**SQLite Cluster Database** (v0.8.0-beta)
+**SQLite Cluster Database** (v0.6.0-beta)
 - Cluster configuration and node state
-- 3 tables: `cluster_config`, `cluster_nodes`, `cluster_health_history`
+- Tables: `cluster_config`, `cluster_nodes`, `cluster_health_history`, `cluster_deletion_log`
 - Stores node endpoints, regions, health status, and latency metrics
 - Background health checker updates every 30 seconds
+- Tombstone-based deletion log for cluster sync (v0.9.0-beta)
 - Path: `{data_dir}/cluster.db`
 
 **SQLite Replication Database** (v0.5.0-beta)
@@ -265,7 +279,7 @@ type Manager interface {
 - AWS Signature v2 and v4
 - Compatible with AWS CLI, SDKs, and S3 tools
 
-### Cluster Authentication (v0.8.0-beta)
+### Cluster Authentication (v0.6.0-beta)
 - **HMAC-SHA256 signatures** for inter-node communication
 - Each node has a unique `node_token` (32-byte secure random)
 - Request signing: `HMAC-SHA256(node_token, method + path + timestamp + nonce + body)`
@@ -348,7 +362,7 @@ Global Admin (No tenant)
 
 **Key Point**: Client requests "backups/file.txt", backend serves from "tenant-abc123/backups/file.txt"
 
-### Cluster Request Routing (v0.8.0-beta)
+### Cluster Request Routing (v0.6.0-beta)
 
 **Scenario**: Client uploads object to bucket located on different node
 
@@ -373,7 +387,7 @@ Global Admin (No tenant)
 
 **Performance Optimization**: Subsequent requests hit cache (5ms vs 50ms)
 
-### Cluster Replication Flow (v0.8.0-beta)
+### Cluster Replication Flow (v0.6.0-beta)
 
 **Scenario**: Automatic bucket replication from Node 1 to Node 2
 
@@ -457,7 +471,7 @@ Global Admin (No tenant)
 ## Current Limitations
 
 **Beta Status**
-- ⚠️ Filesystem backend only (cloud storage backends planned)
+- ⚠️ Filesystem backend only (local/NAS/SAN storage)
 - ⚠️ Object versioning (basic implementation, not fully validated)
 - ⚠️ No automatic compression
 - ⚠️ Limited encryption key management (master key in config, HSM planned for future release)
@@ -520,13 +534,14 @@ ExecStart=/usr/local/bin/maxiofs --data-dir /var/lib/maxiofs
 - Hardware Security Module (HSM) integration for encryption keys
 - Advanced compression algorithms
 - Plugin system for extensibility
-- Additional storage backends (S3, GCS, Azure)
 - Cluster auto-scaling
 - Cross-region replication
 
 **Recently Implemented**
-- ✅ Multi-node clustering (v0.8.0-beta)
-- ✅ Cluster data replication with HA (v0.8.0-beta)
+- ✅ Identity Provider system with LDAP/AD and OAuth2/OIDC SSO (v0.9.0-beta)
+- ✅ Tombstone-based cluster deletion sync (v0.9.0-beta)
+- ✅ Multi-node clustering (v0.6.0-beta)
+- ✅ Cluster data replication with HA (v0.6.0-beta)
 - ✅ Server-Side Encryption at Rest (v0.4.1-beta)
 - ✅ Prometheus/Grafana monitoring (v0.3.2-beta)
 - ✅ Comprehensive audit logging (v0.4.0-beta)

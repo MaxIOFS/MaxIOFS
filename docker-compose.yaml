@@ -1,5 +1,5 @@
 # MaxIOFS Docker Compose Configuration
-# Version: 0.6.2-beta
+# Version: 0.9.0-beta
 #
 # Usage:
 #   docker compose up                    # Basic: MaxIOFS only
@@ -22,10 +22,10 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        VERSION: ${VERSION:-0.6.2-beta}
+        VERSION: ${VERSION:-0.9.0-beta}
         COMMIT: ${GIT_COMMIT:-dev}
         BUILD_DATE: ${BUILD_DATE}
-    image: maxiofs:${VERSION:-0.6.2-beta}
+    image: maxiofs:${VERSION:-0.9.0-beta}
     container_name: maxiofs
     restart: unless-stopped
 
@@ -50,11 +50,11 @@ services:
       MAXIOFS_PUBLIC_CONSOLE_URL: "http://localhost:8081"
 
       # Security
-      MAXIOFS_ENABLE_AUTH: "true"
-      MAXIOFS_JWT_SECRET: "change-this-secret-key-in-production"
+      MAXIOFS_AUTH_ENABLE_AUTH: "true"
+      MAXIOFS_AUTH_JWT_SECRET: "change-this-secret-key-in-production"
 
       # Metrics
-      MAXIOFS_ENABLE_METRICS: "true"
+      MAXIOFS_METRICS_ENABLE: "true"
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/health"]
@@ -67,7 +67,7 @@ services:
       - maxiofs-network
 
     labels:
-      - "com.maxiofs.version=0.6.2-beta"
+      - "com.maxiofs.version=0.9.0-beta"
       - "com.maxiofs.description=S3-compatible object storage server"
 
   # =============================================================================
@@ -158,10 +158,10 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        VERSION: ${VERSION:-0.6.2-beta}
+        VERSION: ${VERSION:-0.9.0-beta}
         COMMIT: ${GIT_COMMIT:-dev}
         BUILD_DATE: ${BUILD_DATE}
-    image: maxiofs:${VERSION:-0.6.2-beta}
+    image: maxiofs:${VERSION:-0.9.0-beta}
     container_name: maxiofs-node2
     restart: unless-stopped
     profiles:
@@ -181,9 +181,9 @@ services:
       MAXIOFS_LOG_LEVEL: "info"
       MAXIOFS_PUBLIC_API_URL: "http://localhost:8082"
       MAXIOFS_PUBLIC_CONSOLE_URL: "http://localhost:8083"
-      MAXIOFS_ENABLE_AUTH: "true"
-      MAXIOFS_JWT_SECRET: "change-this-secret-key-in-production"
-      MAXIOFS_ENABLE_METRICS: "true"
+      MAXIOFS_AUTH_ENABLE_AUTH: "true"
+      MAXIOFS_AUTH_JWT_SECRET: "change-this-secret-key-in-production"
+      MAXIOFS_METRICS_ENABLE: "true"
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/health"]
@@ -196,7 +196,7 @@ services:
       - maxiofs-network
 
     labels:
-      - "com.maxiofs.version=0.6.2-beta"
+      - "com.maxiofs.version=0.9.0-beta"
       - "com.maxiofs.node=node2"
 
   maxiofs-node3:
@@ -204,10 +204,10 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        VERSION: ${VERSION:-0.6.2-beta}
+        VERSION: ${VERSION:-0.9.0-beta}
         COMMIT: ${GIT_COMMIT:-dev}
         BUILD_DATE: ${BUILD_DATE}
-    image: maxiofs:${VERSION:-0.6.2-beta}
+    image: maxiofs:${VERSION:-0.9.0-beta}
     container_name: maxiofs-node3
     restart: unless-stopped
     profiles:
@@ -227,9 +227,9 @@ services:
       MAXIOFS_LOG_LEVEL: "info"
       MAXIOFS_PUBLIC_API_URL: "http://localhost:8084"
       MAXIOFS_PUBLIC_CONSOLE_URL: "http://localhost:8085"
-      MAXIOFS_ENABLE_AUTH: "true"
-      MAXIOFS_JWT_SECRET: "change-this-secret-key-in-production"
-      MAXIOFS_ENABLE_METRICS: "true"
+      MAXIOFS_AUTH_ENABLE_AUTH: "true"
+      MAXIOFS_AUTH_JWT_SECRET: "change-this-secret-key-in-production"
+      MAXIOFS_METRICS_ENABLE: "true"
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/health"]
@@ -242,7 +242,7 @@ services:
       - maxiofs-network
 
     labels:
-      - "com.maxiofs.version=0.6.2-beta"
+      - "com.maxiofs.version=0.9.0-beta"
       - "com.maxiofs.node=node3"
 
 # =============================================================================

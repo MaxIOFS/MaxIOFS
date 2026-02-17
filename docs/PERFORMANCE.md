@@ -329,7 +329,7 @@ ssh production-server
 
 ## Baseline Performance Metrics (Linux Production)
 
-These are the **official baseline metrics** for MaxIOFS v0.8.0-beta:
+These are the **official baseline metrics** for MaxIOFS v0.9.0-beta:
 
 ### System Specifications
 - **Platform:** Debian Linux 6.1, 80 CPU cores, 125GB RAM

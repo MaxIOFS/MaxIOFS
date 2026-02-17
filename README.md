@@ -33,7 +33,9 @@ MaxIOFS is a high-performance, S3-compatible object storage system built in Go w
 - Bucket notifications (webhooks)
 - S3-compatible replication to AWS S3, MinIO, or other MaxIOFS instances
 
-### Security & Authentication
+### Identity & Access Management
+- **Identity Provider System** — LDAP/AD and OAuth2/OIDC (Google, Microsoft presets)
+- SSO login with auto-provisioning via group-to-role mappings
 - Two-Factor Authentication (2FA) with TOTP
 - Server-side encryption at rest (AES-256-CTR)
 - Comprehensive audit logging (20+ event types)
@@ -53,9 +55,8 @@ MaxIOFS is a high-performance, S3-compatible object storage system built in Go w
   - Web console UI with migration history and filters
   - REST API for automation
 - **Automatic Data Synchronization** ✅
-  - Access keys synchronized across all cluster nodes
-  - Bucket permissions synchronized automatically
-  - User and tenant data consistency across cluster
+  - All 6 entity types synced: users, tenants, access keys, bucket permissions, IDP providers, group mappings
+  - Tombstone-based deletion sync prevents entity resurrection in bidirectional sync
   - Checksum-based change detection to minimize network traffic
   - Configurable sync intervals (default: 30 seconds)
 - Bucket location caching for performance
@@ -66,6 +67,7 @@ MaxIOFS is a high-performance, S3-compatible object storage system built in Go w
 - Real-time dashboard with metrics
 - Bucket browser with drag-and-drop uploads
 - User and tenant management
+- Identity provider management (LDAP/OAuth CRUD, test connection, group mappings)
 - Access key management
 - Settings configuration (no restart required)
 - Audit logs viewer with CSV export
@@ -134,6 +136,7 @@ Comprehensive documentation available in `/docs`:
 - **[CLUSTER.md](docs/CLUSTER.md)** - Multi-node cluster setup
 - **[TESTING.md](docs/TESTING.md)** - Testing guide
 - **[PERFORMANCE.md](docs/PERFORMANCE.md)** - Performance benchmarks
+- **[SSO.md](docs/SSO.md)** - SSO/LDAP/OAuth setup guide
 - **[DOCKER.md](DOCKER.md)** - Docker deployment guide
 
 ## 🧪 Testing
@@ -186,10 +189,10 @@ make build-all
 **See [CHANGELOG.md](CHANGELOG.md) for complete version history and roadmap**
 
 Recent releases:
+- **v0.9.0-beta** - Identity providers (LDAP/OAuth SSO), tombstone-based cluster deletion sync, security fixes
 - **v0.8.0-beta** - Object search & filters, security fixes, cluster production hardening
 - **v0.7.0-beta** - Bucket inventory, performance profiling, database migrations
 - **v0.6.0-beta** - Multi-node cluster support with HA replication
-- **v0.5.0-beta** - S3-compatible bucket replication
 
 ## 🔒 Security
 

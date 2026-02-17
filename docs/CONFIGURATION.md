@@ -1,7 +1,7 @@
 # MaxIOFS Configuration Guide
 
 **Version**: 0.9.0-beta
-**Last Updated**: January 16, 2026
+**Last Updated**: February 17, 2026
 
 ---
 
@@ -115,7 +115,7 @@ openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -node
 | `data_dir` | (required) | Base directory for all storage |
 | `buckets_dir` | `{data_dir}/buckets` | Object storage location |
 
-**Future:** Cloud backends (S3, GCS, Azure) planned for v0.8.0
+**Note:** Filesystem is the only supported storage backend. MaxIOFS is designed as a self-hosted S3-compatible server using local/NAS/SAN storage.
 
 ---
 
@@ -387,4 +387,4 @@ PUT /api/v1/settings/security.ratelimit_login_per_minute
 ---
 
 **Version**: 0.9.0-beta
-**Last Updated**: January 16, 2026
+**Last Updated**: February 17, 2026

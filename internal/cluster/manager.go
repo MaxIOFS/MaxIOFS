@@ -662,6 +662,51 @@ func (m *Manager) GetLocalNodeToken(ctx context.Context) (string, error) {
 	return m.GetNodeToken(ctx, nodeID)
 }
 
+// FetchJWTSecretFromNode fetches the JWT secret from a cluster node using HMAC authentication
+func (m *Manager) FetchJWTSecretFromNode(ctx context.Context, nodeEndpoint string) (string, error) {
+	// Get local node credentials for HMAC signing
+	localNodeID, err := m.GetLocalNodeID(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get local node ID: %w", err)
+	}
+	localNodeToken, err := m.GetLocalNodeToken(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get local node token: %w", err)
+	}
+
+	// Create HMAC-authenticated request
+	targetURL := fmt.Sprintf("%s/api/internal/cluster/jwt-secret", nodeEndpoint)
+	proxy := NewProxyClient()
+	req, err := proxy.CreateAuthenticatedRequest(ctx, "GET", targetURL, nil, localNodeID, localNodeToken)
+	if err != nil {
+		return "", fmt.Errorf("failed to create authenticated request: %w", err)
+	}
+
+	resp, err := proxy.DoAuthenticatedRequest(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch JWT secret from node: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to fetch JWT secret: status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var response struct {
+		JWTSecret string `json:"jwt_secret"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return "", fmt.Errorf("failed to decode JWT secret response: %w", err)
+	}
+
+	if response.JWTSecret == "" {
+		return "", fmt.Errorf("empty JWT secret returned from node")
+	}
+
+	return response.JWTSecret, nil
+}
+
 // Close stops the cluster manager
 func (m *Manager) Close() error {
 	if m.stopChan != nil {
