@@ -28,7 +28,8 @@ import {
   Building2,
   Lock,
   Unlock,
-  Settings
+  Settings,
+  UserStar
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -320,7 +321,7 @@ export default function UsersPage() {
         <MetricCard
           title="Admin Users"
           value={filteredUsers.filter((user: User) => user.roles.includes('admin')).length}
-          icon={Shield}
+          icon={UserStar}
           description="Users with admin access"
           color="blue-light"
         />

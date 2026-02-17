@@ -11,7 +11,7 @@ import {
   Globe,
   Shield,
   Zap,
-  Database,
+  Box,
   Lock,
   Package,
   Award,
@@ -188,7 +188,7 @@ export default function AboutPage() {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <FeatureCard
-              icon={Database}
+              icon={Box}
               title="S3 Compatible"
               description="Full S3 API implementation with 40+ operations including multipart uploads, presigned URLs, DeleteObjects bulk API (up to 1000), and bucket notifications (webhooks)"
             />

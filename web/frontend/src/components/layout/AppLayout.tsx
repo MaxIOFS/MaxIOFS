@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Home,
-  Database,
+  Box,
   Users,
   Settings,
   BarChart3,
@@ -50,7 +50,7 @@ const navigation: NavItem[] = [
   {
     name: 'Buckets',
     href: '/buckets',
-    icon: Database,
+    icon: Box,
   },
   {
     name: 'Users',

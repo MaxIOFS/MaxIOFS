@@ -20,7 +20,7 @@ import {
   Search,
   Settings,
   Trash2,
-  Database,
+  Box,
   HardDrive,
   CheckCircle,
   XCircle,
@@ -231,7 +231,7 @@ export default function TenantsPage() {
         <MetricCard
           title="Total Buckets"
           value={tenants?.reduce((acc: number, t: Tenant) => acc + (t.currentBuckets || 0), 0) || 0}
-          icon={Database}
+          icon={Box}
           description="Across all tenants"
           color="blue-light"
         />

@@ -10,7 +10,11 @@ import { APIClient } from '@/lib/api';
 type Theme = 'light' | 'dark' | 'system';
 type Language = 'en' | 'es';
 
-export function UserPreferences() {
+interface UserPreferencesProps {
+  disabled?: boolean;
+}
+
+export function UserPreferences({ disabled = false }: UserPreferencesProps) {
   const { t, i18n } = useTranslation();
   const { theme, setTheme } = useTheme();
   const { language } = useLanguage();
@@ -104,11 +108,16 @@ export function UserPreferences() {
           {themeOptions.map(({ value, icon: Icon, label }) => (
             <button
               key={value}
-              onClick={() => setLocalTheme(value)}
+              onClick={() => !disabled && setLocalTheme(value)}
+              disabled={disabled}
               className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all ${
+                disabled
+                  ? 'opacity-50 cursor-not-allowed'
+                  : ''
+              } ${
                 localTheme === value
                   ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
-                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                  : `border-gray-200 dark:border-gray-700 ${!disabled ? 'hover:border-gray-300 dark:hover:border-gray-600' : ''}`
               }`}
             >
               <Icon className={`h-5 w-5 mb-1.5 ${
@@ -126,6 +135,11 @@ export function UserPreferences() {
             </button>
           ))}
         </div>
+        {disabled && (
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+            Only the user themselves can change their theme preference.
+          </p>
+        )}
       </div>
 
       {/* Save/Reset Buttons */}

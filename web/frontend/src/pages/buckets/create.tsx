@@ -7,7 +7,7 @@ import { Loading } from '@/components/ui/Loading';
 import ModalManager from '@/lib/modals';
 import {
   ArrowLeft,
-  Database,
+  Box,
   Lock,
   Shield,
   Clock,
@@ -238,7 +238,7 @@ export default function CreateBucketPage() {
   };
 
   const tabs = [
-    { id: 'general', label: 'General', icon: Database },
+    { id: 'general', label: 'General', icon: Box },
     { id: 'objectlock', label: 'Object Lock & WORM', icon: Lock },
     { id: 'lifecycle', label: 'Lifecycle', icon: Clock },
     { id: 'encryption', label: 'Encryption', icon: Shield },

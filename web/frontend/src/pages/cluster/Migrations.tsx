@@ -11,7 +11,7 @@ import {
   AlertTriangle,
   Eye,
   Server,
-  Database,
+  Box,
   ArrowLeft,
   Filter
 } from 'lucide-react';
@@ -181,7 +181,7 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
-                        <Database className="w-4 h-4 text-brand-600 dark:text-brand-400" />
+                        <Box className="w-4 h-4 text-brand-600 dark:text-brand-400" />
                         <span className="text-sm font-medium text-gray-900 dark:text-gray-300">{migration.bucket_name}</span>
                       </div>
                     </td>

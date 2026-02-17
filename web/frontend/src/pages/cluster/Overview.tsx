@@ -7,7 +7,7 @@ import { MetricCard } from '@/components/ui/MetricCard';
 import {
   Server,
   Package,
-  Database,
+  Box,
   Network,
   CheckCircle,
   AlertTriangle,
@@ -245,7 +245,7 @@ export default function ClusterOverview() {
         <MetricCard
           title="Replicated Buckets"
           value={status?.replicated_buckets || 0}
-          icon={Database}
+          icon={Box}
           description="With replication configured"
           color="success"
         />
@@ -253,7 +253,7 @@ export default function ClusterOverview() {
         <MetricCard
           title="Local Buckets"
           value={status?.local_buckets || 0}
-          icon={Database}
+          icon={Box}
           description="Not replicated"
           color="warning"
         />

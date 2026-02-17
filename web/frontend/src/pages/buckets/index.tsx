@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/Table';
-import { Database, Plus, Search, Settings, Trash2, Calendar, HardDrive, Lock, Shield, Building2, Users, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Box, Plus, Search, Settings, Trash2, Calendar, HardDrive, Lock, Shield, Building2, Users, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Bucket } from '@/types';
@@ -248,7 +248,7 @@ export default function BucketsPage() {
         <MetricCard
           title="Total Buckets"
           value={sortedBuckets.length}
-          icon={Database}
+          icon={Box}
           description="Active storage containers"
           color="brand"
         />
@@ -289,7 +289,7 @@ export default function BucketsPage() {
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-            <Database className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+            <Box className="h-5 w-5 text-brand-600 dark:text-brand-400" />
             All Buckets ({sortedBuckets.length})
           </h3>
         </div>
@@ -297,7 +297,7 @@ export default function BucketsPage() {
         <div className="overflow-x-auto">
           {paginatedBuckets.length === 0 ? (
             <EmptyState
-              icon={Database}
+              icon={Box}
               title="No buckets found"
               description={searchTerm ? "No buckets match your search criteria. Try adjusting your search terms." : "Get started by creating your first bucket to store objects."}
               actionLabel={!searchTerm ? "Create Bucket" : undefined}
@@ -362,7 +362,7 @@ export default function BucketsPage() {
                       <TableCell className="whitespace-nowrap">
                         <div className="flex items-center gap-3">
                           <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br from-brand-50 to-blue-50 dark:from-brand-900/30 dark:to-blue-900/30 shadow-sm">
-                            <Database className="h-4 w-4 text-brand-600 dark:text-brand-400" />
+                            <Box className="h-4 w-4 text-brand-600 dark:text-brand-400" />
                           </div>
                           <div>
                             <Link

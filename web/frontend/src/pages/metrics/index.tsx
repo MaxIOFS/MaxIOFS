@@ -10,7 +10,7 @@ import {
   Clock,
   TrendingUp,
   Zap,
-  Database,
+  Box,
   Globe,
   AlertCircle,
   Cpu,
@@ -228,7 +228,7 @@ export default function MetricsPage() {
   const tabs = [
     { id: 'overview', label: 'Overview', icon: Gauge },
     { id: 'system', label: 'System', icon: Server },
-    { id: 'storage', label: 'Storage', icon: Database },
+    { id: 'storage', label: 'Storage', icon: Box },
     { id: 'api', label: 'API & Requests', icon: Globe },
     { id: 'performance', label: 'Performance', icon: Activity },
   ];
@@ -293,7 +293,7 @@ export default function MetricsPage() {
                 <MetricCard
                   title="Total Storage"
                   value={formatBytes(storageMetrics.totalSize || 0)}
-                  icon={Database}
+                  icon={Box}
                   description={`${formatNumber(storageMetrics.totalBuckets || 0)} buckets`}
                   color="brand"
                 />
@@ -482,14 +482,14 @@ export default function MetricsPage() {
                 <MetricCard
                   title="Total Objects"
                   value={formatNumber(storageMetrics.totalObjects || 0)}
-                  icon={Database}
+                  icon={Box}
                   description="Stored files"
                   color="blue-light"
                 />
                 <MetricCard
                   title="Buckets"
                   value={formatNumber(storageMetrics.totalBuckets || 0)}
-                  icon={Database}
+                  icon={Box}
                   description="Total buckets"
                   color="success"
                 />
@@ -729,7 +729,7 @@ export default function MetricsPage() {
                       <MetricCard
                         title="Objects/Sec"
                         value={performanceThroughput.current.objects_per_second.toFixed(2)}
-                        icon={Database}
+                        icon={Box}
                         description="Object ops"
                         color="success"
                       />

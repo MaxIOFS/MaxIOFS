@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Loading } from '@/components/ui/Loading';
 import { MetricCard } from '@/components/ui/MetricCard';
-import { Database, FolderOpen, Users, Activity, HardDrive, TrendingUp, ArrowUpRight, Shield, AlertCircle, CheckCircle2, BarChart3 } from 'lucide-react';
+import { Box, Boxes, FolderOpen, Users, Activity, HardDrive, ArrowUpRight, Shield, BarChart3 } from 'lucide-react';
 import { formatBytes } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -157,7 +157,7 @@ export default function Dashboard() {
             onClick={() => navigate('/buckets')}
             className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white shadow-sm"
           >
-            <Database className="h-4 w-4 mr-2" />
+            <Box className="h-4 w-4 mr-2" />
             View Buckets
           </Button>
           <Button
@@ -175,7 +175,7 @@ export default function Dashboard() {
         <MetricCard
           title="Total Buckets"
           value={totalBuckets}
-          icon={Database}
+          icon={Box}
           description="Active storage containers"
           color="brand"
         />
@@ -183,7 +183,7 @@ export default function Dashboard() {
         <MetricCard
           title="Total Objects"
           value={totalObjects.toLocaleString()}
-          icon={FolderOpen}
+          icon={Boxes}
           description="Stored across all buckets"
           color="blue-light"
         />
@@ -312,7 +312,7 @@ export default function Dashboard() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-lg">
-                <Database className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+                <Box className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
               </div>
               Top Buckets
             </CardTitle>
@@ -380,7 +380,7 @@ export default function Dashboard() {
             ) : (
               <div className="text-center py-12">
                 <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 mb-4 shadow-inner">
-                  <Database className="h-10 w-10 text-gray-400 dark:text-gray-500" />
+                  <Box className="h-10 w-10 text-gray-400 dark:text-gray-500" />
                 </div>
                 <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">No buckets yet</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Create your first bucket to get started</p>
@@ -411,7 +411,7 @@ export default function Dashboard() {
               >
                 <div className="flex items-center space-x-3">
                   <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg">
-                    <Database className="h-6 w-6 text-white" />
+                    <Box className="h-6 w-6 text-white" />
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-gray-900 dark:text-white">Create New Bucket</p>
@@ -463,7 +463,7 @@ export default function Dashboard() {
           <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-800">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-lg">
-                <Database className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+                <Box className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
               </div>
               Recent Buckets
             </h3>
@@ -473,7 +473,7 @@ export default function Dashboard() {
             {buckets.length === 0 ? (
               <div className="text-center py-8">
                 <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 mb-4 shadow-inner">
-                  <Database className="h-10 w-10 text-gray-400 dark:text-gray-500" />
+                  <Box className="h-10 w-10 text-gray-400 dark:text-gray-500" />
                 </div>
                 <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">No buckets yet</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-5">Create your first bucket to get started</p>
@@ -505,7 +505,7 @@ export default function Dashboard() {
                       >
                         <div className="flex items-center gap-3 flex-1 min-w-0">
                           <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-md group-hover:shadow-lg transition-shadow duration-200 flex-shrink-0">
-                            <Database className="h-6 w-6 text-white" />
+                            <Box className="h-6 w-6 text-white" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{bucket.name}</p>
