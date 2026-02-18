@@ -4,6 +4,7 @@ import { Button } from './ui/Button';
 import { KeyRound, Download, Copy, Check } from 'lucide-react';
 import APIClient from '@/lib/api';
 import ModalManager from '@/lib/modals';
+import { getErrorMessage } from '@/lib/utils';
 
 interface Setup2FAModalProps {
   isOpen: boolean;
@@ -35,9 +36,9 @@ export function Setup2FAModal({ isOpen, onClose, onSuccess }: Setup2FAModalProps
       setSecret(data.secret);
       setQrCode(data.qr_code);
       setStep('scan');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Setup 2FA error:', err);
-      setError(err.message || 'Failed to setup 2FA');
+      setError(getErrorMessage(err, 'Failed to setup 2FA'));
       setStep('scan');
     }
   };
@@ -61,9 +62,9 @@ export function Setup2FAModal({ isOpen, onClose, onSuccess }: Setup2FAModalProps
 
       onSuccess(data.backup_codes);
       onClose();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Enable 2FA error:', err);
-      setError(err.message || 'Invalid verification code. Please try again.');
+      setError(getErrorMessage(err, 'Invalid verification code. Please try again.'));
     } finally {
       setLoading(false);
     }

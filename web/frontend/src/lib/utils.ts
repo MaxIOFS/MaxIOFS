@@ -50,3 +50,48 @@ export function formatRelativeTime(date: string | Date): string {
 
   return formatDate(dateObj);
 }
+
+// ==================== Error Helpers ====================
+
+/**
+ * Type-safe error message extraction from unknown catch values.
+ * Handles Axios errors (response.data.error), APIError (message), and plain Error objects.
+ */
+export function getErrorMessage(err: unknown, fallback = 'An unexpected error occurred'): string {
+  if (typeof err === 'string') return err;
+  if (err instanceof Error) return err.message;
+  if (isErrorWithResponse(err)) {
+    return err.response?.data?.error || err.response?.data?.Error || err.message || fallback;
+  }
+  if (isErrorWithMessage(err)) return err.message;
+  return fallback;
+}
+
+/** Extract HTTP status code from an Axios-like error */
+export function getErrorStatus(err: unknown): number | undefined {
+  if (isErrorWithResponse(err)) return err.response?.status;
+  return undefined;
+}
+
+/** Check if an error has a specific HTTP status code */
+export function isHttpStatus(err: unknown, status: number): boolean {
+  return getErrorStatus(err) === status;
+}
+
+// Type guards
+
+function isErrorWithMessage(err: unknown): err is { message: string } {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'message' in err &&
+    typeof (err as { message: unknown }).message === 'string'
+  );
+}
+
+export function isErrorWithResponse(err: unknown): err is {
+  message?: string;
+  response?: { status?: number; data?: { error?: string; Error?: string; sso_hint?: boolean } };
+} {
+  return typeof err === 'object' && err !== null && 'response' in err;
+}

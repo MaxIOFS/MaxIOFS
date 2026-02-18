@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
+import { isErrorWithResponse } from '@/lib/utils';
 import type {
   APIResponse,
   User,
@@ -81,7 +82,7 @@ import type {
 // Get base path from window (injected by backend based on public_console_url)
 const getBasePath = () => {
   if (typeof window !== 'undefined') {
-    return ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+    return (window.BASE_PATH || '/').replace(/\/$/, '');
   }
   return '';
 };
@@ -253,7 +254,7 @@ const handleError = async (error: AxiosError): Promise<never> => {
           // Use setTimeout to ensure the redirect happens after current call stack
           setTimeout(() => {
             // Use BASE_PATH to respect proxy reverse configuration
-            const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+            const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
             window.location.replace(`${basePath}/login`);
           }, 100);
         }
@@ -320,10 +321,9 @@ export class APIClient {
       }
 
       return result;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Extract sso_hint from error responses (400 status)
-      if (err.response?.data?.sso_hint) {
+      if (isErrorWithResponse(err) && err.response?.data?.sso_hint) {
         return {
           success: false,
           error: err.response.data.error,

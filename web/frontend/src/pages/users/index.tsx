@@ -20,7 +20,6 @@ import {
   Trash2,
   UserCheck,
   UserX,
-  Shield,
   Calendar,
   Mail,
   Key,

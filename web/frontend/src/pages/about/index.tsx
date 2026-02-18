@@ -32,7 +32,7 @@ export default function AboutPage() {
   });
 
   // Get base path from window (injected by backend based on public_console_url)
-  const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+  const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
 
   if (isLoading) {
     return (

@@ -144,7 +144,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const totalUnread = unreadCount + (hasDefaultPassword ? 1 : 0);
 
   // Get base path from window (injected by backend based on public_console_url)
-  const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+  const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
 
   // Get server config for version
   const { data: serverConfig } = useQuery<ServerConfig>({

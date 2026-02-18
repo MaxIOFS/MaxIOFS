@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import APIClient from '@/lib/api';
+import { getErrorMessage } from '@/lib/utils';
 import {
   ArrowRightLeft,
   Clock,
@@ -450,8 +451,8 @@ export default function ClusterMigrations() {
       await APIClient.migrateBucket(selectedBucket, request);
       alert('Migration started successfully!');
       await loadData();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to start migration');
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Failed to start migration'));
     }
   };
 

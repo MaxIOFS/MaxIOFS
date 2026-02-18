@@ -17,7 +17,7 @@ export interface Notification {
 // Helper to get base path
 const getBasePath = () => {
   if (typeof window !== 'undefined') {
-    return ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+    return (window.BASE_PATH || '/').replace(/\/$/, '');
   }
   return '';
 };

@@ -1,6 +1,7 @@
 import { useState, FormEvent } from 'react';
 import APIClient from '@/lib/api';
 import ModalManager from '@/lib/modals';
+import { getErrorMessage, isHttpStatus } from '@/lib/utils';
 import { TwoFactorInput } from '@/components/TwoFactorInput';
 import { useQuery } from '@tanstack/react-query';
 import type { OAuthProviderInfo } from '@/types';
@@ -55,7 +56,7 @@ export default function LoginPage() {
   });
 
   // Get base path from window (injected by backend)
-  const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+  const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
   const version = versionData?.version || '';
 
   const handleSubmit = async (e: FormEvent) => {
@@ -86,17 +87,16 @@ export default function LoginPage() {
 
       if (response.success && response.token) {
         // Redirect to dashboard using hard redirect to ensure auth state is initialized
-        const basePath = (window as any).BASE_PATH || '/';
+        const basePath = window.BASE_PATH || '/';
         window.location.href = basePath;
       } else {
         setError(response.error || 'Invalid credentials');
       }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (err: any) {
-      if (err.response?.status === 401 || err.message?.includes('401')) {
+    } catch (err: unknown) {
+      if (isHttpStatus(err, 401)) {
         setError('Username or password is incorrect');
       } else {
-        setError(err.response?.data?.error || err.message || 'Failed to login. Please check your credentials.');
+        setError(getErrorMessage(err, 'Failed to login. Please check your credentials.'));
       }
     } finally {
       setLoading(false);
@@ -121,15 +121,14 @@ export default function LoginPage() {
         ModalManager.successLogin(formData.username);
 
         // Redirect to dashboard
-        const basePath = (window as any).BASE_PATH || '/';
+        const basePath = window.BASE_PATH || '/';
         window.location.href = basePath;
       } else {
         setError(response.error || 'Invalid 2FA code');
       }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (err: any) {
+    } catch (err: unknown) {
       ModalManager.close();
-      setError(err.message || 'Invalid 2FA code. Please try again.');
+      setError(getErrorMessage(err, 'Invalid 2FA code. Please try again.'));
     } finally {
       setLoading(false);
     }

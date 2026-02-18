@@ -36,6 +36,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { UploadRequest, ObjectSearchFilter } from '@/types';
 import ModalManager from '@/lib/modals';
+import { isHttpStatus, getErrorMessage } from '@/lib/utils';
 import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 import { ObjectVersionsModal } from '@/components/ObjectVersionsModal';
 import { PresignedURLModal } from '@/components/PresignedURLModal';
@@ -228,9 +229,9 @@ export default function BucketDetailsPage() {
         try {
           await APIClient.deleteObject(bucket, key, tenantId);
           console.log('[DELETE] Folder marker deleted successfully');
-        } catch (error: any) {
+        } catch (error: unknown) {
           // Ignore 404 errors - folder marker may not exist (virtual folder)
-          if (error?.response?.status === 404) {
+          if (isHttpStatus(error, 404)) {
             console.log('[DELETE] Folder marker not found (virtual folder) - OK');
           } else {
             // Re-throw other errors
@@ -460,7 +461,7 @@ export default function BucketDetailsPage() {
 
       // Show success message
       ModalManager.successDownload(key.split('/').pop() || key);
-    } catch (error: any) {
+    } catch (error: unknown) {
       ModalManager.close();
       ModalManager.apiError(error);
     }
@@ -636,7 +637,7 @@ export default function BucketDetailsPage() {
           ModalManager.toast('success', 'Link copied to clipboard');
         }
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       ModalManager.close();
       ModalManager.apiError(error);
     }
@@ -743,9 +744,9 @@ export default function BucketDetailsPage() {
       try {
         await APIClient.deleteObject(bucketName, key, tenantId);
         successCount++;
-      } catch (error: any) {
+      } catch (error: unknown) {
         failCount++;
-        const errorMsg = error?.details?.Error || error?.message || 'Unknown error';
+        const errorMsg = getErrorMessage(error, 'Unknown error');
         errors.push({ key, error: errorMsg });
       }
     }

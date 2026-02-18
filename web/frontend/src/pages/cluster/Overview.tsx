@@ -15,6 +15,7 @@ import {
   ArrowRightLeft
 } from 'lucide-react';
 import APIClient from '@/lib/api';
+import { getErrorMessage } from '@/lib/utils';
 import type { ClusterStatus, ClusterConfig } from '@/types';
 
 export default function ClusterOverview() {
@@ -43,8 +44,8 @@ export default function ClusterOverview() {
       } else {
         setStatus(null);
       }
-    } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Failed to load cluster data');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to load cluster data'));
     } finally {
       setLoading(false);
     }
@@ -56,8 +57,8 @@ export default function ClusterOverview() {
       alert(`Cluster initialized successfully!\n\nCluster Token: ${response.cluster_token}\n\nSave this token to join other nodes to the cluster.`);
       setShowInitDialog(false);
       await loadData();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to initialize cluster');
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Failed to initialize cluster'));
     }
   };
 

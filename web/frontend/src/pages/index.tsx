@@ -7,6 +7,7 @@ import { Box, Boxes, FolderOpen, Users, Activity, HardDrive, ArrowUpRight, Shiel
 import { formatBytes } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
+import type { Bucket } from '@/types';
 import { useNavigate } from 'react-router-dom';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip } from 'recharts';
@@ -40,7 +41,7 @@ export default function Dashboard() {
   }, []);
 
   // Get base path from window (injected by backend based on public_console_url)
-  const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+  const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
 
   // Queries already filtered by tenant on backend
   const { data: metrics, isLoading: metricsLoading } = useQuery({
@@ -85,41 +86,39 @@ export default function Dashboard() {
   const isLoading = metricsLoading || bucketsLoading || usersLoading;
 
   // Data is already tenant-filtered by backend
-  const buckets = bucketsResponse || [];
+  const buckets: Bucket[] = bucketsResponse || [];
   const users = usersResponse || [];
   const totalBuckets = buckets.length;
-  const totalObjects = buckets.reduce((sum: number, bucket: any) => sum + (bucket.object_count || 0), 0);
-  const totalSize = buckets.reduce((sum: number, bucket: any) => sum + (bucket.size || 0), 0);
+  const totalObjects = buckets.reduce((sum, bucket) => sum + (bucket.object_count || 0), 0);
+  const totalSize = buckets.reduce((sum, bucket) => sum + (bucket.size || 0), 0);
   const activeUsers = users.filter((u: any) => u.status === 'active').length;
 
-  // Prepare chart data (respects tenant filtering from backend)
-  const storageDistribution = useMemo(() => {
-    // Ensure we have buckets with valid sizes
-    const validBuckets = buckets.filter((b: any) => (b.size || 0) > 0);
-    if (validBuckets.length === 0 || totalSize === 0) {
-      return [];
-    }
-
-    return validBuckets
-      .sort((a: any, b: any) => (b.size || 0) - (a.size || 0))
-      .slice(0, 5)
-      .map((bucket: any) => ({
-        name: bucket.name,
-        value: bucket.size || 0,
-        percentage: totalSize > 0 ? ((bucket.size / totalSize) * 100).toFixed(1) : '0',
-      }));
-  }, [buckets, totalSize]);
-
-  const topBuckets = useMemo(() => {
-    return buckets
-      .sort((a: any, b: any) => b.size - a.size)
-      .slice(0, 5)
-      .map((bucket: any) => ({
-        name: bucket.name.length > 15 ? bucket.name.substring(0, 15) + '...' : bucket.name,
-        size: bucket.size,
-        objects: bucket.object_count || 0,
-      }));
+  // Top 5 buckets by size (shared base for both charts)
+  const top5Buckets = useMemo(() => {
+    return [...buckets]
+      .filter((b) => (b.size || 0) > 0)
+      .sort((a, b) => (b.size || 0) - (a.size || 0))
+      .slice(0, 5);
   }, [buckets]);
+
+  // Pie chart data — storage distribution
+  const storageDistribution = useMemo(() => {
+    if (top5Buckets.length === 0 || totalSize === 0) return [];
+    return top5Buckets.map((bucket) => ({
+      name: bucket.name,
+      value: bucket.size || 0,
+      percentage: Number(((bucket.size || 0) / totalSize * 100).toFixed(1)),
+    }));
+  }, [top5Buckets, totalSize]);
+
+  // Bar chart data — top buckets
+  const topBuckets = useMemo(() => {
+    return top5Buckets.map((bucket) => ({
+      name: bucket.name.length > 15 ? bucket.name.substring(0, 15) + '...' : bucket.name,
+      size: bucket.size || 0,
+      objects: bucket.object_count || 0,
+    }));
+  }, [top5Buckets]);
 
   const COLORS = ['#4F46E5', '#06B6D4', '#8B5CF6', '#F59E0B', '#EF4444'];
 
@@ -250,7 +249,7 @@ export default function Dashboard() {
                         dataKey="value"
                         label={false}
                       >
-                        {storageDistribution.map((entry: any, index: number) => (
+                        {storageDistribution.map((_entry, index) => (
                           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                         ))}
                       </Pie>
@@ -278,7 +277,7 @@ export default function Dashboard() {
                   </ResponsiveContainer>
                 </div>
                 <div className="w-full md:w-1/2 space-y-1.5">
-                  {storageDistribution.map((item: any, index: number) => (
+                  {storageDistribution.map((item, index) => (
                     <div key={index} className="flex items-center justify-between p-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
                         <div

@@ -29,6 +29,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Tenant, CreateTenantRequest, UpdateTenantRequest } from '@/types';
 import ModalManager from '@/lib/modals';
+import { getErrorMessage } from '@/lib/utils';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 export default function TenantsPage() {
@@ -94,11 +95,11 @@ export default function TenantsPage() {
       queryClient.refetchQueries({ queryKey: ['buckets'] });
       ModalManager.toast('success', 'Tenant deleted successfully');
     },
-    onError: async (error: any, variables) => {
+    onError: async (error: unknown, variables) => {
       ModalManager.close();
 
       // Check if error is about tenant having buckets and offer force delete option
-      const errorMessage = error?.response?.data?.error || error?.message || String(error);
+      const errorMessage = getErrorMessage(error);
 
       if (errorMessage.includes('has') && errorMessage.includes('bucket')) {
         const result = await ModalManager.fire({

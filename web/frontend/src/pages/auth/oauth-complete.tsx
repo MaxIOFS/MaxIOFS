@@ -19,7 +19,7 @@ export default function OAuthCompletePage() {
       document.cookie = `auth_token=${token}; path=/; max-age=${24 * 60 * 60}`;
 
       // Redirect to dashboard
-      const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+      const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
       window.location.href = basePath || '/';
     } else {
       setError('No authentication token received');
@@ -27,7 +27,7 @@ export default function OAuthCompletePage() {
   }, []);
 
   if (error) {
-    const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+    const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center max-w-md p-8">

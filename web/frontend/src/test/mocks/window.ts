@@ -13,7 +13,7 @@ export const mockLocation = {
 // Setup window mocks
 export const setupWindowMocks = () => {
   // Mock BASE_PATH
-  (window as any).BASE_PATH = '/';
+  window.BASE_PATH = '/';
 
   // Mock location
   delete (window as any).location;

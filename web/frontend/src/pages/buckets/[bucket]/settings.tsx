@@ -27,6 +27,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import ModalManager from '@/lib/modals';
+import { getErrorStatus } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import type { NotificationConfiguration, NotificationRule, ReplicationRule, CreateReplicationRuleRequest } from '@/types';
 
@@ -500,9 +501,9 @@ export default function BucketSettingsPage() {
         setCurrentPolicy(null);
         setPolicyStatementCount(0);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Policy not found or error - this is normal if no policy is set
-      console.log('No policy set or error loading policy:', error?.response?.status);
+      console.log('No policy set or error loading policy:', getErrorStatus(error));
       setCurrentPolicy(null);
       setPolicyStatementCount(0);
     }

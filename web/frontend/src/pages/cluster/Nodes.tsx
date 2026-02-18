@@ -27,6 +27,7 @@ import {
   X
 } from 'lucide-react';
 import APIClient from '@/lib/api';
+import { getErrorMessage } from '@/lib/utils';
 import type { ClusterNode, AddNodeRequest, UpdateNodeRequest, CreateReplicationRuleRequest, BucketWithReplication } from '@/types';
 
 type HealthStatus = 'healthy' | 'degraded' | 'unavailable' | 'unknown';
@@ -63,8 +64,8 @@ export default function ClusterNodes() {
       // Filter out local node for bulk replication (cannot replicate to itself)
       const remoteNodes = data.filter(node => node.id !== clusterConfig.node_id);
       setAvailableNodes(remoteNodes);
-    } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Failed to load nodes');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to load nodes'));
     } finally {
       setLoading(false);
     }
@@ -75,8 +76,8 @@ export default function ClusterNodes() {
       await APIClient.addClusterNode(request);
       setShowAddNodeDialog(false);
       await loadNodes();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to add node');
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Failed to add node'));
     }
   };
 
@@ -85,8 +86,8 @@ export default function ClusterNodes() {
       await APIClient.updateClusterNode(nodeId, request);
       setEditingNode(null);
       await loadNodes();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to update node');
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Failed to update node'));
     }
   };
 
@@ -98,8 +99,8 @@ export default function ClusterNodes() {
     try {
       await APIClient.removeClusterNode(nodeId);
       await loadNodes();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to remove node');
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Failed to remove node'));
     }
   };
 
@@ -107,8 +108,8 @@ export default function ClusterNodes() {
     try {
       const health = await APIClient.checkNodeHealth(nodeId);
       alert(`Health Status: ${health.status}\nLatency: ${health.latency_ms}ms`);
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to check node health');
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Failed to check node health'));
     }
   };
 
@@ -139,8 +140,8 @@ export default function ClusterNodes() {
       alert(message);
       setShowNodeReplicationDialog(false);
       await loadNodes();
-    } catch (err: any) {
-      alert(err.response?.data?.error || err.message || 'Failed to configure bulk replication');
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Failed to configure bulk replication'));
     } finally {
       setConfiguringBulk(false);
     }

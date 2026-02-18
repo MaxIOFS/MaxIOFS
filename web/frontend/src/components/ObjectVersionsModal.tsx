@@ -101,7 +101,7 @@ export function ObjectVersionsModal({
       window.URL.revokeObjectURL(url);
 
       ModalManager.toast('success', 'Version downloaded successfully');
-    } catch (error: any) {
+    } catch (error: unknown) {
       ModalManager.close();
       ModalManager.apiError(error);
     }

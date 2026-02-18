@@ -343,7 +343,7 @@ export default function UserDetailsPage() {
       );
       setShowDisable2FAModal(false);
       refetch2FAStatus();
-    } catch (error: any) {
+    } catch (error: unknown) {
       await ModalManager.apiError(error);
     } finally {
       setDisabling2FA(false);
@@ -375,7 +375,7 @@ export default function UserDetailsPage() {
           'Your new backup codes are ready. Please save them in a secure location.'
         );
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       ModalManager.close();
       await ModalManager.apiError(error);
     }

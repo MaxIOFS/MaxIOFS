@@ -14,7 +14,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   // Setup window.BASE_PATH
-  (window as any).BASE_PATH = '/';
+  window.BASE_PATH = '/';
 });
 
 // Mock window.matchMedia

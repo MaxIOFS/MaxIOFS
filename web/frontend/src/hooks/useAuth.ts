@@ -5,6 +5,7 @@ import type { User, LoginRequest, APIError } from '@/types';
 import { useIdleTimer } from './useIdleTimer';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { isHttpStatus } from '@/lib/utils';
 
 // Auth Context Type
 interface AuthContextType {
@@ -77,9 +78,9 @@ export function useAuthProvider(): AuthContextType {
           setUser(null);
           setIsLoading(false);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         // If we get a 401, the token is invalid
-        if (err?.response?.status === 401) {
+        if (isHttpStatus(err, 401)) {
           APIClient.clearAuth();
           setUser(null);
           setIsLoading(false);
@@ -87,7 +88,7 @@ export function useAuthProvider(): AuthContextType {
           if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
             setTimeout(() => {
               // Use BASE_PATH to respect proxy reverse configuration
-              const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+              const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
               window.location.href = `${basePath}/login`;
             }, 0);
           }
@@ -117,7 +118,7 @@ export function useAuthProvider(): AuthContextType {
         // Use hard redirect to ensure auth state is properly initialized
         if (typeof window !== 'undefined') {
           // Use BASE_PATH to respect proxy reverse configuration
-          const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+          const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
           window.location.href = basePath || '/';
         }
       } else {
@@ -180,7 +181,7 @@ export function useAuthProvider(): AuthContextType {
         details: null,
       });
       // Use BASE_PATH to respect proxy reverse configuration
-      const basePath = ((window as any).BASE_PATH || '/').replace(/\/$/, '');
+      const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
       window.location.href = `${basePath}/login`;
     }
   }, [isAuthenticated]);

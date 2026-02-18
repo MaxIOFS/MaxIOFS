@@ -14,6 +14,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import APIClient from '@/lib/api';
+import { getErrorMessage } from '@/lib/utils';
 import type { BucketWithReplication, ClusterNode, CreateClusterReplicationRequest } from '@/types';
 
 type FilterType = 'all' | 'replicated' | 'local';
@@ -49,8 +50,8 @@ export default function BucketReplication() {
       } else {
         setBuckets([]);
       }
-    } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Failed to load buckets');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to load buckets'));
       setBuckets([]);
     } finally {
       setLoading(false);
@@ -83,7 +84,7 @@ export default function BucketReplication() {
       // Filter out local node (cannot replicate to itself)
       const remoteNodes = data.filter(node => node.id !== clusterConfig.node_id);
       setNodes(remoteNodes);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load nodes:', err);
     } finally {
       setLoadingNodes(false);
@@ -124,8 +125,8 @@ export default function BucketReplication() {
       alert('Cluster replication configured successfully!');
       setSelectedBucket(null);
       loadBuckets();
-    } catch (err: any) {
-      alert(err.response?.data?.error || err.message || 'Failed to configure replication');
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Failed to configure replication'));
     } finally {
       setConfiguring(false);
     }
