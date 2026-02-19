@@ -1,3 +1,17 @@
+maxiofs (0.9.1-beta) unstable; urgency=high
+
+  * Release v0.9.1-beta - Security: tenant isolation hardening
+  * Fixed 12 tenant isolation vulnerabilities across console API handlers
+  * IDP handlers: tenant admins restricted to own tenant IDPs only
+  * User handlers: handleGetUser, handleUpdateUser, handleDeleteUser now enforce tenant scope
+  * Access key handlers: list/create/delete now verify target user tenant ownership
+  * Bucket permission handlers: list/grant/revoke now require admin + bucket ownership
+  * handleDeleteBucket, handleListBucketShares, handleDeleteShare: queryTenantID restricted to global admins
+  * handleGetTenant, handleListTenantUsers: tenant admins restricted to own tenant
+  * Frontend: IDP tenant selector for global admins, tenant name resolution in IDP list
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Wed, 19 Feb 2026 12:00:00 +0000
+
 maxiofs (0.9.0-beta) unstable; urgency=medium
 
   * Release v0.9.0-beta

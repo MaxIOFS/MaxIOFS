@@ -1,6 +1,6 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 0.9.0-beta
+**Version**: 0.9.1-beta
 **Status**: Beta - 100% S3 Compatible
 **License**: MIT
 **Website**: [maxiofs.com](https://maxiofs.com)
@@ -193,6 +193,7 @@ make build-all
 **See [CHANGELOG.md](CHANGELOG.md) for complete version history and roadmap**
 
 Recent releases:
+- **v0.9.1-beta** - IDP tenant isolation fixes, user/access-key/bucket-permission handler auth hardening, cross-tenant data leak fixes
 - **v0.9.0-beta** - Identity providers (LDAP/OAuth SSO), tombstone-based cluster deletion sync, JWT secret persistence & cluster sync, security fixes
 - **v0.8.0-beta** - Object search & filters, security fixes, cluster production hardening
 - **v0.7.0-beta** - Bucket inventory, performance profiling, database migrations

@@ -1,6 +1,6 @@
 # MaxIOFS SSO / OAuth Authentication Guide
 
-**Version**: 0.9.0
+**Version**: 0.9.1-beta
 **Last Updated**: February 15, 2026
 
 ---

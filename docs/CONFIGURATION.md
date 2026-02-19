@@ -1,7 +1,7 @@
 # MaxIOFS Configuration Guide
 
-**Version**: 0.9.0-beta
-**Last Updated**: February 17, 2026
+**Version**: 0.9.1-beta
+**Last Updated**: February 19, 2026
 
 ---
 
@@ -386,5 +386,5 @@ PUT /api/v1/settings/security.ratelimit_login_per_minute
 
 ---
 
-**Version**: 0.9.0-beta
-**Last Updated**: February 17, 2026
+**Version**: 0.9.1-beta
+**Last Updated**: February 19, 2026

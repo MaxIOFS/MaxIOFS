@@ -1,7 +1,7 @@
 # MaxIOFS - Development Roadmap
 
-**Version**: 0.9.0-beta
-**Last Updated**: February 17, 2026
+**Version**: 0.9.1-beta
+**Last Updated**: February 19, 2026
 **Status**: Beta - S3 Core 100% Compatible
 
 ## 📊 Project Status

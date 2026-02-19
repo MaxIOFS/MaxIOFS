@@ -5,7 +5,7 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.1-beta] - 2026-02-19
 
 ### Fixed
 - **IDP tenant isolation** — Tenant admins could see global IDPs and IDPs from other tenants. `ListProviders` SQL query included `OR tenant_id IS NULL`; `handleGetIDP`, `handleUpdateIDP`, and `handleDeleteIDP` had a `TenantID != ""` bypass that granted access to global IDPs. All handlers now enforce strict tenant scoping: tenant admins can only list, view, update, and delete IDPs belonging to their own tenant.
@@ -445,7 +445,7 @@ MaxIOFS follows semantic versioning:
 - **0.x.x-rc**: Release candidates - Production-ready testing
 - **1.x.x**: Stable releases - Production-ready
 
-### Current Status: BETA (v0.9.0-beta)
+### Current Status: BETA (v0.9.1-beta)
 
 **Completed Core Features:**
 - ✅ All S3 core operations validated with AWS CLI (100% compatible)
