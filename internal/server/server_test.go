@@ -2036,7 +2036,7 @@ func TestHandleListBucketPermissions(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("should list bucket permissions", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/buckets/"+bucketName+"/permissions", nil, tenantID, "user-1", false)
+		req := createAuthenticatedRequest("GET", "/api/v1/buckets/"+bucketName+"/permissions", nil, tenantID, "user-1", true)
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
 		rr := httptest.NewRecorder()
@@ -2069,7 +2069,7 @@ func TestHandleGrantBucketPermission(t *testing.T) {
 
 	t.Run("should grant permission with userId", func(t *testing.T) {
 		body := `{"userId": "target-user", "permissionLevel": "read", "grantedBy": "admin"}`
-		req := createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/permissions", strings.NewReader(body), tenantID, "user-1", false)
+		req := createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/permissions", strings.NewReader(body), tenantID, "user-1", true)
 		req.Header.Set("Content-Type", "application/json")
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
@@ -2082,7 +2082,7 @@ func TestHandleGrantBucketPermission(t *testing.T) {
 
 	t.Run("should reject missing userId and tenantId", func(t *testing.T) {
 		body := `{"permissionLevel": "read", "grantedBy": "admin"}`
-		req := createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/permissions", strings.NewReader(body), tenantID, "user-1", false)
+		req := createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/permissions", strings.NewReader(body), tenantID, "user-1", true)
 		req.Header.Set("Content-Type", "application/json")
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
@@ -2094,7 +2094,7 @@ func TestHandleGrantBucketPermission(t *testing.T) {
 
 	t.Run("should reject missing permissionLevel", func(t *testing.T) {
 		body := `{"userId": "target-user", "grantedBy": "admin"}`
-		req := createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/permissions", strings.NewReader(body), tenantID, "user-1", false)
+		req := createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/permissions", strings.NewReader(body), tenantID, "user-1", true)
 		req.Header.Set("Content-Type", "application/json")
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
@@ -2106,7 +2106,7 @@ func TestHandleGrantBucketPermission(t *testing.T) {
 
 	t.Run("should reject missing grantedBy", func(t *testing.T) {
 		body := `{"userId": "target-user", "permissionLevel": "read"}`
-		req := createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/permissions", strings.NewReader(body), tenantID, "user-1", false)
+		req := createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/permissions", strings.NewReader(body), tenantID, "user-1", true)
 		req.Header.Set("Content-Type", "application/json")
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
@@ -2117,7 +2117,7 @@ func TestHandleGrantBucketPermission(t *testing.T) {
 	})
 
 	t.Run("should reject invalid JSON", func(t *testing.T) {
-		req := createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/permissions", strings.NewReader("not json"), tenantID, "user-1", false)
+		req := createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/permissions", strings.NewReader("not json"), tenantID, "user-1", true)
 		req.Header.Set("Content-Type", "application/json")
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
@@ -2150,7 +2150,7 @@ func TestHandleRevokeBucketPermission(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("should revoke permission with userId", func(t *testing.T) {
-		req := createAuthenticatedRequest("DELETE", "/api/v1/buckets/"+bucketName+"/permissions?userId=target-user", nil, tenantID, "user-1", false)
+		req := createAuthenticatedRequest("DELETE", "/api/v1/buckets/"+bucketName+"/permissions?userId=target-user", nil, tenantID, "user-1", true)
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
 		rr := httptest.NewRecorder()
@@ -2160,7 +2160,7 @@ func TestHandleRevokeBucketPermission(t *testing.T) {
 	})
 
 	t.Run("should reject missing userId and tenantId", func(t *testing.T) {
-		req := createAuthenticatedRequest("DELETE", "/api/v1/buckets/"+bucketName+"/permissions", nil, tenantID, "user-1", false)
+		req := createAuthenticatedRequest("DELETE", "/api/v1/buckets/"+bucketName+"/permissions", nil, tenantID, "user-1", true)
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
 		rr := httptest.NewRecorder()
@@ -2829,7 +2829,7 @@ func TestHandleListTenantUsers(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("should list tenant users", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/tenants/"+tenantID+"/users", nil, tenantID, "user-1", false)
+		req := createAuthenticatedRequest("GET", "/api/v1/tenants/"+tenantID+"/users", nil, tenantID, "user-1", true)
 		req = mux.SetURLVars(req, map[string]string{"tenant": tenantID})
 
 		rr := httptest.NewRecorder()
@@ -5780,20 +5780,18 @@ func TestHandleGetUserEdgeCases(t *testing.T) {
 
 	t.Run("should return 404 for nonexistent user", func(t *testing.T) {
 		req := createAuthenticatedRequest("GET", "/api/v1/users/nonexistent-id", nil, "", "admin-1", true)
-		req = mux.SetURLVars(req, map[string]string{"id": "nonexistent-id"})
+		req = mux.SetURLVars(req, map[string]string{"user": "nonexistent-id"})
 		rr := httptest.NewRecorder()
 		server.handleGetUser(rr, req)
-		// May return 200 with user data if found, or 404/401/403 otherwise
-		assert.Contains(t, []int{http.StatusOK, http.StatusNotFound, http.StatusUnauthorized, http.StatusForbidden}, rr.Code)
+		assert.Contains(t, []int{http.StatusNotFound, http.StatusForbidden}, rr.Code)
 	})
 
 	t.Run("should handle request without auth", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/users/some-id", nil)
-		req = mux.SetURLVars(req, map[string]string{"id": "some-id"})
+		req = mux.SetURLVars(req, map[string]string{"user": "some-id"})
 		rr := httptest.NewRecorder()
 		server.handleGetUser(rr, req)
-		// Endpoint may return 200 for public info or 401/404 based on implementation
-		assert.Contains(t, []int{http.StatusOK, http.StatusUnauthorized, http.StatusNotFound}, rr.Code)
+		assert.Equal(t, http.StatusForbidden, rr.Code)
 	})
 }
 
@@ -6484,18 +6482,18 @@ func TestHandleGetTenantEdgeCases(t *testing.T) {
 
 	t.Run("should return 404 for nonexistent tenant", func(t *testing.T) {
 		req := createAuthenticatedRequest("GET", "/api/v1/tenants/nonexistent", nil, "", "admin-1", true)
-		req = mux.SetURLVars(req, map[string]string{"id": "nonexistent"})
+		req = mux.SetURLVars(req, map[string]string{"tenant": "nonexistent"})
 		rr := httptest.NewRecorder()
 		server.handleGetTenant(rr, req)
-		assert.Contains(t, []int{http.StatusNotFound, http.StatusOK, http.StatusUnauthorized}, rr.Code)
+		assert.Contains(t, []int{http.StatusNotFound, http.StatusOK}, rr.Code)
 	})
 
 	t.Run("should handle request without auth", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/tenants/some-id", nil)
-		req = mux.SetURLVars(req, map[string]string{"id": "some-id"})
+		req = mux.SetURLVars(req, map[string]string{"tenant": "some-id"})
 		rr := httptest.NewRecorder()
 		server.handleGetTenant(rr, req)
-		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusNotFound}, rr.Code)
+		assert.Equal(t, http.StatusForbidden, rr.Code)
 	})
 }
 
@@ -8625,10 +8623,11 @@ func TestHandleListAccessKeysMoreCases(t *testing.T) {
 	server := getSharedServer()
 
 	t.Run("should list access keys with auth", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/access-keys", nil, "", "admin-1", true)
+		req := createAuthenticatedRequest("GET", "/api/v1/users/admin-1/access-keys", nil, "", "admin-1", true)
+		req = mux.SetURLVars(req, map[string]string{"user": "admin-1"})
 		rr := httptest.NewRecorder()
 		server.handleListAccessKeys(rr, req)
-		assert.Contains(t, []int{http.StatusOK, http.StatusUnauthorized}, rr.Code)
+		assert.Contains(t, []int{http.StatusOK, http.StatusNotFound}, rr.Code)
 	})
 }
 

@@ -79,9 +79,6 @@
 
 ## 🟡 MEDIUM PRIORITY
 
-### Known Issues
-- [ ] `TestDeleteSpecificVersion_*` tests fail on Windows due to file-locking during BadgerDB cleanup — OS-specific, not a bug
-
 ### Code Quality
 - [x] HTTP response body not always closed via `defer` immediately after assignment — Verified: all `resp.Body.Close()` are properly deferred (false positive)
 - [x] Audit logging errors silently ignored in 12 locations in `console_api.go` — Added `logAuditEvent()` helper that logs warnings on failure, migrated all 12 call sites
@@ -159,8 +156,6 @@
 - [x] SSO documentation (`docs/SSO.md`)
 - [ ] Integration test infrastructure (multi-node, remote S3) for cluster/replication coverage
 - [ ] Chaos engineering tests
-- [ ] Storage tiering (hot/warm/cold)
-- [ ] Deduplication
 - [x] Unit tests for IDP crypto, store (SQLite CRUD), manager (encrypt/decrypt/mask/cache)
 - [x] Frontend tests for IDP page (list, search, delete, test connection, permissions, badges)
 - [x] Unit tests for OAuth provider: presets, TestConnection, GetAuthURL, fetchUserInfo with mock HTTP, ExchangeCode error handling (24 sub-tests)
@@ -170,7 +165,7 @@
 - [x] Tombstone-based cluster deletion sync — prevents entity resurrection in bidirectional sync
 - [x] Cluster sync for IDP providers and group mappings (automatic, checksum-based skip)
 - [x] Unit tests for deletion log, IDP provider sync, and group mapping sync (36 new tests)
-- [ ] Integration tests for IDP import/sync flows
+- [x] Integration tests for IDP import/sync flows — `TestHandleIDPImportUsers`, `TestHandleSyncGroupMapping`, `TestHandleSyncAllMappings`, plus cluster sync managers
 
 ### v1.0.0-RC (Q3 2026)
 - [ ] SAML SSO

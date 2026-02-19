@@ -1226,17 +1226,17 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get tenantId from query parameter if provided (for global admin deleting tenant buckets)
-	// Otherwise use the user's tenantID
-	tenantID := r.URL.Query().Get("tenantId")
-	if tenantID == "" {
-		tenantID = user.TenantID
-	}
-
 	// Check if force delete is requested (only for global admins)
 	forceParam := r.URL.Query().Get("force")
 	force := forceParam == "true"
 	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+
+	// Get tenantId from query parameter if provided (only global admins can target other tenants)
+	tenantID := user.TenantID
+	queryTenantID := r.URL.Query().Get("tenantId")
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
 
 	// Debug logging
 	logrus.WithFields(logrus.Fields{
@@ -2121,6 +2121,12 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getAuthUser(r)
+	if currentUser == nil || !s.isAdmin(currentUser) {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	userID := vars["user"]
 
@@ -2131,6 +2137,12 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		} else {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 		}
+		return
+	}
+
+	// Tenant admins can only view users in their own tenant
+	if !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
+		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}
 
@@ -2156,6 +2168,12 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getAuthUser(r)
+	if currentUser == nil || !s.isAdmin(currentUser) {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	userID := vars["user"]
 
@@ -2179,6 +2197,18 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		} else {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 		}
+		return
+	}
+
+	// Tenant admins can only update users in their own tenant
+	if !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	// Only global admins can change tenant assignment
+	if updateRequest.TenantID != nil && !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Only global admins can change tenant assignment", http.StatusForbidden)
 		return
 	}
 
@@ -2224,8 +2254,30 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getAuthUser(r)
+	if currentUser == nil || !s.isAdmin(currentUser) {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	userID := vars["user"]
+
+	// Verify tenant ownership
+	targetUser, err := s.authManager.GetUser(r.Context(), userID)
+	if err != nil {
+		if err == auth.ErrUserNotFound {
+			s.writeError(w, "User not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if !s.isGlobalAdmin(currentUser) && targetUser.TenantID != currentUser.TenantID {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
 
 	// Delete user
 	if err := s.authManager.DeleteUser(r.Context(), userID); err != nil {
@@ -2728,8 +2780,25 @@ func (s *Server) handleListAllAccessKeys(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleListAccessKeys(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getAuthUser(r)
+	if currentUser == nil || !s.isAdmin(currentUser) {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	userID := vars["user"]
+
+	// Verify tenant ownership
+	targetUser, err := s.authManager.GetUser(r.Context(), userID)
+	if err != nil {
+		s.writeError(w, "User not found", http.StatusNotFound)
+		return
+	}
+	if !s.isGlobalAdmin(currentUser) && targetUser.TenantID != currentUser.TenantID {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
 
 	accessKeys, err := s.authManager.ListAccessKeys(r.Context(), userID)
 	if err != nil {
@@ -2761,6 +2830,12 @@ func (s *Server) handleListAccessKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getAuthUser(r)
+	if currentUser == nil || !s.isAdmin(currentUser) {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	userID := vars["user"]
 
@@ -2768,6 +2843,12 @@ func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 	user, err := s.authManager.GetUser(r.Context(), userID)
 	if err != nil {
 		s.writeError(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	// Tenant admins can only create access keys for users in their own tenant
+	if !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
+		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}
 
@@ -2831,6 +2912,12 @@ func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getAuthUser(r)
+	if currentUser == nil || !s.isAdmin(currentUser) {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	accessKeyID := vars["accessKey"]
 
@@ -2845,8 +2932,14 @@ func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user info for audit log
+	// Get user info for audit log and tenant check
 	user, _ := s.authManager.GetUser(r.Context(), accessKey.UserID)
+
+	// Tenant admins can only delete access keys for users in their own tenant
+	if user != nil && !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
 
 	if err := s.authManager.RevokeAccessKey(r.Context(), accessKeyID); err != nil {
 		if err == auth.ErrUserNotFound {
@@ -3366,8 +3459,20 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetTenant(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getAuthUser(r)
+	if currentUser == nil || !s.isAdmin(currentUser) {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	tenantID := vars["tenant"]
+
+	// Tenant admins can only view their own tenant
+	if !s.isGlobalAdmin(currentUser) && tenantID != currentUser.TenantID {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
 
 	tenant, err := s.authManager.GetTenant(r.Context(), tenantID)
 	if err != nil {
@@ -3588,8 +3693,20 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListTenantUsers(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getAuthUser(r)
+	if currentUser == nil || !s.isAdmin(currentUser) {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	tenantID := vars["tenant"]
+
+	// Tenant admins can only list users in their own tenant
+	if !s.isGlobalAdmin(currentUser) && tenantID != currentUser.TenantID {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
 
 	users, err := s.authManager.ListTenantUsers(r.Context(), tenantID)
 	if err != nil {
@@ -3621,8 +3738,23 @@ func (s *Server) handleListTenantUsers(w http.ResponseWriter, r *http.Request) {
 
 // Bucket permission handlers
 func (s *Server) handleListBucketPermissions(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getAuthUser(r)
+	if currentUser == nil || !s.isAdmin(currentUser) {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+
+	// Tenant admins can only manage permissions for buckets in their tenant
+	if !s.isGlobalAdmin(currentUser) {
+		_, err := s.bucketManager.GetBucketInfo(r.Context(), currentUser.TenantID, bucketName)
+		if err != nil {
+			s.writeError(w, "Access denied", http.StatusForbidden)
+			return
+		}
+	}
 
 	permissions, err := s.authManager.ListBucketPermissions(r.Context(), bucketName)
 	if err != nil {
@@ -3634,8 +3766,23 @@ func (s *Server) handleListBucketPermissions(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) handleGrantBucketPermission(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getAuthUser(r)
+	if currentUser == nil || !s.isAdmin(currentUser) {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+
+	// Tenant admins can only grant permissions for buckets in their tenant
+	if !s.isGlobalAdmin(currentUser) {
+		_, err := s.bucketManager.GetBucketInfo(r.Context(), currentUser.TenantID, bucketName)
+		if err != nil {
+			s.writeError(w, "Access denied", http.StatusForbidden)
+			return
+		}
+	}
 
 	var req struct {
 		UserID          string `json:"userId,omitempty"`
@@ -3676,8 +3823,23 @@ func (s *Server) handleGrantBucketPermission(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) handleRevokeBucketPermission(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getAuthUser(r)
+	if currentUser == nil || !s.isAdmin(currentUser) {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+
+	// Tenant admins can only revoke permissions for buckets in their tenant
+	if !s.isGlobalAdmin(currentUser) {
+		_, err := s.bucketManager.GetBucketInfo(r.Context(), currentUser.TenantID, bucketName)
+		if err != nil {
+			s.writeError(w, "Access denied", http.StatusForbidden)
+			return
+		}
+	}
 
 	// Extract userID or tenantID from query params
 	userID := r.URL.Query().Get("userId")
@@ -3785,11 +3947,12 @@ func (s *Server) handleListBucketShares(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Check if tenantId is provided in query params
+	// Only global admins can override tenant via query param
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
 
-	if queryTenantID != "" {
+	if queryTenantID != "" && isGlobalAdmin {
 		tenantID = queryTenantID
 	}
 
@@ -3797,7 +3960,6 @@ func (s *Server) handleListBucketShares(w http.ResponseWriter, r *http.Request) 
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
 		// If not found in user's tenant, try as global admin
-		isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 		if isGlobalAdmin {
 			tenantID = ""
 			bucketInfo, err = s.bucketManager.GetBucketInfo(r.Context(), "", bucketName)
@@ -3852,24 +4014,19 @@ func (s *Server) handleDeleteShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if tenantId is provided in query params (for accessing tenant buckets from console)
+	// Only global admins can override tenant via query param
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
 
-	// If tenantId is explicitly provided in query, use it (for global admins or console navigation)
-	if queryTenantID != "" {
+	if queryTenantID != "" && isGlobalAdmin {
 		tenantID = queryTenantID
-		logrus.WithFields(logrus.Fields{
-			"queryTenantID": queryTenantID,
-			"userTenantID":  user.TenantID,
-		}).Debug("Using tenantId from query parameter for delete share")
 	}
 
 	// Get bucket info to determine tenant ID
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
 		// If not found in user's tenant, try as global admin
-		isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 		if isGlobalAdmin {
 			tenantID = ""
 			bucketInfo, err = s.bucketManager.GetBucketInfo(r.Context(), "", bucketName)
