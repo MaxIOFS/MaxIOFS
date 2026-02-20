@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,50 +17,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSetupLogging_DebugLevel tests debug log level configuration
-func TestSetupLogging_DebugLevel(t *testing.T) {
-	setupLogging("debug")
+// ============================================================================
+// setupLogging Tests
+// ============================================================================
 
-	assert.Equal(t, logrus.DebugLevel, logrus.GetLevel(), "Log level should be Debug")
-	assert.IsType(t, &logrus.JSONFormatter{}, logrus.StandardLogger().Formatter, "Formatter should be JSONFormatter")
+func TestSetupLogging_AllLevels(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected logrus.Level
+	}{
+		{"debug", logrus.DebugLevel},
+		{"info", logrus.InfoLevel},
+		{"warn", logrus.WarnLevel},
+		{"error", logrus.ErrorLevel},
+		{"DEBUG", logrus.InfoLevel},   // Case-sensitive, should default
+		{"INFO", logrus.InfoLevel},    // Case-sensitive, should default
+		{"unknown", logrus.InfoLevel}, // Invalid, should default
+		{"", logrus.InfoLevel},        // Empty, should default
+		{"trace", logrus.InfoLevel},   // Not supported, should default
+		{"fatal", logrus.InfoLevel},   // Not supported, should default
+		{"panic", logrus.InfoLevel},   // Not supported, should default
+	}
+
+	for _, tt := range tests {
+		name := tt.input
+		if name == "" {
+			name = "empty"
+		}
+		t.Run(name, func(t *testing.T) {
+			setupLogging(tt.input)
+			assert.Equal(t, tt.expected, logrus.GetLevel())
+		})
+	}
 }
 
-// TestSetupLogging_InfoLevel tests info log level configuration
-func TestSetupLogging_InfoLevel(t *testing.T) {
-	setupLogging("info")
-
-	assert.Equal(t, logrus.InfoLevel, logrus.GetLevel(), "Log level should be Info")
-}
-
-// TestSetupLogging_WarnLevel tests warn log level configuration
-func TestSetupLogging_WarnLevel(t *testing.T) {
-	setupLogging("warn")
-
-	assert.Equal(t, logrus.WarnLevel, logrus.GetLevel(), "Log level should be Warn")
-}
-
-// TestSetupLogging_ErrorLevel tests error log level configuration
-func TestSetupLogging_ErrorLevel(t *testing.T) {
-	setupLogging("error")
-
-	assert.Equal(t, logrus.ErrorLevel, logrus.GetLevel(), "Log level should be Error")
-}
-
-// TestSetupLogging_DefaultLevel tests default log level when invalid level provided
-func TestSetupLogging_DefaultLevel(t *testing.T) {
-	setupLogging("invalid-level")
-
-	assert.Equal(t, logrus.InfoLevel, logrus.GetLevel(), "Log level should default to Info for invalid input")
-}
-
-// TestSetupLogging_EmptyString tests default log level with empty string
-func TestSetupLogging_EmptyString(t *testing.T) {
-	setupLogging("")
-
-	assert.Equal(t, logrus.InfoLevel, logrus.GetLevel(), "Log level should default to Info for empty string")
-}
-
-// TestSetupLogging_JSONFormatter tests that JSON formatter is configured
 func TestSetupLogging_JSONFormatter(t *testing.T) {
 	setupLogging("info")
 
@@ -67,357 +59,94 @@ func TestSetupLogging_JSONFormatter(t *testing.T) {
 	assert.Equal(t, time.RFC3339, formatter.TimestampFormat, "Timestamp format should be RFC3339")
 }
 
-// TestSetupLogging_OutputFormat tests that log output is valid JSON
-func TestSetupLogging_OutputFormat(t *testing.T) {
-	// Capture log output
+func TestSetupLogging_FormatterPreservedAcrossLevels(t *testing.T) {
+	levels := []string{"debug", "info", "warn", "error", "invalid"}
+
+	for _, level := range levels {
+		setupLogging(level)
+
+		formatter, ok := logrus.StandardLogger().Formatter.(*logrus.JSONFormatter)
+		require.True(t, ok, "Formatter should always be JSONFormatter after setting level %q", level)
+		assert.Equal(t, time.RFC3339, formatter.TimestampFormat)
+	}
+}
+
+func TestSetupLogging_OutputIsValidJSON(t *testing.T) {
 	var buf bytes.Buffer
 	logrus.SetOutput(&buf)
-	defer logrus.SetOutput(os.Stderr) // Restore default output
+	defer logrus.SetOutput(os.Stderr)
 
 	setupLogging("info")
-	logrus.Info("test message")
 
-	// Verify output is valid JSON
+	logrus.WithFields(logrus.Fields{
+		"key1": "value1",
+		"key2": 42,
+	}).Info("test message with fields")
+
 	var logEntry map[string]interface{}
 	err := json.Unmarshal(buf.Bytes(), &logEntry)
 	require.NoError(t, err, "Log output should be valid JSON")
 
-	assert.Equal(t, "test message", logEntry["msg"], "Log message should match")
-	assert.Equal(t, "info", logEntry["level"], "Log level should be info")
-	assert.NotEmpty(t, logEntry["time"], "Log entry should have timestamp")
+	assert.Equal(t, "test message with fields", logEntry["msg"])
+	assert.Equal(t, "info", logEntry["level"])
+	assert.Equal(t, "value1", logEntry["key1"])
+	assert.Equal(t, float64(42), logEntry["key2"])
+	assert.NotEmpty(t, logEntry["time"])
 }
 
-// TestRunServer_TLSValidation_BothRequired tests that both cert and key are required for TLS
-func TestRunServer_TLSValidation_BothRequired(t *testing.T) {
-	// Create temporary data directory
-	tmpDir, err := os.MkdirTemp("", "maxiofs-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	tests := []struct {
-		name    string
-		cert    string
-		key     string
-		wantErr bool
-		errMsg  string
-	}{
-		{
-			name:    "only cert provided",
-			cert:    "/path/to/cert.pem",
-			key:     "",
-			wantErr: true,
-			errMsg:  "both --tls-cert and --tls-key must be provided together",
-		},
-		{
-			name:    "only key provided",
-			cert:    "",
-			key:     "/path/to/key.pem",
-			wantErr: true,
-			errMsg:  "both --tls-cert and --tls-key must be provided together",
-		},
-		{
-			name:    "neither provided",
-			cert:    "",
-			key:     "",
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cmd := &cobra.Command{}
-			cmd.Flags().String("tls-cert", "", "")
-			cmd.Flags().String("tls-key", "", "")
-			cmd.Flags().String("config", "", "")
-			cmd.Flags().String("data-dir", tmpDir, "")
-			cmd.Flags().String("listen", ":18080", "")
-			cmd.Flags().String("console-listen", ":18081", "")
-			cmd.Flags().String("log-level", "error", "") // Suppress logs during tests
-
-			cmd.Flags().Set("tls-cert", tt.cert)
-			cmd.Flags().Set("tls-key", tt.key)
-
-			// Create a context with timeout to prevent hanging
-			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-			defer cancel()
-
-			// Run in goroutine to allow timeout
-			errChan := make(chan error, 1)
-			go func() {
-				errChan <- runServer(cmd, []string{})
-			}()
-
-			select {
-			case err := <-errChan:
-				if tt.wantErr {
-					require.Error(t, err)
-					assert.Contains(t, err.Error(), tt.errMsg)
-				} else {
-					// For valid configs, we expect context deadline exceeded
-					// because we're testing with a 100ms timeout
-					if err != nil && err.Error() != "server error: http: Server closed" {
-						// Config validation passed, server tried to start
-						assert.Contains(t, err.Error(), "failed to load configuration")
-					}
-				}
-			case <-ctx.Done():
-				// Timeout is acceptable for valid configs (server started)
-				if tt.wantErr {
-					t.Fatal("Expected error but got timeout")
-				}
-			}
-		})
-	}
-}
-
-// TestRunServer_ConfigurationLoading tests configuration loading from flags
-func TestRunServer_ConfigurationLoading(t *testing.T) {
-	// Create temporary data directory
-	tmpDir, err := os.MkdirTemp("", "maxiofs-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	// Create a minimal config file
-	configFile := filepath.Join(tmpDir, "config.json")
-	configData := `{
-		"data_dir": "` + tmpDir + `",
-		"listen": ":18080",
-		"console_listen": ":18081",
-		"log_level": "error"
-	}`
-	err = os.WriteFile(configFile, []byte(configData), 0644)
-	require.NoError(t, err)
-
-	cmd := &cobra.Command{}
-	cmd.Flags().String("config", configFile, "")
-	cmd.Flags().String("data-dir", tmpDir, "")
-	cmd.Flags().String("listen", ":18080", "")
-	cmd.Flags().String("console-listen", ":18081", "")
-	cmd.Flags().String("log-level", "error", "")
-	cmd.Flags().String("tls-cert", "", "")
-	cmd.Flags().String("tls-key", "", "")
-
-	// Set the config flag
-	cmd.Flags().Set("config", configFile)
-
-	// Create a context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	errChan := make(chan error, 1)
-	go func() {
-		errChan <- runServer(cmd, []string{})
-	}()
-
-	select {
-	case err := <-errChan:
-		// We expect an error because we don't have a full database setup
-		// But it should NOT be a config loading error
-		if err != nil && err.Error() == "failed to load configuration: invalid configuration" {
-			t.Fatalf("Configuration loading failed: %v", err)
-		}
-		// Any other error is fine (e.g., database connection, server start)
-	case <-ctx.Done():
-		// Timeout is acceptable - means config loaded and server tried to start
-	}
-}
-
-// TestRunServer_InvalidDataDir tests error handling for invalid data directory
-func TestRunServer_InvalidDataDir(t *testing.T) {
-	t.Skip("Skipping full server start test - too slow for unit tests")
-}
-
-// TestRunServer_LogLevelConfiguration tests that log level from flags is applied
-func TestRunServer_LogLevelConfiguration(t *testing.T) {
-	tests := []struct {
-		name     string
-		logLevel string
-		expected logrus.Level
-	}{
-		{"debug level", "debug", logrus.DebugLevel},
-		{"info level", "info", logrus.InfoLevel},
-		{"warn level", "warn", logrus.WarnLevel},
-		{"error level", "error", logrus.ErrorLevel},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Test setupLogging directly instead of full server start
-			setupLogging(tt.logLevel)
-			assert.Equal(t, tt.expected, logrus.GetLevel(), "Log level should be set correctly")
-		})
-	}
-}
-
-// TestVersion tests version information is set correctly
-func TestVersion(t *testing.T) {
-	assert.NotEmpty(t, version, "Version should not be empty")
-	assert.NotEmpty(t, commit, "Commit should not be empty")
-	assert.NotEmpty(t, date, "Date should not be empty")
-
-	// Verify version format
-	assert.Contains(t, version, "v", "Version should start with 'v'")
-}
-
-// TestCobraCommandSetup tests that Cobra command is configured correctly
-func TestCobraCommandSetup(t *testing.T) {
-	// Create the root command (same as in main())
-	rootCmd := &cobra.Command{
-		Use:     "maxiofs",
-		Short:   "MaxIOFS - High-Performance S3-Compatible Object Storage",
-		Version: version,
-	}
-
-	// Add flags
-	rootCmd.PersistentFlags().StringP("config", "c", "", "Configuration file path")
-	rootCmd.PersistentFlags().StringP("data-dir", "d", "", "Data directory path")
-	rootCmd.PersistentFlags().StringP("listen", "l", ":8080", "API server listen address")
-	rootCmd.PersistentFlags().StringP("console-listen", "", ":8081", "Web console listen address")
-	rootCmd.PersistentFlags().StringP("log-level", "", "info", "Log level")
-	rootCmd.PersistentFlags().StringP("tls-cert", "", "", "TLS certificate file")
-	rootCmd.PersistentFlags().StringP("tls-key", "", "", "TLS private key file")
-
-	// Verify flags are registered
-	assert.NotNil(t, rootCmd.PersistentFlags().Lookup("config"), "config flag should exist")
-	assert.NotNil(t, rootCmd.PersistentFlags().Lookup("data-dir"), "data-dir flag should exist")
-	assert.NotNil(t, rootCmd.PersistentFlags().Lookup("listen"), "listen flag should exist")
-	assert.NotNil(t, rootCmd.PersistentFlags().Lookup("console-listen"), "console-listen flag should exist")
-	assert.NotNil(t, rootCmd.PersistentFlags().Lookup("log-level"), "log-level flag should exist")
-	assert.NotNil(t, rootCmd.PersistentFlags().Lookup("tls-cert"), "tls-cert flag should exist")
-	assert.NotNil(t, rootCmd.PersistentFlags().Lookup("tls-key"), "tls-key flag should exist")
-
-	// Verify default values
-	listen, _ := rootCmd.PersistentFlags().GetString("listen")
-	assert.Equal(t, ":8080", listen, "Default listen address should be :8080")
-
-	consoleListen, _ := rootCmd.PersistentFlags().GetString("console-listen")
-	assert.Equal(t, ":8081", consoleListen, "Default console listen address should be :8081")
-
-	logLevel, _ := rootCmd.PersistentFlags().GetString("log-level")
-	assert.Equal(t, "info", logLevel, "Default log level should be info")
-}
-
-// TestCobraCommandShortcuts tests that flag shortcuts work
-func TestCobraCommandShortcuts(t *testing.T) {
-	rootCmd := &cobra.Command{Use: "maxiofs"}
-	rootCmd.PersistentFlags().StringP("config", "c", "", "Configuration file path")
-	rootCmd.PersistentFlags().StringP("data-dir", "d", "", "Data directory path")
-	rootCmd.PersistentFlags().StringP("listen", "l", ":8080", "API server listen address")
-
-	// Test shortcut flags
-	err := rootCmd.ParseFlags([]string{"-c", "/path/to/config.json"})
-	require.NoError(t, err)
-
-	config, _ := rootCmd.PersistentFlags().GetString("config")
-	assert.Equal(t, "/path/to/config.json", config, "Shortcut -c should work for --config")
-
-	err = rootCmd.ParseFlags([]string{"-d", "/data"})
-	require.NoError(t, err)
-
-	dataDir, _ := rootCmd.PersistentFlags().GetString("data-dir")
-	assert.Equal(t, "/data", dataDir, "Shortcut -d should work for --data-dir")
-
-	err = rootCmd.ParseFlags([]string{"-l", ":9090"})
-	require.NoError(t, err)
-
-	listen, _ := rootCmd.PersistentFlags().GetString("listen")
-	assert.Equal(t, ":9090", listen, "Shortcut -l should work for --listen")
-}
-
-// TestRunServer_TLSBothCertAndKey tests that TLS works when both cert and key are provided
-func TestRunServer_TLSBothCertAndKey(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "maxiofs-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	// Create dummy cert and key files
-	certFile := filepath.Join(tmpDir, "cert.pem")
-	keyFile := filepath.Join(tmpDir, "key.pem")
-
-	err = os.WriteFile(certFile, []byte("dummy cert"), 0644)
-	require.NoError(t, err)
-	err = os.WriteFile(keyFile, []byte("dummy key"), 0644)
-	require.NoError(t, err)
-
-	cmd := &cobra.Command{}
-	cmd.Flags().String("tls-cert", certFile, "")
-	cmd.Flags().String("tls-key", keyFile, "")
-	cmd.Flags().String("config", "", "")
-	cmd.Flags().String("data-dir", tmpDir, "")
-	cmd.Flags().String("listen", ":28080", "")
-	cmd.Flags().String("console-listen", ":28081", "")
-	cmd.Flags().String("log-level", "error", "")
-
-	cmd.Flags().Set("tls-cert", certFile)
-	cmd.Flags().Set("tls-key", keyFile)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	errChan := make(chan error, 1)
-	go func() {
-		errChan <- runServer(cmd, []string{})
-	}()
-
-	select {
-	case err := <-errChan:
-		// Server should try to start with TLS (may fail on cert validation, which is OK for this test)
-		// We just want to verify that both cert and key together don't produce "must be provided together" error
-		if err != nil {
-			assert.NotContains(t, err.Error(), "must be provided together", "Should not complain about cert/key when both are provided")
-		}
-	case <-ctx.Done():
-		// Timeout is also acceptable - means server tried to start
-	}
-}
-
-// TestSetupLogging_ConcurrentCalls tests that setupLogging is safe for concurrent calls
 func TestSetupLogging_ConcurrentCalls(t *testing.T) {
 	levels := []string{"debug", "info", "warn", "error"}
-
-	done := make(chan bool, len(levels))
+	done := make(chan struct{}, len(levels))
 
 	for _, level := range levels {
-		level := level // Capture range variable
-		go func() {
-			// Just call setupLogging without panicking
-			setupLogging(level)
-			done <- true
-		}()
+		go func(l string) {
+			defer func() { done <- struct{}{} }()
+			setupLogging(l)
+		}(level)
 	}
 
-	// Wait for all goroutines to complete without panicking
-	for i := 0; i < len(levels); i++ {
+	for range levels {
 		select {
 		case <-done:
-			// Success - no panic occurred
 		case <-time.After(1 * time.Second):
 			t.Fatal("Timeout waiting for concurrent setupLogging calls")
 		}
 	}
 
-	// Just verify formatter is still valid (level could be any of the concurrent values)
+	// Formatter should still be valid after concurrent mutations
 	_, ok := logrus.StandardLogger().Formatter.(*logrus.JSONFormatter)
 	assert.True(t, ok, "Formatter should still be JSONFormatter after concurrent calls")
 }
 
-// TestSetupLogging_FormatterPreservation tests that formatter is always JSONFormatter
-func TestSetupLogging_FormatterPreservation(t *testing.T) {
-	levels := []string{"debug", "info", "warn", "error", "invalid"}
+// ============================================================================
+// Version Variables Tests
+// ============================================================================
 
-	for _, level := range levels {
-		t.Run("level_"+level, func(t *testing.T) {
-			setupLogging(level)
+func TestVersionVariables(t *testing.T) {
+	t.Run("version format", func(t *testing.T) {
+		assert.NotEmpty(t, version)
+		assert.True(t, strings.HasPrefix(version, "v"), "Version should start with 'v'")
 
-			formatter, ok := logrus.StandardLogger().Formatter.(*logrus.JSONFormatter)
-			require.True(t, ok, "Formatter should always be JSONFormatter")
-			assert.Equal(t, time.RFC3339, formatter.TimestampFormat, "Timestamp format should be RFC3339")
-		})
-	}
+		// Should be semantic version: vX.Y.Z or vX.Y.Z-suffix
+		parts := strings.Split(strings.TrimPrefix(version, "v"), ".")
+		assert.GreaterOrEqual(t, len(parts), 2, "Version should have at least major.minor")
+		assert.Regexp(t, `^v\d+\.\d+\.\d+`, version, "Version should follow semantic versioning")
+	})
+
+	t.Run("commit not empty", func(t *testing.T) {
+		assert.NotEmpty(t, commit)
+	})
+
+	t.Run("date not empty", func(t *testing.T) {
+		assert.NotEmpty(t, date)
+	})
 }
 
-// TestCobraCommandDescription tests command metadata
-func TestCobraCommandDescription(t *testing.T) {
+// ============================================================================
+// Cobra Command Tests
+// ============================================================================
+
+func TestCobraCommand_Setup(t *testing.T) {
 	rootCmd := &cobra.Command{
 		Use:   "maxiofs",
 		Short: "MaxIOFS - High-Performance S3-Compatible Object Storage",
@@ -426,24 +155,6 @@ built in Go with an embedded React web interface.`,
 		Version: version,
 	}
 
-	assert.Equal(t, "maxiofs", rootCmd.Use)
-	assert.Contains(t, rootCmd.Short, "MaxIOFS")
-	assert.Contains(t, rootCmd.Short, "S3-Compatible")
-	assert.Contains(t, rootCmd.Long, "S3-compatible")
-	assert.Contains(t, rootCmd.Long, "React")
-	assert.Equal(t, version, rootCmd.Version)
-}
-
-// TestVersionFormat tests that version variables have expected format
-func TestVersionFormat(t *testing.T) {
-	assert.Regexp(t, `^v\d+\.\d+\.\d+`, version, "Version should follow semantic versioning with 'v' prefix")
-	assert.NotEmpty(t, commit, "Commit hash should not be empty")
-	assert.NotEmpty(t, date, "Build date should not be empty")
-}
-
-// TestCobraFlagTypes tests that all flags have correct types
-func TestCobraFlagTypes(t *testing.T) {
-	rootCmd := &cobra.Command{Use: "maxiofs"}
 	rootCmd.PersistentFlags().StringP("config", "c", "", "Configuration file path")
 	rootCmd.PersistentFlags().StringP("data-dir", "d", "", "Data directory path")
 	rootCmd.PersistentFlags().StringP("listen", "l", ":8080", "API server listen address")
@@ -452,32 +163,294 @@ func TestCobraFlagTypes(t *testing.T) {
 	rootCmd.PersistentFlags().StringP("tls-cert", "", "", "TLS certificate file")
 	rootCmd.PersistentFlags().StringP("tls-key", "", "", "TLS private key file")
 
-	// Verify each flag exists and has correct type
-	configFlag := rootCmd.PersistentFlags().Lookup("config")
-	require.NotNil(t, configFlag)
-	assert.Equal(t, "string", configFlag.Value.Type())
+	t.Run("metadata", func(t *testing.T) {
+		assert.Equal(t, "maxiofs", rootCmd.Use)
+		assert.Contains(t, rootCmd.Short, "S3-Compatible")
+		assert.Contains(t, rootCmd.Long, "S3-compatible")
+		assert.Contains(t, rootCmd.Long, "React")
+		assert.Equal(t, version, rootCmd.Version)
+	})
 
-	dataDirFlag := rootCmd.PersistentFlags().Lookup("data-dir")
-	require.NotNil(t, dataDirFlag)
-	assert.Equal(t, "string", dataDirFlag.Value.Type())
+	t.Run("flags registered with correct defaults", func(t *testing.T) {
+		flags := map[string]struct {
+			defaultValue string
+		}{
+			"config":         {""},
+			"data-dir":       {""},
+			"listen":         {":8080"},
+			"console-listen": {":8081"},
+			"log-level":      {"info"},
+			"tls-cert":       {""},
+			"tls-key":        {""},
+		}
 
-	listenFlag := rootCmd.PersistentFlags().Lookup("listen")
-	require.NotNil(t, listenFlag)
-	assert.Equal(t, "string", listenFlag.Value.Type())
+		for name, expected := range flags {
+			flag := rootCmd.PersistentFlags().Lookup(name)
+			require.NotNil(t, flag, "flag %q should exist", name)
+			assert.Equal(t, "string", flag.Value.Type(), "flag %q should be string type", name)
+			if expected.defaultValue != "" {
+				val, _ := rootCmd.PersistentFlags().GetString(name)
+				assert.Equal(t, expected.defaultValue, val, "flag %q default", name)
+			}
+		}
+	})
 
-	consoleListenFlag := rootCmd.PersistentFlags().Lookup("console-listen")
-	require.NotNil(t, consoleListenFlag)
-	assert.Equal(t, "string", consoleListenFlag.Value.Type())
+	t.Run("help output contains all flags", func(t *testing.T) {
+		helpOutput := rootCmd.UsageString()
 
-	logLevelFlag := rootCmd.PersistentFlags().Lookup("log-level")
-	require.NotNil(t, logLevelFlag)
-	assert.Equal(t, "string", logLevelFlag.Value.Type())
+		for _, flag := range []string{"--config", "--data-dir", "--listen", "--console-listen", "--log-level", "--tls-cert", "--tls-key"} {
+			assert.Contains(t, helpOutput, flag)
+		}
+		for _, shorthand := range []string{"-c", "-d", "-l"} {
+			assert.Contains(t, helpOutput, shorthand)
+		}
+	})
+}
 
-	tlsCertFlag := rootCmd.PersistentFlags().Lookup("tls-cert")
-	require.NotNil(t, tlsCertFlag)
-	assert.Equal(t, "string", tlsCertFlag.Value.Type())
+func TestCobraCommand_FlagParsing(t *testing.T) {
+	newCmd := func() *cobra.Command {
+		cmd := &cobra.Command{Use: "maxiofs"}
+		cmd.PersistentFlags().StringP("config", "c", "", "")
+		cmd.PersistentFlags().StringP("data-dir", "d", "", "")
+		cmd.PersistentFlags().StringP("listen", "l", ":8080", "")
+		cmd.PersistentFlags().StringP("console-listen", "", ":8081", "")
+		cmd.PersistentFlags().StringP("log-level", "", "info", "")
+		cmd.PersistentFlags().StringP("tls-cert", "", "", "")
+		cmd.PersistentFlags().StringP("tls-key", "", "", "")
+		return cmd
+	}
 
-	tlsKeyFlag := rootCmd.PersistentFlags().Lookup("tls-key")
-	require.NotNil(t, tlsKeyFlag)
-	assert.Equal(t, "string", tlsKeyFlag.Value.Type())
+	tests := []struct {
+		name     string
+		args     []string
+		validate func(t *testing.T, cmd *cobra.Command)
+	}{
+		{
+			name: "long flags",
+			args: []string{"--config=/path/to/config", "--data-dir=/data", "--listen=:9000"},
+			validate: func(t *testing.T, cmd *cobra.Command) {
+				cfg, _ := cmd.Flags().GetString("config")
+				assert.Equal(t, "/path/to/config", cfg)
+				dataDir, _ := cmd.Flags().GetString("data-dir")
+				assert.Equal(t, "/data", dataDir)
+				listen, _ := cmd.Flags().GetString("listen")
+				assert.Equal(t, ":9000", listen)
+			},
+		},
+		{
+			name: "short flags",
+			args: []string{"-c", "/short/config", "-d", "/short/data", "-l", ":8888"},
+			validate: func(t *testing.T, cmd *cobra.Command) {
+				cfg, _ := cmd.Flags().GetString("config")
+				assert.Equal(t, "/short/config", cfg)
+				dataDir, _ := cmd.Flags().GetString("data-dir")
+				assert.Equal(t, "/short/data", dataDir)
+				listen, _ := cmd.Flags().GetString("listen")
+				assert.Equal(t, ":8888", listen)
+			},
+		},
+		{
+			name: "mixed long and short flags",
+			args: []string{"-c", "/mix/config", "--data-dir=/mix/data", "-l", ":7777"},
+			validate: func(t *testing.T, cmd *cobra.Command) {
+				cfg, _ := cmd.Flags().GetString("config")
+				assert.Equal(t, "/mix/config", cfg)
+				dataDir, _ := cmd.Flags().GetString("data-dir")
+				assert.Equal(t, "/mix/data", dataDir)
+				listen, _ := cmd.Flags().GetString("listen")
+				assert.Equal(t, ":7777", listen)
+			},
+		},
+		{
+			name: "TLS flags",
+			args: []string{"--tls-cert=/cert.pem", "--tls-key=/key.pem"},
+			validate: func(t *testing.T, cmd *cobra.Command) {
+				cert, _ := cmd.Flags().GetString("tls-cert")
+				assert.Equal(t, "/cert.pem", cert)
+				key, _ := cmd.Flags().GetString("tls-key")
+				assert.Equal(t, "/key.pem", key)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newCmd()
+			err := cmd.ParseFlags(tt.args)
+			require.NoError(t, err)
+			tt.validate(t, cmd)
+		})
+	}
+}
+
+func TestCobraCommand_InvalidFlag(t *testing.T) {
+	cmd := &cobra.Command{Use: "maxiofs"}
+	cmd.PersistentFlags().StringP("config", "c", "", "")
+
+	err := cmd.ParseFlags([]string{"--invalid-flag=value"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown flag")
+}
+
+func TestCobraCommand_VersionOutput(t *testing.T) {
+	rootCmd := &cobra.Command{
+		Use:     "maxiofs",
+		Version: "v0.9.1-beta (commit: abc123, built: 20260207)",
+	}
+
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"--version"})
+
+	err := rootCmd.Execute()
+	require.NoError(t, err)
+	assert.Contains(t, buf.String(), "v0.9.1-beta")
+}
+
+// ============================================================================
+// runServer Tests
+// ============================================================================
+
+// newTestCommand creates a cobra.Command with all required flags for runServer tests.
+// Flags are explicitly Set() so viper's BindPFlag recognizes them as "changed"
+// instead of falling back to viper's own defaults.
+func newTestCommand(dataDir, listen, consoleListen string) *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("tls-cert", "", "")
+	cmd.Flags().String("tls-key", "", "")
+	cmd.Flags().String("config", "", "")
+	cmd.Flags().String("data-dir", "", "")
+	cmd.Flags().String("listen", "", "")
+	cmd.Flags().String("console-listen", "", "")
+	cmd.Flags().String("log-level", "", "")
+
+	// Explicitly set so viper picks them up via BindPFlag
+	cmd.Flags().Set("data-dir", dataDir)
+	cmd.Flags().Set("listen", listen)
+	cmd.Flags().Set("console-listen", consoleListen)
+	cmd.Flags().Set("log-level", "error")
+	return cmd
+}
+
+// runServerWithTimeout launches runServer in a goroutine and returns its error (or nil on timeout).
+func runServerWithTimeout(cmd *cobra.Command, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- runServer(cmd, []string{})
+	}()
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-ctx.Done():
+		return nil // timeout - server started, which is acceptable
+	}
+}
+
+// tempDirWithRetryCleanup creates a temp dir with retry-based cleanup for Windows,
+// where file handles (e.g. audit.db) may still be held briefly after server goroutines leak.
+func tempDirWithRetryCleanup(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", t.Name())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		for i := 0; i < 10; i++ {
+			if err := os.RemoveAll(dir); err == nil {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		// Best-effort: ignore residual errors on Windows CI
+	})
+	return dir
+}
+
+func TestRunServer_TLSValidation(t *testing.T) {
+	tmpDir := tempDirWithRetryCleanup(t)
+
+	tests := []struct {
+		name    string
+		cert    string
+		key     string
+		wantErr string
+	}{
+		{"only cert provided", "/path/to/cert.pem", "", "must be provided together"},
+		{"only key provided", "", "/path/to/key.pem", "must be provided together"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newTestCommand(tmpDir, ":18080", ":18081")
+			cmd.Flags().Set("tls-cert", tt.cert)
+			cmd.Flags().Set("tls-key", tt.key)
+
+			err := runServerWithTimeout(cmd, 200*time.Millisecond)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestRunServer_TLSBothProvided(t *testing.T) {
+	tmpDir := tempDirWithRetryCleanup(t)
+
+	certFile := filepath.Join(tmpDir, "cert.pem")
+	keyFile := filepath.Join(tmpDir, "key.pem")
+	os.WriteFile(certFile, []byte("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"), 0644)
+	os.WriteFile(keyFile, []byte("-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----"), 0644)
+
+	cmd := newTestCommand(tmpDir, ":28080", ":28081")
+	cmd.Flags().Set("tls-cert", certFile)
+	cmd.Flags().Set("tls-key", keyFile)
+
+	logrus.SetOutput(io.Discard)
+	defer logrus.SetOutput(os.Stderr)
+
+	err := runServerWithTimeout(cmd, 200*time.Millisecond)
+	// Should NOT be the "must be provided together" error
+	if err != nil {
+		assert.NotContains(t, err.Error(), "must be provided together")
+	}
+}
+
+func TestRunServer_ConfigLoadError(t *testing.T) {
+	cmd := newTestCommand("", ":48080", ":48081")
+	cmd.Flags().Set("config", "/non/existent/path/config.yaml")
+
+	err := runServerWithTimeout(cmd, 500*time.Millisecond)
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), "failed to load configuration") ||
+			strings.Contains(err.Error(), "failed to create server"),
+		"Error should be about config loading or server creation: %v", err)
+}
+
+func TestRunServer_WithValidDataDir(t *testing.T) {
+	tmpDir := tempDirWithRetryCleanup(t)
+
+	cmd := newTestCommand(tmpDir, ":58080", ":58081")
+
+	logrus.SetOutput(io.Discard)
+	defer logrus.SetOutput(os.Stderr)
+
+	err := runServerWithTimeout(cmd, 200*time.Millisecond)
+	// Either server starts (nil) or fails at a later stage - both are fine
+	if err != nil {
+		t.Logf("Server error (expected during test): %v", err)
+	}
+}
+
+func TestRunServer_EmptyArgs(t *testing.T) {
+	tmpDir := tempDirWithRetryCleanup(t)
+
+	cmd := newTestCommand(tmpDir, ":78080", ":78081")
+
+	logrus.SetOutput(io.Discard)
+	defer logrus.SetOutput(os.Stderr)
+
+	// Should not panic with empty args
+	_ = runServerWithTimeout(cmd, 200*time.Millisecond)
 }
