@@ -130,6 +130,11 @@ func New(cfg *config.Config) (*Server, error) {
 	loggingManager := logging.NewManager(logrus.StandardLogger())
 	loggingManager.SetSettingsManager(settingsManager)
 
+	// Initialize logging target store (database-backed multiple targets)
+	if err := loggingManager.InitTargetStore(db); err != nil {
+		logrus.WithError(err).Warn("Failed to initialize logging target store, using legacy settings")
+	}
+
 	// Initialize audit manager
 	var auditManager *audit.Manager
 	if cfg.Audit.Enable {

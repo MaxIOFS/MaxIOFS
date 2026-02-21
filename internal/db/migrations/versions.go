@@ -18,6 +18,7 @@ func getAllMigrations() []Migration {
 		migration8_v062_CurrentSchema(),
 		migration9_v090_IdentityProviders(),
 		migration10_v091_ClusterDeletionLog(),
+		migration11_v092_LoggingTargets(),
 	}
 }
 
@@ -1025,6 +1026,56 @@ func migration10_v091_ClusterDeletionLog() Migration {
 				return err
 			}
 			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_deletion_log_deleted_at ON cluster_deletion_log(deleted_at)`); err != nil {
+				return err
+			}
+
+			return nil
+		},
+		Down: func(tx *sql.Tx) error {
+			return nil
+		},
+	}
+}
+
+// migration11_v092_LoggingTargets creates the logging_targets table for multiple external log destinations
+// Corresponds to MaxIOFS v0.9.2 - Multiple external logging targets (syslog, HTTP)
+func migration11_v092_LoggingTargets() Migration {
+	return Migration{
+		Version:     11,
+		Description: "v0.9.2 - Add logging_targets table for multiple external log destinations",
+		Up: func(tx *sql.Tx) error {
+			if _, err := tx.Exec(`
+				CREATE TABLE IF NOT EXISTS logging_targets (
+					id TEXT PRIMARY KEY,
+					name TEXT NOT NULL UNIQUE,
+					type TEXT NOT NULL,
+					enabled INTEGER NOT NULL DEFAULT 1,
+					protocol TEXT NOT NULL DEFAULT 'tcp',
+					host TEXT NOT NULL DEFAULT '',
+					port INTEGER NOT NULL DEFAULT 514,
+					tag TEXT NOT NULL DEFAULT 'maxiofs',
+					format TEXT NOT NULL DEFAULT 'rfc3164',
+					tls_enabled INTEGER NOT NULL DEFAULT 0,
+					tls_cert TEXT,
+					tls_key TEXT,
+					tls_ca TEXT,
+					tls_skip_verify INTEGER NOT NULL DEFAULT 0,
+					filter_level TEXT NOT NULL DEFAULT 'info',
+					auth_token TEXT,
+					url TEXT,
+					batch_size INTEGER,
+					flush_interval INTEGER,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL
+				)
+			`); err != nil {
+				return err
+			}
+
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_logging_targets_type ON logging_targets(type)`); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_logging_targets_enabled ON logging_targets(enabled)`); err != nil {
 				return err
 			}
 

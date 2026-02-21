@@ -299,6 +299,15 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/logs/test", s.handleTestLogOutput).Methods("POST", "OPTIONS")
 	router.HandleFunc("/logs/reconfigure", s.handleReconfigureLogging).Methods("POST", "OPTIONS")
 
+	// Logging targets CRUD endpoints
+	router.HandleFunc("/logs/targets", s.handleListLoggingTargets).Methods("GET", "OPTIONS")
+	router.HandleFunc("/logs/targets", s.handleCreateLoggingTarget).Methods("POST", "OPTIONS")
+	router.HandleFunc("/logs/targets/test", s.handleTestLoggingTargetConfig).Methods("POST", "OPTIONS")
+	router.HandleFunc("/logs/targets/{id}", s.handleGetLoggingTarget).Methods("GET", "OPTIONS")
+	router.HandleFunc("/logs/targets/{id}", s.handleUpdateLoggingTarget).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/logs/targets/{id}", s.handleDeleteLoggingTarget).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/logs/targets/{id}/test", s.handleTestLoggingTarget).Methods("POST", "OPTIONS")
+
 	// Bucket permissions endpoints
 	router.HandleFunc("/buckets/{bucket}/permissions", s.handleListBucketPermissions).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/permissions", s.handleGrantBucketPermission).Methods("POST", "OPTIONS")

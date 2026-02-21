@@ -74,6 +74,8 @@ import type {
   ImportResult,
   SyncResult,
   OAuthProviderInfo,
+  LoggingTarget,
+  LoggingTargetsResponse,
 } from '@/types';
 
 // API Configuration
@@ -1210,6 +1212,42 @@ export class APIClient {
     const request: BulkUpdateSettingsRequest = { settings };
     const response = await apiClient.post<APIResponse<{ success: boolean; message: string; count: number }>>('/settings/bulk', request);
     return response.data.data!;
+  }
+
+  // Logging Targets API
+  static async listLoggingTargets(): Promise<LoggingTargetsResponse> {
+    const response = await apiClient.get<APIResponse<LoggingTargetsResponse>>('/logs/targets');
+    return response.data.data ?? response.data as unknown as LoggingTargetsResponse;
+  }
+
+  static async getLoggingTarget(id: string): Promise<LoggingTarget> {
+    const response = await apiClient.get<APIResponse<LoggingTarget>>(`/logs/targets/${id}`);
+    return response.data.data ?? response.data as unknown as LoggingTarget;
+  }
+
+  static async createLoggingTarget(target: Partial<LoggingTarget>): Promise<{ id: string; name: string; message: string }> {
+    const response = await apiClient.post<APIResponse<{ id: string; name: string; message: string }>>('/logs/targets', target);
+    return response.data.data ?? response.data as unknown as { id: string; name: string; message: string };
+  }
+
+  static async updateLoggingTarget(id: string, target: Partial<LoggingTarget>): Promise<{ id: string; message: string }> {
+    const response = await apiClient.put<APIResponse<{ id: string; message: string }>>(`/logs/targets/${id}`, target);
+    return response.data.data ?? response.data as unknown as { id: string; message: string };
+  }
+
+  static async deleteLoggingTarget(id: string): Promise<{ id: string; message: string }> {
+    const response = await apiClient.delete<APIResponse<{ id: string; message: string }>>(`/logs/targets/${id}`);
+    return response.data.data ?? response.data as unknown as { id: string; message: string };
+  }
+
+  static async testLoggingTarget(id: string): Promise<{ success: boolean; message: string }> {
+    const response = await apiClient.post<APIResponse<{ success: boolean; message: string }>>(`/logs/targets/${id}/test`);
+    return response.data.data ?? response.data as unknown as { success: boolean; message: string };
+  }
+
+  static async testLoggingTargetConfig(target: Partial<LoggingTarget>): Promise<{ success: boolean; message: string }> {
+    const response = await apiClient.post<APIResponse<{ success: boolean; message: string }>>('/logs/targets/test', target);
+    return response.data.data ?? response.data as unknown as { success: boolean; message: string };
   }
 
   // Replication API

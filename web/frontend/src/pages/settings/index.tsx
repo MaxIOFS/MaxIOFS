@@ -17,6 +17,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Loading } from '@/components/ui/Loading';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import LoggingTargets from './LoggingTargets';
 import type { Setting, SettingCategory } from '@/types';
 
 // Category metadata
@@ -367,37 +368,10 @@ export default function SettingsPage() {
                 );
               })()}
 
-              {/* Syslog Group */}
-              {(() => {
-                const syslogSettings = currentSettings.filter(s => s.key.startsWith('logging.syslog_'));
-                if (syslogSettings.length === 0) return null;
-                const enabled = editedValues['logging.syslog_enabled'] ?? syslogSettings.find(s => s.key === 'logging.syslog_enabled')?.value === 'true';
-                return (
-                  <div className={`border-l-4 ${enabled ? 'border-purple-500' : 'border-gray-300'} pl-4`}>
-                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Syslog Server</h4>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Forward logs to external syslog (rsyslog, syslog-ng)</p>
-                    <div className="space-y-4">
-                      {syslogSettings.map((setting) => renderSetting(setting))}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* HTTP Output Group */}
-              {(() => {
-                const httpSettings = currentSettings.filter(s => s.key.startsWith('logging.http_'));
-                if (httpSettings.length === 0) return null;
-                const enabled = editedValues['logging.http_enabled'] ?? httpSettings.find(s => s.key === 'logging.http_enabled')?.value === 'true';
-                return (
-                  <div className={`border-l-4 ${enabled ? 'border-green-500' : 'border-gray-300'} pl-4`}>
-                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">HTTP Endpoint</h4>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Send to Splunk, Elastic, Loki, or custom endpoint</p>
-                    <div className="space-y-4">
-                      {httpSettings.map((setting) => renderSetting(setting))}
-                    </div>
-                  </div>
-                );
-              })()}
+              {/* External Logging Targets */}
+              <div className="border-l-4 border-indigo-500 pl-4">
+                <LoggingTargets />
+              </div>
 
               {/* Frontend Logging Group */}
               {(() => {

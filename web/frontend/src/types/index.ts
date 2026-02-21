@@ -881,6 +881,38 @@ export interface SettingsCategoriesResponse {
   categories: string[];
 }
 
+// Logging Target Types
+export type LoggingTargetType = 'syslog' | 'http';
+
+export interface LoggingTarget {
+  id: string;
+  name: string;
+  type: LoggingTargetType;
+  enabled: boolean;
+  protocol: string;
+  host: string;
+  port: number;
+  tag: string;
+  format: string;
+  tls_enabled: boolean;
+  tls_cert: string;
+  tls_key: string;
+  tls_ca: string;
+  tls_skip_verify: boolean;
+  filter_level: string;
+  auth_token: string;
+  url: string;
+  batch_size: number;
+  flush_interval: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LoggingTargetsResponse {
+  targets: LoggingTarget[];
+  active_count: number;
+}
+
 // Replication Types
 export type ReplicationMode = 'realtime' | 'scheduled' | 'batch';
 export type ConflictResolution = 'last_write_wins' | 'version_based' | 'primary_wins';

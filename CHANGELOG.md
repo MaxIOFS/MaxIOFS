@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.1-beta] - 2026-02-19
 
+### Added
+- **External syslog targets** — multiple external logging targets (syslog and HTTP) stored in SQLite with full CRUD API. Replaces the single-target legacy `logging.syslog_*` / `logging.http_*` settings with an N-target system supporting independent configuration per target.
+  - New `logging_targets` table (migration 11, v0.9.2) with indexes on type and enabled status
+  - `TargetStore` CRUD in `internal/logging/store.go` with validation, unique name constraint, and automatic migration of legacy settings
+  - 7 new console API endpoints: `GET/POST /logs/targets`, `GET/PUT/DELETE /logs/targets/{id}`, `POST /logs/targets/{id}/test`, `POST /logs/targets/test` (test without saving)
+  - Frontend `LoggingTargets` component integrated in Settings → Logging with create/edit modal, test connection, delete confirmation, and TLS indicator
+- **Syslog TLS and RFC 5424** — `SyslogOutput` rewritten with TCP+TLS support (mTLS, custom CA, skip-verify) and RFC 5424 structured data format alongside RFC 3164
+- **Lock-free log dispatch** — `DispatchHook` uses `atomic.Pointer` for the outputs snapshot, making `Fire()` completely lock-free and eliminating a deadlock where `Reconfigure()` (write lock) triggered logrus hooks that needed a read lock
+
 ### Fixed
 - **IDP tenant isolation** — Tenant admins could see global IDPs and IDPs from other tenants. `ListProviders` SQL query included `OR tenant_id IS NULL`; `handleGetIDP`, `handleUpdateIDP`, and `handleDeleteIDP` had a `TenantID != ""` bypass that granted access to global IDPs. All handlers now enforce strict tenant scoping: tenant admins can only list, view, update, and delete IDPs belonging to their own tenant.
 - **IDP tenant column always showed "Global"** — `IdentityProvider` TypeScript type used `tenant_id` (snake_case) but backend JSON tag is `tenantId` (camelCase), so the field was always `undefined`. Fixed the type and all references (page, modal, tests). IDP list now resolves tenant IDs to display names via a tenants query.
