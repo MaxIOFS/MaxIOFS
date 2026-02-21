@@ -1,492 +1,401 @@
 # MaxIOFS API Reference
 
-**Version**: 0.9.1-beta
-**S3 Compatibility**: 100%
-**Last Updated**: February 17, 2026
+**Version**: 0.9.1-beta | **Last Updated**: February 21, 2026
 
 ## Overview
 
-MaxIOFS provides two APIs:
+MaxIOFS exposes two HTTP servers:
 
-1. **S3 API** (Port 8080) - 100% AWS S3-compatible REST API
-2. **Console API** (Port 8081) - Management REST API for web console
-
-### Recent Updates (v0.9.0-beta)
-
-- ✅ **Identity Provider System** - LDAP/AD and OAuth2/OIDC with Google/Microsoft presets
-- ✅ **SSO Login Flow** - Auto-provisioning via group-to-role mappings
-- ✅ **IDP Console API** - 20+ endpoints for provider management, LDAP browser, group mappings
-- ✅ **Tombstone-Based Cluster Deletion Sync** - Prevents entity resurrection in bidirectional sync
-- ✅ **Cluster Sync for 6 Entity Types** - Users, tenants, access keys, bucket permissions, IDPs, group mappings
-
-### Previous Updates (v0.8.0-beta)
-
-- ✅ **Object Filters & Advanced Search** - Server-side filtering with prefix, suffix, size, date ranges
-- ✅ **Multi-Node Cluster Support** - Complete cluster infrastructure with HA
-- ✅ **Cluster Management API** - 18 REST endpoints for cluster management
-- ✅ **Smart Router** - Health-aware request routing with automatic failover
-- ✅ **Cluster Replication** - HMAC-authenticated node-to-node replication
-
-### Previous Updates (v0.4.2-beta)
-
-- ✅ **Global Bucket Uniqueness** - Bucket names now globally unique across all tenants (AWS S3 compatible)
-- ✅ **S3-Compatible URLs** - Presigned and share URLs without tenant prefix for standard S3 client compatibility
-- ✅ **Bucket Notifications (Webhooks)** - AWS S3 compatible event notifications (ObjectCreated, ObjectRemoved, ObjectRestored)
-- ✅ **Automatic Tenant Resolution** - Backend automatically resolves bucket ownership from bucket name
+| Server | Default Port | Purpose | Authentication |
+|--------|-------------|---------|----------------|
+| **S3 API** | 8080 | AWS S3-compatible REST API | AWS Signature v2/v4 |
+| **Console API** | 8081 | Web Console REST API + embedded frontend | JWT / OAuth2 |
 
 ---
 
 ## S3 API (Port 8080)
 
-### Authentication
+100% compatible with AWS S3 clients, SDKs, and CLI tools.
 
-MaxIOFS supports AWS Signature v2 and v4 authentication.
+### Quick Start
 
-**Creating Access Keys:**
-1. Login to web console at `http://localhost:8081` (admin/admin)
-2. Navigate to Users section
-3. Click "Create Access Key"
-4. Copy the generated credentials
-
-**Using AWS CLI:**
 ```bash
-# Replace with your generated credentials
+# Configure AWS CLI
 aws configure set aws_access_key_id YOUR_ACCESS_KEY
 aws configure set aws_secret_access_key YOUR_SECRET_KEY
-aws --endpoint-url=http://localhost:8080 s3 ls
-```
 
-**Using Python boto3:**
-```python
-import boto3
-
-s3 = boto3.client(
-    's3',
-    endpoint_url='http://localhost:8080',
-    aws_access_key_id='YOUR_ACCESS_KEY',
-    aws_secret_access_key='YOUR_SECRET_KEY'
-)
-
-# List buckets
-buckets = s3.list_buckets()
-```
-
-### Supported Operations
-
-#### Bucket Operations
-- `ListBuckets` - List all buckets
-- `CreateBucket` - Create new bucket
-- `DeleteBucket` - Delete empty bucket
-- `HeadBucket` - Check if bucket exists
-- `GetBucketVersioning` / `PutBucketVersioning`
-- `GetBucketCORS` / `PutBucketCORS` / `DeleteBucketCORS`
-
-#### Object Operations
-- `PutObject` - Upload object
-- `GetObject` - Download object
-- `DeleteObject` - Delete object
-- `HeadObject` - Get object metadata
-- `ListObjects` / `ListObjectsV2` - List objects in bucket
-- `CopyObject` - Copy object within/between buckets
-
-#### Multipart Upload (6 operations)
-- `CreateMultipartUpload` - Start multipart upload
-- `UploadPart` - Upload a part
-- `CompleteMultipartUpload` - Finish upload
-- `AbortMultipartUpload` - Cancel upload
-- `ListParts` - List uploaded parts
-- `ListMultipartUploads` - List active uploads
-
-#### Object Lock Operations
-- `PutObjectRetention` / `GetObjectRetention` - WORM retention
-- `PutObjectLegalHold` / `GetObjectLegalHold` - Legal hold
-
-#### Batch Operations
-- `DeleteMultipleObjects` - Delete up to 1000 objects
-
-#### Advanced Features
-- Presigned URLs (GET/PUT with expiration, S3-compatible paths)
-- Range requests (partial downloads)
-
-#### Bucket Notifications (v0.4.2+)
-- `PutBucketNotificationConfiguration` - Configure webhook notifications
-- `GetBucketNotificationConfiguration` - Get notification settings
-- Supported event types: ObjectCreated:*, ObjectRemoved:*, ObjectRestored:Post
-
-### Examples
-
-**Create bucket:**
-```bash
+# Use MaxIOFS
 aws --endpoint-url=http://localhost:8080 s3 mb s3://my-bucket
-```
-
-**Upload file:**
-```bash
 aws --endpoint-url=http://localhost:8080 s3 cp file.txt s3://my-bucket/
-```
-
-**List objects:**
-```bash
 aws --endpoint-url=http://localhost:8080 s3 ls s3://my-bucket/
 ```
 
-**Download file:**
-```bash
-aws --endpoint-url=http://localhost:8080 s3 cp s3://my-bucket/file.txt .
-```
+### Bucket Operations
 
-**Multipart upload (large files):**
-```bash
-aws --endpoint-url=http://localhost:8080 s3 cp large-file.bin s3://my-bucket/
-```
+| Operation | Method | Path / Query |
+|-----------|--------|-------------|
+| ListBuckets | GET | `/` |
+| CreateBucket | PUT | `/{bucket}` |
+| DeleteBucket | DELETE | `/{bucket}` |
+| HeadBucket | HEAD | `/{bucket}` |
+| GetBucketVersioning | GET | `/{bucket}?versioning` |
+| PutBucketVersioning | PUT | `/{bucket}?versioning` |
+| GetBucketCORS | GET | `/{bucket}?cors` |
+| PutBucketCORS | PUT | `/{bucket}?cors` |
+| DeleteBucketCORS | DELETE | `/{bucket}?cors` |
+| GetBucketACL | GET | `/{bucket}?acl` |
+| PutBucketACL | PUT | `/{bucket}?acl` |
+| GetBucketPolicy | GET | `/{bucket}?policy` |
+| PutBucketPolicy | PUT | `/{bucket}?policy` |
+| DeleteBucketPolicy | DELETE | `/{bucket}?policy` |
+| GetBucketTagging | GET | `/{bucket}?tagging` |
+| PutBucketTagging | PUT | `/{bucket}?tagging` |
+| DeleteBucketTagging | DELETE | `/{bucket}?tagging` |
+| GetBucketLifecycle | GET | `/{bucket}?lifecycle` |
+| PutBucketLifecycle | PUT | `/{bucket}?lifecycle` |
+| DeleteBucketLifecycle | DELETE | `/{bucket}?lifecycle` |
+| GetBucketNotification | GET | `/{bucket}?notification` |
+| PutBucketNotification | PUT | `/{bucket}?notification` |
+| GetObjectLockConfig | GET | `/{bucket}?object-lock` |
+| PutObjectLockConfig | PUT | `/{bucket}?object-lock` |
+| ListMultipartUploads | GET | `/{bucket}?uploads` |
 
-### S3 API Compatibility
+### Object Operations
 
-**Supported:**
-- ✅ Standard bucket and object operations
-- ✅ Global bucket uniqueness (AWS S3 compatible)
-- ✅ Multipart uploads
-- ✅ Object Lock (COMPLIANCE/GOVERNANCE)
-- ✅ Presigned URLs (S3-compatible paths)
-- ✅ AWS Signature v2 and v4
-- ✅ Versioning configuration
-- ✅ CORS configuration
-- ✅ Bucket lifecycle policies (100% complete)
-- ✅ Bucket notifications (webhooks)
-- ✅ Server-Side Encryption at rest (AES-256-CTR)
+| Operation | Method | Path / Query |
+|-----------|--------|-------------|
+| GetObject | GET | `/{bucket}/{key+}` |
+| PutObject | PUT | `/{bucket}/{key+}` |
+| DeleteObject | DELETE | `/{bucket}/{key+}` |
+| HeadObject | HEAD | `/{bucket}/{key+}` |
+| CopyObject | PUT | `/{bucket}/{key+}` (header: `x-amz-copy-source`) |
+| ListObjects | GET | `/{bucket}` |
+| ListObjectsV2 | GET | `/{bucket}?list-type=2` |
+| DeleteMultipleObjects | POST | `/{bucket}?delete` |
 
-**Not Supported:**
-- ❌ Server-Side Encryption with KMS (uses local master key)
-- ❌ Object ACLs (basic ACL operations supported)
+### Multipart Upload Operations
 
-For detailed S3 API specs, see [AWS S3 API Documentation](https://docs.aws.amazon.com/AmazonS3/latest/API/).
+| Operation | Method | Path / Query |
+|-----------|--------|-------------|
+| CreateMultipartUpload | POST | `/{bucket}/{key+}?uploads` |
+| UploadPart | PUT | `/{bucket}/{key+}?partNumber=N&uploadId=ID` |
+| CompleteMultipartUpload | POST | `/{bucket}/{key+}?uploadId=ID` |
+| AbortMultipartUpload | DELETE | `/{bucket}/{key+}?uploadId=ID` |
+| ListParts | GET | `/{bucket}/{key+}?uploadId=ID` |
+
+### Object Lock / Retention
+
+| Operation | Method | Path / Query |
+|-----------|--------|-------------|
+| GetObjectRetention | GET | `/{bucket}/{key+}?retention` |
+| PutObjectRetention | PUT | `/{bucket}/{key+}?retention` |
+| GetObjectLegalHold | GET | `/{bucket}/{key+}?legal-hold` |
+| PutObjectLegalHold | PUT | `/{bucket}/{key+}?legal-hold` |
+
+### ACL Operations
+
+| Operation | Method | Path / Query |
+|-----------|--------|-------------|
+| GetObjectACL | GET | `/{bucket}/{key+}?acl` |
+| PutObjectACL | PUT | `/{bucket}/{key+}?acl` |
+
+### Tagging Operations
+
+| Operation | Method | Path / Query |
+|-----------|--------|-------------|
+| GetObjectTagging | GET | `/{bucket}/{key+}?tagging` |
+| PutObjectTagging | PUT | `/{bucket}/{key+}?tagging` |
+| DeleteObjectTagging | DELETE | `/{bucket}/{key+}?tagging` |
+
+### Additional Features
+
+- **Presigned URLs** — GET/PUT with configurable expiration (S3-compatible paths)
+- **Range Requests** — Partial object downloads via `Range` header
+- **Conditional Requests** — `If-Match`, `If-None-Match`, `If-Modified-Since`
+
+### Health Endpoints (No Auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check |
+| GET | `/ready` | Readiness probe |
+| GET | `/metrics` | Prometheus metrics |
 
 ---
 
 ## Console API (Port 8081)
 
-REST API for web console management. All endpoints require JWT authentication and are prefixed with `/api/v1`.
+REST API for web console management. All endpoints prefixed with `/api/v1` unless noted. JWT authentication required (via `Authorization: Bearer <token>` header).
 
 ### Authentication
 
-**Login:**
-```http
-POST /api/v1/auth/login
-Content-Type: application/json
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| POST | `/api/v1/auth/login` | Login (username + password + optional TOTP) | None |
+| POST | `/api/v1/auth/logout` | Logout | JWT |
+| GET | `/api/v1/auth/me` | Get current user info | JWT |
 
-{
-  "username": "admin",
-  "password": "admin"
-}
-```
+### Two-Factor Authentication
 
-**Response:**
-```json
-{
-  "success": true,
-  "token": "eyJhbGciOiJIUzI1NiIs...",
-  "user": {
-    "id": "user-123",
-    "username": "admin",
-    "roles": ["admin"]
-  }
-}
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/auth/2fa/setup` | Start 2FA setup (returns QR code) |
+| POST | `/api/v1/auth/2fa/verify` | Verify 2FA setup with TOTP code |
+| POST | `/api/v1/auth/2fa/disable` | Disable 2FA |
+| POST | `/api/v1/auth/2fa/validate` | Validate a TOTP code |
+| POST | `/api/v1/auth/2fa/backup-codes` | Regenerate backup codes |
+| GET | `/api/v1/auth/2fa/backup-codes` | Get backup codes |
 
-**Authenticated Requests:**
-```http
-GET /api/v1/users
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
+### OAuth / SSO
 
-### Available Endpoints
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| GET | `/api/v1/auth/oauth/providers` | List active OAuth providers | None |
+| POST | `/api/v1/auth/oauth/login` | Start OAuth login flow | None |
+| GET | `/api/v1/auth/oauth/callback` | OAuth callback from provider | None |
+| GET | `/api/v1/auth/oauth/complete` | Complete OAuth login | None |
 
-#### API Root
-- `GET /api/v1/` - Get API information and available endpoints
+### Users
 
-#### Authentication
-- `POST /api/v1/auth/login` - Login with username/password (with optional TOTP code)
-- `GET /api/v1/auth/me` - Get current user info
-- `POST /api/v1/auth/logout` - Logout
-- `POST /api/v1/auth/2fa/enable` - Enable 2FA for current user
-- `POST /api/v1/auth/2fa/verify` - Verify 2FA setup
-- `POST /api/v1/auth/2fa/disable` - Disable 2FA for current user
-- `GET /api/v1/auth/2fa/backup-codes` - Get backup codes
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/users` | List users |
+| POST | `/api/v1/users` | Create user |
+| GET | `/api/v1/users/{id}` | Get user details |
+| PUT | `/api/v1/users/{id}` | Update user |
+| DELETE | `/api/v1/users/{id}` | Delete user |
+| PUT | `/api/v1/users/{id}/password` | Change password |
+| PATCH | `/api/v1/users/{id}/status` | Update user status (activate/deactivate) |
+| POST | `/api/v1/users/{id}/unlock` | Unlock locked account |
 
-#### User Management
-- `GET /api/v1/users` - List users
-- `POST /api/v1/users` - Create user
-- `PUT /api/v1/users/{id}` - Update user
-- `DELETE /api/v1/users/{id}` - Delete user
-- `POST /api/v1/users/{id}/unlock` - Unlock locked account
+### Access Keys
 
-#### Tenant Management
-- `GET /api/v1/tenants` - List tenants
-- `POST /api/v1/tenants` - Create tenant
-- `PUT /api/v1/tenants/{id}` - Update tenant
-- `DELETE /api/v1/tenants/{id}` - Delete tenant
-- `GET /api/v1/tenants/{id}/stats` - Get tenant statistics
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/access-keys` | List all access keys |
+| GET | `/api/v1/access-keys/user/{userId}` | List user's access keys |
+| POST | `/api/v1/access-keys` | Create access key |
+| DELETE | `/api/v1/access-keys/{id}` | Delete access key |
 
-#### Access Key Management
-- `GET /api/v1/access-keys` - List access keys
-- `POST /api/v1/access-keys` - Create access key
-- `DELETE /api/v1/access-keys/{id}` - Revoke access key
+### Tenants
 
-#### Bucket Management
-- `GET /api/v1/buckets` - List buckets
-- `POST /api/v1/buckets` - Create bucket
-- `DELETE /api/v1/buckets/{name}` - Delete bucket
-- `GET /api/v1/buckets/{name}/stats` - Get bucket statistics
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/tenants` | List tenants |
+| POST | `/api/v1/tenants` | Create tenant |
+| GET | `/api/v1/tenants/{id}` | Get tenant details |
+| PUT | `/api/v1/tenants/{id}` | Update tenant |
+| DELETE | `/api/v1/tenants/{id}` | Delete tenant |
+| GET | `/api/v1/tenants/{id}/stats` | Get tenant statistics |
 
-#### Object Management
-- `GET /api/v1/buckets/{bucket}/objects` - List objects
-- `POST /api/v1/buckets/{bucket}/objects` - Upload object (multipart/form-data)
-- `DELETE /api/v1/buckets/{bucket}/objects/{key}` - Delete object
-- `POST /api/v1/buckets/{bucket}/objects/{key}/share` - Generate share URL
-- `DELETE /api/v1/buckets/{bucket}/objects/{key}/share` - Revoke share
+### Buckets
 
-#### Metrics
-- `GET /api/v1/metrics` - Dashboard metrics
-- `GET /api/v1/metrics/system` - System metrics (CPU, memory, disk)
-- `GET /metrics` - Prometheus metrics endpoint (comprehensive monitoring)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/buckets` | List buckets |
+| POST | `/api/v1/buckets` | Create bucket |
+| GET | `/api/v1/buckets/{name}` | Get bucket details |
+| DELETE | `/api/v1/buckets/{name}` | Delete bucket |
 
-#### Audit Logs (v0.4.0+)
-- `GET /api/v1/audit-logs` - List audit logs with filtering
-- `GET /api/v1/audit-logs/{id}` - Get specific audit log entry
+### Bucket Configuration
 
-**Query Parameters for GET /api/v1/audit-logs:**
-- `tenant_id` - Filter by tenant (global admin only)
-- `user_id` - Filter by user
-- `event_type` - Filter by event type (login_success, user_created, etc.)
-- `resource_type` - Filter by resource (system, user, bucket, etc.)
-- `action` - Filter by action (login, create, delete, etc.)
-- `status` - Filter by status (success, failed)
-- `start_date` - Unix timestamp start range
-- `end_date` - Unix timestamp end range
-- `page` - Page number (default: 1)
-- `page_size` - Results per page (default: 50, max: 100)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/buckets/{name}/permissions` | List bucket permissions |
+| POST | `/api/v1/buckets/{name}/permissions` | Add permission |
+| DELETE | `/api/v1/buckets/{name}/permissions/{id}` | Remove permission |
+| PUT | `/api/v1/buckets/{name}/permissions/{id}` | Update permission |
+| GET | `/api/v1/buckets/{name}/versioning` | Get versioning config |
+| PUT | `/api/v1/buckets/{name}/versioning` | Set versioning config |
+| GET | `/api/v1/buckets/{name}/lifecycle` | Get lifecycle rules |
+| PUT | `/api/v1/buckets/{name}/lifecycle` | Set lifecycle rules |
+| DELETE | `/api/v1/buckets/{name}/lifecycle` | Delete lifecycle rules |
+| GET | `/api/v1/buckets/{name}/cors` | Get CORS config |
+| PUT | `/api/v1/buckets/{name}/cors` | Set CORS config |
+| DELETE | `/api/v1/buckets/{name}/cors` | Delete CORS config |
+| GET | `/api/v1/buckets/{name}/acl` | Get bucket ACL |
+| PUT | `/api/v1/buckets/{name}/acl` | Set bucket ACL |
+| GET | `/api/v1/buckets/{name}/policy` | Get bucket policy |
+| PUT | `/api/v1/buckets/{name}/policy` | Set bucket policy |
+| DELETE | `/api/v1/buckets/{name}/policy` | Delete bucket policy |
+| GET | `/api/v1/buckets/{name}/tagging` | Get bucket tags |
+| PUT | `/api/v1/buckets/{name}/tagging` | Set bucket tags |
+| DELETE | `/api/v1/buckets/{name}/tagging` | Delete bucket tags |
+| GET | `/api/v1/buckets/{name}/notifications` | Get notification config |
+| PUT | `/api/v1/buckets/{name}/notifications` | Set notification config |
+| DELETE | `/api/v1/buckets/{name}/notifications` | Delete notification config |
+| PUT | `/api/v1/buckets/{name}/object-lock` | Enable object lock |
+| GET | `/api/v1/buckets/{name}/inventory` | Get inventory config |
+| PUT | `/api/v1/buckets/{name}/inventory` | Set inventory config |
+| DELETE | `/api/v1/buckets/{name}/inventory` | Delete inventory config |
+| GET | `/api/v1/buckets/{name}/inventory/reports` | List inventory reports |
 
-**Access Control:**
-- Global admins: Can view all audit logs across all tenants
-- Tenant admins: Can view only their tenant's logs
-- Regular users: Cannot access audit logs
+### Bucket Replication (External S3)
 
-#### Cluster Management (v0.8.0-beta)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/buckets/{name}/replication` | List replication rules |
+| POST | `/api/v1/buckets/{name}/replication` | Create replication rule |
+| GET | `/api/v1/buckets/{name}/replication/{id}` | Get rule details |
+| PUT | `/api/v1/buckets/{name}/replication/{id}` | Update rule |
+| DELETE | `/api/v1/buckets/{name}/replication/{id}` | Delete rule |
+| GET | `/api/v1/buckets/{name}/replication/{id}/status` | Get replication status |
+| POST | `/api/v1/buckets/{name}/replication/{id}/sync` | Trigger manual sync |
 
-**Cluster Configuration:**
-- `POST /api/v1/cluster/initialize` - Initialize cluster on this node
-- `GET /api/v1/cluster/status` - Get cluster configuration and status
-- `DELETE /api/v1/cluster/leave` - Remove this node from cluster
+### Objects
 
-**Node Management:**
-- `GET /api/v1/cluster/nodes` - List all cluster nodes
-- `POST /api/v1/cluster/nodes` - Add node to cluster
-- `PUT /api/v1/cluster/nodes/{id}` - Update node configuration
-- `DELETE /api/v1/cluster/nodes/{id}` - Remove node from cluster
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/buckets/{bucket}/objects` | List objects |
+| GET | `/api/v1/buckets/{bucket}/objects/search` | Search objects (filters) |
+| GET | `/api/v1/buckets/{bucket}/objects/{key+}` | Download object |
+| PUT | `/api/v1/buckets/{bucket}/objects/{key+}` | Upload object |
+| DELETE | `/api/v1/buckets/{bucket}/objects/{key+}` | Delete object |
+| GET | `/api/v1/buckets/{bucket}/objects/{key+}/acl` | Get object ACL |
+| PUT | `/api/v1/buckets/{bucket}/objects/{key+}/acl` | Set object ACL |
+| GET | `/api/v1/buckets/{bucket}/objects/{key+}/legal-hold` | Get legal hold |
+| PUT | `/api/v1/buckets/{bucket}/objects/{key+}/legal-hold` | Set legal hold |
+| GET | `/api/v1/buckets/{bucket}/objects/{key+}/versions` | List object versions |
 
-**Health Monitoring:**
-- `POST /api/v1/cluster/nodes/{id}/health` - Manually check node health
-- `GET /api/v1/cluster/health/history` - Get health check history
-- `GET /api/v1/cluster/health/summary` - Get cluster health summary
+### Shares & Presigned URLs
 
-**Bucket Location Management:**
-- `GET /api/v1/cluster/buckets/locations` - List all bucket locations
-- `PUT /api/v1/cluster/buckets/{name}/location` - Set bucket location
-- `DELETE /api/v1/cluster/cache` - Clear bucket location cache
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/shares` | List active share links |
+| POST | `/api/v1/shares` | Create share link |
+| DELETE | `/api/v1/shares/{id}` | Revoke share link |
+| POST | `/api/v1/presign` | Generate presigned URL |
 
-**Cluster Replication:**
-- `GET /api/v1/cluster/replication/rules` - List cluster replication rules
-- `POST /api/v1/cluster/replication/rules` - Create replication rule
-- `PUT /api/v1/cluster/replication/rules/{id}` - Update replication rule
-- `DELETE /api/v1/cluster/replication/rules/{id}` - Delete replication rule
-- `POST /api/v1/cluster/replication/sync` - Manually trigger sync
+### Metrics & Monitoring
 
-**Internal Cluster Endpoints** (HMAC-authenticated, inter-node only):
-- `POST /api/internal/cluster/tenant-sync` - Receive tenant synchronization
-- `PUT /api/internal/cluster/objects/{tenantID}/{bucket}/{key}` - Receive object replication
-- `DELETE /api/internal/cluster/objects/{tenantID}/{bucket}/{key}` - Receive delete replication
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/metrics` | Dashboard metrics |
+| GET | `/api/v1/metrics/system` | System metrics (CPU, memory, disk) |
+| GET | `/api/v1/metrics/storage` | Storage metrics |
+| GET | `/api/v1/metrics/performance` | Performance metrics |
+| GET | `/api/v1/metrics/history` | Metrics history |
+| GET | `/api/v1/performance/overview` | Performance overview |
+| GET | `/api/v1/performance/operations` | Operation-level metrics |
+| GET | `/api/v1/performance/history` | Performance history |
+| POST | `/api/v1/performance/reset` | Reset performance counters |
 
-**Initialize Cluster Example:**
-```bash
-curl -X POST http://localhost:8081/api/v1/cluster/initialize \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "node_name": "node-east-1",
-    "s3_endpoint": "http://10.0.1.10:8080",
-    "console_endpoint": "http://10.0.1.10:8081",
-    "region": "us-east-1",
-    "datacenter": "dc-east"
-  }'
-```
+### Audit Logs
 
-**Response:**
-```json
-{
-  "success": true,
-  "cluster_id": "cls-a1b2c3d4",
-  "node_id": "node-e5f6g7h8",
-  "node_token": "5f8a2b3c4d5e6f7g8h9i0j1k2l3m4n5o",
-  "message": "Cluster initialized successfully"
-}
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/audit-logs` | List audit logs (with filtering) |
+| GET | `/api/v1/audit-logs/{id}` | Get specific audit log entry |
 
-**Add Node to Cluster Example:**
-```bash
-curl -X POST http://localhost:8081/api/v1/cluster/nodes \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "node_name": "node-west-1",
-    "s3_endpoint": "http://10.0.2.20:8080",
-    "console_endpoint": "http://10.0.2.20:8081",
-    "region": "us-west-1",
-    "datacenter": "dc-west"
-  }'
-```
+**Query parameters**: `tenant_id`, `user_id`, `event_type`, `resource_type`, `action`, `status`, `start_date`, `end_date`, `page`, `page_size`
 
-**Response:**
-```json
-{
-  "success": true,
-  "node": {
-    "id": "node-i9j0k1l2",
-    "node_name": "node-west-1",
-    "s3_endpoint": "http://10.0.2.20:8080",
-    "console_endpoint": "http://10.0.2.20:8081",
-    "region": "us-west-1",
-    "datacenter": "dc-west",
-    "status": "healthy",
-    "is_primary": false,
-    "created_at": "2025-12-09T10:30:00Z"
-  }
-}
-```
+### Settings
 
-**Get Cluster Status Example:**
-```bash
-curl http://localhost:8081/api/cluster/status \
-  -H "Authorization: Bearer $TOKEN"
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/settings` | List all settings |
+| GET | `/api/v1/settings/{key}` | Get setting value |
+| GET | `/api/v1/settings/category/{category}` | List settings by category |
+| PUT | `/api/v1/settings/{key}` | Update setting |
+| POST | `/api/v1/settings/reset` | Reset all to defaults |
 
-**Response:**
-```json
-{
-  "success": true,
-  "cluster": {
-    "id": "cls-a1b2c3d4",
-    "initialized": true,
-    "primary_node_id": "node-e5f6g7h8",
-    "node_count": 3,
-    "healthy_nodes": 3,
-    "total_buckets": 42,
-    "replication_rules": 15
-  },
-  "nodes": [
-    {
-      "id": "node-e5f6g7h8",
-      "node_name": "node-east-1",
-      "s3_endpoint": "http://10.0.1.10:8080",
-      "status": "healthy",
-      "is_primary": true,
-      "last_health_check": "2025-12-09T10:35:00Z",
-      "latency_ms": 5,
-      "bucket_count": 15
-    },
-    {
-      "id": "node-i9j0k1l2",
-      "node_name": "node-west-1",
-      "s3_endpoint": "http://10.0.2.20:8080",
-      "status": "healthy",
-      "is_primary": false,
-      "last_health_check": "2025-12-09T10:35:00Z",
-      "latency_ms": 23,
-      "bucket_count": 12
-    }
-  ]
-}
-```
+### Logging Configuration
 
-**Create Cluster Replication Rule Example:**
-```bash
-curl -X POST http://localhost:8081/api/cluster/replication/rules \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "source_bucket": "backups",
-    "destination_node_id": "node-i9j0k1l2",
-    "sync_interval_seconds": 30,
-    "enabled": true,
-    "replicate_deletes": true
-  }'
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/logging/test-syslog` | Test syslog output |
+| POST | `/api/v1/logging/test-http` | Test HTTP log output |
+| POST | `/api/v1/logging/test-file` | Test file log output |
 
-**Response:**
-```json
-{
-  "success": true,
-  "rule": {
-    "id": "rep-m3n4o5p6",
-    "tenant_id": "tenant-abc123",
-    "source_bucket": "backups",
-    "destination_node_id": "node-i9j0k1l2",
-    "sync_interval_seconds": 30,
-    "enabled": true,
-    "replicate_deletes": true,
-    "last_sync_at": null,
-    "created_at": "2025-12-09T10:40:00Z"
-  }
-}
-```
+### Identity Providers (IDP)
 
-**Access Control (Cluster Endpoints):**
-- **Global admins only**: All cluster management operations require global admin privileges
-- **Tenant admins**: Cannot manage cluster (cluster is global infrastructure)
-- **Internal endpoints**: Require HMAC-SHA256 authentication with `node_token`
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/identity-providers` | List all providers |
+| POST | `/api/v1/identity-providers` | Create provider |
+| GET | `/api/v1/identity-providers/{id}` | Get provider details |
+| PUT | `/api/v1/identity-providers/{id}` | Update provider |
+| DELETE | `/api/v1/identity-providers/{id}` | Delete provider |
+| POST | `/api/v1/identity-providers/{id}/test` | Test provider connection |
+| POST | `/api/v1/identity-providers/{id}/search-users` | Search users in provider |
+| POST | `/api/v1/identity-providers/{id}/search-groups` | Search groups in provider |
+| POST | `/api/v1/identity-providers/{id}/import-user` | Import user from provider |
+| POST | `/api/v1/identity-providers/{id}/sync` | Sync all group memberships |
 
-> **See [CLUSTER.md](CLUSTER.md) for complete cluster documentation and architecture details**
+### Group Mappings (IDP)
 
-### Example Usage
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/identity-providers/{id}/group-mappings` | List group mappings |
+| POST | `/api/v1/identity-providers/{id}/group-mappings` | Create group mapping |
+| PUT | `/api/v1/identity-providers/{id}/group-mappings/{mapId}` | Update mapping |
+| DELETE | `/api/v1/identity-providers/{id}/group-mappings/{mapId}` | Delete mapping |
+| POST | `/api/v1/identity-providers/{id}/group-mappings/{mapId}/sync` | Sync specific mapping |
 
-**Create tenant:**
-```bash
-curl -X POST http://localhost:8081/api/tenants \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "acme",
-    "displayName": "ACME Corp",
-    "maxStorageBytes": 107374182400,
-    "maxBuckets": 100,
-    "maxAccessKeys": 50
-  }'
-```
+### Cluster Management
 
-**Create user:**
-```bash
-curl -X POST http://localhost:8081/api/users \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "john",
-    "password": "password123",
-    "email": "john@acme.com",
-    "roles": ["user"],
-    "tenantId": "tenant-123"
-  }'
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/cluster/initialize` | Initialize cluster on this node |
+| POST | `/api/v1/cluster/join` | Join existing cluster |
+| POST | `/api/v1/cluster/leave` | Leave cluster |
+| GET | `/api/v1/cluster/status` | Get cluster status |
+| GET | `/api/v1/cluster/config` | Get cluster configuration |
+| GET | `/api/v1/cluster/nodes` | List all nodes |
+| POST | `/api/v1/cluster/nodes` | Add node |
+| GET | `/api/v1/cluster/nodes/{id}` | Get node details |
+| PUT | `/api/v1/cluster/nodes/{id}` | Update node |
+| DELETE | `/api/v1/cluster/nodes/{id}` | Remove node |
+| GET | `/api/v1/cluster/health` | Cluster health summary |
+| GET | `/api/v1/cluster/health/history` | Health check history |
+| POST | `/api/v1/cluster/health/refresh` | Trigger manual health check |
+| GET | `/api/v1/cluster/cache/stats` | Cache statistics |
+| DELETE | `/api/v1/cluster/cache` | Clear bucket location cache |
 
-**Get dashboard metrics:**
-```bash
-curl http://localhost:8081/api/metrics \
-  -H "Authorization: Bearer $TOKEN"
-```
+### Cluster Replication
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/cluster/replication` | List replication rules |
+| POST | `/api/v1/cluster/replication` | Create replication rule |
+| PUT | `/api/v1/cluster/replication/{id}` | Update rule |
+| DELETE | `/api/v1/cluster/replication/{id}` | Delete rule |
+| POST | `/api/v1/cluster/replication/bulk` | Bulk replicate all buckets |
+
+### Cluster Migrations
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/cluster/buckets/{bucket}/migrate` | Start bucket migration |
+| GET | `/api/v1/cluster/migrations` | List migrations |
+| GET | `/api/v1/cluster/migrations/{id}` | Get migration details |
+
+### Notifications (SSE)
+
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| GET | `/api/v1/notifications/stream` | SSE event stream | JWT |
+
+### System
+
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| GET | `/api/v1/version` | Server version info | None |
+| GET | `/api/v1/config` | Public server configuration | JWT |
+| GET | `/health` | Health check | None |
+| GET | `/api/v1/security/status` | Security status overview | JWT |
+
+### Profiling
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/profiling` | Go pprof data (global admin only) |
 
 ---
 
 ## Error Responses
 
-### S3 API Errors (XML)
+### S3 API (XML)
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -497,17 +406,9 @@ curl http://localhost:8081/api/metrics \
 </Error>
 ```
 
-**Common S3 Error Codes:**
-- `NoSuchBucket` - Bucket does not exist
-- `BucketAlreadyExists` - Bucket name taken
-- `NoSuchKey` - Object not found
-- `AccessDenied` - Insufficient permissions
-- `InvalidAccessKeyId` - Invalid credentials
-- `SignatureDoesNotMatch` - Invalid signature
-- `QuotaExceeded` - Tenant quota exceeded
-- `ObjectLocked` - Object cannot be deleted (WORM)
+Common codes: `NoSuchBucket`, `NoSuchKey`, `BucketAlreadyExists`, `AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `QuotaExceeded`, `ObjectLocked`
 
-### Console API Errors (JSON)
+### Console API (JSON)
 
 ```json
 {
@@ -516,70 +417,27 @@ curl http://localhost:8081/api/metrics \
 }
 ```
 
-**HTTP Status Codes:**
-- `200` - Success
-- `400` - Bad Request
-- `401` - Unauthorized (invalid/missing token)
-- `403` - Forbidden (insufficient permissions)
-- `404` - Not Found
-- `409` - Conflict (duplicate resource)
-- `500` - Internal Server Error
+HTTP status codes: 200 (success), 400 (bad request), 401 (unauthorized), 403 (forbidden), 404 (not found), 409 (conflict), 429 (rate limited), 500 (server error)
 
 ---
 
-## Rate Limiting
+## Prometheus Metrics
 
-**Login Rate Limits:**
-- Max 5 login attempts per minute per IP
-- Account locked for 15 minutes after 5 failed attempts
-- Manual unlock by admin required
+Available at `/metrics` on both ports. Key metrics:
 
-**API Rate Limits:**
-- No global rate limits (alpha version)
-- Tenant quotas enforce resource limits
-
----
-
-## Health & Monitoring
-
-**Health Check:**
-```bash
-curl http://localhost:8080/health
 ```
-
-**Readiness Probe:**
-```bash
-curl http://localhost:8080/ready
-```
-
-**Prometheus Metrics:**
-```bash
-curl http://localhost:8080/metrics
-```
-
-**Response (sample):**
-```prometheus
-# HELP maxiofs_api_requests_total Total number of API requests
-# TYPE maxiofs_api_requests_total counter
-maxiofs_api_requests_total{method="GET",endpoint="/buckets"} 42
-
-# HELP maxiofs_storage_used_bytes Current storage usage in bytes
-# TYPE maxiofs_storage_used_bytes gauge
-maxiofs_storage_used_bytes{tenant="tenant-abc123"} 1073741824
-
-# HELP maxiofs_api_request_duration_seconds API request duration in seconds
-# TYPE maxiofs_api_request_duration_seconds histogram
-maxiofs_api_request_duration_seconds_bucket{endpoint="/objects",le="0.1"} 95
+maxiofs_s3_operations_total{operation, status}
+maxiofs_s3_operation_duration_seconds{operation}
+maxiofs_storage_used_bytes{tenant}
+maxiofs_objects_total{tenant}
+maxiofs_buckets_total{tenant}
+maxiofs_api_requests_total{method, endpoint}
+cluster_nodes_total
+cluster_nodes_healthy
+cluster_replication_objects_pending
+cluster_cache_hit_ratio
 ```
 
 ---
 
-## Additional Resources
-
-- [AWS S3 API Documentation](https://docs.aws.amazon.com/AmazonS3/latest/API/)
-- [AWS CLI S3 Commands](https://docs.aws.amazon.com/cli/latest/reference/s3/)
-- [boto3 S3 Client](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html)
-
----
-
-**Note**: This is a beta API. Core endpoints are stable, but minor changes may occur based on feedback.
+**See also**: [ARCHITECTURE.md](ARCHITECTURE.md) · [CLUSTER.md](CLUSTER.md) · [SSO.md](SSO.md) · [SECURITY.md](SECURITY.md)
