@@ -296,7 +296,6 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 
 	// Logging endpoints
 	router.HandleFunc("/logs/frontend", s.handlePostFrontendLogs).Methods("POST", "OPTIONS")
-	router.HandleFunc("/logs/test", s.handleTestLogOutput).Methods("POST", "OPTIONS")
 	router.HandleFunc("/logs/reconfigure", s.handleReconfigureLogging).Methods("POST", "OPTIONS")
 
 	// Logging targets CRUD endpoints

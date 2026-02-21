@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -117,37 +116,6 @@ func shouldLogLevel(level, minLevel string) bool {
 	}
 
 	return logLevel >= minLogLevel
-}
-
-// handleTestLogOutput tests a specific output type (legacy endpoint)
-func (s *Server) handleTestLogOutput(w http.ResponseWriter, r *http.Request) {
-	// Only global admins can test log outputs
-	user, exists := auth.GetUserFromContext(r.Context())
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	if !exists || !isGlobalAdmin {
-		s.writeError(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-
-	// Get output type from query
-	outputType := r.URL.Query().Get("type")
-	if outputType == "" {
-		s.writeError(w, "Missing output type", http.StatusBadRequest)
-		return
-	}
-
-	// Test the output
-	err := s.loggingManager.TestOutput(outputType)
-	if err != nil {
-		logrus.WithError(err).Errorf("Failed to test %s output", outputType)
-		s.writeError(w, "Failed to test output: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	s.writeJSON(w, map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("%s output test successful", outputType),
-	})
 }
 
 // handleReconfigureLogging reconfigures logging based on current settings

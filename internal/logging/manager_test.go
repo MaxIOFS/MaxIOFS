@@ -181,53 +181,6 @@ func TestCloseOutputs(t *testing.T) {
 	assert.Empty(t, manager.outputs)
 }
 
-func TestTestOutputInvalidType(t *testing.T) {
-	logger := logrus.New()
-	manager := NewManager(logger)
-
-	sm := &mockSettingsManager{
-		settings: map[string]string{},
-	}
-	manager.SetSettingsManager(sm)
-
-	err := manager.TestOutput("invalid")
-	assert.Equal(t, ErrInvalidOutputType, err)
-}
-
-func TestTestOutputWithoutSettingsManager(t *testing.T) {
-	logger := logrus.New()
-	manager := NewManager(logger)
-
-	err := manager.TestOutput("syslog")
-	assert.Equal(t, ErrSettingsManagerNotSet, err)
-}
-
-func TestTestSyslogWithoutHost(t *testing.T) {
-	logger := logrus.New()
-	manager := NewManager(logger)
-
-	sm := &mockSettingsManager{
-		settings: map[string]string{},
-	}
-	manager.SetSettingsManager(sm)
-
-	err := manager.TestOutput("syslog")
-	assert.Equal(t, ErrSyslogHostNotConfigured, err)
-}
-
-func TestTestHTTPWithoutURL(t *testing.T) {
-	logger := logrus.New()
-	manager := NewManager(logger)
-
-	sm := &mockSettingsManager{
-		settings: map[string]string{},
-	}
-	manager.SetSettingsManager(sm)
-
-	err := manager.TestOutput("http")
-	assert.Equal(t, ErrHTTPURLNotConfigured, err)
-}
-
 func TestDefaultValues(t *testing.T) {
 	logger := logrus.New()
 	manager := NewManager(logger)

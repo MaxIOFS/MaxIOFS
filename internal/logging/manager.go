@@ -152,12 +152,9 @@ func (m *Manager) Reconfigure() {
 	}
 	m.logger.SetReportCaller(includeCaller)
 
-	// Reconfigure outputs from target store (new system)
+	// Reconfigure outputs from target store
 	if m.targetStore != nil {
 		m.reconfigureFromStore()
-	} else {
-		// Legacy fallback: read from settings
-		m.reconfigureLegacyOutputs()
 	}
 
 	// Publish the updated snapshot atomically for the DispatchHook
@@ -234,101 +231,6 @@ func (m *Manager) reconfigureFromStore() {
 			"port":        cfg.Port,
 		}).Info("Logging target configured")
 	}
-}
-
-// reconfigureLegacyOutputs reads from old system_settings keys (backward compat)
-func (m *Manager) reconfigureLegacyOutputs() {
-	// Syslog output
-	syslogEnabled, err := m.settingsManager.GetBool("logging.syslog_enabled")
-	if err == nil && syslogEnabled {
-		m.configureLegacySyslog()
-	} else {
-		m.closeOutput("legacy-syslog")
-	}
-
-	// HTTP output
-	httpEnabled, err := m.settingsManager.GetBool("logging.http_enabled")
-	if err == nil && httpEnabled {
-		m.configureLegacyHTTP()
-	} else {
-		m.closeOutput("legacy-http")
-	}
-}
-
-// configureLegacySyslog sets up syslog output from legacy settings
-func (m *Manager) configureLegacySyslog() {
-	host, err := m.settingsManager.Get("logging.syslog_host")
-	if err != nil || host == "" {
-		m.logger.Warn("Syslog enabled but no host configured")
-		m.closeOutput("legacy-syslog")
-		return
-	}
-
-	port, err := m.settingsManager.GetInt("logging.syslog_port")
-	if err != nil {
-		port = 514
-	}
-
-	protocol, err := m.settingsManager.Get("logging.syslog_protocol")
-	if err != nil {
-		protocol = "tcp"
-	}
-
-	tag, err := m.settingsManager.Get("logging.syslog_tag")
-	if err != nil {
-		tag = "maxiofs"
-	}
-
-	m.closeOutput("legacy-syslog")
-
-	output, err := NewSyslogOutput(protocol, host, port, tag)
-	if err != nil {
-		m.logger.WithError(err).Error("Failed to create syslog output")
-		return
-	}
-
-	m.outputs["legacy-syslog"] = output
-	m.logger.WithFields(logrus.Fields{
-		"protocol": protocol,
-		"host":     host,
-		"port":     port,
-		"tag":      tag,
-	}).Info("Syslog output configured (legacy)")
-}
-
-// configureLegacyHTTP sets up HTTP output from legacy settings
-func (m *Manager) configureLegacyHTTP() {
-	url, err := m.settingsManager.Get("logging.http_url")
-	if err != nil || url == "" {
-		m.logger.Warn("HTTP logging enabled but no URL configured")
-		m.closeOutput("legacy-http")
-		return
-	}
-
-	token, err := m.settingsManager.Get("logging.http_auth_token")
-	if err != nil {
-		token = ""
-	}
-
-	batchSize, err := m.settingsManager.GetInt("logging.http_batch_size")
-	if err != nil {
-		batchSize = 100
-	}
-
-	flushInterval, err := m.settingsManager.GetInt("logging.http_flush_interval")
-	if err != nil {
-		flushInterval = 10
-	}
-
-	m.closeOutput("legacy-http")
-
-	output := NewHTTPOutput(url, token, batchSize, time.Duration(flushInterval)*time.Second)
-	m.outputs["legacy-http"] = output
-	m.logger.WithFields(logrus.Fields{
-		"url":            url,
-		"batch_size":     batchSize,
-		"flush_interval": flushInterval,
-	}).Info("HTTP output configured (legacy)")
 }
 
 // createOutputFromConfig creates an Output from a TargetConfig
@@ -437,94 +339,6 @@ func (m *Manager) TestTargetConfig(cfg *TargetConfig) error {
 			"test":        true,
 			"target_name": cfg.Name,
 			"target_type": cfg.Type,
-		},
-	}
-
-	return output.Write(testEntry)
-}
-
-// TestOutput tests a specific output type (legacy, kept for backward compatibility)
-func (m *Manager) TestOutput(outputType string) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if m.settingsManager == nil {
-		return ErrSettingsManagerNotSet
-	}
-
-	switch outputType {
-	case "syslog":
-		return m.testLegacySyslog()
-	case "http":
-		return m.testLegacyHTTP()
-	default:
-		return ErrInvalidOutputType
-	}
-}
-
-// testLegacySyslog sends a test message to syslog using legacy settings
-func (m *Manager) testLegacySyslog() error {
-	host, err := m.settingsManager.Get("logging.syslog_host")
-	if err != nil || host == "" {
-		return ErrSyslogHostNotConfigured
-	}
-
-	port, err := m.settingsManager.GetInt("logging.syslog_port")
-	if err != nil {
-		port = 514
-	}
-
-	protocol, err := m.settingsManager.Get("logging.syslog_protocol")
-	if err != nil {
-		protocol = "tcp"
-	}
-
-	tag, err := m.settingsManager.Get("logging.syslog_tag")
-	if err != nil {
-		tag = "maxiofs"
-	}
-
-	output, err := NewSyslogOutput(protocol, host, port, tag)
-	if err != nil {
-		return err
-	}
-	defer output.Close()
-
-	testEntry := &LogEntry{
-		Timestamp: time.Now(),
-		Level:     "info",
-		Message:   "Syslog test message from MaxIOFS",
-		Fields: map[string]interface{}{
-			"test": true,
-			"type": "syslog_connectivity_test",
-		},
-	}
-
-	return output.Write(testEntry)
-}
-
-// testLegacyHTTP sends a test message to HTTP endpoint using legacy settings
-func (m *Manager) testLegacyHTTP() error {
-	url, err := m.settingsManager.Get("logging.http_url")
-	if err != nil || url == "" {
-		return ErrHTTPURLNotConfigured
-	}
-
-	token, err := m.settingsManager.Get("logging.http_auth_token")
-	if err != nil {
-		token = ""
-	}
-
-	output := NewHTTPOutput(url, token, 1, time.Second)
-	defer output.Close()
-
-	testEntry := &LogEntry{
-		Timestamp: time.Now(),
-		Level:     "info",
-		Message:   "HTTP test message from MaxIOFS",
-		Fields: map[string]interface{}{
-			"test": true,
-			"type": "http_connectivity_test",
 		},
 	}
 
