@@ -5,6 +5,24 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2-beta] - 2026-02-22
+
+### Fixed
+- **Bucket metrics under-reported under concurrent load (VEEAM / multiple S3 clients)** — `UpdateBucketMetrics` used BadgerDB's Optimistic Concurrency Control (OCC) with only 5 retry attempts. Under high concurrency (VEEAM Backup with multiple parallel upload threads, 10 or 100 simultaneous S3 clients), `ErrConflict` exhausted retries and silently discarded metric updates, causing the web interface to show significantly less storage than was actually stored. The retry loop has been replaced with a per-bucket `sync.Mutex` via `sync.Map`: serialization now occurs at the Go level before entering BadgerDB, making `ErrConflict` impossible by construction. Metric updates are now fully reliable under any concurrency level.
+- **`RecalculateBucketStats` ignored tenant prefix** — the function scanned `obj:bucketName:` but objects in tenant buckets are stored as `obj:tenantID/bucketName:key`. For any tenant bucket, recalculation always returned 0 objects and 0 bytes, silently resetting counters. Now builds the full path (`tenantID/bucketName` for tenant buckets, or just `bucketName` for global buckets) before scanning. Global buckets (no tenant) are unaffected.
+
+### Added
+- **Admin endpoint `POST /buckets/{bucket}/recalculate-stats`** — allows administrators to resync a bucket's counters (`ObjectCount`, `TotalSize`) by scanning all objects present in BadgerDB. Useful for correcting metrics that diverged due to system restarts or updates lost under concurrent load. Requires admin role; global admins can pass `?tenantId=` to target a specific tenant's bucket. Returns the recalculated values in the response.
+
+### Removed
+- **Test `TestHandleTestLogOutput`** — called `server.handleTestLogOutput` which does not exist on `*Server`, causing a compilation error. The handler was never implemented.
+
+### Tests
+- `TestRecalculateBucketStats_GlobalBucket` — new test covering the global bucket path (no tenant). Objects are stored as `obj:bucketName:key` without a tenant prefix; verifies that recalculation scans the correct prefix.
+- `TestRecalculateBucketStats_Success` and `TestRecalculateBucketStats/Recalculate_bucket_stats` updated — the `Bucket` field of test objects now uses the full `tenantID/bucketName` path matching production behavior, confirming the prefix fix works end-to-end.
+
+---
+
 ## [0.9.1-beta] - 2026-02-22
 
 ### Added

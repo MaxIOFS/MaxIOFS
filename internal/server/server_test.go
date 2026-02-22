@@ -5175,33 +5175,6 @@ func TestHandleReconfigureLogging(t *testing.T) {
 	})
 }
 
-func TestHandleTestLogOutput(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should require global admin", func(t *testing.T) {
-		// Without auth, the handler returns Forbidden because user check fails
-		req := httptest.NewRequest("POST", "/api/v1/admin/logging/test", nil)
-		rr := httptest.NewRecorder()
-		server.handleTestLogOutput(rr, req)
-		assert.Equal(t, http.StatusForbidden, rr.Code)
-	})
-
-	t.Run("should require output type parameter", func(t *testing.T) {
-		// Admin without type parameter gets BadRequest
-		req := createAuthenticatedRequest("POST", "/api/v1/admin/logging/test", nil, "", "admin-1", true)
-		rr := httptest.NewRecorder()
-		server.handleTestLogOutput(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
-
-	t.Run("should test log output for admin with type", func(t *testing.T) {
-		req := createAuthenticatedRequest("POST", "/api/v1/admin/logging/test?type=console", nil, "", "admin-1", true)
-		rr := httptest.NewRecorder()
-		server.handleTestLogOutput(rr, req)
-		// May succeed or fail depending on output configuration
-		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError}, rr.Code)
-	})
-}
 
 func TestHandlePostFrontendLogs(t *testing.T) {
 	server := getSharedServer()

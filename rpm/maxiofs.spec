@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 0.9.1}
+%{!?version: %define version 0.9.2}
 %define release 1
 %define debug_package %{nil}
 
@@ -259,6 +259,18 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Sat Feb 22 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 0.9.2-1
+- Version 0.9.2-beta - Concurrent metric reliability and storage reporting fix
+- Fixed: Bucket metrics under-reported under concurrent load (VEEAM / multiple S3 clients)
+  UpdateBucketMetrics replaced OCC retry loop with per-bucket sync.Mutex via sync.Map.
+  ErrConflict impossible by construction. Resolves 4.2GB stored / 2.21GB shown discrepancy.
+- Fixed: RecalculateBucketStats ignored tenant prefix, always returning 0 for tenant buckets.
+  Now builds full tenantID/bucketName path; global buckets (no tenant) unaffected.
+- Added: Admin endpoint POST /buckets/{bucket}/recalculate-stats to resync bucket counters
+  from BadgerDB scan. Requires admin role, supports ?tenantId= for global admins.
+- Removed: Test TestHandleTestLogOutput (called non-existent handler, caused compilation failure)
+- Tests: TestRecalculateBucketStats_GlobalBucket (global bucket path), updated tenant path tests
+
 * Wed Feb 19 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 0.9.1-1
 - Version 0.9.1-beta - Security hardening, cluster UX, external logging targets
 - Added: External syslog targets with full CRUD API (7 new endpoints, SQLite storage)

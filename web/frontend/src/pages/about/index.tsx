@@ -330,99 +330,48 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New in v0.9.1-beta
+            New in v0.9.2-beta
           </h2>
           <div className="space-y-4">
-            <div className="border-l-4 border-purple-500 pl-4">
+            <div className="border-l-4 border-red-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Identity Provider System (LDAP & OAuth2/OIDC)
+                Storage Metrics — Concurrent Write Reliability
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Full LDAP/Active Directory integration and OAuth2 SSO with Google and Microsoft presets.
-                Identity provider management UI with CRUD, test connection, LDAP browser, and group mapping configuration.
-                External user import with role assignment and group-to-role mapping with manual and automatic sync.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-blue-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                SSO Auto-Provisioning & Multi-Tenant Routing
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Users are auto-provisioned on first SSO login when they belong to a mapped group.
-                One "Sign in with Google/Microsoft" button per provider type with email-first UX.
-                Cross-provider user lookup enables multi-tenant SSO routing by email domain — no tenant info exposed on login page.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-green-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                SSO User Management
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Create users linked to SSO providers directly from the Users page with auth provider selector.
-                Email auto-sync for SSO users on each login. Redirect URI auto-generated from server configuration.
-                Auth provider badge (Local/LDAP/SSO) displayed on user list.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-cyan-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Cluster Resilience & JWT Persistence
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                JWT secrets are now persisted in the database, so user sessions survive server restarts.
-                When a node joins a cluster, it automatically fetches the JWT secret from the existing node,
-                ensuring seamless authentication across all cluster nodes without re-login.
-                Tombstone-based deletion sync prevents entity resurrection in bidirectional cluster sync.
+                Fixed a critical issue where bucket storage counters were under-reported under high concurrency.
+                BadgerDB's optimistic concurrency control (OCC) with only 5 retries caused metric updates to be
+                silently discarded when multiple S3 clients (e.g. VEEAM Backup with parallel upload threads) wrote
+                to the same bucket simultaneously. Replaced the retry loop with a per-bucket <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">sync.Mutex</code> via
+                {' '}<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">sync.Map</code>,
+                serializing updates at the Go level and making conflicts impossible by construction.
+                Storage metrics are now fully reliable under any concurrency level.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Security Hardening
+                Bucket Stats Recalculation — Tenant Prefix Fix
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                LDAP bind passwords and OAuth client secrets encrypted at rest with AES-256-GCM.
-                OAuth CSRF protection with state parameter and secure cookie validation.
-                Rate limiting IP spoofing fix with trusted proxy support. JWT signature verification with constant-time comparison.
-                Fixed critical bug where JWT tokens were signed with the wrong key.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-teal-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                External Syslog Targets
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Introduced support for multiple external logging targets (syslog and HTTP) with full CRUD API and TLS support. Replaces legacy single-target settings with a modern N-target system, enabling flexible logging configurations.
+                Fixed <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">RecalculateBucketStats</code> silently
+                returning 0 objects and 0 bytes for tenant buckets. The function was scanning the wrong BadgerDB
+                key prefix (<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">obj:bucketName:</code> instead
+                of <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">obj:tenantID/bucketName:</code>),
+                effectively resetting counters on every recalculation. Now correctly builds the full path for
+                tenant buckets while preserving global bucket behaviour (no prefix).
               </p>
             </div>
 
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Syslog TLS and RFC 5424
+                Admin: Recalculate Bucket Stats Endpoint
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Added TCP+TLS support for syslog with mTLS, custom CA, and RFC 5424 structured data format alongside RFC 3164. This ensures secure and standardized logging for enterprise environments.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-green-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Cluster Enhancements
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Improved cluster management with a new "Join Cluster" UI, token display modal, and enhanced node addition flow using admin credentials. These changes simplify cluster setup and management.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-orange-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Tenant Isolation Fixes
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Resolved multiple tenant isolation vulnerabilities, ensuring strict scoping for IDPs, users, and bucket permissions. These fixes enhance security and prevent unauthorized access.
+                New <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">POST /buckets/&#123;bucket&#125;/recalculate-stats</code> endpoint
+                for administrators. Performs a full BadgerDB scan to recompute object count and total size from
+                scratch, correcting any counters that diverged due to system restarts or missed updates under load.
+                Global admins can pass <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">?tenantId=</code> to
+                target a specific tenant's bucket. Returns the recalculated values in the response.
               </p>
             </div>
           </div>

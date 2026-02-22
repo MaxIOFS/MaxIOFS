@@ -295,7 +295,7 @@ func TestCobraCommand_InvalidFlag(t *testing.T) {
 func TestCobraCommand_VersionOutput(t *testing.T) {
 	rootCmd := &cobra.Command{
 		Use:     "maxiofs",
-		Version: "v0.9.1-beta (commit: abc123, built: 20260207)",
+		Version: "v0.9.2-beta (commit: abc123, built: 20260207)",
 	}
 
 	var buf bytes.Buffer
@@ -304,7 +304,7 @@ func TestCobraCommand_VersionOutput(t *testing.T) {
 
 	err := rootCmd.Execute()
 	require.NoError(t, err)
-	assert.Contains(t, buf.String(), "v0.9.1-beta")
+	assert.Contains(t, buf.String(), "v0.9.2-beta")
 }
 
 // ============================================================================

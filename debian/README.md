@@ -72,7 +72,7 @@ make deb-clean
 
 ### Install the package
 ```bash
-sudo dpkg -i build/maxiofs_v0.9.1-beta_amd64.deb
+sudo dpkg -i build/maxiofs_v0.9.2-beta_amd64.deb
 ```
 
 ### Configure MaxIOFS

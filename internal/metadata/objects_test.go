@@ -406,10 +406,10 @@ func TestRecalculateBucketStats(t *testing.T) {
 	err := store.CreateBucket(ctx, bucket)
 	require.NoError(t, err)
 
-	// Create objects
+	// Create objects — bucket path must include tenantID prefix, matching production behaviour
 	for i := 0; i < 5; i++ {
 		obj := &ObjectMetadata{
-			Bucket: "recalc-bucket",
+			Bucket: "tenant-1/recalc-bucket",
 			Key:    "file" + string(rune('A'+i)) + ".txt",
 			Size:   int64((i + 1) * 100),
 		}

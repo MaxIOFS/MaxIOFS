@@ -1,5 +1,5 @@
 # MaxIOFS Docker Compose Configuration
-# Version: 0.9.1-beta
+# Version: 0.9.2-beta
 #
 # Usage:
 #   docker compose up                    # Basic: MaxIOFS only
@@ -22,10 +22,10 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        VERSION: ${VERSION:-0.9.1-beta}
+        VERSION: ${VERSION:-0.9.2-beta}
         COMMIT: ${GIT_COMMIT:-dev}
         BUILD_DATE: ${BUILD_DATE}
-    image: maxiofs:${VERSION:-0.9.1-beta}
+    image: maxiofs:${VERSION:-0.9.2-beta}
     container_name: maxiofs
     restart: unless-stopped
 
@@ -67,7 +67,7 @@ services:
       - maxiofs-network
 
     labels:
-      - "com.maxiofs.version=0.9.1-beta"
+      - "com.maxiofs.version=0.9.2-beta"
       - "com.maxiofs.description=S3-compatible object storage server"
 
   # =============================================================================
@@ -158,10 +158,10 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        VERSION: ${VERSION:-0.9.1-beta}
+        VERSION: ${VERSION:-0.9.2-beta}
         COMMIT: ${GIT_COMMIT:-dev}
         BUILD_DATE: ${BUILD_DATE}
-    image: maxiofs:${VERSION:-0.9.1-beta}
+    image: maxiofs:${VERSION:-0.9.2-beta}
     container_name: maxiofs-node2
     restart: unless-stopped
     profiles:
@@ -196,7 +196,7 @@ services:
       - maxiofs-network
 
     labels:
-      - "com.maxiofs.version=0.9.1-beta"
+      - "com.maxiofs.version=0.9.2-beta"
       - "com.maxiofs.node=node2"
 
   maxiofs-node3:
@@ -204,10 +204,10 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        VERSION: ${VERSION:-0.9.1-beta}
+        VERSION: ${VERSION:-0.9.2-beta}
         COMMIT: ${GIT_COMMIT:-dev}
         BUILD_DATE: ${BUILD_DATE}
-    image: maxiofs:${VERSION:-0.9.1-beta}
+    image: maxiofs:${VERSION:-0.9.2-beta}
     container_name: maxiofs-node3
     restart: unless-stopped
     profiles:
@@ -242,7 +242,7 @@ services:
       - maxiofs-network
 
     labels:
-      - "com.maxiofs.version=0.9.1-beta"
+      - "com.maxiofs.version=0.9.2-beta"
       - "com.maxiofs.node=node3"
 
 # =============================================================================

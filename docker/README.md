@@ -219,7 +219,7 @@ Common issues:
 
 ## Version Information
 
-- **MaxIOFS**: 0.9.1-beta
+- **MaxIOFS**: 0.9.2-beta
 - **Prometheus**: 3.0.1
 - **Grafana**: 11.5.0
 - **Docker Compose**: v2.x required

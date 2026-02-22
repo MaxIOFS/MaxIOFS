@@ -206,6 +206,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets", s.handleCreateBucket).Methods("POST", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}", s.handleGetBucket).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}", s.handleDeleteBucket).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/recalculate-stats", s.handleRecalculateBucketStats).Methods("POST", "OPTIONS")
 
 	// Replication endpoints
 	router.HandleFunc("/buckets/{bucket}/replication/rules", s.handleListReplicationRules).Methods("GET", "OPTIONS")
@@ -1222,6 +1223,56 @@ func (s *Server) handleGetBucket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, response)
+}
+
+// handleRecalculateBucketStats recalculates bucket object count and total size
+// by scanning all stored objects. Use this to fix metrics that became out of sync
+// due to concurrent upload conflicts or system restarts.
+func (s *Server) handleRecalculateBucketStats(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Only admins can recalculate stats
+	if !auth.IsAdminUser(r.Context()) {
+		s.writeError(w, "Forbidden: admin access required", http.StatusForbidden)
+		return
+	}
+
+	queryTenantID := r.URL.Query().Get("tenantId")
+	tenantID := user.TenantID
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
+
+	if err := s.bucketManager.RecalculateMetrics(r.Context(), tenantID, bucketName); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Return the updated stats
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"success":      true,
+		"bucket":       bucketName,
+		"object_count": bucketInfo.ObjectCount,
+		"total_size":   bucketInfo.TotalSize,
+	})
 }
 
 func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {

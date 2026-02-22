@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -17,9 +18,10 @@ import (
 
 // BadgerStore implements the Store interface using BadgerDB
 type BadgerStore struct {
-	db     *badger.DB
-	ready  atomic.Bool
-	logger *logrus.Logger
+	db              *badger.DB
+	ready           atomic.Bool
+	logger          *logrus.Logger
+	bucketMetricsMu sync.Map // map[string]*sync.Mutex — one mutex per bucket key, eliminates BadgerDB OCC conflicts
 }
 
 // BadgerOptions contains configuration options for BadgerStore
@@ -375,77 +377,62 @@ func (s *BadgerStore) BucketExists(ctx context.Context, tenantID, name string) (
 	return true, nil
 }
 
-// UpdateBucketMetrics atomically updates bucket metrics
+// getBucketMetricsMutex returns a per-bucket mutex for serializing metric updates.
+// Using a Go-level mutex instead of BadgerDB's OCC eliminates ErrConflict entirely,
+// making metric updates safe under any level of concurrency (100 VEEAM clients, etc.).
+func (s *BadgerStore) getBucketMetricsMutex(key []byte) *sync.Mutex {
+	keyStr := string(key)
+	mu, _ := s.bucketMetricsMu.LoadOrStore(keyStr, &sync.Mutex{})
+	return mu.(*sync.Mutex)
+}
+
+// UpdateBucketMetrics atomically updates bucket metrics.
+// Uses a per-bucket Go mutex to serialise concurrent updates, eliminating
+// BadgerDB OCC conflicts regardless of how many parallel S3 clients write to
+// the same bucket.
 func (s *BadgerStore) UpdateBucketMetrics(ctx context.Context, tenantID, bucketName string, objectCountDelta, sizeDelta int64) error {
 	key := bucketKey(tenantID, bucketName)
 
-	// Retry logic for transaction conflicts (up to 5 attempts with exponential backoff)
-	maxRetries := 5
-	var lastErr error
+	// Acquire the per-bucket mutex. Only one goroutine at a time can update
+	// this bucket's counters — no BadgerDB transaction conflicts possible.
+	mu := s.getBucketMetricsMutex(key)
+	mu.Lock()
+	defer mu.Unlock()
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		err := s.db.Update(func(txn *badger.Txn) error {
-			// Get current bucket metadata
-			item, err := txn.Get(key)
-			if err == badger.ErrKeyNotFound {
-				return ErrBucketNotFound
-			}
-			if err != nil {
-				return fmt.Errorf("failed to get bucket: %w", err)
-			}
-
-			var bucket BucketMetadata
-			err = item.Value(func(val []byte) error {
-				return json.Unmarshal(val, &bucket)
-			})
-			if err != nil {
-				return fmt.Errorf("failed to unmarshal bucket: %w", err)
-			}
-
-			// Update metrics
-			bucket.ObjectCount += objectCountDelta
-			bucket.TotalSize += sizeDelta
-			bucket.UpdatedAt = time.Now()
-
-			// Ensure metrics don't go negative
-			if bucket.ObjectCount < 0 {
-				bucket.ObjectCount = 0
-			}
-			if bucket.TotalSize < 0 {
-				bucket.TotalSize = 0
-			}
-
-			// Marshal and store
-			data, err := json.Marshal(&bucket)
-			if err != nil {
-				return fmt.Errorf("failed to marshal bucket: %w", err)
-			}
-
-			return txn.Set(key, data)
-		})
-
-		if err == nil {
-			return nil // Success
+	return s.db.Update(func(txn *badger.Txn) error {
+		item, err := txn.Get(key)
+		if err == badger.ErrKeyNotFound {
+			return ErrBucketNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("failed to get bucket: %w", err)
 		}
 
-		lastErr = err
-
-		// Check if it's a transaction conflict that we should retry
-		if err == badger.ErrConflict {
-			if attempt < maxRetries-1 {
-				// Exponential backoff: 1ms, 2ms, 4ms, 8ms
-				backoff := (1 << attempt) * 1000000 // nanoseconds
-				time.Sleep(time.Duration(backoff))
-				continue
-			}
-		} else {
-			// For non-conflict errors, return immediately
-			return err
+		var bucket BucketMetadata
+		if err = item.Value(func(val []byte) error {
+			return json.Unmarshal(val, &bucket)
+		}); err != nil {
+			return fmt.Errorf("failed to unmarshal bucket: %w", err)
 		}
-	}
 
-	// If we exhausted all retries, return the last error
-	return fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
+		bucket.ObjectCount += objectCountDelta
+		bucket.TotalSize += sizeDelta
+		bucket.UpdatedAt = time.Now()
+
+		if bucket.ObjectCount < 0 {
+			bucket.ObjectCount = 0
+		}
+		if bucket.TotalSize < 0 {
+			bucket.TotalSize = 0
+		}
+
+		data, err := json.Marshal(&bucket)
+		if err != nil {
+			return fmt.Errorf("failed to marshal bucket: %w", err)
+		}
+
+		return txn.Set(key, data)
+	})
 }
 
 // GetBucketStats retrieves bucket statistics
@@ -464,9 +451,15 @@ func (s *BadgerStore) RecalculateBucketStats(ctx context.Context, tenantID, buck
 	var totalSize int64
 
 	// Count all objects in the bucket
+	// Build the full bucket path as used in object keys: "tenantID/bucketName" or "bucketName"
+	fullBucketPath := bucketName
+	if tenantID != "" {
+		fullBucketPath = tenantID + "/" + bucketName
+	}
+
 	err := s.db.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
-		opts.Prefix = objectListPrefix(bucketName)
+		opts.Prefix = objectListPrefix(fullBucketPath)
 
 		it := txn.NewIterator(opts)
 		defer it.Close()

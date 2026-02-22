@@ -311,10 +311,10 @@ func TestRecalculateBucketStats_Success(t *testing.T) {
 	err := store.CreateBucket(ctx, bucket)
 	require.NoError(t, err)
 
-	// Add some objects
+	// Add some objects — bucket path must include tenantID prefix, matching production behaviour
 	for i := 0; i < 5; i++ {
 		obj := &ObjectMetadata{
-			Bucket: "recalc-bucket",
+			Bucket: "tenant-1/recalc-bucket",
 			Key:    "obj-" + string(rune('a'+i)),
 			Size:   100,
 			ETag:   "etag",
@@ -357,6 +357,46 @@ func TestRecalculateBucketStats_EmptyBucket(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), count)
 	assert.Equal(t, int64(0), size)
+}
+
+// TestRecalculateBucketStats_GlobalBucket verifies recalculation works for
+// global buckets (no tenant). Object keys are stored as "obj:bucketName:key"
+// (no tenant prefix), so fullBucketPath must equal just bucketName.
+func TestRecalculateBucketStats_GlobalBucket(t *testing.T) {
+	store, _, cleanup := createTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	bucket := &BucketMetadata{
+		Name:        "global-bucket",
+		TenantID:    "", // no tenant — global bucket
+		OwnerID:     "admin",
+		OwnerType:   "user",
+		ObjectCount: 0,
+		TotalSize:   0,
+	}
+	err := store.CreateBucket(ctx, bucket)
+	require.NoError(t, err)
+
+	// Objects stored with just bucketName as Bucket field (no tenant prefix)
+	for i := 0; i < 3; i++ {
+		obj := &ObjectMetadata{
+			Bucket: "global-bucket",
+			Key:    "file-" + string(rune('a'+i)),
+			Size:   200,
+			ETag:   "etag",
+		}
+		err := store.PutObject(ctx, obj)
+		require.NoError(t, err)
+	}
+
+	err = store.RecalculateBucketStats(ctx, "", "global-bucket")
+	assert.NoError(t, err)
+
+	count, size, err := store.GetBucketStats(ctx, "", "global-bucket")
+	assert.NoError(t, err)
+	assert.Equal(t, int64(3), count)
+	assert.Equal(t, int64(600), size) // 3 * 200
 }
 
 // ============================================================================
