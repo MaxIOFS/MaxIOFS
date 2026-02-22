@@ -275,7 +275,12 @@ export default function ClusterNodes() {
                           <Server className="h-4 w-4 text-brand-600 dark:text-brand-400" />
                         </div>
                         <div>
-                          <div className="font-semibold text-brand-600 dark:text-brand-400">{node.name}</div>
+                          <div className="font-semibold text-brand-600 dark:text-brand-400">
+                            {node.name}
+                            {node.id === localNodeId && (
+                              <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">(This node)</span>
+                            )}
+                          </div>
                           {getHealthIcon(node.health_status)}
                         </div>
                       </div>
@@ -309,13 +314,15 @@ export default function ClusterNodes() {
                         >
                           <Edit className="h-4 w-4" />
                         </button>
-                        <button
-                          onClick={() => handleRemoveNode(node.id)}
-                          className="p-2 text-gray-600 dark:text-gray-400 hover:text-error-600 dark:hover:text-error-400 hover:bg-gradient-to-br hover:from-error-50 hover:to-red-50 dark:hover:from-error-900/30 dark:hover:to-red-900/30 rounded-lg transition-all duration-200 shadow-sm hover:shadow"
-                          title="Remove Node"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {node.id !== localNodeId && (
+                          <button
+                            onClick={() => handleRemoveNode(node.id)}
+                            className="p-2 text-gray-600 dark:text-gray-400 hover:text-error-600 dark:hover:text-error-400 hover:bg-gradient-to-br hover:from-error-50 hover:to-red-50 dark:hover:from-error-900/30 dark:hover:to-red-900/30 rounded-lg transition-all duration-200 shadow-sm hover:shadow"
+                            title="Remove Node"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -329,9 +336,9 @@ export default function ClusterNodes() {
       {/* Add Node Dialog */}
       {showAddNodeDialog && (
         <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+          <Card className="w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Add Cluster Node</h2>
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Add Node to Cluster</h2>
               <button
                 onClick={() => setShowAddNodeDialog(false)}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
@@ -340,108 +347,62 @@ export default function ClusterNodes() {
               </button>
             </div>
 
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Enter the console URL and admin credentials of the remote node. The node must be in standalone mode (not already in a cluster).
+            </p>
+
             <form onSubmit={(e) => {
               e.preventDefault();
               const formData = new FormData(e.currentTarget);
               handleAddNode({
-                name: formData.get('name') as string,
                 endpoint: formData.get('endpoint') as string,
-                node_token: formData.get('nodeToken') as string,
-                region: formData.get('region') as string || undefined,
-                priority: parseInt(formData.get('priority') as string) || 100,
-                metadata: formData.get('metadata') as string || undefined,
-              });
+                username: formData.get('username') as string,
+                password: formData.get('password') as string,
+              } as AddNodeRequest);
             }}>
               <div className="space-y-4">
-                {/* Node Name */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Node Name *
-                  </label>
-                  <input
-                    name="name"
-                    type="text"
-                    required
-                    placeholder="node-us-west-1"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
-                  />
-                </div>
-
                 {/* Endpoint URL */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Endpoint URL *
+                    Console URL *
                   </label>
                   <input
                     name="endpoint"
                     type="url"
                     required
-                    placeholder="https://node2.example.com:8080"
+                    placeholder="https://node2.example.com:8081"
                     className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
                   />
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Full URL including protocol and port (e.g., https://node.example.com:8080)
+                    Console URL of the remote node (e.g., https://node2.example.com:8081)
                   </p>
                 </div>
 
-                {/* Node Token */}
+                {/* Username */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Node Token *
-                  </label>
-                  <textarea
-                    name="nodeToken"
-                    required
-                    rows={3}
-                    placeholder="eyJhbGciOiJIUzI1NiIs..."
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 font-mono text-sm"
-                  />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    JWT token generated by the remote node for authentication
-                  </p>
-                </div>
-
-                {/* Region (Optional) */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Region (Optional)
+                    Admin Username *
                   </label>
                   <input
-                    name="region"
+                    name="username"
                     type="text"
-                    placeholder="us-west-1"
+                    required
+                    placeholder="admin"
                     className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
 
-                {/* Priority */}
+                {/* Password */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Priority
+                    Admin Password *
                   </label>
                   <input
-                    name="priority"
-                    type="number"
-                    defaultValue={100}
-                    min={1}
-                    max={1000}
+                    name="password"
+                    type="password"
+                    required
+                    placeholder="********"
                     className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
-                  />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Lower values = higher priority for routing (1-1000)
-                  </p>
-                </div>
-
-                {/* Metadata (Optional) */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Metadata (Optional, JSON)
-                  </label>
-                  <textarea
-                    name="metadata"
-                    rows={2}
-                    placeholder='{"location": "datacenter-1", "environment": "production"}'
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 font-mono text-sm"
                   />
                 </div>
               </div>

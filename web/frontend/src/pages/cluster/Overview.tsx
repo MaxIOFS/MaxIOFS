@@ -12,7 +12,11 @@ import {
   CheckCircle,
   AlertTriangle,
   XCircle,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Copy,
+  Check,
+  Link,
+  KeyRound
 } from 'lucide-react';
 import APIClient from '@/lib/api';
 import { getErrorMessage } from '@/lib/utils';
@@ -25,6 +29,11 @@ export default function ClusterOverview() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showInitDialog, setShowInitDialog] = useState(false);
+  const [showJoinDialog, setShowJoinDialog] = useState(false);
+  const [showTokenModal, setShowTokenModal] = useState(false);
+  const [clusterToken, setClusterToken] = useState('');
+  const [tokenCopied, setTokenCopied] = useState(false);
+  const [joinLoading, setJoinLoading] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -54,11 +63,43 @@ export default function ClusterOverview() {
   const handleInitializeCluster = async (nodeName: string, region: string) => {
     try {
       const response = await APIClient.initializeCluster({ node_name: nodeName, region: region || undefined });
-      alert(`Cluster initialized successfully!\n\nCluster Token: ${response.cluster_token}\n\nSave this token to join other nodes to the cluster.`);
+      setClusterToken(response.cluster_token);
       setShowInitDialog(false);
+      setShowTokenModal(true);
       await loadData();
     } catch (err: unknown) {
       alert(getErrorMessage(err, 'Failed to initialize cluster'));
+    }
+  };
+
+  const handleJoinCluster = async (clusterTokenValue: string, nodeEndpoint: string) => {
+    try {
+      setJoinLoading(true);
+      await APIClient.joinCluster({ cluster_token: clusterTokenValue, node_endpoint: nodeEndpoint });
+      setShowJoinDialog(false);
+      await loadData();
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Failed to join cluster'));
+    } finally {
+      setJoinLoading(false);
+    }
+  };
+
+  const copyToken = async () => {
+    try {
+      await navigator.clipboard.writeText(clusterToken);
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2000);
+    } catch {
+      // Fallback for non-HTTPS contexts
+      const textarea = document.createElement('textarea');
+      textarea.value = clusterToken;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2000);
     }
   };
 
@@ -86,14 +127,25 @@ export default function ClusterOverview() {
           <Network className="w-16 h-16 text-blue-600 dark:text-blue-400 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Cluster Not Initialized</h2>
           <p className="text-gray-600 dark:text-gray-400 mb-6">
-            Initialize a cluster to enable multi-node replication and high availability
+            Initialize a new cluster or join an existing one to enable multi-node replication and high availability
           </p>
-          <Button
-            onClick={() => setShowInitDialog(true)}
-            className="bg-brand-600 hover:bg-brand-700 text-white"
-          >
-            Initialize Cluster
-          </Button>
+          <div className="flex items-center justify-center gap-3">
+            <Button
+              onClick={() => setShowInitDialog(true)}
+              className="bg-brand-600 hover:bg-brand-700 text-white"
+            >
+              <Server className="h-4 w-4 mr-2" />
+              Initialize Cluster
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowJoinDialog(true)}
+              className="bg-white dark:bg-gray-800"
+            >
+              <Link className="h-4 w-4 mr-2" />
+              Join Existing Cluster
+            </Button>
+          </div>
         </Card>
 
         {/* Initialize Dialog */}
@@ -101,6 +153,9 @@ export default function ClusterOverview() {
           <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
             <Card className="w-full max-w-md p-6">
               <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Initialize Cluster</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                This will create a new cluster with this node as the first member. You will receive a cluster token to add other nodes.
+              </p>
               <form onSubmit={(e) => {
                 e.preventDefault();
                 const formData = new FormData(e.currentTarget);
@@ -150,6 +205,116 @@ export default function ClusterOverview() {
             </Card>
           </div>
         )}
+
+        {/* Join Cluster Dialog */}
+        {showJoinDialog && (
+          <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
+            <Card className="w-full max-w-md p-6">
+              <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Join Existing Cluster</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                Enter the endpoint of an existing cluster node and the cluster token to join.
+              </p>
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                handleJoinCluster(
+                  formData.get('cluster_token') as string,
+                  formData.get('node_endpoint') as string
+                );
+              }}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cluster Node Endpoint</label>
+                    <input
+                      name="node_endpoint"
+                      type="url"
+                      required
+                      className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                      placeholder="https://node-1.example.com:8081"
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Console URL of an existing cluster node (e.g., https://node-1.example.com:8081)
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cluster Token</label>
+                    <textarea
+                      name="cluster_token"
+                      required
+                      rows={3}
+                      className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 font-mono text-sm"
+                      placeholder="Paste the cluster token here..."
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      The token displayed when the cluster was initialized
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-6">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowJoinDialog(false)}
+                    className="flex-1"
+                    disabled={joinLoading}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="flex-1 bg-brand-600 hover:bg-brand-700 text-white"
+                    disabled={joinLoading}
+                  >
+                    {joinLoading ? 'Joining...' : 'Join Cluster'}
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          </div>
+        )}
+
+        {/* Token Display Modal */}
+        {showTokenModal && (
+          <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
+            <Card className="w-full max-w-lg p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900/30">
+                  <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Cluster Initialized</h2>
+              </div>
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-4">
+                <p className="text-sm text-amber-800 dark:text-amber-300 font-medium">
+                  Save this token now. You will need it to join other nodes to this cluster.
+                </p>
+              </div>
+              <div className="relative">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cluster Token</label>
+                <div className="flex gap-2">
+                  <code className="flex-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm font-mono text-gray-900 dark:text-white break-all select-all">
+                    {clusterToken}
+                  </code>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={copyToken}
+                    className="shrink-0"
+                  >
+                    {tokenCopied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+              <div className="mt-6">
+                <Button
+                  onClick={() => { setShowTokenModal(false); setClusterToken(''); }}
+                  className="w-full bg-brand-600 hover:bg-brand-700 text-white"
+                >
+                  I have saved the token
+                </Button>
+              </div>
+            </Card>
+          </div>
+        )}
       </div>
     );
   }
@@ -166,6 +331,22 @@ export default function ClusterOverview() {
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
+          <Button
+            variant="outline"
+            onClick={async () => {
+              try {
+                const data = await APIClient.getClusterToken();
+                setClusterToken(data.cluster_token);
+                setShowTokenModal(true);
+              } catch (err: unknown) {
+                alert(getErrorMessage(err, 'Failed to retrieve cluster token'));
+              }
+            }}
+            className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+          >
+            <KeyRound className="h-4 w-4 mr-2" />
+            Cluster Token
+          </Button>
           <Button
             variant="outline"
             onClick={() => navigate('/cluster/buckets')}
@@ -281,6 +462,46 @@ export default function ClusterOverview() {
             )}
           </div>
         </Card>
+      )}
+
+      {/* Token Display Modal */}
+      {showTokenModal && (
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
+          <Card className="w-full max-w-lg p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-brand-100 dark:bg-brand-900/30">
+                <KeyRound className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+              </div>
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Cluster Token</h2>
+            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Use this token to join other nodes to this cluster. You can provide it in the "Join Existing Cluster" form on a standalone node, or use "Add Node" from this cluster to add nodes automatically.
+            </p>
+            <div className="relative">
+              <div className="flex gap-2">
+                <code className="flex-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm font-mono text-gray-900 dark:text-white break-all select-all">
+                  {clusterToken}
+                </code>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={copyToken}
+                  className="shrink-0"
+                >
+                  {tokenCopied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+            <div className="mt-6">
+              <Button
+                onClick={() => { setShowTokenModal(false); setClusterToken(''); }}
+                className="w-full bg-brand-600 hover:bg-brand-700 text-white"
+              >
+                Close
+              </Button>
+            </div>
+          </Card>
+        </div>
       )}
     </div>
   );

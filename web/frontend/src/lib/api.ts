@@ -1311,6 +1311,11 @@ export class APIClient {
     return response.data.data!;
   }
 
+  static async getClusterToken(): Promise<{ cluster_token: string }> {
+    const response = await apiClient.get<APIResponse<{ cluster_token: string }>>('/cluster/token');
+    return response.data.data!;
+  }
+
   static async listClusterNodes(): Promise<ClusterNode[]> {
     const response = await apiClient.get<APIResponse<ListNodesResponse>>('/cluster/nodes');
     return response.data.data!.nodes;
@@ -1321,8 +1326,8 @@ export class APIClient {
     return response.data.data!;
   }
 
-  static async addClusterNode(request: AddNodeRequest): Promise<{ message: string; node_id: string }> {
-    const response = await apiClient.post<APIResponse<{ message: string; node_id: string }>>('/cluster/nodes', request);
+  static async addClusterNode(request: AddNodeRequest): Promise<{ message: string }> {
+    const response = await apiClient.post<APIResponse<{ message: string }>>('/cluster/nodes', request);
     return response.data.data!;
   }
 

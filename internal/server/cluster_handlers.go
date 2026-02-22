@@ -1,8 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/cluster"
@@ -108,7 +111,45 @@ func (s *Server) handleGetClusterStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Enrich with real bucket counts from local storage
+	if s.bucketManager != nil {
+		buckets, err := s.bucketManager.ListBuckets(r.Context(), "")
+		if err == nil {
+			status.TotalBuckets = len(buckets)
+			replicated := 0
+			if s.replicationManager != nil {
+				for _, b := range buckets {
+					rules, err := s.replicationManager.GetRulesForBucket(r.Context(), b.Name)
+					if err == nil && len(rules) > 0 {
+						replicated++
+					}
+				}
+			}
+			status.ReplicatedBuckets = replicated
+			status.LocalBuckets = status.TotalBuckets - replicated
+		}
+	}
+
 	s.writeJSON(w, status)
+}
+
+// handleGetClusterToken returns the cluster token (global admin only)
+func (s *Server) handleGetClusterToken(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getAuthUser(r)
+	if currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
+
+	config, err := s.clusterManager.GetConfig(r.Context())
+	if err != nil {
+		s.writeError(w, "Cluster not initialized", http.StatusBadRequest)
+		return
+	}
+
+	s.writeJSON(w, map[string]string{
+		"cluster_token": config.ClusterToken,
+	})
 }
 
 // handleGetClusterConfig gets this node's cluster configuration
@@ -150,31 +191,122 @@ func (s *Server) handleListClusterNodes(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// handleAddClusterNode adds a new node to the cluster
+// handleAddClusterNode adds a remote standalone node to this cluster.
+// It authenticates to the remote node using admin credentials, then
+// triggers a cluster join on the remote node.
 func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
-	var node cluster.Node
+	var req struct {
+		Endpoint string `json:"endpoint"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
 
-	if err := json.NewDecoder(r.Body).Decode(&node); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	// Validate required fields
-	if node.Name == "" || node.Endpoint == "" || node.NodeToken == "" {
-		s.writeError(w, "Name, endpoint, and node_token are required", http.StatusBadRequest)
+	if req.Endpoint == "" || req.Username == "" || req.Password == "" {
+		s.writeError(w, "Endpoint, username, and password are required", http.StatusBadRequest)
 		return
 	}
 
-	err := s.clusterManager.AddNode(r.Context(), &node)
+	// Get local cluster config to obtain the cluster token
+	config, err := s.clusterManager.GetConfig(r.Context())
 	if err != nil {
-		logrus.WithError(err).Error("Failed to add cluster node")
-		s.writeError(w, "Failed to add cluster node: "+err.Error(), http.StatusInternalServerError)
+		s.writeError(w, "Cluster not initialized", http.StatusBadRequest)
 		return
 	}
+
+	// Determine this node's console URL for the remote node to connect back
+	localEndpoint := s.config.PublicConsoleURL
+	if localEndpoint == "" {
+		s.writeError(w, "PublicConsoleURL is not configured on this node", http.StatusInternalServerError)
+		return
+	}
+
+	// Step 1: Authenticate to the remote node
+	remoteEndpoint := strings.TrimRight(req.Endpoint, "/")
+	loginPayload, _ := json.Marshal(map[string]string{
+		"username": req.Username,
+		"password": req.Password,
+	})
+
+	loginResp, err := http.Post(remoteEndpoint+"/api/v1/auth/login", "application/json", bytes.NewReader(loginPayload))
+	if err != nil {
+		logrus.WithError(err).Error("Failed to connect to remote node")
+		s.writeError(w, "Failed to connect to remote node: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer loginResp.Body.Close()
+
+	if loginResp.StatusCode != http.StatusOK {
+		s.writeError(w, "Authentication failed on remote node (check credentials)", http.StatusUnauthorized)
+		return
+	}
+
+	var loginResult struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(loginResp.Body).Decode(&loginResult); err != nil || loginResult.Data.Token == "" {
+		s.writeError(w, "Failed to parse authentication response from remote node", http.StatusBadGateway)
+		return
+	}
+
+	// Step 2: Check if remote node is already in a cluster
+	configReq, _ := http.NewRequestWithContext(r.Context(), "GET", remoteEndpoint+"/api/v1/cluster/config", nil)
+	configReq.Header.Set("Authorization", "Bearer "+loginResult.Data.Token)
+
+	configResp, err := http.DefaultClient.Do(configReq)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to check remote node cluster status")
+		s.writeError(w, "Failed to check remote node cluster status: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer configResp.Body.Close()
+
+	if configResp.StatusCode == http.StatusOK {
+		var remoteConfig struct {
+			Data struct {
+				IsClusterEnabled bool `json:"is_cluster_enabled"`
+			} `json:"data"`
+		}
+		if err := json.NewDecoder(configResp.Body).Decode(&remoteConfig); err == nil && remoteConfig.Data.IsClusterEnabled {
+			s.writeError(w, "Remote node is already part of a cluster. It must leave its current cluster before joining a new one.", http.StatusConflict)
+			return
+		}
+	}
+
+	// Step 3: Call the remote node's join endpoint
+	joinPayload, _ := json.Marshal(map[string]string{
+		"cluster_token": config.ClusterToken,
+		"node_endpoint": localEndpoint,
+	})
+
+	joinReq, _ := http.NewRequestWithContext(r.Context(), "POST", remoteEndpoint+"/api/v1/cluster/join", bytes.NewReader(joinPayload))
+	joinReq.Header.Set("Content-Type", "application/json")
+	joinReq.Header.Set("Authorization", "Bearer "+loginResult.Data.Token)
+
+	joinResp, err := http.DefaultClient.Do(joinReq)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to send join request to remote node")
+		s.writeError(w, "Failed to send join request to remote node: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer joinResp.Body.Close()
+
+	if joinResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(joinResp.Body)
+		s.writeError(w, "Remote node failed to join cluster: "+string(body), http.StatusBadGateway)
+		return
+	}
+
+	logrus.WithField("endpoint", req.Endpoint).Info("Remote node joined cluster successfully")
 
 	s.writeJSON(w, map[string]interface{}{
-		"message": "Node added successfully",
-		"node_id": node.ID,
+		"message": "Node added to cluster successfully",
 	})
 }
 
@@ -223,7 +355,14 @@ func (s *Server) handleRemoveClusterNode(w http.ResponseWriter, r *http.Request)
 	vars := mux.Vars(r)
 	nodeID := vars["nodeId"]
 
-	err := s.clusterManager.RemoveNode(r.Context(), nodeID)
+	// Prevent removing the local node
+	config, err := s.clusterManager.GetConfig(r.Context())
+	if err == nil && config.NodeID == nodeID {
+		s.writeError(w, "Cannot remove the local node from its own cluster. Use 'Leave Cluster' instead.", http.StatusBadRequest)
+		return
+	}
+
+	err = s.clusterManager.RemoveNode(r.Context(), nodeID)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to remove cluster node")
 		s.writeError(w, "Failed to remove cluster node: "+err.Error(), http.StatusInternalServerError)

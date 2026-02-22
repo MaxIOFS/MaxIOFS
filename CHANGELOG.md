@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Frontend `LoggingTargets` component integrated in Settings → Logging with create/edit modal, test connection, delete confirmation, and TLS indicator
 - **Syslog TLS and RFC 5424** — `SyslogOutput` rewritten with TCP+TLS support (mTLS, custom CA, skip-verify) and RFC 5424 structured data format alongside RFC 3164
 - **Lock-free log dispatch** — `DispatchHook` uses `atomic.Pointer` for the outputs snapshot, making `Fire()` completely lock-free and eliminating a deadlock where `Reconfigure()` (write lock) triggered logrus hooks that needed a read lock
+- **Cluster: Join Cluster UI** — standalone nodes now show a "Join Existing Cluster" button alongside "Initialize Cluster". The join form prompts for the existing cluster node's console URL and cluster token. The backend `POST /cluster/join` endpoint was already implemented but had no frontend UI.
+- **Cluster: Add Node with credentials** — the "Add Node" flow now accepts the remote node's console URL and admin credentials instead of a mysterious "node token". The local node authenticates to the remote node, verifies it is in standalone mode, and triggers the join automatically. Replaces the previous manual token-based workflow.
+- **Cluster: Token display modal** — replaced the plain `alert()` shown after cluster initialization with a proper modal featuring a copy-to-clipboard button and an amber warning to save the token.
+- **Cluster: Local node label** — the nodes table now shows "(This node)" next to the local node's name, and hides the delete button to prevent accidental self-removal.
+- **Cluster: View cluster token** — new `GET /api/v1/cluster/token` endpoint (global admin only) and "Cluster Token" button in the cluster overview header. Previously the token was only shown once during initialization and could never be retrieved again.
+
+### Removed
+- **Legacy syslog/HTTP runtime code** — removed ~150 lines of dead code that never executed after `InitTargetStore` was introduced: `reconfigureLegacyOutputs()`, `configureLegacySyslog()`, `configureLegacyHTTP()`, `TestOutput()`, `testLegacySyslog()`, `testLegacyHTTP()`, the `/logs/test` API endpoint, and three legacy-only error sentinels. The one-time migration path (`MigrateFromSettings`) that converts old `logging.syslog_*`/`logging.http_*` keys into new `logging_targets` rows on first upgrade is preserved.
 
 ### Fixed
 - **IDP tenant isolation** — Tenant admins could see global IDPs and IDPs from other tenants. `ListProviders` SQL query included `OR tenant_id IS NULL`; `handleGetIDP`, `handleUpdateIDP`, and `handleDeleteIDP` had a `TenantID != ""` bypass that granted access to global IDPs. All handlers now enforce strict tenant scoping: tenant admins can only list, view, update, and delete IDPs belonging to their own tenant.
@@ -28,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **handleListTenantUsers cross-tenant data leak** — Any authenticated user could list all users of any tenant. Now requires admin role; tenant admins can only list users in their own tenant.
 - **handleDeleteBucket tenant override bypass** — Accepted `tenantId` query parameter from any user without validating global admin status. A tenant admin could delete buckets from other tenants by passing their `tenantId`. Now only global admins can override tenant via query parameter.
 - **handleListBucketShares / handleDeleteShare tenant override bypass** — Accepted `tenantId` query parameter without global admin validation. Now only global admins can override tenant context via query parameter.
+- **Cluster: self-deletion allowed** — `handleRemoveClusterNode` had no validation preventing a node from removing itself from the cluster, leaving it in a broken state. Now returns 400 if the target node ID matches the local node ID, directing the user to use "Leave Cluster" instead.
+- **Cluster: Add Node accepted already-clustered nodes** — `handleAddClusterNode` did not check if the remote node was already part of a cluster. Now queries the remote node's `/cluster/config` before joining and returns 409 Conflict if `is_cluster_enabled` is true.
+- **Cluster overview bucket counts hardcoded to 0** — `GetClusterStatus` had a `// TODO` that set `TotalBuckets`, `ReplicatedBuckets`, and `LocalBuckets` to 0. The handler now queries `ListBuckets` and `GetRulesForBucket` to compute real values from local storage.
 
 ---
 

@@ -256,6 +256,18 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Wed Feb 19 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 0.9.1-1
+- Version 0.9.1-beta - Security hardening, external logging targets, lock-free dispatch
+- Added: External syslog targets with full CRUD API (7 new endpoints, SQLite storage)
+- Added: Syslog TLS and RFC 5424 structured data format support
+- Added: Lock-free log dispatch via atomic.Pointer (eliminates Reconfigure deadlock)
+- Added: Frontend LoggingTargets component in Settings > Logging
+- Removed: Legacy syslog/HTTP runtime code (~150 lines of dead code)
+- Fixed: 12 tenant isolation vulnerabilities across console API handlers
+- Fixed: IDP handlers tenant scoping, user/access-key/bucket-permission auth checks
+- Fixed: queryTenantID override restricted to global admins
+- Fixed: Frontend IDP tenant selector and tenant name resolution
+
 * Mon Feb 17 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 0.9.0-1
 - Version 0.9.0-beta
 - Identity Provider System: LDAP/AD and OAuth2/OIDC with Google/Microsoft presets

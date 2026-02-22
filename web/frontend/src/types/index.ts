@@ -1030,12 +1030,9 @@ export interface JoinClusterRequest {
 }
 
 export interface AddNodeRequest {
-  name: string;
   endpoint: string;
-  node_token: string;
-  region?: string;
-  priority?: number;
-  metadata?: string;
+  username: string;
+  password: string;
 }
 
 export interface UpdateNodeRequest {

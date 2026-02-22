@@ -370,6 +370,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/cluster/leave", s.handleLeaveCluster).Methods("POST", "OPTIONS")
 	router.HandleFunc("/cluster/status", s.handleGetClusterStatus).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/config", s.handleGetClusterConfig).Methods("GET", "OPTIONS")
+	router.HandleFunc("/cluster/token", s.handleGetClusterToken).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/nodes", s.handleListClusterNodes).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/nodes", s.handleAddClusterNode).Methods("POST", "OPTIONS")
 	router.HandleFunc("/cluster/nodes/{nodeId}", s.handleGetClusterNode).Methods("GET", "OPTIONS")
