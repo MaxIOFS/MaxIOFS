@@ -49,6 +49,9 @@ Features:
 * Cross-region replication
 * Versioning support
 * Pre-signed URLs for temporary access
+* Inter-node TLS encryption with auto-generated certificates
+* Automatic certificate renewal and hot-swapping without restart
+* Strict CA validation for secure cluster communication
 
 %prep
 %setup -q

@@ -14,6 +14,11 @@ maxiofs (0.9.1-beta) unstable; urgency=high
   * [Added] Cluster: View cluster token endpoint (GET /cluster/token, global admin only)
     and "Cluster Token" button in cluster overview header
   * [Added] Cluster: Local node label "(This node)" with hidden delete button
+  * [Added] Inter-node TLS encryption: All cluster communication is now encrypted
+    with TLS using auto-generated internal certificates. Includes:
+    - Internal CA (ECDSA P-256, 10-year validity) and node certificates (1-year validity)
+    - Automatic certificate renewal and hot-swapping without restart
+    - Strict CA validation for all inter-node communication
   * [Removed] Legacy syslog/HTTP runtime code (~150 lines): reconfigureLegacyOutputs(),
     configureLegacySyslog(), configureLegacyHTTP(), TestOutput(), /logs/test endpoint,
     and three legacy-only error sentinels. Migration path preserved.

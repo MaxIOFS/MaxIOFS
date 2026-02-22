@@ -390,6 +390,41 @@ export default function AboutPage() {
               </p>
             </div>
 
+            <div className="border-l-4 border-teal-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                External Syslog Targets
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Introduced support for multiple external logging targets (syslog and HTTP) with full CRUD API and TLS support. Replaces legacy single-target settings with a modern N-target system, enabling flexible logging configurations.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-blue-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Syslog TLS and RFC 5424
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Added TCP+TLS support for syslog with mTLS, custom CA, and RFC 5424 structured data format alongside RFC 3164. This ensures secure and standardized logging for enterprise environments.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-green-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Cluster Enhancements
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Improved cluster management with a new "Join Cluster" UI, token display modal, and enhanced node addition flow using admin credentials. These changes simplify cluster setup and management.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-orange-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Tenant Isolation Fixes
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Resolved multiple tenant isolation vulnerabilities, ensuring strict scoping for IDPs, users, and bucket permissions. These fixes enhance security and prevent unauthorized access.
+              </p>
+            </div>
           </div>
         </div>
       </Card>

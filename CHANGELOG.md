@@ -5,7 +5,7 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.2-beta] - 2026-02-22
+## [0.9.1-beta] - 2026-02-22
 
 ### Added
 - **Inter-node TLS encryption** — all cluster communication is now automatically encrypted with TLS using auto-generated internal certificates. No configuration needed.
@@ -18,15 +18,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - DB migration: 4 new columns on `cluster_config` (`ca_cert`, `ca_key`, `node_cert`, `node_key`)
   - `NewProxyClient()` now accepts optional `*tls.Config` parameter for TLS-aware proxying
   - Initial join handshake uses `InsecureSkipVerify` (remote node not yet in cluster); all subsequent communication uses strict CA validation
-
-### Verified
-- **Veeam Backup & Replication compatibility** — fully tested and operational with Veeam including S3 connection, backup jobs, and Instant Recovery workflows
-
----
-
-## [0.9.1-beta] - 2026-02-19
-
-### Added
 - **External syslog targets** — multiple external logging targets (syslog and HTTP) stored in SQLite with full CRUD API. Replaces the single-target legacy `logging.syslog_*` / `logging.http_*` settings with an N-target system supporting independent configuration per target.
   - New `logging_targets` table (migration 11, v0.9.2) with indexes on type and enabled status
   - `TargetStore` CRUD in `internal/logging/store.go` with validation, unique name constraint, and automatic migration of legacy settings
@@ -58,6 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cluster: self-deletion allowed** — `handleRemoveClusterNode` had no validation preventing a node from removing itself from the cluster, leaving it in a broken state. Now returns 400 if the target node ID matches the local node ID, directing the user to use "Leave Cluster" instead.
 - **Cluster: Add Node accepted already-clustered nodes** — `handleAddClusterNode` did not check if the remote node was already part of a cluster. Now queries the remote node's `/cluster/config` before joining and returns 409 Conflict if `is_cluster_enabled` is true.
 - **Cluster overview bucket counts hardcoded to 0** — `GetClusterStatus` had a `// TODO` that set `TotalBuckets`, `ReplicatedBuckets`, and `LocalBuckets` to 0. The handler now queries `ListBuckets` and `GetRulesForBucket` to compute real values from local storage.
+
+### Verified
+- **Veeam Backup & Replication compatibility** — fully tested and operational with Veeam including S3 connection, backup jobs, and Instant Recovery workflows
 
 ---
 
