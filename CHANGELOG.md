@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Admin endpoint `POST /buckets/{bucket}/recalculate-stats`** — allows administrators to resync a bucket's counters (`ObjectCount`, `TotalSize`) by scanning all objects present in BadgerDB. Useful for correcting metrics that diverged due to system restarts or updates lost under concurrent load. Requires admin role; global admins can pass `?tenantId=` to target a specific tenant's bucket. Returns the recalculated values in the response.
+- **Background stats reconciler** (`startStatsReconciler`) — a goroutine started automatically at server startup that recalculates `ObjectCount` and `TotalSize` for every bucket across all tenants every **15 minutes**. Iterates all buckets via `ListBuckets(ctx, "")` and calls `RecalculateBucketStats` for each one. Starts after an initial 2-minute delay to allow the server to be fully ready. Exits cleanly on context cancellation. Errors on individual buckets are logged as warnings and do not interrupt the rest of the pass. Acts as a continuous safety net independent of the manual admin endpoint.
+- **Frontend: dynamic bucket stats refresh** — React Query `refetchInterval: 30000` added to bucket-related queries on three pages so the UI updates automatically every 30 seconds without requiring navigation or page reload:
+  - Dashboard (`pages/index.tsx`) — `['buckets']` query
+  - Buckets listing (`pages/buckets/index.tsx`) — `['buckets']` query
+  - Bucket detail (`pages/buckets/[bucket]/index.tsx`) — `['bucket', name, tenant]` query
+  - All three also set `refetchOnWindowFocus: false` to avoid redundant fetches on tab switch, consistent with the existing metrics page behavior.
+- **About page updated to v0.9.2-beta** — "New in" section replaced with the three changes of this release: concurrent metric reliability, tenant prefix fix, and the admin recalculate endpoint.
 
 ### Removed
 - **Test `TestHandleTestLogOutput`** — called `server.handleTestLogOutput` which does not exist on `*Server`, causing a compilation error. The handler was never implemented.

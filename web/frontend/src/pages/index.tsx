@@ -54,6 +54,8 @@ export default function Dashboard() {
   const { data: bucketsResponse, isLoading: bucketsLoading } = useQuery({
     queryKey: ['buckets'],
     queryFn: APIClient.getBuckets,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: false,
   });
 
   const { data: usersResponse, isLoading: usersLoading } = useQuery({

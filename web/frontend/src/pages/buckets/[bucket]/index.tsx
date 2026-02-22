@@ -80,6 +80,8 @@ export default function BucketDetailsPage() {
   const { data: bucketData, isLoading: bucketLoading } = useQuery({
     queryKey: ['bucket', bucketName, tenantId],
     queryFn: () => APIClient.getBucket(bucketName, tenantId || undefined),
+    refetchInterval: 30000,
+    refetchOnWindowFocus: false,
   });
 
   const hasActiveFilters = !!(

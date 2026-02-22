@@ -468,6 +468,10 @@ func (s *Server) Start(ctx context.Context) error {
 	s.inventoryWorker.Start(ctx, 1*time.Hour)
 	logrus.Info("Inventory worker started")
 
+	// Start bucket stats reconciler (runs every 15 minutes)
+	go s.startStatsReconciler(ctx, 15*time.Minute)
+	logrus.Info("Bucket stats reconciler started")
+
 	// Start replication manager
 	if s.replicationManager != nil {
 		s.replicationManager.Start(ctx)
@@ -558,6 +562,54 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Graceful shutdown
 	return s.shutdown()
+}
+
+// startStatsReconciler periodically recalculates object count and total size for
+// every bucket by scanning BadgerDB directly. This corrects any counters that may
+// have diverged due to missed updates, restarts, or other unexpected conditions.
+func (s *Server) startStatsReconciler(ctx context.Context, interval time.Duration) {
+	// Initial delay so the server is fully ready before the first run.
+	select {
+	case <-time.After(2 * time.Minute):
+	case <-ctx.Done():
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		s.reconcileBucketStats(ctx)
+
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// reconcileBucketStats iterates all buckets and recalculates their stats.
+func (s *Server) reconcileBucketStats(ctx context.Context) {
+	buckets, err := s.metadataStore.ListBuckets(ctx, "")
+	if err != nil {
+		logrus.WithError(err).Warn("Stats reconciler: failed to list buckets")
+		return
+	}
+
+	for _, b := range buckets {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := s.metadataStore.RecalculateBucketStats(ctx, b.TenantID, b.Name); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"bucket": b.Name,
+				"tenant": b.TenantID,
+			}).WithError(err).Warn("Stats reconciler: failed to recalculate bucket stats")
+		}
+	}
+
+	logrus.WithField("buckets", len(buckets)).Debug("Stats reconciler: completed pass")
 }
 
 func (s *Server) startAPIServer() error {

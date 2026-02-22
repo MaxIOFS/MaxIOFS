@@ -34,6 +34,8 @@ export default function BucketsPage() {
   const { data: buckets, isLoading, error } = useQuery({
     queryKey: ['buckets'],
     queryFn: APIClient.getBuckets,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: false,
   });
 
   const { data: users } = useQuery({
