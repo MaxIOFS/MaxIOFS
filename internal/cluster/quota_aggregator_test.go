@@ -26,7 +26,7 @@ func TestQuotaAggregator_queryStorageFromNode_Success(t *testing.T) {
 
 	aggregator := &QuotaAggregator{
 		clusterManager: nil,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(nil),
 	}
 
 	localNodeID := "test-node-id"
@@ -72,7 +72,7 @@ func TestQuotaAggregator_queryStorageFromNode_ServerError(t *testing.T) {
 
 	aggregator := &QuotaAggregator{
 		clusterManager: nil,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(nil),
 	}
 
 	localNodeID := "test-node-id"
@@ -111,7 +111,7 @@ func TestQuotaAggregator_queryStorageFromNode_Timeout(t *testing.T) {
 
 	aggregator := &QuotaAggregator{
 		clusterManager: nil,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(nil),
 	}
 
 	localNodeID := "test-node-id"
@@ -153,7 +153,7 @@ func TestQuotaAggregator_queryStorageFromNode_ZeroStorage(t *testing.T) {
 
 	aggregator := &QuotaAggregator{
 		clusterManager: nil,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(nil),
 	}
 
 	localNodeID := "test-node-id"
@@ -203,7 +203,7 @@ func TestQuotaAggregator_queryStorageFromNode_LargeStorage(t *testing.T) {
 
 	aggregator := &QuotaAggregator{
 		clusterManager: nil,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(nil),
 	}
 
 	localNodeID := "test-node-id"
@@ -249,7 +249,7 @@ func TestQuotaAggregator_queryStorageFromNode_InvalidJSON(t *testing.T) {
 
 	aggregator := &QuotaAggregator{
 		clusterManager: nil,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(nil),
 	}
 
 	localNodeID := "test-node-id"
@@ -319,7 +319,7 @@ func TestQuotaAggregator_TenantStorageInfo_EmptyNodeInfo(t *testing.T) {
 
 	aggregator := &QuotaAggregator{
 		clusterManager: nil,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(nil),
 	}
 
 	localNodeID := "test-node-id"

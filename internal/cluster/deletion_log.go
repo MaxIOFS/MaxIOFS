@@ -145,7 +145,7 @@ func NewDeletionLogSyncManager(db *sql.DB, clusterManager *Manager) *DeletionLog
 	return &DeletionLogSyncManager{
 		db:             db,
 		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(clusterManager.GetTLSConfig()),
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "deletion-log-sync"),
 	}

@@ -474,10 +474,13 @@ func (s *Server) Start(ctx context.Context) error {
 		logrus.Info("Replication manager started")
 	}
 
-	// Start cluster health checker
+	// Start cluster health checker and certificate renewal
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
 		go s.clusterManager.StartHealthChecker(ctx)
 		logrus.Info("Cluster health checker started")
+
+		s.clusterManager.StartCertRenewal(ctx)
+		logrus.Info("Cluster certificate renewal checker started")
 
 		// Start bucket count updater (runs every 30 seconds)
 		go s.updateBucketCountPeriodically(ctx, 30*time.Second)

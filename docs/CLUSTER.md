@@ -2,7 +2,7 @@
 
 **Version**: 0.9.1-beta
 **Status**: Production-Ready
-**Last Updated**: February 19, 2026
+**Last Updated**: February 22, 2026
 
 ---
 
@@ -31,6 +31,7 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 ### Key Features
 
 - ✅ Multi-node cluster support with smart routing
+- ✅ **Inter-node TLS encryption** — automatic, zero-configuration (v0.9.1)
 - ✅ HMAC-authenticated node-to-node replication
 - ✅ Automatic synchronization for 6 entity types (users, tenants, access keys, bucket permissions, IDPs, group mappings)
 - ✅ Tombstone-based deletion sync (prevents entity resurrection)

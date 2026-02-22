@@ -81,7 +81,7 @@ func TestRouteOrdering_ClusterWithValidAuth(t *testing.T) {
 	defer ts.Close()
 
 	// Create authenticated request
-	proxyClient := cluster.NewProxyClient()
+	proxyClient := cluster.NewProxyClient(nil)
 	req, err := proxyClient.CreateAuthenticatedRequest(
 		ctx,
 		"GET",

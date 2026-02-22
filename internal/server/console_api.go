@@ -919,7 +919,7 @@ func (s *Server) queryBucketsFromNode(ctx context.Context, node *cluster.Node, t
 	url := fmt.Sprintf("%s/api/internal/cluster/buckets?tenant_id=%s", node.Endpoint, tenantID)
 
 	// Create authenticated request
-	proxyClient := cluster.NewProxyClient()
+	proxyClient := cluster.NewProxyClient(s.clusterManager.GetTLSConfig())
 	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "GET", url, nil, config.NodeID, config.ClusterToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)

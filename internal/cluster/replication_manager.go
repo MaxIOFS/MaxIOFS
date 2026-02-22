@@ -48,7 +48,7 @@ func NewClusterReplicationManager(db *sql.DB, clusterManager *Manager, objectMan
 		clusterManager:    clusterManager,
 		objectManager:     objectManager,
 		tenantSyncManager: tenantSyncManager,
-		proxyClient:       NewProxyClient(),
+		proxyClient:       NewProxyClient(clusterManager.GetTLSConfig()),
 		workerCount:       workerCount,
 		queueChan:         make(chan *ClusterReplicationQueueItem, 1000),
 		stopChan:          make(chan struct{}),

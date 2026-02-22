@@ -1,16 +1,19 @@
 maxiofs (0.9.1-beta) unstable; urgency=high
 
-  * Release v0.9.1-beta - Security hardening, external logging targets, lock-free dispatch
-  * [Added] External syslog targets: multiple external logging targets (syslog and HTTP)
-    stored in SQLite with full CRUD API, replacing legacy single-target settings
-  * [Added] New logging_targets table (migration 11, v0.9.2) with type/enabled indexes
-  * [Added] TargetStore CRUD in internal/logging/store.go with validation and unique names
-  * [Added] 7 new console API endpoints for logging targets management and testing
-  * [Added] Frontend LoggingTargets component in Settings > Logging with create/edit/test/delete
+  * Release v0.9.1-beta - Security hardening, cluster UX, external logging targets
+  * [Added] External syslog targets: N-target logging system (syslog and HTTP) with
+    SQLite storage, full CRUD API (7 endpoints), and frontend management UI
   * [Added] Syslog TLS and RFC 5424: TCP+TLS support (mTLS, custom CA, skip-verify)
     and RFC 5424 structured data format alongside RFC 3164
-  * [Added] Lock-free log dispatch: DispatchHook uses atomic.Pointer for outputs snapshot,
-    eliminating deadlock where Reconfigure() triggered hooks needing a read lock
+  * [Added] Lock-free log dispatch: DispatchHook uses atomic.Pointer, eliminates
+    deadlock where Reconfigure() triggered hooks needing a read lock
+  * [Added] Cluster: Join Cluster UI for standalone nodes (endpoint + cluster token)
+  * [Added] Cluster: Add Node with admin credentials (authenticates to remote node,
+    verifies standalone mode, triggers join automatically)
+  * [Added] Cluster: Token display modal with copy button (replaces plain alert)
+  * [Added] Cluster: View cluster token endpoint (GET /cluster/token, global admin only)
+    and "Cluster Token" button in cluster overview header
+  * [Added] Cluster: Local node label "(This node)" with hidden delete button
   * [Removed] Legacy syslog/HTTP runtime code (~150 lines): reconfigureLegacyOutputs(),
     configureLegacySyslog(), configureLegacyHTTP(), TestOutput(), /logs/test endpoint,
     and three legacy-only error sentinels. Migration path preserved.
@@ -23,6 +26,9 @@ maxiofs (0.9.1-beta) unstable; urgency=high
     restricted to global admins
   * [Fixed] handleGetTenant, handleListTenantUsers: tenant admins restricted to own tenant
   * [Fixed] Frontend: IDP tenant selector for global admins, tenant name resolution in IDP list
+  * [Fixed] Cluster: self-deletion allowed — node could remove itself, now returns 400
+  * [Fixed] Cluster: Add Node accepted already-clustered nodes, now returns 409 Conflict
+  * [Fixed] Cluster overview bucket counts hardcoded to 0, now computed from real data
 
  -- Aluisco Ricardo <aluisco@maxiofs.com>  Wed, 19 Feb 2026 12:00:00 +0000
 

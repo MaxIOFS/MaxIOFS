@@ -43,7 +43,7 @@ func NewIDPProviderSyncManager(db *sql.DB, clusterManager *Manager) *IDPProvider
 	return &IDPProviderSyncManager{
 		db:             db,
 		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(clusterManager.GetTLSConfig()),
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "idp-provider-sync"),
 	}

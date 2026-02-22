@@ -48,7 +48,7 @@ func NewRouter(manager *Manager, bucketMgr BucketManager, replMgr ReplicationMan
 		bucketManager:     bucketMgr,
 		replicationManager: replMgr,
 		cache:             NewBucketLocationCache(5 * time.Minute), // 5 min TTL
-		proxyClient:       NewProxyClient(),
+		proxyClient:       NewProxyClient(manager.GetTLSConfig()),
 		localNodeID:       localNodeID,
 		log:               logrus.WithField("component", "cluster-router"),
 	}

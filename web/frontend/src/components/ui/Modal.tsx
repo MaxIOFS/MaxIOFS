@@ -93,7 +93,7 @@ export function Modal({
 
   const modalContent = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 dark:bg-black/40 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={handleOverlayClick}
     >
       <div

@@ -547,7 +547,7 @@ func (m *Manager) copyBucketObjects(ctx context.Context, tenantID string, job *M
 	}
 	defer rows.Close()
 
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(m.GetTLSConfig())
 	objectsCopied := int64(0)
 	bytesCopied := int64(0)
 	errors := 0
@@ -713,7 +713,7 @@ func (m *Manager) migrateBucketPermissions(ctx context.Context, tenantID string,
 		return fmt.Errorf("failed to get node token: %w", err)
 	}
 
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(m.GetTLSConfig())
 	permissionCount := 0
 
 	// Iterate through all permissions and send them to target node
@@ -838,7 +838,7 @@ func (m *Manager) migrateBucketACLs(ctx context.Context, tenantID string, job *M
 	}
 
 	// Send ACL to target node
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(m.GetTLSConfig())
 	if err := m.sendBucketACL(ctx, proxyClient, targetNode.Endpoint, localNodeID, nodeToken, tenantID, job.BucketName, bucketACL); err != nil {
 		return fmt.Errorf("failed to send bucket ACL: %w", err)
 	}
@@ -936,7 +936,7 @@ func (m *Manager) migrateBucketConfiguration(ctx context.Context, tenantID strin
 	}
 
 	// Send configuration to target node
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(m.GetTLSConfig())
 	if err := m.sendBucketConfiguration(ctx, proxyClient, targetNode.Endpoint, localNodeID, nodeToken, tenantID, job.BucketName,
 		versioning, objectLock, encryption, lifecycle, tags, cors, policy, notification); err != nil {
 		return fmt.Errorf("failed to send bucket configuration: %w", err)
@@ -1063,7 +1063,7 @@ func (m *Manager) verifyMigration(ctx context.Context, tenantID string, job *Mig
 		return fmt.Errorf("failed to get node token: %w", err)
 	}
 
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(m.GetTLSConfig())
 
 	// Sample verification: Check first 10 objects exist on target
 	query := `

@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"database/sql"
+	"fmt"
 )
 
 const Schema = `
@@ -12,6 +13,10 @@ CREATE TABLE IF NOT EXISTS cluster_config (
     cluster_token TEXT NOT NULL,
     is_cluster_enabled INTEGER NOT NULL DEFAULT 0,
     region TEXT DEFAULT '',
+    ca_cert TEXT DEFAULT '',
+    ca_key TEXT DEFAULT '',
+    node_cert TEXT DEFAULT '',
+    node_key TEXT DEFAULT '',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -86,5 +91,46 @@ CREATE INDEX IF NOT EXISTS idx_cluster_migrations_created ON cluster_migrations(
 // InitSchema initializes the cluster database schema
 func InitSchema(db *sql.DB) error {
 	_, err := db.Exec(Schema)
-	return err
+	if err != nil {
+		return err
+	}
+	return applyTLSMigration(db)
+}
+
+// applyTLSMigration adds TLS certificate columns to cluster_config for existing databases.
+func applyTLSMigration(db *sql.DB) error {
+	columns := []string{"ca_cert", "ca_key", "node_cert", "node_key"}
+	for _, col := range columns {
+		// SQLite: ALTER TABLE ADD COLUMN is a no-op if column already exists when using IF NOT EXISTS (3.35+),
+		// but for broader compatibility we check pragma first.
+		var exists bool
+		rows, err := db.Query("PRAGMA table_info(cluster_config)")
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull int
+			var dfltValue sql.NullString
+			var pk int
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+				rows.Close()
+				return err
+			}
+			if name == col {
+				exists = true
+				break
+			}
+		}
+		rows.Close()
+
+		if !exists {
+			_, err := db.Exec("ALTER TABLE cluster_config ADD COLUMN " + col + " TEXT DEFAULT ''")
+			if err != nil {
+				return fmt.Errorf("failed to add column %s: %w", col, err)
+			}
+		}
+	}
+	return nil
 }

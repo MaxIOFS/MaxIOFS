@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -226,13 +227,20 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 1: Authenticate to the remote node
+	// Use insecure TLS — the remote node is standalone and may have a self-signed cert
+	insecureClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12},
+		},
+	}
+
 	remoteEndpoint := strings.TrimRight(req.Endpoint, "/")
 	loginPayload, _ := json.Marshal(map[string]string{
 		"username": req.Username,
 		"password": req.Password,
 	})
 
-	loginResp, err := http.Post(remoteEndpoint+"/api/v1/auth/login", "application/json", bytes.NewReader(loginPayload))
+	loginResp, err := insecureClient.Post(remoteEndpoint+"/api/v1/auth/login", "application/json", bytes.NewReader(loginPayload))
 	if err != nil {
 		logrus.WithError(err).Error("Failed to connect to remote node")
 		s.writeError(w, "Failed to connect to remote node: "+err.Error(), http.StatusBadGateway)
@@ -259,7 +267,7 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	configReq, _ := http.NewRequestWithContext(r.Context(), "GET", remoteEndpoint+"/api/v1/cluster/config", nil)
 	configReq.Header.Set("Authorization", "Bearer "+loginResult.Data.Token)
 
-	configResp, err := http.DefaultClient.Do(configReq)
+	configResp, err := insecureClient.Do(configReq)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to check remote node cluster status")
 		s.writeError(w, "Failed to check remote node cluster status: "+err.Error(), http.StatusBadGateway)
@@ -289,7 +297,7 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	joinReq.Header.Set("Content-Type", "application/json")
 	joinReq.Header.Set("Authorization", "Bearer "+loginResult.Data.Token)
 
-	joinResp, err := http.DefaultClient.Do(joinReq)
+	joinResp, err := insecureClient.Do(joinReq)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to send join request to remote node")
 		s.writeError(w, "Failed to send join request to remote node: "+err.Error(), http.StatusBadGateway)
@@ -624,17 +632,27 @@ func (s *Server) handleValidateClusterToken(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Return cluster info
+	// Return cluster info along with CA cert+key for inter-node TLS setup
 	clusterInfo := cluster.ClusterInfo{
 		ClusterID: config.NodeID, // Use first node ID as cluster ID
 		Region:    config.Region,
 		NodeCount: len(nodes),
 	}
 
-	s.writeJSON(w, map[string]interface{}{
+	resp := map[string]interface{}{
 		"valid":        true,
 		"cluster_info": clusterInfo,
-	})
+	}
+
+	// Include CA cert and key so joining node can set up TLS
+	if caCert := s.clusterManager.GetCACertPEM(); caCert != "" {
+		resp["ca_cert"] = caCert
+	}
+	if caKey := s.clusterManager.GetCAKeyPEM(); caKey != "" {
+		resp["ca_key"] = caKey
+	}
+
+	s.writeJSON(w, resp)
 }
 
 // handleRegisterNode registers a new node joining the cluster
@@ -686,9 +704,13 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 		"endpoint":  req.Node.Endpoint,
 	}).Info("Node registered successfully")
 
-	s.writeJSON(w, map[string]interface{}{
+	resp := map[string]interface{}{
 		"node": req.Node,
-	})
+	}
+	if caCert := s.clusterManager.GetCACertPEM(); caCert != "" {
+		resp["ca_cert"] = caCert
+	}
+	s.writeJSON(w, resp)
 }
 
 // handleGetClusterJWTSecret returns the JWT secret for cluster synchronization (HMAC-authenticated)

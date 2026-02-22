@@ -168,7 +168,7 @@ func TestManager_SendBucketPermission(t *testing.T) {
 	defer server.Close()
 
 	manager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 
 	err := manager.sendBucketPermission(ctx, proxyClient, server.URL, "local-node", "test-token",
 		"perm-1", "test-bucket", "user-1", "tenant-1", "read,write", "admin", time.Now().Unix(), sql.NullInt64{})
@@ -190,7 +190,7 @@ func TestManager_SendBucketACL(t *testing.T) {
 	defer server.Close()
 
 	manager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 
 	acl := map[string]interface{}{
 		"grantee_id": "user-1",
@@ -217,7 +217,7 @@ func TestManager_SendBucketConfiguration(t *testing.T) {
 	defer server.Close()
 
 	manager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 
 	err := manager.sendBucketConfiguration(ctx, proxyClient, server.URL, "local-node", "test-token",
 		"tenant-1", "test-bucket",
@@ -247,7 +247,7 @@ func TestManager_SendBucketInventory(t *testing.T) {
 	defer server.Close()
 
 	manager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 
 	err := manager.sendBucketInventory(ctx, proxyClient, server.URL, "local-node", "test-token",
 		"tenant-1", "test-bucket", true, "daily", "CSV", "dest-bucket", "prefix/",
@@ -361,7 +361,7 @@ func TestManager_VerifyObjectOnTarget(t *testing.T) {
 	defer server.Close()
 
 	manager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 
 	// Verify object exists with correct metadata
 	err := manager.verifyObjectOnTarget(ctx, proxyClient, server.URL, "local-node", "test-token",
@@ -382,7 +382,7 @@ func TestManager_VerifyObjectOnTarget_NotFound(t *testing.T) {
 	defer server.Close()
 
 	manager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 
 	// Verify object - should fail with 404
 	err := manager.verifyObjectOnTarget(ctx, proxyClient, server.URL, "local-node", "test-token",

@@ -42,7 +42,7 @@ func NewBucketPermissionSyncManager(db *sql.DB, clusterManager *Manager) *Bucket
 	return &BucketPermissionSyncManager{
 		db:             db,
 		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(clusterManager.GetTLSConfig()),
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "bucket-permission-sync"),
 	}

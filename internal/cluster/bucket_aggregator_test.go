@@ -41,7 +41,7 @@ func TestBucketAggregator_queryBucketsFromNode_Success(t *testing.T) {
 	// Create a minimal manager for testing (we only need the query function)
 	aggregator := &BucketAggregator{
 		clusterManager: nil, // Not needed for this test
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(nil),
 	}
 
 	// Manually set credentials for testing
@@ -105,7 +105,7 @@ func TestBucketAggregator_queryBucketsFromNode_ServerError(t *testing.T) {
 
 	aggregator := &BucketAggregator{
 		clusterManager: nil,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(nil),
 	}
 
 	localNodeID := "test-node-id"
@@ -146,7 +146,7 @@ func TestBucketAggregator_queryBucketsFromNode_Timeout(t *testing.T) {
 
 	aggregator := &BucketAggregator{
 		clusterManager: nil,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(nil),
 	}
 
 	localNodeID := "test-node-id"
@@ -184,7 +184,7 @@ func TestBucketAggregator_queryBucketsFromNode_EmptyBuckets(t *testing.T) {
 
 	aggregator := &BucketAggregator{
 		clusterManager: nil,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(nil),
 	}
 
 	localNodeID := "test-node-id"
@@ -234,7 +234,7 @@ func TestBucketAggregator_queryBucketsFromNode_InvalidJSON(t *testing.T) {
 
 	aggregator := &BucketAggregator{
 		clusterManager: nil,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(nil),
 	}
 
 	localNodeID := "test-node-id"

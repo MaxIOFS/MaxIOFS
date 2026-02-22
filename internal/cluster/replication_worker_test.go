@@ -17,7 +17,7 @@ func TestNewClusterReplicationWorker(t *testing.T) {
 	defer cleanup()
 
 	clusterManager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
 
 	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
@@ -50,7 +50,7 @@ func TestClusterReplicationWorker_UpdateItemStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	clusterManager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
 	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
@@ -93,7 +93,7 @@ func TestClusterReplicationWorker_UpdateItemRetry(t *testing.T) {
 	require.NoError(t, err)
 
 	clusterManager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
 	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
@@ -134,7 +134,7 @@ func TestClusterReplicationWorker_UpdateItemCompleted(t *testing.T) {
 	require.NoError(t, err)
 
 	clusterManager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
 	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
@@ -174,7 +174,7 @@ func TestClusterReplicationWorker_UpdateReplicationStats(t *testing.T) {
 	require.NoError(t, err)
 
 	clusterManager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
 	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
@@ -202,7 +202,7 @@ func TestClusterReplicationWorker_UpdateReplicationStatus(t *testing.T) {
 	require.NoError(t, InitReplicationSchema(db))
 
 	clusterManager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
 	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
@@ -289,7 +289,7 @@ func TestClusterReplicationWorker_ReplicateDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	clusterManager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
 	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
@@ -319,7 +319,7 @@ func TestClusterReplicationWorker_Start(t *testing.T) {
 	require.NoError(t, InitReplicationSchema(db))
 
 	clusterManager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
 	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
@@ -343,7 +343,7 @@ func TestClusterReplicationWorker_Start_ChannelClosed(t *testing.T) {
 	ctx := context.Background()
 
 	clusterManager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
 	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
@@ -372,7 +372,7 @@ func TestClusterReplicationWorker_ProcessItem_UnknownOperation(t *testing.T) {
 	require.NoError(t, err)
 
 	clusterManager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
 	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
@@ -473,7 +473,7 @@ func TestClusterReplicationWorker_ReplicateObject(t *testing.T) {
 	require.NoError(t, err)
 
 	clusterManager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
 	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 
@@ -529,7 +529,7 @@ func TestClusterReplicationWorker_ReplicateObject_NotFound(t *testing.T) {
 	require.NoError(t, err)
 
 	clusterManager := NewManager(db, "http://localhost:8080")
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	queueChan := make(chan *ClusterReplicationQueueItem, 10)
 	worker := NewClusterReplicationWorker(1, db, clusterManager, nil, proxyClient, queueChan)
 

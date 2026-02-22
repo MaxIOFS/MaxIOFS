@@ -45,7 +45,7 @@ func TestProxyClient_ProxyRequest(t *testing.T) {
 	originalReq.Header.Set("Content-Type", "application/json")
 	originalReq.Header.Set("Connection", "keep-alive") // hop-by-hop header, should be filtered
 
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	ctx := context.Background()
 
 	resp, err := proxyClient.ProxyRequest(ctx, node, originalReq)
@@ -75,7 +75,7 @@ func TestProxyClient_ProxyRequest_ServerError(t *testing.T) {
 	originalReq, err := http.NewRequest("GET", "http://localhost:8080/api/test", nil)
 	require.NoError(t, err)
 
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	ctx := context.Background()
 
 	resp, err := proxyClient.ProxyRequest(ctx, node, originalReq)
@@ -100,7 +100,7 @@ func TestProxyClient_CopyResponseToWriter(t *testing.T) {
 	// Create response recorder
 	w := httptest.NewRecorder()
 
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	err := proxyClient.CopyResponseToWriter(w, resp)
 	require.NoError(t, err)
 
@@ -131,7 +131,7 @@ func TestProxyClient_ProxyAndWrite(t *testing.T) {
 	originalReq, err := http.NewRequest("PUT", "http://localhost:8080/api/data", bytes.NewBufferString("data"))
 	require.NoError(t, err)
 
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	ctx := context.Background()
 	w := httptest.NewRecorder()
 
@@ -205,7 +205,7 @@ func TestProxyClient_ProxyRequest_InvalidNode(t *testing.T) {
 	originalReq, err := http.NewRequest("GET", "http://localhost:8080/api/test", nil)
 	require.NoError(t, err)
 
-	proxyClient := NewProxyClient()
+	proxyClient := NewProxyClient(nil)
 	ctx := context.Background()
 
 	_, err = proxyClient.ProxyRequest(ctx, node, originalReq)

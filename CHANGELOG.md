@@ -5,6 +5,25 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2-beta] - 2026-02-22
+
+### Added
+- **Inter-node TLS encryption** — all cluster communication is now automatically encrypted with TLS using auto-generated internal certificates. No configuration needed.
+  - On cluster initialization, an internal CA (ECDSA P-256, 10-year validity) and node certificate (1-year validity) are generated automatically
+  - Joining nodes receive the CA cert+key and generate their own node certificate signed by the cluster CA
+  - All inter-node HTTP clients (health checks, sync managers, replication, proxy, migrations) use the cluster TLS config
+  - Background certificate auto-renewal: monthly check, auto-renews node certs expiring within 30 days with hot-swap via `tls.Config.GetCertificate` callback — no restart needed
+  - CA expiry warning logged when CA certificate is within 1 year of expiring
+  - New `internal/cluster/tls.go`: `GenerateCA()`, `GenerateNodeCert()`, `BuildClusterTLSConfig()`, `ParseCertKeyPEM()`, `IsCertExpiringSoon()`
+  - DB migration: 4 new columns on `cluster_config` (`ca_cert`, `ca_key`, `node_cert`, `node_key`)
+  - `NewProxyClient()` now accepts optional `*tls.Config` parameter for TLS-aware proxying
+  - Initial join handshake uses `InsecureSkipVerify` (remote node not yet in cluster); all subsequent communication uses strict CA validation
+
+### Verified
+- **Veeam Backup & Replication compatibility** — fully tested and operational with Veeam including S3 connection, backup jobs, and Instant Recovery workflows
+
+---
+
 ## [0.9.1-beta] - 2026-02-19
 
 ### Added
@@ -465,7 +484,7 @@ MaxIOFS follows semantic versioning:
 - **0.x.x-rc**: Release candidates - Production-ready testing
 - **1.x.x**: Stable releases - Production-ready
 
-### Current Status: BETA (v0.9.1-beta)
+### Current Status: BETA (v0.9.2-beta)
 
 **Completed Core Features:**
 - ✅ All S3 core operations validated with AWS CLI (100% compatible)
@@ -492,7 +511,12 @@ See [TODO.md](TODO.md) for detailed roadmap and requirements.
 
 ## Version History
 
-### Completed Features (v0.1.0 - v0.9.0-beta)
+### Completed Features (v0.1.0 - v0.9.2-beta)
+
+**v0.9.2-beta (February 2026)** - Inter-Node TLS & Veeam Compatibility
+- ✅ Automatic inter-node TLS encryption with auto-generated internal CA
+- ✅ Certificate auto-renewal with hot-swap (no restart needed)
+- ✅ Veeam Backup & Replication fully tested (connection, backup, Instant Recovery)
 
 **v0.9.0-beta (February 2026)** - Identity Providers, SSO & Cluster Deletion Sync
 - ✅ LDAP/Active Directory and OAuth2/OIDC identity provider system

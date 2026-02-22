@@ -40,7 +40,7 @@ func NewAccessKeySyncManager(db *sql.DB, clusterManager *Manager) *AccessKeySync
 	return &AccessKeySyncManager{
 		db:             db,
 		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(clusterManager.GetTLSConfig()),
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "access-key-sync"),
 	}

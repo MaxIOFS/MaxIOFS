@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,10 @@ func (m *mockManager) GetLocalNodeToken(ctx context.Context) (string, error) {
 
 func (m *mockManager) GetLocalNodeName(ctx context.Context) (string, error) {
 	return "local-node", nil
+}
+
+func (m *mockManager) GetTLSConfig() *tls.Config {
+	return nil
 }
 
 func (m *mockManager) IsClusterEnabled() bool {

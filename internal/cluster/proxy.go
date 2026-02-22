@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -20,16 +21,21 @@ type ProxyClient struct {
 	log        *logrus.Entry
 }
 
-// NewProxyClient creates a new proxy client
-func NewProxyClient() *ProxyClient {
+// NewProxyClient creates a new proxy client.
+// If tlsConfig is non-nil, inter-node requests use TLS with that config.
+func NewProxyClient(tlsConfig *tls.Config) *ProxyClient {
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+	}
+	if tlsConfig != nil {
+		transport.TLSClientConfig = tlsConfig
+	}
 	return &ProxyClient{
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
-			Transport: &http.Transport{
-				MaxIdleConns:        100,
-				MaxIdleConnsPerHost: 10,
-				IdleConnTimeout:     90 * time.Second,
-			},
+			Timeout:   60 * time.Second,
+			Transport: transport,
 		},
 		log: logrus.WithField("component", "cluster-proxy"),
 	}

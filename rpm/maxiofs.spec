@@ -257,16 +257,20 @@ fi
 
 %changelog
 * Wed Feb 19 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 0.9.1-1
-- Version 0.9.1-beta - Security hardening, external logging targets, lock-free dispatch
+- Version 0.9.1-beta - Security hardening, cluster UX, external logging targets
 - Added: External syslog targets with full CRUD API (7 new endpoints, SQLite storage)
 - Added: Syslog TLS and RFC 5424 structured data format support
 - Added: Lock-free log dispatch via atomic.Pointer (eliminates Reconfigure deadlock)
 - Added: Frontend LoggingTargets component in Settings > Logging
+- Added: Cluster Join UI, Add Node with credentials, token display modal
+- Added: Cluster token endpoint (GET /cluster/token, global admin only)
+- Added: Local node label "(This node)" with hidden delete button
 - Removed: Legacy syslog/HTTP runtime code (~150 lines of dead code)
 - Fixed: 12 tenant isolation vulnerabilities across console API handlers
 - Fixed: IDP handlers tenant scoping, user/access-key/bucket-permission auth checks
 - Fixed: queryTenantID override restricted to global admins
 - Fixed: Frontend IDP tenant selector and tenant name resolution
+- Fixed: Cluster self-deletion, already-clustered node check, bucket counts hardcoded to 0
 
 * Mon Feb 17 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 0.9.0-1
 - Version 0.9.0-beta

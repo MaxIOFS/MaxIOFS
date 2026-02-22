@@ -44,7 +44,7 @@ func NewGroupMappingSyncManager(db *sql.DB, clusterManager *Manager) *GroupMappi
 	return &GroupMappingSyncManager{
 		db:             db,
 		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(clusterManager.GetTLSConfig()),
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "group-mapping-sync"),
 	}

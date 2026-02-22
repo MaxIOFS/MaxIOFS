@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +27,7 @@ type ClusterManagerInterface interface {
 	GetLocalNodeID(ctx context.Context) (string, error)
 	GetLocalNodeName(ctx context.Context) (string, error)
 	GetLocalNodeToken(ctx context.Context) (string, error)
+	GetTLSConfig() *tls.Config
 }
 
 // QuotaAggregator aggregates storage quota usage from all cluster nodes
@@ -46,7 +48,7 @@ func NewQuotaAggregator(clusterManager ClusterManagerInterface) *QuotaAggregator
 
 	return &QuotaAggregator{
 		clusterManager:  clusterManager,
-		proxyClient:     NewProxyClient(),
+		proxyClient:     NewProxyClient(clusterManager.GetTLSConfig()),
 		circuitBreakers: circuitBreakers,
 		log:             logrus.WithField("component", "quota-aggregator"),
 	}

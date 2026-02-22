@@ -47,7 +47,7 @@ func NewTenantSyncManager(db *sql.DB, clusterManager *Manager) *TenantSyncManage
 	return &TenantSyncManager{
 		db:             db,
 		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(clusterManager.GetTLSConfig()),
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "tenant-sync"),
 	}

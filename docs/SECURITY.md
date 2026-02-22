@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 0.9.1-beta | **Last Updated**: February 21, 2026
+**Version**: 0.9.2-beta | **Last Updated**: February 22, 2026
 
 > **BETA SOFTWARE**: Core security features are implemented. Third-party audits have not been conducted. Test thoroughly before production use.
 
@@ -15,6 +15,7 @@
 | OAuth2/OIDC SSO | ✅ | Google, Microsoft, custom OIDC |
 | LDAP/AD integration | ✅ | Bind authentication |
 | Cluster HMAC auth | ✅ | HMAC-SHA256 with timestamp/nonce |
+| Inter-node TLS | ✅ | Auto-generated internal CA, ECDSA P-256 |
 | Role-Based Access Control | ✅ | 5 roles (admin, tenant-admin, user, readonly, guest) |
 | Rate limiting | ✅ | IP-based login throttling |
 | Account lockout | ✅ | Configurable threshold and duration |
@@ -66,10 +67,18 @@ SSO via Google Workspace, Microsoft Entra ID (Azure AD), or custom OIDC provider
 
 Bind authentication against LDAP/AD directories. Configured via Web Console → Settings → Identity Providers.
 
-### Cluster Authentication (HMAC-SHA256)
+### Cluster Authentication & Encryption
 
-Inter-node communication is authenticated using HMAC-SHA256 signatures:
+Inter-node communication is both **encrypted** (TLS) and **authenticated** (HMAC-SHA256):
 
+**TLS Encryption (automatic):**
+- On cluster initialization, an internal CA (ECDSA P-256, 10-year validity) is generated
+- Each node gets a certificate signed by the CA (1-year validity, auto-renewed)
+- All inter-node HTTP communication uses mutual TLS with the internal CA
+- No configuration required — fully automatic and transparent
+- Certificate auto-renewal runs monthly; hot-swapped without restart
+
+**HMAC-SHA256 Authentication:**
 ```
 Signature = HMAC-SHA256(node_token, METHOD + PATH + TIMESTAMP + NONCE + BODY)
 ```
@@ -185,11 +194,11 @@ OAuth client secrets and LDAP bind passwords are encrypted at rest in the SQLite
 When objects are replicated between cluster nodes:
 
 1. Source node **decrypts** the object (if encrypted)
-2. Object data is sent over the network in **plaintext** (use TLS between nodes!)
+2. Object data is sent over **TLS-encrypted** inter-node connection (automatic)
 3. HMAC-SHA256 signature authenticates the transfer
 4. Destination node **re-encrypts** with its own master key
 
-Each node can have a different encryption key. Use TLS/HTTPS for inter-node communication in production.
+Each node can have a different encryption key. Inter-node TLS is enabled automatically using the cluster's internal CA — no manual configuration needed.
 
 ---
 
@@ -292,7 +301,7 @@ Custom ACLs with grant-based permissions (READ, WRITE, READ_ACP, WRITE_ACP, FULL
 7. **Restrict file permissions** — `chmod 700` on data directory
 8. **Configure firewall** — expose only necessary ports
 9. **Enable audit logging** — review logs regularly
-10. **Use TLS between cluster nodes** — HMAC authenticates but doesn't encrypt
+10. **Inter-node TLS is automatic** — cluster nodes encrypt all communication using auto-generated certificates
 11. **Back up encryption keys** — data is irrecoverable without them
 12. **Monitor** — set up Prometheus alerts for security events
 

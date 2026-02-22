@@ -53,7 +53,7 @@ func NewUserSyncManager(db *sql.DB, clusterManager *Manager) *UserSyncManager {
 	return &UserSyncManager{
 		db:             db,
 		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(),
+		proxyClient:    NewProxyClient(clusterManager.GetTLSConfig()),
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "user-sync"),
 	}

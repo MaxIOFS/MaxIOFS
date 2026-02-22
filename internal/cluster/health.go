@@ -62,9 +62,14 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 func (m *Manager) performHealthCheck(endpoint string) *HealthCheckResult {
 	start := time.Now()
 
-	// Create HTTP client with timeout
+	// Create HTTP client with timeout, using cluster TLS if available
+	transport := &http.Transport{}
+	if m.tlsConfig != nil {
+		transport.TLSClientConfig = m.tlsConfig.Clone()
+	}
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout:   5 * time.Second,
+		Transport: transport,
 	}
 
 	// Perform GET request to /health endpoint
