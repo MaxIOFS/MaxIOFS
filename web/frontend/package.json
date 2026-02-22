@@ -27,7 +27,6 @@
     "react-i18next": "^16.5.4",
     "react-router-dom": "^7.13.0",
     "recharts": "^3.7.0",
-    "sweetalert2": "^11.26.17",
     "tailwind-merge": "^3.4.0",
     "zustand": "^5.0.10"
   },

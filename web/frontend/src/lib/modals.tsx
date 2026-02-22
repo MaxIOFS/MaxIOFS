@@ -647,7 +647,7 @@ class ModalManager {
     });
   }
 
-  // Generic fire method for compatibility with SweetAlert2
+  // Generic fire method for advanced modal dialogs
   static async fire(options: any): Promise<{ isConfirmed: boolean; isDenied?: boolean; isDismissed?: boolean; value?: any }> {
     // Extract common options
     const {
