@@ -3,7 +3,7 @@ package acl
 import (
 	"context"
 
-	"github.com/dgraph-io/badger/v4"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 )
 
 // Manager defines the interface for ACL management
@@ -25,9 +25,8 @@ type Manager interface {
 	CheckAuthenticatedAccess(acl *ACL, permission Permission) bool
 }
 
-// NewManager creates a new ACL manager
-func NewManager(db *badger.DB) Manager {
-	return &aclManager{
-		db: db,
-	}
+// NewManager creates a new ACL manager backed by any RawKVStore.
+// Both PebbleStore and BadgerStore satisfy this interface.
+func NewManager(store metadata.RawKVStore) Manager {
+	return &aclManager{kvStore: store}
 }

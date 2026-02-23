@@ -17,9 +17,11 @@ type Node struct {
 	CapacityTotal int64     `json:"capacity_total"`
 	CapacityUsed  int64     `json:"capacity_used"`
 	BucketCount   int       `json:"bucket_count"`
-	Metadata      string    `json:"metadata"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	Metadata           string     `json:"metadata"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	IsStale            bool       `json:"is_stale"`
+	LastLocalWriteAt   *time.Time `json:"last_local_write_at,omitempty"`
 }
 
 // HealthStatus represents node health status

@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	badger "github.com/dgraph-io/badger/v4"
 	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
@@ -111,13 +110,9 @@ type objectManager struct {
 
 // NewManager creates a new object manager
 func NewManager(storage storage.Backend, metadataStore metadata.Store, config config.StorageConfig) Manager {
-	// Extract BadgerDB instance for ACL manager
 	var aclMgr acl.Manager
-	if badgerStore, ok := metadataStore.(interface{ DB() *badger.DB }); ok {
-		db := badgerStore.DB()
-		if db != nil {
-			aclMgr = acl.NewManager(db)
-		}
+	if kvStore, ok := metadataStore.(metadata.RawKVStore); ok {
+		aclMgr = acl.NewManager(kvStore)
 	}
 
 	// Initialize encryption service with AES-256-GCM

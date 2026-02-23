@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS cluster_nodes (
     bucket_count INTEGER NOT NULL DEFAULT 0,
     metadata TEXT DEFAULT '{}',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_stale BOOLEAN NOT NULL DEFAULT 0,
+    last_local_write_at TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_cluster_nodes_region ON cluster_nodes(region);
@@ -94,7 +96,53 @@ func InitSchema(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	return applyTLSMigration(db)
+	if err := applyTLSMigration(db); err != nil {
+		return err
+	}
+	return applyStaleNodeMigration(db)
+}
+
+// applyStaleNodeMigration adds stale-node tracking columns to cluster_nodes for existing databases.
+func applyStaleNodeMigration(db *sql.DB) error {
+	type colDef struct {
+		name       string
+		definition string
+	}
+	cols := []colDef{
+		{"is_stale", "is_stale BOOLEAN NOT NULL DEFAULT 0"},
+		{"last_local_write_at", "last_local_write_at TIMESTAMP"},
+	}
+	for _, c := range cols {
+		var exists bool
+		rows, err := db.Query("PRAGMA table_info(cluster_nodes)")
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull int
+			var dfltValue sql.NullString
+			var pk int
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+				rows.Close()
+				return err
+			}
+			if name == c.name {
+				exists = true
+				break
+			}
+		}
+		rows.Close()
+
+		if !exists {
+			_, err := db.Exec("ALTER TABLE cluster_nodes ADD COLUMN " + c.definition)
+			if err != nil {
+				return fmt.Errorf("failed to add column %s: %w", c.name, err)
+			}
+		}
+	}
+	return nil
 }
 
 // applyTLSMigration adds TLS certificate columns to cluster_config for existing databases.

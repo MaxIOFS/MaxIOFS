@@ -2164,6 +2164,8 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.touchLocalWriteAt(r.Context())
+
 	// Convert to response format
 	userResponse := UserResponse{
 		ID:               user.ID,
@@ -2292,6 +2294,8 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.touchLocalWriteAt(r.Context())
+
 	// Convert to response format
 	userResponse := UserResponse{
 		ID:                  user.ID,
@@ -2348,6 +2352,8 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
+	s.touchLocalWriteAt(r.Context())
 
 	// Record tombstone for cluster deletion sync
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
@@ -2933,6 +2939,8 @@ func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.touchLocalWriteAt(r.Context())
+
 	// Return complete key with secret (only shown once)
 	type CreateAccessKeyResponse struct {
 		ID        string `json:"id"`
@@ -3009,6 +3017,8 @@ func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
+	s.touchLocalWriteAt(r.Context())
 
 	// Record tombstone for cluster deletion sync
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
@@ -3496,6 +3506,8 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.touchLocalWriteAt(r.Context())
+
 	// Log audit event for tenant created
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		TenantID:     "", // Tenant operations are global
@@ -3627,6 +3639,8 @@ func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.touchLocalWriteAt(r.Context())
+
 	// Log audit event for tenant updated
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		TenantID:     "", // Tenant operations are global
@@ -3727,6 +3741,8 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	s.touchLocalWriteAt(r.Context())
 
 	// Record tombstone for cluster deletion sync
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
@@ -3879,6 +3895,8 @@ func (s *Server) handleGrantBucketPermission(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	s.touchLocalWriteAt(r.Context())
+
 	s.writeJSON(w, map[string]string{"message": "Permission granted successfully"})
 }
 
@@ -3923,6 +3941,8 @@ func (s *Server) handleRevokeBucketPermission(w http.ResponseWriter, r *http.Req
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	s.touchLocalWriteAt(r.Context())
 
 	// Record tombstone for cluster deletion sync
 	if permissionID != "" && s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {

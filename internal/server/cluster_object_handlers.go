@@ -848,10 +848,23 @@ func (s *Server) handleReceiveIDPProviderSync(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	now := time.Now().Unix()
-
 	if exists {
-		// Update existing provider
+		// LWW: only apply if the incoming record is strictly newer than the local one.
+		var localUpdatedAt int64
+		if err := s.db.QueryRowContext(ctx, `SELECT updated_at FROM identity_providers WHERE id = ?`, providerData.ID).Scan(&localUpdatedAt); err != nil {
+			logrus.WithError(err).Error("Failed to read local IDP provider updated_at")
+			http.Error(w, fmt.Sprintf("Failed to check provider timestamp: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if providerData.UpdatedAt <= localUpdatedAt {
+			logrus.WithField("provider_id", providerData.ID).Debug("Skipping IDP provider update: local record is newer or equal (LWW)")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "IDP provider synchronized successfully"})
+			return
+		}
+
+		// Update existing provider — preserve source updated_at so all nodes agree on the timestamp.
 		_, err = s.db.ExecContext(ctx, `
 			UPDATE identity_providers SET
 				name = ?, type = ?, tenant_id = ?, status = ?, config = ?, updated_at = ?
@@ -862,7 +875,7 @@ func (s *Server) handleReceiveIDPProviderSync(w http.ResponseWriter, r *http.Req
 			tenantID,
 			providerData.Status,
 			providerData.Config,
-			now,
+			providerData.UpdatedAt,
 			providerData.ID,
 		)
 		if err != nil {
@@ -872,7 +885,7 @@ func (s *Server) handleReceiveIDPProviderSync(w http.ResponseWriter, r *http.Req
 		}
 		logrus.WithField("provider_id", providerData.ID).Debug("Updated existing IDP provider")
 	} else {
-		// Insert new provider
+		// Insert new provider — preserve source updated_at for cross-node consistency.
 		_, err = s.db.ExecContext(ctx, `
 			INSERT INTO identity_providers (id, name, type, tenant_id, status, config, created_by, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -885,7 +898,7 @@ func (s *Server) handleReceiveIDPProviderSync(w http.ResponseWriter, r *http.Req
 			providerData.Config,
 			providerData.CreatedBy,
 			providerData.CreatedAt,
-			now,
+			providerData.UpdatedAt,
 		)
 		if err != nil {
 			logrus.WithError(err).Error("Failed to insert IDP provider")
@@ -922,7 +935,8 @@ func (s *Server) handleReceiveIDPProviderDeleteSync(w http.ResponseWriter, r *ht
 	}
 
 	var deleteData struct {
-		ID string `json:"id"`
+		ID        string `json:"id"`
+		DeletedAt int64  `json:"deleted_at"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&deleteData); err != nil {
@@ -941,6 +955,18 @@ func (s *Server) handleReceiveIDPProviderDeleteSync(w http.ResponseWriter, r *ht
 		"source_node_id": sourceNodeID,
 		"provider_id":    deleteData.ID,
 	}).Info("Receiving IDP provider deletion from synchronization")
+
+	// Phase 4: Tombstone vs entity LWW.
+	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeIDPProvider, deleteData.ID, deleteData.DeletedAt) {
+		logrus.WithFields(logrus.Fields{
+			"source_node_id": sourceNodeID,
+			"provider_id":    deleteData.ID,
+		}).Info("Skipping IDP provider deletion: local entity was updated after tombstone (LWW)")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (entity is newer than tombstone)"})
+		return
+	}
 
 	// Delete group mappings for this provider first (cascade)
 	_, err := s.db.ExecContext(ctx, `DELETE FROM idp_group_mappings WHERE provider_id = ?`, deleteData.ID)
@@ -1048,10 +1074,23 @@ func (s *Server) handleReceiveGroupMappingSync(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	now := time.Now().Unix()
-
 	if exists {
-		// Update existing mapping
+		// LWW: only apply if the incoming record is strictly newer than the local one.
+		var localUpdatedAt int64
+		if err := s.db.QueryRowContext(ctx, `SELECT updated_at FROM idp_group_mappings WHERE id = ?`, mappingData.ID).Scan(&localUpdatedAt); err != nil {
+			logrus.WithError(err).Error("Failed to read local group mapping updated_at")
+			http.Error(w, fmt.Sprintf("Failed to check mapping timestamp: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if mappingData.UpdatedAt <= localUpdatedAt {
+			logrus.WithField("mapping_id", mappingData.ID).Debug("Skipping group mapping update: local record is newer or equal (LWW)")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Group mapping synchronized successfully"})
+			return
+		}
+
+		// Update existing mapping — preserve source updated_at so all nodes agree on the timestamp.
 		_, err = s.db.ExecContext(ctx, `
 			UPDATE idp_group_mappings SET
 				provider_id = ?, external_group = ?, external_group_name = ?,
@@ -1065,7 +1104,7 @@ func (s *Server) handleReceiveGroupMappingSync(w http.ResponseWriter, r *http.Re
 			tenantID,
 			mappingData.AutoSync,
 			lastSyncedAt,
-			now,
+			mappingData.UpdatedAt,
 			mappingData.ID,
 		)
 		if err != nil {
@@ -1075,7 +1114,7 @@ func (s *Server) handleReceiveGroupMappingSync(w http.ResponseWriter, r *http.Re
 		}
 		logrus.WithField("mapping_id", mappingData.ID).Debug("Updated existing group mapping")
 	} else {
-		// Insert new mapping
+		// Insert new mapping — preserve source updated_at for cross-node consistency.
 		_, err = s.db.ExecContext(ctx, `
 			INSERT INTO idp_group_mappings (id, provider_id, external_group, external_group_name,
 				role, tenant_id, auto_sync, last_synced_at, created_at, updated_at)
@@ -1090,7 +1129,7 @@ func (s *Server) handleReceiveGroupMappingSync(w http.ResponseWriter, r *http.Re
 			mappingData.AutoSync,
 			lastSyncedAt,
 			mappingData.CreatedAt,
-			now,
+			mappingData.UpdatedAt,
 		)
 		if err != nil {
 			logrus.WithError(err).Error("Failed to insert group mapping")
@@ -1127,7 +1166,8 @@ func (s *Server) handleReceiveGroupMappingDeleteSync(w http.ResponseWriter, r *h
 	}
 
 	var deleteData struct {
-		ID string `json:"id"`
+		ID        string `json:"id"`
+		DeletedAt int64  `json:"deleted_at"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&deleteData); err != nil {
@@ -1146,6 +1186,18 @@ func (s *Server) handleReceiveGroupMappingDeleteSync(w http.ResponseWriter, r *h
 		"source_node_id": sourceNodeID,
 		"mapping_id":     deleteData.ID,
 	}).Info("Receiving group mapping deletion from synchronization")
+
+	// Phase 4: Tombstone vs entity LWW.
+	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeGroupMapping, deleteData.ID, deleteData.DeletedAt) {
+		logrus.WithFields(logrus.Fields{
+			"source_node_id": sourceNodeID,
+			"mapping_id":     deleteData.ID,
+		}).Info("Skipping group mapping deletion: local entity was updated after tombstone (LWW)")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (entity is newer than tombstone)"})
+		return
+	}
 
 	result, err := s.db.ExecContext(ctx, `DELETE FROM idp_group_mappings WHERE id = ?`, deleteData.ID)
 	if err != nil {
@@ -1187,7 +1239,8 @@ func (s *Server) handleReceiveAccessKeyDeleteSync(w http.ResponseWriter, r *http
 	}
 
 	var deleteData struct {
-		ID string `json:"id"`
+		ID        string `json:"id"`
+		DeletedAt int64  `json:"deleted_at"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&deleteData); err != nil {
@@ -1247,7 +1300,8 @@ func (s *Server) handleReceiveBucketPermissionDeleteSync(w http.ResponseWriter, 
 	}
 
 	var deleteData struct {
-		ID string `json:"id"`
+		ID        string `json:"id"`
+		DeletedAt int64  `json:"deleted_at"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&deleteData); err != nil {
@@ -1321,6 +1375,16 @@ func (s *Server) handleReceiveDeletionLogSync(w http.ResponseWriter, r *http.Req
 
 	recorded := 0
 	for _, entry := range entries {
+		// Phase 4: Tombstone vs entity LWW.
+		// If the local entity was updated after this tombstone's deleted_at, the entity wins
+		// and we must NOT record the tombstone (it would otherwise block future upserts).
+		if cluster.EntityIsNewerThanTombstone(ctx, s.db, entry.EntityType, entry.EntityID, entry.DeletedAt) {
+			logrus.WithFields(logrus.Fields{
+				"entity_type": entry.EntityType,
+				"entity_id":   entry.EntityID,
+			}).Debug("Skipping tombstone: local entity is newer (LWW)")
+			continue
+		}
 		if err := cluster.RecordDeletion(ctx, s.db, entry.EntityType, entry.EntityID, entry.DeletedByNodeID); err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{
 				"entity_type": entry.EntityType,

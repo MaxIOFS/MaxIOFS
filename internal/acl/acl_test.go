@@ -5,25 +5,32 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dgraph-io/badger/v4"
+	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func setupTestDB(t *testing.T) (*badger.DB, func()) {
+func setupTestStore(t *testing.T) metadata.RawKVStore {
+	t.Helper()
 	tmpDir, err := os.MkdirTemp("", "acl-test-*")
 	require.NoError(t, err)
 
-	opts := badger.DefaultOptions(tmpDir).WithLogger(nil)
-	db, err := badger.Open(opts)
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+
+	store, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: tmpDir,
+		Logger:  logger,
+	})
 	require.NoError(t, err)
 
-	cleanup := func() {
-		db.Close()
-		os.RemoveAll(tmpDir)
-	}
+	t.Cleanup(func() {
+		_ = store.Close()
+		_ = os.RemoveAll(tmpDir) // ignore error on Windows file locking
+	})
 
-	return db, cleanup
+	return store
 }
 
 // TestIsValidCannedACL tests canned ACL validation
@@ -176,10 +183,8 @@ func TestGetCannedACLGrants_Invalid(t *testing.T) {
 
 // TestSetAndGetBucketACL tests bucket ACL operations
 func TestSetAndGetBucketACL(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	manager := NewManager(db)
+	store := setupTestStore(t)
+	manager := NewManager(store)
 	ctx := context.Background()
 
 	t.Run("Set and get bucket ACL", func(t *testing.T) {
@@ -216,7 +221,6 @@ func TestSetAndGetBucketACL(t *testing.T) {
 		retrieved, err := manager.GetBucketACL(ctx, "tenant-1", "nonexistent-bucket")
 		assert.NoError(t, err)
 		assert.NotNil(t, retrieved)
-		// Should return default ACL
 		assert.Equal(t, CannedACLPrivate, retrieved.CannedACL)
 	})
 
@@ -256,10 +260,8 @@ func TestSetAndGetBucketACL(t *testing.T) {
 
 // TestSetAndGetObjectACL tests object ACL operations
 func TestSetAndGetObjectACL(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	manager := NewManager(db)
+	store := setupTestStore(t)
+	manager := NewManager(store)
 	ctx := context.Background()
 
 	t.Run("Set and get object ACL", func(t *testing.T) {
@@ -294,17 +296,14 @@ func TestSetAndGetObjectACL(t *testing.T) {
 		retrieved, err := manager.GetObjectACL(ctx, "tenant-1", "test-bucket", "nonexistent-object.txt")
 		assert.NoError(t, err)
 		assert.NotNil(t, retrieved)
-		// Should return default ACL
 		assert.Equal(t, CannedACLPrivate, retrieved.CannedACL)
 	})
 }
 
 // TestGetCannedACL tests GetCannedACL method
 func TestGetCannedACL(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	manager := NewManager(db)
+	store := setupTestStore(t)
+	manager := NewManager(store)
 
 	t.Run("Get private canned ACL", func(t *testing.T) {
 		acl, err := manager.GetCannedACL(CannedACLPrivate, "owner-123", "Test Owner")
@@ -331,10 +330,8 @@ func TestGetCannedACL(t *testing.T) {
 
 // TestCheckPermission tests permission checking for specific users
 func TestCheckPermission(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	manager := NewManager(db)
+	store := setupTestStore(t)
+	manager := NewManager(store)
 
 	t.Run("Owner has full control", func(t *testing.T) {
 		acl := CreateDefaultACL("owner-123", "Test Owner")
@@ -377,10 +374,8 @@ func TestCheckPermission(t *testing.T) {
 
 // TestCheckPublicAccess tests public access checking
 func TestCheckPublicAccess(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	manager := NewManager(db)
+	store := setupTestStore(t)
+	manager := NewManager(store)
 
 	t.Run("Private ACL has no public access", func(t *testing.T) {
 		acl := CreateDefaultACL("owner-123", "Test Owner")
@@ -412,10 +407,8 @@ func TestCheckPublicAccess(t *testing.T) {
 
 // TestCheckAuthenticatedAccess tests authenticated user access checking
 func TestCheckAuthenticatedAccess(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	manager := NewManager(db)
+	store := setupTestStore(t)
+	manager := NewManager(store)
 
 	t.Run("Private ACL has no authenticated access", func(t *testing.T) {
 		acl := CreateDefaultACL("owner-123", "Test Owner")
@@ -437,23 +430,19 @@ func TestCheckAuthenticatedAccess(t *testing.T) {
 
 // TestMultiTenantACLs tests ACL isolation between tenants
 func TestMultiTenantACLs(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	manager := NewManager(db)
+	store := setupTestStore(t)
+	manager := NewManager(store)
 	ctx := context.Background()
 
 	acl1 := CreateDefaultACL("owner-1", "Owner 1")
 	acl2 := CreateDefaultACL("owner-2", "Owner 2")
 
-	// Set ACLs for same bucket name in different tenants
 	err := manager.SetBucketACL(ctx, "tenant-1", "shared-bucket", acl1)
 	assert.NoError(t, err)
 
 	err = manager.SetBucketACL(ctx, "tenant-2", "shared-bucket", acl2)
 	assert.NoError(t, err)
 
-	// Retrieve and verify they're different
 	retrieved1, err := manager.GetBucketACL(ctx, "tenant-1", "shared-bucket")
 	assert.NoError(t, err)
 	assert.Equal(t, "owner-1", retrieved1.Owner.ID)

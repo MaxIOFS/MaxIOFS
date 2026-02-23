@@ -379,7 +379,7 @@ func (m *BucketPermissionSyncManager) syncDeletions(ctx context.Context, targetN
 
 	for _, deletion := range deletions {
 		for _, node := range targetNodes {
-			if err := m.sendDeletionToNode(ctx, deletion.EntityID, node, localNodeID, nodeToken); err != nil {
+			if err := m.sendDeletionToNode(ctx, deletion.EntityID, deletion.DeletedAt, node, localNodeID, nodeToken); err != nil {
 				m.log.WithFields(logrus.Fields{
 					"permission_id": deletion.EntityID,
 					"node_id":       node.ID,
@@ -391,8 +391,8 @@ func (m *BucketPermissionSyncManager) syncDeletions(ctx context.Context, targetN
 }
 
 // sendDeletionToNode sends a bucket permission deletion request to a target node
-func (m *BucketPermissionSyncManager) sendDeletionToNode(ctx context.Context, permissionID string, node *Node, sourceNodeID, nodeToken string) error {
-	payload, _ := json.Marshal(map[string]string{"id": permissionID})
+func (m *BucketPermissionSyncManager) sendDeletionToNode(ctx context.Context, permissionID string, deletedAt int64, node *Node, sourceNodeID, nodeToken string) error {
+	payload, _ := json.Marshal(map[string]interface{}{"id": permissionID, "deleted_at": deletedAt})
 
 	url := fmt.Sprintf("%s/api/internal/cluster/bucket-permission-delete-sync", node.Endpoint)
 

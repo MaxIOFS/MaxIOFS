@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	badger "github.com/dgraph-io/badger/v4"
 	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
@@ -16,7 +15,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// badgerBucketManager implements Manager using BadgerDB for metadata
+// bucketManager implements the Manager interface.
 type badgerBucketManager struct {
 	storage       storage.Backend
 	metadataStore metadata.Store
@@ -24,15 +23,12 @@ type badgerBucketManager struct {
 	auditManager  *audit.Manager
 }
 
-// NewBadgerManager creates a new bucket manager using BadgerDB for metadata
+// newBucketManager creates a new bucket manager backed by any metadata.Store
+// that also implements metadata.RawKVStore (e.g. PebbleStore).
 func NewBadgerManager(storage storage.Backend, metadataStore metadata.Store) Manager {
-	// Extract BadgerDB instance for ACL manager
 	var aclMgr acl.Manager
-	if badgerStore, ok := metadataStore.(interface{ DB() *badger.DB }); ok {
-		db := badgerStore.DB()
-		if db != nil {
-			aclMgr = acl.NewManager(db)
-		}
+	if kvStore, ok := metadataStore.(metadata.RawKVStore); ok {
+		aclMgr = acl.NewManager(kvStore)
 	}
 
 	return &badgerBucketManager{

@@ -83,7 +83,7 @@ type Manager interface {
 	IsReady() bool
 }
 
-// NewManager creates a new bucket manager using BadgerDB for metadata
+// NewManager creates a new bucket manager.
 func NewManager(storage storage.Backend, metadataStore metadata.Store) Manager {
 	return NewBadgerManager(storage, metadataStore)
 }

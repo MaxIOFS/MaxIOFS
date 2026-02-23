@@ -30,12 +30,8 @@ func TestConcurrentMultipartUpload(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	metadataStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
-		DataDir:           tmpDir + "/metadata",
-		SyncWrites:        false,
-		CompactionEnabled: true,
-		Logger:            logrus.StandardLogger(),
-	})
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: tmpDir + "/metadata",
+		Logger:  logrus.StandardLogger(),})
 	require.NoError(t, err)
 	defer metadataStore.Close()
 
@@ -133,12 +129,8 @@ func TestMultipleSimultaneousMultipartUploads(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	metadataStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
-		DataDir:           tmpDir + "/metadata",
-		SyncWrites:        false,
-		CompactionEnabled: true,
-		Logger:            logrus.StandardLogger(),
-	})
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: tmpDir + "/metadata",
+		Logger:  logrus.StandardLogger(),})
 	require.NoError(t, err)
 	defer metadataStore.Close()
 

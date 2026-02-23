@@ -27,11 +27,9 @@ func setupBucketTest(t *testing.T) (Manager, func()) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.WarnLevel)
 
-	metadataStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
-		DataDir:           tmpDir + "/metadata",
-		SyncWrites:        false,
-		CompactionEnabled: false,
-		Logger:            logger,
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: tmpDir + "/metadata",
+		Logger:  logger,
 	})
 	require.NoError(t, err)
 

@@ -33,11 +33,9 @@ func TestDeleteBucket_WithObjects(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	metadataStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
-		DataDir:           metadataDir,
-		SyncWrites:        false,
-		CompactionEnabled: false,
-		Logger:            logrus.StandardLogger(),
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: metadataDir,
+		Logger:  logrus.StandardLogger(),
 	})
 	require.NoError(t, err)
 	defer metadataStore.Close()
@@ -102,11 +100,9 @@ func TestDeleteBucket_CleansStorage(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	metadataStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
-		DataDir:           metadataDir,
-		SyncWrites:        false,
-		CompactionEnabled: false,
-		Logger:            logrus.StandardLogger(),
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: metadataDir,
+		Logger:  logrus.StandardLogger(),
 	})
 	require.NoError(t, err)
 	defer metadataStore.Close()
@@ -153,11 +149,9 @@ func TestForceDeleteBucket_DeletesAllObjects(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	metadataStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
-		DataDir:           metadataDir,
-		SyncWrites:        false,
-		CompactionEnabled: false,
-		Logger:            logrus.StandardLogger(),
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: metadataDir,
+		Logger:  logrus.StandardLogger(),
 	})
 	require.NoError(t, err)
 	defer metadataStore.Close()
@@ -241,11 +235,9 @@ func TestForceDeleteBucket_CleansMetadata(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	metadataStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
-		DataDir:           metadataDir,
-		SyncWrites:        false,
-		CompactionEnabled: false,
-		Logger:            logrus.StandardLogger(),
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: metadataDir,
+		Logger:  logrus.StandardLogger(),
 	})
 	require.NoError(t, err)
 	defer metadataStore.Close()
@@ -294,11 +286,9 @@ func TestForceDeleteBucket_NonExistent(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	metadataStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
-		DataDir:           metadataDir,
-		SyncWrites:        false,
-		CompactionEnabled: false,
-		Logger:            logrus.StandardLogger(),
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: metadataDir,
+		Logger:  logrus.StandardLogger(),
 	})
 	require.NoError(t, err)
 	defer metadataStore.Close()

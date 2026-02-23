@@ -448,20 +448,20 @@ func (m *Manager) AddNode(ctx context.Context, node *Node) error {
 // GetNode retrieves a node by ID
 func (m *Manager) GetNode(ctx context.Context, nodeID string) (*Node, error) {
 	var node Node
-	var lastHealthCheck, lastSeen sql.NullTime
+	var lastHealthCheck, lastSeen, lastLocalWriteAt sql.NullTime
 
 	err := m.db.QueryRowContext(ctx, `
 		SELECT id, name, endpoint, node_token, region, priority,
 		       health_status, last_health_check, last_seen, latency_ms,
 		       capacity_total, capacity_used, bucket_count, metadata,
-		       created_at, updated_at
+		       created_at, updated_at, is_stale, last_local_write_at
 		FROM cluster_nodes
 		WHERE id = ?
 	`, nodeID).Scan(
 		&node.ID, &node.Name, &node.Endpoint, &node.NodeToken, &node.Region, &node.Priority,
 		&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
 		&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
-		&node.CreatedAt, &node.UpdatedAt,
+		&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -477,6 +477,9 @@ func (m *Manager) GetNode(ctx context.Context, nodeID string) (*Node, error) {
 	if lastSeen.Valid {
 		node.LastSeen = &lastSeen.Time
 	}
+	if lastLocalWriteAt.Valid {
+		node.LastLocalWriteAt = &lastLocalWriteAt.Time
+	}
 
 	return &node, nil
 }
@@ -487,7 +490,7 @@ func (m *Manager) ListNodes(ctx context.Context) ([]*Node, error) {
 		SELECT id, name, endpoint, node_token, region, priority,
 		       health_status, last_health_check, last_seen, latency_ms,
 		       capacity_total, capacity_used, bucket_count, metadata,
-		       created_at, updated_at
+		       created_at, updated_at, is_stale, last_local_write_at
 		FROM cluster_nodes
 		ORDER BY priority ASC, name ASC
 	`)
@@ -499,13 +502,13 @@ func (m *Manager) ListNodes(ctx context.Context) ([]*Node, error) {
 	var nodes []*Node
 	for rows.Next() {
 		var node Node
-		var lastHealthCheck, lastSeen sql.NullTime
+		var lastHealthCheck, lastSeen, lastLocalWriteAt sql.NullTime
 
 		err := rows.Scan(
 			&node.ID, &node.Name, &node.Endpoint, &node.NodeToken, &node.Region, &node.Priority,
 			&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
 			&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
-			&node.CreatedAt, &node.UpdatedAt,
+			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan node: %w", err)
@@ -516,6 +519,9 @@ func (m *Manager) ListNodes(ctx context.Context) ([]*Node, error) {
 		}
 		if lastSeen.Valid {
 			node.LastSeen = &lastSeen.Time
+		}
+		if lastLocalWriteAt.Valid {
+			node.LastLocalWriteAt = &lastLocalWriteAt.Time
 		}
 
 		nodes = append(nodes, &node)
@@ -564,7 +570,7 @@ func (m *Manager) GetHealthyNodes(ctx context.Context) ([]*Node, error) {
 		SELECT id, name, endpoint, node_token, region, priority,
 		       health_status, last_health_check, last_seen, latency_ms,
 		       capacity_total, capacity_used, bucket_count, metadata,
-		       created_at, updated_at
+		       created_at, updated_at, is_stale, last_local_write_at
 		FROM cluster_nodes
 		WHERE health_status = ?
 		ORDER BY priority ASC, name ASC
@@ -577,13 +583,13 @@ func (m *Manager) GetHealthyNodes(ctx context.Context) ([]*Node, error) {
 	var nodes []*Node
 	for rows.Next() {
 		var node Node
-		var lastHealthCheck, lastSeen sql.NullTime
+		var lastHealthCheck, lastSeen, lastLocalWriteAt sql.NullTime
 
 		err := rows.Scan(
 			&node.ID, &node.Name, &node.Endpoint, &node.NodeToken, &node.Region, &node.Priority,
 			&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
 			&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
-			&node.CreatedAt, &node.UpdatedAt,
+			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan node: %w", err)
@@ -594,6 +600,9 @@ func (m *Manager) GetHealthyNodes(ctx context.Context) ([]*Node, error) {
 		}
 		if lastSeen.Valid {
 			node.LastSeen = &lastSeen.Time
+		}
+		if lastLocalWriteAt.Valid {
+			node.LastLocalWriteAt = &lastLocalWriteAt.Time
 		}
 
 		nodes = append(nodes, &node)

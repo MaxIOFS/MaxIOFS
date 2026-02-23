@@ -27,12 +27,8 @@ func setupTestManagerWithStore(t *testing.T) (*objectManager, metadata.Store, fu
 	require.NoError(t, err)
 
 	dbPath := filepath.Join(tempDir, "metadata")
-	metaStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
-		DataDir:           dbPath,
-		SyncWrites:        false,
-		CompactionEnabled: false,
-		Logger:            logrus.StandardLogger(),
-	})
+	metaStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: dbPath,
+		Logger:  logrus.StandardLogger(),})
 	require.NoError(t, err)
 
 	cfg := config.StorageConfig{

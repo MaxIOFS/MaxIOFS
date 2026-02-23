@@ -26,17 +26,19 @@ const (
 
 // Manager handles bucket notification configurations and event sending
 type Manager struct {
-	badgerStore *metadata.BadgerStore
-	httpClient  *http.Client
-	mu          sync.RWMutex
+	kvStore    metadata.RawKVStore
+	httpClient *http.Client
+	mu         sync.RWMutex
 	// Cache of configurations by bucket path (tenantID/bucketName)
 	configCache map[string]*NotificationConfiguration
 }
 
-// NewManager creates a new notification manager
-func NewManager(badgerStore *metadata.BadgerStore) *Manager {
+// NewManager creates a new notification manager.
+// The store parameter must implement metadata.RawKVStore (both BadgerStore and
+// PebbleStore satisfy this interface).
+func NewManager(store metadata.RawKVStore) *Manager {
 	return &Manager{
-		badgerStore: badgerStore,
+		kvStore: store,
 		httpClient: &http.Client{
 			Timeout: webhookTimeout,
 		},
@@ -58,7 +60,7 @@ func (m *Manager) GetConfiguration(ctx context.Context, tenantID, bucketName str
 
 	// Fetch from metadata store
 	key := fmt.Sprintf("notification:%s", bucketPath)
-	data, err := m.badgerStore.GetRaw(ctx, key)
+	data, err := m.kvStore.GetRaw(ctx, key)
 	if err != nil {
 		if err == metadata.ErrNotFound {
 			return nil, nil // No configuration set
@@ -98,7 +100,7 @@ func (m *Manager) PutConfiguration(ctx context.Context, config *NotificationConf
 
 	// Store in metadata
 	key := fmt.Sprintf("notification:%s", bucketPath)
-	if err := m.badgerStore.PutRaw(ctx, key, data); err != nil {
+	if err := m.kvStore.PutRaw(ctx, key, data); err != nil {
 		return fmt.Errorf("failed to store notification config: %w", err)
 	}
 
@@ -122,7 +124,7 @@ func (m *Manager) DeleteConfiguration(ctx context.Context, tenantID, bucketName 
 
 	// Delete from metadata store
 	key := fmt.Sprintf("notification:%s", bucketPath)
-	if err := m.badgerStore.DeleteRaw(ctx, key); err != nil && err != metadata.ErrNotFound {
+	if err := m.kvStore.DeleteRaw(ctx, key); err != nil && err != metadata.ErrNotFound {
 		return fmt.Errorf("failed to delete notification config: %w", err)
 	}
 

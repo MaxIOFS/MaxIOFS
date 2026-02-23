@@ -1,7 +1,7 @@
 package metrics
 
 import (
-	"path/filepath"
+	"os"
 	"testing"
 	"time"
 
@@ -11,50 +11,47 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Helper function to create a test BadgerDB store
-func createTestBadgerStore(t *testing.T) *metadata.BadgerStore {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "badger")
+// Helper function to create a test Pebble store for metrics history tests.
+func createTestPebbleStore(t *testing.T) *metadata.PebbleStore {
+	t.Helper()
+	tmpDir, err := os.MkdirTemp("", "pebble-metrics-test-*")
+	require.NoError(t, err)
 
 	logger := logrus.New()
-	logger.SetLevel(logrus.ErrorLevel) // Only show errors in tests
+	logger.SetLevel(logrus.ErrorLevel)
 
-	opts := metadata.BadgerOptions{
-		DataDir:           dbPath,
-		SyncWrites:        false, // Faster for tests
-		CompactionEnabled: false, // Not needed for tests
-		Logger:            logger,
+	opts := metadata.PebbleOptions{
+		DataDir: tmpDir,
+		Logger:  logger,
 	}
 
-	store, err := metadata.NewBadgerStore(opts)
+	store, err := metadata.NewPebbleStore(opts)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		store.Close()
-		// Windows needs time to release file handles after Close()
-		// BadgerDB on Windows can take longer to release locks
-		time.Sleep(500 * time.Millisecond)
+		_ = store.Close()
+		_ = os.RemoveAll(tmpDir) // ignore error on Windows file locking
 	})
 
 	return store
 }
 
 func TestNewBadgerHistoryStore(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
+	pebbleStore := createTestPebbleStore(t)
 
-	store, err := NewBadgerHistoryStore(badgerStore, 30)
+	store, err := NewBadgerHistoryStore(pebbleStore, 30)
 	require.NoError(t, err)
 	require.NotNil(t, store)
 
 	assert.Equal(t, 30, store.retentionDays)
-	assert.NotNil(t, store.store)
+	assert.NotNil(t, store.kvStore)
 }
 
 func TestNewBadgerHistoryStore_DefaultRetention(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
+	pebbleStore := createTestPebbleStore(t)
 
 	// Pass 0 for retention, should default to 365
-	store, err := NewBadgerHistoryStore(badgerStore, 0)
+	store, err := NewBadgerHistoryStore(pebbleStore, 0)
 	require.NoError(t, err)
 	require.NotNil(t, store)
 
@@ -68,12 +65,12 @@ func TestNewBadgerHistoryStore_InvalidStore(t *testing.T) {
 	store, err := NewBadgerHistoryStore(invalidStore, 7)
 	assert.Error(t, err)
 	assert.Nil(t, store)
-	assert.Contains(t, err.Error(), "must implement metadata.Store interface")
+	assert.Contains(t, err.Error(), "must implement metadata.RawKVStore")
 }
 
 func TestBadgerHistoryStore_SaveSnapshot(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	data := map[string]interface{}{
@@ -87,8 +84,8 @@ func TestBadgerHistoryStore_SaveSnapshot(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_SaveSnapshot_MultipleTypes(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	systemData := map[string]interface{}{"cpu_usage": 45.5}
@@ -106,8 +103,8 @@ func TestBadgerHistoryStore_SaveSnapshot_MultipleTypes(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_GetLatestSnapshot(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	// Save a snapshot
@@ -129,8 +126,8 @@ func TestBadgerHistoryStore_GetLatestSnapshot(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_GetLatestSnapshot_NoData(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	// Get latest snapshot for non-existent type
@@ -140,8 +137,8 @@ func TestBadgerHistoryStore_GetLatestSnapshot_NoData(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_GetLatestSnapshot_UpdatesWithNewData(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	// Save first snapshot
@@ -165,8 +162,8 @@ func TestBadgerHistoryStore_GetLatestSnapshot_UpdatesWithNewData(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_GetSnapshots(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	// Save multiple snapshots (need 1 second between each because key uses Unix seconds)
@@ -191,8 +188,8 @@ func TestBadgerHistoryStore_GetSnapshots(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_GetSnapshots_EmptyRange(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	// Save a snapshot now
@@ -210,8 +207,8 @@ func TestBadgerHistoryStore_GetSnapshots_EmptyRange(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_GetSnapshots_FiltersByType(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	// Save snapshots of different types
@@ -235,8 +232,8 @@ func TestBadgerHistoryStore_GetSnapshots_FiltersByType(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_GetStats(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	// Initially should have 0 snapshots
@@ -262,8 +259,8 @@ func TestBadgerHistoryStore_GetStats(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_CleanupOldMetrics(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 1) // 1 day retention
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 1) // 1 day retention
 	require.NoError(t, err)
 
 	// Save a snapshot
@@ -283,8 +280,8 @@ func TestBadgerHistoryStore_CleanupOldMetrics(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_AggregateHourlyMetrics(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 30)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 30)
 	require.NoError(t, err)
 
 	// This test just verifies the method doesn't error
@@ -294,8 +291,8 @@ func TestBadgerHistoryStore_AggregateHourlyMetrics(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_GetSnapshotsIntelligent(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 30)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 30)
 	require.NoError(t, err)
 
 	// Save recent snapshots
@@ -316,8 +313,8 @@ func TestBadgerHistoryStore_GetSnapshotsIntelligent(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_GetSnapshotsIntelligent_OldData(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 30)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 30)
 	require.NoError(t, err)
 
 	// Query for old data (> 7 days ago, should try aggregates)
@@ -331,8 +328,8 @@ func TestBadgerHistoryStore_GetSnapshotsIntelligent_OldData(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_Close(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	// Close should not error (it's a no-op for BadgerDB)
@@ -345,8 +342,8 @@ func TestBadgerHistoryStore_Close(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_AggregateDataPoints(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	// Test aggregation with numeric values
@@ -365,8 +362,8 @@ func TestBadgerHistoryStore_AggregateDataPoints(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_AggregateDataPoints_EmptyInput(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	dataPoints := []map[string]interface{}{}
@@ -378,8 +375,8 @@ func TestBadgerHistoryStore_AggregateDataPoints_EmptyInput(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_AggregateDataPoints_MixedTypes(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	// Test with mixed numeric types and strings
@@ -399,8 +396,8 @@ func TestBadgerHistoryStore_AggregateDataPoints_MixedTypes(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_ConcurrentWrites(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	// Write snapshots with delay (BadgerDB keys use Unix seconds, concurrent writes overwrite)
@@ -425,8 +422,8 @@ func TestBadgerHistoryStore_ConcurrentWrites(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_MultipleTypes(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	types := []string{"system", "storage", "s3", "performance"}
@@ -452,8 +449,8 @@ func TestBadgerHistoryStore_MultipleTypes(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_LargeDataset(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	// Save 10 snapshots with delays (reduced from 50 to keep test time reasonable)
@@ -484,8 +481,8 @@ func TestBadgerHistoryStore_LargeDataset(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_GetAggregatedSnapshots(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	// This tests the method exists and doesn't error
@@ -500,8 +497,8 @@ func TestBadgerHistoryStore_GetAggregatedSnapshots(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_KeyGeneration(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	now := time.Now()
@@ -518,10 +515,6 @@ func TestBadgerHistoryStore_KeyGeneration(t *testing.T) {
 	latestKey := store.latestKey("system")
 	assert.Equal(t, "metrics:latest:system", string(latestKey))
 
-	// Test stats key format
-	statsKey := store.statsKey()
-	assert.Equal(t, "metrics:stats", string(statsKey))
-
 	// Test prefix formats
 	snapshotPrefix := store.snapshotPrefix("system")
 	assert.Equal(t, "metrics:snapshot:system:", string(snapshotPrefix))
@@ -531,8 +524,8 @@ func TestBadgerHistoryStore_KeyGeneration(t *testing.T) {
 }
 
 func TestBadgerHistoryStore_TimestampOrdering(t *testing.T) {
-	badgerStore := createTestBadgerStore(t)
-	store, err := NewBadgerHistoryStore(badgerStore, 7)
+	pebbleStore := createTestPebbleStore(t)
+	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
 	// Save snapshots with known timestamps

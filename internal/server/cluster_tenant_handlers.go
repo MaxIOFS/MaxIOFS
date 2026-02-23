@@ -111,10 +111,18 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 		return fmt.Errorf("failed to check tenant existence: %w", err)
 	}
 
-	now := time.Now()
-
 	if exists {
-		// Update existing tenant
+		// LWW: only apply if the incoming record is strictly newer than the local one.
+		var localUpdatedAt time.Time
+		if err := s.db.QueryRowContext(ctx, `SELECT updated_at FROM tenants WHERE id = ?`, tenant.ID).Scan(&localUpdatedAt); err != nil {
+			return fmt.Errorf("failed to read local tenant updated_at: %w", err)
+		}
+		if !tenant.UpdatedAt.After(localUpdatedAt) {
+			logrus.WithField("tenant_id", tenant.ID).Debug("Skipping tenant update: local record is newer or equal (LWW)")
+			return nil
+		}
+
+		// Update existing tenant — preserve source updated_at so all nodes agree on the timestamp.
 		_, err = s.db.ExecContext(ctx, `
 			UPDATE tenants SET
 				name = ?,
@@ -140,7 +148,7 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 			tenant.MaxBuckets,
 			tenant.CurrentBuckets,
 			string(metadataJSON),
-			now,
+			tenant.UpdatedAt,
 			tenant.ID,
 		)
 		if err != nil {
@@ -149,7 +157,7 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 
 		logrus.WithField("tenant_id", tenant.ID).Debug("Updated existing tenant")
 	} else {
-		// Insert new tenant (preserve original created_at from source)
+		// Insert new tenant (preserve original created_at and updated_at from source)
 		_, err = s.db.ExecContext(ctx, `
 			INSERT INTO tenants (
 				id, name, display_name, description, status,
@@ -169,7 +177,7 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 			tenant.CurrentBuckets,
 			string(metadataJSON),
 			tenant.CreatedAt,
-			now,
+			tenant.UpdatedAt,
 		)
 		if err != nil {
 			// Check if it's a unique constraint violation (race condition)
@@ -298,10 +306,18 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 		return fmt.Errorf("failed to check user existence: %w", err)
 	}
 
-	now := time.Now().Unix()
-
 	if exists {
-		// Update existing user
+		// LWW: only apply if the incoming record is strictly newer than the local one.
+		var localUpdatedAt int64
+		if err := s.db.QueryRowContext(ctx, `SELECT updated_at FROM users WHERE id = ?`, user.ID).Scan(&localUpdatedAt); err != nil {
+			return fmt.Errorf("failed to read local user updated_at: %w", err)
+		}
+		if user.UpdatedAt <= localUpdatedAt {
+			logrus.WithField("user_id", user.ID).Debug("Skipping user update: local record is newer or equal (LWW)")
+			return nil
+		}
+
+		// Update existing user — preserve source updated_at so all nodes agree on the timestamp.
 		_, err = s.db.ExecContext(ctx, `
 			UPDATE users SET
 				username = ?,
@@ -339,7 +355,7 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 			user.LanguagePreference,
 			user.AuthProvider,
 			user.ExternalID,
-			now,
+			user.UpdatedAt,
 			user.ID,
 		)
 		if err != nil {
@@ -348,7 +364,7 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 
 		logrus.WithField("user_id", user.ID).Debug("Updated existing user")
 	} else {
-		// Insert new user (preserve original created_at from source)
+		// Insert new user (preserve original created_at and updated_at from source)
 		_, err = s.db.ExecContext(ctx, `
 			INSERT INTO users (
 				id, username, password_hash, display_name, email, status, tenant_id,
@@ -375,7 +391,7 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 			user.AuthProvider,
 			user.ExternalID,
 			user.CreatedAt,
-			now,
+			user.UpdatedAt,
 		)
 		if err != nil {
 			// Check if it's a unique constraint violation (race condition)
@@ -406,7 +422,8 @@ func (s *Server) handleReceiveTenantDeleteSync(w http.ResponseWriter, r *http.Re
 	}
 
 	var deleteData struct {
-		ID string `json:"id"`
+		ID        string `json:"id"`
+		DeletedAt int64  `json:"deleted_at"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&deleteData); err != nil {
@@ -425,6 +442,19 @@ func (s *Server) handleReceiveTenantDeleteSync(w http.ResponseWriter, r *http.Re
 		"source_node_id": sourceNodeID,
 		"tenant_id":      deleteData.ID,
 	}).Info("Receiving tenant deletion from synchronization")
+
+	// Phase 4: Tombstone vs entity LWW.
+	// If the local tenant was updated after the tombstone's deleted_at, the entity wins.
+	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeTenant, deleteData.ID, deleteData.DeletedAt) {
+		logrus.WithFields(logrus.Fields{
+			"source_node_id": sourceNodeID,
+			"tenant_id":      deleteData.ID,
+		}).Info("Skipping tenant deletion: local entity was updated after tombstone (LWW)")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (entity is newer than tombstone)"})
+		return
+	}
 
 	// Delete users belonging to this tenant first (cascade)
 	_, err := s.db.ExecContext(ctx, `DELETE FROM access_keys WHERE user_id IN (SELECT id FROM users WHERE tenant_id = ?)`, deleteData.ID)
@@ -482,7 +512,8 @@ func (s *Server) handleReceiveUserDeleteSync(w http.ResponseWriter, r *http.Requ
 	}
 
 	var deleteData struct {
-		ID string `json:"id"`
+		ID        string `json:"id"`
+		DeletedAt int64  `json:"deleted_at"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&deleteData); err != nil {
@@ -501,6 +532,18 @@ func (s *Server) handleReceiveUserDeleteSync(w http.ResponseWriter, r *http.Requ
 		"source_node_id": sourceNodeID,
 		"user_id":        deleteData.ID,
 	}).Info("Receiving user deletion from synchronization")
+
+	// Phase 4: Tombstone vs entity LWW.
+	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeUser, deleteData.ID, deleteData.DeletedAt) {
+		logrus.WithFields(logrus.Fields{
+			"source_node_id": sourceNodeID,
+			"user_id":        deleteData.ID,
+		}).Info("Skipping user deletion: local entity was updated after tombstone (LWW)")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (entity is newer than tombstone)"})
+		return
+	}
 
 	// Delete access keys for this user first (cascade)
 	_, err := s.db.ExecContext(ctx, `DELETE FROM access_keys WHERE user_id = ?`, deleteData.ID)

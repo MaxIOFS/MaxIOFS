@@ -9,6 +9,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// StalenessThreshold is the duration after which an unreachable node is considered stale.
+// Matches the tombstone TTL so that stale detection and deletion-log cleanup are aligned.
+const StalenessThreshold = 7 * 24 * time.Hour
+
 // CheckNodeHealth performs a health check on a specific node
 func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthStatus, error) {
 	node, err := m.GetNode(ctx, nodeID)
@@ -27,15 +31,31 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 		status = HealthStatusDegraded
 	}
 
-	// Update node health in database
+	// Update node health in database.
+	// last_seen is only updated when the node is reachable, so it tracks
+	// "last time alive" rather than "last time we tried".
 	now := time.Now()
-	_, err = m.db.ExecContext(ctx, `
-		UPDATE cluster_nodes
-		SET health_status = ?, last_health_check = ?, last_seen = ?, latency_ms = ?, updated_at = ?
-		WHERE id = ?
-	`, status, now, now, result.LatencyMs, now, nodeID)
+	if result.Healthy {
+		_, err = m.db.ExecContext(ctx, `
+			UPDATE cluster_nodes
+			SET health_status = ?, last_health_check = ?, last_seen = ?, latency_ms = ?,
+			    updated_at = ?, is_stale = 0
+			WHERE id = ?
+		`, status, now, now, result.LatencyMs, now, nodeID)
+	} else {
+		_, err = m.db.ExecContext(ctx, `
+			UPDATE cluster_nodes
+			SET health_status = ?, last_health_check = ?, latency_ms = ?, updated_at = ?
+			WHERE id = ?
+		`, status, now, result.LatencyMs, now, nodeID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to update node health: %w", err)
+	}
+
+	// If the node is unreachable, check whether it has crossed the staleness threshold.
+	if !result.Healthy {
+		m.checkAndMarkStale(ctx, node, now)
 	}
 
 	// Record health check in history
@@ -151,6 +171,38 @@ func (m *Manager) performHealthChecks(ctx context.Context) {
 
 		cancel()
 	}
+}
+
+// checkAndMarkStale marks a node as stale if it has been unreachable longer than StalenessThreshold.
+// It uses the node's pre-check LastSeen value (the last time it was actually alive).
+func (m *Manager) checkAndMarkStale(ctx context.Context, node *Node, now time.Time) {
+	if node.LastSeen == nil {
+		// Node was never successfully reached; nothing to compare against yet.
+		return
+	}
+	if now.Sub(*node.LastSeen) < StalenessThreshold {
+		return
+	}
+	if node.IsStale {
+		// Already marked — avoid redundant writes.
+		return
+	}
+
+	_, err := m.db.ExecContext(ctx,
+		"UPDATE cluster_nodes SET is_stale = 1, updated_at = ? WHERE id = ? AND is_stale = 0",
+		now, node.ID,
+	)
+	if err != nil {
+		m.log.WithError(err).Warn("Failed to mark node as stale")
+		return
+	}
+
+	m.log.WithFields(logrus.Fields{
+		"node_id":   node.ID,
+		"node_name": node.Name,
+		"last_seen": node.LastSeen.Format(time.RFC3339),
+		"offline_for": now.Sub(*node.LastSeen).String(),
+	}).Warn("Node marked as stale: offline beyond staleness threshold")
 }
 
 // CleanupHealthHistory removes old health check history entries

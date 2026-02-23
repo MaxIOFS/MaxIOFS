@@ -388,7 +388,7 @@ func (m *TenantSyncManager) syncDeletions(ctx context.Context, targetNodes []*No
 
 	for _, deletion := range deletions {
 		for _, node := range targetNodes {
-			if err := m.sendDeletionToNode(ctx, deletion.EntityID, node, localNodeID, nodeToken); err != nil {
+			if err := m.sendDeletionToNode(ctx, deletion.EntityID, deletion.DeletedAt, node, localNodeID, nodeToken); err != nil {
 				m.log.WithFields(logrus.Fields{
 					"tenant_id": deletion.EntityID,
 					"node_id":   node.ID,
@@ -400,8 +400,8 @@ func (m *TenantSyncManager) syncDeletions(ctx context.Context, targetNodes []*No
 }
 
 // sendDeletionToNode sends a tenant deletion request to a target node
-func (m *TenantSyncManager) sendDeletionToNode(ctx context.Context, tenantID string, node *Node, sourceNodeID, nodeToken string) error {
-	payload, _ := json.Marshal(map[string]string{"id": tenantID})
+func (m *TenantSyncManager) sendDeletionToNode(ctx context.Context, tenantID string, deletedAt int64, node *Node, sourceNodeID, nodeToken string) error {
+	payload, _ := json.Marshal(map[string]interface{}{"id": tenantID, "deleted_at": deletedAt})
 
 	url := fmt.Sprintf("%s/api/internal/cluster/tenant-delete-sync", node.Endpoint)
 

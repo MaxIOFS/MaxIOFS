@@ -36,12 +36,8 @@ func setupIntegrationTest(t *testing.T) (Manager, func()) {
 
 	// Initialize BadgerDB metadata store
 	dbPath := filepath.Join(tempDir, "metadata")
-	metadataStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
-		DataDir:           dbPath,
-		SyncWrites:        true, // Sync for testing
-		CompactionEnabled: false,
-		Logger:            logrus.StandardLogger(),
-	})
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: dbPath,
+		Logger:  logrus.StandardLogger(),})
 	if err != nil {
 		os.RemoveAll(tempDir)
 		t.Fatalf("Failed to create metadata store: %v", err)
@@ -470,12 +466,8 @@ func TestBucketManagerPersistence(t *testing.T) {
 	{
 		storageBackend, _ := storage.NewFilesystemBackend(storage.Config{Root: tempDir})
 		dbPath := filepath.Join(tempDir, "metadata")
-		metadataStore, _ := metadata.NewBadgerStore(metadata.BadgerOptions{
-			DataDir:           dbPath,
-			SyncWrites:        true,
-			CompactionEnabled: false,
-			Logger:            logrus.StandardLogger(),
-		})
+		metadataStore, _ := metadata.NewPebbleStore(metadata.PebbleOptions{			DataDir: dbPath,
+			Logger:  logrus.StandardLogger(),})
 
 		bm := NewManager(storageBackend, metadataStore)
 
@@ -507,12 +499,8 @@ func TestBucketManagerPersistence(t *testing.T) {
 	{
 		storageBackend, _ := storage.NewFilesystemBackend(storage.Config{Root: tempDir})
 		dbPath := filepath.Join(tempDir, "metadata")
-		metadataStore, _ := metadata.NewBadgerStore(metadata.BadgerOptions{
-			DataDir:           dbPath,
-			SyncWrites:        true,
-			CompactionEnabled: false,
-			Logger:            logrus.StandardLogger(),
-		})
+		metadataStore, _ := metadata.NewPebbleStore(metadata.PebbleOptions{			DataDir: dbPath,
+			Logger:  logrus.StandardLogger(),})
 		defer metadataStore.Close()
 
 		bm := NewManager(storageBackend, metadataStore)

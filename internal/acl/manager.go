@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/dgraph-io/badger/v4"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/sirupsen/logrus"
 )
 
 // aclManager implements the Manager interface
 type aclManager struct {
-	db *badger.DB
+	kvStore metadata.RawKVStore
 }
 
 // Storage key prefixes
@@ -24,31 +24,22 @@ const (
 func (m *aclManager) GetBucketACL(ctx context.Context, tenantID, bucketName string) (*ACL, error) {
 	key := m.bucketACLKey(tenantID, bucketName)
 
-	var acl ACL
-	err := m.db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get([]byte(key))
-		if err != nil {
-			return err
-		}
-
-		return item.Value(func(val []byte) error {
-			return json.Unmarshal(val, &acl)
-		})
-	})
-
+	data, err := m.kvStore.GetRaw(ctx, key)
 	if err != nil {
-		if err == badger.ErrKeyNotFound {
-			// Return default private ACL if not found
+		if err == metadata.ErrNotFound {
 			logrus.WithFields(logrus.Fields{
 				"tenant": tenantID,
 				"bucket": bucketName,
 			}).Debug("ACL not found, returning default private ACL")
-
 			return CreateDefaultACL("maxiofs", "MaxIOFS"), nil
 		}
 		return nil, fmt.Errorf("failed to get bucket ACL: %w", err)
 	}
 
+	var acl ACL
+	if err := json.Unmarshal(data, &acl); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal bucket ACL: %w", err)
+	}
 	return &acl, nil
 }
 
@@ -65,11 +56,7 @@ func (m *aclManager) SetBucketACL(ctx context.Context, tenantID, bucketName stri
 		return fmt.Errorf("failed to marshal ACL: %w", err)
 	}
 
-	err = m.db.Update(func(txn *badger.Txn) error {
-		return txn.Set([]byte(key), data)
-	})
-
-	if err != nil {
+	if err := m.kvStore.PutRaw(ctx, key, data); err != nil {
 		return fmt.Errorf("failed to set bucket ACL: %w", err)
 	}
 
@@ -87,32 +74,23 @@ func (m *aclManager) SetBucketACL(ctx context.Context, tenantID, bucketName stri
 func (m *aclManager) GetObjectACL(ctx context.Context, tenantID, bucketName, objectKey string) (*ACL, error) {
 	key := m.objectACLKey(tenantID, bucketName, objectKey)
 
-	var acl ACL
-	err := m.db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get([]byte(key))
-		if err != nil {
-			return err
-		}
-
-		return item.Value(func(val []byte) error {
-			return json.Unmarshal(val, &acl)
-		})
-	})
-
+	data, err := m.kvStore.GetRaw(ctx, key)
 	if err != nil {
-		if err == badger.ErrKeyNotFound {
-			// Return default private ACL if not found
+		if err == metadata.ErrNotFound {
 			logrus.WithFields(logrus.Fields{
 				"tenant": tenantID,
 				"bucket": bucketName,
 				"object": objectKey,
 			}).Debug("ACL not found, returning default private ACL")
-
 			return CreateDefaultACL("maxiofs", "MaxIOFS"), nil
 		}
 		return nil, fmt.Errorf("failed to get object ACL: %w", err)
 	}
 
+	var acl ACL
+	if err := json.Unmarshal(data, &acl); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal object ACL: %w", err)
+	}
 	return &acl, nil
 }
 
@@ -129,11 +107,7 @@ func (m *aclManager) SetObjectACL(ctx context.Context, tenantID, bucketName, obj
 		return fmt.Errorf("failed to marshal ACL: %w", err)
 	}
 
-	err = m.db.Update(func(txn *badger.Txn) error {
-		return txn.Set([]byte(key), data)
-	})
-
-	if err != nil {
+	if err := m.kvStore.PutRaw(ctx, key, data); err != nil {
 		return fmt.Errorf("failed to set object ACL: %w", err)
 	}
 
@@ -232,10 +206,8 @@ func (m *aclManager) grantMatchesUser(grant Grant, userID string) bool {
 	case GranteeTypeCanonicalUser:
 		return grant.Grantee.ID == userID
 	case GranteeTypeGroup:
-		// Group grants are checked separately
 		return false
 	case GranteeTypeAmazonCustomer:
-		// Email-based grants would need email lookup
 		return false
 	default:
 		return false
@@ -244,17 +216,10 @@ func (m *aclManager) grantMatchesUser(grant Grant, userID string) bool {
 
 // permissionSatisfies checks if a granted permission satisfies a required permission
 func (m *aclManager) permissionSatisfies(granted Permission, required Permission) bool {
-	// FULL_CONTROL satisfies everything
 	if granted == PermissionFullControl {
 		return true
 	}
-
-	// Exact match
-	if granted == required {
-		return true
-	}
-
-	return false
+	return granted == required
 }
 
 // bucketACLKey generates the storage key for a bucket ACL

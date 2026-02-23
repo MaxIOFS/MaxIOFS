@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,28 +17,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func setupTestStore(t *testing.T) *metadata.BadgerStore {
+func setupTestStore(t *testing.T) *metadata.PebbleStore {
+	t.Helper()
 	tmpDir, err := os.MkdirTemp("", "maxiofs-notif-test-*")
 	require.NoError(t, err)
-	opts := metadata.BadgerOptions{
+
+	opts := metadata.PebbleOptions{
 		DataDir: tmpDir,
 	}
-	store, err := metadata.NewBadgerStore(opts)
+	store, err := metadata.NewPebbleStore(opts)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		store.Close()
-		// On Windows, BadgerDB may hold file handles briefly after Close().
-		// Retry removal to avoid flaky test failures in CI/CD.
-		if runtime.GOOS == "windows" {
-			for i := 0; i < 10; i++ {
-				if err := os.RemoveAll(tmpDir); err == nil {
-					return
-				}
-				time.Sleep(50 * time.Millisecond)
-			}
-		}
-		os.RemoveAll(tmpDir)
+		_ = store.Close()
+		_ = os.RemoveAll(tmpDir) // ignore error on Windows file locking
 	})
 
 	return store

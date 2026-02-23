@@ -15,24 +15,23 @@ import (
 // PutObjectVersion Tests
 // ============================================================================
 
-func setupVersioningTestStore(t *testing.T) (*BadgerStore, func()) {
-	tmpDir, err := os.MkdirTemp("", "badger-versioning-test-*")
+func setupVersioningTestStore(t *testing.T) (*PebbleStore, func()) {
+	t.Helper()
+	tmpDir, err := os.MkdirTemp("", "pebble-versioning-test-*")
 	require.NoError(t, err)
 
 	logger := logrus.New()
 	logger.SetLevel(logrus.WarnLevel)
 
-	store, err := NewBadgerStore(BadgerOptions{
-		DataDir:           tmpDir,
-		SyncWrites:        false,
-		CompactionEnabled: false,
-		Logger:            logger,
+	store, err := NewPebbleStore(PebbleOptions{
+		DataDir: tmpDir,
+		Logger:  logger,
 	})
 	require.NoError(t, err)
 
 	cleanup := func() {
-		store.Close()
-		os.RemoveAll(tmpDir)
+		_ = store.Close()
+		_ = os.RemoveAll(tmpDir) // ignore error on Windows file locking
 	}
 
 	return store, cleanup

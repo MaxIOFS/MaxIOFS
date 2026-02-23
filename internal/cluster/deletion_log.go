@@ -90,6 +90,49 @@ func HasDeletion(ctx context.Context, db *sql.DB, entityType, entityID string) (
 	return exists, nil
 }
 
+// EntityIsNewerThanTombstone returns true when the locally stored entity was updated
+// strictly AFTER the tombstone's deleted_at timestamp.  When true, the entity wins
+// the LWW contest and the tombstone should be discarded.
+//
+// For entity types that have no updated_at column (AccessKey, BucketPermission) the
+// function always returns false so that the tombstone wins by default.
+func EntityIsNewerThanTombstone(ctx context.Context, db *sql.DB, entityType, entityID string, deletedAt int64) bool {
+	switch entityType {
+	case EntityTypeTenant:
+		var updatedAt time.Time
+		if err := db.QueryRowContext(ctx, `SELECT updated_at FROM tenants WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
+			return false // entity not found or error → tombstone wins
+		}
+		return updatedAt.Unix() > deletedAt
+
+	case EntityTypeUser:
+		var updatedAt int64
+		if err := db.QueryRowContext(ctx, `SELECT updated_at FROM users WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
+			return false
+		}
+		return updatedAt > deletedAt
+
+	case EntityTypeIDPProvider:
+		var updatedAt int64
+		if err := db.QueryRowContext(ctx, `SELECT updated_at FROM identity_providers WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
+			return false
+		}
+		return updatedAt > deletedAt
+
+	case EntityTypeGroupMapping:
+		var updatedAt int64
+		if err := db.QueryRowContext(ctx, `SELECT updated_at FROM idp_group_mappings WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
+			return false
+		}
+		return updatedAt > deletedAt
+
+	default:
+		// AccessKey, BucketPermission and any future types without updated_at:
+		// tombstone always wins.
+		return false
+	}
+}
+
 // CleanupOldDeletions removes tombstones older than the given duration
 func CleanupOldDeletions(ctx context.Context, db *sql.DB, maxAge time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-maxAge).Unix()

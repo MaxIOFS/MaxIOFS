@@ -12,24 +12,25 @@ import (
 )
 
 func setupObjectTestStore(t *testing.T) (Store, func()) {
-	tmpDir, err := os.MkdirTemp("", "metadata-objects-test-*")
+	t.Helper()
+	// Use os.MkdirTemp to avoid TempDir cleanup failures on Windows caused by
+	// Pebble holding OS-level file handles briefly after Close().
+	tmpDir, err := os.MkdirTemp("", "pebble-objects-test-*")
 	require.NoError(t, err)
 
 	logger := logrus.New()
 	logger.SetLevel(logrus.WarnLevel)
 
-	store, err := NewBadgerStore(BadgerOptions{
-		DataDir:           tmpDir,
-		SyncWrites:        false,
-		CompactionEnabled: false,
-		Logger:            logger,
+	store, err := NewPebbleStore(PebbleOptions{
+		DataDir: tmpDir,
+		Logger:  logger,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, store)
 
 	cleanup := func() {
-		store.Close()
-		os.RemoveAll(tmpDir)
+		_ = store.Close()
+		_ = os.RemoveAll(tmpDir) // ignore error on Windows file locking
 	}
 
 	return store, cleanup

@@ -69,6 +69,7 @@ type Server struct {
 	idpProviderSyncMgr      *cluster.IDPProviderSyncManager
 	groupMappingSyncMgr     *cluster.GroupMappingSyncManager
 	deletionLogSyncMgr      *cluster.DeletionLogSyncManager
+	staleReconciler         *cluster.StaleReconciler
 	notificationHub         *NotificationHub
 	systemMetrics           *metrics.SystemMetricsTracker
 	lifecycleWorker         *lifecycle.Worker
@@ -89,12 +90,15 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create storage backend: %w", err)
 	}
 
-	// Initialize metadata store (BadgerDB)
-	metadataStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
-		DataDir:           cfg.DataDir,
-		SyncWrites:        false, // Async for performance
-		CompactionEnabled: true,  // Auto GC
-		Logger:            logrus.StandardLogger(),
+	// Migrate BadgerDB → Pebble if an existing BadgerDB installation is detected
+	if err := metadata.MigrateFromBadgerIfNeeded(cfg.DataDir, logrus.StandardLogger()); err != nil {
+		return nil, fmt.Errorf("metadata migration failed: %w", err)
+	}
+
+	// Initialize metadata store (Pebble)
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: cfg.DataDir,
+		Logger:  logrus.StandardLogger(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metadata store: %w", err)
@@ -343,6 +347,9 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize deletion log synchronization manager
 	deletionLogSyncMgr := cluster.NewDeletionLogSyncManager(db, clusterManager)
 
+	// Initialize stale-node reconciler
+	staleReconciler := cluster.NewStaleReconciler(db, clusterManager)
+
 	// Initialize cluster replication manager
 	clusterReplicationMgr := cluster.NewClusterReplicationManager(db, clusterManager, objectManager, tenantSyncMgr)
 
@@ -391,6 +398,7 @@ func New(cfg *config.Config) (*Server, error) {
 		idpProviderSyncMgr:      idpProviderSyncMgr,
 		groupMappingSyncMgr:     groupMappingSyncMgr,
 		deletionLogSyncMgr:      deletionLogSyncMgr,
+		staleReconciler:         staleReconciler,
 		notificationHub:         notificationHub,
 		systemMetrics:           systemMetrics,
 		lifecycleWorker:         lifecycleWorker,
@@ -489,6 +497,18 @@ func (s *Server) Start(ctx context.Context) error {
 		// Start bucket count updater (runs every 30 seconds)
 		go s.updateBucketCountPeriodically(ctx, 30*time.Second)
 		logrus.Info("Bucket count updater started")
+
+		// Run stale-node reconciliation before periodic sync managers start.
+		// The reconciler returns immediately when the node is not stale, so
+		// this is a no-op in the normal (non-recovery) case.
+		if s.staleReconciler != nil {
+			go func() {
+				if err := s.staleReconciler.Reconcile(ctx); err != nil {
+					logrus.WithError(err).Warn("Stale-node reconciliation encountered an error")
+				}
+			}()
+			logrus.Info("Stale-node reconciler started")
+		}
 
 		// Start tenant synchronization manager
 		if s.tenantSyncMgr != nil {
@@ -860,6 +880,9 @@ func (s *Server) setupRoutes() error {
 
 			// Quota aggregation endpoint (for cross-node quota checking)
 			internalClusterRouter.HandleFunc("/tenant/{tenantID}/storage", s.handleGetTenantStorage).Methods("GET")
+
+			// State snapshot endpoint (for stale-node reconciliation)
+			internalClusterRouter.HandleFunc("/state-snapshot", s.handleGetStateSnapshot).Methods("GET")
 
 			logrus.Info("Internal cluster API routes registered with HMAC authentication")
 		}

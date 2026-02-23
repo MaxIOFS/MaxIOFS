@@ -64,12 +64,8 @@ func setupTestServer(t *testing.T) (*Server, string, func()) {
 	require.NoError(t, err)
 
 	// Initialize metadata store
-	metadataStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
-		DataDir:           cfg.DataDir,
-		SyncWrites:        false,
-		CompactionEnabled: true,
-		Logger:            logrus.StandardLogger(),
-	})
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: cfg.DataDir,
+		Logger:  logrus.StandardLogger(),})
 	require.NoError(t, err)
 
 	// Initialize managers

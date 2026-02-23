@@ -358,7 +358,7 @@ func (m *GroupMappingSyncManager) syncDeletions(ctx context.Context, targetNodes
 
 	for _, deletion := range deletions {
 		for _, node := range targetNodes {
-			if err := m.sendDeletionToNode(ctx, deletion.EntityID, node, localNodeID, nodeToken); err != nil {
+			if err := m.sendDeletionToNode(ctx, deletion.EntityID, deletion.DeletedAt, node, localNodeID, nodeToken); err != nil {
 				m.log.WithFields(logrus.Fields{
 					"mapping_id": deletion.EntityID,
 					"node_id":    node.ID,
@@ -370,8 +370,8 @@ func (m *GroupMappingSyncManager) syncDeletions(ctx context.Context, targetNodes
 }
 
 // sendDeletionToNode sends a group mapping deletion request to a target node
-func (m *GroupMappingSyncManager) sendDeletionToNode(ctx context.Context, mappingID string, node *Node, sourceNodeID, nodeToken string) error {
-	payload, _ := json.Marshal(map[string]string{"id": mappingID})
+func (m *GroupMappingSyncManager) sendDeletionToNode(ctx context.Context, mappingID string, deletedAt int64, node *Node, sourceNodeID, nodeToken string) error {
+	payload, _ := json.Marshal(map[string]interface{}{"id": mappingID, "deleted_at": deletedAt})
 
 	url := fmt.Sprintf("%s/api/internal/cluster/group-mapping-delete-sync", node.Endpoint)
 

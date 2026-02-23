@@ -474,7 +474,7 @@ func TestIDPProviderSyncManager_SendDeletionToNode(t *testing.T) {
 	clusterManager := NewManager(db, "http://localhost:8080")
 	syncManager := NewIDPProviderSyncManager(db, clusterManager)
 
-	err := syncManager.sendDeletionToNode(ctx, "idp-1", node, "local-node", "test-token")
+	err := syncManager.sendDeletionToNode(ctx, "idp-1", time.Now().Unix(), node, "local-node", "test-token")
 	require.NoError(t, err)
 
 	select {

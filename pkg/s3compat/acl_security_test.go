@@ -96,12 +96,8 @@ func setupACLTestEnvironment(t *testing.T) *aclTestEnv {
 
 	// Initialize metadata store
 	metadataDir := filepath.Join(tempDir, "metadata")
-	metadataStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
-		DataDir:           metadataDir,
-		SyncWrites:        false,
-		CompactionEnabled: false,
-		Logger:            logrus.StandardLogger(),
-	})
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: metadataDir,
+		Logger:  logrus.StandardLogger(),})
 	require.NoError(t, err)
 
 	// Create managers

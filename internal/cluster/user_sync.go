@@ -388,7 +388,7 @@ func (m *UserSyncManager) syncDeletions(ctx context.Context, targetNodes []*Node
 
 	for _, deletion := range deletions {
 		for _, node := range targetNodes {
-			if err := m.sendDeletionToNode(ctx, deletion.EntityID, node, localNodeID, nodeToken); err != nil {
+			if err := m.sendDeletionToNode(ctx, deletion.EntityID, deletion.DeletedAt, node, localNodeID, nodeToken); err != nil {
 				m.log.WithFields(logrus.Fields{
 					"user_id": deletion.EntityID,
 					"node_id": node.ID,
@@ -400,8 +400,8 @@ func (m *UserSyncManager) syncDeletions(ctx context.Context, targetNodes []*Node
 }
 
 // sendDeletionToNode sends a user deletion request to a target node
-func (m *UserSyncManager) sendDeletionToNode(ctx context.Context, userID string, node *Node, sourceNodeID, nodeToken string) error {
-	payload, _ := json.Marshal(map[string]string{"id": userID})
+func (m *UserSyncManager) sendDeletionToNode(ctx context.Context, userID string, deletedAt int64, node *Node, sourceNodeID, nodeToken string) error {
+	payload, _ := json.Marshal(map[string]interface{}{"id": userID, "deleted_at": deletedAt})
 
 	url := fmt.Sprintf("%s/api/internal/cluster/user-delete-sync", node.Endpoint)
 

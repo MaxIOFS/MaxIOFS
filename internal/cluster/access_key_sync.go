@@ -349,7 +349,7 @@ func (m *AccessKeySyncManager) syncDeletions(ctx context.Context, targetNodes []
 
 	for _, deletion := range deletions {
 		for _, node := range targetNodes {
-			if err := m.sendDeletionToNode(ctx, deletion.EntityID, node, localNodeID, nodeToken); err != nil {
+			if err := m.sendDeletionToNode(ctx, deletion.EntityID, deletion.DeletedAt, node, localNodeID, nodeToken); err != nil {
 				m.log.WithFields(logrus.Fields{
 					"access_key_id": deletion.EntityID,
 					"node_id":       node.ID,
@@ -361,8 +361,8 @@ func (m *AccessKeySyncManager) syncDeletions(ctx context.Context, targetNodes []
 }
 
 // sendDeletionToNode sends an access key deletion request to a target node
-func (m *AccessKeySyncManager) sendDeletionToNode(ctx context.Context, accessKeyID string, node *Node, sourceNodeID, nodeToken string) error {
-	payload, _ := json.Marshal(map[string]string{"id": accessKeyID})
+func (m *AccessKeySyncManager) sendDeletionToNode(ctx context.Context, accessKeyID string, deletedAt int64, node *Node, sourceNodeID, nodeToken string) error {
+	payload, _ := json.Marshal(map[string]interface{}{"id": accessKeyID, "deleted_at": deletedAt})
 
 	url := fmt.Sprintf("%s/api/internal/cluster/access-key-delete-sync", node.Endpoint)
 

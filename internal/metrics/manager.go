@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/prometheus/client_golang/prometheus"
@@ -1060,19 +1059,17 @@ func (m *metricsManager) Middleware() func(http.Handler) http.Handler {
 
 // Lifecycle Implementation
 
-// restorePersistedCounters loads persisted counter values from BadgerDB
+// restorePersistedCounters loads persisted counter values from the kvStore.
 func (m *metricsManager) restorePersistedCounters() error {
 	if m.historyStore == nil {
 		return fmt.Errorf("history store not available")
 	}
 
-	// Try to get the last persisted state
 	badgerHistory, ok := m.historyStore.(*BadgerHistoryStore)
 	if !ok {
-		return fmt.Errorf("history store is not BadgerDB-backed")
+		return fmt.Errorf("history store is not a BadgerHistoryStore")
 	}
 
-	// Restore counters using a special key
 	var persistedState struct {
 		TotalRequests   uint64    `json:"total_requests"`
 		TotalErrors     uint64    `json:"total_errors"`
@@ -1081,32 +1078,19 @@ func (m *metricsManager) restorePersistedCounters() error {
 		ServerStartTime time.Time `json:"server_start_time"`
 	}
 
-	// Cast to BadgerStore to access DB
-	badgerStore, ok := badgerHistory.store.(*metadata.BadgerStore)
-	if !ok {
-		return fmt.Errorf("underlying store is not BadgerStore")
-	}
-
-	key := []byte("metrics:persisted_state")
-	err := badgerStore.DB().View(func(txn *badger.Txn) error {
-		item, err := txn.Get(key)
-		if err != nil {
-			return err
-		}
-		return item.Value(func(val []byte) error {
-			return json.Unmarshal(val, &persistedState)
-		})
-	})
-
-	if err == badger.ErrKeyNotFound {
-		// First run, no persisted state
+	data, err := badgerHistory.kvStore.GetRaw(context.Background(), "metrics:persisted_state")
+	if err == metadata.ErrNotFound {
 		logrus.Info("No persisted metrics counters found, starting fresh")
 		return nil
-	} else if err != nil {
+	}
+	if err != nil {
 		return fmt.Errorf("failed to restore persisted counters: %w", err)
 	}
 
-	// Restore the values
+	if err := json.Unmarshal(data, &persistedState); err != nil {
+		return fmt.Errorf("failed to unmarshal persisted state: %w", err)
+	}
+
 	atomic.StoreUint64(&m.totalRequests, persistedState.TotalRequests)
 	atomic.StoreUint64(&m.totalErrors, persistedState.TotalErrors)
 	atomic.StoreUint64(&m.totalLatencyMs, persistedState.TotalLatencyMs)
@@ -1122,15 +1106,15 @@ func (m *metricsManager) restorePersistedCounters() error {
 	return nil
 }
 
-// persistCounters saves current counter values to BadgerDB
+// persistCounters saves current counter values to the kvStore.
 func (m *metricsManager) persistCounters() error {
 	if m.historyStore == nil {
-		return nil // Not an error, just skip
+		return nil
 	}
 
 	badgerHistory, ok := m.historyStore.(*BadgerHistoryStore)
 	if !ok {
-		return nil // Not using BadgerDB, skip
+		return nil
 	}
 
 	persistedState := struct {
@@ -1152,21 +1136,9 @@ func (m *metricsManager) persistCounters() error {
 		return fmt.Errorf("failed to marshal persisted state: %w", err)
 	}
 
-	// Cast to BadgerStore to access DB
-	badgerStore, ok := badgerHistory.store.(*metadata.BadgerStore)
-	if !ok {
-		return fmt.Errorf("underlying store is not BadgerStore")
-	}
-
-	key := []byte("metrics:persisted_state")
-	err = badgerStore.DB().Update(func(txn *badger.Txn) error {
-		return txn.Set(key, data)
-	})
-
-	if err != nil {
+	if err := badgerHistory.kvStore.PutRaw(context.Background(), "metrics:persisted_state", data); err != nil {
 		return fmt.Errorf("failed to persist counters: %w", err)
 	}
-
 	return nil
 }
 

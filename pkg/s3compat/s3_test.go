@@ -111,12 +111,8 @@ func setupCompleteS3Environment(t *testing.T) *s3TestEnv {
 
 	// Initialize BadgerDB metadata store
 	dbPath := filepath.Join(tempDir, "metadata")
-	metadataStore, err := metadata.NewBadgerStore(metadata.BadgerOptions{
-		DataDir:           dbPath,
-		SyncWrites:        true,
-		CompactionEnabled: false,
-		Logger:            logrus.StandardLogger(),
-	})
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: dbPath,
+		Logger:  logrus.StandardLogger(),})
 	require.NoError(t, err, "Failed to create metadata store")
 
 	// Create managers
