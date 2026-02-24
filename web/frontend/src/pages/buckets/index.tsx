@@ -83,6 +83,47 @@ export default function BucketsPage() {
   const { data: users }   = useQuery({ queryKey: ['users'],   queryFn: APIClient.getUsers });
   const { data: tenants } = useQuery({ queryKey: ['tenants'], queryFn: APIClient.getTenants });
 
+
+  // ── Load integrity history for all buckets ───────────────────────────────────
+  useEffect(() => {
+    if (!buckets) return;
+
+    buckets.forEach(async (bucket) => {
+      const key = getBucketKey(bucket);
+      if (scanStates[key]) return; // Skip if already loaded
+
+      try {
+        const history = await APIClient.getIntegrityHistory(
+          bucket.name,
+          bucket.tenant_id || bucket.tenantId
+        );
+
+        if (history.length > 0) {
+          const latest = history[0];
+          const scannedAt = new Date(latest.scannedAt);
+          setScanStates((prev) => ({
+            ...prev,
+            [key]: {
+              phase: 'done',
+              checked: latest.checked,
+              ok: latest.ok,
+              corrupted: latest.corrupted,
+              skipped: latest.skipped,
+              errors: latest.errors,
+              issues: latest.issues ?? [],
+              duration: latest.duration,
+              startedAt: scannedAt,
+              finishedAt: scannedAt,
+              source: latest.source,
+            },
+          }));
+        }
+      } catch (err) {
+        console.error(`Failed to load integrity history for bucket ${bucket.name}:`, err);
+      }
+    });
+  }, [buckets, scanStates]);
+
   // Fetch the persisted scan history whenever the modal is open.
   const integrityBucketKey = integrityBucket ? getBucketKey(integrityBucket) : null;
   const { data: integrityHistory = [] } = useQuery({
