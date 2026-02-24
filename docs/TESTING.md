@@ -304,12 +304,6 @@ npx vitest run --coverage
 | `filesystem_test.go` | Filesystem storage operations (read, write, delete, stat) |
 | `storage_bench_test.go` | Storage benchmarks (throughput, latency by file size) |
 
-### `pkg/compression/` — 1 test file
-
-| File | Description |
-|------|-------------|
-| `compression_test.go` | gzip/zstd compression roundtrip |
-
 ### `pkg/encryption/` — 2 test files
 
 | File | Description |
@@ -572,7 +566,7 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Storage | 2 | Filesystem, benchmarks |
 | Encryption | 2 | AES-256-CTR, benchmarks |
 | Replication | 2 | Manager, end-to-end |
-| Other | 10 | Config, migrations, lifecycle, notifications, presigned, settings, share, compression, cmd, embed |
-| **Total Go** | **112** | |
+| Other | 9 | Config, migrations, lifecycle, notifications, presigned, settings, share, cmd, embed |
+| **Total Go** | **111** | |
 | Frontend | 5 | Dashboard, Login, Users, Buckets, IDP |
 | Performance | 4 | Upload, download, mixed, common |

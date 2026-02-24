@@ -85,7 +85,7 @@ export default function AboutPage() {
                   MaxIOFS is a high-performance S3-compatible object storage system built with Go and React.
                   Designed to be simple, portable, and deployable as a single binary with an embedded modern
                   web interface. Features full multi-tenancy support, multi-node cluster with HA replication,
-                  SSO authentication (Google, Microsoft), LDAP/AD integration, BadgerDB-powered metadata storage,
+                  SSO authentication (Google, Microsoft), LDAP/AD integration, Pebble-powered metadata storage,
                   and comprehensive S3 API compatibility with 40+ operations including bulk operations, object lock,
                   and advanced bucket management.
                 </p>
@@ -135,7 +135,7 @@ export default function AboutPage() {
                   Project entirely developed by Aluisco Ricardo. MaxIOFS was born as a solution
                   to provide enterprise-grade S3-compatible object storage in a simple and efficient way,
                   with complete multi-tenant support, multi-node cluster for high availability,
-                  high-performance metadata storage using BadgerDB, and production-ready security features.
+                  high-performance metadata storage using Pebble (CockroachDB's crash-safe LSM-tree engine), and production-ready security features.
                 </p>
               </div>
 
@@ -205,7 +205,7 @@ export default function AboutPage() {
             <FeatureCard
               icon={Zap}
               title="High Performance"
-              description="BadgerDB v4 metadata store with transaction retry logic, stress-tested with 7000+ objects using MinIO Warp"
+              description="Pebble v1.1 (CockroachDB LSM-tree engine) for crash-safe object metadata with WAL-guaranteed durability, stress-tested with 7000+ objects using MinIO Warp"
             />
             <FeatureCard
               icon={Package}
@@ -235,7 +235,7 @@ export default function AboutPage() {
             <FeatureCard
               icon={Layers}
               title="Dual Storage"
-              description="BadgerDB v4 for object metadata, SQLite for authentication/audit/cluster, filesystem for objects with atomic operations"
+              description="Pebble v1.1 for object metadata (crash-safe WAL), SQLite for authentication/audit/cluster, filesystem for objects with atomic operations"
             />
             <FeatureCard
               icon={BarChart3}
@@ -274,7 +274,7 @@ export default function AboutPage() {
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
-                  BadgerDB v4 (Object Metadata)
+                  Pebble v1.1 (Object Metadata, crash-safe WAL)
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
@@ -333,15 +333,41 @@ export default function AboutPage() {
             New in v0.9.2-beta
           </h2>
           <div className="space-y-4">
+            <div className="border-l-4 border-indigo-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Metadata Engine: BadgerDB → Pebble
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Replaced BadgerDB with <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">github.com/cockroachdb/pebble</code> (CockroachDB's LSM-tree engine) for all S3 object and bucket metadata.
+                Pebble's crash-safe WAL eliminates the recurring BadgerDB MANIFEST corruption on power loss or process kill.
+                On first startup after upgrade, if <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">metadata/KEYREGISTRY</code> is detected,
+                all keys are automatically migrated to Pebble in batches with atomic directory renames — completely transparent to users.
+                Pure-Go, no CGO, same on-disk key format preserved byte-for-byte.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-green-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                Cluster: State Snapshot & Stale Reconciler
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                When a cluster node reconnects after a partition or extended downtime, it fetches a healthy peer's full state snapshot
+                and applies LWW (Last-Write-Wins) conflict resolution across all entity types (users, tenants, access keys, IDPs, group mappings).
+                Supports two modes: <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ModeOffline</code> (node was unreachable, no local writes) and
+                {' '}<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ModePartition</code> (node was isolated but continued serving clients, locally-newer entities are pushed to peers).
+                A new <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">last_local_write_at</code> column tracks client-driven writes per node for correct partition detection.
+              </p>
+            </div>
+
             <div className="border-l-4 border-red-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
                 Storage Metrics — Concurrent Write Reliability
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 Fixed a critical issue where bucket storage counters were under-reported under high concurrency.
-                BadgerDB's optimistic concurrency control (OCC) with only 5 retries caused metric updates to be
-                silently discarded when multiple S3 clients (e.g. VEEAM Backup with parallel upload threads) wrote
-                to the same bucket simultaneously. Replaced the retry loop with a per-bucket <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">sync.Mutex</code> via
+                The previous OCC retry loop (only 5 attempts) caused metric updates to be silently discarded when
+                multiple S3 clients (e.g. VEEAM Backup with parallel upload threads) wrote to the same bucket simultaneously.
+                Replaced with a per-bucket <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">sync.Mutex</code> via
                 {' '}<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">sync.Map</code>,
                 serializing updates at the Go level and making conflicts impossible by construction.
                 Storage metrics are now fully reliable under any concurrency level.
@@ -354,7 +380,7 @@ export default function AboutPage() {
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 Fixed <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">RecalculateBucketStats</code> silently
-                returning 0 objects and 0 bytes for tenant buckets. The function was scanning the wrong BadgerDB
+                returning 0 objects and 0 bytes for tenant buckets. The function was scanning the wrong
                 key prefix (<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">obj:bucketName:</code> instead
                 of <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">obj:tenantID/bucketName:</code>),
                 effectively resetting counters on every recalculation. Now correctly builds the full path for
@@ -364,14 +390,16 @@ export default function AboutPage() {
 
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Admin: Recalculate Bucket Stats Endpoint
+                Admin: Recalculate Bucket Stats Endpoint & Background Reconciler
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 New <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">POST /buckets/&#123;bucket&#125;/recalculate-stats</code> endpoint
-                for administrators. Performs a full BadgerDB scan to recompute object count and total size from
-                scratch, correcting any counters that diverged due to system restarts or missed updates under load.
+                for administrators to resync a bucket's counters from scratch.
                 Global admins can pass <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">?tenantId=</code> to
-                target a specific tenant's bucket. Returns the recalculated values in the response.
+                target a specific tenant's bucket. Additionally, a background goroutine recalculates{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ObjectCount</code> and{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">TotalSize</code> for every bucket every 15 minutes automatically,
+                acting as a continuous safety net for metrics that diverge under load or after restarts.
               </p>
             </div>
           </div>

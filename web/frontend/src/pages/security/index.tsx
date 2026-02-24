@@ -238,7 +238,7 @@ export default function SecurityPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Max Failed Attempts</span>
-                <span className="text-sm text-gray-600 dark:text-gray-400">{getSetting('security.max_login_attempts', '5')} attempts</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">{getSetting('security.max_failed_attempts', '5')} attempts</span>
               </div>
               {lockedUsers.length > 0 && (
                 <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
@@ -283,15 +283,22 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">HMAC-SHA256 Cluster Auth</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Secure inter-node communication with cryptographic signatures</p>
+                  <p className="font-medium text-gray-900 dark:text-white">Identity Providers (LDAP & OAuth2/OIDC)</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Enterprise SSO via LDAP/Active Directory and OAuth2/OIDC (Google, Okta, Keycloak, etc.)</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">TLS Cluster Communication</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Encrypted inter-node communication with mutual TLS between cluster members</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Bcrypt Password Hashing</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Industry-standard password encryption with salt</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Industry-standard password hashing with per-user salt</p>
                 </div>
               </div>
             </div>
@@ -308,14 +315,14 @@ export default function SecurityPage() {
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Rate Limiting</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">IP-based rate limiting ({getSetting('security.rate_limit_login', '5')} login attempts per minute)</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">IP-based rate limiting ({getSetting('security.ratelimit_login_per_minute', '5')} login attempts per minute)</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Account Lockout</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatic {formatDuration(getSetting('security.lockout_duration', '900'))} lockout after {getSetting('security.max_login_attempts', '5')} failed login attempts</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatic {formatDuration(getSetting('security.lockout_duration', '900'))} lockout after {getSetting('security.max_failed_attempts', '5')} failed login attempts</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -329,7 +336,14 @@ export default function SecurityPage() {
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Role-Based Access Control (RBAC)</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">4 roles: Admin, User, Read-Only, Guest with granular permissions</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">4 roles: Admin, User, Read-Only, Guest with granular bucket permissions</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Maintenance Mode</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Read-only lock for all S3 write operations during maintenance windows</p>
                 </div>
               </div>
             </div>
@@ -352,8 +366,8 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Encrypted Cluster Replication</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatic decrypt-on-source, re-encrypt-on-destination for HA</p>
+                  <p className="font-medium text-gray-900 dark:text-white">TLS-Encrypted Cluster Replication</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Mutual TLS between cluster nodes; SSE objects are re-encrypted per destination key</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -449,8 +463,8 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Dynamic Settings System</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Runtime configuration management without server restarts</p>
+                  <p className="font-medium text-gray-900 dark:text-white">Email Alerts (SMTP)</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatic email notifications for disk space alerts and tenant quota warnings</p>
                 </div>
               </div>
               <div className="pt-2 border-t border-gray-200 dark:border-gray-700">

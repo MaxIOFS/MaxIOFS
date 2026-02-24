@@ -731,9 +731,6 @@ export interface ServerConfig {
   storage: {
     backend: string;
     root: string;
-    enableCompression: boolean;
-    compressionType: string;
-    compressionLevel: number;
     enableEncryption: boolean;
     enableObjectLock: boolean;
   };
@@ -750,13 +747,13 @@ export interface ServerConfig {
     objectLock: boolean;
     versioning: boolean;
     encryption: boolean;
-    compression: boolean;
     multipart: boolean;
     presignedUrls: boolean;
     cors: boolean;
     lifecycle: boolean;
     tagging: boolean;
   };
+  maintenanceMode: boolean;
 }
 
 // Two-Factor Authentication types
@@ -856,7 +853,7 @@ export interface AuditLogsResponse {
 
 // Settings Types
 export type SettingType = 'string' | 'int' | 'bool' | 'json';
-export type SettingCategory = 'security' | 'audit' | 'storage' | 'metrics' | 'logging' | 'system';
+export type SettingCategory = 'security' | 'audit' | 'storage' | 'metrics' | 'logging' | 'system' | 'email';
 
 export interface Setting {
   key: string;
@@ -1252,6 +1249,32 @@ export interface SyncResult {
 export interface OAuthProviderInfo {
   preset: string;
   name: string;
+}
+
+// Integrity Verification Types
+export type IntegrityStatus = 'ok' | 'corrupted' | 'missing' | 'skipped' | 'error';
+
+export interface IntegrityResult {
+  key: string;
+  status: IntegrityStatus;
+  storedETag?: string;
+  computedETag?: string;
+  expectedSize?: number;
+  actualSize?: number;
+  reason?: string;
+  error?: string;
+}
+
+export interface BucketIntegrityReport {
+  bucket: string;
+  duration: string;
+  checked: number;
+  ok: number;
+  corrupted: number;
+  skipped: number;
+  errors: number;
+  issues?: IntegrityResult[];
+  nextMarker?: string;
 }
 
 // Re-export common types

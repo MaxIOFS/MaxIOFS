@@ -86,6 +86,7 @@ type Manager interface {
 	RecordFailedLogin(ctx context.Context, userID, ip string) error
 	RecordSuccessfulLogin(ctx context.Context, userID string) error
 	SetUserLockedCallback(callback func(*User))
+	SetStorageQuotaAlertCallback(callback func(tenantID string, currentBytes, maxBytes int64))
 
 	// Two-Factor Authentication
 	Setup2FA(ctx context.Context, userID string) (*TOTPSetup, error)
@@ -180,12 +181,13 @@ type AccessKey struct {
 
 // authManager implements the Manager interface
 type authManager struct {
-	config             config.AuthConfig
-	store              *SQLiteStore
-	rateLimiter        *LoginRateLimiter
-	auditManager       *audit.Manager
-	userLockedCallback func(*User)
-	settingsManager    SettingsManager
+	config                      config.AuthConfig
+	store                       *SQLiteStore
+	rateLimiter                 *LoginRateLimiter
+	auditManager                *audit.Manager
+	userLockedCallback          func(*User)
+	storageQuotaAlertCallback   func(tenantID string, currentBytes, maxBytes int64)
+	settingsManager             SettingsManager
 	clusterManager     interface {
 		IsClusterEnabled() bool
 	}
@@ -982,6 +984,12 @@ func (am *authManager) SetUserLockedCallback(callback func(*User)) {
 	am.userLockedCallback = callback
 }
 
+// SetStorageQuotaAlertCallback sets a callback invoked after every storage increment.
+// The callback receives the tenant ID, its new current storage bytes, and its max storage bytes.
+func (am *authManager) SetStorageQuotaAlertCallback(callback func(tenantID string, currentBytes, maxBytes int64)) {
+	am.storageQuotaAlertCallback = callback
+}
+
 // SetSettingsManager sets the settings manager for dynamic configuration
 func (am *authManager) SetSettingsManager(settingsMgr SettingsManager) {
 	am.settingsManager = settingsMgr
@@ -1061,7 +1069,20 @@ func (am *authManager) DecrementTenantBucketCount(ctx context.Context, tenantID 
 }
 
 func (am *authManager) IncrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error {
-	return am.store.IncrementTenantStorage(tenantID, bytes)
+	if err := am.store.IncrementTenantStorage(tenantID, bytes); err != nil {
+		return err
+	}
+	// Fire quota alert callback asynchronously — don't block the upload path
+	if am.storageQuotaAlertCallback != nil && tenantID != "" {
+		go func() {
+			tenant, err := am.store.GetTenant(tenantID)
+			if err != nil || tenant == nil || tenant.MaxStorageBytes == 0 {
+				return // unlimited or tenant not found — skip
+			}
+			am.storageQuotaAlertCallback(tenantID, tenant.CurrentStorageBytes, tenant.MaxStorageBytes)
+		}()
+	}
+	return nil
 }
 
 func (am *authManager) DecrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error {

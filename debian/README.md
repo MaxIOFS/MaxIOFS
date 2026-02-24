@@ -89,7 +89,6 @@ Key settings to configure:
 - `public_console_url`: Public web console URL
 - `enable_tls`: Enable HTTPS (recommended for production)
 - `cert_file` / `key_file`: TLS certificate paths
-- `storage.enable_compression`: Enable object compression
 - `storage.enable_encryption`: Enable encryption at rest
 - `auth.enable_auth`: Enable authentication (recommended)
 
@@ -314,8 +313,6 @@ cert_file: "/etc/letsencrypt/live/s3.mydomain.com/fullchain.pem"
 key_file: "/etc/letsencrypt/live/s3.mydomain.com/privkey.pem"
 
 storage:
-  enable_compression: true
-  compression_type: "zstd"
   enable_encryption: true
   encryption_key: "your-32-character-secret-key-here"
 ```

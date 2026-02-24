@@ -24,6 +24,7 @@ const (
 	CategoryMetrics  Category = "metrics"
 	CategoryLogging  Category = "logging"
 	CategorySystem   Category = "system"
+	CategoryEmail    Category = "email"
 )
 
 // Type represents the data type of a setting

@@ -636,6 +636,14 @@ func (m *mockManager) CopyObject(ctx context.Context, srcBucket, srcKey, dstBuck
 	return nil, nil
 }
 
+func (m *mockManager) VerifyObjectIntegrity(ctx context.Context, bucket, key string) (*IntegrityResult, error) {
+	return nil, nil
+}
+
+func (m *mockManager) VerifyBucketIntegrity(ctx context.Context, bucket, prefix, marker string, maxKeys int) (*BucketIntegrityReport, error) {
+	return nil, nil
+}
+
 func (m *mockManager) IsReady() bool {
 	return true
 }

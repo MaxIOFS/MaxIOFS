@@ -71,6 +71,7 @@ type Server struct {
 	deletionLogSyncMgr      *cluster.DeletionLogSyncManager
 	staleReconciler         *cluster.StaleReconciler
 	notificationHub         *NotificationHub
+	quotaAlerts             *quotaAlertTracker
 	systemMetrics           *metrics.SystemMetricsTracker
 	lifecycleWorker         *lifecycle.Worker
 	inventoryManager        *inventory.Manager
@@ -226,6 +227,9 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize SSE notification hub
 	notificationHub := NewNotificationHub()
+
+	// Initialize quota alert tracker
+	quotaAlerts := newQuotaAlertTracker()
 
 	// Initialize lifecycle worker
 	lifecycleWorker := lifecycle.NewWorker(bucketManager, objectManager, metadataStore)
@@ -400,6 +404,7 @@ func New(cfg *config.Config) (*Server, error) {
 		deletionLogSyncMgr:      deletionLogSyncMgr,
 		staleReconciler:         staleReconciler,
 		notificationHub:         notificationHub,
+		quotaAlerts:             quotaAlerts,
 		systemMetrics:           systemMetrics,
 		lifecycleWorker:         lifecycleWorker,
 		inventoryManager:        inventoryManager,
@@ -429,6 +434,11 @@ func New(cfg *config.Config) (*Server, error) {
 			"tenant_id": user.TenantID,
 		}).Info("Sending user locked notification to SSE clients")
 		server.notificationHub.SendNotification(notification)
+	})
+
+	// Connect storage quota alert callback to send SSE + email notifications
+	authManager.SetStorageQuotaAlertCallback(func(tenantID string, currentBytes, maxBytes int64) {
+		server.checkQuotaAlert(tenantID, currentBytes, maxBytes)
 	})
 
 	// Setup routes
@@ -479,6 +489,14 @@ func (s *Server) Start(ctx context.Context) error {
 	// Start bucket stats reconciler (runs every 15 minutes)
 	go s.startStatsReconciler(ctx, 15*time.Minute)
 	logrus.Info("Bucket stats reconciler started")
+
+	// Start disk space alert monitor (checks every 5 minutes)
+	s.startDiskAlertMonitor(ctx)
+	logrus.Info("Disk alert monitor started")
+
+	// Start data integrity scrubber (runs every 24 hours)
+	s.startIntegrityScrubber(ctx)
+	logrus.Info("Integrity scrubber started")
 
 	// Start replication manager
 	if s.replicationManager != nil {
@@ -924,6 +942,12 @@ func (s *Server) setupRoutes() error {
 	if s.config.Metrics.Enable {
 		s3Router.Use(s.metricsManager.Middleware())
 	}
+
+	// Maintenance mode: block S3 write operations (PUT/DELETE/POST) when enabled.
+	s3Router.Use(middleware.MaintenanceModeS3(func() bool {
+		enabled, _ := s.settingsManager.GetBool("system.maintenance_mode")
+		return enabled
+	}))
 
 	// Register API routes on the authenticated subrouter
 	apiHandler.RegisterRoutes(s3Router)

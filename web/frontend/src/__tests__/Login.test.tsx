@@ -53,9 +53,6 @@ describe('Login Page', () => {
       storage: {
         backend: 'badger',
         root: './data/storage',
-        enableCompression: false,
-        compressionType: 'gzip',
-        compressionLevel: 6,
         enableEncryption: false,
         enableObjectLock: false,
       },
@@ -72,13 +69,13 @@ describe('Login Page', () => {
         objectLock: true,
         versioning: true,
         encryption: true,
-        compression: true,
         multipart: true,
         presignedUrls: true,
         cors: true,
         lifecycle: true,
         tagging: true,
       },
+      maintenanceMode: false,
     });
   });
 

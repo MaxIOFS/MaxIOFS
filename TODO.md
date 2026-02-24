@@ -1,7 +1,7 @@
 # MaxIOFS - Development Roadmap
 
 **Version**: 0.9.2-beta
-**Last Updated**: February 23, 2026
+**Last Updated**: February 24, 2026
 **Status**: Beta - S3 Core 100% Compatible
 
 ## 📊 Project Status
@@ -244,17 +244,74 @@ Detection key:
 
 ---
 
-## 🟢 LOW PRIORITY
+## 🟡 PENDING — v0.9.2-beta
 
-- [ ] Video tutorials and getting started guides
-- [ ] Migration guides from MinIO/AWS S3
-- [ ] Integration test infrastructure (multi-node cluster) for cluster/replication coverage
+### 1. Maintenance Mode Enforcement ✅
+
+- [x] S3 middleware: PUT/POST/DELETE blocked with 503 + XML error; GET/HEAD pass through
+- [x] Console API middleware: mutating requests blocked with 503 JSON `MAINTENANCE_MODE`; exempt: `/auth/`, `/health`, `/settings`, `/api/internal/`, `/notifications`
+- [x] Frontend amber banner in AppLayout, reactive without page reload via `queryClient.invalidateQueries(['serverConfig'])`
+- [x] `handleGetServerConfig` includes `maintenanceMode: bool`
+- **Files**: `internal/middleware/maintenance.go`, `internal/server/console_api.go`, `internal/server/server.go`, `web/frontend/src/components/layout/AppLayout.tsx`
+
+---
+
+### 2. Disk Space Threshold Alerts ✅
+
+- [x] Settings: `system.disk_warning_threshold` (80%), `system.disk_critical_threshold` (90%)
+- [x] `internal/server/disk_alerts.go`: goroutine every 5 min, `diskAlertState` deduplication
+- [x] SSE to global admins + email to all active global admin accounts with email
+- [x] SMTP: `internal/email/sender.go`, `email.*` settings category, test email endpoint `POST /settings/email/test`
+- [x] Frontend Email tab in Settings with Test Email button
+- **Files**: `internal/email/sender.go`, `internal/server/disk_alerts.go`, `internal/settings/manager.go`, `web/frontend/src/pages/settings/index.tsx`
+
+---
+
+### 3. Tenant Quota Warning Notifications ✅
+
+- [x] Callback `SetStorageQuotaAlertCallback` added to auth Manager interface + `authManager` struct
+- [x] `IncrementTenantStorage` fires callback asynchronously after every successful increment
+- [x] `internal/server/quota_alerts.go`: `quotaAlertTracker` with per-tenant `sync.Map` deduplication
+- [x] SSE to tenant admins + global admins; email to both groups
+- [x] Tenants with `MaxStorageBytes = 0` (unlimited) skipped
+- [x] Frontend: storage bar thresholds aligned to 80% (amber) / 90% (red) with inline label
+- **Files**: `internal/auth/manager.go`, `internal/server/quota_alerts.go`, `internal/server/server.go`, `web/frontend/src/pages/tenants/index.tsx`
+
+---
+
+### 4. Object Integrity Verification (MEDIUM)
+
+**Status**: MD5 is computed at write time and stored as ETag in Pebble. Never re-verified after storage.
+
+- [ ] `VerifyObjectIntegrity(ctx, bucketPath, objectKey) error` in `internal/object/manager.go`: reads the object file from disk, computes MD5, compares with stored ETag — returns error on mismatch
+- [ ] Background scrubber goroutine (`startIntegrityScrubber`): runs once every 24 hours, iterates all objects via `ListObjects`, calls `VerifyObjectIntegrity` for each, logs corrupted objects as `logrus.Error` and records an audit event (`EventTypeDataCorruption`)
+- [ ] New audit event type `EventTypeDataCorruption` with fields: bucket, object key, expected ETag, detected ETag, file path
+- [ ] Admin endpoint `POST /buckets/{bucket}/verify-integrity` — triggers an on-demand scan for a specific bucket, returns count of objects checked and list of corrupted objects found
+- [ ] Skip objects with empty ETag (delete markers, multipart in-progress)
+- [ ] Skip encrypted objects where ETag is of the unencrypted content (verify using `original-etag` from storage metadata)
+
+---
+
+### 5. Operational Documentation (LOW)
+
+**Status**: Technical docs exist (`ARCHITECTURE.md`, `CLUSTER.md`, `SECURITY.md`). No operator runbook.
+
+- [ ] `docs/OPERATIONS.md` — runbook for production operators:
+  - What to do when a cluster node goes down
+  - How to safely remove a node from the cluster
+  - How to recover from a Pebble crash (WAL recovery is automatic, but document the indicators)
+  - How to interpret audit logs for security incidents
+  - Recommended monitoring alerts for Prometheus/Grafana
+  - Disk space management (what to do when approaching capacity)
 
 ---
 
 ## ✅ COMPLETED
 
 ### v0.9.2-beta (February 2026)
+- ✅ Maintenance Mode enforcement — S3 + Console API middleware, reactive frontend banner
+- ✅ Disk space alerts — SSE + SMTP email to global admins when disk crosses 80%/90%; test email endpoint
+- ✅ Tenant quota warnings — SSE + email on 80%/90% threshold crossing; per-tenant deduplication; colored storage bar in UI
 - ✅ Replaced BadgerDB with Pebble (CockroachDB's LSM-tree engine) for all S3 object/bucket metadata — crash-safe WAL eliminates MANIFEST corruption on unclean shutdown
 - ✅ Transparent auto-migration: `MigrateFromBadgerIfNeeded()` detects `metadata/KEYREGISTRY`, migrates all keys to Pebble in batches, renames directories atomically — no user intervention
 - ✅ Decoupled ACL, bucket, object, metrics, notifications from BadgerDB via `metadata.RawKVStore` interface
@@ -307,48 +364,6 @@ Detection key:
 - ✅ Multi-tenancy with quotas
 - ✅ Two-Factor Authentication
 - ✅ Bucket Policies, ACLs, CORS, Tags
-
----
-
-## 🗺️ Long-Term Roadmap
-
-### v0.9.0-beta (Q2 2026)
-- [x] LDAP/Active Directory integration
-- [x] OAuth2/OIDC SSO (Google, Microsoft presets)
-- [x] Identity Provider management UI (CRUD, test connection, LDAP browser, group mappings)
-- [x] External user import with role assignment (no auto-provisioning)
-- [x] Group-to-role mapping with manual and automatic sync
-- [x] OAuth login flow with CSRF protection and 2FA support
-- [x] Auth provider badge on user list (Local/LDAP/SSO)
-- [x] OAuth auto-provisioning with group mapping authorization (admin must define authorized groups)
-- [x] SSO one-button-per-type login (one "Sign in with Google" button, not one per provider)
-- [x] Cross-provider user lookup (search ALL OAuth providers on callback for multi-tenant routing)
-- [x] SSO user creation from Users page (auth provider dropdown, conditional password)
-- [x] Email auto-sync for SSO users (populated from OAuth profile on login)
-- [x] Redirect URI auto-generation from PublicConsoleURL
-- [x] SSO documentation (`docs/SSO.md`)
-- [ ] Integration test infrastructure (multi-node, remote S3) for cluster/replication coverage
-- [ ] Chaos engineering tests
-- [x] Unit tests for IDP crypto, store (SQLite CRUD), manager (encrypt/decrypt/mask/cache)
-- [x] Frontend tests for IDP page (list, search, delete, test connection, permissions, badges)
-- [x] Unit tests for OAuth provider: presets, TestConnection, GetAuthURL, fetchUserInfo with mock HTTP, ExchangeCode error handling (24 sub-tests)
-- [x] Unit tests for LDAP provider: EscapeFilter injection prevention, EntryToExternalUser attribute mapping/fallbacks, getUserAttributes, connection error handling (14 tests)
-- [x] Unit tests for server IDP handlers: resolveRoleFromMappings role priority, CRUD auth/validation, OAuth callback CSRF/state, handleOAuthStart, preset deduplication, sync handlers, helpers (55+ sub-tests)
-- [x] Public version endpoint (`GET /api/v1/version`) — login page fetches version dynamically
-- [x] Tombstone-based cluster deletion sync — prevents entity resurrection in bidirectional sync
-- [x] Cluster sync for IDP providers and group mappings (automatic, checksum-based skip)
-- [x] Unit tests for deletion log, IDP provider sync, and group mapping sync (36 new tests)
-- [x] Integration tests for IDP import/sync flows — `TestHandleIDPImportUsers`, `TestHandleSyncGroupMapping`, `TestHandleSyncAllMappings`, plus cluster sync managers
-
-### v1.0.0-RC (Q3 2026)
-- [ ] SAML SSO
-- [ ] Automatic cluster scaling
-- [ ] Security audit completion
-
-### v1.0.0 (Q4 2026)
-- [ ] PostgreSQL/MySQL metadata backends
-- [ ] Kubernetes operator & Helm charts
-- [ ] Cloud marketplace listings
 
 ---
 

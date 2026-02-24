@@ -52,9 +52,6 @@ trusted_proxies: []
 storage:
   backend: "filesystem"           # Only supported backend
   root: ""                        # Default: {data_dir}/objects
-  enable_compression: false       # Transparent compression
-  compression_level: 6            # 1-9
-  compression_type: "gzip"        # gzip | lz4 | zstd
   enable_encryption: false        # AES-256-CTR at rest
   encryption_key: ""              # 64 hex chars (32 bytes). Generate: openssl rand -hex 32
   enable_object_lock: true        # S3 Object Lock / WORM retention
@@ -126,8 +123,6 @@ All settings can be set via `MAXIOFS_` prefixed environment variables:
 **Storage:**
 - `MAXIOFS_STORAGE_BACKEND` — Storage backend
 - `MAXIOFS_STORAGE_ROOT` — Objects root directory
-- `MAXIOFS_STORAGE_ENABLE_COMPRESSION` — Enable compression
-- `MAXIOFS_STORAGE_COMPRESSION_TYPE` — Compression type
 - `MAXIOFS_STORAGE_ENABLE_ENCRYPTION` — Enable encryption
 - `MAXIOFS_STORAGE_ENCRYPTION_KEY` — Master encryption key (hex)
 

@@ -12,6 +12,8 @@ import {
   AlertCircle,
   Info,
   FileCode,
+  Mail,
+  SendHorizonal,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -35,7 +37,7 @@ const categoryInfo: Record<SettingCategory, { icon: React.ComponentType<any>; ti
   storage: {
     icon: HardDrive,
     title: 'Storage',
-    description: 'Default storage behavior and compression settings',
+    description: 'Default storage behavior and versioning settings',
   },
   metrics: {
     icon: Activity,
@@ -50,7 +52,12 @@ const categoryInfo: Record<SettingCategory, { icon: React.ComponentType<any>; ti
   system: {
     icon: Server,
     title: 'System',
-    description: 'System-wide settings and maintenance mode',
+    description: 'System-wide settings, maintenance mode, and disk alert thresholds',
+  },
+  email: {
+    icon: Mail,
+    title: 'Email',
+    description: 'SMTP configuration for disk space alerts and system notifications',
   },
 };
 
@@ -64,6 +71,8 @@ export default function SettingsPage() {
   const [hasChanges, setHasChanges] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [testEmailStatus, setTestEmailStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
+  const [testEmailMessage, setTestEmailMessage] = useState<string>('');
 
   // Only global admins can access settings
   useEffect(() => {
@@ -96,6 +105,7 @@ export default function SettingsPage() {
     mutationFn: (updates: Record<string, string>) => APIClient.bulkUpdateSettings(updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] });
+      queryClient.invalidateQueries({ queryKey: ['serverConfig'] });
       setEditedValues({});
       setHasChanges(false);
       setSaveSuccess(true);
@@ -134,6 +144,21 @@ export default function SettingsPage() {
     setEditedValues({});
     setHasChanges(false);
     setSaveError(null);
+  };
+
+  // Handle test email
+  const handleTestEmail = async () => {
+    setTestEmailStatus('sending');
+    setTestEmailMessage('');
+    try {
+      const result = await APIClient.testEmail();
+      setTestEmailStatus('success');
+      setTestEmailMessage(result.message);
+    } catch (err: any) {
+      setTestEmailStatus('error');
+      setTestEmailMessage(err.response?.data?.error || 'Failed to send test email');
+    }
+    setTimeout(() => setTestEmailStatus('idle'), 5000);
   };
 
   // Get current value (edited or original)
@@ -343,6 +368,40 @@ export default function SettingsPage() {
             </p>
           </div>
 
+          {/* Test Email button — shown only in email category */}
+          {activeCategory === 'email' && (
+            <div className="mb-6 pb-6 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Test SMTP Connection</h4>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Send a test email to your account address to verify the configuration
+                  </p>
+                </div>
+                <button
+                  onClick={handleTestEmail}
+                  disabled={testEmailStatus === 'sending'}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                >
+                  <SendHorizonal className="h-4 w-4" />
+                  {testEmailStatus === 'sending' ? 'Sending…' : 'Send Test Email'}
+                </button>
+              </div>
+              {testEmailStatus === 'success' && (
+                <div className="mt-3 flex items-center gap-2 text-sm text-green-700 dark:text-green-400">
+                  <CheckCircle className="h-4 w-4 flex-shrink-0" />
+                  {testEmailMessage}
+                </div>
+              )}
+              {testEmailStatus === 'error' && (
+                <div className="mt-3 flex items-center gap-2 text-sm text-red-700 dark:text-red-400">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  {testEmailMessage}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Settings List */}
           {currentSettings.length === 0 ? (
             <div className="text-center py-12">
@@ -505,7 +564,7 @@ export default function SettingsPage() {
                           </div>
                         ) : (
                           <input
-                            type="text"
+                            type={setting.key === 'email.smtp_password' ? 'password' : 'text'}
                             value={currentValue}
                             onChange={(e) => handleValueChange(setting.key, e.target.value, setting.value)}
                             className="w-full max-w-md px-4 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"

@@ -81,9 +81,6 @@ describe('Buckets Page', () => {
       storage: {
         backend: 'badger',
         root: './data/storage',
-        enableCompression: false,
-        compressionType: 'gzip',
-        compressionLevel: 6,
         enableEncryption: false,
         enableObjectLock: false,
       },
@@ -100,13 +97,13 @@ describe('Buckets Page', () => {
         objectLock: true,
         versioning: true,
         encryption: true,
-        compression: true,
         multipart: true,
         presignedUrls: true,
         cors: true,
         lifecycle: true,
         tagging: true,
       },
+      maintenanceMode: false,
     });
     vi.mocked(APIClient.getCurrentUser).mockResolvedValue({
       id: '1',

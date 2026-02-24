@@ -76,6 +76,7 @@ import type {
   OAuthProviderInfo,
   LoggingTarget,
   LoggingTargetsResponse,
+  BucketIntegrityReport,
 } from '@/types';
 
 // API Configuration
@@ -462,6 +463,22 @@ export class APIClient {
     }
 
     await apiClient.delete(url);
+  }
+
+  static async verifyBucketIntegrity(
+    bucketName: string,
+    params: { prefix?: string; marker?: string; maxKeys?: number; tenantId?: string } = {}
+  ): Promise<BucketIntegrityReport> {
+    const query = new URLSearchParams();
+    if (params.prefix)   query.set('prefix',   params.prefix);
+    if (params.marker)   query.set('marker',   params.marker);
+    if (params.maxKeys)  query.set('maxKeys',  String(params.maxKeys));
+    if (params.tenantId) query.set('tenantId', params.tenantId);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const response = await apiClient.post<APIResponse<BucketIntegrityReport>>(
+      `/buckets/${bucketName}/verify-integrity${qs}`
+    );
+    return response.data.data!;
   }
 
   static async updateBucketConfig(bucketName: string, config: EditBucketForm): Promise<Bucket> {
@@ -1212,6 +1229,11 @@ export class APIClient {
     const request: BulkUpdateSettingsRequest = { settings };
     const response = await apiClient.post<APIResponse<{ success: boolean; message: string; count: number }>>('/settings/bulk', request);
     return response.data.data!;
+  }
+
+  static async testEmail(): Promise<{ success: boolean; message: string }> {
+    const response = await apiClient.post<APIResponse<{ success: boolean; message: string }>>('/settings/email/test', {});
+    return response.data.data ?? response.data as unknown as { success: boolean; message: string };
   }
 
   // Logging Targets API

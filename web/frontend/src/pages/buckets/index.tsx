@@ -12,12 +12,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/Table';
-import { Box, Plus, Search, Settings, Trash2, Calendar, HardDrive, Lock, Shield, Building2, Users, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Box, Plus, Search, Settings, ShieldCheck, Trash2, Calendar, HardDrive, Lock, Shield, Building2, Users, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Bucket } from '@/types';
 import ModalManager from '@/lib/modals';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { BucketIntegrityModal } from '@/components/BucketIntegrityModal';
 
 type SortField = 'name' | 'creationDate' | 'objectCount' | 'size';
 type SortOrder = 'asc' | 'desc';
@@ -29,6 +30,7 @@ export default function BucketsPage() {
   const [itemsPerPage] = useState(10);
   const [sortField, setSortField] = useState<SortField>('creationDate');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [integrityBucket, setIntegrityBucket] = useState<Bucket | null>(null);
   const queryClient = useQueryClient();
 
   const { data: buckets, isLoading, error } = useQuery({
@@ -225,6 +227,7 @@ export default function BucketsPage() {
   }
 
   return (
+    <>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -430,6 +433,13 @@ export default function BucketsPage() {
                       <TableCell className="whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
+                            onClick={() => setIntegrityBucket(bucket)}
+                            className="p-2 text-gray-600 dark:text-gray-400 hover:text-success-600 dark:hover:text-success-400 hover:bg-gradient-to-br hover:from-success-50 hover:to-green-50 dark:hover:from-success-900/30 dark:hover:to-green-900/30 rounded-lg transition-all duration-200 shadow-sm hover:shadow"
+                            title="Verify Integrity"
+                          >
+                            <ShieldCheck className="h-4 w-4" />
+                          </button>
+                          <button
                             onClick={() => navigate(`${bucketPath}/settings`)}
                             className="p-2 text-gray-600 dark:text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-gradient-to-br hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 rounded-lg transition-all duration-200 shadow-sm hover:shadow"
                             title="Settings"
@@ -516,5 +526,15 @@ export default function BucketsPage() {
         )}
       </div>
     </div>
+
+    {/* Integrity Verification Modal */}
+    {integrityBucket && (
+      <BucketIntegrityModal
+        isOpen={!!integrityBucket}
+        onClose={() => setIntegrityBucket(null)}
+        bucket={integrityBucket}
+      />
+    )}
+    </>
   );
 }

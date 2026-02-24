@@ -50,11 +50,6 @@ type StorageConfig struct {
 	// Filesystem backend
 	Root string `mapstructure:"root"`
 
-	// Compression
-	EnableCompression bool   `mapstructure:"enable_compression"`
-	CompressionLevel  int    `mapstructure:"compression_level"`
-	CompressionType   string `mapstructure:"compression_type"` // gzip, lz4, zstd
-
 	// Encryption
 	EnableEncryption bool   `mapstructure:"enable_encryption"`
 	EncryptionKey    string `mapstructure:"encryption_key"`
@@ -153,9 +148,6 @@ func setDefaults(v *viper.Viper) {
 	// Storage defaults
 	v.SetDefault("storage.backend", "filesystem")
 	v.SetDefault("storage.root", "") // Empty by default, will be set based on data_dir
-	v.SetDefault("storage.enable_compression", false)
-	v.SetDefault("storage.compression_level", 6)
-	v.SetDefault("storage.compression_type", "gzip")
 	v.SetDefault("storage.enable_encryption", false)
 	v.SetDefault("storage.enable_object_lock", true)
 

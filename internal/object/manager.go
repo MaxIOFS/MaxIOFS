@@ -63,6 +63,10 @@ type Manager interface {
 	AbortMultipartUpload(ctx context.Context, uploadID string) error
 	ListMultipartUploads(ctx context.Context, bucket string) ([]MultipartUpload, error)
 
+	// Integrity verification
+	VerifyObjectIntegrity(ctx context.Context, bucket, key string) (*IntegrityResult, error)
+	VerifyBucketIntegrity(ctx context.Context, bucket, prefix, marker string, maxKeys int) (*BucketIntegrityReport, error)
+
 	// Health check
 	IsReady() bool
 }

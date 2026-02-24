@@ -28,6 +28,11 @@ func NewManager(db *sql.DB, logger *logrus.Logger) (*Manager, error) {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
+	// Remove deprecated settings from older versions
+	if err := m.removeDeprecated(); err != nil {
+		return nil, fmt.Errorf("failed to remove deprecated settings: %w", err)
+	}
+
 	// Insert default settings
 	if err := m.insertDefaults(); err != nil {
 		return nil, fmt.Errorf("failed to insert defaults: %w", err)
@@ -177,23 +182,6 @@ func (m *Manager) insertDefaults() error {
 			Description: "Default object lock retention period in days",
 			Editable:    true,
 		},
-		{
-			Key:         "storage.enable_compression",
-			Value:       "false",
-			Type:        string(TypeBool),
-			Category:    string(CategoryStorage),
-			Description: "Enable transparent compression for objects",
-			Editable:    true,
-		},
-		{
-			Key:         "storage.compression_level",
-			Value:       "6",
-			Type:        string(TypeInt),
-			Category:    string(CategoryStorage),
-			Description: "Compression level (1-9, higher = better compression, slower)",
-			Editable:    true,
-		},
-
 		// Metrics Settings
 		{
 			Key:         "metrics.enabled",
@@ -375,6 +363,80 @@ func (m *Manager) insertDefaults() error {
 			Type:        string(TypeInt),
 			Category:    string(CategorySystem),
 			Description: "Maximum upload size in MB (5GB default)",
+			Editable:    true,
+		},
+		{
+			Key:         "system.disk_warning_threshold",
+			Value:       "80",
+			Type:        string(TypeInt),
+			Category:    string(CategorySystem),
+			Description: "Disk usage warning threshold percentage (send alert when disk is above this %)",
+			Editable:    true,
+		},
+		{
+			Key:         "system.disk_critical_threshold",
+			Value:       "90",
+			Type:        string(TypeInt),
+			Category:    string(CategorySystem),
+			Description: "Disk usage critical threshold percentage (send urgent alert when disk is above this %)",
+			Editable:    true,
+		},
+
+		// Email / SMTP Settings
+		{
+			Key:         "email.enabled",
+			Value:       "false",
+			Type:        string(TypeBool),
+			Category:    string(CategoryEmail),
+			Description: "Enable email notifications (requires SMTP configuration below)",
+			Editable:    true,
+		},
+		{
+			Key:         "email.smtp_host",
+			Value:       "",
+			Type:        string(TypeString),
+			Category:    string(CategoryEmail),
+			Description: "SMTP server hostname or IP address (e.g. smtp.gmail.com)",
+			Editable:    true,
+		},
+		{
+			Key:         "email.smtp_port",
+			Value:       "587",
+			Type:        string(TypeInt),
+			Category:    string(CategoryEmail),
+			Description: "SMTP server port (587 for STARTTLS, 465 for implicit TLS, 25 for plain)",
+			Editable:    true,
+		},
+		{
+			Key:         "email.smtp_user",
+			Value:       "",
+			Type:        string(TypeString),
+			Category:    string(CategoryEmail),
+			Description: "SMTP authentication username (leave empty if server does not require auth)",
+			Editable:    true,
+		},
+		{
+			Key:         "email.smtp_password",
+			Value:       "",
+			Type:        string(TypeString),
+			Category:    string(CategoryEmail),
+			Description: "SMTP authentication password (stored in plain text in SQLite)",
+			Editable:    true,
+		},
+		{
+			Key:         "email.from_address",
+			Value:       "",
+			Type:        string(TypeString),
+			Category:    string(CategoryEmail),
+			Description: "Sender address for outgoing emails (e.g. alerts@yourdomain.com)",
+			Editable:    true,
+		},
+		{
+			Key:         "email.use_tls",
+			Value:       "false",
+			Type:        string(TypeBool),
+			Category:    string(CategoryEmail),
+			Description: "Use implicit TLS on connect (port 465). Disabled = use STARTTLS upgrade (port 587)",
 			Editable:    true,
 		},
 	}
@@ -682,4 +744,18 @@ func (m *Manager) GetCategories() ([]string, error) {
 	}
 
 	return categories, nil
+}
+
+// removeDeprecated deletes settings that have been removed in newer versions.
+func (m *Manager) removeDeprecated() error {
+	deprecated := []string{
+		"storage.enable_compression",
+		"storage.compression_level",
+	}
+	for _, key := range deprecated {
+		if _, err := m.db.Exec(`DELETE FROM system_settings WHERE key = ?`, key); err != nil {
+			return fmt.Errorf("failed to remove deprecated setting %s: %w", key, err)
+		}
+	}
+	return nil
 }

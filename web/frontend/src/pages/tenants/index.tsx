@@ -331,20 +331,32 @@ export default function TenantsPage() {
                           return `${formatBytes(remaining)} free`;
                         })()}
                       </div>
-                      <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                        <div
-                          className={`h-2 rounded-full ${
-                            getUsagePercentage(tenant.currentStorageBytes || 0, tenant.maxStorageBytes) > 90
-                              ? 'bg-red-500 dark:bg-red-400'
-                              : getUsagePercentage(tenant.currentStorageBytes || 0, tenant.maxStorageBytes) > 75
-                              ? 'bg-yellow-500 dark:bg-yellow-400'
-                              : 'bg-blue-500 dark:bg-blue-400'
-                          }`}
-                          style={{
-                            width: `${Math.min(getUsagePercentage(tenant.currentStorageBytes || 0, tenant.maxStorageBytes), 100)}%`,
-                          }}
-                        />
-                      </div>
+                      {(() => {
+                        const pct = getUsagePercentage(tenant.currentStorageBytes || 0, tenant.maxStorageBytes);
+                        const isCritical = pct >= 90;
+                        const isWarning = pct >= 80;
+                        return (
+                          <div className="space-y-0.5">
+                            <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                              <div
+                                className={`h-2 rounded-full transition-all ${
+                                  isCritical
+                                    ? 'bg-red-500 dark:bg-red-400'
+                                    : isWarning
+                                    ? 'bg-amber-500 dark:bg-amber-400'
+                                    : 'bg-blue-500 dark:bg-blue-400'
+                                }`}
+                                style={{ width: `${Math.min(pct, 100)}%` }}
+                              />
+                            </div>
+                            {(isCritical || isWarning) && (
+                              <p className={`text-xs font-medium ${isCritical ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                                {pct.toFixed(0)}% {isCritical ? '— Critical' : '— Warning'}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </TableCell>
                   <TableCell>

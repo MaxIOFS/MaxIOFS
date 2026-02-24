@@ -28,9 +28,6 @@ func TestSetDefaults_Storage(t *testing.T) {
 	setDefaults(v)
 
 	assert.Equal(t, "filesystem", v.GetString("storage.backend"))
-	assert.False(t, v.GetBool("storage.enable_compression"))
-	assert.Equal(t, 6, v.GetInt("storage.compression_level"))
-	assert.Equal(t, "gzip", v.GetString("storage.compression_type"))
 }
 
 func TestSetDefaults_Auth(t *testing.T) {
@@ -74,21 +71,15 @@ func TestConfig_Struct(t *testing.T) {
 
 func TestStorageConfig_Struct(t *testing.T) {
 	cfg := StorageConfig{
-		Backend:           "filesystem",
-		Root:              "/data/storage",
-		EnableCompression: true,
-		CompressionLevel:  9,
-		CompressionType:   "gzip",
-		EnableEncryption:  true,
-		EncryptionKey:     "test-key",
-		EnableObjectLock:  true,
+		Backend:          "filesystem",
+		Root:             "/data/storage",
+		EnableEncryption: true,
+		EncryptionKey:    "test-key",
+		EnableObjectLock: true,
 	}
 
 	assert.Equal(t, "filesystem", cfg.Backend)
 	assert.Equal(t, "/data/storage", cfg.Root)
-	assert.True(t, cfg.EnableCompression)
-	assert.Equal(t, 9, cfg.CompressionLevel)
-	assert.Equal(t, "gzip", cfg.CompressionType)
 	assert.True(t, cfg.EnableEncryption)
 	assert.Equal(t, "test-key", cfg.EncryptionKey)
 	assert.True(t, cfg.EnableObjectLock)
@@ -156,21 +147,6 @@ func TestConfig_PublicURLs(t *testing.T) {
 	assert.Equal(t, "https://console.example.com", cfg.PublicConsoleURL)
 }
 
-func TestStorageConfig_CompressionTypes(t *testing.T) {
-	types := []string{"gzip", "lz4", "zstd"}
-
-	for _, compressionType := range types {
-		t.Run(compressionType, func(t *testing.T) {
-			cfg := StorageConfig{
-				EnableCompression: true,
-				CompressionType:   compressionType,
-			}
-
-			assert.True(t, cfg.EnableCompression)
-			assert.Equal(t, compressionType, cfg.CompressionType)
-		})
-	}
-}
 
 func TestGenerateRandomString(t *testing.T) {
 	// Test that it generates a string of the correct length
@@ -482,8 +458,6 @@ func TestLoad_FromConfigFile(t *testing.T) {
 		"log_level: \"debug\"\n" +
 		"storage:\n" +
 		"  backend: \"filesystem\"\n" +
-		"  enable_compression: true\n" +
-		"  compression_level: 9\n" +
 		"auth:\n" +
 		"  enable_auth: true\n" +
 		"metrics:\n" +
@@ -516,8 +490,6 @@ func TestLoad_FromConfigFile(t *testing.T) {
 	// Normalize paths for comparison (Windows uses \ but YAML may use /)
 	assert.Equal(t, filepath.Clean(tempDir), filepath.Clean(cfg.DataDir))
 	assert.Equal(t, "debug", cfg.LogLevel)
-	assert.True(t, cfg.Storage.EnableCompression)
-	assert.Equal(t, 9, cfg.Storage.CompressionLevel)
 	assert.Equal(t, 5, cfg.Metrics.Interval)
 }
 

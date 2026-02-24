@@ -185,6 +185,42 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 		})
 	})
 
+	// Maintenance mode middleware — blocks write operations when enabled.
+	// Runs after auth so the user context is available if needed in the future.
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Safe methods always pass through.
+			if r.Method == "GET" || r.Method == "HEAD" || r.Method == "OPTIONS" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Paths that must work even in maintenance mode:
+			//   /auth/*        — login, logout, 2FA, OAuth
+			//   /health        — health checks
+			//   /settings      — so the admin can turn maintenance mode off
+			//   /api/internal/ — cluster sync must not be blocked
+			//   /notifications — SSE stream must stay open
+			exemptPrefixes := []string{"/auth/", "/health", "/settings", "/api/internal/", "/notifications"}
+			for _, prefix := range exemptPrefixes {
+				if strings.Contains(r.URL.Path, prefix) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			enabled, err := s.settingsManager.GetBool("system.maintenance_mode")
+			if err == nil && enabled {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"error": "Server is in maintenance mode. Only read operations are allowed.",
+					"code":  "MAINTENANCE_MODE",
+				})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+
 	// Public endpoints (no auth required)
 	router.HandleFunc("/version", s.handleGetVersion).Methods("GET", "OPTIONS")
 
@@ -207,6 +243,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}", s.handleGetBucket).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}", s.handleDeleteBucket).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/recalculate-stats", s.handleRecalculateBucketStats).Methods("POST", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/verify-integrity", s.handleVerifyBucketIntegrity).Methods("POST", "OPTIONS")
 
 	// Replication endpoints
 	router.HandleFunc("/buckets/{bucket}/replication/rules", s.handleListReplicationRules).Methods("GET", "OPTIONS")
@@ -291,6 +328,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Settings endpoints
 	router.HandleFunc("/settings", s.handleListSettings).Methods("GET", "OPTIONS")
 	router.HandleFunc("/settings/categories", s.handleListCategories).Methods("GET", "OPTIONS")
+	router.HandleFunc("/settings/email/test", s.handleTestEmail).Methods("POST", "OPTIONS")
 	router.HandleFunc("/settings/{key}", s.handleGetSetting).Methods("GET", "OPTIONS")
 	router.HandleFunc("/settings/{key}", s.handleUpdateSetting).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/settings/bulk", s.handleBulkUpdateSettings).Methods("POST", "OPTIONS")
@@ -2694,9 +2732,6 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
 		"storage": map[string]interface{}{
 			"backend":           s.config.Storage.Backend,
 			"root":              s.config.Storage.Root,
-			"enableCompression": s.config.Storage.EnableCompression,
-			"compressionType":   s.config.Storage.CompressionType,
-			"compressionLevel":  s.config.Storage.CompressionLevel,
 			"enableEncryption":  s.config.Storage.EnableEncryption,
 			"enableObjectLock":  s.config.Storage.EnableObjectLock,
 		},
@@ -2714,7 +2749,6 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
 			"objectLock":    s.config.Storage.EnableObjectLock,
 			"versioning":    true,
 			"encryption":    s.config.Storage.EnableEncryption,
-			"compression":   s.config.Storage.EnableCompression,
 			"multipart":     true,
 			"presignedUrls": true,
 			"cors":          true,
@@ -2722,6 +2756,10 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
 			"tagging":       true,
 		},
 	}
+
+	// Include maintenance mode state so the frontend can show a banner.
+	maintenanceMode, _ := s.settingsManager.GetBool("system.maintenance_mode")
+	config["maintenanceMode"] = maintenanceMode
 
 	s.writeJSON(w, config)
 }
@@ -6273,6 +6311,68 @@ func (s *Server) handleBulkUpdateSettings(w http.ResponseWriter, r *http.Request
 		"success": true,
 		"message": "Settings updated successfully",
 		"count":   len(req.Settings),
+	})
+}
+
+// handleTestEmail sends a test email to the requesting admin to verify SMTP settings
+func (s *Server) handleTestEmail(w http.ResponseWriter, r *http.Request) {
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
+	if !isGlobalAdmin {
+		s.writeError(w, "Forbidden: only global admins can test email settings", http.StatusForbidden)
+		return
+	}
+
+	enabled, _ := s.settingsManager.GetBool("email.enabled")
+	if !enabled {
+		s.writeError(w, "Email notifications are not enabled. Enable email.enabled first.", http.StatusBadRequest)
+		return
+	}
+
+	sender := s.buildEmailSender()
+	if sender == nil || !sender.IsConfigured() {
+		s.writeError(w, "SMTP is not configured. Set email.smtp_host and email.from_address.", http.StatusBadRequest)
+		return
+	}
+
+	if user.Email == "" {
+		s.writeError(w, "Your account has no email address. Update your user profile first.", http.StatusBadRequest)
+		return
+	}
+
+	body := fmt.Sprintf(`MaxIOFS Test Email
+==================
+
+This is a test email from MaxIOFS.
+
+Your SMTP configuration is working correctly.
+
+Sent at: %s
+Server:  MaxIOFS %s
+
+---
+You received this email because you requested a test from the System Settings page.
+`, time.Now().Format("2006-01-02 15:04:05 MST"), s.version)
+
+	if err := sender.Send([]string{user.Email}, "[MaxIOFS] Test Email", body); err != nil {
+		logrus.WithError(err).Error("Test email failed")
+		s.writeError(w, "Failed to send test email: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user":      user.Username,
+		"recipient": user.Email,
+	}).Info("Test email sent successfully")
+
+	s.writeJSON(w, map[string]interface{}{
+		"success": true,
+		"message": "Test email sent to " + user.Email,
 	})
 }
 

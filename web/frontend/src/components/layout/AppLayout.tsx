@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   ShieldAlert,
   Shield,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -146,10 +147,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   // Get base path from window (injected by backend based on public_console_url)
   const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
 
-  // Get server config for version
+  // Get server config (includes version and maintenance mode).
+  // Poll every 30 s so the maintenance banner appears/disappears without page reload.
   const { data: serverConfig } = useQuery<ServerConfig>({
     queryKey: ['serverConfig'],
     queryFn: APIClient.getServerConfig,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: false,
   });
 
   // Check if user is global admin (admin role + no tenant)
@@ -663,6 +667,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
+
+        {/* Maintenance mode banner */}
+        {serverConfig?.maintenanceMode && (
+          <div className="flex items-center gap-3 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+              Server is in maintenance mode — write operations are temporarily disabled.
+            </p>
+          </div>
+        )}
 
         {/* Main content */}
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900">

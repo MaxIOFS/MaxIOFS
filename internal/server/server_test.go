@@ -50,7 +50,6 @@ func TestMain(m *testing.M) {
 		Storage: config.StorageConfig{
 			Backend:           "filesystem",
 			Root:              filepath.Join(sharedTempDir, "storage"),
-			EnableCompression: false,
 			EnableEncryption:  false,
 			EnableObjectLock:  false,
 		},

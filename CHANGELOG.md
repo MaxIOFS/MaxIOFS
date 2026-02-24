@@ -5,7 +5,7 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.2-beta] - 2026-02-23
+## [0.9.2-beta] - 2026-02-24
 
 ### Changed
 - **Metadata engine: BadgerDB → Pebble** — Replaced BadgerDB with `github.com/cockroachdb/pebble` (CockroachDB's LSM-tree engine) for all S3 object/bucket metadata storage. Pebble uses a crash-safe WAL (write-ahead log) that survives unclean shutdowns — the root cause of recurring BadgerDB MANIFEST corruption on power loss or process kill. Pebble is pure-Go (no CGO), zero external dependencies, same paradigm (LSM-tree), same on-disk key format preserved byte-for-byte.
@@ -15,6 +15,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - BadgerDB source files (`badger.go`, `badger_objects.go`, `badger_multipart.go`, `badger_rawkv.go`) are retained solely to support the one-time migration path and may be removed in a future release.
 
 ### Added
+- **Object Integrity Verification** — detects silent data corruption (bad sectors, filesystem errors, write bugs) by re-reading object bytes from disk and comparing the computed MD5 against the stored ETag.
+  - **`POST /buckets/{bucket}/verify-integrity`** — on-demand verification endpoint (global admin only). Accepts `prefix`, `marker` and `maxKeys` query params (default 1000, max 5000) for paginated scanning. Returns a `BucketIntegrityReport` with totals (`checked`, `ok`, `corrupted`, `skipped`, `errors`) and a per-object `issues` list for any corrupted/missing objects. Response includes a `nextMarker` for pagination.
+  - **Background integrity scrubber** — `startIntegrityScrubber(ctx)` goroutine runs a full sweep of every tenant and bucket every **24 hours** (first run after the initial tick, not on startup). Paginates in batches of 500 objects with a 10 ms yield between pages to avoid saturating disk IO.
+  - **Corruption alerting** — when a corrupted or missing object is found (by either the scrubber or the endpoint), three actions fire automatically:
+    - Audit event of type `data_corruption` is logged with bucket, key, stored ETag, computed ETag, and expected/actual size.
+    - SSE notification (`type: "data_corruption"`) pushed to all connected admin sessions.
+    - Email alert sent to all active global admins that have an email address, including the full bucket/key path and ETag mismatch details. Reuses the existing `buildEmailSender()` and `email.*` settings.
+  - **Multipart-safe**: objects with composite ETags (format `<md5>-<N>`) are automatically skipped with status `skipped` — their ETag cannot be verified with a simple content hash.
+  - **Encryption-transparent**: verification calls `GetObject()` which handles AES-256-CTR decryption before hashing, so encrypted objects are verified against their original plaintext MD5.
+  - New `internal/object/integrity.go`: `IntegrityStatus` type, `IntegrityResult` and `BucketIntegrityReport` structs, `VerifyObjectIntegrity` and `VerifyBucketIntegrity` methods on `objectManager`.
+  - New `internal/server/integrity_scrubber.go` and `internal/server/object_integrity_handler.go`.
+  - `Manager` interface extended with `VerifyObjectIntegrity` and `VerifyBucketIntegrity`.
+  - New audit constants: `EventTypeDataIntegrityCheck`, `EventTypeDataCorruption`, `ActionVerifyIntegrity`.
+- **Maintenance Mode enforcement** — the existing `system.maintenance_mode` setting now actively blocks write operations across the server when enabled.
+  - **S3 API middleware** (`internal/middleware/maintenance.go`): PUT, POST, and DELETE requests receive `HTTP 503 ServiceUnavailable` with an XML `<Error><Code>ServiceUnavailable</Code>` body and a `Retry-After: 3600` header. GET, HEAD, and OPTIONS are always allowed (clients can still read their data).
+  - **Console API middleware**: any mutating request returns `HTTP 503` with a JSON body `{"error": "...", "code": "MAINTENANCE_MODE"}`. Exempt paths that always pass through: `/auth/`, `/health`, `/settings`, `/api/internal/`, `/notifications` (ensures admins can disable maintenance mode without getting locked out).
+  - **Frontend amber banner** (`AppLayout.tsx`): visible across every page immediately when maintenance mode is active; disappears when disabled — no page reload required. Achieved by adding `refetchInterval: 30000` to the `serverConfig` query and calling `queryClient.invalidateQueries(['serverConfig'])` in the settings save handler so all tabs reflect the change within seconds.
+  - `handleGetServerConfig` now includes `maintenanceMode: bool` in its response payload.
+- **SMTP email notifications** — new `email` settings category with full SMTP support for system alerts.
+  - New `internal/email` package (`sender.go`): `Sender` struct supporting both implicit TLS (`use_tls: true`, port 465) and STARTTLS upgrade (`use_tls: false`, port 587). Falls back gracefully when server does not announce STARTTLS.
+  - 7 new settings under `email.*` category: `email.enabled`, `email.smtp_host`, `email.smtp_port`, `email.smtp_user`, `email.smtp_password`, `email.from_address`, `email.use_tls`.
+  - **Test email endpoint** `POST /api/v1/settings/email/test` — sends a test message to the requesting admin's own account email address to verify SMTP configuration without triggering a real alert.
+  - **Frontend Email tab** in System Settings: all 7 settings rendered with a dedicated "Send Test Email" button showing inline success/error feedback. Password field for `email.smtp_password` renders as `type="password"`.
+- **Tenant quota warning notifications** — after every successful object upload (`PutObject`), the server checks whether the tenant's storage usage has crossed the configured warning (80%) or critical (90%) threshold. Fires only on level escalation — not on repeated checks at the same level.
+  - Callback wired from `authManager.IncrementTenantStorage` (covers both regular PutObject and multipart complete) → `server.checkQuotaAlert()`.
+  - SSE notification delivered to all connected admins of the affected tenant (`TenantID` set) and to global admins.
+  - Email sent to all active tenant admins and global admins with email addresses.
+  - Deduplication via `quotaAlertTracker` (`sync.Map[tenantID → alertLevel]`), one entry per tenant.
+  - Thresholds reuse `system.disk_warning_threshold` and `system.disk_critical_threshold` settings.
+  - Tenants with `MaxStorageBytes = 0` (unlimited quota) are skipped entirely.
+  - **Frontend** (`pages/tenants/index.tsx`): storage bar thresholds aligned to 80% (amber) / 90% (red) with an inline "80% — Warning" / "90% — Critical" label below the bar when threshold is reached.
+- **Disk space alerts** — background monitor that fires SSE notifications and emails when disk usage crosses configurable thresholds.
+  - `internal/server/disk_alerts.go`: `startDiskAlertMonitor(ctx)` goroutine checks disk usage every **5 minutes** using the existing `systemMetrics.GetDiskUsage()`. Alert deduplication: only fires on level *escalation* (none→warning, none/warning→critical), never re-alerts at the same level on repeated checks.
+  - Two new threshold settings in the `system` category: `system.disk_warning_threshold` (default 80%) and `system.disk_critical_threshold` (default 90%).
+  - On threshold crossing: SSE notification pushed to all connected global admin sessions + email sent to every active global admin user that has an email address on their account.
+  - Email body includes used/total/free GB breakdown and a reminder of how to adjust thresholds in settings.
 - **Cluster: State Snapshot system** — nodes can expose their full local entity state (tenants, users, buckets, access keys, IDPs, group mappings) as a snapshot for LWW (Last-Write-Wins) comparison via `GET /api/internal/cluster/state-snapshot`.
 - **Cluster: Stale Reconciler** — when a node reconnects after a partition or extended downtime, it fetches a healthy peer's snapshot, compares `updated_at` timestamps across all entity types, and pushes locally-newer entities before clearing the stale flag. Supports two modes: `ModeOffline` (node was unreachable, no local writes) and `ModePartition` (node was isolated but served clients).
 - **Cluster: Write tracking** — new `last_local_write_at` column tracks the most recent client-driven write per node, enabling correct partition detection on reconnect.
@@ -604,7 +640,6 @@ See [TODO.md](TODO.md) for detailed roadmap and requirements.
 - ✅ Object Lock (COMPLIANCE/GOVERNANCE)
 
 **v0.3.0-beta (October 2025)** - Advanced Features Already Implemented
-- ✅ Compression support (gzip) - pkg/compression with streaming support
 - ✅ Object immutability (Object Lock GOVERNANCE/COMPLIANCE modes)
 - ✅ Advanced RBAC with custom bucket policies (JSON-based S3-compatible policies)
 - ✅ Tenant resource quotas (MaxStorageBytes, MaxBuckets, MaxAccessKeys)

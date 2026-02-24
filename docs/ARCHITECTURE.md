@@ -130,7 +130,6 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 | `internal/storage` | Filesystem backend (tenant-scoped directories) |
 | `internal/metadata` | Pebble metadata store (objects, buckets, versions, locks, tags) |
 | `internal/db` | SQLite database management |
-| `pkg/compression` | Transparent compression (gzip, lz4, zstd) |
 | `pkg/encryption` | AES-256-CTR streaming encryption at rest |
 
 ### Frontend
@@ -261,8 +260,7 @@ MaxIOFS supports **four authentication methods**:
 3. Bucket resolution: "my-bucket" → metadata lookup → tenant-{hash}/my-bucket
 4. Authorization: Verify user has write access to bucket
 5. Quota check: Verify tenant storage limit
-6. Optional: Compress data (if bucket compression enabled)
-7. Optional: Encrypt data (if encryption enabled, AES-256-CTR)
+6. Optional: Encrypt data (if encryption enabled, AES-256-CTR)
 8. Write to filesystem: {data_dir}/objects/tenant-{hash}/my-bucket/file.txt
 9. Store metadata in Pebble: ETag, size, content-type, timestamps
 10. Update bucket metrics: IncrementObjectCount

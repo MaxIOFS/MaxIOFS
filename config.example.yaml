@@ -67,11 +67,9 @@
 # - log_s3_operations: Log S3 API operations (default: true)
 # - log_console_operations: Log Console API operations (default: true)
 #
-# Storage (4 settings):
+# Storage (2 settings):
 # - default_bucket_versioning: Auto-enable versioning (default: false)
 # - default_object_lock_days: Default object lock period (default: 7 days)
-# - enable_compression: Transparent compression (default: false)
-# - compression_level: Compression level 1-9 (default: 6)
 #
 # Metrics (2 settings):
 # - enabled: Enable metrics collection (default: true)
@@ -220,26 +218,6 @@ storage:
   # If empty, will be set to {data_dir}/objects
   # Default: {data_dir}/objects
   root: ""
-
-  # --- COMPRESSION SETTINGS ---
-  # Enable automatic object compression
-  # Reduces storage space but adds CPU overhead
-  # Default: false
-  enable_compression: false
-
-  # Compression level (1-9)
-  # 1 = fastest, less compression
-  # 9 = slowest, best compression
-  # Default: 6 (balanced)
-  compression_level: 6
-
-  # Compression type
-  # Supported: gzip, lz4, zstd
-  # - gzip: Standard, widely compatible, moderate speed
-  # - lz4: Very fast, lower compression ratio
-  # - zstd: Best compression ratio, good speed
-  # Default: gzip
-  compression_type: "gzip"
 
   # --- ENCRYPTION SETTINGS ---
   # Enable automatic object encryption at rest (AES-256-CTR)
@@ -420,9 +398,6 @@ audit:
 #
 # storage:
 #   backend: "filesystem"
-#   enable_compression: true
-#   compression_type: "zstd"
-#   compression_level: 6
 #   enable_encryption: true
 #   encryption_key: "change-this-to-a-secure-32-char-key"
 #   enable_object_lock: true
@@ -453,8 +428,6 @@ audit:
 #
 # storage:
 #   backend: "filesystem"
-#   enable_compression: true
-#   compression_type: "zstd"
 #   enable_encryption: true
 #   encryption_key: "change-this-to-a-secure-32-char-key"
 #
@@ -503,7 +476,6 @@ audit:
 # 
 # storage:
 #   backend: "filesystem"
-#   enable_compression: false
 #   enable_encryption: false
 #   enable_object_lock: true
 # 

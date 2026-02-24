@@ -38,6 +38,12 @@ const (
 	EventTypeAccessKeyStatusChanged = "access_key_status_changed"
 )
 
+// Event Types - Data Integrity Events
+const (
+	EventTypeDataIntegrityCheck = "data_integrity_check"
+	EventTypeDataCorruption     = "data_corruption"
+)
+
 // Event Types - Tenant Management Events
 const (
 	EventTypeTenantCreated = "tenant_created"
@@ -65,7 +71,8 @@ const (
 	ActionUnblock = "unblock"
 	ActionEnable  = "enable"
 	ActionDisable = "disable"
-	ActionVerify  = "verify"
+	ActionVerify         = "verify"
+	ActionVerifyIntegrity = "verify_integrity"
 )
 
 // Status
