@@ -164,7 +164,7 @@ For 99.9% availability: **43.2 minutes/month**
 **When to optimize**: SLO violations > 5% of the time over 7 days.
 
 **Priority order**:
-1. Database queries — add indexes, optimize SQLite/BadgerDB
+1. Database queries — add indexes, optimize SQLite/Pebble
 2. Disk I/O — use SSD/NVMe, enable OS caching
 3. Memory — reduce GC pressure, reuse buffers
 4. Concurrency — optimize lock contention

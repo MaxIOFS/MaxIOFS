@@ -1260,6 +1260,20 @@ func (s *Server) handleReceiveAccessKeyDeleteSync(w http.ResponseWriter, r *http
 		"access_key_id":  deleteData.ID,
 	}).Info("Receiving access key deletion from synchronization")
 
+	// Phase 4: Tombstone vs entity LWW.
+	// For access keys (no updated_at column) this always returns false, so the tombstone always wins.
+	// The check is here for consistency and future-proofing if updated_at is added later.
+	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeAccessKey, deleteData.ID, deleteData.DeletedAt) {
+		logrus.WithFields(logrus.Fields{
+			"source_node_id": sourceNodeID,
+			"access_key_id":  deleteData.ID,
+		}).Info("Skipping access key deletion: local entity was updated after tombstone (LWW)")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (entity is newer than tombstone)"})
+		return
+	}
+
 	result, err := s.db.ExecContext(ctx, `DELETE FROM access_keys WHERE access_key_id = ?`, deleteData.ID)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to delete access key")
@@ -1320,6 +1334,20 @@ func (s *Server) handleReceiveBucketPermissionDeleteSync(w http.ResponseWriter, 
 		"source_node_id": sourceNodeID,
 		"permission_id":  deleteData.ID,
 	}).Info("Receiving bucket permission deletion from synchronization")
+
+	// Phase 4: Tombstone vs entity LWW.
+	// For bucket permissions (no updated_at column) this always returns false, so the tombstone always wins.
+	// The check is here for consistency and future-proofing if updated_at is added later.
+	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeBucketPermission, deleteData.ID, deleteData.DeletedAt) {
+		logrus.WithFields(logrus.Fields{
+			"source_node_id": sourceNodeID,
+			"permission_id":  deleteData.ID,
+		}).Info("Skipping bucket permission deletion: local entity was updated after tombstone (LWW)")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (entity is newer than tombstone)"})
+		return
+	}
 
 	result, err := s.db.ExecContext(ctx, `DELETE FROM bucket_permissions WHERE id = ?`, deleteData.ID)
 	if err != nil {

@@ -1,15 +1,26 @@
 maxiofs (0.9.2-beta) unstable; urgency=high
 
-  * Release v0.9.2-beta - Concurrent metric reliability and storage reporting fix
+  * Release v0.9.2-beta - Pebble metadata engine, cluster snapshot reconciliation & Veeam compatibility
+  * [Changed] Replaced BadgerDB with Pebble (github.com/cockroachdb/pebble) for all S3 metadata.
+    Pebble uses a crash-safe WAL — no more MANIFEST corruption on power loss or process kill.
+    Pure-Go, no CGO, same LSM-tree paradigm, identical on-disk key format preserved.
+  * [Changed] Transparent auto-migration: on first startup, KEYREGISTRY detection triggers
+    full BadgerDB→Pebble migration in batches. Atomic directory rename. No user action needed.
+    Migration also corrected under-reported object counts/sizes from prior BadgerDB conflicts.
+  * [Changed] Decoupled ACL, bucket, object, metrics, notifications from BadgerDB via new
+    metadata.RawKVStore interface. Only migration code retains BadgerDB dependency.
+  * [Added] Cluster state snapshot endpoint GET /api/internal/cluster/state-snapshot
+  * [Added] Cluster StaleReconciler: LWW conflict resolution for partitioned/offline nodes
+  * [Added] Cluster write tracking (last_local_write_at) for partition detection
   * [Fixed] Bucket metrics under-reported under concurrent load (VEEAM / multiple S3 clients):
     UpdateBucketMetrics replaced OCC retry loop (5 attempts) with per-bucket sync.Mutex via
-    sync.Map. Serializes metric updates at Go level before BadgerDB — ErrConflict impossible
+    sync.Map. Serializes metric updates at Go level — ErrConflict impossible
     by construction. Resolves VEEAM showing 4.2GB stored while web interface reported 2.21GB.
   * [Fixed] RecalculateBucketStats ignored tenant prefix: function scanned obj:bucketName:
     instead of obj:tenantID/bucketName:key for tenant buckets, always returning 0 objects/bytes.
     Now correctly builds full path for tenant buckets; global buckets (no tenant) unaffected.
   * [Added] Admin endpoint POST /buckets/{bucket}/recalculate-stats: resync bucket counters
-    (ObjectCount, TotalSize) by full BadgerDB scan. Requires admin role; global admins can
+    (ObjectCount, TotalSize) by full metadata scan. Requires admin role; global admins can
     pass ?tenantId= for a specific tenant's bucket. Returns recalculated values in response.
   * [Removed] Test TestHandleTestLogOutput: called server.handleTestLogOutput which does not
     exist on *Server (handler was never implemented), causing compilation failure.
@@ -17,7 +28,7 @@ maxiofs (0.9.2-beta) unstable; urgency=high
   * [Tests] Updated TestRecalculateBucketStats_Success and subtests to use full tenantID/bucketName
     path matching production behavior
 
- -- Aluisco Ricardo <aluisco@maxiofs.com>  Sun, 22 Feb 2026 12:00:00 +0000
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Mon, 23 Feb 2026 12:00:00 +0000
 
 maxiofs (0.9.1-beta) unstable; urgency=high
 

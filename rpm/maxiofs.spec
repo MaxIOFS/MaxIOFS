@@ -267,7 +267,7 @@ fi
 - Fixed: RecalculateBucketStats ignored tenant prefix, always returning 0 for tenant buckets.
   Now builds full tenantID/bucketName path; global buckets (no tenant) unaffected.
 - Added: Admin endpoint POST /buckets/{bucket}/recalculate-stats to resync bucket counters
-  from BadgerDB scan. Requires admin role, supports ?tenantId= for global admins.
+  from Pebble scan. Requires admin role, supports ?tenantId= for global admins.
 - Removed: Test TestHandleTestLogOutput (called non-existent handler, caused compilation failure)
 - Tests: TestRecalculateBucketStats_GlobalBucket (global bucket path), updated tenant path tests
 

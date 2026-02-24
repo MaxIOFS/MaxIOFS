@@ -437,7 +437,7 @@ Bucket migration enables **moving entire buckets between cluster nodes** for cap
                          ▼
 ┌─────────────────────────────────────────────────────────┐
 │ 4. Update Bucket Location                              │
-│    → Update BadgerDB metadata                          │
+│    → Update Pebble metadata                            │
 │    → Update bucket location cache                      │
 │    → All future requests route to target node          │
 └─────────────────────────────────────────────────────────┘

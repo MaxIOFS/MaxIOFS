@@ -5,15 +5,27 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.2-beta] - 2026-02-22
+## [0.9.2-beta] - 2026-02-23
 
-### Fixed
-- **Bucket metrics under-reported under concurrent load (VEEAM / multiple S3 clients)** — `UpdateBucketMetrics` used BadgerDB's Optimistic Concurrency Control (OCC) with only 5 retry attempts. Under high concurrency (VEEAM Backup with multiple parallel upload threads, 10 or 100 simultaneous S3 clients), `ErrConflict` exhausted retries and silently discarded metric updates, causing the web interface to show significantly less storage than was actually stored. The retry loop has been replaced with a per-bucket `sync.Mutex` via `sync.Map`: serialization now occurs at the Go level before entering BadgerDB, making `ErrConflict` impossible by construction. Metric updates are now fully reliable under any concurrency level.
-- **`RecalculateBucketStats` ignored tenant prefix** — the function scanned `obj:bucketName:` but objects in tenant buckets are stored as `obj:tenantID/bucketName:key`. For any tenant bucket, recalculation always returned 0 objects and 0 bytes, silently resetting counters. Now builds the full path (`tenantID/bucketName` for tenant buckets, or just `bucketName` for global buckets) before scanning. Global buckets (no tenant) are unaffected.
+### Changed
+- **Metadata engine: BadgerDB → Pebble** — Replaced BadgerDB with `github.com/cockroachdb/pebble` (CockroachDB's LSM-tree engine) for all S3 object/bucket metadata storage. Pebble uses a crash-safe WAL (write-ahead log) that survives unclean shutdowns — the root cause of recurring BadgerDB MANIFEST corruption on power loss or process kill. Pebble is pure-Go (no CGO), zero external dependencies, same paradigm (LSM-tree), same on-disk key format preserved byte-for-byte.
+  - **Transparent auto-migration**: on first startup after upgrade, if `metadata/KEYREGISTRY` is detected (BadgerDB-exclusive file), all keys are read from BadgerDB and written to Pebble in batches. Directories are atomically renamed (`metadata/` → `metadata_badger_backup/`, `metadata_pebble/` → `metadata/`). Users see no interruption. Migration ran successfully in production, additionally correcting previously under-reported object counts and sizes that had diverged in BadgerDB.
+  - **Decoupled all packages from BadgerDB**: ACL, bucket, object, metrics, and notifications packages no longer import `github.com/dgraph-io/badger/v4` directly. A new `metadata.RawKVStore` interface (`GetRaw`, `PutRaw`, `DeleteRaw`, `RawBatch`, `RawScan`, `RawGC`) is implemented by PebbleStore and consumed by ACL and metrics history.
+  - **TTL replacement**: Pebble has no native TTL. Multipart upload cleanup (previously 7-day TTL in BadgerDB) is replaced by an hourly goroutine that scans multipart entries and removes those older than 7 days.
+  - BadgerDB source files (`badger.go`, `badger_objects.go`, `badger_multipart.go`, `badger_rawkv.go`) are retained solely to support the one-time migration path and may be removed in a future release.
 
 ### Added
-- **Admin endpoint `POST /buckets/{bucket}/recalculate-stats`** — allows administrators to resync a bucket's counters (`ObjectCount`, `TotalSize`) by scanning all objects present in BadgerDB. Useful for correcting metrics that diverged due to system restarts or updates lost under concurrent load. Requires admin role; global admins can pass `?tenantId=` to target a specific tenant's bucket. Returns the recalculated values in the response.
+- **Cluster: State Snapshot system** — nodes can expose their full local entity state (tenants, users, buckets, access keys, IDPs, group mappings) as a snapshot for LWW (Last-Write-Wins) comparison via `GET /api/internal/cluster/state-snapshot`.
+- **Cluster: Stale Reconciler** — when a node reconnects after a partition or extended downtime, it fetches a healthy peer's snapshot, compares `updated_at` timestamps across all entity types, and pushes locally-newer entities before clearing the stale flag. Supports two modes: `ModeOffline` (node was unreachable, no local writes) and `ModePartition` (node was isolated but served clients).
+- **Cluster: Write tracking** — new `last_local_write_at` column tracks the most recent client-driven write per node, enabling correct partition detection on reconnect.
+- **Admin endpoint `POST /buckets/{bucket}/recalculate-stats`** — allows administrators to resync a bucket's counters (`ObjectCount`, `TotalSize`) by scanning all objects present in the metadata store. Useful for correcting metrics that diverged due to system restarts or updates lost under concurrent load. Requires admin role; global admins can pass `?tenantId=` to target a specific tenant's bucket. Returns the recalculated values in the response.
 - **Background stats reconciler** (`startStatsReconciler`) — a goroutine started automatically at server startup that recalculates `ObjectCount` and `TotalSize` for every bucket across all tenants every **15 minutes**. Iterates all buckets via `ListBuckets(ctx, "")` and calls `RecalculateBucketStats` for each one. Starts after an initial 2-minute delay to allow the server to be fully ready. Exits cleanly on context cancellation. Errors on individual buckets are logged as warnings and do not interrupt the rest of the pass. Acts as a continuous safety net independent of the manual admin endpoint.
+
+### Fixed
+- **Metadata corruption on unclean shutdown** — Pebble's WAL guarantees database integrity after process kill, power loss, or OOM kill. No more `MANIFEST` corruption requiring manual recovery.
+- **Object/size metrics corrected post-migration** — the BadgerDB → Pebble migration recounted all existing objects and sizes, fixing counters that had diverged due to BadgerDB transaction conflicts under concurrent load.
+- **Bucket metrics under-reported under concurrent load (VEEAM / multiple S3 clients)** — `UpdateBucketMetrics` used BadgerDB's Optimistic Concurrency Control (OCC) with only 5 retry attempts. Under high concurrency (VEEAM Backup with multiple parallel upload threads, 10 or 100 simultaneous S3 clients), `ErrConflict` exhausted retries and silently discarded metric updates, causing the web interface to show significantly less storage than was actually stored. The retry loop has been replaced with a per-bucket `sync.Mutex` via `sync.Map`: serialization now occurs at the Go level, making `ErrConflict` impossible by construction. Metric updates are now fully reliable under any concurrency level.
+- **`RecalculateBucketStats` ignored tenant prefix** — the function scanned `obj:bucketName:` but objects in tenant buckets are stored as `obj:tenantID/bucketName:key`. For any tenant bucket, recalculation always returned 0 objects and 0 bytes, silently resetting counters. Now builds the full path (`tenantID/bucketName` for tenant buckets, or just `bucketName` for global buckets) before scanning. Global buckets (no tenant) are unaffected.
 - **Frontend: dynamic bucket stats refresh** — React Query `refetchInterval: 30000` added to bucket-related queries on three pages so the UI updates automatically every 30 seconds without requiring navigation or page reload:
   - Dashboard (`pages/index.tsx`) — `['buckets']` query
   - Buckets listing (`pages/buckets/index.tsx`) — `['buckets']` query
@@ -366,7 +378,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dual-level encryption control (server and bucket level)
 - Flexible mixed encrypted/unencrypted object coexistence
 - Configuration management migrated to SQLite database
-- BadgerDB for metrics historical storage
+- Pebble (LSM-tree engine) for metrics historical storage (migrated from initial BadgerDB in v0.9.2)
 - Visual encryption status indicators in Web Console
 
 ### Fixed
@@ -532,7 +544,10 @@ See [TODO.md](TODO.md) for detailed roadmap and requirements.
 
 ### Completed Features (v0.1.0 - v0.9.2-beta)
 
-**v0.9.2-beta (February 2026)** - Inter-Node TLS & Veeam Compatibility
+**v0.9.2-beta (February 2026)** - Pebble Metadata Engine, Cluster Snapshot Reconciliation & Veeam Compatibility
+- ✅ Replaced BadgerDB with Pebble (crash-safe WAL, no CGO) for all S3 metadata
+- ✅ Transparent auto-migration from BadgerDB on first startup (no manual steps)
+- ✅ Cluster state snapshot endpoint and stale reconciler (LWW partition handling)
 - ✅ Automatic inter-node TLS encryption with auto-generated internal CA
 - ✅ Certificate auto-renewal with hot-swap (no restart needed)
 - ✅ Veeam Backup & Replication fully tested (connection, backup, Instant Recovery)

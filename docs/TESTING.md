@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **112 Go test files**, **5 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and BadgerDB, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **112 Go test files**, **5 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -207,8 +207,9 @@ npx vitest run --coverage
 
 | File | Description |
 |------|-------------|
-| `badger_comprehensive_test.go` | BadgerDB operations comprehensive coverage |
-| `badger_test.go` | BadgerDB core CRUD |
+| `badger_comprehensive_test.go` | BadgerDB operations (kept for migration testing) |
+| `badger_test.go` | BadgerDB core CRUD (kept for migration testing) |
+| `pebble_test.go` | Pebble store: object CRUD, migration from BadgerDB |
 | `multipart_comprehensive_test.go` | Multipart upload metadata tracking |
 | `objects_test.go` | Object metadata storage and retrieval |
 | `search_objects_test.go` | Object search by prefix, delimiter, pagination |
@@ -219,7 +220,7 @@ npx vitest run --coverage
 
 | File | Description |
 |------|-------------|
-| `badger_history_test.go` | Metrics history stored in BadgerDB |
+| `badger_history_test.go` | Metrics history stored in Pebble (via RawKVStore) |
 | `collector_test.go` | Prometheus metrics collection |
 | `history_test.go` | Metrics history aggregation |
 | `manager_test.go` | Metrics manager lifecycle |
@@ -459,25 +460,28 @@ go tool pprof bench-results/cpu-encryption.prof
 
 ### Common Setup
 
-Most tests follow the same pattern: create a temp directory, initialize SQLite + BadgerDB, and clean up.
+Most tests follow the same pattern: create a temp directory, initialize SQLite + Pebble, and clean up.
 
 ```go
 func TestSomething(t *testing.T) {
-    // Create isolated temp directory
-    dir := t.TempDir()
-    
+    // Create isolated temp directory (use os.MkdirTemp on Windows — Pebble holds
+    // file handles briefly after Close(), so t.TempDir() may fail on cleanup)
+    dir, _ := os.MkdirTemp("", "maxiofs-test-*")
+    t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error on Windows file locking
+
     // Initialize SQLite (no CGO needed - uses modernc.org/sqlite)
     db, err := sql.Open("sqlite", filepath.Join(dir, "test.db"))
     require.NoError(t, err)
     defer db.Close()
-    
-    // Initialize BadgerDB for metadata
-    opts := badger.DefaultOptions(filepath.Join(dir, "metadata"))
-    opts.Logger = nil // Suppress logs in tests
-    bdb, err := badger.Open(opts)
+
+    // Initialize Pebble for metadata
+    store, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+        DataDir: filepath.Join(dir, "metadata"),
+        Logger:  logrus.New(),
+    })
     require.NoError(t, err)
-    defer bdb.Close()
-    
+    defer store.Close()
+
     // Run test logic...
 }
 ```
@@ -540,12 +544,11 @@ for _, tt := range tests {
 
 ### Windows Compatibility
 
-BadgerDB requires explicit cleanup on Windows due to file locking. Tests close the database before `t.TempDir()` cleanup:
+Pebble holds OS file handles briefly after `Close()` due to Windows file locking semantics. Tests use `os.MkdirTemp` instead of `t.TempDir()` and ignore cleanup errors:
 
 ```go
-defer func() {
-    bdb.Close() // Must close before TempDir cleanup on Windows
-}()
+dir, _ := os.MkdirTemp("", "maxiofs-test-*")
+t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hold handles
 ```
 
 ---
@@ -557,7 +560,7 @@ defer func() {
 | Cluster | 25 | Sync, replication, routing, migration, health |
 | Object | 15 | CRUD, versioning, locking, retention, multipart |
 | Auth | 11 | Users, keys, JWT, S3 sig, TOTP, rate limiting |
-| Metadata | 7 | BadgerDB, search, tags, versioning, multipart |
+| Metadata | 8 | Pebble store, BadgerDB migration, search, tags, versioning, multipart |
 | Metrics | 6 | Prometheus, history, system, performance |
 | Server | 6 | Routes, console API, IDP endpoints, search |
 | IDP | 5 | LDAP, OAuth, crypto, storage |

@@ -17,7 +17,8 @@ The Debian package installs MaxIOFS with the following layout:
 └── maxiofs               - Logrotate configuration
 
 /var/lib/maxiofs/         - Data directory
-├── db/                   - BadgerDB metadata
+├── db/                   - SQLite database
+├── metadata/             - Pebble: object metadata (LSM-tree, crash-safe WAL)
 └── objects/              - Object storage
 
 /var/log/maxiofs/         - Log files (if file logging enabled)

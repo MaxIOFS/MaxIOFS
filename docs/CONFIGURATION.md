@@ -86,7 +86,7 @@ When MaxIOFS starts, it creates this structure under `data_dir`:
 ├── db/
 │   └── maxiofs.db       ← SQLite: auth, users, tenants, keys, settings, cluster, IDP
 ├── audit.db             ← SQLite: audit logs (separate for isolation)
-├── metadata/            ← BadgerDB: object metadata
+├── metadata/            ← Pebble: object metadata
 └── objects/             ← Filesystem: object data
 ```
 

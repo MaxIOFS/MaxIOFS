@@ -1,6 +1,6 @@
 # MaxIOFS Architecture
 
-**Version**: 0.9.2-beta | **Last Updated**: February 22, 2026
+**Version**: 0.9.2-beta | **Last Updated**: February 23, 2026
 
 ## Overview
 
@@ -39,7 +39,7 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 ├──────────────────────────────────────┤
 │  Storage Layer                       │
 │  ├─ Filesystem (objects)             │
-│  ├─ BadgerDB (metadata)              │
+│  ├─ Pebble (metadata)               │
 │  ├─ SQLite (auth, cluster, audit)    │
 │  └─ AES-256-CTR encryption at rest   │
 └──────────────────────────────────────┘
@@ -69,7 +69,7 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 │  Managers  │  │  Managers  │  │  Managers  │
 ├────────────┤  ├────────────┤  ├────────────┤
 │Local Storage│ │Local Storage│ │Local Storage│
-│FS+BadgerDB │  │FS+BadgerDB │  │FS+BadgerDB │
+│FS+Pebble  │  │FS+Pebble  │  │FS+Pebble  │
 │  +SQLite   │  │  +SQLite   │  │  +SQLite   │
 └────────────┘  └────────────┘  └────────────┘
        │               │               │
@@ -109,7 +109,7 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 | `internal/idp` | Identity Provider management (LDAP/AD, OAuth2/OIDC), AES-256-GCM secrets |
 | `internal/logging` | Configurable log outputs (stdout, HTTP webhook, syslog) |
 | `internal/audit` | Immutable audit logging (20+ event types, SQLite storage) |
-| `internal/metrics` | Prometheus metrics, system metrics, performance history (BadgerDB) |
+| `internal/metrics` | Prometheus metrics, system metrics, performance history (Pebble) |
 | `internal/settings` | Dynamic runtime configuration (no restart required) |
 | `internal/config` | Static configuration (YAML, env vars, CLI flags) |
 
@@ -128,7 +128,7 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 | Package | Purpose |
 |---------|---------|
 | `internal/storage` | Filesystem backend (tenant-scoped directories) |
-| `internal/metadata` | BadgerDB metadata store (objects, buckets, versions, locks, tags) |
+| `internal/metadata` | Pebble metadata store (objects, buckets, versions, locks, tags) |
 | `internal/db` | SQLite database management |
 | `pkg/compression` | Transparent compression (gzip, lz4, zstd) |
 | `pkg/encryption` | AES-256-CTR streaming encryption at rest |
@@ -153,11 +153,11 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 │   ├── maxiofs.db-wal         settings, cluster config, replication rules,
 │   └── maxiofs.db-shm         IDP providers, group mappings
 ├── audit.db                ← SQLite: immutable audit logs (separate for isolation)
-├── metadata/               ← BadgerDB: object metadata, versions, locks, tags
-│   ├── *.sst              ←   Sorted String Tables
-│   ├── *.vlog             ←   Value logs
-│   ├── MANIFEST           ←   Version manifest
-│   └── KEYREGISTRY        ←   Encryption key registry
+├── metadata/               ← Pebble: object metadata, versions, locks, tags
+│   ├── *.sst              ←   Sorted String Tables (LSM levels)
+│   ├── MANIFEST-*         ←   Version manifest
+│   ├── OPTIONS-*          ←   Engine options snapshot
+│   └── WAL/               ←   Write-Ahead Log (crash safety)
 └── objects/                ← Filesystem: actual object data
     ├── .maxiofs/           ←   Internal storage metadata
     ├── tenant-{hash}/      ←   Tenant-scoped directories
@@ -175,7 +175,7 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 |----------|-----------|----------|
 | `db/maxiofs.db` | SQLite (WAL mode) | Users, tenants, access keys, sessions, dynamic settings, cluster config, cluster nodes, replication rules, replication queue, bucket permissions, IDP providers, group mappings, deletion log, migrations |
 | `audit.db` | SQLite | Immutable audit trail (authentication, CRUD, security events). Separate for isolation and retention management |
-| `metadata/` | BadgerDB v4 | Object metadata (ETags, content-type, size), versioning info, object lock/retention, bucket configurations, tags, ACLs, multipart upload state |
+| `metadata/` | Pebble v1.1 | Object metadata (ETags, content-type, size), versioning info, object lock/retention, bucket configurations, tags, ACLs, multipart upload state |
 | `objects/` | Filesystem | Raw object data, organized by tenant and bucket |
 
 ---
@@ -264,7 +264,7 @@ MaxIOFS supports **four authentication methods**:
 6. Optional: Compress data (if bucket compression enabled)
 7. Optional: Encrypt data (if encryption enabled, AES-256-CTR)
 8. Write to filesystem: {data_dir}/objects/tenant-{hash}/my-bucket/file.txt
-9. Store metadata in BadgerDB: ETag, size, content-type, timestamps
+9. Store metadata in Pebble: ETag, size, content-type, timestamps
 10. Update bucket metrics: IncrementObjectCount
 11. Optional: Trigger webhook notifications (ObjectCreated)
 12. Optional: Queue for cluster replication
@@ -295,7 +295,7 @@ MaxIOFS supports **four authentication methods**:
 | **CSS** | TailwindCSS | 4 (Oxide) |
 | **State Management** | TanStack Query | v5 |
 | **Routing** | React Router | v7 |
-| **Metadata Store** | BadgerDB | v4 |
+| **Metadata Store** | Pebble | v1.1 |
 | **Relational Store** | SQLite | WAL mode (via modernc.org/sqlite, no CGO) |
 | **HTTP Router** | Gorilla Mux | v1.8 |
 | **S3 Auth** | AWS SDK v2 | Signature v2/v4 |
