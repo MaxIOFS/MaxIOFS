@@ -77,6 +77,7 @@ import type {
   LoggingTarget,
   LoggingTargetsResponse,
   BucketIntegrityReport,
+  LastIntegrityScan,
 } from '@/types';
 
 // API Configuration
@@ -479,6 +480,35 @@ export class APIClient {
       `/buckets/${bucketName}/verify-integrity${qs}`
     );
     return response.data.data!;
+  }
+
+  static async getIntegrityHistory(
+    bucketName: string,
+    tenantId?: string
+  ): Promise<LastIntegrityScan[]> {
+    const query = new URLSearchParams();
+    if (tenantId) query.set('tenantId', tenantId);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    try {
+      const response = await apiClient.get<APIResponse<LastIntegrityScan[]>>(
+        `/buckets/${bucketName}/integrity-status${qs}`
+      );
+      return response.data.data ?? [];
+    } catch (err: any) {
+      if (err?.response?.status === 404) return [];
+      throw err;
+    }
+  }
+
+  static async saveIntegrityScan(
+    bucketName: string,
+    data: Omit<BucketIntegrityReport, 'bucket' | 'nextMarker'>,
+    tenantId?: string
+  ): Promise<void> {
+    const query = new URLSearchParams();
+    if (tenantId) query.set('tenantId', tenantId);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    await apiClient.post(`/buckets/${bucketName}/integrity-status${qs}`, data);
   }
 
   static async updateBucketConfig(bucketName: string, config: EditBucketForm): Promise<Bucket> {

@@ -1,22 +1,28 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { APIClient } from '@/lib/api';
-import { Bucket, IntegrityResult } from '@/types';
+import { Bucket, IntegrityResult, LastIntegrityScan } from '@/types';
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock,
+  EyeOff,
   FileX,
   ShieldAlert,
   ShieldCheck,
   SkipForward,
+  Timer,
   XCircle,
 } from 'lucide-react';
 
-type Phase = 'idle' | 'running' | 'done' | 'error';
+// ── Exported types ─────────────────────────────────────────────────────────────
 
-interface Totals {
+export type ScanPhase = 'running' | 'done' | 'error';
+
+export interface BucketScanState {
+  phase: ScanPhase;
   checked: number;
   ok: number;
   corrupted: number;
@@ -24,194 +30,180 @@ interface Totals {
   errors: number;
   issues: IntegrityResult[];
   duration: string;
+  startedAt: Date;
+  finishedAt?: Date;
+  errorMessage?: string;
+  /** 'manual' = triggered by user, 'scrubber' = background auto-scan */
+  source?: 'manual' | 'scrubber';
 }
+
+// ── Component props ────────────────────────────────────────────────────────────
 
 interface Props {
   isOpen: boolean;
-  onClose: () => void;
   bucket: Bucket;
+  objectCount: number;
+  /** Current scan state, or null if never scanned this session */
+  scanState: BucketScanState | null;
+  /** Full scan history from the server (newest first) */
+  history: LastIntegrityScan[];
+  /** If set, manual scans are rate-limited until this date */
+  rateLimitUntil: Date | null;
+  onStart: () => void;
+  onCancel: () => void;
+  /** Close the modal WITHOUT stopping the scan */
+  onHide: () => void;
 }
 
-export function BucketIntegrityModal({ isOpen, onClose, bucket }: Props) {
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [totals, setTotals] = useState<Totals>({
-    checked: 0,
-    ok: 0,
-    corrupted: 0,
-    skipped: 0,
-    errors: 0,
-    issues: [],
-    duration: '',
-  });
-  const [errorMessage, setErrorMessage] = useState('');
-  const abortRef = useRef(false);
-  const startTimeRef = useRef(0);
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
-  // Reset state when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      abortRef.current = false;
-      setPhase('idle');
-      setTotals({ checked: 0, ok: 0, corrupted: 0, skipped: 0, errors: 0, issues: [], duration: '' });
-      setErrorMessage('');
-    }
-  }, [isOpen]);
+function formatRemaining(until: Date): string {
+  const ms = until.getTime() - Date.now();
+  if (ms <= 0) return '0s';
+  const totalSecs = Math.ceil(ms / 1000);
+  const mins = Math.floor(totalSecs / 60);
+  const secs = totalSecs % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+}
 
-  // Abort loop when modal closes while running
-  useEffect(() => {
-    if (!isOpen) {
-      abortRef.current = true;
-    }
-  }, [isOpen]);
+// ── Main component ─────────────────────────────────────────────────────────────
 
-  const runScan = useCallback(async () => {
-    abortRef.current = false;
-    setPhase('running');
-    setTotals({ checked: 0, ok: 0, corrupted: 0, skipped: 0, errors: 0, issues: [], duration: '' });
-    startTimeRef.current = Date.now();
+export function BucketIntegrityModal({
+  isOpen,
+  bucket,
+  objectCount,
+  scanState,
+  history,
+  rateLimitUntil,
+  onStart,
+  onCancel,
+  onHide,
+}: Props) {
+  const phase = scanState?.phase ?? null;
+  const isRateLimited = rateLimitUntil !== null && rateLimitUntil > new Date();
 
-    const tenantId = bucket.tenant_id || bucket.tenantId;
-    let marker = '';
-    let acc: Totals = { checked: 0, ok: 0, corrupted: 0, skipped: 0, errors: 0, issues: [], duration: '' };
-
-    try {
-      do {
-        if (abortRef.current) return;
-
-        const report = await APIClient.verifyBucketIntegrity(bucket.name, {
-          marker,
-          maxKeys: 500,
-          tenantId,
-        });
-
-        acc = {
-          checked:   acc.checked   + report.checked,
-          ok:        acc.ok        + report.ok,
-          corrupted: acc.corrupted + report.corrupted,
-          skipped:   acc.skipped   + report.skipped,
-          errors:    acc.errors    + report.errors,
-          issues:    [...acc.issues, ...(report.issues ?? [])],
-          duration:  '',
-        };
-
-        setTotals({ ...acc });
-
-        marker = report.nextMarker ?? '';
-      } while (marker !== '');
-    } catch (err: any) {
-      if (abortRef.current) return;
-      setErrorMessage(err?.response?.data?.error ?? err?.message ?? 'Unknown error');
-      setPhase('error');
-      return;
-    }
-
-    if (abortRef.current) return;
-
-    const elapsed = ((Date.now() - startTimeRef.current) / 1000).toFixed(2) + 's';
-    setTotals(prev => ({ ...prev, duration: elapsed }));
-    setPhase('done');
-  }, [bucket]);
-
-  const objectCount = bucket.object_count ?? bucket.objectCount ?? 0;
-  const progressPct = objectCount > 0
-    ? Math.min(100, Math.round((totals.checked / objectCount) * 100))
-    : (phase === 'running' ? null : 100); // null = indeterminate
-
-  const handleClose = () => {
-    abortRef.current = true;
-    onClose();
-  };
+  const progressPct = objectCount > 0 && scanState
+    ? Math.min(100, Math.round((scanState.checked / objectCount) * 100))
+    : null;
 
   return (
     <Modal
       isOpen={isOpen}
-      onClose={handleClose}
+      onClose={onHide}
       title="Verify Bucket Integrity"
       description={`Bucket: ${bucket.name}`}
       size="xl"
-      closeOnOverlay={phase !== 'running'}
-      closeOnEscape={phase !== 'running'}
+      closeOnOverlay
+      closeOnEscape
     >
       <div className="space-y-6">
 
-        {/* ── Idle: start button ── */}
-        {phase === 'idle' && (
+        {/* ── Idle: never scanned ── */}
+        {phase === null && (
           <div className="text-center space-y-4 py-4">
             <div className="mx-auto flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-brand-100 to-blue-100 dark:from-brand-900/40 dark:to-blue-900/40">
               <ShieldCheck className="h-8 w-8 text-brand-600 dark:text-brand-400" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Ready to scan
-              </h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Ready to scan</h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Each object's MD5 will be recomputed from disk and compared against its stored ETag.
+                Each object's MD5 is recomputed from disk and compared against its stored ETag.
                 {objectCount > 0 && (
-                  <> This bucket has <span className="font-semibold text-gray-700 dark:text-gray-200">{objectCount.toLocaleString()}</span> object{objectCount !== 1 ? 's' : ''}.</>
+                  <> This bucket has{' '}
+                    <span className="font-semibold text-gray-700 dark:text-gray-200">
+                      {objectCount.toLocaleString()}
+                    </span>{' '}
+                    object{objectCount !== 1 ? 's' : ''}.
+                  </>
                 )}
               </p>
             </div>
-            <Button
-              onClick={runScan}
-              className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md"
-            >
-              <ShieldCheck className="h-4 w-4 mr-2" />
-              Start Verification
-            </Button>
+
+            {isRateLimited ? (
+              <RateLimitBanner until={rateLimitUntil!} />
+            ) : (
+              <Button
+                onClick={onStart}
+                className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md"
+              >
+                <ShieldCheck className="h-4 w-4 mr-2" />
+                Start Verification
+              </Button>
+            )}
+
+            {history.length > 0 && <ScanHistory history={history} />}
           </div>
         )}
 
         {/* ── Running ── */}
-        {phase === 'running' && (
+        {phase === 'running' && scanState && (
           <div className="space-y-5">
             {/* Progress bar */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-brand-500 animate-pulse" />
-                  Scanning…
+                  <Clock className="h-4 w-4 text-amber-500 animate-pulse" />
+                  Scanning in progress…
                 </span>
                 <span className="text-gray-500 dark:text-gray-400">
-                  {totals.checked.toLocaleString()} / {objectCount > 0 ? objectCount.toLocaleString() : '?'} objects
+                  {scanState.checked.toLocaleString()} / {objectCount > 0 ? objectCount.toLocaleString() : '?'} objects
                 </span>
               </div>
               <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 {progressPct !== null ? (
                   <div
-                    className="h-full bg-gradient-to-r from-brand-500 to-blue-500 rounded-full transition-all duration-300"
+                    className="h-full bg-gradient-to-r from-amber-400 to-brand-500 rounded-full transition-all duration-500"
                     style={{ width: `${progressPct}%` }}
                   />
                 ) : (
-                  // Indeterminate stripe animation when total is unknown
-                  <div className="h-full w-full bg-gradient-to-r from-brand-400 via-blue-400 to-brand-400 rounded-full animate-pulse" />
+                  <div className="h-full w-1/3 bg-gradient-to-r from-amber-400 to-brand-500 rounded-full animate-[scan_1.5s_ease-in-out_infinite]" />
                 )}
               </div>
-              {progressPct !== null && (
-                <p className="text-xs text-right text-gray-400 dark:text-gray-500">{progressPct}%</p>
-              )}
+              <div className="flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
+                <span>Started {scanState.startedAt.toLocaleTimeString()}</span>
+                {progressPct !== null && <span>{progressPct}% complete</span>}
+              </div>
             </div>
 
-            {/* Live counters */}
-            <LiveCounters totals={totals} />
+            <LiveCounters scanState={scanState} />
 
-            {/* Live issues (rolling) */}
-            {totals.issues.length > 0 && (
-              <IssueTable issues={totals.issues} />
-            )}
+            {scanState.issues.length > 0 && <IssueTable issues={scanState.issues} />}
 
-            <div className="flex justify-end">
-              <Button variant="outline" onClick={handleClose}>
-                Cancel
-              </Button>
+            <div className="flex items-center justify-between pt-1 border-t border-gray-100 dark:border-gray-800">
+              <p className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+                <EyeOff className="h-3.5 w-3.5" />
+                Closing the window does <strong>not</strong> stop the scan
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={onHide}>
+                  <EyeOff className="h-4 w-4 mr-1.5" />
+                  Hide
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={onCancel}
+                  className="bg-error-600 hover:bg-error-700 text-white"
+                >
+                  <XCircle className="h-4 w-4 mr-1.5" />
+                  Cancel scan
+                </Button>
+              </div>
             </div>
           </div>
         )}
 
         {/* ── Done ── */}
-        {phase === 'done' && (
+        {phase === 'done' && scanState && (
           <div className="space-y-5">
-            {/* Summary banner */}
-            {totals.corrupted === 0 && totals.errors === 0 ? (
+            {/* Source label for background scrubber results */}
+            {scanState.source === 'scrubber' && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5" />
+                Background scrubber · scanned {scanState.finishedAt?.toLocaleString() ?? 'recently'}
+              </p>
+            )}
+
+            {scanState.corrupted === 0 && scanState.errors === 0 ? (
               <div className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-r from-success-50 to-green-50 dark:from-success-900/20 dark:to-green-900/20 border border-success-200 dark:border-success-800">
                 <CheckCircle2 className="h-8 w-8 text-success-600 dark:text-success-400 shrink-0" />
                 <div>
@@ -219,7 +211,9 @@ export function BucketIntegrityModal({ isOpen, onClose, bucket }: Props) {
                     All objects verified — no corruption found
                   </p>
                   <p className="text-sm text-success-700 dark:text-success-400 mt-0.5">
-                    {totals.checked.toLocaleString()} object{totals.checked !== 1 ? 's' : ''} checked in {totals.duration}
+                    {scanState.checked.toLocaleString()} object{scanState.checked !== 1 ? 's' : ''} checked
+                    {scanState.skipped > 0 && ` · ${scanState.skipped} skipped`}
+                    {' · '}completed in {scanState.duration}
                   </p>
                 </div>
               </div>
@@ -228,31 +222,33 @@ export function BucketIntegrityModal({ isOpen, onClose, bucket }: Props) {
                 <ShieldAlert className="h-8 w-8 text-error-600 dark:text-error-400 shrink-0" />
                 <div>
                   <p className="font-semibold text-error-800 dark:text-error-300">
-                    {totals.corrupted} corrupted / missing object{totals.corrupted !== 1 ? 's' : ''} detected
+                    {scanState.corrupted} corrupted / missing object{scanState.corrupted !== 1 ? 's' : ''} detected
                   </p>
                   <p className="text-sm text-error-700 dark:text-error-400 mt-0.5">
-                    {totals.checked.toLocaleString()} checked in {totals.duration}
-                    {totals.errors > 0 && ` · ${totals.errors} read error${totals.errors !== 1 ? 's' : ''}`}
+                    {scanState.checked.toLocaleString()} checked · completed in {scanState.duration}
+                    {scanState.errors > 0 && ` · ${scanState.errors} read error${scanState.errors !== 1 ? 's' : ''}`}
                   </p>
                 </div>
               </div>
             )}
 
-            {/* Full counters */}
-            <LiveCounters totals={totals} />
+            <LiveCounters scanState={scanState} />
+            {scanState.issues.length > 0 && <IssueTable issues={scanState.issues} />}
+            {history.length > 0 && <ScanHistory history={history} />}
 
-            {/* Issues table */}
-            {totals.issues.length > 0 && (
-              <IssueTable issues={totals.issues} />
-            )}
-
-            <div className="flex justify-between items-center">
-              <Button variant="outline" onClick={runScan}>
-                <ShieldCheck className="h-4 w-4 mr-2" />
-                Scan again
-              </Button>
+            <div className="flex items-center justify-between pt-1 border-t border-gray-100 dark:border-gray-800">
+              <div className="flex flex-col gap-1">
+                {isRateLimited ? (
+                  <RateLimitBanner until={rateLimitUntil!} compact />
+                ) : (
+                  <Button variant="outline" onClick={onStart}>
+                    <ShieldCheck className="h-4 w-4 mr-1.5" />
+                    Scan again
+                  </Button>
+                )}
+              </div>
               <Button
-                onClick={handleClose}
+                onClick={onHide}
                 className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white"
               >
                 Close
@@ -262,20 +258,27 @@ export function BucketIntegrityModal({ isOpen, onClose, bucket }: Props) {
         )}
 
         {/* ── Error ── */}
-        {phase === 'error' && (
+        {phase === 'error' && scanState && (
           <div className="space-y-5">
             <div className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-r from-error-50 to-red-50 dark:from-error-900/20 dark:to-red-900/20 border border-error-200 dark:border-error-800">
               <XCircle className="h-8 w-8 text-error-600 dark:text-error-400 shrink-0" />
               <div>
                 <p className="font-semibold text-error-800 dark:text-error-300">Verification failed</p>
-                <p className="text-sm text-error-700 dark:text-error-400 mt-0.5">{errorMessage}</p>
+                <p className="text-sm text-error-700 dark:text-error-400 mt-0.5">{scanState.errorMessage}</p>
               </div>
             </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={handleClose}>Close</Button>
-              <Button onClick={runScan} className="bg-gradient-to-r from-brand-600 to-brand-700 text-white">
-                Retry
-              </Button>
+            {history.length > 0 && <ScanHistory history={history} />}
+            <div className="flex justify-end gap-3 pt-1 border-t border-gray-100 dark:border-gray-800">
+              <Button variant="outline" onClick={onHide}>Close</Button>
+              {!isRateLimited && (
+                <Button
+                  onClick={onStart}
+                  className="bg-gradient-to-r from-brand-600 to-brand-700 text-white"
+                >
+                  Retry
+                </Button>
+              )}
+              {isRateLimited && <RateLimitBanner until={rateLimitUntil!} compact />}
             </div>
           </div>
         )}
@@ -284,32 +287,65 @@ export function BucketIntegrityModal({ isOpen, onClose, bucket }: Props) {
   );
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── Sub-components ─────────────────────────────────────────────────────────────
 
-function LiveCounters({ totals }: { totals: Totals }) {
+function RateLimitBanner({ until, compact }: { until: Date; compact?: boolean }) {
+  const [, forceUpdate] = useState(0);
+  // Tick every second so the countdown updates.
+  React.useEffect(() => {
+    const id = setInterval(() => forceUpdate(n => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const remaining = formatRemaining(until);
+
+  if (compact) {
+    return (
+      <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+        <Timer className="h-3.5 w-3.5 shrink-0" />
+        Rate limited — next scan in {remaining}
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-300">
+      <Timer className="h-5 w-5 shrink-0 text-amber-500" />
+      <div>
+        <p className="font-semibold">Rate limit active</p>
+        <p className="text-xs mt-0.5">
+          To protect storage, manual scans are limited to once per hour.
+          Next scan available in <strong>{remaining}</strong>.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function LiveCounters({ scanState }: { scanState: BucketScanState }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
       <CounterCard
         label="Checked"
-        value={totals.checked}
+        value={scanState.checked}
         icon={<ShieldCheck className="h-4 w-4" />}
         color="brand"
       />
       <CounterCard
         label="OK"
-        value={totals.ok}
+        value={scanState.ok}
         icon={<CheckCircle2 className="h-4 w-4" />}
         color="success"
       />
       <CounterCard
-        label="Corrupted / Missing"
-        value={totals.corrupted}
+        label="Issues"
+        value={scanState.corrupted}
         icon={<AlertTriangle className="h-4 w-4" />}
-        color={totals.corrupted > 0 ? 'error' : 'gray'}
+        color={scanState.corrupted > 0 ? 'error' : 'gray'}
       />
       <CounterCard
         label="Skipped"
-        value={totals.skipped}
+        value={scanState.skipped}
         icon={<SkipForward className="h-4 w-4" />}
         color="gray"
       />
@@ -319,9 +355,7 @@ function LiveCounters({ totals }: { totals: Totals }) {
 
 type CounterColor = 'brand' | 'success' | 'error' | 'gray';
 
-function CounterCard({
-  label, value, icon, color,
-}: {
+function CounterCard({ label, value, icon, color }: {
   label: string; value: number; icon: React.ReactNode; color: CounterColor;
 }) {
   const colorMap: Record<CounterColor, string> = {
@@ -330,7 +364,6 @@ function CounterCard({
     error:   'bg-error-50 dark:bg-error-900/20 text-error-600 dark:text-error-400 border-error-200 dark:border-error-800',
     gray:    'bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700',
   };
-
   return (
     <div className={`flex items-center gap-3 p-3 rounded-lg border ${colorMap[color]}`}>
       <span className="shrink-0">{icon}</span>
@@ -344,20 +377,12 @@ function CounterCard({
 
 function IssueTable({ issues }: { issues: IntegrityResult[] }) {
   const statusIcon = (s: IntegrityResult['status']) => {
-    if (s === 'corrupted') return <AlertTriangle className="h-4 w-4 text-error-500" />;
-    if (s === 'missing')   return <FileX          className="h-4 w-4 text-warning-500" />;
-    return                        <XCircle        className="h-4 w-4 text-gray-400" />;
+    if (s === 'corrupted') return <AlertTriangle className="h-3.5 w-3.5 text-error-500" />;
+    if (s === 'missing')   return <FileX          className="h-3.5 w-3.5 text-warning-500" />;
+    return                        <XCircle        className="h-3.5 w-3.5 text-gray-400" />;
   };
-
-  const statusLabel = (s: IntegrityResult['status']) => {
-    const map: Record<string, string> = {
-      corrupted: 'Corrupted',
-      missing:   'Missing',
-      error:     'Error',
-      skipped:   'Skipped',
-      ok:        'OK',
-    };
-    return map[s] ?? s;
+  const statusLabel: Record<string, string> = {
+    corrupted: 'Corrupted', missing: 'Missing', error: 'Error', skipped: 'Skipped', ok: 'OK',
   };
 
   return (
@@ -366,7 +391,7 @@ function IssueTable({ issues }: { issues: IntegrityResult[] }) {
         Issues found ({issues.length})
       </h4>
       <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-        <div className="max-h-64 overflow-y-auto">
+        <div className="max-h-56 overflow-y-auto">
           <table className="w-full text-xs">
             <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
               <tr>
@@ -378,17 +403,14 @@ function IssueTable({ issues }: { issues: IntegrityResult[] }) {
             </thead>
             <tbody>
               {issues.map((issue, idx) => (
-                <tr
-                  key={idx}
-                  className="border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50"
-                >
+                <tr key={idx} className="border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
                   <td className="px-3 py-2 font-mono text-gray-800 dark:text-gray-200 max-w-xs truncate" title={issue.key}>
                     {issue.key}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <span className="flex items-center gap-1.5">
                       {statusIcon(issue.status)}
-                      {statusLabel(issue.status)}
+                      {statusLabel[issue.status] ?? issue.status}
                     </span>
                   </td>
                   <td className="px-3 py-2 font-mono text-gray-500 dark:text-gray-400 max-w-[120px] truncate" title={issue.storedETag}>
@@ -403,6 +425,59 @@ function IssueTable({ issues }: { issues: IntegrityResult[] }) {
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ScanHistory({ history }: { history: LastIntegrityScan[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-gray-800/60 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-medium text-gray-600 dark:text-gray-400 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <Clock className="h-3.5 w-3.5" />
+          Scan history ({history.length} run{history.length !== 1 ? 's' : ''})
+        </span>
+        {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+      </button>
+
+      {expanded && (
+        <div className="divide-y divide-gray-100 dark:divide-gray-800 max-h-48 overflow-y-auto">
+          {history.map((entry, idx) => (
+            <div key={idx} className="flex items-center justify-between px-4 py-2.5 text-xs">
+              <div className="flex items-center gap-2">
+                {entry.corrupted === 0 && entry.errors === 0 ? (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-success-500 shrink-0" />
+                ) : (
+                  <ShieldAlert className="h-3.5 w-3.5 text-error-500 shrink-0" />
+                )}
+                <span className="text-gray-600 dark:text-gray-400">
+                  {new Date(entry.scannedAt).toLocaleString()}
+                </span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                  entry.source === 'scrubber'
+                    ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                }`}>
+                  {entry.source === 'scrubber' ? 'auto' : 'manual'}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
+                <span>{entry.checked.toLocaleString()} objects</span>
+                {entry.corrupted > 0
+                  ? <span className="text-error-600 dark:text-error-400 font-medium">{entry.corrupted} issue{entry.corrupted !== 1 ? 's' : ''}</span>
+                  : <span className="text-success-600 dark:text-success-400">Clean</span>
+                }
+                <span>{entry.duration}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

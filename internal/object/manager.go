@@ -901,11 +901,18 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 			continue
 		}
 
-		// Skip implicit folders (created automatically when uploading files)
-		// In S3, only explicitly created folders should appear in listings
+		// Implicit folder markers (auto-created when files are uploaded to nested paths):
+		// - Without delimiter (flat listing): skip them — they are internal infrastructure.
+		// - With delimiter (hierarchical listing): fall through to the common-prefix logic
+		//   below so that empty folders remain visible as common prefixes.
+		// - When the key exactly equals the prefix we are listing inside: skip the
+		//   self-referential entry to avoid a folder appearing as its own child.
 		if metaObj.Metadata != nil {
 			if implicit, ok := metaObj.Metadata["x-maxiofs-implicit-folder"]; ok && implicit == "true" {
-				continue
+				if delimiter == "" || key == prefix {
+					continue
+				}
+				// Fall through — the delimiter block below will add it as a common prefix.
 			}
 		}
 
@@ -1022,10 +1029,14 @@ func (om *objectManager) SearchObjects(ctx context.Context, bucket, prefix, deli
 			continue
 		}
 
-		// Skip implicit folders
+		// Implicit folder markers: same logic as in ListObjects above.
+		// Without delimiter or when key == prefix, skip. Otherwise fall through
+		// so the common-prefix extraction makes empty folders visible.
 		if metaObj.Metadata != nil {
 			if implicit, ok := metaObj.Metadata["x-maxiofs-implicit-folder"]; ok && implicit == "true" {
-				continue
+				if delimiter == "" || key == prefix {
+					continue
+				}
 			}
 		}
 

@@ -1277,5 +1277,18 @@ export interface BucketIntegrityReport {
   nextMarker?: string;
 }
 
+export interface LastIntegrityScan {
+  bucketPath: string;
+  scannedAt: string;
+  duration: string;
+  checked: number;
+  ok: number;
+  corrupted: number;
+  skipped: number;
+  errors: number;
+  issues?: IntegrityResult[];
+  source: 'manual' | 'scrubber';
+}
+
 // Re-export common types
 export type { FC, ReactNode, ComponentProps } from 'react';

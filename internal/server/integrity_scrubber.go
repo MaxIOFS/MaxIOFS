@@ -55,83 +55,115 @@ func (s *Server) runIntegrityScrub(ctx context.Context) {
 			bucketPath = tenantID + "/" + bkt.Name
 		}
 
+		// Per-bucket accumulators — used to persist the full-bucket result.
+		var bucketChecked, bucketOK, bucketCorrupted, bucketSkipped, bucketErrors int
+		var bucketIssues []*object.IntegrityResult
+		bucketStart := time.Now()
+
 		marker := ""
 		for {
-				report, err := s.objectManager.(interface {
-					VerifyBucketIntegrity(ctx context.Context, bucket, prefix, marker string, maxKeys int) (*object.BucketIntegrityReport, error)
-				}).VerifyBucketIntegrity(ctx, bucketPath, "", marker, 500)
-				if err != nil {
-					logrus.WithError(err).WithFields(logrus.Fields{
-						"tenant": tenantID,
-						"bucket": bkt.Name,
-					}).Error("Integrity scrubber: verification failed")
-					break
+			report, err := s.objectManager.(interface {
+				VerifyBucketIntegrity(ctx context.Context, bucket, prefix, marker string, maxKeys int) (*object.BucketIntegrityReport, error)
+			}).VerifyBucketIntegrity(ctx, bucketPath, "", marker, 500)
+			if err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"tenant": tenantID,
+					"bucket": bkt.Name,
+				}).Error("Integrity scrubber: verification failed")
+				break
+			}
+
+			bucketChecked += report.Checked
+			bucketOK += report.OK
+			bucketCorrupted += report.Corrupted
+			bucketSkipped += report.Skipped
+			bucketErrors += report.Errors
+			totalChecked += report.Checked
+
+			// Accumulate all issues for persistence (capped later by saveIntegrityResult).
+			if len(bucketIssues) < maxStoredIssues {
+				remaining := maxStoredIssues - len(bucketIssues)
+				toAdd := report.Issues
+				if len(toAdd) > remaining {
+					toAdd = toAdd[:remaining]
+				}
+				bucketIssues = append(bucketIssues, toAdd...)
+			}
+
+			for _, issue := range report.Issues {
+				if issue.Status != object.IntegrityCorrupted && issue.Status != object.IntegrityMissing {
+					continue
 				}
 
-				totalChecked += report.Checked
+				totalCorrupted++
 
-				for _, issue := range report.Issues {
-					if issue.Status != object.IntegrityCorrupted && issue.Status != object.IntegrityMissing {
-						continue
-					}
+				logrus.WithFields(logrus.Fields{
+					"bucket":       bkt.Name,
+					"key":          issue.Key,
+					"status":       issue.Status,
+					"storedETag":   issue.StoredETag,
+					"computedETag": issue.ComputedETag,
+				}).Error("Integrity scrubber: data corruption detected")
 
-					totalCorrupted++
-
-					logrus.WithFields(logrus.Fields{
+				// Audit event
+				_ = s.auditManager.LogEvent(ctx, &audit.AuditEvent{
+					TenantID:     tenantID,
+					EventType:    audit.EventTypeDataCorruption,
+					ResourceType: audit.ResourceTypeSystem,
+					ResourceID:   fmt.Sprintf("%s/%s", bkt.Name, issue.Key),
+					ResourceName: issue.Key,
+					Action:       audit.ActionVerifyIntegrity,
+					Status:       audit.StatusFailed,
+					Details: map[string]interface{}{
 						"bucket":       bkt.Name,
 						"key":          issue.Key,
-						"status":       issue.Status,
+						"status":       string(issue.Status),
 						"storedETag":   issue.StoredETag,
 						"computedETag": issue.ComputedETag,
-					}).Error("Integrity scrubber: data corruption detected")
+						"expectedSize": issue.ExpectedSize,
+						"actualSize":   issue.ActualSize,
+					},
+				})
 
-					// Audit event
-					_ = s.auditManager.LogEvent(ctx, &audit.AuditEvent{
-						TenantID:     tenantID,
-						EventType:    audit.EventTypeDataCorruption,
-						ResourceType: audit.ResourceTypeSystem,
-						ResourceID:   fmt.Sprintf("%s/%s", bkt.Name, issue.Key),
-						ResourceName: issue.Key,
-						Action:       audit.ActionVerifyIntegrity,
-						Status:       audit.StatusFailed,
-						Details: map[string]interface{}{
-							"bucket":       bkt.Name,
-							"key":          issue.Key,
-							"status":       string(issue.Status),
-							"storedETag":   issue.StoredETag,
-							"computedETag": issue.ComputedETag,
-							"expectedSize": issue.ExpectedSize,
-							"actualSize":   issue.ActualSize,
-						},
-					})
+				// SSE notification
+				s.notificationHub.SendNotification(&Notification{
+					Type:    "data_corruption",
+					Message: fmt.Sprintf("Data corruption detected in %s/%s", bkt.Name, issue.Key),
+					Data: map[string]interface{}{
+						"bucket":       bkt.Name,
+						"key":          issue.Key,
+						"status":       string(issue.Status),
+						"storedETag":   issue.StoredETag,
+						"computedETag": issue.ComputedETag,
+					},
+					Timestamp: time.Now().Unix(),
+					TenantID:  tenantID,
+				})
 
-					// SSE notification
-					s.notificationHub.SendNotification(&Notification{
-						Type:    "data_corruption",
-						Message: fmt.Sprintf("Data corruption detected in %s/%s", bkt.Name, issue.Key),
-						Data: map[string]interface{}{
-							"bucket":       bkt.Name,
-							"key":          issue.Key,
-							"status":       string(issue.Status),
-							"storedETag":   issue.StoredETag,
-							"computedETag": issue.ComputedETag,
-						},
-						Timestamp: time.Now().Unix(),
-						TenantID:  tenantID,
-					})
+				// Email alert
+				s.sendCorruptionAlertEmail(bkt.Name, issue.Key, issue.StoredETag, issue.ComputedETag)
+			}
 
-					// Email alert
-					s.sendCorruptionAlertEmail(bkt.Name, issue.Key, issue.StoredETag, issue.ComputedETag)
-				}
+			// Throttle slightly to avoid saturating IO
+			time.Sleep(10 * time.Millisecond)
 
-				// Throttle slightly to avoid saturating IO
-				time.Sleep(10 * time.Millisecond)
-
-				if report.NextMarker == "" {
-					break
-				}
-				marker = report.NextMarker
+			if report.NextMarker == "" {
+				break
+			}
+			marker = report.NextMarker
 		}
+
+		// Persist the accumulated bucket result so the UI can display it at any time.
+		s.saveIntegrityResult(ctx, bucketPath, &object.BucketIntegrityReport{
+			Bucket:    bkt.Name,
+			Duration:  time.Since(bucketStart).String(),
+			Checked:   bucketChecked,
+			OK:        bucketOK,
+			Corrupted: bucketCorrupted,
+			Skipped:   bucketSkipped,
+			Errors:    bucketErrors,
+			Issues:    bucketIssues,
+		}, "scrubber")
 	}
 
 	logrus.WithFields(logrus.Fields{

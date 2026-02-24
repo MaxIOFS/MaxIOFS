@@ -48,6 +48,16 @@ type BucketIntegrityReport struct {
 // VerifyObjectIntegrity reads the stored object, recomputes the MD5 of its
 // content (after transparent decryption) and compares it to the stored ETag.
 func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key string) (*IntegrityResult, error) {
+	// Folder markers (keys ending with "/") are virtual directory placeholders.
+	// They have no content file on storage, so there is nothing to verify.
+	if strings.HasSuffix(key, "/") {
+		return &IntegrityResult{
+			Key:    key,
+			Status: IntegritySkipped,
+			Reason: "folder marker: not a data object",
+		}, nil
+	}
+
 	// Fetch metadata to get the stored ETag and expected size
 	meta, err := om.metadataStore.GetObject(ctx, bucket, key)
 	if err != nil {
@@ -59,6 +69,15 @@ func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key 
 	}
 
 	storedETag := meta.ETag
+
+	// Delete markers have an empty ETag — they are tombstones, not real objects.
+	if storedETag == "" {
+		return &IntegrityResult{
+			Key:    key,
+			Status: IntegritySkipped,
+			Reason: "delete marker: not a data object",
+		}, nil
+	}
 
 	// Multipart ETags have the form "<md5>-<partCount>"; we cannot verify them
 	// with a simple MD5 of the content, so we skip them.

@@ -244,6 +244,8 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}", s.handleDeleteBucket).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/recalculate-stats", s.handleRecalculateBucketStats).Methods("POST", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/verify-integrity", s.handleVerifyBucketIntegrity).Methods("POST", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/integrity-status", s.handleGetIntegrityStatus).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/integrity-status", s.handleSaveIntegrityStatus).Methods("POST", "OPTIONS")
 
 	// Replication endpoints
 	router.HandleFunc("/buckets/{bucket}/replication/rules", s.handleListReplicationRules).Methods("GET", "OPTIONS")
