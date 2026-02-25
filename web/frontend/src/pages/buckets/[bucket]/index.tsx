@@ -179,71 +179,78 @@ export default function BucketDetailsPage() {
     },
   });
 
-  const deleteObjectMutation = useMutation({
-    mutationFn: async ({ bucket, key }: { bucket: string; key: string }) => {
-      // Check if it's a folder (ends with /)
-      if (key.endsWith('/')) {
-        console.log('[DELETE] Deleting folder:', key);
+  // Run at most `limit` async tasks concurrently from `items`.
+  const runConcurrent = async <T,>(
+    items: T[],
+    fn: (item: T) => Promise<void>,
+    limit: number
+  ): Promise<void> => {
+    let idx = 0;
+    const worker = async () => {
+      while (idx < items.length) {
+        const item = items[idx++];
+        await fn(item);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  };
 
-        // List all objects in the folder (recursively)
-        const folderObjects = await APIClient.getObjects({
-          bucket,
-          ...(tenantId && { tenantId }),
-          prefix: key,
-        });
+  // Recursively deletes a folder and all its contents at any depth.
+  //
+  // Uses delimiter="/" so that implicit folder markers (which are invisible to
+  // flat/no-delimiter listings) appear as commonPrefixes and can be recursed into.
+  // Concurrency is capped at CONCURRENT_DELETES to avoid overwhelming SQLite
+  // with simultaneous write transactions on large bulk operations.
+  const CONCURRENT_DELETES = 8;
+  const deleteFolderRecursive = async (bucket: string, folderKey: string): Promise<void> => {
+    let marker = '';
+    while (true) {
+      const page = await APIClient.getObjects({
+        bucket,
+        ...(tenantId && { tenantId }),
+        prefix: folderKey,
+        delimiter: '/',
+        maxKeys: 1000,
+        ...(marker && { continuationToken: marker }),
+      });
 
-        console.log('[DELETE] Folder objects response:', folderObjects);
-        console.log('[DELETE] Total objects found:', folderObjects?.objects?.length || 0);
-
-        // Get all objects that need to be deleted (excluding system files and the folder marker itself)
-        const objectsToDelete = folderObjects?.objects?.filter(obj => {
-          // Exclude the folder marker itself (we'll delete it separately at the end)
-          if (obj.key === key) return false;
-
-          // Exclude MaxIOFS system files (.maxiofs-folder, .metadata files, etc.)
-          if (obj.key.includes('.maxiofs-')) return false;
-
-          // Exclude other system/metadata files
-          if (obj.key.endsWith('.metadata')) return false;
-
-          return true;
-        }) || [];
-
-        console.log('[DELETE] Objects to delete:', objectsToDelete.map(o => o.key));
-        console.log('[DELETE] Total objects to delete:', objectsToDelete.length);
-
-        // Delete all objects in the folder (including nested objects and subfolder markers)
-        if (objectsToDelete.length > 0) {
-          console.log('[DELETE] Starting parallel deletion of', objectsToDelete.length, 'objects');
-          // Delete objects in parallel for better performance
-          await Promise.all(
-            objectsToDelete.map(obj => {
-              console.log('[DELETE] Deleting object:', obj.key);
-              return APIClient.deleteObject(bucket, obj.key, tenantId);
-            })
-          );
-          console.log('[DELETE] All objects deleted successfully');
-        }
-
-        // After deleting all contents, try to delete the main folder marker
-        // (may not exist if it was only virtual)
-        console.log('[DELETE] Deleting main folder marker:', key);
-        try {
-          await APIClient.deleteObject(bucket, key, tenantId);
-          console.log('[DELETE] Folder marker deleted successfully');
-        } catch (error: unknown) {
-          // Ignore 404 errors - folder marker may not exist (virtual folder)
-          if (isHttpStatus(error, 404)) {
-            console.log('[DELETE] Folder marker not found (virtual folder) - OK');
-          } else {
-            // Re-throw other errors
-            throw error;
-          }
-        }
-        return;
+      // Recurse into subfolders with bounded concurrency
+      const subfolders = page?.commonPrefixes || [];
+      if (subfolders.length > 0) {
+        await runConcurrent(subfolders, sub => deleteFolderRecursive(bucket, sub), CONCURRENT_DELETES);
       }
 
-      // Single object deletion
+      // Delete objects at this level with bounded concurrency
+      const objects = (page?.objects || []).filter(obj =>
+        obj.key !== folderKey &&
+        !obj.key.includes('.maxiofs-') &&
+        !obj.key.endsWith('.metadata')
+      );
+      if (objects.length > 0) {
+        await runConcurrent(
+          objects,
+          obj => APIClient.deleteObject(bucket, obj.key, tenantId),
+          CONCURRENT_DELETES
+        );
+      }
+
+      if (!page?.isTruncated || !page?.nextContinuationToken) break;
+      marker = page.nextContinuationToken;
+    }
+
+    // Finally delete the folder marker itself (ignore 404 — virtual folders have none)
+    try {
+      await APIClient.deleteObject(bucket, folderKey, tenantId);
+    } catch (error: unknown) {
+      if (!isHttpStatus(error, 404)) throw error;
+    }
+  };
+
+  const deleteObjectMutation = useMutation({
+    mutationFn: async ({ bucket, key }: { bucket: string; key: string }) => {
+      if (key.endsWith('/')) {
+        return deleteFolderRecursive(bucket, key);
+      }
       return APIClient.deleteObject(bucket, key, tenantId);
     },
     onSuccess: () => {
@@ -701,12 +708,12 @@ export default function BucketDetailsPage() {
   };
 
   const toggleSelectAll = () => {
-    if (selectedObjects.size === filteredObjects.length) {
+    if (selectedObjects.size === filteredItems.length) {
       // Deselect all
       setSelectedObjects(new Set());
     } else {
-      // Select all
-      const allKeys = new Set(filteredObjects.map(obj => obj.key));
+      // Select all — includes both files and folders
+      const allKeys = new Set(filteredItems.map(item => item.key));
       setSelectedObjects(allKeys);
     }
   };
@@ -744,7 +751,12 @@ export default function BucketDetailsPage() {
       ModalManager.updateProgress(progress);
 
       try {
-        await APIClient.deleteObject(bucketName, key, tenantId);
+        if (key.endsWith('/')) {
+          // Folder: recursively delete all contents, then the marker
+          await deleteFolderRecursive(bucketName, key);
+        } else {
+          await APIClient.deleteObject(bucketName, key, tenantId);
+        }
         successCount++;
       } catch (error: unknown) {
         failCount++;
@@ -1142,6 +1154,7 @@ export default function BucketDetailsPage() {
                       <input
                         type="checkbox"
                         checked={selectedObjects.size === filteredItems.length && filteredItems.length > 0}
+                        ref={el => { if (el) el.indeterminate = selectedObjects.size > 0 && selectedObjects.size < filteredItems.length; }}
                         onChange={toggleSelectAll}
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />

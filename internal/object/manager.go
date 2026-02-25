@@ -588,6 +588,19 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key str
 		return "", fmt.Errorf("failed to create delete marker: %w", err)
 	}
 
+	// Decrement object count: the object is now logically deleted (hidden by the
+	// delete marker). We pass size=0 because no physical data is removed yet —
+	// all previous versions remain on disk.
+	if om.bucketManager != nil {
+		tenantID, bucketName := om.parseBucketPath(bucket)
+		if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, 0); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucket,
+				"key":    key,
+			}).WithError(err).Warn("Failed to decrement object count after creating delete marker")
+		}
+	}
+
 	logrus.WithFields(logrus.Fields{
 		"bucket":    bucket,
 		"key":       key,
@@ -706,6 +719,49 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 				"bucket": bucket,
 				"key":    key,
 			}).Info("Deleted main object entry - no versions remaining")
+		}
+	}
+
+	// Adjust object count based on what we deleted and the new latest version.
+	// ObjectCount tracks only visible (non-delete-marker) objects, mirroring S3:
+	//   • Deleted a delete marker (latest) + real object resurfaces  → IncrementObjectCount
+	//   • Deleted a real object (latest)   + delete marker takes over → DecrementObjectCount
+	//   • Deleted the last remaining version (real object)            → DecrementObjectCount
+	//   • Deleted non-latest, or dm→dm, or real→real transitions      → no change
+	if om.bucketManager != nil && deletingLatest {
+		deletedIsDeleteMarker := objMetadata.Size == 0 && objMetadata.ETag == ""
+
+		// Find what becomes the new latest (if any)
+		var nextIsDeleteMarker bool
+		var nextSize int64
+		hasNextVersion := len(allVersions) > 1
+		if hasNextVersion {
+			for _, ver := range allVersions {
+				if ver.VersionID != versionID {
+					nextIsDeleteMarker = ver.Size == 0 && ver.ETag == ""
+					nextSize = ver.Size
+					break
+				}
+			}
+		}
+
+		tenantID, bucketName := om.parseBucketPath(bucket)
+		switch {
+		case !hasNextVersion && !deletedIsDeleteMarker:
+			// Last real version gone
+			if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objMetadata.Size); err != nil {
+				logrus.WithError(err).Warn("Failed to decrement object count after deleting last version")
+			}
+		case hasNextVersion && deletedIsDeleteMarker && !nextIsDeleteMarker:
+			// Delete marker removed → real object underneath resurfaces
+			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, nextSize); err != nil {
+				logrus.WithError(err).Warn("Failed to increment object count after removing delete marker")
+			}
+		case hasNextVersion && !deletedIsDeleteMarker && nextIsDeleteMarker:
+			// Real latest version gone → delete marker on top → object hidden
+			if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objMetadata.Size); err != nil {
+				logrus.WithError(err).Warn("Failed to decrement object count after version delete exposed delete marker")
+			}
 		}
 	}
 

@@ -432,11 +432,19 @@ func (m *Manager) insertDefaults() error {
 			Editable:    true,
 		},
 		{
-			Key:         "email.use_tls",
+			Key:         "email.tls_mode",
+			Value:       "none",
+			Type:        string(TypeString),
+			Category:    string(CategoryEmail),
+			Description: "SMTP TLS mode: none = plain SMTP (port 25), starttls = upgrade with STARTTLS (port 587), ssl = implicit TLS (port 465)",
+			Editable:    true,
+		},
+		{
+			Key:         "email.skip_tls_verify",
 			Value:       "false",
 			Type:        string(TypeBool),
 			Category:    string(CategoryEmail),
-			Description: "Use implicit TLS on connect (port 465). Disabled = use STARTTLS upgrade (port 587)",
+			Description: "Skip TLS certificate verification — enable for self-signed certificates (insecure, use only in trusted networks)",
 			Editable:    true,
 		},
 	}
@@ -751,6 +759,7 @@ func (m *Manager) removeDeprecated() error {
 	deprecated := []string{
 		"storage.enable_compression",
 		"storage.compression_level",
+		"email.use_tls", // replaced by email.tls_mode
 	}
 	for _, key := range deprecated {
 		if _, err := m.db.Exec(`DELETE FROM system_settings WHERE key = ?`, key); err != nil {

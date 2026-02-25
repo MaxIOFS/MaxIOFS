@@ -380,6 +380,11 @@ func (s *PebbleStore) RecalculateBucketStats(ctx context.Context, tenantID, buck
 		if err := json.Unmarshal(iter.Value(), &obj); err != nil {
 			continue
 		}
+		// Skip delete markers (ETag="" Size=0): they indicate the object is
+		// logically deleted in a versioned bucket and should not be counted.
+		if obj.ETag == "" && obj.Size == 0 {
+			continue
+		}
 		objectCount++
 		totalSize += obj.Size
 	}

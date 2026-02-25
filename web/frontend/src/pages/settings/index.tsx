@@ -88,6 +88,13 @@ export default function SettingsPage() {
     enabled: isGlobalAdmin,
   });
 
+  // Derive whether email is currently enabled (accounts for unsaved edits)
+  const emailEnabled = React.useMemo(() => {
+    const setting = settings?.find(s => s.key === 'email.enabled');
+    if (!setting) return false;
+    return (editedValues['email.enabled'] ?? setting.value) === 'true';
+  }, [settings, editedValues]);
+
   // Group settings by category
   const settingsByCategory = React.useMemo(() => {
     if (!settings) return {};
@@ -180,7 +187,15 @@ export default function SettingsPage() {
     if (key === 'logging.format') return ['json', 'text'];
     if (key === 'logging.level' || key === 'logging.frontend_level') return ['debug', 'info', 'warn', 'error'];
     if (key === 'logging.syslog_protocol') return ['tcp', 'udp'];
+    if (key === 'email.tls_mode') return ['none', 'starttls', 'ssl'];
     return null;
+  };
+
+  const getSelectLabel = (key: string, value: string): string => {
+    if (key === 'email.tls_mode') {
+      return { none: 'None (plain SMTP, no encryption)', starttls: 'STARTTLS (upgrade on port 587)', ssl: 'SSL/TLS (implicit, port 465)' }[value] ?? value;
+    }
+    return value;
   };
 
   // Get status indicator for boolean settings
@@ -375,13 +390,16 @@ export default function SettingsPage() {
                 <div>
                   <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Test SMTP Connection</h4>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                    Send a test email to your account address to verify the configuration
+                    {emailEnabled
+                      ? 'Send a test email to your account address to verify the configuration'
+                      : 'Enable email notifications above to test the SMTP connection'}
                   </p>
                 </div>
                 <button
                   onClick={handleTestEmail}
-                  disabled={testEmailStatus === 'sending'}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                  disabled={testEmailStatus === 'sending' || !emailEnabled}
+                  title={!emailEnabled ? 'Enable email notifications first' : undefined}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   <SendHorizonal className="h-4 w-4" />
                   {testEmailStatus === 'sending' ? 'Sending…' : 'Send Test Email'}
@@ -546,7 +564,7 @@ export default function SettingsPage() {
                           >
                             {getSelectOptions(setting.key)!.map(option => (
                               <option key={option} value={option}>
-                                {option}
+                                {getSelectLabel(setting.key, option)}
                               </option>
                             ))}
                           </select>

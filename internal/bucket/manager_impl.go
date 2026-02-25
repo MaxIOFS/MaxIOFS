@@ -607,7 +607,7 @@ func (bm *badgerBucketManager) isBucketEmpty(ctx context.Context, tenantID, name
 		}
 
 		// Check if metadata exists in BadgerDB
-		_, err := bm.metadataStore.GetObject(ctx, bucketPath, objectKey)
+		objMeta, err := bm.metadataStore.GetObject(ctx, bucketPath, objectKey)
 		if err != nil {
 			if err == metadata.ErrObjectNotFound {
 				// Orphaned physical file - delete it
@@ -626,7 +626,21 @@ func (bm *badgerBucketManager) isBucketEmpty(ctx context.Context, tenantID, name
 			return false, err
 		}
 
-		// Valid object with metadata
+		// If the current latest metadata is a delete marker (ETag="" Size=0), the
+		// object is logically deleted. The physical file is orphaned — clean it up.
+		if objMeta.ETag == "" && objMeta.Size == 0 {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketPath,
+				"key":    objectKey,
+				"path":   obj.Path,
+			}).Debug("Skipping delete-marker object as logically deleted; removing orphaned physical file")
+			if delErr := bm.storage.Delete(ctx, obj.Path); delErr != nil && delErr != storage.ErrObjectNotFound {
+				logrus.WithError(delErr).Warn("Failed to delete orphaned physical file for delete-marked object")
+			}
+			continue
+		}
+
+		// Valid, non-deleted object with metadata
 		hasValidObjects = true
 	}
 

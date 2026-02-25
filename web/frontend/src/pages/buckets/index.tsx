@@ -175,6 +175,7 @@ export default function BucketsPage() {
     mutationFn: ({ bucketName, tenantId, force }: { bucketName: string; tenantId?: string; force?: boolean }) =>
       APIClient.deleteBucket(bucketName, tenantId, force),
     onSuccess: (_r, { bucketName }) => {
+      ModalManager.close();
       queryClient.refetchQueries({ queryKey: ['buckets'] });
       queryClient.refetchQueries({ queryKey: ['tenants'] });
       ModalManager.successBucketDeleted(bucketName);

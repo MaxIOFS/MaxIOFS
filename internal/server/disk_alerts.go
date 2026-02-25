@@ -206,14 +206,16 @@ func (s *Server) buildEmailSender() *emailpkg.Sender {
 	user, _ := s.settingsManager.Get("email.smtp_user")
 	password, _ := s.settingsManager.Get("email.smtp_password")
 	from, _ := s.settingsManager.Get("email.from_address")
-	useTLS, _ := s.settingsManager.GetBool("email.use_tls")
+	tlsMode, _ := s.settingsManager.Get("email.tls_mode")
+	skipVerify, _ := s.settingsManager.GetBool("email.skip_tls_verify")
 
 	return emailpkg.NewSender(emailpkg.Config{
-		Host:     host,
-		Port:     port,
-		User:     user,
-		Password: password,
-		From:     from,
-		UseTLS:   useTLS,
+		Host:               host,
+		Port:               port,
+		User:               user,
+		Password:           password,
+		From:               from,
+		TLSMode:            tlsMode,
+		InsecureSkipVerify: skipVerify,
 	})
 }

@@ -28,7 +28,11 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 	if err := ensureDir(filepath.Dir(dbPath)); err != nil {
 		return nil, fmt.Errorf("failed to create db directory: %w", err)
 	}
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	// busy_timeout: wait up to 10 s before returning SQLITE_BUSY — prevents
+	// "database is locked" errors during concurrent bulk delete operations.
+	// WAL mode already allows concurrent readers; busy_timeout handles the
+	// rare case where two writers collide without blocking normal read traffic.
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(10000)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}

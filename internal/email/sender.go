@@ -8,14 +8,22 @@ import (
 	"time"
 )
 
+// TLS connection modes for SMTP.
+const (
+	TLSModeNone     = "none"     // plain SMTP, no TLS at all
+	TLSModeSTARTTLS = "starttls" // plain connect, then upgrade with STARTTLS
+	TLSModeSSL      = "ssl"      // implicit TLS from the start (port 465)
+)
+
 // Config holds SMTP configuration
 type Config struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	From     string
-	UseTLS   bool // true = implicit TLS (port 465), false = STARTTLS (port 587)
+	Host               string
+	Port               int
+	User               string
+	Password           string
+	From               string
+	TLSMode            string // "none", "starttls", or "ssl"
+	InsecureSkipVerify bool   // skip TLS certificate verification (self-signed certs)
 }
 
 // Sender sends emails via SMTP
@@ -45,17 +53,33 @@ func (s *Sender) Send(to []string, subject, body string) error {
 	msg := buildMessage(s.cfg.From, to, subject, body)
 	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
 
-	if s.cfg.UseTLS {
+	switch s.cfg.TLSMode {
+	case TLSModeSSL:
 		return s.sendImplicitTLS(addr, to, msg)
+	case TLSModeSTARTTLS:
+		return s.sendSTARTTLS(addr, to, msg)
+	default: // TLSModeNone or empty — plain SMTP, no TLS
+		return s.sendPlain(addr, to, msg)
 	}
-	return s.sendSTARTTLS(addr, to, msg)
 }
 
-// sendImplicitTLS connects with TLS from the start (port 465)
+// sendPlain connects over plain TCP without any TLS negotiation.
+func (s *Sender) sendPlain(addr string, to []string, msg []byte) error {
+	client, err := smtp.Dial(addr)
+	if err != nil {
+		return fmt.Errorf("SMTP dial: %w", err)
+	}
+	defer client.Close()
+
+	return s.deliver(client, to, msg)
+}
+
+// sendImplicitTLS connects with TLS from the start (port 465).
 func (s *Sender) sendImplicitTLS(addr string, to []string, msg []byte) error {
 	tlsCfg := &tls.Config{
-		ServerName: s.cfg.Host,
-		MinVersion: tls.VersionTLS12,
+		ServerName:         s.cfg.Host,
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: s.cfg.InsecureSkipVerify, //nolint:gosec
 	}
 	conn, err := tls.Dial("tcp", addr, tlsCfg)
 	if err != nil {
@@ -72,7 +96,8 @@ func (s *Sender) sendImplicitTLS(addr string, to []string, msg []byte) error {
 	return s.deliver(client, to, msg)
 }
 
-// sendSTARTTLS connects plaintext then upgrades with STARTTLS (port 587)
+// sendSTARTTLS connects plaintext then upgrades with STARTTLS.
+// Returns an error if the server does not advertise STARTTLS support.
 func (s *Sender) sendSTARTTLS(addr string, to []string, msg []byte) error {
 	client, err := smtp.Dial(addr)
 	if err != nil {
@@ -80,14 +105,18 @@ func (s *Sender) sendSTARTTLS(addr string, to []string, msg []byte) error {
 	}
 	defer client.Close()
 
-	if ok, _ := client.Extension("STARTTLS"); ok {
-		tlsCfg := &tls.Config{
-			ServerName: s.cfg.Host,
-			MinVersion: tls.VersionTLS12,
-		}
-		if err := client.StartTLS(tlsCfg); err != nil {
-			return fmt.Errorf("STARTTLS: %w", err)
-		}
+	ok, _ := client.Extension("STARTTLS")
+	if !ok {
+		return fmt.Errorf("STARTTLS: server does not advertise STARTTLS support")
+	}
+
+	tlsCfg := &tls.Config{
+		ServerName:         s.cfg.Host,
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: s.cfg.InsecureSkipVerify, //nolint:gosec
+	}
+	if err := client.StartTLS(tlsCfg); err != nil {
+		return fmt.Errorf("STARTTLS: %w", err)
 	}
 
 	return s.deliver(client, to, msg)

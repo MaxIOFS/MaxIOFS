@@ -125,18 +125,23 @@ func (s *Server) handleGetIntegrityStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
-	if !isGlobalAdmin {
-		s.writeError(w, "Forbidden: only global admins can view integrity status", http.StatusForbidden)
+	isTenantAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID != ""
+
+	if !isGlobalAdmin && !isTenantAdmin {
+		s.writeError(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	queryTenantID := r.URL.Query().Get("tenantId")
+	// Global admins may target any tenant via query param.
+	// Tenant admins always see only their own tenant's bucket.
 	tenantID := user.TenantID
-	if queryTenantID != "" {
-		tenantID = queryTenantID
+	if isGlobalAdmin {
+		if q := r.URL.Query().Get("tenantId"); q != "" {
+			tenantID = q
+		}
 	}
 	bucketPath := bucketName
 	if tenantID != "" {

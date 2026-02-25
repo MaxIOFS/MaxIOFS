@@ -153,10 +153,26 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 				return
 			}
 
-			// Skip authentication for public endpoints
+			// Skip authentication for public endpoints.
+			// Two matching strategies depending on whether the path is a prefix
+			// pattern (trailing slash, e.g. "/auth/oauth/") or an exact endpoint
+			// (no trailing slash, e.g. "/version", "/auth/login"):
+			//   - Prefix pattern  → strings.Contains: any sub-path matches.
+			//   - Exact endpoint  → strings.HasSuffix: the URL must END with the
+			//     token, preventing "/version" from matching "versioning" or
+			//     "version-file.txt" mid-path.
 			publicPaths := []string{"/auth/login", "/auth/2fa/verify", "/health", "/auth/oauth/", "/version"}
-			for _, path := range publicPaths {
-				if strings.Contains(r.URL.Path, path) {
+			for _, pub := range publicPaths {
+				urlPath := r.URL.Path
+				var matched bool
+				if strings.HasSuffix(pub, "/") {
+					// Prefix pattern — match anywhere in the path
+					matched = strings.Contains(urlPath, pub)
+				} else {
+					// Exact endpoint — match only at the end of the path
+					matched = urlPath == pub || strings.HasSuffix(urlPath, pub)
+				}
+				if matched {
 					next.ServeHTTP(w, r)
 					return
 				}
