@@ -31,6 +31,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useTheme } from '@/contexts/ThemeContext';
 import ModalManager, { ModalRenderer, ToastNotifications } from '@/lib/modals';
+import { BackgroundTaskBar } from '@/components/ui/BackgroundTaskBar';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import APIClient from '@/lib/api';
 import type { ServerConfig } from '@/types';
@@ -117,7 +118,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = location.pathname;
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
+  const isAdminUser = (user?.roles?.includes('admin') ?? false);
+  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications(isAdminUser);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -602,7 +604,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       {user?.username || 'Unknown'}
                     </span>
                     <span className="block text-xs text-gray-500 dark:text-gray-400">
-                      {user?.tenantId ? tenantDisplayName : 'Global Admin'}
+                      {user?.tenantId ? tenantDisplayName : isGlobalAdmin ? 'Global Admin' : 'Global User'}
                     </span>
                   </span>
 
@@ -686,9 +688,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </main>
       </div>
 
-      {/* Modal Manager and Toast Notifications */}
+      {/* Modal Manager, Toast Notifications, and Background Tasks */}
       <ModalRenderer />
       <ToastNotifications />
+      <BackgroundTaskBar />
     </div>
   );
 }

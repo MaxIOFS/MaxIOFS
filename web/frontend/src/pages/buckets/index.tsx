@@ -39,6 +39,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Bucket, IntegrityResult } from '@/types';
 import ModalManager from '@/lib/modals';
+import { useAuth } from '@/hooks/useAuth';
 import { EmptyState } from '@/components/ui/EmptyState';
 import {
   BucketIntegrityModal,
@@ -60,6 +61,9 @@ function getBucketKey(bucket: Bucket): string {
 export default function BucketsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isGlobalAdmin = (user?.roles?.includes('admin') ?? false) && !user?.tenantId;
+  const isAnyAdmin    = (user?.roles?.includes('admin') ?? false);
 
   // ── Table state ──────────────────────────────────────────────────────────────
   const [searchTerm, setSearchTerm]   = useState('');
@@ -84,9 +88,9 @@ export default function BucketsPage() {
   const { data: tenants } = useQuery({ queryKey: ['tenants'], queryFn: APIClient.getTenants });
 
 
-  // ── Load integrity history for all buckets ───────────────────────────────────
+  // ── Load integrity history for all buckets (admins only) ────────────────────
   useEffect(() => {
-    if (!buckets) return;
+    if (!buckets || !isAnyAdmin) return;
 
     buckets.forEach(async (bucket) => {
       const key = getBucketKey(bucket);
@@ -688,15 +692,17 @@ export default function BucketsPage() {
                         {/* Actions */}
                         <TableCell className="whitespace-nowrap text-right">
                           <div className="flex items-center justify-end gap-2">
-                            {/* Integrity button — dynamic appearance */}
-                            <button
-                              onClick={() => setIntegrityBucket(bucket)}
-                              className={`relative ${ib.className}`}
-                              title={ib.title}
-                            >
-                              {ib.icon}
-                              {ib.badge}
-                            </button>
+                            {/* Integrity button — visible for admins only */}
+                            {isAnyAdmin && (
+                              <button
+                                onClick={() => setIntegrityBucket(bucket)}
+                                className={`relative ${ib.className}`}
+                                title={ib.title}
+                              >
+                                {ib.icon}
+                                {ib.badge}
+                              </button>
+                            )}
 
                             <button
                               onClick={() => navigate(`${bucketPath}/settings`)}
@@ -794,6 +800,7 @@ export default function BucketsPage() {
           scanState={scanStates[getBucketKey(integrityBucket)] ?? null}
           history={integrityHistory}
           rateLimitUntil={getRateLimitUntil(getBucketKey(integrityBucket))}
+          canRunScan={isGlobalAdmin}
           onStart={() => startScan(integrityBucket)}
           onCancel={() => cancelScan(integrityBucket)}
           onHide={() => setIntegrityBucket(null)}

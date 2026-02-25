@@ -720,10 +720,12 @@ export default function BucketDetailsPage() {
 
   const handleBulkDelete = async () => {
     if (selectedObjects.size === 0) return;
+
+    const total = selectedObjects.size;
     const result = await ModalManager.fire({
       icon: 'warning',
-      title: `Delete ${selectedObjects.size} objects?`,
-      html: `<p>You are about to delete <strong>${selectedObjects.size}</strong> objects</p>
+      title: `Delete ${total} item${total !== 1 ? 's' : ''}?`,
+      html: `<p>You are about to delete <strong>${total}</strong> item${total !== 1 ? 's' : ''}</p>
              <p class="text-red-600 mt-2">This action cannot be undone</p>
              <p class="text-sm text-gray-600 mt-2">Some objects may be protected by Object Lock</p>`,
       showCancelButton: true,
@@ -734,79 +736,45 @@ export default function BucketDetailsPage() {
 
     if (!result.isConfirmed) return;
 
-    // Show progress (don't await - it returns void)
-    ModalManager.progress(
-      'Deleting objects...',
-      `Processing ${selectedObjects.size} objects`
+    // Snapshot selection and clear it immediately so the user can keep working
+    const selectedArray = Array.from(selectedObjects);
+    setSelectedObjects(new Set());
+
+    // Start background task — dialog is now closed, bar appears bottom-right
+    const taskId = ModalManager.startBgTask(
+      `Deleting ${total} item${total !== 1 ? 's' : ''}`,
+      total
     );
 
-    const selectedArray = Array.from(selectedObjects);
     let successCount = 0;
     let failCount = 0;
-    const errors: { key: string; error: string }[] = [];
 
-    for (let i = 0; i < selectedArray.length; i++) {
-      const key = selectedArray[i];
-      const progress = ((i + 1) / selectedArray.length) * 100;
-      ModalManager.updateProgress(progress);
-
-      try {
-        if (key.endsWith('/')) {
-          // Folder: recursively delete all contents, then the marker
-          await deleteFolderRecursive(bucketName, key);
-        } else {
-          await APIClient.deleteObject(bucketName, key, tenantId);
+    await runConcurrent(
+      selectedArray,
+      async (key: string) => {
+        try {
+          if (key.endsWith('/')) {
+            await deleteFolderRecursive(bucketName, key);
+          } else {
+            await APIClient.deleteObject(bucketName, key, tenantId);
+          }
+          successCount++;
+        } catch {
+          failCount++;
         }
-        successCount++;
-      } catch (error: unknown) {
-        failCount++;
-        const errorMsg = getErrorMessage(error, 'Unknown error');
-        errors.push({ key, error: errorMsg });
-      }
-    }
+        ModalManager.tickBgTask(taskId, successCount, failCount);
+      },
+      CONCURRENT_DELETES
+    );
 
-    ModalManager.close();
+    ModalManager.finishBgTask(taskId, successCount, failCount);
 
-    // Show results
-    if (failCount === 0) {
-      ModalManager.toast('success', `${successCount} objects deleted successfully`);
-    } else if (successCount > 0) {
-      const errorList = errors.map(e => `<li><strong>${e.key}</strong>: ${e.error}</li>`).join('');
-      ModalManager.fire({
-        icon: 'warning',
-        title: 'Partially successful deletion',
-        html: `<p>Deleted: <strong>${successCount}</strong> / ${selectedArray.length}</p>
-               <p>Failed: <strong>${failCount}</strong></p>
-               <div class="mt-4 text-left max-h-64 overflow-y-auto">
-                 <p class="font-semibold mb-2">Errors:</p>
-                 <ul class="text-sm">${errorList}</ul>
-               </div>`,
-        width: getResponsiveModalWidth(600),
-      });
-    } else {
-      const errorList = errors.map(e => `<li><strong>${e.key}</strong>: ${e.error}</li>`).join('');
-      ModalManager.fire({
-        icon: 'error',
-        title: 'Error deleting objects',
-        html: `<p>All objects failed</p>
-               <div class="mt-4 text-left max-h-64 overflow-y-auto">
-                 <p class="font-semibold mb-2">Errors:</p>
-                 <ul class="text-sm">${errorList}</ul>
-               </div>`,
-        width: getResponsiveModalWidth(600),
-      });
-    }
-
-    // Refresh and clear selections
+    // Refresh queries after completion
     if (successCount > 0) {
-      // Use refetchQueries for immediate UI update - invalidate ALL object queries
       queryClient.refetchQueries({ queryKey: ['objects', bucketName] });
-      // Refetch bucket metadata with specific tenantId
       queryClient.refetchQueries({ queryKey: ['bucket', bucketName, tenantId] });
-      // Refetch buckets list to update counters
       queryClient.refetchQueries({ queryKey: ['buckets'] });
     }
-    setSelectedObjects(new Set());
   };
 
   const formatSize = (bytes: number) => {

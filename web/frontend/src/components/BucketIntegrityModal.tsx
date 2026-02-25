@@ -49,6 +49,8 @@ interface Props {
   history: LastIntegrityScan[];
   /** If set, manual scans are rate-limited until this date */
   rateLimitUntil: Date | null;
+  /** Whether the current user can start/retry scans (global admin only) */
+  canRunScan?: boolean;
   onStart: () => void;
   onCancel: () => void;
   /** Close the modal WITHOUT stopping the scan */
@@ -75,6 +77,7 @@ export function BucketIntegrityModal({
   scanState,
   history,
   rateLimitUntil,
+  canRunScan = false,
   onStart,
   onCancel,
   onHide,
@@ -105,33 +108,47 @@ export function BucketIntegrityModal({
               <ShieldCheck className="h-8 w-8 text-brand-600 dark:text-brand-400" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Ready to scan</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {canRunScan ? 'Ready to scan' : 'No scan results yet'}
+              </h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Each object's MD5 is recomputed from disk and compared against its stored ETag.
-                {objectCount > 0 && (
-                  <> This bucket has{' '}
-                    <span className="font-semibold text-gray-700 dark:text-gray-200">
-                      {objectCount.toLocaleString()}
-                    </span>{' '}
-                    object{objectCount !== 1 ? 's' : ''}.
-                  </>
-                )}
+                {canRunScan
+                  ? <>Each object's MD5 is recomputed from disk and compared against its stored ETag.
+                      {objectCount > 0 && (
+                        <> This bucket has{' '}
+                          <span className="font-semibold text-gray-700 dark:text-gray-200">
+                            {objectCount.toLocaleString()}
+                          </span>{' '}
+                          object{objectCount !== 1 ? 's' : ''}.
+                        </>
+                      )}
+                    </>
+                  : 'Integrity verification has not been run for this bucket yet. Contact a global administrator to run a scan.'
+                }
               </p>
             </div>
 
-            {isRateLimited ? (
-              <RateLimitBanner until={rateLimitUntil!} />
-            ) : (
-              <Button
-                onClick={onStart}
-                className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md"
-              >
-                <ShieldCheck className="h-4 w-4 mr-2" />
-                Start Verification
-              </Button>
+            {canRunScan && (
+              isRateLimited ? (
+                <RateLimitBanner until={rateLimitUntil!} />
+              ) : (
+                <Button
+                  onClick={onStart}
+                  className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md"
+                >
+                  <ShieldCheck className="h-4 w-4 mr-2" />
+                  Start Verification
+                </Button>
+              )
             )}
 
             {history.length > 0 && <ScanHistory history={history} />}
+
+            {!canRunScan && (
+              <div className="flex justify-end pt-2 border-t border-gray-100 dark:border-gray-800">
+                <Button onClick={onHide}>Close</Button>
+              </div>
+            )}
           </div>
         )}
 
@@ -238,13 +255,15 @@ export function BucketIntegrityModal({
 
             <div className="flex items-center justify-between pt-1 border-t border-gray-100 dark:border-gray-800">
               <div className="flex flex-col gap-1">
-                {isRateLimited ? (
-                  <RateLimitBanner until={rateLimitUntil!} compact />
-                ) : (
-                  <Button variant="outline" onClick={onStart}>
-                    <ShieldCheck className="h-4 w-4 mr-1.5" />
-                    Scan again
-                  </Button>
+                {canRunScan && (
+                  isRateLimited ? (
+                    <RateLimitBanner until={rateLimitUntil!} compact />
+                  ) : (
+                    <Button variant="outline" onClick={onStart}>
+                      <ShieldCheck className="h-4 w-4 mr-1.5" />
+                      Scan again
+                    </Button>
+                  )
                 )}
               </div>
               <Button
@@ -270,7 +289,7 @@ export function BucketIntegrityModal({
             {history.length > 0 && <ScanHistory history={history} />}
             <div className="flex justify-end gap-3 pt-1 border-t border-gray-100 dark:border-gray-800">
               <Button variant="outline" onClick={onHide}>Close</Button>
-              {!isRateLimited && (
+              {canRunScan && !isRateLimited && (
                 <Button
                   onClick={onStart}
                   className="bg-gradient-to-r from-brand-600 to-brand-700 text-white"
@@ -278,7 +297,7 @@ export function BucketIntegrityModal({
                   Retry
                 </Button>
               )}
-              {isRateLimited && <RateLimitBanner until={rateLimitUntil!} compact />}
+              {canRunScan && isRateLimited && <RateLimitBanner until={rateLimitUntil!} compact />}
             </div>
           </div>
         )}

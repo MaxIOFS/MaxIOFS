@@ -22,7 +22,7 @@ const getBasePath = () => {
   return '';
 };
 
-export function useNotifications() {
+export function useNotifications(enabled = true) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [connected, setConnected] = useState(false);
   const [token, setToken] = useState<string | null>(null);
@@ -53,6 +53,11 @@ export function useNotifications() {
       } catch (e) {
         // Ignore parse errors
       }
+    }
+
+    // Skip SSE connection for non-admin users
+    if (!enabled) {
+      return;
     }
 
     // Get auth token
@@ -163,7 +168,7 @@ export function useNotifications() {
       controller.abort();
       setConnected(false);
     };
-  }, [token]);
+  }, [token, enabled]);
 
   const markAsRead = useCallback((notificationId: string) => {
     setNotifications((prev) => {

@@ -14,7 +14,8 @@ import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, 
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { isGlobalAdmin } = useCurrentUser();
+  const { isGlobalAdmin, isTenantAdmin, isTenantUser } = useCurrentUser();
+  const isAnyAdmin = isGlobalAdmin || isTenantAdmin;
 
   // Safe dark mode detection
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -58,9 +59,10 @@ export default function Dashboard() {
     refetchOnWindowFocus: false,
   });
 
-  const { data: usersResponse, isLoading: usersLoading } = useQuery({
+  const { data: usersResponse } = useQuery({
     queryKey: ['users'],
     queryFn: APIClient.getUsers,
+    enabled: isAnyAdmin,
   });
 
   const { data: healthStatus } = useQuery({
@@ -83,9 +85,10 @@ export default function Dashboard() {
     queryFn: APIClient.getSystemMetrics,
     refetchInterval: 30000,
     refetchOnWindowFocus: false,
+    enabled: !isTenantUser, // global users (admin or not) can see system metrics
   });
 
-  const isLoading = metricsLoading || bucketsLoading || usersLoading;
+  const isLoading = metricsLoading || bucketsLoading;
 
   // Data is already tenant-filtered by backend
   const buckets: Bucket[] = bucketsResponse || [];
@@ -193,7 +196,7 @@ export default function Dashboard() {
           title="Storage Used"
           value={formatBytes(totalSize)}
           icon={HardDrive}
-          description={`of ${formatBytes(diskTotal)}`}
+          description={diskTotal > 0 ? `of ${formatBytes(diskTotal)}` : 'Total storage in use'}
           color="warning"
         />
 

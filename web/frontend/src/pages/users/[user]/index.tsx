@@ -96,10 +96,12 @@ export default function UserDetailsPage() {
     queryFn: APIClient.getCurrentUser,
   });
 
-  // Fetch all users from the same tenant to check if this is the last admin
+  // Fetch all users from the same tenant to check if this is the last admin (admins only)
+  const isCurrentUserAdmin = currentUser?.roles?.includes('admin');
   const { data: allUsers } = useQuery({
     queryKey: ['users'],
     queryFn: APIClient.getUsers,
+    enabled: !!isCurrentUserAdmin,
   });
 
   // Fetch 2FA status for this user
@@ -205,9 +207,6 @@ export default function UserDetailsPage() {
 
   // Check if user is editing their own profile
   const isEditingSelf = currentUser?.id === userId;
-
-  // Check if current user is admin (global or tenant admin)
-  const isCurrentUserAdmin = currentUser?.roles?.includes('admin');
 
   // Check if this is the last admin in the tenant
   const isLastAdminInTenant = () => {

@@ -718,20 +718,83 @@ class ModalManager {
     return { isConfirmed: true };
   }
 
-  // Progress bar methods
-  static async progress(title: string, text?: string): Promise<void> {
-    this.setModal({
-      isOpen: true,
-      type: 'loading',
-      title,
-      message: text || '',
-    });
+  // Progress bar methods (legacy — kept for compatibility, no longer blocks UI)
+  static async progress(_title: string, _text?: string): Promise<void> {}
+  static updateProgress(_percentage: number): void {}
+
+  // ── Background task API ─────────────────────────────────────────────────────
+  static startBgTask(label: string, total: number): string {
+    return useBgTaskStore.getState().addTask(label, total);
   }
 
-  static updateProgress(percentage: number): void {
-    // Progress updates are handled by the loading modal
-    // This is a no-op for compatibility
+  static tickBgTask(id: string, successCount: number, failCount: number): void {
+    useBgTaskStore.getState().tick(id, successCount, failCount);
+  }
+
+  static finishBgTask(id: string, successCount: number, failCount: number): void {
+    useBgTaskStore.getState().finish(id, successCount, failCount);
   }
 }
 
 export default ModalManager;
+
+// ── Background task store ─────────────────────────────────────────────────────
+
+export interface BgTask {
+  id: string;
+  label: string;
+  total: number;
+  done: number;       // success + fail
+  success: number;
+  fail: number;
+  status: 'running' | 'done' | 'error';
+  startedAt: number;
+}
+
+interface BgTaskStore {
+  tasks: BgTask[];
+  addTask: (label: string, total: number) => string;
+  tick: (id: string, success: number, fail: number) => void;
+  finish: (id: string, success: number, fail: number) => void;
+  remove: (id: string) => void;
+}
+
+export const useBgTaskStore = create<BgTaskStore>((set, get) => ({
+  tasks: [],
+
+  addTask: (label, total) => {
+    const id = Math.random().toString(36).substring(2, 10);
+    set(s => ({
+      tasks: [...s.tasks, { id, label, total, done: 0, success: 0, fail: 0, status: 'running', startedAt: Date.now() }],
+    }));
+    return id;
+  },
+
+  tick: (id, success, fail) => {
+    set(s => ({
+      tasks: s.tasks.map(t =>
+        t.id === id
+          ? { ...t, success, fail, done: success + fail }
+          : t
+      ),
+    }));
+  },
+
+  finish: (id, success, fail) => {
+    set(s => ({
+      tasks: s.tasks.map(t =>
+        t.id === id
+          ? { ...t, success, fail, done: success + fail, status: fail > 0 && success === 0 ? 'error' : 'done' }
+          : t
+      ),
+    }));
+    // Auto-remove after 6 s
+    setTimeout(() => {
+      if (get().tasks.find(t => t.id === id)) {
+        set(s => ({ tasks: s.tasks.filter(t => t.id !== id) }));
+      }
+    }, 6000);
+  },
+
+  remove: (id) => set(s => ({ tasks: s.tasks.filter(t => t.id !== id) })),
+}));

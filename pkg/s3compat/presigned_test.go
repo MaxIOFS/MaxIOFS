@@ -187,6 +187,8 @@ func (m *mockAuthManager) GetDB() interface{} {
 func (m *mockAuthManager) FindUserByExternalID(ctx context.Context, externalID, authProvider string) (*auth.User, error) {
 	return nil, fmt.Errorf("not implemented")
 }
+func (m *mockAuthManager) SetStorageQuotaAlertCallback(callback func(tenantID string, currentBytes, maxBytes int64)) {
+}
 
 // TestGeneratePresignedURLV4_Success tests successful V4 presigned URL generation
 func TestGeneratePresignedURLV4_Success(t *testing.T) {

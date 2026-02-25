@@ -2240,13 +2240,14 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	currentUser := s.getAuthUser(r)
-	if currentUser == nil || !s.isAdmin(currentUser) {
+	vars := mux.Vars(r)
+	userID := vars["user"]
+
+	isSelf := currentUser != nil && currentUser.ID == userID
+	if currentUser == nil || (!s.isAdmin(currentUser) && !isSelf) {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}
-
-	vars := mux.Vars(r)
-	userID := vars["user"]
 
 	user, err := s.authManager.GetUser(r.Context(), userID)
 	if err != nil {
@@ -2287,13 +2288,14 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	currentUser := s.getAuthUser(r)
-	if currentUser == nil || !s.isAdmin(currentUser) {
+	vars := mux.Vars(r)
+	userID := vars["user"]
+
+	isSelf := currentUser != nil && currentUser.ID == userID
+	if currentUser == nil || (!s.isAdmin(currentUser) && !isSelf) {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}
-
-	vars := mux.Vars(r)
-	userID := vars["user"]
 
 	var updateRequest struct {
 		Email    *string  `json:"email,omitempty"`
@@ -2305,6 +2307,14 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&updateRequest); err != nil {
 		s.writeError(w, "Invalid request body", http.StatusBadRequest)
 		return
+	}
+
+	// Non-admins can only update their own email — block privileged fields
+	if !s.isAdmin(currentUser) && isSelf {
+		if updateRequest.Roles != nil || updateRequest.Status != "" || updateRequest.TenantID != nil {
+			s.writeError(w, "Insufficient permissions to change roles, status, or tenant", http.StatusForbidden)
+			return
+		}
 	}
 
 	// Get existing user
@@ -2319,7 +2329,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Tenant admins can only update users in their own tenant
-	if !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
+	if s.isAdmin(currentUser) && !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}
@@ -2515,16 +2525,15 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetSystemMetrics(w http.ResponseWriter, r *http.Request) {
-	// Only Global Admins can access system metrics
+	// Global users (no tenant) can access system metrics; tenant users cannot
 	currentUser, userExists := auth.GetUserFromContext(r.Context())
 	if !userExists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
 
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
-	if !isGlobalAdmin {
-		s.writeError(w, "Forbidden: Only Global Admins can access system metrics", http.StatusForbidden)
+	if currentUser.TenantID != "" {
+		s.writeError(w, "Forbidden: Tenant users cannot access global system metrics", http.StatusForbidden)
 		return
 	}
 
@@ -2816,7 +2825,10 @@ func (s *Server) writeError(w http.ResponseWriter, message string, statusCode in
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(APIResponse{Success: false, Error: message})
-	logrus.WithField("error", message).WithField("status", statusCode).Warn("API error")
+	// Only log server errors (5xx); 4xx are expected client/access-control responses
+	if statusCode >= 500 {
+		logrus.WithField("error", message).WithField("status", statusCode).Warn("API error")
+	}
 }
 
 // logAuditEvent logs an audit event and warns if the logging fails.
@@ -2903,23 +2915,26 @@ func (s *Server) handleListAllAccessKeys(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleListAccessKeys(w http.ResponseWriter, r *http.Request) {
 	currentUser := s.getAuthUser(r)
-	if currentUser == nil || !s.isAdmin(currentUser) {
-		s.writeError(w, "Access denied", http.StatusForbidden)
-		return
-	}
-
 	vars := mux.Vars(r)
 	userID := vars["user"]
 
-	// Verify tenant ownership
-	targetUser, err := s.authManager.GetUser(r.Context(), userID)
-	if err != nil {
-		s.writeError(w, "User not found", http.StatusNotFound)
-		return
-	}
-	if !s.isGlobalAdmin(currentUser) && targetUser.TenantID != currentUser.TenantID {
+	isSelf := currentUser != nil && currentUser.ID == userID
+	if currentUser == nil || (!s.isAdmin(currentUser) && !isSelf) {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
+	}
+
+	// Verify tenant ownership (admins only; self-access skips this)
+	if s.isAdmin(currentUser) && !isSelf {
+		targetUser, err := s.authManager.GetUser(r.Context(), userID)
+		if err != nil {
+			s.writeError(w, "User not found", http.StatusNotFound)
+			return
+		}
+		if !s.isGlobalAdmin(currentUser) && targetUser.TenantID != currentUser.TenantID {
+			s.writeError(w, "Access denied", http.StatusForbidden)
+			return
+		}
 	}
 
 	accessKeys, err := s.authManager.ListAccessKeys(r.Context(), userID)
@@ -2953,15 +2968,16 @@ func (s *Server) handleListAccessKeys(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 	currentUser := s.getAuthUser(r)
-	if currentUser == nil || !s.isAdmin(currentUser) {
+	vars := mux.Vars(r)
+	userID := vars["user"]
+
+	isSelf := currentUser != nil && currentUser.ID == userID
+	if currentUser == nil || (!s.isAdmin(currentUser) && !isSelf) {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}
 
-	vars := mux.Vars(r)
-	userID := vars["user"]
-
-	// Get user to check tenant
+	// Get user to check tenant and quota
 	user, err := s.authManager.GetUser(r.Context(), userID)
 	if err != nil {
 		s.writeError(w, "User not found", http.StatusNotFound)
@@ -2969,7 +2985,7 @@ func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Tenant admins can only create access keys for users in their own tenant
-	if !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
+	if s.isAdmin(currentUser) && !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}
@@ -3037,7 +3053,7 @@ func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
 	currentUser := s.getAuthUser(r)
-	if currentUser == nil || !s.isAdmin(currentUser) {
+	if currentUser == nil {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}
@@ -3059,8 +3075,15 @@ func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
 	// Get user info for audit log and tenant check
 	user, _ := s.authManager.GetUser(r.Context(), accessKey.UserID)
 
+	// Non-admins can only delete their own access keys
+	isOwnKey := accessKey.UserID == currentUser.ID
+	if !s.isAdmin(currentUser) && !isOwnKey {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
 	// Tenant admins can only delete access keys for users in their own tenant
-	if user != nil && !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
+	if s.isAdmin(currentUser) && user != nil && !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}

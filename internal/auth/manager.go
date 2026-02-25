@@ -770,6 +770,18 @@ func (am *authManager) DeleteUser(ctx context.Context, userID string) error {
 		return err
 	}
 
+	// Revoke all bucket permissions granted to this user before deleting
+	if bucketPerms, listErr := am.store.ListUserBucketPermissions(userID); listErr == nil {
+		for _, perm := range bucketPerms {
+			if revokeErr := am.store.RevokeBucketAccess(perm.BucketName, userID, ""); revokeErr != nil {
+				logrus.WithError(revokeErr).
+					WithField("user_id", userID).
+					WithField("bucket", perm.BucketName).
+					Warn("Failed to revoke bucket permission during user deletion")
+			}
+		}
+	}
+
 	// Soft delete user in database (also soft deletes associated access keys)
 	err = am.store.DeleteUser(userID)
 	if err != nil {
