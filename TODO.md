@@ -1,7 +1,7 @@
 # MaxIOFS - Development Roadmap
 
 **Version**: 0.9.2-beta
-**Last Updated**: February 24, 2026
+**Last Updated**: February 26, 2026
 **Status**: Beta - S3 Core 100% Compatible
 
 ## 📊 Project Status
@@ -279,16 +279,16 @@ Detection key:
 
 ---
 
-### 4. Object Integrity Verification (MEDIUM)
+### 4. Object Integrity Verification ✅
 
-**Status**: MD5 is computed at write time and stored as ETag in Pebble. Never re-verified after storage.
-
-- [ ] `VerifyObjectIntegrity(ctx, bucketPath, objectKey) error` in `internal/object/manager.go`: reads the object file from disk, computes MD5, compares with stored ETag — returns error on mismatch
-- [ ] Background scrubber goroutine (`startIntegrityScrubber`): runs once every 24 hours, iterates all objects via `ListObjects`, calls `VerifyObjectIntegrity` for each, logs corrupted objects as `logrus.Error` and records an audit event (`EventTypeDataCorruption`)
-- [ ] New audit event type `EventTypeDataCorruption` with fields: bucket, object key, expected ETag, detected ETag, file path
-- [ ] Admin endpoint `POST /buckets/{bucket}/verify-integrity` — triggers an on-demand scan for a specific bucket, returns count of objects checked and list of corrupted objects found
-- [ ] Skip objects with empty ETag (delete markers, multipart in-progress)
-- [ ] Skip encrypted objects where ETag is of the unencrypted content (verify using `original-etag` from storage metadata)
+- [x] `VerifyObjectIntegrity(ctx, bucket, key)` in `internal/object/integrity.go` — reads object via `GetObject()` (handles decryption transparently), computes MD5, compares with stored ETag
+- [x] `VerifyBucketIntegrity(ctx, bucket, prefix, marker, maxKeys)` — paginated scan of all objects in a bucket, returns `BucketIntegrityReport` with counts + issues list
+- [x] Multipart objects (ETag contains "-") skipped with `IntegritySkipped` status
+- [x] `internal/server/integrity_scrubber.go` — background goroutine every 24h, iterates all tenants + global buckets, logs corrupted/missing objects as `logrus.Error`, sends SSE notification + email to global admins
+- [x] New audit event types `EventTypeDataIntegrityCheck` and `EventTypeDataCorruption` in `internal/audit/types.go`
+- [x] Admin endpoint `POST /buckets/{bucket}/verify-integrity?prefix=&marker=&maxKeys=` — on-demand scan, global admin only, returns paginated `BucketIntegrityReport`
+- [x] `VerifyObjectIntegrity` and `VerifyBucketIntegrity` added to `internal/object/manager.go` Manager interface
+- **Files**: `internal/object/integrity.go`, `internal/server/integrity_scrubber.go`, `internal/server/object_integrity_handler.go`, `internal/audit/types.go`, `internal/object/manager.go`, `internal/server/console_api.go`, `internal/server/server.go`
 
 ---
 
@@ -309,6 +309,16 @@ Detection key:
 ## ✅ COMPLETED
 
 ### v0.9.2-beta (February 2026)
+- ✅ Object integrity verification — `VerifyObjectIntegrity` + `VerifyBucketIntegrity`, background scrubber every 24h, on-demand `POST /buckets/{bucket}/verify-integrity`, SSE + email alerts on corruption, multipart skip, encrypted-object-safe
+- ✅ Non-blocking bulk delete — background task via `BackgroundTaskBar`; shows progress without blocking UI
+- ✅ Dashboard metrics for global non-admin users — `handleGetSystemMetrics` now allows any global user (not just admins); frontend `enabled: !isTenantUser` guard
+- ✅ "Global Admin" header label hardcoded fix — now shows "Global Admin" or "Global User" based on actual role
+- ✅ Bucket permissions scope enforcement — global buckets accept only global users; tenant buckets accept only same-tenant users; admin users excluded from grant selector (they have implicit access); no cross-scope or tenant-wide grants
+- ✅ User deletion cascade — `DeleteUser` now revokes all bucket permissions belonging to the deleted user before removal
+- ✅ `writeError` 4xx logging noise — only 5xx responses logged as `logrus.Warn`; 4xx are silent
+- ✅ SSE access for non-admin global users — `/notifications/stream` no longer gated to admin-only
+- ✅ Regular user profile self-access — non-admin users can `GET/PUT /users/{id}` for their own profile
+- ✅ Integrity check modal permissions — accessible to non-admin users with read-only view
 - ✅ Maintenance Mode enforcement — S3 + Console API middleware, reactive frontend banner
 - ✅ Disk space alerts — SSE + SMTP email to global admins when disk crosses 80%/90%; test email endpoint
 - ✅ Tenant quota warnings — SSE + email on 80%/90% threshold crossing; per-tenant deduplication; colored storage bar in UI
