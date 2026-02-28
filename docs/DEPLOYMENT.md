@@ -1,6 +1,6 @@
 # MaxIOFS Deployment Guide
 
-**Version**: 0.9.2-beta | **Last Updated**: February 22, 2026
+**Version**: 0.9.2-beta | **Last Updated**: February 28, 2026
 
 > **BETA SOFTWARE**: Suitable for development, testing, and staging environments. Production use requires thorough testing in your environment.
 
@@ -17,7 +17,9 @@
 ### Build Requirements (source only)
 
 - **Go** 1.25+ (with toolchain 1.25.4+)
-- **Node.js** 23+ (for frontend build)
+- **Node.js** 24+ (for frontend build)
+
+The compiled binary is self-contained and requires neither Go nor Node at runtime.
 
 ---
 
@@ -354,4 +356,4 @@ See [SECURITY.md](SECURITY.md) for detailed security guidance.
 
 ---
 
-**See also**: [CONFIGURATION.md](CONFIGURATION.md) · [CLUSTER.md](CLUSTER.md) · [SECURITY.md](SECURITY.md) · [DOCKER.md](../DOCKER.md)
+**See also**: [CONFIGURATION.md](CONFIGURATION.md) · [CLUSTER.md](CLUSTER.md) · [OPERATIONS.md](OPERATIONS.md) · [SECURITY.md](SECURITY.md) · [DOCKER.md](../DOCKER.md)

@@ -1,6 +1,6 @@
 # MaxIOFS Performance & SLOs
 
-**Version**: 0.9.2-beta | **Last Updated**: February 22, 2026
+**Version**: 0.9.2-beta | **Last Updated**: February 28, 2026
 
 ## Performance Summary
 
@@ -192,4 +192,4 @@ K6 test scripts are in `tests/performance/`:
 
 ---
 
-**See also**: [ARCHITECTURE.md](ARCHITECTURE.md) · [TESTING.md](TESTING.md)
+**See also**: [ARCHITECTURE.md](ARCHITECTURE.md) · [OPERATIONS.md](OPERATIONS.md) · [TESTING.md](TESTING.md)

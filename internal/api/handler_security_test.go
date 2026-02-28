@@ -371,6 +371,22 @@ func (m *MockObjectManager) IsReady() bool {
 	return args.Bool(0)
 }
 
+func (m *MockObjectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key string) (*object.IntegrityResult, error) {
+	args := m.Called(ctx, bucket, key)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*object.IntegrityResult), args.Error(1)
+}
+
+func (m *MockObjectManager) VerifyBucketIntegrity(ctx context.Context, bucket, prefix, marker string, maxKeys int) (*object.BucketIntegrityReport, error) {
+	args := m.Called(ctx, bucket, prefix, marker, maxKeys)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*object.BucketIntegrityReport), args.Error(1)
+}
+
 type MockAuthManager struct {
 	mock.Mock
 }
@@ -705,6 +721,9 @@ func (m *MockAuthManager) FindUserByExternalID(ctx context.Context, externalID, 
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*auth.User), args.Error(1)
+}
+
+func (m *MockAuthManager) SetStorageQuotaAlertCallback(callback func(tenantID string, currentBytes, maxBytes int64)) {
 }
 
 type MockMetricsManager struct {

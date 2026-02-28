@@ -81,6 +81,8 @@ MaxIOFS is a high-performance, S3-compatible object storage system built in Go w
 - Prometheus metrics endpoint (`/metrics`)
 - Pre-built Grafana dashboard (14 panels)
 - Health check endpoint (`/health`)
+- Maintenance mode (read-only during updates)
+- Disk space and tenant quota alerts (SSE + email)
 - Production-tested performance:
   - Upload: p95 < 10ms (50 concurrent users)
   - Download: p95 < 13ms (100 concurrent users)
@@ -112,7 +114,7 @@ make docker-cluster
 
 ### Build from Source
 
-**Prerequisites:** Go 1.25+, Node.js 24+
+**Build prerequisites only** (Go 1.25+, Node.js 24+) — required for compiling. The resulting binary is self-contained and runs on any system without Go or Node.
 
 ```bash
 # Build
@@ -140,6 +142,7 @@ Comprehensive documentation available in `/docs`:
 - **[CLUSTER.md](docs/CLUSTER.md)** - Multi-node cluster setup
 - **[TESTING.md](docs/TESTING.md)** - Testing guide
 - **[PERFORMANCE.md](docs/PERFORMANCE.md)** - Performance benchmarks
+- **[OPERATIONS.md](docs/OPERATIONS.md)** - Operations runbook and production guides
 - **[SSO.md](docs/SSO.md)** - SSO/LDAP/OAuth setup guide
 - **[DOCKER.md](DOCKER.md)** - Docker deployment guide
 
@@ -193,6 +196,7 @@ make build-all
 **See [CHANGELOG.md](CHANGELOG.md) for complete version history and roadmap**
 
 Recent releases:
+- **v0.9.2-beta** - Object integrity verification, maintenance mode, disk/quota alerts, stale node reconciler
 - **v0.9.1-beta** - IDP tenant isolation fixes, user/access-key/bucket-permission handler auth hardening, cross-tenant data leak fixes
 - **v0.9.0-beta** - Identity providers (LDAP/OAuth SSO), tombstone-based cluster deletion sync, JWT secret persistence & cluster sync, security fixes
 - **v0.8.0-beta** - Object search & filters, security fixes, cluster production hardening

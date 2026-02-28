@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import APIClient from '@/lib/api';
+import { getBasePath } from '@/lib/basePath';
 import type { User, LoginRequest, APIError } from '@/types';
 import { useIdleTimer } from './useIdleTimer';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -87,9 +88,7 @@ export function useAuthProvider(): AuthContextType {
           // Redirect to login if not already on login page
           if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
             setTimeout(() => {
-              // Use BASE_PATH to respect proxy reverse configuration
-              const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
-              window.location.href = `${basePath}/login`;
+              window.location.href = `${getBasePath()}/login`;
             }, 0);
           }
         } else {
@@ -117,9 +116,7 @@ export function useAuthProvider(): AuthContextType {
         applyUserPreferences(response.user);
         // Use hard redirect to ensure auth state is properly initialized
         if (typeof window !== 'undefined') {
-          // Use BASE_PATH to respect proxy reverse configuration
-          const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
-          window.location.href = basePath || '/';
+          window.location.href = getBasePath() || '/';
         }
       } else {
         throw new Error(response.error || 'Login failed');
@@ -180,9 +177,7 @@ export function useAuthProvider(): AuthContextType {
         message: 'Your session has expired due to inactivity. Please log in again.',
         details: null,
       });
-      // Use BASE_PATH to respect proxy reverse configuration
-      const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
-      window.location.href = `${basePath}/login`;
+      window.location.href = `${getBasePath()}/login`;
     }
   }, [isAuthenticated]);
 

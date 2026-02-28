@@ -1,0 +1,23 @@
+{
+  "systemStatus": "Estado del Sistema",
+  "allSystemsOperational": "Todos los sistemas operativos",
+  "switchToDarkMode": "Cambiar a modo oscuro",
+  "switchToLightMode": "Cambiar a modo claro",
+  "notifications": "Notificaciones",
+  "markAllRead": "Marcar todo como leído",
+  "noNotifications": "Sin notificaciones",
+  "newNotifications": "Nuevas",
+  "justNow": "Justo ahora",
+  "minutesAgo": "min",
+  "hoursAgo": "h",
+  "daysAgo": "d",
+  "accountLocked": "Cuenta Bloqueada",
+  "globalAdmin": "Administrador Global",
+  "myProfile": "Mi Perfil",
+  "logOut": "Cerrar Sesión",
+  "signingOut": "Cerrando sesión...",
+  "seeyouSoon": "Hasta pronto",
+  "errorSigningOut": "Error al cerrar sesión",
+  "confirmLogout": "¿Está seguro que desea cerrar sesión?",
+  "objectStorage": "Almacenamiento de Objetos"
+}

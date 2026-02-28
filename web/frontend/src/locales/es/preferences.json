@@ -1,0 +1,12 @@
+{
+  "title": "Preferencias",
+  "theme": "Tema",
+  "language": "Idioma",
+  "themeLight": "Claro",
+  "themeDark": "Oscuro",
+  "themeSystem": "Sistema",
+  "languageEnglish": "Inglés",
+  "languageSpanish": "Español",
+  "savePreferences": "Guardar Preferencias",
+  "preferencesUpdated": "Preferencias actualizadas correctamente"
+}

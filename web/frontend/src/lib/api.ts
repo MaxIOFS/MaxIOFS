@@ -83,13 +83,7 @@ import type {
 // API Configuration
 // For monolithic deployment: Use relative URLs so frontend works with both HTTP and HTTPS
 // The frontend is served from the same server as the API (port 8081)
-// Get base path from window (injected by backend based on public_console_url)
-const getBasePath = () => {
-  if (typeof window !== 'undefined') {
-    return (window.BASE_PATH || '/').replace(/\/$/, '');
-  }
-  return '';
-};
+import { getBasePath } from '@/lib/basePath';
 
 const API_CONFIG = {
   baseURL: `${getBasePath()}/api/v1`, // Dynamic base URL based on public_console_url
@@ -257,9 +251,7 @@ const handleError = async (error: AxiosError): Promise<never> => {
 
           // Use setTimeout to ensure the redirect happens after current call stack
           setTimeout(() => {
-            // Use BASE_PATH to respect proxy reverse configuration
-            const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
-            window.location.replace(`${basePath}/login`);
+            window.location.replace(`${getBasePath()}/login`);
           }, 100);
         }
       } else {
@@ -271,15 +263,33 @@ const handleError = async (error: AxiosError): Promise<never> => {
     return Promise.reject(error);
   }
 
-  // For non-auth errors, we'll let individual components handle them
-  // but we'll still format the error properly
+  // Extract error info from response (Console API: { error }; S3/XML may be string)
+  const data = error.response?.data as { code?: string; Code?: string; error?: string; Message?: string; message?: string } | undefined;
+  const code = (data && typeof data === 'object' && (data.code ?? data.Code)) || error.code || 'UNKNOWN_ERROR';
+  const rawMessage =
+    (data && typeof data === 'object' && (data.error ?? data.Message ?? data.message)) ||
+    error.message ||
+    'An unknown error occurred';
 
-  // Transform error to APIError format
+  // Map known S3/API codes to user-friendly messages (use rawMessage if no mapping)
+  const friendlyMessages: Record<string, string> = {
+    QuotaExceeded: 'Storage quota exceeded',
+    AccessDenied: 'Access denied',
+    NoSuchBucket: 'The bucket does not exist',
+    NoSuchKey: 'The object does not exist',
+    NoSuchUpload: 'The multipart upload does not exist',
+    InvalidPart: 'One or more parts could not be found',
+    MalformedPolicy: 'Invalid policy document',
+    InvalidTag: 'Invalid tag',
+    IllegalVersioningConfigurationException: 'Invalid versioning configuration',
+  };
+  const message = friendlyMessages[code] ?? (typeof rawMessage === 'string' ? rawMessage : 'An unknown error occurred');
+
   const apiError: APIError = {
-    code: error.code || 'UNKNOWN_ERROR',
-    message: error.message || 'An unknown error occurred',
-    details: error.response?.data,
-    requestId: error.response?.headers['x-request-id'],
+    code: String(code),
+    message,
+    details: data,
+    requestId: error.response?.headers?.['x-request-id'] ?? error.response?.headers?.['X-Amz-Request-Id'],
     timestamp: new Date().toISOString(),
   };
 
@@ -291,6 +301,11 @@ s3Client.interceptors.response.use(handleResponse, handleError);
 
 // API Client Class
 export class APIClient {
+  // S3 base URL — updated at runtime from serverConfig
+  static updateS3BaseUrl(url: string): void {
+    s3Client.defaults.baseURL = url;
+  }
+
   // Authentication
   static async login(credentials: LoginRequest): Promise<LoginResponse> {
     const payload = {

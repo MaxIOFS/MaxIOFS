@@ -883,10 +883,6 @@ rpm-all: build-web
 	@echo "AMD64 package: maxiofs-*.x86_64.rpm"
 	@echo "ARM64 package: maxiofs-*.aarch64.rpm"
 
-# Internal target for RPM AMD64 build (without build-web prerequisite)
-.PHONY: rpm-binary
-rpm-binary:
-
 # Build RPM using Docker (works on any platform)
 .PHONY: rpm-docker
 rpm-docker: build-web

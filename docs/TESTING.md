@@ -1,7 +1,7 @@
 # Testing
 
 **Version**: 0.9.2-beta  
-**Last Updated**: February 21, 2026
+**Last Updated**: February 28, 2026
 
 ---
 
@@ -129,7 +129,7 @@ npx vitest run --coverage
 | `manager_test.go` | Bucket manager core operations |
 | `policy_evaluation_test.go` | S3 bucket policy evaluation |
 
-### `internal/cluster/` — 25 test files
+### `internal/cluster/` — 26 test files
 
 | File | Description |
 |------|-------------|
@@ -156,6 +156,7 @@ npx vitest run --coverage
 | `replication_manager_test.go` | Replication manager logic |
 | `replication_worker_test.go` | Replication worker operations |
 | `router_test.go` | Request routing to bucket owner |
+| `stale_reconciler_test.go` | Stale node reconciliation (offline/partition modes) |
 | `tenant_sync_test.go` | Tenant sync across nodes |
 | `user_sync_test.go` | User sync across nodes |
 
@@ -567,6 +568,6 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Encryption | 2 | AES-256-CTR, benchmarks |
 | Replication | 2 | Manager, end-to-end |
 | Other | 9 | Config, migrations, lifecycle, notifications, presigned, settings, share, cmd, embed |
-| **Total Go** | **111** | |
+| **Total Go** | **112** | |
 | Frontend | 5 | Dashboard, Login, Users, Buckets, IDP |
 | Performance | 4 | Upload, download, mixed, common |

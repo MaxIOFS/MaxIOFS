@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 type Language = 'en' | 'es';
@@ -25,31 +25,32 @@ interface LanguageProviderProps {
 
 export function LanguageProvider({ children, initialLanguage = 'en' }: LanguageProviderProps) {
   const { i18n } = useTranslation();
-  const [language, setLanguageState] = useState<Language>(initialLanguage);
 
-  // Update language
+  // Initialize directly from localStorage — same source i18n.ts reads at module
+  // load time, so state and i18n are already in sync without a useEffect.
+  const [language, setLanguageState] = useState<Language>(() => {
+    try {
+      const stored = localStorage.getItem('language');
+      return stored === 'en' || stored === 'es' ? stored : initialLanguage;
+    } catch {
+      return initialLanguage;
+    }
+  });
+
   const setLanguage = (newLanguage: Language) => {
     setLanguageState(newLanguage);
-    i18n.changeLanguage(newLanguage);
     localStorage.setItem('language', newLanguage);
+    // Defer i18n.changeLanguage so React can commit the current interaction
+    // (e.g. the button click) before the re-render cascade from the language
+    // switch hits all useTranslation() subscribers at once.
+    requestAnimationFrame(() => {
+      i18n.changeLanguage(newLanguage);
+    });
   };
 
-  // Initialize language from i18n on mount
-  useEffect(() => {
-    const currentLang = i18n.language;
-    if (currentLang === 'en' || currentLang === 'es') {
-      setLanguageState(currentLang);
-    } else {
-      // If i18n has a different language, fallback to English
-      setLanguageState('en');
-      i18n.changeLanguage('en');
-    }
-  }, [i18n]);
-
-  const value: LanguageContextType = {
-    language,
-    setLanguage
-  };
-
-  return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
+  return (
+    <LanguageContext.Provider value={{ language, setLanguage }}>
+      {children}
+    </LanguageContext.Provider>
+  );
 }

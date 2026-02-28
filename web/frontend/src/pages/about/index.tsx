@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
+import { useBasePath } from '@/hooks/useBasePath';
 import type { ServerConfig } from '@/types';
 import {
   Code,
@@ -26,13 +27,11 @@ import {
 } from 'lucide-react';
 
 export default function AboutPage() {
+  const basePath = useBasePath();
   const { data: config, isLoading } = useQuery<ServerConfig>({
     queryKey: ['serverConfig'],
     queryFn: APIClient.getServerConfig,
   });
-
-  // Get base path from window (injected by backend based on public_console_url)
-  const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
 
   if (isLoading) {
     return (

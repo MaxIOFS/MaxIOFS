@@ -4,6 +4,7 @@ import { AuthProvider } from '@/components/providers/AuthProvider';
 import { QueryProvider } from '@/components/providers/QueryProvider';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { LanguageProvider } from '@/contexts/LanguageContext';
+import { getBasePath } from '@/lib/basePath';
 import { useAuth } from '@/hooks/useAuth';
 import { AppLayout } from '@/components/layout/AppLayout';
 
@@ -106,9 +107,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
-  // Get base path from window (injected by backend based on public_console_url)
-  const basePath = window.BASE_PATH || '/';
-  const basename = basePath === '/' ? undefined : basePath.replace(/\/$/, '');
+  const basePath = getBasePath();
+  const basename = basePath === '' ? undefined : basePath;
 
   return (
     <BrowserRouter basename={basename}>

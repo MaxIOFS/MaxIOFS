@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import type { Bucket } from '@/types';
 import { useNavigate } from 'react-router-dom';
+import { useBasePath } from '@/hooks/useBasePath';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip } from 'recharts';
 
@@ -41,8 +42,7 @@ export default function Dashboard() {
     return () => observer.disconnect();
   }, []);
 
-  // Get base path from window (injected by backend based on public_console_url)
-  const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
+  const basePath = useBasePath();
 
   // Queries already filtered by tenant on backend
   const { data: metrics, isLoading: metricsLoading } = useQuery({

@@ -1,0 +1,12 @@
+{
+  "dashboard": "Dashboard",
+  "buckets": "Buckets",
+  "users": "Users",
+  "tenants": "Tenants",
+  "settings": "Settings",
+  "auditLogs": "Audit Logs",
+  "metrics": "Metrics",
+  "security": "Security",
+  "about": "About",
+  "logout": "Logout"
+}

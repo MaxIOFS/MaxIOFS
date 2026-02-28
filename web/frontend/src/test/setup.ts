@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom';
 import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
+import '@/i18n'; // Initialize i18n before any component renders in tests
 
 // Cleanup after each test
 afterEach(() => {

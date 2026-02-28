@@ -1,6 +1,6 @@
 # MaxIOFS API Reference
 
-**Version**: 0.9.2-beta | **Last Updated**: February 22, 2026
+**Version**: 0.9.2-beta | **Last Updated**: February 28, 2026
 
 ## Overview
 
@@ -229,6 +229,8 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 | PUT | `/api/v1/buckets/{name}/inventory` | Set inventory config |
 | DELETE | `/api/v1/buckets/{name}/inventory` | Delete inventory config |
 | GET | `/api/v1/buckets/{name}/inventory/reports` | List inventory reports |
+| POST | `/api/v1/buckets/{name}/verify-integrity` | Verify bucket object integrity (admin only, rate-limited) |
+| POST | `/api/v1/buckets/{name}/recalculate-stats` | Recalculate bucket object count and size (admin only) |
 
 ### Bucket Replication (External S3)
 
@@ -381,7 +383,7 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
 | GET | `/api/v1/version` | Server version info | None |
-| GET | `/api/v1/config` | Public server configuration | JWT |
+| GET | `/api/v1/config` | Public server configuration (includes `maintenanceMode`) | JWT |
 | GET | `/health` | Health check | None |
 | GET | `/api/v1/security/status` | Security status overview | JWT |
 
@@ -440,4 +442,4 @@ cluster_cache_hit_ratio
 
 ---
 
-**See also**: [ARCHITECTURE.md](ARCHITECTURE.md) · [CLUSTER.md](CLUSTER.md) · [SSO.md](SSO.md) · [SECURITY.md](SECURITY.md)
+**See also**: [ARCHITECTURE.md](ARCHITECTURE.md) · [CLUSTER.md](CLUSTER.md) · [OPERATIONS.md](OPERATIONS.md) · [SSO.md](SSO.md) · [SECURITY.md](SECURITY.md)

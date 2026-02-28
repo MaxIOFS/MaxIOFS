@@ -1,6 +1,6 @@
 # MaxIOFS Architecture
 
-**Version**: 0.9.2-beta | **Last Updated**: February 23, 2026
+**Version**: 0.9.2-beta | **Last Updated**: February 28, 2026
 
 ## Overview
 
@@ -35,7 +35,9 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 │  ├─ Bucket replication (external S3) │
 │  ├─ Audit logging                    │
 │  ├─ Metrics & monitoring             │
-│  └─ Webhook notifications            │
+│  ├─ Webhook notifications            │
+│  ├─ Maintenance mode (read-only)     │
+│  └─ Object integrity verification    │
 ├──────────────────────────────────────┤
 │  Storage Layer                       │
 │  ├─ Filesystem (objects)             │
@@ -309,8 +311,8 @@ MaxIOFS supports **four authentication methods**:
 - ⚠️ No SAML SSO (OAuth2/OIDC recommended instead)
 - ⚠️ No per-tenant rate limiting (global only)
 - ⚠️ Not validated at high scale (100+ concurrent users, 100+ tenants)
-- ⚠️ No external log shipping (syslog planned)
+- ⚠️ External log shipping via syslog/HTTP (multiple targets configurable)
 
 ---
 
-**See also**: [API.md](API.md) · [CLUSTER.md](CLUSTER.md) · [CONFIGURATION.md](CONFIGURATION.md) · [DEPLOYMENT.md](DEPLOYMENT.md) · [SECURITY.md](SECURITY.md) · [SSO.md](SSO.md) · [TESTING.md](TESTING.md) · [PERFORMANCE.md](PERFORMANCE.md)
+**See also**: [API.md](API.md) · [CLUSTER.md](CLUSTER.md) · [CONFIGURATION.md](CONFIGURATION.md) · [DEPLOYMENT.md](DEPLOYMENT.md) · [OPERATIONS.md](OPERATIONS.md) · [SECURITY.md](SECURITY.md) · [SSO.md](SSO.md) · [TESTING.md](TESTING.md) · [PERFORMANCE.md](PERFORMANCE.md)

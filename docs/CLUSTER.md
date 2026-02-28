@@ -2,7 +2,7 @@
 
 **Version**: 0.9.2-beta
 **Status**: Production-Ready
-**Last Updated**: February 22, 2026
+**Last Updated**: February 28, 2026
 
 ---
 
@@ -38,6 +38,7 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 - ✅ Health monitoring (30-second intervals)
 - ✅ Bucket location cache (5ms vs 50ms latency)
 - ✅ Bucket migration between nodes for capacity rebalancing
+- ✅ **Stale node reconciler** (v0.9.2) — automatic recovery for nodes offline or network-partitioned
 - ✅ Web-based cluster management dashboard
 
 ### Use Cases
@@ -351,6 +352,16 @@ Deletions are synchronized using a **tombstone-based** approach to prevent entit
 - Tombstones are authoritative: a deletion entry always wins over an item
 - Single table for all 6 entity types (not 6 separate tables)
 - 7-day TTL is safe because all nodes will have processed the deletion by then
+
+### Stale Node Reconciler (v0.9.2-beta)
+
+When a node reconnects after being offline or network-partitioned for longer than the staleness threshold (7 days), the **Stale Reconciler** runs at startup to restore consistency:
+
+- **Mode Offline**: Node was fully down (no local writes). Fetches a state snapshot from peers and applies it locally. Tombstones are synced bidirectionally.
+- **Mode Partition**: Node was isolated but serving clients (divergent state). Uses **last-write-wins (LWW)** for entity timestamps; pushes locally-newer entities to peers; applies remote tombstones. Access keys and bucket permissions always defer to tombstones (no `updated_at`).
+- **Detection**: `last_local_write_at` vs `last_seen_at_shutdown` determines which mode applies.
+
+See [OPERATIONS.md](OPERATIONS.md#cluster-incidents) for operator runbooks.
 
 ### Configuring Replication
 

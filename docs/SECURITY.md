@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 0.9.2-beta | **Last Updated**: February 22, 2026
+**Version**: 0.9.2-beta | **Last Updated**: February 28, 2026
 
 > **BETA SOFTWARE**: Core security features are implemented. Third-party audits have not been conducted. Test thoroughly before production use.
 
@@ -314,7 +314,7 @@ Custom ACLs with grant-based permissions (READ, WRITE, READ_ACP, WRITE_ACP, FULL
 3. **No SAML SSO** — OAuth2/OIDC recommended instead
 4. **Basic session management** — no device tracking or geographic restrictions
 5. **SQLite audit storage** — may have scale limits at very high event volumes
-6. **No external log shipping** — syslog integration planned for future release
+6. **External log shipping via syslog/HTTP only** — no built-in managed SIEM integrations or log analytics backends
 7. **Manual key rotation** — requires re-encrypting all objects
 
 ---

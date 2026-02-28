@@ -1,0 +1,12 @@
+{
+  "title": "Preferences",
+  "theme": "Theme",
+  "language": "Language",
+  "themeLight": "Light",
+  "themeDark": "Dark",
+  "themeSystem": "System",
+  "languageEnglish": "English",
+  "languageSpanish": "Spanish",
+  "savePreferences": "Save Preferences",
+  "preferencesUpdated": "Preferences updated successfully"
+}

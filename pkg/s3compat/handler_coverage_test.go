@@ -109,7 +109,8 @@ func setupCoverageTestEnvironment(t *testing.T) *coverageTestEnv {
 	// Initialize metadata store
 	metadataDir := filepath.Join(tempDir, "metadata")
 	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: metadataDir,
-		Logger:  logrus.StandardLogger(),})
+		Logger:  logrus.StandardLogger(),
+})
 	require.NoError(t, err)
 
 	// Create managers
@@ -994,13 +995,28 @@ func TestWriteError_VariousCodes(t *testing.T) {
 		message        string
 		expectedStatus int
 	}{
+		// AWS S3 standard codes — 404
 		{"NoSuchBucket", "Bucket not found", http.StatusNotFound},
 		{"NoSuchKey", "Key not found", http.StatusNotFound},
+		{"NoSuchUpload", "Upload not found", http.StatusNotFound},
+		{"NoSuchObjectLockConfiguration", "No retention config", http.StatusNotFound},
+		{"NoSuchLifecycleConfiguration", "No lifecycle config", http.StatusNotFound},
+		{"NoSuchCORSConfiguration", "No CORS config", http.StatusNotFound},
+		{"NoSuchBucketPolicy", "No bucket policy", http.StatusNotFound},
+		// 403
 		{"AccessDenied", "Access denied", http.StatusForbidden},
+		{"QuotaExceeded", "Quota exceeded", http.StatusForbidden},
+		// 409
 		{"BucketAlreadyExists", "Bucket exists", http.StatusConflict},
 		{"BucketNotEmpty", "Bucket not empty", http.StatusConflict},
+		// 400
 		{"InvalidBucketName", "Invalid name", http.StatusBadRequest},
 		{"MalformedXML", "Bad XML", http.StatusBadRequest},
+		{"MalformedPolicy", "Bad policy", http.StatusBadRequest},
+		{"InvalidTag", "Invalid tag", http.StatusBadRequest},
+		{"InvalidPart", "Invalid part", http.StatusBadRequest},
+		{"IllegalVersioningConfigurationException", "Invalid versioning", http.StatusBadRequest},
+		// 500, 405
 		{"InternalError", "Server error", http.StatusInternalServerError},
 		{"MethodNotAllowed", "Not allowed", http.StatusMethodNotAllowed},
 		{"UnknownError", "Unknown", http.StatusInternalServerError},

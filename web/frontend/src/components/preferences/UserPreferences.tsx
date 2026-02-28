@@ -15,7 +15,7 @@ interface UserPreferencesProps {
 }
 
 export function UserPreferences({ disabled = false }: UserPreferencesProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation(['preferences', 'common']);
   const { theme, setTheme } = useTheme();
   const { language } = useLanguage();
   const { user } = useCurrentUser();
@@ -43,7 +43,7 @@ export function UserPreferences({ disabled = false }: UserPreferencesProps) {
       setTimeout(() => setSaveSuccess(false), 3000);
     },
     onError: (error: any) => {
-      setSaveError(error.response?.data?.error || t('preferences.saveFailed') || 'Failed to save preferences');
+      setSaveError(error.response?.data?.error || 'Failed to save preferences');
       setTimeout(() => setSaveError(null), 5000);
     }
   });
@@ -63,9 +63,9 @@ export function UserPreferences({ disabled = false }: UserPreferencesProps) {
   };
 
   const themeOptions: { value: Theme; icon: React.ComponentType<any>; label: string }[] = [
-    { value: 'light', icon: Sun, label: t('preferences.themeLight') },
-    { value: 'dark', icon: Moon, label: t('preferences.themeDark') },
-    { value: 'system', icon: Monitor, label: t('preferences.themeSystem') }
+    { value: 'light', icon: Sun, label: t('themeLight') },
+    { value: 'dark', icon: Moon, label: t('themeDark') },
+    { value: 'system', icon: Monitor, label: t('themeSystem') }
   ];
 
   return (
@@ -77,7 +77,7 @@ export function UserPreferences({ disabled = false }: UserPreferencesProps) {
             <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
             <div>
               <p className="text-sm font-medium text-green-900 dark:text-green-300">
-                {t('preferences.preferencesUpdated')}
+                {t('preferencesUpdated')}
               </p>
             </div>
           </div>
@@ -102,7 +102,7 @@ export function UserPreferences({ disabled = false }: UserPreferencesProps) {
       {/* Theme Selection */}
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-          {t('preferences.theme')}
+          {t('theme')}
         </label>
         <div className="grid grid-cols-3 gap-2">
           {themeOptions.map(({ value, icon: Icon, label }) => (
@@ -150,7 +150,7 @@ export function UserPreferences({ disabled = false }: UserPreferencesProps) {
             disabled={updateMutation.isPending}
             className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
           >
-            {t('common.cancel')}
+            {t('common:cancel')}
           </button>
           <button
             onClick={handleSave}
@@ -158,7 +158,7 @@ export function UserPreferences({ disabled = false }: UserPreferencesProps) {
             className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
           >
             <Save className="h-4 w-4" />
-            {updateMutation.isPending ? t('common.loading') : t('preferences.savePreferences')}
+            {updateMutation.isPending ? t('common:loading') : t('savePreferences')}
           </button>
         </div>
       )}

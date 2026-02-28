@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { getBasePath } from '@/lib/basePath';
 
 export interface Notification {
   id: string;
@@ -13,14 +14,6 @@ export interface Notification {
   tenantId?: string;
   read: boolean;
 }
-
-// Helper to get base path
-const getBasePath = () => {
-  if (typeof window !== 'undefined') {
-    return (window.BASE_PATH || '/').replace(/\/$/, '');
-  }
-  return '';
-};
 
 export function useNotifications(enabled = true) {
   const [notifications, setNotifications] = useState<Notification[]>([]);

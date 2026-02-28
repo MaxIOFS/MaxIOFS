@@ -1,5 +1,6 @@
 import { useState, FormEvent } from 'react';
 import APIClient from '@/lib/api';
+import { getBasePath } from '@/lib/basePath';
 import ModalManager from '@/lib/modals';
 import { getErrorMessage, isHttpStatus } from '@/lib/utils';
 import { TwoFactorInput } from '@/components/TwoFactorInput';
@@ -55,8 +56,7 @@ export default function LoginPage() {
     retry: 1,
   });
 
-  // Get base path from window (injected by backend)
-  const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
+  const basePath = getBasePath();
   const version = versionData?.version || '';
 
   const handleSubmit = async (e: FormEvent) => {
@@ -86,9 +86,7 @@ export default function LoginPage() {
       }
 
       if (response.success && response.token) {
-        // Redirect to dashboard using hard redirect to ensure auth state is initialized
-        const basePath = window.BASE_PATH || '/';
-        window.location.href = basePath;
+        window.location.href = getBasePath() || '/';
       } else {
         setError(response.error || 'Invalid credentials');
       }
@@ -117,12 +115,8 @@ export default function LoginPage() {
       ModalManager.close();
 
       if (response.success && response.token) {
-        // Show welcome message (don't await - let it show while redirecting)
         ModalManager.successLogin(formData.username);
-
-        // Redirect to dashboard
-        const basePath = window.BASE_PATH || '/';
-        window.location.href = basePath;
+        window.location.href = getBasePath() || '/';
       } else {
         setError(response.error || 'Invalid 2FA code');
       }

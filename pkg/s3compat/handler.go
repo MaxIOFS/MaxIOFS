@@ -1541,17 +1541,17 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 
 	statusCode := http.StatusInternalServerError
 	switch code {
-	// 400 Bad Request
-	case "InvalidArgument", "InvalidBucketName", "InvalidRequest", "MalformedXML":
+	// 400 Bad Request (AWS S3 standard)
+	case "InvalidArgument", "InvalidBucketName", "InvalidRequest", "MalformedXML", "MalformedPolicy", "InvalidTag", "InvalidPart", "IllegalVersioningConfigurationException":
 		statusCode = http.StatusBadRequest
 	// 401 Unauthorized
 	case "Unauthorized", "InvalidAccessKeyId", "SignatureDoesNotMatch":
 		statusCode = http.StatusUnauthorized
 	// 403 Forbidden
-	case "AccessDenied", "AccountProblem", "AllAccessDisabled":
+	case "AccessDenied", "AccountProblem", "AllAccessDisabled", "QuotaExceeded":
 		statusCode = http.StatusForbidden
-	// 404 Not Found
-	case "NoSuchBucket", "NoSuchKey", "NoSuchUpload", "ObjectLockConfigurationNotFoundError", "NoSuchBucketPolicy":
+	// 404 Not Found (AWS S3 standard)
+	case "NoSuchBucket", "NoSuchKey", "NoSuchUpload", "ObjectLockConfigurationNotFoundError", "NoSuchBucketPolicy", "NoSuchObjectLockConfiguration", "NoSuchLifecycleConfiguration", "NoSuchCORSConfiguration":
 		statusCode = http.StatusNotFound
 	// 405 Method Not Allowed
 	case "MethodNotAllowed":
@@ -1600,10 +1600,10 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 
 	// Use correct field based on error type (AWS S3 compatibility)
 	switch code {
-	case "NoSuchKey", "ObjectNotInActiveTierError":
+	case "NoSuchKey", "ObjectNotInActiveTierError", "NoSuchObjectLockConfiguration":
 		// Object errors use Key field
 		errorResponse.Key = resource
-	case "NoSuchBucket", "BucketAlreadyExists", "BucketNotEmpty":
+	case "NoSuchBucket", "BucketAlreadyExists", "BucketNotEmpty", "NoSuchLifecycleConfiguration", "NoSuchCORSConfiguration", "NoSuchBucketPolicy":
 		// Bucket errors use BucketName field
 		errorResponse.BucketName = resource
 	default:

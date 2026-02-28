@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { getBasePath } from '@/lib/basePath';
 
 export default function OAuthCompletePage() {
   const [error, setError] = useState<string | null>(null);
@@ -14,20 +15,16 @@ export default function OAuthCompletePage() {
     }
 
     if (token) {
-      // Store token
       localStorage.setItem('auth_token', token);
       document.cookie = `auth_token=${token}; path=/; max-age=${24 * 60 * 60}`;
-
-      // Redirect to dashboard
-      const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
-      window.location.href = basePath || '/';
+      window.location.href = getBasePath() || '/';
     } else {
       setError('No authentication token received');
     }
   }, []);
 
   if (error) {
-    const basePath = (window.BASE_PATH || '/').replace(/\/$/, '');
+    const basePath = getBasePath() || '/';
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center max-w-md p-8">

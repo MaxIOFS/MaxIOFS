@@ -1,0 +1,12 @@
+{
+  "dashboard": "Panel de Control",
+  "buckets": "Buckets",
+  "users": "Usuarios",
+  "tenants": "Tenants",
+  "settings": "Configuración",
+  "auditLogs": "Registros de Auditoría",
+  "metrics": "Métricas",
+  "security": "Seguridad",
+  "about": "Acerca de",
+  "logout": "Cerrar Sesión"
+}

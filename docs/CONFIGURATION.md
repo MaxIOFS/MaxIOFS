@@ -1,6 +1,6 @@
 # MaxIOFS Configuration Guide
 
-**Version**: 0.9.2-beta | **Last Updated**: February 22, 2026
+**Version**: 0.9.2-beta | **Last Updated**: February 28, 2026
 
 ## Configuration Architecture
 
@@ -185,6 +185,26 @@ Runtime-configurable settings via Web Console (`/settings`) or API. Changes take
 |-----|---------|-------------|
 | `system.log_level` | info | Runtime log level |
 | `system.max_concurrent_uploads` | 100 | Upload concurrency limit |
+| `system.maintenance_mode` | false | Read-only mode (blocks S3 writes, mutating Console API) |
+| `system.disk_warning_threshold` | 80 | Disk usage % that triggers warning alert (0 = disabled) |
+| `system.disk_critical_threshold` | 90 | Disk usage % that triggers critical alert (0 = disabled) |
+
+### Email Settings (for alerts)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `email.enabled` | false | Enable email notifications (disk/quota/integrity alerts) |
+| `email.smtp_host` | — | SMTP server hostname |
+| `email.smtp_port` | 587 | SMTP port |
+| `email.smtp_user` | — | SMTP username (optional) |
+| `email.smtp_password` | — | SMTP password (optional) |
+| `email.from_address` | — | Sender address |
+| `email.tls_mode` | starttls | TLS mode: none, starttls, tls |
+| `email.skip_tls_verify` | false | Skip TLS certificate verification (not recommended) |
+
+### Logging Configuration (multiple targets)
+
+Logging supports multiple external targets (syslog and HTTP) configured via the Console. Each target can have its own protocol, host, format (RFC3164, RFC5424, CEF), and filter level. See Settings → Logging.
 
 ### Settings API
 
@@ -266,4 +286,4 @@ Cluster configuration (nodes, replication, sync) is managed via the Web Console 
 
 ---
 
-**See also**: [DEPLOYMENT.md](DEPLOYMENT.md) · [SECURITY.md](SECURITY.md) · [CLUSTER.md](CLUSTER.md)
+**See also**: [DEPLOYMENT.md](DEPLOYMENT.md) · [OPERATIONS.md](OPERATIONS.md) · [SECURITY.md](SECURITY.md) · [CLUSTER.md](CLUSTER.md)

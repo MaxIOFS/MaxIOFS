@@ -1,0 +1,23 @@
+{
+  "systemStatus": "System Status",
+  "allSystemsOperational": "All systems operational",
+  "switchToDarkMode": "Switch to dark mode",
+  "switchToLightMode": "Switch to light mode",
+  "notifications": "Notifications",
+  "markAllRead": "Mark all read",
+  "noNotifications": "No notifications",
+  "newNotifications": "New",
+  "justNow": "Just now",
+  "minutesAgo": "m ago",
+  "hoursAgo": "h ago",
+  "daysAgo": "d ago",
+  "accountLocked": "Account Locked",
+  "globalAdmin": "Global Admin",
+  "myProfile": "My Profile",
+  "logOut": "Log Out",
+  "signingOut": "Signing out...",
+  "seeyouSoon": "See you soon",
+  "errorSigningOut": "Error signing out",
+  "confirmLogout": "Are you sure you want to log out?",
+  "objectStorage": "Object Storage"
+}
