@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { useTranslation } from 'react-i18next';
+import i18n from '../i18n';
 
 type Language = 'en' | 'es';
 
@@ -24,8 +24,6 @@ interface LanguageProviderProps {
 }
 
 export function LanguageProvider({ children, initialLanguage = 'en' }: LanguageProviderProps) {
-  const { i18n } = useTranslation();
-
   // Initialize directly from localStorage — same source i18n.ts reads at module
   // load time, so state and i18n are already in sync without a useEffect.
   const [language, setLanguageState] = useState<Language>(() => {

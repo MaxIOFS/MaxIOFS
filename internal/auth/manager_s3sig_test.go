@@ -356,6 +356,34 @@ func TestCreateCanonicalRequest(t *testing.T) {
 				payloadHash: "UNSIGNED-PAYLOAD",
 			},
 		},
+		{
+			name: "Virtual-hosted-style: uses original path from context (client signed /, server received /inmutable/)",
+			setupReq: func() *http.Request {
+				req, _ := http.NewRequest("GET", "http://inmutable.s3.example.com/?delimiter=%2F&max-keys=1000&prefix=", nil)
+				req.Host = "inmutable.s3.example.com"
+				req.Header.Set("X-Amz-Date", "20260228T195241Z")
+				req.Header.Set("X-Amz-Content-Sha256", "UNSIGNED-PAYLOAD")
+				// Simulate virtualHostedStyleMiddleware: path was rewritten to /inmutable/
+				// but context has original path / that the client signed
+				req.URL.Path = "/inmutable/"
+				req = req.WithContext(WithOriginalSigV4Path(req.Context(), "/"))
+				return req
+			},
+			signedHeaders: "host;x-amz-content-sha256;x-amz-date",
+			expectedParts: struct {
+				method        string
+				uri           string
+				hasQueryStr   bool
+				hasHeaders    bool
+				payloadHash   string
+			}{
+				method:      "GET",
+				uri:         "/", // Must use original path for verification, not /inmutable/
+				hasQueryStr: true,
+				hasHeaders:  true,
+				payloadHash: "UNSIGNED-PAYLOAD",
+			},
+		},
 	}
 
 	for _, tt := range tests {

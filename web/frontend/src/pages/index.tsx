@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Loading } from '@/components/ui/Loading';
@@ -14,6 +15,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip } from 'recharts';
 
 export default function Dashboard() {
+  const { t } = useTranslation('dashboard');
   const navigate = useNavigate();
   const { isGlobalAdmin, isTenantAdmin, isTenantUser } = useCurrentUser();
   const isAnyAdmin = isGlobalAdmin || isTenantAdmin;
@@ -130,7 +132,7 @@ export default function Dashboard() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loading size="lg" text="Loading dashboard..." />
+        <Loading size="lg" text={t('loadingDashboard')} />
       </div>
     );
   }
@@ -149,7 +151,7 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">
-            Dashboard
+            {t('title')}
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {isGlobalAdmin ? 'System-wide overview' : 'Your storage overview'}
@@ -162,14 +164,14 @@ export default function Dashboard() {
             className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white shadow-sm"
           >
             <Box className="h-4 w-4 mr-2" />
-            View Buckets
+            {t('viewBuckets')}
           </Button>
           <Button
             onClick={() => navigate('/buckets/create')}
             className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md hover:shadow-lg transition-all duration-200"
           >
             <FolderOpen className="h-4 w-4 mr-2" />
-            Create Bucket
+            {t('createBucket')}
           </Button>
         </div>
       </div>
@@ -177,50 +179,50 @@ export default function Dashboard() {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 4xl:grid-cols-4 5xl:grid-cols-5 6xl:grid-cols-6 gap-4 md:gap-6 4xl:gap-8">
         <MetricCard
-          title="Total Buckets"
+          title={t('totalBuckets')}
           value={totalBuckets}
           icon={Box}
-          description="Active storage containers"
+          description={t('activeStorageContainers')}
           color="brand"
         />
 
         <MetricCard
-          title="Total Objects"
+          title={t('totalObjects')}
           value={totalObjects.toLocaleString()}
           icon={Boxes}
-          description="Stored across all buckets"
+          description={t('storedAcrossAllBuckets')}
           color="blue-light"
         />
 
         <MetricCard
-          title="Storage Used"
+          title={t('storageUsed')}
           value={formatBytes(totalSize)}
           icon={HardDrive}
-          description={diskTotal > 0 ? `of ${formatBytes(diskTotal)}` : 'Total storage in use'}
+          description={diskTotal > 0 ? `of ${formatBytes(diskTotal)}` : t('totalStorageConsumption')}
           color="warning"
         />
 
         <MetricCard
-          title="Active Users"
+          title={t('activeUsers')}
           value={activeUsers}
           icon={Users}
-          description={`Total: ${users.length} users`}
+          description={t('totalUsers', { count: users.length })}
           color="success"
         />
 
         <MetricCard
-          title="System Health"
-          value={healthStatus?.status === 'healthy' ? 'Healthy' : 'Offline'}
+          title={t('systemHealth')}
+          value={healthStatus?.status === 'healthy' ? t('healthy') : t('offline')}
           icon={Activity}
-          description={healthStatus?.status === 'healthy' ? 'S3 API operational' : 'Service unavailable'}
+          description={healthStatus?.status === 'healthy' ? t('s3ApiOperational') : t('serviceUnavailable')}
           color={healthStatus?.status === 'healthy' ? 'success' : 'error'}
         />
 
         <MetricCard
-          title="Encrypted Buckets"
+          title={t('encryptedBuckets')}
           value={encryptedBucketsCount}
           icon={Shield}
-          description={`Out of ${totalBuckets} total buckets`}
+          description={t('outOfTotalBuckets', { total: totalBuckets })}
           color="warning"
         />
       </div>
@@ -416,9 +418,9 @@ export default function Dashboard() {
               <div className="p-2 bg-brand-100 dark:bg-brand-900/30 rounded-lg">
                 <Activity className="h-5 w-5 text-brand-600 dark:text-brand-400" />
               </div>
-              Quick Actions
+              {t('quickActions')}
             </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Common tasks and shortcuts</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('commonTasksShortcuts')}</p>
           </div>
           <div className="p-6">
             <div className="space-y-3">
@@ -431,8 +433,8 @@ export default function Dashboard() {
                     <Box className="h-6 w-6 text-white" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">Create New Bucket</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Set up a new storage container</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{t('createNewBucket')}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{t('setupNewStorageContainer')}</p>
                   </div>
                 </div>
                 <ArrowUpRight className="h-5 w-5 text-gray-400 dark:text-gray-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-200" />
@@ -447,8 +449,8 @@ export default function Dashboard() {
                     <Users className="h-6 w-6 text-white" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">Manage Users</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Add or edit user accounts</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{t('manageUsers')}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{t('addEditUserAccounts')}</p>
                   </div>
                 </div>
                 <ArrowUpRight className="h-5 w-5 text-gray-400 dark:text-gray-500 group-hover:text-green-600 dark:group-hover:text-green-400 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-200" />
@@ -464,8 +466,8 @@ export default function Dashboard() {
                       <Activity className="h-6 w-6 text-white" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">View Metrics</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Check system statistics</p>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white">{t('viewMetrics')}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{t('checkSystemStatistics')}</p>
                     </div>
                   </div>
                   <ArrowUpRight className="h-5 w-5 text-gray-400 dark:text-gray-500 group-hover:text-amber-600 dark:group-hover:text-amber-400 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-200" />
@@ -482,9 +484,9 @@ export default function Dashboard() {
               <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-lg">
                 <Box className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
               </div>
-              Recent Buckets
+              {t('recentBuckets')}
             </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Latest storage containers</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('latestStorageContainers')}</p>
           </div>
           <div className="p-6">
             {buckets.length === 0 ? (
@@ -492,15 +494,15 @@ export default function Dashboard() {
                 <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 mb-4 shadow-inner">
                   <Box className="h-10 w-10 text-gray-400 dark:text-gray-500" />
                 </div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">No buckets yet</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-5">Create your first bucket to get started</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">{t('noBucketsYet')}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-5">{t('createFirstBucket')}</p>
                 <Button
                   size="sm"
                   onClick={() => navigate('/buckets')}
                   className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md"
                 >
                   <FolderOpen className="h-4 w-4 mr-2" />
-                  Create Bucket
+                  {t('createBucket')}
                 </Button>
               </div>
             ) : (
@@ -528,7 +530,7 @@ export default function Dashboard() {
                             <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{bucket.name}</p>
                             <div className="flex items-center gap-3 mt-1">
                               <span className="text-xs text-gray-500 dark:text-gray-400">
-                                {bucket.object_count || 0} objects
+                                {bucket.object_count || 0} {t('objects')}
                               </span>
                               <span className="text-xs text-gray-400 dark:text-gray-500">•</span>
                               <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
@@ -546,7 +548,7 @@ export default function Dashboard() {
                     onClick={() => navigate('/buckets')}
                     className="w-full mt-4 text-center text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-semibold py-3 rounded-lg hover:bg-brand-50 dark:hover:bg-brand-950/30 transition-all duration-200"
                   >
-                    View all {buckets.length} buckets →
+                    {t('viewAllBuckets', { count: buckets.length })}
                   </button>
                 )}
               </div>

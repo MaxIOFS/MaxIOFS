@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -13,6 +14,7 @@ import { MaintenanceBanner } from './MaintenanceBanner';
 import type { ServerConfig } from '@/types';
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation('layout');
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { effectiveTheme, setTheme } = useTheme();
@@ -124,7 +126,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     try {
       const result = await ModalManager.confirmLogout();
       if (result.isConfirmed) {
-        ModalManager.loading('Signing out...', 'See you soon');
+        ModalManager.loading(t('signingOut'), t('seeyouSoon'));
         await logout();
         ModalManager.close();
       }

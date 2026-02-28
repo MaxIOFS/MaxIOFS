@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -952,8 +953,13 @@ func (s *Server) setupRoutes() error {
 	// Register API routes on the authenticated subrouter
 	apiHandler.RegisterRoutes(s3Router)
 
-	// Setup CORS and other middleware
-	s.httpServer.Handler = handlers.RecoveryHandler()(apiRouter)
+	// Setup CORS and other middleware.
+	// Wrap with virtual-hosted-style middleware so that requests of the form
+	// "GET http://bucket.s3.example.com/..." are rewritten to the path-style
+	// "GET http://s3.example.com/bucket/..." before Gorilla Mux routes them.
+	s.httpServer.Handler = handlers.RecoveryHandler()(
+		virtualHostedStyleMiddleware(apiRouter, s.config.PublicAPIURL),
+	)
 
 	// Setup console routes (Web UI)
 	consoleRouter := mux.NewRouter()
@@ -1026,6 +1032,71 @@ func extractBasePathFromURL(urlStr string) string {
 	}
 
 	return basePath
+}
+
+// virtualHostedStyleMiddleware rewrites virtual-hosted-style S3 requests to path-style
+// before they reach the Gorilla Mux router, so existing path-based routes handle them.
+//
+// Virtual-hosted-style: GET http://mybucket.s3.example.com/?prefix=foo
+// Rewrites to path-style: GET http://s3.example.com/mybucket/?prefix=foo
+func virtualHostedStyleMiddleware(next http.Handler, publicAPIURL string) http.Handler {
+	// Extract the S3 API hostname (without port) from the configured public URL.
+	s3Host := ""
+	if publicAPIURL != "" {
+		if parsed, err := url.Parse(publicAPIURL); err == nil {
+			s3Host = parsed.Hostname()
+		}
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s3Host == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Extract just the hostname (without port) from the incoming request.
+		reqHost := r.Host
+		if host, _, err := net.SplitHostPort(reqHost); err == nil {
+			reqHost = host
+		}
+
+		// Virtual-hosted-style requests have the form "{bucket}.{s3Host}".
+		suffix := "." + s3Host
+		if !strings.HasSuffix(reqHost, suffix) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		bucketName := strings.TrimSuffix(reqHost, suffix)
+		if bucketName == "" || strings.Contains(bucketName, ".") {
+			// Not a valid single-label bucket subdomain.
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Rewrite the URL path by prepending the bucket name so Gorilla Mux
+		// can match the existing "/{bucket}/..." routes.
+		oldPath := r.URL.Path
+		newPath := "/" + bucketName + oldPath
+		// Store the original path in context for SigV4 verification: the client
+		// signed with path "/" (or "/key"), not "/bucket/" - we must verify against
+		// the path the client actually used.
+		ctx := auth.WithOriginalSigV4Path(r.Context(), oldPath)
+		r2 := r.Clone(ctx)
+		r2.URL.Path = newPath
+		if r.URL.RawPath != "" {
+			r2.URL.RawPath = "/" + bucketName + r.URL.RawPath
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"host":    r.Host,
+			"bucket":  bucketName,
+			"oldPath": oldPath,
+			"newPath": newPath,
+		}).Debug("Virtual-hosted-style request rewritten to path-style")
+
+		next.ServeHTTP(w, r2)
+	})
 }
 
 // objectManagerAdapter adapts object.Manager to replication.ObjectManager interface

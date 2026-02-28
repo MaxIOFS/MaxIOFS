@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -39,6 +40,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { IDPStatusBadge } from '@/components/identity-providers/IDPStatusBadge';
 
 export default function UsersPage() {
+  const { t } = useTranslation(['users', 'common']);
   const navigate = useNavigate();
   const { isGlobalAdmin, isTenantAdmin, user: currentUser } = useCurrentUser();
   const [searchTerm, setSearchTerm] = useState('');
@@ -107,7 +109,7 @@ export default function UsersPage() {
     onSuccess: () => {
       queryClient.refetchQueries({ queryKey: ['users'] });
       queryClient.refetchQueries({ queryKey: ['tenants'] });
-      ModalManager.toast('success', 'User updated successfully');
+      ModalManager.toast('success', t('userUpdatedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -120,7 +122,7 @@ export default function UsersPage() {
       ModalManager.close();
       queryClient.refetchQueries({ queryKey: ['users'] });
       queryClient.refetchQueries({ queryKey: ['tenants'] });
-      ModalManager.toast('success', 'User deleted successfully');
+      ModalManager.toast('success', t('userDeletedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.close();
@@ -133,7 +135,7 @@ export default function UsersPage() {
     onSuccess: () => {
       queryClient.refetchQueries({ queryKey: ['users'] });
       queryClient.refetchQueries({ queryKey: ['locked-users'] });
-      ModalManager.toast('success', 'User unlocked successfully');
+      ModalManager.toast('success', t('userUnlockedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -168,7 +170,7 @@ export default function UsersPage() {
       const result = await ModalManager.confirmDeleteUser(user?.username || 'user');
 
       if (result.isConfirmed) {
-        ModalManager.loading('Deleting user...', `Deleting "${user?.username}"`);
+        ModalManager.loading(t('deletingUser'), t('deletingUserMessage', { username: user?.username }));
         deleteUserMutation.mutate(userId);
       }
     } catch (error) {
@@ -198,12 +200,12 @@ export default function UsersPage() {
 
     try {
       const result = await ModalManager.fire({
-        title: 'Unlock Account',
-        text: `Are you sure you want to unlock "${user.username}"?`,
+        title: t('unlockTitle'),
+        text: t('unlockMessage', { username: user.username }),
         icon: 'question',
         showCancelButton: true,
-        confirmButtonText: 'Yes, unlock',
-        cancelButtonText: 'Cancel',
+        confirmButtonText: t('yesUnlock'),
+        cancelButtonText: t('common:cancel'),
         confirmButtonColor: '#3b82f6',
       });
 
@@ -277,7 +279,7 @@ export default function UsersPage() {
     return (
       <div className="rounded-md bg-red-50 p-4">
         <div className="text-sm text-red-700">
-          Error loading users: {error instanceof Error ? error.message : 'Unknown error'}
+          {t('errorLoadingUsers', { error: error instanceof Error ? error.message : 'Unknown error' })}
         </div>
       </div>
     );
@@ -288,48 +290,48 @@ export default function UsersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Users</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('title')}</h1>
           <p className="text-gray-500 dark:text-gray-400">
-            Manage user accounts and their permissions
+            {t('manageUsers')}
           </p>
         </div>
         <Button onClick={() => setIsCreateModalOpen(true)} className="bg-brand-600 hover:bg-brand-700 text-white inline-flex items-center gap-2" variant="outline">
           <Plus className="h-4 w-4" />
-          Create User
+          {t('createUser')}
         </Button>
       </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         <MetricCard
-          title="Total Users"
+          title={t('totalUsers')}
           value={filteredUsers.length}
           icon={Users}
-          description="Across all tenants"
+          description={t('acrossAllTenants')}
           color="brand"
         />
 
         <MetricCard
-          title="Active Users"
+          title={t('activeUsers')}
           value={filteredUsers.filter((user: User) => user.status === 'active').length}
           icon={UserCheck}
-          description="Ready to use the system"
+          description={t('readyToUse')}
           color="success"
         />
 
         <MetricCard
-          title="Admin Users"
+          title={t('adminUsers')}
           value={filteredUsers.filter((user: User) => user.roles.includes('admin')).length}
           icon={UserStar}
-          description="Users with admin access"
+          description={t('usersWithAdminAccess')}
           color="blue-light"
         />
 
         <MetricCard
-          title="Inactive Users"
+          title={t('inactiveUsers')}
           value={filteredUsers.filter((user: User) => user.status !== 'active').length}
           icon={UserX}
-          description="Suspended or inactive"
+          description={t('suspendedOrInactive')}
           color="warning"
         />
       </div>
@@ -337,14 +339,14 @@ export default function UsersPage() {
       {/* Users Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">All Users ({filteredUsers.length})</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Manage user accounts and permissions</p>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t('allUsers', { count: filteredUsers.length })}</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('manageUserPermissions')}</p>
 
           {/* Search */}
           <div className="mt-4 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 h-5 w-5" />
             <Input
-              placeholder="Search users by username or email..."
+              placeholder={t('searchUsers')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
@@ -355,9 +357,9 @@ export default function UsersPage() {
           {filteredUsers.length === 0 ? (
             <EmptyState
               icon={Users}
-              title="No users found"
-              description={searchTerm ? "No users match your search criteria. Try adjusting your search terms." : "Get started by creating your first user to manage access."}
-              actionLabel={!searchTerm ? "Create User" : undefined}
+              title={t('noUsersFound')}
+              description={searchTerm ? t('noUsersSearch') : t('noUsersEmpty')}
+              actionLabel={!searchTerm ? t('createUser') : undefined}
               onAction={!searchTerm ? () => setIsCreateModalOpen(true) : undefined}
               showAction={!searchTerm}
             />
@@ -365,16 +367,16 @@ export default function UsersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Username</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Tenant</TableHead>
-                  <TableHead>Roles</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>{t('username')}</TableHead>
+                  <TableHead>{t('email')}</TableHead>
+                  <TableHead>{t('tenant')}</TableHead>
+                  <TableHead>{t('roles')}</TableHead>
+                  <TableHead>{t('status')}</TableHead>
                   <TableHead>Auth</TableHead>
                   <TableHead>2FA</TableHead>
-                  <TableHead>Access Keys</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t('accessKeys')}</TableHead>
+                  <TableHead>{t('created')}</TableHead>
+                  <TableHead className="text-right">{t('actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -387,7 +389,7 @@ export default function UsersPage() {
                         {isUserLocked(user) && (
                           <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border bg-red-100 text-red-700 border-red-300 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30">
                             <Lock className="h-3 w-3" />
-                            Locked
+                            {t('locked')}
                           </span>
                         )}
                       </div>
@@ -404,11 +406,11 @@ export default function UsersPage() {
                           <>
                             <Building2 className="h-3 w-3 text-muted-foreground" />
                             <span className="text-sm">
-                              {tenants?.find(t => t.id === user.tenantId)?.displayName || user.tenantId}
+                              {tenants?.find(ten => ten.id === user.tenantId)?.displayName || user.tenantId}
                             </span>
                           </>
                         ) : (
-                          <span className="text-sm text-muted-foreground italic">Global</span>
+                          <span className="text-sm text-muted-foreground italic">{t('global')}</span>
                         )}
                       </div>
                     </TableCell>
@@ -436,12 +438,12 @@ export default function UsersPage() {
                       {user.twoFactorEnabled ? (
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border bg-green-100 text-green-700 border-green-300 dark:bg-green-500/20 dark:text-green-300 dark:border-green-500/30">
                           <KeyRound className="h-3 w-3" />
-                          Enabled
+                          {t('enabled')}
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border bg-gray-100 text-gray-600 border-gray-300 dark:bg-gray-500/20 dark:text-gray-400 dark:border-gray-500/30">
                           <KeyRound className="h-3 w-3" />
-                          Disabled
+                          {t('disabled')}
                         </span>
                       )}
                     </TableCell>
@@ -515,12 +517,12 @@ export default function UsersPage() {
       <Modal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        title="Create New User"
+        title={t('createNewUser')}
       >
         <form onSubmit={handleCreateUser} className="space-y-4">
           <div>
             <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {isExternalUser ? 'Email (Username)' : 'Username'}
+              {isExternalUser ? t('emailOptional') : t('username')}
             </label>
             <Input
               id="username"
@@ -535,7 +537,7 @@ export default function UsersPage() {
 
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Email (Optional)
+              {t('emailOptional')}
             </label>
             <Input
               id="email"
@@ -584,14 +586,14 @@ export default function UsersPage() {
           {!isExternalUser && (
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Password
+                {t('password')}
               </label>
               <Input
                 id="password"
                 type="password"
                 value={newUser.password || ''}
                 onChange={(e) => updateNewUser('password', e.target.value)}
-                placeholder="Enter password"
+                placeholder={t('enterPassword')}
                 className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
                 required
               />
@@ -602,14 +604,14 @@ export default function UsersPage() {
           {isGlobalAdmin ? (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Tenant (Optional)
+                {t('tenantOptional')}
               </label>
               <select
                 value={newUser.tenantId || ''}
                 onChange={(e) => updateNewUser('tenantId', e.target.value)}
                 className="w-full border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
               >
-                <option value="">No Tenant (Global User)</option>
+                <option value="">{t('noTenantGlobal')}</option>
                 {tenants?.map((tenant) => (
                   <option key={tenant.id} value={tenant.id}>
                     {tenant.displayName} ({tenant.name})
@@ -617,26 +619,26 @@ export default function UsersPage() {
                 ))}
               </select>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Global users can access all buckets. Tenant users are limited to their tenant's buckets.
+                {t('globalUsersInfo')}
               </p>
             </div>
           ) : currentUser?.tenantId && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Tenant
+                {t('tenant')}
               </label>
               <div className="w-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-md px-3 py-2 text-gray-700 dark:text-gray-300">
-                {tenants?.find(t => t.id === currentUser.tenantId)?.displayName || 'Your Tenant'}
+                {tenants?.find(ten => ten.id === currentUser.tenantId)?.displayName || t('yourTenant')}
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Tenant admins can only create users within their own tenant.
+                {t('tenantAdminsInfo')}
               </p>
             </div>
           )}
 
           <div>
             <label htmlFor="role" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Role
+              {t('role')}
             </label>
             <select
               id="role"
@@ -644,19 +646,19 @@ export default function UsersPage() {
               onChange={(e) => updateNewUser('roles', [e.target.value])}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
-              <option value="admin">Admin - Full access to manage the system</option>
-              <option value="user">User - Standard user with normal access</option>
-              <option value="readonly">Read Only - Can only view, cannot modify</option>
-              <option value="guest">Guest - Limited access</option>
+              <option value="admin">{t('adminRole')}</option>
+              <option value="user">{t('userRole')}</option>
+              <option value="readonly">{t('readonlyRole')}</option>
+              <option value="guest">{t('guestRole')}</option>
             </select>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Select the role for this user.
+              {t('selectRole')}
             </p>
           </div>
 
           <div>
             <label htmlFor="status" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Status
+              {t('status')}
             </label>
             <select
               id="status"
@@ -664,9 +666,9 @@ export default function UsersPage() {
               onChange={(e) => updateNewUser('status', e.target.value)}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="suspended">Suspended</option>
+              <option value="active">{t('active')}</option>
+              <option value="inactive">{t('inactive')}</option>
+              <option value="suspended">{t('suspended')}</option>
             </select>
           </div>
 
@@ -676,13 +678,13 @@ export default function UsersPage() {
               variant="outline"
               onClick={() => setIsCreateModalOpen(false)}
             >
-              Cancel
+              {t('common:cancel')}
             </Button>
             <Button
               type="submit"
               disabled={createUserMutation.isPending || !newUser.username || (!isExternalUser && !newUser.password)}
             >
-              {createUserMutation.isPending ? 'Creating...' : 'Create User'}
+              {createUserMutation.isPending ? t('creating') : t('createUser')}
             </Button>
           </div>
         </form>

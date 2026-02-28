@@ -1,4 +1,5 @@
 import { useState, FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import APIClient from '@/lib/api';
 import { getBasePath } from '@/lib/basePath';
 import ModalManager from '@/lib/modals';
@@ -8,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { OAuthProviderInfo } from '@/types';
 
 export default function LoginPage() {
+  const { t } = useTranslation('auth');
   const [loading, setLoading] = useState(false);
   // Check URL for OAuth error
   const urlParams = new URLSearchParams(window.location.search);
@@ -182,7 +184,7 @@ export default function LoginPage() {
                     textShadow: '0 2px 8px rgba(0, 0, 0, 0.4)'
                   }}
                 >
-                  High-Performance Object Storage
+                  {t('highPerformanceStorage')}
                 </p>
                 <p
                   className="text-sm text-blue-200/80 font-light"
@@ -321,10 +323,10 @@ export default function LoginPage() {
                   {/* Header */}
                   <div className="text-center">
                     <h1 className="text-4xl font-light text-gray-900 dark:text-white mb-2 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-blue-100 dark:to-white bg-clip-text text-transparent">
-                      Web Console
+                      {t('webConsole')}
                     </h1>
                     <p className="text-sm text-gray-600 dark:text-gray-300">
-                      Sign in to access your object storage
+                      {t('signInMessage')}
                     </p>
                   </div>
 
@@ -356,7 +358,7 @@ export default function LoginPage() {
                           type="text"
                           required
                           className="peer w-full pl-8 pr-4 py-3 pt-6 pb-2 border-b-2 border-gray-300 dark:border-gray-500 bg-transparent text-gray-900 dark:text-white placeholder-transparent focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 transition-colors duration-200"
-                          placeholder="Username"
+                          placeholder={t('username')}
                           value={formData.username}
                           onChange={handleChange}
                           onFocus={() => handleFocus('username')}
@@ -372,7 +374,7 @@ export default function LoginPage() {
                             color: focusedField === 'username' || formData.username ? '#2563eb' : '#9ca3af'
                           }}
                         >
-                          Username
+                          {t('username')}
                         </label>
                       </div>
                     </div>
@@ -397,7 +399,7 @@ export default function LoginPage() {
                           type="password"
                           required
                           className="peer w-full pl-8 pr-4 py-3 pt-6 pb-2 border-b-2 border-gray-300 dark:border-gray-500 bg-transparent text-gray-900 dark:text-white placeholder-transparent focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 transition-colors duration-200"
-                          placeholder="Password"
+                          placeholder={t('password')}
                           value={formData.password}
                           onChange={handleChange}
                           onFocus={() => handleFocus('password')}
@@ -413,7 +415,7 @@ export default function LoginPage() {
                             color: focusedField === 'password' || formData.password ? '#2563eb' : '#9ca3af'
                           }}
                         >
-                          Password
+                          {t('password')}
                         </label>
                       </div>
                     </div>
@@ -431,10 +433,10 @@ export default function LoginPage() {
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
-                            Signing in...
+                            {t('loggingIn')}
                           </span>
                         ) : (
-                          'Sign In'
+                          t('loginButton')
                         )}
                       </button>
                     </div>
@@ -542,10 +544,10 @@ export default function LoginPage() {
                   <div className="mt-8 pt-6 border-t border-gray-200 dark:border-white/10">
                     <div className="text-center">
                       <p className="text-xs text-gray-500 dark:text-gray-300">
-                        © {new Date().getFullYear()} MaxIOFS. All rights reserved.
+                        © {new Date().getFullYear()} MaxIOFS. {t('allRightsReserved')}
                       </p>
                       <p className="text-xs text-gray-400 dark:text-gray-400 mt-1">
-                        High-Performance Object Storage Solution
+                        {t('highPerformanceStorageSolution')}
                       </p>
                     </div>
                   </div>

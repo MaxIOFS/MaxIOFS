@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
 import { Loading } from '@/components/ui/Loading';
 import { MetricCard } from '@/components/ui/MetricCard';
@@ -21,6 +22,7 @@ import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 
 export default function SecurityPage() {
+  const { t } = useTranslation('security');
   const navigate = useNavigate();
   const { isGlobalAdmin, user: currentUser } = useCurrentUser();
 
@@ -115,9 +117,9 @@ export default function SecurityPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Security Overview</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('securityOverview')}</h1>
           <p className="text-gray-500 dark:text-gray-400">
-            Monitor authentication and user access
+            {t('monitorAuthAccess')}
           </p>
         </div>
         <Link
@@ -125,51 +127,51 @@ export default function SecurityPage() {
           className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-medium transition-colors"
         >
           <Settings className="h-4 w-4" />
-          Configure Settings
+          {t('configureSettings')}
         </Link>
       </div>
 
       {/* Security Status */}
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Security Status</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">{t('securityStatus')}</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <MetricCard
-            title="Active Users"
+            title={t('activeUsers')}
             value={activeUsers}
             icon={Users}
-            description={`${totalUsers} total users`}
+            description={t('totalUsers', { count: totalUsers })}
             color="success"
           />
 
           <MetricCard
-            title="Users with 2FA"
+            title={t('usersWith2FA')}
             value={users2FA}
             icon={KeyRound}
-            description={`${Math.round((users2FA / totalUsers) * 100)}% of users`}
+            description={t('percentOfUsers', { percent: Math.round((users2FA / totalUsers) * 100) })}
             color="brand"
           />
 
           <MetricCard
-            title="Locked Accounts"
+            title={t('lockedAccounts')}
             value={lockedUsers.length}
             icon={lockedUsers.length > 0 ? AlertTriangle : Lock}
-            description="Due to failed logins"
+            description={t('dueToFailedLogins')}
             color={lockedUsers.length > 0 ? 'error' : 'success'}
           />
 
           <MetricCard
-            title="Tenant Admins"
+            title={t('tenantAdmins')}
             value={tenantAdminCount}
             icon={Shield}
-            description={`Global admin: ${globalAdminCount}`}
+            description={t('globalAdmin', { count: globalAdminCount })}
             color="blue-light"
           />
 
           <MetricCard
-            title="Session Timeout"
+            title={t('sessionTimeout')}
             value={formatDuration(getSetting('security.session_timeout', '86400'))}
             icon={Clock}
-            description="Auto-logout idle sessions"
+            description={t('autoLogoutIdleSessions')}
             color="warning"
           />
         </div>
@@ -177,30 +179,30 @@ export default function SecurityPage() {
 
       {/* User Statistics */}
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">User Statistics</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">{t('userStatistics')}</h2>
         <div className="grid gap-4 md:grid-cols-2">
           {/* User Status Card */}
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
             <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <Users className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                User Status
+                {t('userStatus')}
               </h3>
             </div>
             <div className="p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Total Users</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('totalUsersLabel')}</span>
                 <span className="text-sm font-bold text-gray-900 dark:text-white">{totalUsers}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Active Users</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('activeUsers')}</span>
                 <span className="flex items-center gap-2 text-green-600 dark:text-green-400 font-medium">
                   <CheckCircle className="h-4 w-4" />
                   {activeUsers}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Inactive Users</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('inactiveUsers')}</span>
                 <span className="flex items-center gap-2 text-gray-600 dark:text-gray-400 font-medium">
                   <UserX className="h-4 w-4" />
                   {inactiveUsers}
@@ -211,7 +213,7 @@ export default function SecurityPage() {
                   to="/users"
                   className="text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium"
                 >
-                  Manage Users →
+                  {t('manageUsers')} →
                 </Link>
               </div>
             </div>
@@ -222,23 +224,23 @@ export default function SecurityPage() {
             <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <Lock className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                Account Security
+                {t('accountSecurity')}
               </h3>
             </div>
             <div className="p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Locked Accounts</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('lockedAccounts')}</span>
                 <span className={`text-sm font-bold ${lockedUsers.length > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'}`}>
                   {lockedUsers.length}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Lockout Duration</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('lockoutDuration')}</span>
                 <span className="text-sm text-gray-600 dark:text-gray-400">{formatDuration(getSetting('security.lockout_duration', '900'))}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Max Failed Attempts</span>
-                <span className="text-sm text-gray-600 dark:text-gray-400">{getSetting('security.max_failed_attempts', '5')} attempts</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('maxFailedAttempts')}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">{t('attemptsCount', { count: getSetting('security.max_failed_attempts', '5') })}</span>
               </div>
               {lockedUsers.length > 0 && (
                 <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
@@ -246,7 +248,7 @@ export default function SecurityPage() {
                     to="/users"
                     className="text-sm text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 font-medium"
                   >
-                    View Locked Users →
+                    {t('viewLockedUsers')} →
                   </Link>
                 </div>
               )}
@@ -257,20 +259,20 @@ export default function SecurityPage() {
 
       {/* Active Security Features */}
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Active Security Features</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">{t('activeSecurityFeatures')}</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {/* Authentication Features */}
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
               <Shield className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              Authentication & Access
+              {t('authenticationAccess')}
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Two-Factor Authentication (2FA)</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">TOTP-based 2FA with backup codes for enhanced security</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('twoFactorAuth')}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('twoFactorAuthDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -297,7 +299,7 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Bcrypt Password Hashing</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('bcryptPassword')}</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Industry-standard password hashing with per-user salt</p>
                 </div>
               </div>
@@ -308,34 +310,34 @@ export default function SecurityPage() {
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
               <Lock className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              Security Controls
+              {t('securityControls')}
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Rate Limiting</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">IP-based rate limiting ({getSetting('security.ratelimit_login_per_minute', '5')} login attempts per minute)</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('rateLimitingDesc', { count: getSetting('security.ratelimit_login_per_minute', '5') })}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Account Lockout</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatic {formatDuration(getSetting('security.lockout_duration', '900'))} lockout after {getSetting('security.max_failed_attempts', '5')} failed login attempts</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('accountLockoutDesc', { duration: formatDuration(getSetting('security.lockout_duration', '900')), attempts: getSetting('security.max_failed_attempts', '5') })}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Session Management</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatic session timeout and idle detection ({formatDuration(getSetting('security.session_timeout', '86400'))})</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('sessionManagement')}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('sessionManagementDesc', { duration: formatDuration(getSetting('security.session_timeout', '86400')) })}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Role-Based Access Control (RBAC)</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('rbac')}</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">4 roles: Admin, User, Read-Only, Guest with granular bucket permissions</p>
                 </div>
               </div>
@@ -359,8 +361,8 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Server-Side Encryption (SSE)</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">AES-256-CTR streaming encryption for all stored objects</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('serverSideEncryption')}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('serverSideEncryptionDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -391,20 +393,20 @@ export default function SecurityPage() {
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
               <Users className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              Multi-Tenancy & Isolation
+              {t('multiTenancyIsolation')}
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Tenant Isolation</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Complete data isolation between tenants with separate namespaces</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('tenantIsolation')}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('tenantIsolationDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Resource Quotas</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('resourceQuotas')}</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Per-tenant storage, bucket, and access key limits with usage tracking</p>
                 </div>
               </div>
@@ -418,7 +420,7 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Bucket Permissions (ACLs)</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('bucketPermissions')}</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Fine-grained per-bucket access control with canned ACLs</p>
                 </div>
               </div>

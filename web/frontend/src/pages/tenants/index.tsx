@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -34,6 +35,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 export default function TenantsPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation('tenants');
   const { isGlobalAdmin, isTenantAdmin, user: currentUser } = useCurrentUser();
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -66,7 +68,7 @@ export default function TenantsPage() {
       queryClient.refetchQueries({ queryKey: ['tenants'] });
       setIsCreateModalOpen(false);
       setNewTenant({ maxAccessKeys: 10, maxStorageBytes: 107374182400, maxBuckets: 100 });
-      ModalManager.toast('success', `Tenant "${variables.displayName}" created successfully`);
+      ModalManager.toast('success', t('tenantCreatedSuccess', { name: variables.displayName }));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -80,7 +82,7 @@ export default function TenantsPage() {
       queryClient.refetchQueries({ queryKey: ['tenants'] });
       setIsEditModalOpen(false);
       setSelectedTenant(null);
-      ModalManager.toast('success', 'Tenant updated successfully');
+      ModalManager.toast('success', t('tenantUpdatedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -93,7 +95,7 @@ export default function TenantsPage() {
       ModalManager.close();
       queryClient.refetchQueries({ queryKey: ['tenants'] });
       queryClient.refetchQueries({ queryKey: ['buckets'] });
-      ModalManager.toast('success', 'Tenant deleted successfully');
+      ModalManager.toast('success', t('tenantDeletedSuccess'));
     },
     onError: async (error: unknown, variables) => {
       ModalManager.close();
@@ -161,8 +163,8 @@ export default function TenantsPage() {
 
   const handleDelete = (tenant: Tenant) => {
     ModalManager.confirm(
-      `Are you sure you want to delete "${tenant.displayName}"?`,
-      'This will remove the tenant and unassign all users. This action cannot be undone.',
+      t('deleteTenantConfirm', { name: tenant.displayName }),
+      t('deleteTenantWarning'),
       () => deleteTenantMutation.mutate({ tenantId: tenant.id })
     );
   };
@@ -181,7 +183,7 @@ export default function TenantsPage() {
   };
 
   if (isLoading) return <Loading />;
-  if (error) return <div className="p-4 text-red-500">Error loading tenants</div>;
+  if (error) return <div className="p-4 text-red-500">{t('errorLoadingTenants')}</div>;
 
   return (
     <div className="space-y-6">
@@ -189,16 +191,16 @@ export default function TenantsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-            {isTenantAdmin ? 'Tenant Information' : 'Tenants'}
+            {isTenantAdmin ? 'Tenant Information' : t('title')}
           </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">
-            {isTenantAdmin ? 'View your tenant quotas and usage' : 'Manage organizational tenants and quotas'}
+            {isTenantAdmin ? 'View your tenant quotas and usage' : t('manageTenantsQuotas')}
           </p>
         </div>
         {isGlobalAdmin && (
           <Button onClick={() => setIsCreateModalOpen(true)} className="bg-brand-600 hover:bg-brand-700 text-white inline-flex items-center gap-2" variant="outline">
             <Plus className="w-4 h-4 mr-2" />
-            Create Tenant
+            {t('createTenant')}
           </Button>
         )}
       </div>
@@ -206,34 +208,34 @@ export default function TenantsPage() {
       {/* Statistics Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         <MetricCard
-          title="Total Tenants"
+          title={t('totalTenants')}
           value={tenants?.length || 0}
           icon={Building2}
-          description="All registered tenants"
+          description={t('allRegisteredTenants')}
           color="brand"
         />
 
         <MetricCard
-          title="Active Tenants"
-          value={tenants?.filter((t: Tenant) => t.status === 'active').length || 0}
+          title={t('activeTenants')}
+          value={tenants?.filter((ten: Tenant) => ten.status === 'active').length || 0}
           icon={CheckCircle}
-          description="Currently active"
+          description={t('currentlyActive')}
           color="success"
         />
 
         <MetricCard
-          title="Total Storage"
-          value={formatBytes(tenants?.reduce((acc: number, t: Tenant) => acc + (t.currentStorageBytes || 0), 0) || 0)}
+          title={t('totalStorage')}
+          value={formatBytes(tenants?.reduce((acc: number, ten: Tenant) => acc + (ten.currentStorageBytes || 0), 0) || 0)}
           icon={HardDrive}
-          description="Across all tenants"
+          description={t('acrossAllTenants')}
           color="warning"
         />
 
         <MetricCard
-          title="Total Buckets"
-          value={tenants?.reduce((acc: number, t: Tenant) => acc + (t.currentBuckets || 0), 0) || 0}
+          title={t('totalBuckets')}
+          value={tenants?.reduce((acc: number, ten: Tenant) => acc + (ten.currentBuckets || 0), 0) || 0}
           icon={Box}
-          description="Across all tenants"
+          description={t('acrossAllTenants')}
           color="blue-light"
         />
       </div>
@@ -244,7 +246,7 @@ export default function TenantsPage() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-5 h-5" />
             <Input
-              placeholder="Search tenants..."
+              placeholder={t('searchPlaceholder')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
@@ -257,23 +259,23 @@ export default function TenantsPage() {
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {isTenantAdmin ? 'Your Tenant Details' : `All Tenants (${filteredTenants.length})`}
+            {isTenantAdmin ? 'Your Tenant Details' : t('allTenantsCount', { count: filteredTenants.length })}
           </h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {isTenantAdmin ? 'View your quotas and current usage' : 'Manage tenant quotas and configurations'}
+            {isTenantAdmin ? 'View your quotas and current usage' : t('manageTenantQuotas')}
           </p>
         </div>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Storage Usage</TableHead>
-                <TableHead>Buckets</TableHead>
-                <TableHead>Access Keys</TableHead>
-                <TableHead>Created</TableHead>
-                {isGlobalAdmin && <TableHead className="text-right">Actions</TableHead>}
+                <TableHead>{t('name')}</TableHead>
+                <TableHead>{t('status')}</TableHead>
+                <TableHead>{t('storageUsage')}</TableHead>
+                <TableHead>{t('buckets')}</TableHead>
+                <TableHead>{t('accessKeys')}</TableHead>
+                <TableHead>{t('created')}</TableHead>
+                {isGlobalAdmin && <TableHead className="text-right">{t('actions')}</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -282,9 +284,9 @@ export default function TenantsPage() {
                   <TableCell colSpan={isGlobalAdmin ? 7 : 6} className="h-64">
                     <EmptyState
                       icon={Building2}
-                      title="No tenants found"
-                      description={searchTerm ? "No tenants match your search criteria. Try adjusting your filters." : "Get started by creating your first tenant to organize users and resources."}
-                      actionLabel={!searchTerm && isGlobalAdmin ? "Create Tenant" : undefined}
+                      title={t('noTenantsFound')}
+                      description={searchTerm ? t('noTenantsSearchMessage') : t('noTenantsEmptyMessage')}
+                      actionLabel={!searchTerm && isGlobalAdmin ? t('createNewTenant') : undefined}
                       onAction={!searchTerm && isGlobalAdmin ? () => setIsCreateModalOpen(true) : undefined}
                       showAction={!searchTerm && isGlobalAdmin}
                     />
@@ -307,12 +309,12 @@ export default function TenantsPage() {
                       {tenant.status === 'active' ? (
                         <>
                           <CheckCircle className="w-4 h-4 text-green-500" />
-                          <span className="text-sm text-green-600">Active</span>
+                          <span className="text-sm text-green-600">{t('active')}</span>
                         </>
                       ) : (
                         <>
                           <XCircle className="w-4 h-4 text-gray-400" />
-                          <span className="text-sm text-gray-500">Inactive</span>
+                          <span className="text-sm text-gray-500">{t('inactive')}</span>
                         </>
                       )}
                     </div>
@@ -326,9 +328,9 @@ export default function TenantsPage() {
                         {(() => {
                           const remaining = tenant.maxStorageBytes - (tenant.currentStorageBytes || 0);
                           if (remaining < 0) {
-                            return `${formatBytes(Math.abs(remaining))} over quota`;
+                            return t('overQuota', { amount: formatBytes(Math.abs(remaining)) });
                           }
-                          return `${formatBytes(remaining)} free`;
+                          return t('free', { amount: formatBytes(remaining) });
                         })()}
                       </div>
                       {(() => {
@@ -365,7 +367,7 @@ export default function TenantsPage() {
                         {tenant.currentBuckets || 0} / {tenant.maxBuckets}
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">
-                        {tenant.maxBuckets - (tenant.currentBuckets || 0)} available
+                        {t('available', { count: tenant.maxBuckets - (tenant.currentBuckets || 0) })}
                       </div>
                     </div>
                   </TableCell>
@@ -375,7 +377,7 @@ export default function TenantsPage() {
                         {tenant.currentAccessKeys || 0} / {tenant.maxAccessKeys}
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">
-                        {tenant.maxAccessKeys - (tenant.currentAccessKeys || 0)} available
+                        {t('available', { count: tenant.maxAccessKeys - (tenant.currentAccessKeys || 0) })}
                       </div>
                     </div>
                   </TableCell>
@@ -419,45 +421,45 @@ export default function TenantsPage() {
       <Modal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        title="Create New Tenant"
+        title={t('createNewTenant')}
       >
         <form onSubmit={handleCreateTenant} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tenant Name (ID)</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('tenantNameId')}</label>
             <Input
               value={newTenant.name || ''}
               onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })}
-              placeholder="acme-corp"
+              placeholder={t('tenantNamePlaceholder')}
               className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
               required
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Lowercase, no spaces (used as identifier)</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('tenantNameHelp')}</p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Display Name</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('displayName')}</label>
             <Input
               value={newTenant.displayName || ''}
               onChange={(e) => setNewTenant({ ...newTenant, displayName: e.target.value })}
-              placeholder="ACME Corporation"
+              placeholder={t('displayNamePlaceholder')}
               className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('description')}</label>
             <Input
               value={newTenant.description || ''}
               onChange={(e) => setNewTenant({ ...newTenant, description: e.target.value })}
-              placeholder="Main tenant for ACME Corp"
+              placeholder={t('descriptionPlaceholder')}
               className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Access Keys</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maxAccessKeys')}</label>
               <Input
                 type="number"
                 value={newTenant.maxAccessKeys || 10}
@@ -468,7 +470,7 @@ export default function TenantsPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Buckets</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maxBuckets')}</label>
               <Input
                 type="number"
                 value={newTenant.maxBuckets || 100}
@@ -480,7 +482,7 @@ export default function TenantsPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Storage (GB)</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maxStorageGb')}</label>
             <Input
               type="number"
               value={Math.round((newTenant.maxStorageBytes || 107374182400) / (1024 * 1024 * 1024))}
@@ -492,10 +494,10 @@ export default function TenantsPage() {
 
           <div className="flex justify-end gap-2 pt-4">
             <Button type="button" variant="outline" onClick={() => setIsCreateModalOpen(false)}>
-              Cancel
+              {t('cancel')}
             </Button>
             <Button type="submit" disabled={createTenantMutation.isPending}>
-              {createTenantMutation.isPending ? 'Creating...' : 'Create Tenant'}
+              {createTenantMutation.isPending ? t('creating') : t('createTenantButton')}
             </Button>
           </div>
         </form>
@@ -509,11 +511,11 @@ export default function TenantsPage() {
             setIsEditModalOpen(false);
             setSelectedTenant(null);
           }}
-          title={`Edit Tenant: ${selectedTenant.displayName}`}
+          title={t('editTenantTitle', { name: selectedTenant.displayName })}
         >
           <form onSubmit={handleUpdateTenant} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Display Name</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('displayName')}</label>
               <Input
                 value={selectedTenant.displayName || ''}
                 onChange={(e) => setSelectedTenant({ ...selectedTenant, displayName: e.target.value })}
@@ -523,7 +525,7 @@ export default function TenantsPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('description')}</label>
               <Input
                 value={selectedTenant.description || ''}
                 onChange={(e) => setSelectedTenant({ ...selectedTenant, description: e.target.value })}
@@ -532,20 +534,20 @@ export default function TenantsPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('status')}</label>
               <select
                 value={selectedTenant.status}
                 onChange={(e) => setSelectedTenant({ ...selectedTenant, status: e.target.value as 'active' | 'inactive' })}
                 className="w-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md px-3 py-2"
               >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
+                <option value="active">{t('active')}</option>
+                <option value="inactive">{t('inactive')}</option>
               </select>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Access Keys</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maxAccessKeys')}</label>
                 <Input
                   type="number"
                   value={selectedTenant.maxAccessKeys}
@@ -556,7 +558,7 @@ export default function TenantsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Buckets</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maxBuckets')}</label>
                 <Input
                   type="number"
                   value={selectedTenant.maxBuckets}
@@ -568,7 +570,7 @@ export default function TenantsPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Storage (GB)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maxStorageGb')}</label>
               <Input
                 type="number"
                 value={Math.round(selectedTenant.maxStorageBytes / (1024 * 1024 * 1024))}
@@ -587,10 +589,10 @@ export default function TenantsPage() {
                   setSelectedTenant(null);
                 }}
               >
-                Cancel
+                {t('cancel')}
               </Button>
               <Button type="submit" disabled={updateTenantMutation.isPending}>
-                {updateTenantMutation.isPending ? 'Updating...' : 'Update Tenant'}
+                {updateTenantMutation.isPending ? t('updating') : t('updateTenant')}
               </Button>
             </div>
           </form>

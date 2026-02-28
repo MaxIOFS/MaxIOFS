@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Loading } from '@/components/ui/Loading';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -29,6 +30,7 @@ import type { StorageMetrics, SystemMetrics, S3Metrics, LatenciesResponse, Throu
 import { MetricLineChart, TimeRangeSelector, TIME_RANGES, type TimeRange } from '@/components/charts';
 
 export default function MetricsPage() {
+  const { t } = useTranslation('metrics');
   const navigate = useNavigate();
   const { isGlobalAdmin, user: currentUser } = useCurrentUser();
   const [activeTab, setActiveTab] = React.useState<'overview' | 'system' | 'storage' | 'api' | 'performance'>('overview');
@@ -240,16 +242,16 @@ export default function MetricsPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Metrics Dashboard</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('metricsDashboard')}</h1>
           <p className="text-gray-500 dark:text-gray-400">
-            Real-time system monitoring and historical trends
+            {t('realTimeMonitoring')}
           </p>
         </div>
         <div className="flex items-center space-x-4">
           <TimeRangeSelector selected={timeRange} onChange={setTimeRange} />
           <div className="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            <span>Live</span>
+            <span>{t('live')}</span>
           </div>
         </div>
       </div>

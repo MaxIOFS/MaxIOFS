@@ -17,25 +17,25 @@ interface UserPreferencesProps {
 export function UserPreferences({ disabled = false }: UserPreferencesProps) {
   const { t } = useTranslation(['preferences', 'common']);
   const { theme, setTheme } = useTheme();
-  const { language } = useLanguage();
+  const { language, setLanguage } = useLanguage();
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
 
   const [localTheme, setLocalTheme] = useState<Theme>(theme);
+  const [localLanguage, setLocalLanguage] = useState<Language>(language);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const hasChanges = localTheme !== theme;
+  const hasChanges = localTheme !== theme || localLanguage !== language;
 
   // Update preferences mutation
   const updateMutation = useMutation({
     mutationFn: (data: { themePreference: Theme; languagePreference: Language }) =>
       APIClient.updateUserPreferences(user?.id || '', data.themePreference, data.languagePreference),
     onSuccess: () => {
-      // Apply theme locally
       setTheme(localTheme);
+      setLanguage(localLanguage);
 
-      // Invalidate user query to refetch updated preferences
       queryClient.invalidateQueries({ queryKey: ['currentUser'] });
 
       setSaveSuccess(true);
@@ -53,12 +53,13 @@ export function UserPreferences({ disabled = false }: UserPreferencesProps) {
 
     updateMutation.mutate({
       themePreference: localTheme,
-      languagePreference: language // Keep current language
+      languagePreference: localLanguage,
     });
   };
 
   const handleReset = () => {
     setLocalTheme(theme);
+    setLocalLanguage(language);
     setSaveError(null);
   };
 
@@ -66,6 +67,11 @@ export function UserPreferences({ disabled = false }: UserPreferencesProps) {
     { value: 'light', icon: Sun, label: t('themeLight') },
     { value: 'dark', icon: Moon, label: t('themeDark') },
     { value: 'system', icon: Monitor, label: t('themeSystem') }
+  ];
+
+  const languageOptions: { value: Language; flag: string; label: string }[] = [
+    { value: 'en', flag: '🇬🇧', label: t('languageEnglish') },
+    { value: 'es', flag: '🇪🇸', label: t('languageSpanish') },
   ];
 
   return (
@@ -138,6 +144,45 @@ export function UserPreferences({ disabled = false }: UserPreferencesProps) {
         {disabled && (
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
             Only the user themselves can change their theme preference.
+          </p>
+        )}
+      </div>
+
+      {/* Language Selection */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          {t('language')}
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          {languageOptions.map(({ value, flag, label }) => (
+            <button
+              key={value}
+              onClick={() => !disabled && setLocalLanguage(value)}
+              disabled={disabled}
+              className={`flex items-center justify-center gap-2 p-3 rounded-lg border transition-all ${
+                disabled
+                  ? 'opacity-50 cursor-not-allowed'
+                  : ''
+              } ${
+                localLanguage === value
+                  ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
+                  : `border-gray-200 dark:border-gray-700 ${!disabled ? 'hover:border-gray-300 dark:hover:border-gray-600' : ''}`
+              }`}
+            >
+              <span className="text-lg leading-none">{flag}</span>
+              <span className={`text-xs font-medium ${
+                localLanguage === value
+                  ? 'text-blue-900 dark:text-blue-300'
+                  : 'text-gray-700 dark:text-gray-300'
+              }`}>
+                {label}
+              </span>
+            </button>
+          ))}
+        </div>
+        {disabled && (
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+            Only the user themselves can change their language preference.
           </p>
         )}
       </div>

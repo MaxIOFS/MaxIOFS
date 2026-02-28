@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Loading } from '@/components/ui/Loading';
@@ -71,6 +72,7 @@ const formatTimestamp = (timestamp: number): string => {
 };
 
 export default function AuditLogsPage() {
+  const { t } = useTranslation('auditLogs');
   const { isGlobalAdmin, isTenantAdmin } = useCurrentUser();
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -233,9 +235,9 @@ export default function AuditLogsPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
         <AlertCircle className="w-16 h-16 text-red-500 mb-4" />
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Access Denied</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">{t('accessDenied')}</h2>
         <p className="text-gray-600 dark:text-gray-400">
-          You don't have permission to view audit logs.
+          {t('noPermissionMessage')}
         </p>
       </div>
     );
@@ -249,9 +251,9 @@ export default function AuditLogsPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
         <XCircle className="w-16 h-16 text-red-500 mb-4" />
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Error Loading Logs</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">{t('errorLoadingLogs')}</h2>
         <p className="text-gray-600 dark:text-gray-400">
-          {error instanceof Error ? error.message : 'An error occurred while loading audit logs.'}
+          {error instanceof Error ? error.message : t('errorOccurred')}
         </p>
       </div>
     );
@@ -264,17 +266,17 @@ export default function AuditLogsPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <FileText className="w-8 h-8" />
-            Audit Logs
+            {t('title')}
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
             {isGlobalAdmin
-              ? 'View all system audit logs across all tenants'
-              : 'View audit logs for your tenant'}
+              ? t('viewAllSystemLogs')
+              : t('viewTenantLogs')}
           </p>
         </div>
         <Button onClick={exportToCSV} variant="outline">
           <Download className="w-4 h-4 mr-2" />
-          Export CSV
+          {t('exportCsv')}
         </Button>
       </div>
 
@@ -283,35 +285,35 @@ export default function AuditLogsPage() {
         {/* Quick Date Filters */}
         <div className="flex items-center gap-3 pb-4 border-b border-gray-200 dark:border-gray-700">
           <Clock className="w-5 h-5 text-gray-400" />
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Time Range:</span>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('timeRange')}</span>
           <div className="flex gap-2">
             <Button
               variant={activeTimeFilter === 'all' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setQuickDateFilter('all')}
             >
-              All Time
+              {t('allTime')}
             </Button>
             <Button
               variant={activeTimeFilter === 'today' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setQuickDateFilter('today')}
             >
-              Today
+              {t('today')}
             </Button>
             <Button
               variant={activeTimeFilter === 'week' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setQuickDateFilter('week')}
             >
-              Last 7 Days
+              {t('last7Days')}
             </Button>
             <Button
               variant={activeTimeFilter === 'month' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setQuickDateFilter('month')}
             >
-              Last 30 Days
+              {t('last30Days')}
             </Button>
           </div>
           <div className="ml-auto flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
@@ -326,7 +328,7 @@ export default function AuditLogsPage() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <Input
                 type="text"
-                placeholder="Search by user, event, action, resource, or IP..."
+                placeholder={t('searchPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -338,7 +340,7 @@ export default function AuditLogsPage() {
             onClick={() => setShowFilters(!showFilters)}
           >
             <Filter className="w-4 h-4 mr-2" />
-            Filters
+            {t('filters')}
             {showFilters ? (
               <ChevronUp className="w-4 h-4 ml-2" />
             ) : (
@@ -352,69 +354,69 @@ export default function AuditLogsPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Event Type
+                {t('eventType')}
               </label>
               <select
                 value={filters.eventType || ''}
                 onChange={(e) => handleFilterChange('eventType', e.target.value || undefined)}
                 className="w-full px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                <option value="">All Events</option>
-                <option value="login_success">Login Success</option>
-                <option value="login_failed">Login Failed</option>
-                <option value="logout">Logout</option>
-                <option value="user_created">User Created</option>
-                <option value="user_deleted">User Deleted</option>
-                <option value="user_updated">User Updated</option>
-                <option value="bucket_created">Bucket Created</option>
-                <option value="bucket_deleted">Bucket Deleted</option>
-                <option value="access_key_created">Access Key Created</option>
-                <option value="access_key_deleted">Access Key Deleted</option>
-                <option value="tenant_created">Tenant Created</option>
-                <option value="tenant_deleted">Tenant Deleted</option>
-                <option value="tenant_updated">Tenant Updated</option>
-                <option value="password_changed">Password Changed</option>
-                <option value="2fa_enabled">2FA Enabled</option>
-                <option value="2fa_disabled">2FA Disabled</option>
+                <option value="">{t('allEvents')}</option>
+                <option value="login_success">{t('loginSuccess')}</option>
+                <option value="login_failed">{t('loginFailed')}</option>
+                <option value="logout">{t('logout')}</option>
+                <option value="user_created">{t('userCreated')}</option>
+                <option value="user_deleted">{t('userDeleted')}</option>
+                <option value="user_updated">{t('userUpdated')}</option>
+                <option value="bucket_created">{t('bucketCreated')}</option>
+                <option value="bucket_deleted">{t('bucketDeleted')}</option>
+                <option value="access_key_created">{t('accessKeyCreated')}</option>
+                <option value="access_key_deleted">{t('accessKeyDeleted')}</option>
+                <option value="tenant_created">{t('tenantCreated')}</option>
+                <option value="tenant_deleted">{t('tenantDeleted')}</option>
+                <option value="tenant_updated">{t('tenantUpdated')}</option>
+                <option value="password_changed">{t('passwordChanged')}</option>
+                <option value="2fa_enabled">{t('2faEnabled')}</option>
+                <option value="2fa_disabled">{t('2faDisabled')}</option>
               </select>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Status
+                {t('status')}
               </label>
               <select
                 value={filters.status || ''}
                 onChange={(e) => handleFilterChange('status', e.target.value || undefined)}
                 className="w-full px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                <option value="">All Status</option>
-                <option value="success">Success</option>
-                <option value="failed">Failed</option>
+                <option value="">{t('allStatus')}</option>
+                <option value="success">{t('success')}</option>
+                <option value="failed">{t('failed')}</option>
               </select>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Resource Type
+                {t('resourceType')}
               </label>
               <select
                 value={filters.resourceType || ''}
                 onChange={(e) => handleFilterChange('resourceType', e.target.value || undefined)}
                 className="w-full px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                <option value="">All Resources</option>
-                <option value="user">User</option>
-                <option value="bucket">Bucket</option>
-                <option value="access_key">Access Key</option>
-                <option value="tenant">Tenant</option>
-                <option value="system">System</option>
+                <option value="">{t('allResources')}</option>
+                <option value="user">{t('user')}</option>
+                <option value="bucket">{t('bucket')}</option>
+                <option value="access_key">{t('accessKey')}</option>
+                <option value="tenant">{t('tenant')}</option>
+                <option value="system">{t('system')}</option>
               </select>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Start Date
+                {t('startDate')}
               </label>
               <Input
                 type="datetime-local"
@@ -434,7 +436,7 @@ export default function AuditLogsPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                End Date
+                {t('endDate')}
               </label>
               <Input
                 type="datetime-local"
@@ -461,7 +463,7 @@ export default function AuditLogsPage() {
                 }}
                 className="w-full"
               >
-                Clear Filters
+                {t('clearFilters')}
               </Button>
             </div>
           </div>
@@ -471,7 +473,7 @@ export default function AuditLogsPage() {
       {/* Stats Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         <MetricCard
-          title="Total Logs"
+          title={t('totalLogs')}
           value={totalLogs.toLocaleString()}
           icon={FileText}
           description={getDateRangeDescription()}
@@ -479,7 +481,7 @@ export default function AuditLogsPage() {
         />
 
         <MetricCard
-          title="Successful"
+          title={t('successful')}
           value={totalSuccessCount.toLocaleString()}
           icon={CheckCircle}
           description={totalLogs > 0 ? `${Math.round((totalSuccessCount / totalLogs) * 100)}% success rate` : '0% success rate'}
@@ -495,10 +497,10 @@ export default function AuditLogsPage() {
         />
 
         <MetricCard
-          title="Viewing"
+          title={t('viewing')}
           value={`${currentPage} / ${totalPages}`}
           icon={Activity}
-          description={`${pageSize} items per page`}
+          description={t('itemsPerPage', { count: pageSize })}
           color="blue-light"
         />
       </div>
@@ -513,22 +515,22 @@ export default function AuditLogsPage() {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              <span className="text-sm text-gray-600 dark:text-gray-400">Updating...</span>
+              <span className="text-sm text-gray-600 dark:text-gray-400">{t('updating')}</span>
             </div>
           </div>
         )}
-        
+
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Timestamp</TableHead>
+              <TableHead>{t('timestamp')}</TableHead>
               <TableHead>User</TableHead>
-              <TableHead>Event Type</TableHead>
-              <TableHead>Resource</TableHead>
-              <TableHead>Action</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>IP Address</TableHead>
-              <TableHead>Details</TableHead>
+              <TableHead>{t('eventTypeHeader')}</TableHead>
+              <TableHead>{t('resource')}</TableHead>
+              <TableHead>{t('action')}</TableHead>
+              <TableHead>{t('status')}</TableHead>
+              <TableHead>{t('ipAddress')}</TableHead>
+              <TableHead>{t('details')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -537,8 +539,8 @@ export default function AuditLogsPage() {
                 <TableCell colSpan={8}>
                   <EmptyState
                     icon={FileText}
-                    title="No audit logs found"
-                    description="No audit events match your current filters. Try adjusting your search criteria or date range."
+                    title={t('noAuditLogsFound')}
+                    description={t('noAuditLogsDescription')}
                     showAction={false}
                   />
                 </TableCell>
@@ -609,12 +611,12 @@ export default function AuditLogsPage() {
                       {log.status === 'success' ? (
                         <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
                           <CheckCircle className="w-4 h-4" />
-                          <span className="text-sm font-medium">Success</span>
+                          <span className="text-sm font-medium">{t('success')}</span>
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
                           <XCircle className="w-4 h-4" />
-                          <span className="text-sm font-medium">Failed</span>
+                          <span className="text-sm font-medium">{t('failed')}</span>
                         </span>
                       )}
                     </TableCell>
@@ -644,18 +646,18 @@ export default function AuditLogsPage() {
                       <TableCell colSpan={8} className="bg-gray-50 dark:bg-gray-900">
                         <div className="p-4 space-y-2">
                           <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                            Event Details
+                            {t('eventDetails')}
                           </h4>
                           <div className="grid grid-cols-2 gap-4 text-sm">
                             <div>
-                              <span className="text-gray-600 dark:text-gray-400">User ID:</span>
+                              <span className="text-gray-600 dark:text-gray-400">{t('userId')}</span>
                               <span className="ml-2 text-gray-900 dark:text-white font-mono">
                                 {log.user_id}
                               </span>
                             </div>
                             {log.tenant_id && (
                               <div>
-                                <span className="text-gray-600 dark:text-gray-400">Tenant ID:</span>
+                                <span className="text-gray-600 dark:text-gray-400">{t('tenantId')}</span>
                                 <span className="ml-2 text-gray-900 dark:text-white font-mono">
                                   {log.tenant_id}
                                 </span>
@@ -663,7 +665,7 @@ export default function AuditLogsPage() {
                             )}
                             {log.user_agent && (
                               <div className="col-span-2">
-                                <span className="text-gray-600 dark:text-gray-400">User Agent:</span>
+                                <span className="text-gray-600 dark:text-gray-400">{t('userAgent')}</span>
                                 <span className="ml-2 text-gray-900 dark:text-white">
                                   {log.user_agent}
                                 </span>
@@ -671,7 +673,7 @@ export default function AuditLogsPage() {
                             )}
                             {log.details && (
                               <div className="col-span-2">
-                                <span className="text-gray-600 dark:text-gray-400">Additional Details:</span>
+                                <span className="text-gray-600 dark:text-gray-400">{t('additionalDetails')}</span>
                                 <pre className="mt-2 p-3 bg-gray-100 dark:bg-gray-800 rounded-md overflow-x-auto text-xs">
                                   {typeof log.details === 'string'
                                     ? JSON.stringify(JSON.parse(log.details), null, 2)
@@ -696,18 +698,21 @@ export default function AuditLogsPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-600 dark:text-gray-400">
-              Showing {(currentPage - 1) * pageSize + 1} to{' '}
-              {Math.min(currentPage * pageSize, totalLogs)} of {totalLogs} logs
+              {t('showingLogs', {
+                from: (currentPage - 1) * pageSize + 1,
+                to: Math.min(currentPage * pageSize, totalLogs),
+                total: totalLogs,
+              })}
             </span>
             <select
               value={pageSize}
               onChange={(e) => handlePageSizeChange(Number(e.target.value))}
               className="px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
-              <option value={10}>10 per page</option>
-              <option value={25}>25 per page</option>
-              <option value={50}>50 per page</option>
-              <option value={100}>100 per page</option>
+              <option value={10}>{t('perPage_10')}</option>
+              <option value={25}>{t('perPage_25')}</option>
+              <option value={50}>{t('perPage_50')}</option>
+              <option value={100}>{t('perPage_100')}</option>
             </select>
           </div>
 
@@ -718,10 +723,10 @@ export default function AuditLogsPage() {
               onClick={() => handlePageChange(currentPage - 1)}
               disabled={currentPage === 1}
             >
-              Previous
+              {t('previous')}
             </Button>
             <span className="text-sm text-gray-600 dark:text-gray-400">
-              Page {currentPage} of {totalPages}
+              {t('pageNumber', { current: currentPage, total: totalPages })}
             </span>
             <Button
               variant="outline"
@@ -729,7 +734,7 @@ export default function AuditLogsPage() {
               onClick={() => handlePageChange(currentPage + 1)}
               disabled={currentPage === totalPages}
             >
-              Next
+              {t('next')}
             </Button>
           </div>
         </div>

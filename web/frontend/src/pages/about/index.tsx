@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import { useQuery } from '@tanstack/react-query';
@@ -27,6 +28,7 @@ import {
 } from 'lucide-react';
 
 export default function AboutPage() {
+  const { t } = useTranslation('about');
   const basePath = useBasePath();
   const { data: config, isLoading } = useQuery<ServerConfig>({
     queryKey: ['serverConfig'],
@@ -71,41 +73,36 @@ export default function AboutPage() {
               </div>
               <div>
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white">MaxIOFS</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Version {version}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{t('version')} {version}</p>
               </div>
             </div>
 
             <div className="space-y-4">
               <div>
                 <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                  Description
+                  {t('description')}
                 </h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
-                  MaxIOFS is a high-performance S3-compatible object storage system built with Go and React.
-                  Designed to be simple, portable, and deployable as a single binary with an embedded modern
-                  web interface. Features full multi-tenancy support, multi-node cluster with HA replication,
-                  SSO authentication (Google, Microsoft), LDAP/AD integration, Pebble-powered metadata storage,
-                  and comprehensive S3 API compatibility with 40+ operations including bulk operations, object lock,
-                  and advanced bucket management.
+                  {t('descriptionText')}
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Version</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('version')}</p>
                   <p className="text-sm font-semibold text-gray-900 dark:text-white">{version}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Build Date</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('buildDate')}</p>
                   <p className="text-sm font-semibold text-gray-900 dark:text-white">{buildDate}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">License</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('license')}</p>
                   <p className="text-sm font-semibold text-gray-900 dark:text-white">MIT</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Status</p>
-                  <p className="text-sm font-semibold text-green-600 dark:text-green-400">Beta</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('status')}</p>
+                  <p className="text-sm font-semibold text-green-600 dark:text-green-400">{t('beta')}</p>
                 </div>
               </div>
             </div>
@@ -121,20 +118,17 @@ export default function AboutPage() {
               </div>
               <div>
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">Aluisco Ricardo</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Lead Developer</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{t('leadDeveloper')}</p>
               </div>
             </div>
 
             <div className="space-y-4">
               <div>
                 <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-                  Main Developer
+                  {t('mainDeveloper')}
                 </h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
-                  Project entirely developed by Aluisco Ricardo. MaxIOFS was born as a solution
-                  to provide enterprise-grade S3-compatible object storage in a simple and efficient way,
-                  with complete multi-tenant support, multi-node cluster for high availability,
-                  high-performance metadata storage using Pebble (CockroachDB's crash-safe LSM-tree engine), and production-ready security features.
+                  {t('mainDeveloperDescription')}
                 </p>
               </div>
 
@@ -183,43 +177,43 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            Key Features
+            {t('keyFeatures')}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <FeatureCard
               icon={Box}
-              title="S3 Compatible"
-              description="Full S3 API implementation with 40+ operations including multipart uploads, presigned URLs, DeleteObjects bulk API (up to 1000), and bucket notifications (webhooks)"
+              title={t('featureS3Compatible')}
+              description={t('featureS3CompatibleDesc')}
             />
             <FeatureCard
               icon={Shield}
-              title="Multi-Tenant"
-              description="Complete tenant isolation with configurable quotas, cascading deletes, and global admin cross-tenant visibility"
+              title={t('featureMultiTenant')}
+              description={t('featureMultiTenantDesc')}
             />
             <FeatureCard
               icon={Lock}
-              title="Security & Encryption"
-              description="AES-256-CTR encryption at rest, 2FA authentication, AWS Signature v2/v4, audit logging (20+ events), compliance-ready (GDPR, SOC 2, HIPAA)"
+              title={t('featureSecurity')}
+              description={t('featureSecurityDesc')}
             />
             <FeatureCard
               icon={Zap}
-              title="High Performance"
-              description="Pebble v1.1 (CockroachDB LSM-tree engine) for crash-safe object metadata with WAL-guaranteed durability, stress-tested with 7000+ objects using MinIO Warp"
+              title={t('featurePerformance')}
+              description={t('featurePerformanceDesc')}
             />
             <FeatureCard
               icon={Package}
-              title="Single Binary"
-              description="Packaged as a single executable with embedded React frontend, no external dependencies, easy deployment"
+              title={t('featureSingleBinary')}
+              description={t('featureSingleBinaryDesc')}
             />
             <FeatureCard
               icon={Code}
-              title="Modern UI"
-              description="React 19 + TypeScript with dark mode, real-time metrics, responsive design, and comprehensive management features"
+              title={t('featureModernUI')}
+              description={t('featureModernUIDesc')}
             />
             <FeatureCard
               icon={FileJson}
-              title="Advanced S3 Features"
-              description="Object Lock (WORM), Versioning, Bucket Policies (JSON), CORS, Lifecycle rules, Object Tagging, and ACLs"
+              title={t('featureAdvancedS3')}
+              description={t('featureAdvancedS3Desc')}
             />
             <FeatureCard
               icon={Copy}
@@ -233,8 +227,8 @@ export default function AboutPage() {
             />
             <FeatureCard
               icon={Layers}
-              title="Dual Storage"
-              description="Pebble v1.1 for object metadata (crash-safe WAL), SQLite for authentication/audit/cluster, filesystem for objects with atomic operations"
+              title={t('featureDualStorage')}
+              description={t('featureDualStorageDesc')}
             />
             <FeatureCard
               icon={BarChart3}
@@ -254,13 +248,13 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            Technology Stack
+            {t('technologyStack')}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center">
                 <Code className="h-4 w-4 mr-2" />
-                Backend
+                {t('backend')}
               </h3>
               <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
                 <li className="flex items-center">
@@ -292,7 +286,7 @@ export default function AboutPage() {
             <div>
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center">
                 <Globe className="h-4 w-4 mr-2" />
-                Frontend
+                {t('frontend')}
               </h3>
               <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
                 <li className="flex items-center">
@@ -411,11 +405,11 @@ export default function AboutPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
               <Heart className="h-4 w-4 text-red-500" />
-              <span>Developed with passion by Aluisco Ricardo</span>
+              <span>{t('developedWithPassion')}</span>
             </div>
             <div className="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
               <Award className="h-4 w-4" />
-              <span>© 2024-2026 MaxIOFS</span>
+              <span>{t('copyright')}</span>
             </div>
           </div>
         </div>

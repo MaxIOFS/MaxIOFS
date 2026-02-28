@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -59,6 +60,7 @@ function getBucketKey(bucket: Bucket): string {
 // ── Page component ─────────────────────────────────────────────────────────────
 
 export default function BucketsPage() {
+  const { t } = useTranslation('buckets');
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -458,7 +460,7 @@ export default function BucketsPage() {
     return (
       <div className="rounded-lg bg-error-50 dark:bg-error-900/30 border border-error-200 dark:border-error-800 p-4">
         <div className="text-sm text-error-700 dark:text-error-400 font-medium">
-          Error loading buckets: {error instanceof Error ? error.message : 'Unknown error'}
+          {t('errorLoadingBuckets', { error: error instanceof Error ? error.message : 'Unknown error' })}
         </div>
       </div>
     );
@@ -476,9 +478,9 @@ export default function BucketsPage() {
         {/* ── Header ── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Buckets</h1>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('title')}</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              Manage your S3 buckets and their configurations
+              {t('manageBuckets')}
             </p>
           </div>
           <Button
@@ -486,7 +488,7 @@ export default function BucketsPage() {
             className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md hover:shadow-lg transition-all duration-200 inline-flex items-center gap-2"
           >
             <Plus className="h-4 w-4" />
-            Create Bucket
+            {t('createBucket')}
           </Button>
         </div>
 
@@ -505,24 +507,24 @@ export default function BucketsPage() {
         {/* ── Stats Cards ── */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
           <MetricCard
-            title="Total Buckets"
+            title={t('totalBuckets')}
             value={sortedBuckets.length}
             icon={Box}
             description="Active storage containers"
             color="brand"
           />
           <MetricCard
-            title="Total Objects"
+            title={t('totalObjects')}
             value={sortedBuckets.reduce((s, b) => s + (b.object_count || b.objectCount || 0), 0).toLocaleString()}
             icon={HardDrive}
             description="Stored across all buckets"
             color="blue-light"
           />
           <MetricCard
-            title="Total Size"
+            title={t('totalSize')}
             value={formatSize(sortedBuckets.reduce((s, b) => s + (b.size || b.totalSize || 0), 0))}
             icon={HardDrive}
-            description="Storage consumption"
+            description={t('storageConsumption')}
             color="warning"
           />
         </div>
@@ -534,7 +536,7 @@ export default function BucketsPage() {
               <Search className="text-gray-400 dark:text-gray-500 h-5 w-5" />
             </div>
             <Input
-              placeholder="Search buckets..."
+              placeholder={t('searchBuckets')}
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               className="pl-12 bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 rounded-lg shadow-sm"
@@ -547,7 +549,7 @@ export default function BucketsPage() {
           <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <Box className="h-5 w-5 text-brand-600 dark:text-brand-400" />
-              All Buckets ({sortedBuckets.length})
+              {t('allBuckets', { count: sortedBuckets.length })}
             </h3>
           </div>
 
@@ -555,11 +557,11 @@ export default function BucketsPage() {
             {paginatedBuckets.length === 0 ? (
               <EmptyState
                 icon={Box}
-                title="No buckets found"
+                title={t('noBucketsFound')}
                 description={searchTerm
-                  ? 'No buckets match your search criteria.'
-                  : 'Get started by creating your first bucket.'}
-                actionLabel={!searchTerm ? 'Create Bucket' : undefined}
+                  ? t('noBucketsSearch')
+                  : t('noBucketsEmpty')}
+                actionLabel={!searchTerm ? t('createBucket') : undefined}
                 onAction={!searchTerm ? () => navigate('/buckets/create') : undefined}
                 showAction={!searchTerm}
               />
@@ -569,28 +571,28 @@ export default function BucketsPage() {
                   <TableRow>
                     <TableHead>
                       <button onClick={() => handleSort('name')} className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
-                        Name {sortIcon('name')}
+                        {t('name')} {sortIcon('name')}
                       </button>
                     </TableHead>
-                    <TableHead>Region</TableHead>
+                    <TableHead>{t('region')}</TableHead>
                     <TableHead>Node</TableHead>
-                    <TableHead>Owner</TableHead>
+                    <TableHead>{t('owner')}</TableHead>
                     <TableHead>
                       <button onClick={() => handleSort('objectCount')} className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
-                        Objects {sortIcon('objectCount')}
+                        {t('objects')} {sortIcon('objectCount')}
                       </button>
                     </TableHead>
                     <TableHead>
                       <button onClick={() => handleSort('size')} className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
-                        Size {sortIcon('size')}
+                        {t('size')} {sortIcon('size')}
                       </button>
                     </TableHead>
                     <TableHead>
                       <button onClick={() => handleSort('creationDate')} className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
-                        Created {sortIcon('creationDate')}
+                        {t('created')} {sortIcon('creationDate')}
                       </button>
                     </TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead className="text-right">{t('actions')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -735,13 +737,11 @@ export default function BucketsPage() {
           {sortedBuckets.length > 0 && (
             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-white dark:from-gray-900 dark:to-gray-800 flex items-center justify-between">
               <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Showing{' '}
-                <span className="text-brand-600 dark:text-brand-400 font-semibold">{startIndex + 1}</span>
-                {' '}to{' '}
-                <span className="text-brand-600 dark:text-brand-400 font-semibold">{Math.min(startIndex + itemsPerPage, sortedBuckets.length)}</span>
-                {' '}of{' '}
-                <span className="text-brand-600 dark:text-brand-400 font-semibold">{sortedBuckets.length}</span>
-                {' '}buckets
+                {t('showing', {
+                  start: startIndex + 1,
+                  end: Math.min(startIndex + itemsPerPage, sortedBuckets.length),
+                  total: sortedBuckets.length,
+                })}
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -751,7 +751,7 @@ export default function BucketsPage() {
                   className="inline-flex items-center gap-1 bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 shadow-sm"
                 >
                   <ChevronLeft className="h-4 w-4" />
-                  Previous
+                  {t('previous')}
                 </Button>
 
                 <div className="flex items-center gap-1">
@@ -782,7 +782,7 @@ export default function BucketsPage() {
                   disabled={currentPage === totalPages}
                   className="inline-flex items-center gap-1 bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 shadow-sm"
                 >
-                  Next
+                  {t('next')}
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Shield,
   HardDrive,
@@ -62,6 +63,7 @@ const categoryInfo: Record<SettingCategory, { icon: React.ComponentType<any>; ti
 };
 
 export default function SettingsPage() {
+  const { t } = useTranslation('settings');
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { isGlobalAdmin, user: currentUser } = useCurrentUser();
@@ -209,7 +211,7 @@ export default function SettingsPage() {
           ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
           : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300'
       }`}>
-        {isEnabled ? '● Enabled' : '○ Disabled'}
+        {isEnabled ? `● ${t('enabled')}` : `○ ${t('disabled')}`}
       </span>
     );
   };
@@ -219,7 +221,7 @@ export default function SettingsPage() {
     const value = getCurrentValue(setting);
 
     if (setting.type === 'bool') {
-      return value === 'true' || value === '1' ? 'Enabled' : 'Disabled';
+      return value === 'true' || value === '1' ? t('enabled') : t('disabled');
     }
 
     if (setting.type === 'int') {
@@ -276,9 +278,9 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">System Settings</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('systemSettings')}</h1>
           <p className="text-gray-500 dark:text-gray-400">
-            Configure MaxIOFS runtime settings stored in database
+            {t('configureRuntimeSettings')}
           </p>
         </div>
 
@@ -291,7 +293,7 @@ export default function SettingsPage() {
               className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors flex items-center gap-2"
             >
               <RotateCcw className="h-4 w-4" />
-              Reset
+              {t('reset')}
             </button>
             <button
               onClick={handleSave}
@@ -299,7 +301,7 @@ export default function SettingsPage() {
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 transition-colors"
             >
               <Save className="h-4 w-4" />
-              {updateMutation.isPending ? 'Saving...' : `Save ${Object.keys(editedValues).length} Change${Object.keys(editedValues).length !== 1 ? 's' : ''}`}
+              {updateMutation.isPending ? t('saving') : t('saveChanges', { count: Object.keys(editedValues).length })}
             </button>
           </div>
         )}
@@ -311,8 +313,8 @@ export default function SettingsPage() {
           <div className="flex items-start gap-3">
             <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium text-green-900 dark:text-green-300">Settings saved successfully</p>
-              <p className="text-sm text-green-700 dark:text-green-400 mt-1">Changes have been applied and are now active</p>
+              <p className="text-sm font-medium text-green-900 dark:text-green-300">{t('settingsSaved')}</p>
+              <p className="text-sm text-green-700 dark:text-green-400 mt-1">{t('changesApplied')}</p>
             </div>
           </div>
         </div>
@@ -323,7 +325,7 @@ export default function SettingsPage() {
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium text-red-900 dark:text-red-300">Error saving settings</p>
+              <p className="text-sm font-medium text-red-900 dark:text-red-300">{t('errorSavingSettings')}</p>
               <p className="text-sm text-red-700 dark:text-red-400 mt-1">{saveError}</p>
             </div>
           </div>
@@ -335,9 +337,9 @@ export default function SettingsPage() {
         <div className="flex items-start gap-3">
           <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
           <div>
-            <p className="text-sm font-medium text-blue-900 dark:text-blue-300">Database-Backed Configuration</p>
+            <p className="text-sm font-medium text-blue-900 dark:text-blue-300">{t('databaseBackedConfig')}</p>
             <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
-              These settings are stored in SQLite and take effect immediately. Static infrastructure settings (ports, paths, TLS) remain in config.yaml.
+              {t('databaseBackedConfigDesc')}
             </p>
           </div>
         </div>
@@ -424,7 +426,7 @@ export default function SettingsPage() {
           {currentSettings.length === 0 ? (
             <div className="text-center py-12">
               <Server className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-              <p className="text-gray-500 dark:text-gray-400">No settings in this category</p>
+              <p className="text-gray-500 dark:text-gray-400">{t('noSettingsInCategory')}</p>
             </div>
           ) : activeCategory === 'logging' ? (
             // Special rendering for logging settings with clear grouping
@@ -476,8 +478,8 @@ export default function SettingsPage() {
 
       {/* Footer Info */}
       <div className="text-sm text-gray-500 dark:text-gray-400 text-center space-y-1">
-        <p>Settings are stored in SQLite database • Changes take effect immediately</p>
-        <p className="text-xs">Total settings: {settings.length} • Editable: {settings.filter(s => s.editable).length} • Read-only: {settings.filter(s => !s.editable).length}</p>
+        <p>{t('settingsStoredInDatabase')}</p>
+        <p className="text-xs">{t('totalEditableReadonly', { total: settings.length, editable: settings.filter(s => s.editable).length, readonly: settings.filter(s => !s.editable).length })}</p>
       </div>
     </div>
   );
@@ -503,7 +505,7 @@ export default function SettingsPage() {
                           {getStatusBadge(currentValue, setting.type)}
                           {isEdited && (
                             <span className="text-xs font-medium text-yellow-600 dark:text-yellow-400 bg-yellow-100 dark:bg-yellow-900/30 px-2 py-0.5 rounded">
-                              Modified
+                              {t('modified')}
                             </span>
                           )}
                         </div>
@@ -522,7 +524,7 @@ export default function SettingsPage() {
                         </span>
                         {!setting.editable && (
                           <span className="text-xs text-gray-400 dark:text-gray-500">
-                            Read-only
+                            {t('readOnly')}
                           </span>
                         )}
                       </div>
@@ -542,7 +544,7 @@ export default function SettingsPage() {
                               }`}
                             >
                               <CheckCircle className="h-4 w-4 inline-block mr-2" />
-                              Enabled
+                              {t('enabled')}
                             </button>
                             <button
                               onClick={() => handleValueChange(setting.key, 'false', setting.value)}
@@ -553,7 +555,7 @@ export default function SettingsPage() {
                               }`}
                             >
                               <span className="h-4 w-4 inline-block mr-2">○</span>
-                              Disabled
+                              {t('disabled')}
                             </button>
                           </div>
                         ) : getSelectOptions(setting.key) ? (

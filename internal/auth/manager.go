@@ -1478,14 +1478,17 @@ func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders str
 
 	method := r.Method
 
-	// Use the already-encoded path from the request
-	// AWS SigV4 expects the URI to be encoded according to RFC 3986
-	uri := r.URL.EscapedPath()
+	// Use the path the client signed with. For virtual-hosted-style requests,
+	// the path is rewritten to path-style (e.g. / → /bucket/) before reaching
+	// us; we must verify against the original path (e.g. /) that the client used.
+	pathForSigning := r.URL.Path
+	if origPath, ok := OriginalSigV4PathFromContext(r.Context()); ok {
+		pathForSigning = origPath
+	}
+	uri := uriEncode(pathForSigning)
 	if uri == "" {
 		uri = "/"
 	}
-	// Ensure proper encoding for SigV4
-	uri = uriEncode(r.URL.Path)
 
 	// Canonical Query String - sorted by key
 	queryString := ""
@@ -1567,6 +1570,9 @@ func (am *authManager) createStringToSignV2(r *http.Request) string {
 	resource := "/"
 	if r.URL != nil {
 		resource = r.URL.Path
+		if origPath, ok := OriginalSigV4PathFromContext(r.Context()); ok {
+			resource = origPath
+		}
 		if resource == "" {
 			resource = "/"
 		}
