@@ -14,26 +14,8 @@ export default function LoginPage() {
   // Check URL for OAuth error
   const urlParams = new URLSearchParams(window.location.search);
   const oauthError = urlParams.get('error');
-  const oauthErrorMessages: Record<string, string> = {
-    missing_email: 'Your SSO provider did not return an email address. Please contact your administrator.',
-    email_conflict: 'This email is already associated with a local account. Please contact your administrator.',
-    provisioning_failed: 'Failed to create your account automatically. Please contact your administrator.',
-    user_not_registered: 'Your account is not registered. Please contact your administrator.',
-    no_group_mappings: 'SSO access has not been configured for this provider yet. Please contact your administrator.',
-    not_in_authorized_group: 'You are not authorized to access this system. Your account is not in any authorized group.',
-    oauth_denied: 'SSO login was cancelled or denied.',
-    exchange_failed: 'SSO authentication failed. Please try again.',
-    provider_unavailable: 'The SSO provider is currently unavailable. Please try again later.',
-    account_inactive: 'Your account is inactive. Please contact your administrator.',
-    account_locked: 'Your account is locked due to multiple failed attempts.',
-    csrf_failed: 'Security validation failed. Please try again.',
-    invalid_callback: 'Invalid SSO callback. Please try again.',
-    invalid_state: 'Invalid SSO state. Please try again.',
-    token_failed: 'Failed to generate session. Please try again.',
-  };
-  const [error, setError] = useState<string | null>(
-    oauthError ? (oauthErrorMessages[oauthError] || oauthError) : null
-  );
+  const urlOauthErrorMessage = oauthError ? (t('oauthError_' + oauthError) || oauthError) : null;
+  const [error, setError] = useState<string | null>(null);
   const [ssoHighlight, setSsoHighlight] = useState(false);
   const [ssoPreset, setSsoPreset] = useState<string | null>(null);
   const [ssoEmail, setSsoEmail] = useState('');
@@ -81,7 +63,7 @@ export default function LoginPage() {
       }
 
       if (response.sso_hint) {
-        setError(response.error || 'This account uses SSO. Please use the SSO login button below.');
+        setError(response.error || t('ssoUseButton'));
         setSsoHighlight(true);
         setLoading(false);
         return;
@@ -90,13 +72,13 @@ export default function LoginPage() {
       if (response.success && response.token) {
         window.location.href = getBasePath() || '/';
       } else {
-        setError(response.error || 'Invalid credentials');
+        setError(response.error || t('invalidCredentialsShort'));
       }
     } catch (err: unknown) {
       if (isHttpStatus(err, 401)) {
-        setError('Username or password is incorrect');
+        setError(t('invalidCredentialsMessage'));
       } else {
-        setError(getErrorMessage(err, 'Failed to login. Please check your credentials.'));
+        setError(getErrorMessage(err, t('loginError')));
       }
     } finally {
       setLoading(false);
@@ -110,7 +92,7 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      ModalManager.loading('Verifying...', 'Checking 2FA code');
+      ModalManager.loading(t('verifying'), t('checking2FA'));
 
       const response = await APIClient.verify2FA(userId, code);
 
@@ -120,11 +102,11 @@ export default function LoginPage() {
         ModalManager.successLogin(formData.username);
         window.location.href = getBasePath() || '/';
       } else {
-        setError(response.error || 'Invalid 2FA code');
+        setError(response.error || t('invalid2FACode'));
       }
     } catch (err: unknown) {
       ModalManager.close();
-      setError(getErrorMessage(err, 'Invalid 2FA code. Please try again.'));
+      setError(getErrorMessage(err, t('invalid2FACodeMessage')));
     } finally {
       setLoading(false);
     }
@@ -192,7 +174,7 @@ export default function LoginPage() {
                     textShadow: '0 1px 4px rgba(0, 0, 0, 0.3)'
                   }}
                 >
-                  S3-Compatible • Secure • Scalable
+                  {t('tagline')}
                 </p>
               </div>
             </div>
@@ -209,7 +191,7 @@ export default function LoginPage() {
                 {/* Tooltip */}
                 <div className="absolute -bottom-10 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
                   <div className="bg-gray-900 text-white text-xs px-3 py-1.5 rounded-lg shadow-lg">
-                    Lightning Fast
+                    {t('lightningFast')}
                   </div>
                 </div>
               </div>
@@ -224,7 +206,7 @@ export default function LoginPage() {
                 {/* Tooltip */}
                 <div className="absolute -bottom-10 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
                   <div className="bg-gray-900 text-white text-xs px-3 py-1.5 rounded-lg shadow-lg">
-                    Enterprise Security
+                    {t('enterpriseSecurity')}
                   </div>
                 </div>
               </div>
@@ -239,7 +221,7 @@ export default function LoginPage() {
                 {/* Tooltip */}
                 <div className="absolute -bottom-10 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
                   <div className="bg-gray-900 text-white text-xs px-3 py-1.5 rounded-lg shadow-lg">
-                    100% S3 Compatible
+                    {t('s3Compatible')}
                   </div>
                 </div>
               </div>
@@ -254,7 +236,7 @@ export default function LoginPage() {
                 {/* Tooltip */}
                 <div className="absolute -bottom-10 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
                   <div className="bg-gray-900 text-white text-xs px-3 py-1.5 rounded-lg shadow-lg">
-                    Multi-Node Cluster
+                    {t('multiNodeCluster')}
                   </div>
                 </div>
               </div>
@@ -332,9 +314,9 @@ export default function LoginPage() {
 
                   {/* Login Form */}
                   <form onSubmit={handleSubmit} className="space-y-6 mt-8">
-                    {error && (
+                    {(error || urlOauthErrorMessage) && (
                       <div className="rounded-lg bg-red-50 dark:bg-red-500/10 p-4 border-l-4 border-red-500 dark:border-red-400 backdrop-blur-sm">
-                        <div className="text-sm text-red-800 dark:text-red-200 font-medium">{error}</div>
+                        <div className="text-sm text-red-800 dark:text-red-200 font-medium">{error || urlOauthErrorMessage}</div>
                       </div>
                     )}
 
@@ -448,7 +430,7 @@ export default function LoginPage() {
                       <div className="flex items-center gap-3">
                         <div className="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
                         <span className="text-sm text-gray-500 dark:text-gray-400 shrink-0">
-                          or continue with
+                          {t('orContinueWith')}
                         </span>
                         <div className="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
                       </div>
@@ -478,13 +460,13 @@ export default function LoginPage() {
                           }}
                         >
                           <p className="text-sm text-gray-600 dark:text-gray-300 text-center mb-2">
-                            Enter your email to sign in with{' '}
+                            {t('enterEmailToSignIn')}{' '}
                             <span className="font-medium capitalize">{ssoPreset}</span>
                           </p>
                           <input
                             type="email"
                             required
-                            placeholder="you@company.com"
+                            placeholder={t('emailPlaceholder')}
                             value={ssoEmail}
                             onChange={(e) => setSsoEmail(e.target.value)}
                             className="w-full px-4 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-full bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-blue-500 dark:focus:border-blue-400"
@@ -496,14 +478,14 @@ export default function LoginPage() {
                               onClick={() => { setSsoPreset(null); setSsoEmail(''); }}
                               className="flex-1 py-2.5 px-4 rounded-full border-2 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                             >
-                              Cancel
+                              {t('cancel')}
                             </button>
                             <button
                               type="submit"
                               disabled={!ssoEmail}
                               className="flex-1 py-2.5 px-4 rounded-full bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
                             >
-                              Continue
+                              {t('continue')}
                             </button>
                           </div>
                         </form>
@@ -532,7 +514,7 @@ export default function LoginPage() {
                                   <rect x="13" y="13" width="10" height="10" fill="#FFB900"/>
                                 </svg>
                               )}
-                              Sign in with <span className="capitalize">{provider.preset}</span>
+                              <span>{t('signInWith')} <span className="capitalize">{provider.preset}</span></span>
                             </button>
                           ))}
                         </div>

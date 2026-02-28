@@ -50,5 +50,5 @@
   "featureBugFixesTitle": "Correcciones Críticas de Errores",
   "featureBugFixesDesc": "Se corrigió el doble conteo del limitador de tasa (bloqueaba en 3 en lugar de 5 intentos), el contador de intentos fallidos que no se restablecía después del bloqueo, la página de seguridad que no mostraba usuarios bloqueados, la ejecución de callbacks SSE, la detección de tokens del frontend y la persistencia del estado del modal de URL prefirmada. Todas las correcciones mejoran la estabilidad del sistema y la experiencia del usuario.",
   "developedWithPassion": "Desarrollado con pasión por Aluisco Ricardo",
-  "copyright": "© 2024-2025 MaxIOFS"
+  "copyright": "© 2024-2026 MaxIOFS"
 }

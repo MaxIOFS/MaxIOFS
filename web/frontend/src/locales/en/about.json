@@ -50,5 +50,5 @@
   "featureBugFixesTitle": "Critical Bug Fixes",
   "featureBugFixesDesc": "Fixed rate limiter double-counting (was blocking at 3 instead of 5 attempts), failed attempts counter not resetting after lockout, security page not showing locked users, SSE callback execution, frontend token detection, and presigned URL modal state persistence. All fixes improve system stability and user experience.",
   "developedWithPassion": "Developed with passion by Aluisco Ricardo",
-  "copyright": "© 2024-2025 MaxIOFS"
+  "copyright": "© 2024-2026 MaxIOFS"
 }
