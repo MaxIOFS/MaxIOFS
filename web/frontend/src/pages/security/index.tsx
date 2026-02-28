@@ -240,7 +240,7 @@ export default function SecurityPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('maxFailedAttempts')}</span>
-                <span className="text-sm text-gray-600 dark:text-gray-400">{t('attemptsCount', { count: getSetting('security.max_failed_attempts', '5') })}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">{t('attemptsCount', { count: parseInt(getSetting('security.max_failed_attempts', '5'), 10) })}</span>
               </div>
               {lockedUsers.length > 0 && (
                 <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
@@ -317,7 +317,7 @@ export default function SecurityPage() {
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">Rate Limiting</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('rateLimitingDesc', { count: getSetting('security.ratelimit_login_per_minute', '5') })}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('rateLimitingDesc', { count: parseInt(getSetting('security.ratelimit_login_per_minute', '5'), 10) })}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
