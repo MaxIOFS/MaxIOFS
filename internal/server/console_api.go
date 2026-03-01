@@ -1705,6 +1705,25 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer reader.Close()
 
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		TenantID:     tenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    audit.EventTypeObjectDownloaded,
+		ResourceType: audit.ResourceTypeObject,
+		ResourceID:   objectKey,
+		ResourceName: objectKey,
+		Action:       audit.ActionDownload,
+		Status:       audit.StatusSuccess,
+		IPAddress:    getClientIP(r),
+		UserAgent:    r.Header.Get("User-Agent"),
+		Details: map[string]interface{}{
+			"bucket":       bucketName,
+			"size":         obj.Size,
+			"content_type": obj.ContentType,
+		},
+	})
+
 	// Set appropriate headers for file download
 	w.Header().Set("Content-Type", obj.ContentType)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
@@ -1807,6 +1826,26 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		TenantID:     tenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    audit.EventTypeObjectUploaded,
+		ResourceType: audit.ResourceTypeObject,
+		ResourceID:   objectKey,
+		ResourceName: objectKey,
+		Action:       audit.ActionUpload,
+		Status:       audit.StatusSuccess,
+		IPAddress:    getClientIP(r),
+		UserAgent:    r.Header.Get("User-Agent"),
+		Details: map[string]interface{}{
+			"bucket":       bucketName,
+			"size":         obj.Size,
+			"content_type": obj.ContentType,
+			"etag":         obj.ETag,
+		},
+	})
 
 	response := ObjectResponse{
 		Key:          obj.Key,
@@ -1965,6 +2004,24 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		TenantID:     shareTenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    audit.EventTypeObjectShared,
+		ResourceType: audit.ResourceTypeObject,
+		ResourceID:   objectKey,
+		ResourceName: objectKey,
+		Action:       audit.ActionShare,
+		Status:       audit.StatusSuccess,
+		IPAddress:    getClientIP(r),
+		UserAgent:    r.Header.Get("User-Agent"),
+		Details: map[string]interface{}{
+			"bucket":   bucketName,
+			"share_id": share.ID,
+		},
+	})
+
 	// Generate clean S3 URL with proper protocol and host
 	// Use PublicAPIURL if configured, otherwise build from request
 	// Bucket names are globally unique, no need for tenant prefix in URL
@@ -2065,6 +2122,25 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	details := map[string]interface{}{"bucket": bucketName}
+	if versionID != "" {
+		details["version_id"] = versionID
+	}
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		TenantID:     tenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    audit.EventTypeObjectDeleted,
+		ResourceType: audit.ResourceTypeObject,
+		ResourceID:   objectKey,
+		ResourceName: objectKey,
+		Action:       audit.ActionDelete,
+		Status:       audit.StatusSuccess,
+		IPAddress:    getClientIP(r),
+		UserAgent:    r.Header.Get("User-Agent"),
+		Details:      details,
+	})
 
 	w.WriteHeader(http.StatusNoContent)
 }

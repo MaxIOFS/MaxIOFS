@@ -740,6 +740,10 @@ class ModalManager {
   static finishBgTask(id: string, successCount: number, failCount: number): void {
     useBgTaskStore.getState().finish(id, successCount, failCount);
   }
+
+  static updateBgTaskProgress(id: string, pct: number): void {
+    useBgTaskStore.getState().setSubPct(id, pct);
+  }
 }
 
 export default ModalManager;
@@ -755,6 +759,7 @@ export interface BgTask {
   fail: number;
   status: 'running' | 'done' | 'error';
   startedAt: number;
+  subPct: number;     // 0-100: byte-level progress within the current item
 }
 
 interface BgTaskStore {
@@ -763,6 +768,7 @@ interface BgTaskStore {
   tick: (id: string, success: number, fail: number) => void;
   finish: (id: string, success: number, fail: number) => void;
   remove: (id: string) => void;
+  setSubPct: (id: string, pct: number) => void;
 }
 
 export const useBgTaskStore = create<BgTaskStore>((set, get) => ({
@@ -771,7 +777,7 @@ export const useBgTaskStore = create<BgTaskStore>((set, get) => ({
   addTask: (label, total) => {
     const id = Math.random().toString(36).substring(2, 10);
     set(s => ({
-      tasks: [...s.tasks, { id, label, total, done: 0, success: 0, fail: 0, status: 'running', startedAt: Date.now() }],
+      tasks: [...s.tasks, { id, label, total, done: 0, success: 0, fail: 0, status: 'running', startedAt: Date.now(), subPct: 0 }],
     }));
     return id;
   },
@@ -780,9 +786,15 @@ export const useBgTaskStore = create<BgTaskStore>((set, get) => ({
     set(s => ({
       tasks: s.tasks.map(t =>
         t.id === id
-          ? { ...t, success, fail, done: success + fail }
+          ? { ...t, success, fail, done: success + fail, subPct: 0 }
           : t
       ),
+    }));
+  },
+
+  setSubPct: (id, pct) => {
+    set(s => ({
+      tasks: s.tasks.map(t => t.id === id ? { ...t, subPct: pct } : t),
     }));
   },
 

@@ -69,12 +69,6 @@ export default function BucketDetailsPage() {
   const [selectedObjectKey, setSelectedObjectKey] = useState<string>('');
   const [newFolderName, setNewFolderName] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<{
-    fileIndex: number;
-    fileName: string;
-    percentage: number;
-    totalFiles: number;
-  } | null>(null);
   const [selectedObjects, setSelectedObjects] = useState<Set<string>>(new Set());
   const [objectFilter, setObjectFilter] = useState<ObjectSearchFilter>({});
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
@@ -344,77 +338,59 @@ export default function BucketDetailsPage() {
     item.key.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleUpload = async (e: React.FormEvent) => {
+  const handleUpload = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFiles || selectedFiles.length === 0) return;
 
     const totalFiles = selectedFiles.length;
-    let successCount = 0;
-    const errors: string[] = [];
+    const files = Array.from(selectedFiles);
 
-    // Upload files sequentially, showing inline progress
-    for (let i = 0; i < totalFiles; i++) {
-      const file = selectedFiles[i];
-      const key = currentPrefix
-        ? `${currentPrefix.replace(/\/$/, '')}/${file.name}`
-        : file.name;
-
-      setUploadProgress({ fileIndex: i, fileName: file.name, percentage: 0, totalFiles });
-
-      try {
-        await APIClient.uploadObject({
-          bucket: bucketName,
-          ...(tenantId && { tenantId }),
-          key,
-          file,
-          onProgress: ({ percentage }) => {
-            setUploadProgress({ fileIndex: i, fileName: file.name, percentage, totalFiles });
-          },
-        });
-        successCount++;
-      } catch (fileError: any) {
-        const errorMsg = fileError?.response?.data?.error || fileError?.message || 'Unknown error';
-        errors.push(`${file.name}: ${errorMsg}`);
-      }
-    }
-
-    setUploadProgress(null);
-
-    // Show results
-    if (totalFiles === 1) {
-      if (successCount === 1) {
-        ModalManager.successUpload(selectedFiles[0].name);
-      } else {
-        ModalManager.apiError(new Error(errors[0] || 'Error uploading file'));
-      }
-    } else {
-      const failCount = totalFiles - successCount;
-      if (failCount === 0) {
-        ModalManager.toast('success', `${totalFiles} files uploaded successfully`);
-      } else if (successCount > 0) {
-        ModalManager.fire({
-          icon: 'warning',
-          title: 'Partially successful upload',
-          html: `<p>Uploaded: <strong>${successCount}</strong> / ${totalFiles}</p><p>Failed: <strong>${failCount}</strong></p>`,
-        });
-      } else {
-        ModalManager.fire({
-          icon: 'error',
-          title: 'Error uploading files',
-          text: 'All files failed',
-        });
-      }
-    }
-
-    // Refresh and close
-    if (successCount > 0) {
-      queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
-      queryClient.invalidateQueries({ queryKey: ['buckets'] });
-    }
-
+    // Close modal immediately so the user can keep working
     setIsUploadModalOpen(false);
     setSelectedFiles(null);
+
+    // Start background task — progress bar appears bottom-right
+    const taskId = ModalManager.startBgTask(
+      `Uploading ${totalFiles} file${totalFiles !== 1 ? 's' : ''}`,
+      totalFiles
+    );
+
+    // Run uploads in background (fire-and-forget)
+    (async () => {
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const file of files) {
+        const key = currentPrefix
+          ? `${currentPrefix.replace(/\/$/, '')}/${file.name}`
+          : file.name;
+
+        try {
+          await APIClient.uploadObject({
+            bucket: bucketName,
+            ...(tenantId && { tenantId }),
+            key,
+            file,
+            onProgress: ({ percentage }) => {
+              ModalManager.updateBgTaskProgress(taskId, percentage);
+            },
+          });
+          successCount++;
+        } catch {
+          failCount++;
+        }
+        // tick resets subPct to 0, ready for the next file
+        ModalManager.tickBgTask(taskId, successCount, failCount);
+      }
+
+      ModalManager.finishBgTask(taskId, successCount, failCount);
+
+      if (successCount > 0) {
+        queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
+        queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
+        queryClient.invalidateQueries({ queryKey: ['buckets'] });
+      }
+    })();
   };
 
   const handleCreateFolder = (e: React.FormEvent) => {
@@ -1346,76 +1322,39 @@ export default function BucketDetailsPage() {
       {/* Upload Modal */}
       <Modal
         isOpen={isUploadModalOpen}
-        onClose={() => { if (!uploadProgress) setIsUploadModalOpen(false); }}
+        onClose={() => setIsUploadModalOpen(false)}
         title="Upload Files"
       >
         <form onSubmit={handleUpload} className="space-y-4">
-          {/* File selector — hidden while uploading */}
-          {!uploadProgress && (
-            <>
-              <div>
-                <label htmlFor="files" className="block text-sm font-medium mb-2">
-                  Select Files
-                </label>
-                <input
-                  id="files"
-                  type="file"
-                  multiple
-                  onChange={(e) => setSelectedFiles(e.target.files)}
-                  className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-                {currentPrefix && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Files will be uploaded to: {currentPrefix}/
-                  </p>
-                )}
-              </div>
-
-              {selectedFiles && selectedFiles.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-medium mb-2">Selected Files:</h4>
-                  <ul className="text-sm space-y-1">
-                    {Array.from(selectedFiles).map((file, index) => (
-                      <li key={index} className="flex justify-between">
-                        <span className="truncate max-w-[260px]">{file.name}</span>
-                        <span className="text-muted-foreground ml-2 shrink-0">{formatSize(file.size)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Inline progress bar — shown while uploading */}
-          {uploadProgress && (
-            <div className="space-y-3 py-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium truncate max-w-[280px]">{uploadProgress.fileName}</span>
-                {uploadProgress.totalFiles > 1 && (
-                  <span className="text-muted-foreground shrink-0 ml-2">
-                    {uploadProgress.fileIndex + 1} / {uploadProgress.totalFiles}
-                  </span>
-                )}
-              </div>
-              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
-                <div
-                  className="bg-blue-600 h-2.5 rounded-full transition-all duration-200"
-                  style={{ width: `${uploadProgress.percentage}%` }}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground text-right">{uploadProgress.percentage}%</p>
-              {uploadProgress.totalFiles > 1 && (
-                <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1 mt-1">
-                  <div
-                    className="bg-blue-400 h-1 rounded-full transition-all duration-300"
-                    style={{ width: `${Math.round(((uploadProgress.fileIndex) / uploadProgress.totalFiles) * 100)}%` }}
-                  />
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground text-center">
-                Uploading… do not close this window
+          <div>
+            <label htmlFor="files" className="block text-sm font-medium mb-2">
+              Select Files
+            </label>
+            <input
+              id="files"
+              type="file"
+              multiple
+              onChange={(e) => setSelectedFiles(e.target.files)}
+              className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            {currentPrefix && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Files will be uploaded to: {currentPrefix}/
               </p>
+            )}
+          </div>
+
+          {selectedFiles && selectedFiles.length > 0 && (
+            <div>
+              <h4 className="text-sm font-medium mb-2">Selected Files:</h4>
+              <ul className="text-sm space-y-1">
+                {Array.from(selectedFiles).map((file, index) => (
+                  <li key={index} className="flex justify-between">
+                    <span className="truncate max-w-[260px]">{file.name}</span>
+                    <span className="text-muted-foreground ml-2 shrink-0">{formatSize(file.size)}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 
@@ -1424,15 +1363,14 @@ export default function BucketDetailsPage() {
               type="button"
               variant="outline"
               onClick={() => setIsUploadModalOpen(false)}
-              disabled={!!uploadProgress}
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              disabled={!!uploadProgress || !selectedFiles || selectedFiles.length === 0}
+              disabled={!selectedFiles || selectedFiles.length === 0}
             >
-              {uploadProgress ? 'Uploading…' : 'Upload Files'}
+              Upload Files
             </Button>
           </div>
         </form>

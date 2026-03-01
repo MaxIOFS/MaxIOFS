@@ -323,7 +323,7 @@ export default function AboutPage() {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            New in v0.9.2-beta
+            {t('newFeaturesTitle', { version })}
           </h2>
           <div className="space-y-4">
             <div className="border-l-4 border-indigo-500 pl-4">

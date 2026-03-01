@@ -31,6 +31,14 @@ const (
 	EventTypeBucketDeleted = "bucket_deleted"
 )
 
+// Event Types - Object Operations
+const (
+	EventTypeObjectUploaded   = "object_uploaded"
+	EventTypeObjectDeleted    = "object_deleted"
+	EventTypeObjectDownloaded = "object_downloaded"
+	EventTypeObjectShared     = "object_shared"
+)
+
 // Event Types - Access Key Events
 const (
 	EventTypeAccessKeyCreated       = "access_key_created"
@@ -55,6 +63,7 @@ const (
 const (
 	ResourceTypeUser      = "user"
 	ResourceTypeBucket    = "bucket"
+	ResourceTypeObject    = "object"
 	ResourceTypeAccessKey = "access_key"
 	ResourceTypeTenant    = "tenant"
 	ResourceTypeSystem    = "system"
@@ -62,16 +71,19 @@ const (
 
 // Actions
 const (
-	ActionCreate  = "create"
-	ActionDelete  = "delete"
-	ActionUpdate  = "update"
-	ActionLogin   = "login"
-	ActionLogout  = "logout"
-	ActionBlock   = "block"
-	ActionUnblock = "unblock"
-	ActionEnable  = "enable"
-	ActionDisable = "disable"
-	ActionVerify         = "verify"
+	ActionCreate          = "create"
+	ActionDelete          = "delete"
+	ActionUpdate          = "update"
+	ActionUpload          = "upload"
+	ActionDownload        = "download"
+	ActionShare           = "share"
+	ActionLogin           = "login"
+	ActionLogout          = "logout"
+	ActionBlock           = "block"
+	ActionUnblock         = "unblock"
+	ActionEnable          = "enable"
+	ActionDisable         = "disable"
+	ActionVerify          = "verify"
 	ActionVerifyIntegrity = "verify_integrity"
 )
 

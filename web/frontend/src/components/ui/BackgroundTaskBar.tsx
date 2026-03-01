@@ -4,7 +4,9 @@ import { useBgTaskStore, BgTask } from '@/lib/modals';
 import { cn } from '@/lib/utils';
 
 function TaskCard({ task, onRemove }: { task: BgTask; onRemove: () => void }) {
-  const pct = task.total > 0 ? Math.min(100, Math.round((task.done / task.total) * 100)) : 0;
+  const pct = task.total > 0
+    ? Math.min(100, Math.round(((task.done + (task.subPct || 0) / 100) / task.total) * 100))
+    : 0;
   const isRunning = task.status === 'running';
   const isError = task.status === 'error';
   const isDone = task.status === 'done';
