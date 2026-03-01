@@ -47,5 +47,15 @@
   "minutes_one": "{{count}} minute",
   "minutes_other": "{{count}} minutes",
   "seconds_one": "{{count}} second",
-  "seconds_other": "{{count}} seconds"
+  "seconds_other": "{{count}} seconds",
+  "noSettingsAvailable": "No settings available",
+  "testSmtpConnection": "Test SMTP Connection",
+  "testEmailEnabled": "Send a test email to your account address to verify the configuration",
+  "testEmailDisabled": "Enable email notifications above to test the SMTP connection",
+  "enableEmailFirst": "Enable email notifications first",
+  "sending": "Sending…",
+  "sendTestEmail": "Send Test Email",
+  "backendLogs": "Backend Logs",
+  "frontendLogs": "Frontend Logs",
+  "frontendLogsDesc": "Collect browser errors and warnings"
 }

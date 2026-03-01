@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -39,6 +40,7 @@ import { ConfirmModal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 
 export default function UserDetailsPage() {
+  const { t } = useTranslation('users');
   const { user } = useParams<{ user: string }>();
   const navigate = useNavigate();
   const userId = user as string;
@@ -117,7 +119,7 @@ export default function UserDetailsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user', userId] });
       setIsEditUserModalOpen(false);
-      ModalManager.toast('success', 'User updated successfully');
+      ModalManager.toast('success', t('userUpdatedSuccess'));
     },
     onError: (error) => {
       ModalManager.apiError(error);
@@ -136,7 +138,7 @@ export default function UserDetailsPage() {
       setCreatedKey(response);
       setIsCreateKeyModalOpen(false);
       setNewKeyName('');
-      ModalManager.toast('success', 'Access key created successfully');
+      ModalManager.toast('success', t('accessKeyCreatedSuccess'));
     },
     onError: (error) => {
       ModalManager.apiError(error);
@@ -171,7 +173,7 @@ export default function UserDetailsPage() {
         queryClient.refetchQueries({ queryKey: ['accessKeys'] }),
       ]);
 
-      ModalManager.toast('success', 'Access key deleted successfully');
+      ModalManager.toast('success', t('accessKeyDeletedSuccess'));
     },
     onError: (error) => {
       ModalManager.close();
@@ -186,7 +188,7 @@ export default function UserDetailsPage() {
     onSuccess: () => {
       setIsChangePasswordOpen(false);
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-      ModalManager.toast('success', 'Password changed successfully');
+      ModalManager.toast('success', t('passwordChangedSuccess'));
     },
     onError: (error) => {
       ModalManager.apiError(error);
@@ -231,10 +233,7 @@ export default function UserDetailsPage() {
 
     // Validate: Cannot remove last admin from tenant
     if (isLastAdminInTenant()) {
-      ModalManager.error(
-        'Cannot Remove Admin Role',
-        'Every tenant must have at least one admin. This is the last admin in the tenant.'
-      );
+      ModalManager.error(t('cannotRemoveAdminRole'), t('lastAdminInTenant'));
       return;
     }
 
@@ -250,17 +249,17 @@ export default function UserDetailsPage() {
     try {
       const result = await ModalManager.fire({
         icon: 'warning',
-        title: 'Delete access key?',
-        html: `<p>You are about to delete the access key <strong>"${keyDescription}"</strong></p>
-               <p class="text-red-600 mt-2">This action cannot be undone</p>`,
+        title: t('deleteAccessKeyQuestion'),
+        html: `<p>${t('aboutToDeleteKey')} <strong>"${keyDescription}"</strong></p>
+               <p class="text-red-600 mt-2">${t('actionCannotBeUndone')}</p>`,
         showCancelButton: true,
-        confirmButtonText: 'Yes, delete',
-        cancelButtonText: 'Cancel',
+        confirmButtonText: t('yesDelete'),
+        cancelButtonText: t('cancel'),
         confirmButtonColor: '#dc2626',
       });
 
       if (result.isConfirmed) {
-        ModalManager.loading('Deleting access key...', `Deleting "${keyDescription}"`);
+        ModalManager.loading(t('deletingAccessKey'), t('deletingAccessKeyMessage', { keyId: keyDescription }));
         deleteAccessKeyMutation.mutate(keyId);
       }
     } catch (error) {
@@ -271,7 +270,7 @@ export default function UserDetailsPage() {
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      ModalManager.toast('success', 'Copied to clipboard');
+      ModalManager.toast('success', t('copiedToClipboard'));
     } catch (err) {
       ModalManager.toast('error', err.message);
     }
@@ -288,7 +287,7 @@ export default function UserDetailsPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    ModalManager.toast('success', 'CSV downloaded successfully');
+    ModalManager.toast('success', t('csvDownloaded'));
   };
 
   const handleChangePassword = () => {
@@ -296,22 +295,22 @@ export default function UserDetailsPage() {
     const isAdminChangingOtherUser = isCurrentUserAdmin && !isEditingSelf;
     
     if (!isAdminChangingOtherUser && !passwordForm.currentPassword) {
-      ModalManager.toast('error', 'Current password is required');
+      ModalManager.toast('error', t('currentPasswordRequired'));
       return;
     }
 
     if (!passwordForm.newPassword || !passwordForm.confirmPassword) {
-      ModalManager.toast('error', 'New password fields are required');
+      ModalManager.toast('error', t('newPasswordRequired'));
       return;
     }
 
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      ModalManager.toast('error', 'New passwords do not match');
+      ModalManager.toast('error', t('passwordsMismatch'));
       return;
     }
 
     if (passwordForm.newPassword.length < 6) {
-      ModalManager.toast('error', 'Password must be at least 6 characters');
+      ModalManager.toast('error', t('passwordTooShort'));
       return;
     }
 
@@ -336,10 +335,7 @@ export default function UserDetailsPage() {
     setDisabling2FA(true);
     try {
       await APIClient.disable2FA(userId);
-      await ModalManager.success(
-        '2FA Disabled',
-        'Two-factor authentication has been disabled for this user.'
-      );
+      await ModalManager.success(t('twoFADisabled'), t('twoFADisabledDesc'));
       setShowDisable2FAModal(false);
       refetch2FAStatus();
     } catch (error: unknown) {
@@ -352,27 +348,24 @@ export default function UserDetailsPage() {
   const handleRegenerateBackupCodes = async () => {
     try {
       const result = await ModalManager.confirm(
-        'Regenerate Backup Codes',
-        'This will invalidate all existing backup codes and generate new ones. Continue?',
+        t('regenerateBackupCodes'),
+        t('regenerateCodesConfirm'),
         undefined,
         {
-          confirmButtonText: 'Regenerate',
+          confirmButtonText: t('regenerate'),
           icon: 'warning'
         }
       );
 
       if (result.isConfirmed) {
-        ModalManager.loading('Regenerating...', 'Generating new backup codes');
+        ModalManager.loading(t('regenerating'), t('generatingCodes'));
         const data = await APIClient.regenerateBackupCodes();
         ModalManager.close();
 
         setBackupCodes(data.backup_codes);
         setShowBackupCodesModal(true);
 
-        await ModalManager.success(
-          'Backup Codes Regenerated',
-          'Your new backup codes are ready. Please save them in a secure location.'
-        );
+        await ModalManager.success(t('codesRegenerated'), t('codesRegeneratedDesc'));
       }
     } catch (error: unknown) {
       ModalManager.close();
@@ -425,8 +418,8 @@ export default function UserDetailsPage() {
   if (!userData) {
     return (
       <div className="text-center py-8">
-        <h3 className="text-lg font-semibold">User not found</h3>
-        <p className="text-muted-foreground">The requested user does not exist.</p>
+        <h3 className="text-lg font-semibold">{t('userNotFound')}</h3>
+        <p className="text-muted-foreground">{t('userNotFoundDesc')}</p>
       </div>
     );
   }
@@ -443,14 +436,14 @@ export default function UserDetailsPage() {
             className="gap-2 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to Users
+            {t('backToUsers')}
           </Button>
         </div>
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{userData.username}</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              User details and configuration
+              {t('userDetailsConfig')}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -460,7 +453,7 @@ export default function UserDetailsPage() {
               className="gap-2"
             >
               <Key className="h-4 w-4" />
-              Change Password
+              {t('changePassword')}
             </Button>
             <Button
               onClick={() => setIsEditUserModalOpen(true)}
@@ -468,7 +461,7 @@ export default function UserDetailsPage() {
               className="gap-2"
             >
               <Edit className="h-4 w-4" />
-              Edit User
+              {t('editUser')}
             </Button>
             <Button
               onClick={() => setIsCreateKeyModalOpen(true)}
@@ -476,7 +469,7 @@ export default function UserDetailsPage() {
               className="gap-2"
             >
               <Plus className="h-4 w-4" />
-              Create Access Key
+              {t('createAccessKey')}
             </Button>
           </div>
         </div>
@@ -488,11 +481,11 @@ export default function UserDetailsPage() {
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Status</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{t('status')}</p>
               <div className="mt-2">
                 <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-sm font-medium ${getStatusColor(userData.status)}`}>
                   {userData.status === 'active' ? <CheckCircle className="h-4 w-4 mr-1" /> : <XCircle className="h-4 w-4 mr-1" />}
-                  {userData.status.charAt(0).toUpperCase() + userData.status.slice(1)}
+                  {t(userData.status as 'active' | 'inactive' | 'suspended')}
                 </span>
               </div>
             </div>
@@ -506,8 +499,8 @@ export default function UserDetailsPage() {
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Email</p>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white break-all">{userData.email || 'Not provided'}</h3>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{t('email')}</p>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white break-all">{userData.email || t('notProvided')}</h3>
             </div>
             <div className="flex items-center justify-center w-14 h-14 rounded-full bg-gray-100 dark:bg-gray-700/50">
               <Mail className="h-7 w-7 text-gray-600 dark:text-gray-400" />
@@ -519,7 +512,7 @@ export default function UserDetailsPage() {
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Roles</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{t('roles')}</p>
               <div className="flex flex-wrap gap-1 mt-2">
                 {userData.roles && userData.roles.length > 0 ? (
                   userData.roles.map((role: string) => (
@@ -531,7 +524,7 @@ export default function UserDetailsPage() {
                     </span>
                   ))
                 ) : (
-                  <span className="text-xs text-gray-500 dark:text-gray-400">No roles assigned</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{t('noRolesAssigned')}</span>
                 )}
               </div>
             </div>
@@ -552,10 +545,10 @@ export default function UserDetailsPage() {
               <KeyRound className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Two-Factor Authentication (2FA)
+                  {t('twoFactorTitle')}
                 </h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                  Add an extra layer of security by requiring a verification code from an authenticator app
+                  {t('twoFactorSubtitle')}
                 </p>
               </div>
             </div>
@@ -572,21 +565,21 @@ export default function UserDetailsPage() {
               <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Status:</span>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('twoFactorStatusLabel')}</span>
                     {twoFactorStatus?.enabled ? (
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
                         <CheckCircle className="h-3 w-3 mr-1" />
-                        Enabled
+                        {t('enabled')}
                       </span>
                     ) : (
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300">
-                        Disabled
+                        {t('disabled')}
                       </span>
                     )}
                   </div>
                   {twoFactorStatus?.enabled && twoFactorStatus?.setup_at && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      Enabled on {new Date(twoFactorStatus.setup_at * 1000).toLocaleDateString()}
+                      {t('enabledOn', { date: new Date(twoFactorStatus.setup_at * 1000).toLocaleDateString() })}
                     </p>
                   )}
                 </div>
@@ -600,7 +593,7 @@ export default function UserDetailsPage() {
                           size="sm"
                           onClick={handleRegenerateBackupCodes}
                         >
-                          Regenerate Backup Codes
+                          {t('regenerateBackupCodes')}
                         </Button>
                       )}
                       {(isCurrentUser || isGlobalAdmin) && (
@@ -609,7 +602,7 @@ export default function UserDetailsPage() {
                           size="sm"
                           onClick={() => setShowDisable2FAModal(true)}
                         >
-                          Disable 2FA
+                          {t('disable2FA')}
                         </Button>
                       )}
                     </>
@@ -621,7 +614,7 @@ export default function UserDetailsPage() {
                           onClick={() => setShowSetup2FAModal(true)}
                         >
                           <KeyRound className="h-4 w-4 mr-2" />
-                          Enable 2FA
+                          {t('enable2FA')}
                         </Button>
                       )}
                     </>
@@ -639,7 +632,7 @@ export default function UserDetailsPage() {
                     </div>
                     <div className="ml-3">
                       <p className="text-xs text-yellow-800 dark:text-yellow-200">
-                        <strong className="font-medium">Recommended:</strong> Enable 2FA to protect your account from unauthorized access.
+                        <strong className="font-medium">{t('recommended')}</strong> {t('recommendEnable2FA')}
                       </p>
                     </div>
                   </div>
@@ -654,7 +647,7 @@ export default function UserDetailsPage() {
                     </div>
                     <div className="ml-3">
                       <p className="text-xs text-blue-800 dark:text-blue-200">
-                        This user has 2FA enabled. Only global administrators can disable it.
+                        {t('only2FAGlobalAdmins')}
                       </p>
                     </div>
                   </div>
@@ -670,7 +663,7 @@ export default function UserDetailsPage() {
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <Settings className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-              Preferences
+              {t('preferences')}
             </h3>
           </div>
 
@@ -687,16 +680,16 @@ export default function UserDetailsPage() {
           setIsChangePasswordOpen(false);
           setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
         }}
-        title="Change Password"
+        title={t('changePassword')}
       >
         <div className="space-y-4">
           {/* Only show current password field when user is changing their own password */}
           {isEditingSelf && (
             <div>
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">Current Password</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">{t('currentPassword')}</label>
               <Input
                 type="password"
-                placeholder="Enter current password"
+                placeholder={t('enterCurrentPassword')}
                 value={passwordForm.currentPassword}
                 onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
                 className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
@@ -706,25 +699,25 @@ export default function UserDetailsPage() {
           {!isEditingSelf && (
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-4">
               <p className="text-sm text-blue-800 dark:text-blue-300">
-                As an admin, you can reset this user's password without knowing their current password.
+                {t('adminResetPasswordInfo')}
               </p>
             </div>
           )}
           <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">New Password</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">{t('newPassword')}</label>
             <Input
               type="password"
-              placeholder="Enter new password (min 6 characters)"
+              placeholder={t('enterNewPassword')}
               value={passwordForm.newPassword}
               onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
               className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
             />
           </div>
           <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">Confirm New Password</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">{t('confirmNewPassword')}</label>
             <Input
               type="password"
-              placeholder="Confirm new password"
+              placeholder={t('confirmNewPasswordPlaceholder')}
               value={passwordForm.confirmPassword}
               onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
               className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
@@ -738,14 +731,14 @@ export default function UserDetailsPage() {
                 setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
               }}
             >
-              Cancel
+              {t('cancel')}
             </Button>
             <Button
               onClick={handleChangePassword}
               disabled={changePasswordMutation.isPending}
               variant="outline"
             >
-              {changePasswordMutation.isPending ? 'Changing...' : 'Change Password'}
+              {changePasswordMutation.isPending ? t('changing') : t('changePassword')}
             </Button>
           </div>
         </div>
@@ -756,9 +749,9 @@ export default function UserDetailsPage() {
         <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             <Key className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            Access Keys ({accessKeys?.length || 0})
+            {t('accessKeysCount', { count: accessKeys?.length || 0 })}
           </h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Manage S3-compatible access credentials</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('manageS3Creds')}</p>
         </div>
         <div className="overflow-x-auto">
           {keysLoading ? (
@@ -768,9 +761,9 @@ export default function UserDetailsPage() {
           ) : !accessKeys || accessKeys.length === 0 ? (
             <EmptyState
               icon={Key}
-              title="No access keys"
-              description="Create an access key to allow programmatic access to this user's resources."
-              actionLabel="Create Access Key"
+              title={t('noAccessKeysProfile')}
+              description={t('createKeyDesc')}
+              actionLabel={t('createAccessKey')}
               onAction={() => setIsCreateKeyModalOpen(true)}
               showAction={true}
             />
@@ -778,11 +771,11 @@ export default function UserDetailsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Access Key ID</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Last Time Used</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t('accessKeyId')}</TableHead>
+                  <TableHead>{t('status')}</TableHead>
+                  <TableHead>{t('created')}</TableHead>
+                  <TableHead>{t('lastTimeUsed')}</TableHead>
+                  <TableHead className="text-right">{t('actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -796,7 +789,7 @@ export default function UserDetailsPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => copyToClipboard(key.id)}
-                          title="Copy Access Key"
+                          title={t('copyAccessKey')}
                         >
                           <Copy className="h-3 w-3" />
                         </Button>
@@ -821,7 +814,7 @@ export default function UserDetailsPage() {
                       <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Calendar className="h-3 w-3" />
                           {!key.lastUsed || isNaN(new Date(key.lastUsed).getTime())
-                          ? 'Never'
+                          ? t('never')
                           : formatDate(key.lastUsed)}
                       </div>
                     </TableCell>
@@ -831,7 +824,7 @@ export default function UserDetailsPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDeleteAccessKey(key.id, key.id)}
-                          title="Delete access key"
+                          title={t('deleteAccessKey')}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -849,12 +842,12 @@ export default function UserDetailsPage() {
       <Modal
         isOpen={isEditUserModalOpen}
         onClose={() => setIsEditUserModalOpen(false)}
-        title="Edit User"
+        title={t('editUser')}
       >
         <form onSubmit={handleEditUser} className="space-y-4">
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Email
+              {t('email')}
             </label>
             <Input
               id="email"
@@ -868,7 +861,7 @@ export default function UserDetailsPage() {
 
           <div>
             <label htmlFor="tenant" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Tenant (Optional)
+              {t('tenantOptional')}
             </label>
             <select
               id="tenant"
@@ -876,7 +869,7 @@ export default function UserDetailsPage() {
               onChange={(e) => setEditForm(prev => ({ ...prev, tenantId: e.target.value || undefined }))}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
-              <option value="">No Tenant (Global User)</option>
+              <option value="">{t('noTenantGlobal')}</option>
               {tenants?.map((tenant) => (
                 <option key={tenant.id} value={tenant.id}>
                   {tenant.displayName} ({tenant.name})
@@ -884,13 +877,13 @@ export default function UserDetailsPage() {
               ))}
             </select>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Global users can access all buckets. Tenant users are limited to their tenant's buckets.
+              {t('globalUsersInfo')}
             </p>
           </div>
 
           <div>
             <label htmlFor="status" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Status
+              {t('status')}
             </label>
             <select
               id="status"
@@ -898,15 +891,15 @@ export default function UserDetailsPage() {
               onChange={(e) => setEditForm(prev => ({ ...prev, status: e.target.value as any }))}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="suspended">Suspended</option>
+              <option value="active">{t('active')}</option>
+              <option value="inactive">{t('inactive')}</option>
+              <option value="suspended">{t('suspended')}</option>
             </select>
           </div>
 
           <div>
             <label htmlFor="roles" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Role
+              {t('role')}
             </label>
             <select
               id="roles"
@@ -918,24 +911,24 @@ export default function UserDetailsPage() {
               disabled={!isCurrentUserAdmin || (isCurrentUserAdmin && isEditingSelf)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <option value="admin">Admin - Full access to manage the system</option>
-              <option value="user">User - Standard user with normal access</option>
-              <option value="readonly">Read Only - Can only view, cannot modify</option>
-              <option value="guest">Guest - Limited access</option>
+              <option value="admin">{t('adminRole')}</option>
+              <option value="user">{t('userRole')}</option>
+              <option value="readonly">{t('readonlyRole')}</option>
+              <option value="guest">{t('guestRole')}</option>
             </select>
             {!isCurrentUserAdmin && (
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Only administrators can change user roles.
+                {t('onlyAdminsChangeRoles')}
               </p>
             )}
             {isCurrentUserAdmin && isEditingSelf && (
               <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-                You cannot change your own role.
+                {t('cannotChangeOwnRole')}
               </p>
             )}
             {isCurrentUserAdmin && !isEditingSelf && (
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Select the role for this user.
+                {t('selectRole')}
               </p>
             )}
           </div>
@@ -946,14 +939,14 @@ export default function UserDetailsPage() {
               variant="outline"
               onClick={() => setIsEditUserModalOpen(false)}
             >
-              Cancel
+              {t('cancel')}
             </Button>
             <Button
               type="submit"
               variant="outline"
               disabled={updateUserMutation.isPending}
             >
-              {updateUserMutation.isPending ? 'Saving...' : 'Save Changes'}
+              {updateUserMutation.isPending ? t('saving') : t('saveChanges')}
             </Button>
           </div>
         </form>
@@ -963,19 +956,18 @@ export default function UserDetailsPage() {
       <Modal
         isOpen={isCreateKeyModalOpen}
         onClose={() => setIsCreateKeyModalOpen(false)}
-        title="Create New Access Key"
+        title={t('createNewAccessKey')}
       >
         <form onSubmit={handleCreateAccessKey} className="space-y-4">
           <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md p-3">
             <p className="text-sm text-blue-800 dark:text-blue-300">
-              <strong>ℹ️ Information:</strong> An access key and secret key pair will be automatically generated for this user.
+              {t('accessKeyInfoMsg')}
             </p>
           </div>
 
           <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-md p-3">
             <p className="text-sm text-yellow-800 dark:text-yellow-300">
-              <strong>⚠️ Important:</strong> The secret key will only be displayed once after creation.
-              Make sure to copy and store it in a safe place.
+              {t('secretKeyOnceMsg')}
             </p>
           </div>
 
@@ -985,14 +977,14 @@ export default function UserDetailsPage() {
               variant="outline"
               onClick={() => setIsCreateKeyModalOpen(false)}
             >
-              Cancel
+              {t('cancel')}
             </Button>
             <Button
               type="submit"
               variant="outline"
               disabled={createAccessKeyMutation.isPending}
             >
-              {createAccessKeyMutation.isPending ? 'Creating...' : 'Create Access Key'}
+              {createAccessKeyMutation.isPending ? t('creating') : t('createAccessKey')}
             </Button>
           </div>
         </form>
@@ -1003,18 +995,18 @@ export default function UserDetailsPage() {
         <Modal
           isOpen={!!createdKey}
           onClose={() => setCreatedKey(null)}
-          title="Access Key Created"
+          title={t('accessKeyCreatedTitle')}
         >
           <div className="space-y-4">
             <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md p-3">
               <p className="text-sm text-green-800 dark:text-green-300">
-                <strong>✅ Access Key created successfully!</strong>
+                <strong>{t('accessKeyCreatedOK')}</strong>
               </p>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Access Key ID:</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('accessKeyIdLabel')}</label>
                 <div className="flex items-center gap-2">
                   <code className="bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 rounded text-sm flex-1">
                     {createdKey.accessKey}
@@ -1023,7 +1015,7 @@ export default function UserDetailsPage() {
                     variant="ghost"
                     size="sm"
                     onClick={() => copyToClipboard(createdKey.accessKey)}
-                    title="Copy to clipboard"
+                    title={t('copyToClipboard')}
                   >
                     <Copy className="h-4 w-4" />
                   </Button>
@@ -1032,7 +1024,7 @@ export default function UserDetailsPage() {
 
               {createdKey.secretKey && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Secret Access Key:</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('secretAccessKeyLabel')}</label>
                   <div className="flex items-center gap-2">
                     <code className="bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 rounded text-sm flex-1">
                       {createdKey.secretKey}
@@ -1041,7 +1033,7 @@ export default function UserDetailsPage() {
                       variant="ghost"
                       size="sm"
                       onClick={() => copyToClipboard(createdKey.secretKey!)}
-                      title="Copy to clipboard"
+                      title={t('copyToClipboard')}
                     >
                       <Copy className="h-4 w-4" />
                     </Button>
@@ -1052,8 +1044,7 @@ export default function UserDetailsPage() {
 
             <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md p-3">
               <p className="text-sm text-red-800 dark:text-red-300">
-                <strong>⚠️ Important:</strong> This is the only time the secret key will be displayed.
-                Copy and store it in a safe place before closing this window.
+                {t('secretKeyWarning')}
               </p>
             </div>
 
@@ -1064,13 +1055,13 @@ export default function UserDetailsPage() {
                 className="gap-2"
               >
                 <Download className="h-4 w-4" />
-                Download CSV
+                {t('downloadCSV')}
               </Button>
-              <Button 
+              <Button
                 onClick={() => setCreatedKey(null)}
                 variant="outline"
               >
-                Got it
+                {t('gotIt')}
               </Button>
             </div>
           </div>
@@ -1093,12 +1084,12 @@ export default function UserDetailsPage() {
         isOpen={showDisable2FAModal}
         onClose={() => setShowDisable2FAModal(false)}
         onConfirm={handleDisable2FA}
-        title="Disable Two-Factor Authentication"
+        title={t('disable2FATitle')}
         message={isCurrentUser
-          ? "Are you sure you want to disable 2FA? This will make your account less secure."
-          : "Are you sure you want to disable 2FA for this user? This will make their account less secure."}
-        confirmText="Disable 2FA"
-        cancelText="Cancel"
+          ? t('disable2FAConfirmSelf')
+          : t('disable2FAConfirmOther')}
+        confirmText={t('disable2FA')}
+        cancelText={t('cancel')}
         variant="danger"
         loading={disabling2FA}
       />

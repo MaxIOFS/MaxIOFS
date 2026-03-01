@@ -27,5 +27,8 @@
   "maintenanceBanner": "Server is in maintenance mode — write operations are temporarily disabled.",
   "securityWarning": "Security Warning",
   "defaultPasswordWarning": "You are using the default admin password. Please change it immediately to secure your system.",
-  "noEmail": "No email"
+  "noEmail": "No email",
+  "changeLanguage": "Change language",
+  "english": "English",
+  "spanish": "Spanish"
 }

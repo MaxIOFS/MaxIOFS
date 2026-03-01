@@ -16,6 +16,13 @@ import { cn } from '@/lib/utils';
 import type { User as UserType } from '@/types';
 import type { Notification } from '@/hooks/useNotifications';
 
+type Language = 'en' | 'es';
+
+const LANGUAGES: { code: Language; flag: string; label: string }[] = [
+  { code: 'en', flag: '🇬🇧', label: 'EN' },
+  { code: 'es', flag: '🇪🇸', label: 'ES' },
+];
+
 interface TopBarProps {
   onMenuOpen: () => void;
   user: UserType | null;
@@ -23,6 +30,8 @@ interface TopBarProps {
   tenantDisplayName: string | undefined;
   effectiveTheme: 'light' | 'dark';
   onToggleDarkMode: () => void;
+  language: Language;
+  onLanguageChange: (lang: Language) => void;
   notifications: Notification[];
   unreadCount: number;
   totalUnread: number;
@@ -39,6 +48,8 @@ export function TopBar({
   tenantDisplayName,
   effectiveTheme,
   onToggleDarkMode,
+  language,
+  onLanguageChange,
   notifications,
   unreadCount,
   totalUnread,
@@ -51,6 +62,9 @@ export function TopBar({
   const { t } = useTranslation('layout');
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showLanguageMenu, setShowLanguageMenu] = useState(false);
+
+  const currentLang = LANGUAGES.find(l => l.code === language) ?? LANGUAGES[0];
 
   const userLabel = user?.tenantId
     ? tenantDisplayName
@@ -85,6 +99,44 @@ export function TopBar({
               <Moon className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-gray-600" />
             )}
           </button>
+
+          {/* Language Selector */}
+          <div className="relative">
+            <button
+              onClick={() => setShowLanguageMenu(!showLanguageMenu)}
+              className="flex h-10 3xl:h-12 4xl:h-14 items-center gap-1.5 px-3 rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 shadow-soft hover:shadow-soft-md"
+              title={t('changeLanguage')}
+            >
+              <span className="text-base leading-none">{currentLang.flag}</span>
+              <span className="text-xs font-semibold text-gray-600 dark:text-gray-400">{currentLang.label}</span>
+            </button>
+
+            {showLanguageMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowLanguageMenu(false)} />
+                <div className="absolute right-0 mt-2.5 w-40 rounded-card border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-soft-xl z-50 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{t('changeLanguage')}</p>
+                  </div>
+                  {LANGUAGES.map((lang) => (
+                    <button
+                      key={lang.code}
+                      onClick={() => { onLanguageChange(lang.code); setShowLanguageMenu(false); }}
+                      className={cn(
+                        'flex w-full items-center gap-3 px-3 py-2.5 text-sm transition-colors',
+                        language === lang.code
+                          ? 'bg-brand-50 dark:bg-brand-900/30 text-brand-700 dark:text-brand-300 font-semibold'
+                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                      )}
+                    >
+                      <span className="text-base">{lang.flag}</span>
+                      <span>{lang.code === 'en' ? t('english') : t('spanish')}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Notifications */}
           <div className="relative">

@@ -372,8 +372,8 @@ export default function UsersPage() {
                   <TableHead>{t('tenant')}</TableHead>
                   <TableHead>{t('roles')}</TableHead>
                   <TableHead>{t('status')}</TableHead>
-                  <TableHead>Auth</TableHead>
-                  <TableHead>2FA</TableHead>
+                  <TableHead>{t('authColumn')}</TableHead>
+                  <TableHead>{t('twoFactorColumn')}</TableHead>
                   <TableHead>{t('accessKeys')}</TableHead>
                   <TableHead>{t('created')}</TableHead>
                   <TableHead className="text-right">{t('actions')}</TableHead>
@@ -470,7 +470,7 @@ export default function UsersPage() {
                             onClick={() => handleUnlockUser(user.id)}
                             disabled={unlockUserMutation.isPending}
                             className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                            title="Unlock account"
+                            title={t('unlockAccount')}
                           >
                             <Unlock className="h-4 w-4" />
                           </Button>
@@ -553,7 +553,7 @@ export default function UsersPage() {
           {oauthProviders.length > 0 && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Authentication
+                {t('authentication')}
               </label>
               <select
                 value={newUser.authProvider || 'local'}
@@ -567,7 +567,7 @@ export default function UsersPage() {
                 }}
                 className="w-full border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
               >
-                <option value="local">Local (password)</option>
+                <option value="local">{t('localPassword')}</option>
                 {oauthProviders.map((provider) => (
                   <option key={provider.id} value={`oauth:${provider.id}`}>
                     {provider.name} (SSO)
@@ -575,9 +575,7 @@ export default function UsersPage() {
                 ))}
               </select>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                {isExternalUser
-                  ? 'This user will authenticate via SSO. Use their email as username.'
-                  : 'This user will authenticate with a local password.'}
+                {isExternalUser ? t('ssoAuthDesc') : t('localAuthDesc')}
               </p>
             </div>
           )}

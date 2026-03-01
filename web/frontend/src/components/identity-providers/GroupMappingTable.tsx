@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -22,6 +23,7 @@ interface GroupMappingTableProps {
 }
 
 export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) {
+  const { t } = useTranslation('idp');
   const queryClient = useQueryClient();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newMapping, setNewMapping] = useState({
@@ -42,10 +44,10 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
       queryClient.invalidateQueries({ queryKey: ['group-mappings', provider.id] });
       setIsCreateOpen(false);
       setNewMapping({ external_group: '', external_group_name: '', role: 'user', auto_sync: false });
-      ModalManager.success('Created', 'Group mapping created successfully');
+      ModalManager.success(t('created'), t('mappingCreatedSuccess'));
     },
     onError: (err: any) => {
-      ModalManager.error('Error', err.message || 'Failed to create mapping');
+      ModalManager.error(t('errorTitle'), err.message || t('failedToCreateMapping'));
     },
   });
 
@@ -53,7 +55,7 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
     mutationFn: (mapId: string) => APIClient.deleteGroupMapping(provider.id, mapId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['group-mappings', provider.id] });
-      ModalManager.success('Deleted', 'Group mapping deleted');
+      ModalManager.success(t('deleted'), t('mappingDeletedSuccess'));
     },
   });
 
@@ -61,10 +63,10 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
     mutationFn: (mapId: string) => APIClient.syncGroupMapping(provider.id, mapId),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['group-mappings', provider.id] });
-      ModalManager.success('Sync Complete', `Imported: ${data.imported}, Updated: ${data.updated}, Removed: ${data.removed}`);
+      ModalManager.success(t('syncComplete'), t('syncResult', { imported: data.imported, updated: data.updated, removed: data.removed }));
     },
     onError: (err: any) => {
-      ModalManager.error('Sync Failed', err.message || 'Failed to sync group');
+      ModalManager.error(t('syncFailed'), err.message || t('failedToSync'));
     },
   });
 
@@ -72,10 +74,10 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
     mutationFn: () => APIClient.syncAllMappings(provider.id),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['group-mappings', provider.id] });
-      ModalManager.success('Sync Complete', data.message);
+      ModalManager.success(t('syncComplete'), data.message);
     },
     onError: (err: any) => {
-      ModalManager.error('Sync Failed', err.message || 'Failed to sync all mappings');
+      ModalManager.error(t('syncFailed'), err.message || t('failedToSyncAll'));
     },
   });
 
@@ -94,17 +96,17 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
           <ArrowLeft className="h-5 w-5 text-gray-500" />
         </button>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Group Mappings</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{provider.name} - Map external groups to MaxIOFS roles</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('groupMappings')}</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{provider.name} - {t('groupMappingsSubtitle')}</p>
         </div>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => syncAllMutation.mutate()} disabled={syncAllMutation.isPending}>
             <RefreshCw className={`h-4 w-4 mr-2 ${syncAllMutation.isPending ? 'animate-spin' : ''}`} />
-            Sync All
+            {t('syncAll')}
           </Button>
           <Button onClick={() => setIsCreateOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
-            Add Mapping
+            {t('addMapping')}
           </Button>
         </div>
       </div>
@@ -115,11 +117,11 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>External Group</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Auto Sync</TableHead>
-                <TableHead>Last Synced</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t('externalGroup')}</TableHead>
+                <TableHead>{t('roleColumn')}</TableHead>
+                <TableHead>{t('autoSync')}</TableHead>
+                <TableHead>{t('lastSynced')}</TableHead>
+                <TableHead className="text-right">{t('actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -144,11 +146,11 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
                   </TableCell>
                   <TableCell>
                     <span className={`text-xs ${m.auto_sync ? 'text-green-600' : 'text-gray-400'}`}>
-                      {m.auto_sync ? 'Enabled' : 'Disabled'}
+                      {m.auto_sync ? t('enabled') : t('disabled')}
                     </span>
                   </TableCell>
                   <TableCell className="text-sm text-gray-500 dark:text-gray-400">
-                    {m.last_synced_at ? new Date(m.last_synced_at * 1000).toLocaleString() : 'Never'}
+                    {m.last_synced_at ? new Date(m.last_synced_at * 1000).toLocaleString() : t('never')}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
@@ -156,14 +158,14 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
                         onClick={() => syncMutation.mutate(m.id)}
                         disabled={syncMutation.isPending}
                         className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
-                        title="Sync Now"
+                        title={t('syncNow')}
                       >
                         <RefreshCw className={`h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
                       </button>
                       <button
                         onClick={() => handleDelete(m)}
                         className="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-500 hover:text-red-600"
-                        title="Delete"
+                        title={t('delete')}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -177,20 +179,20 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
       ) : (
         <div className="text-center py-12 text-gray-500 dark:text-gray-400">
           <FolderTree className="h-12 w-12 mx-auto mb-3 opacity-50" />
-          <p className="text-sm mb-4">No group mappings configured.</p>
+          <p className="text-sm mb-4">{t('noGroupMappings')}</p>
           <Button onClick={() => setIsCreateOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
-            Add Mapping
+            {t('addMapping')}
           </Button>
         </div>
       )}
 
       {/* Create Modal */}
       {isCreateOpen && (
-        <Modal isOpen onClose={() => setIsCreateOpen(false)} title="Add Group Mapping">
+        <Modal isOpen onClose={() => setIsCreateOpen(false)} title={t('addGroupMapping')}>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">External Group (DN or ID)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('externalGroupLabel')}</label>
               <Input
                 value={newMapping.external_group}
                 onChange={(e) => setNewMapping({ ...newMapping, external_group: e.target.value })}
@@ -198,7 +200,7 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Display Name</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('displayName')}</label>
               <Input
                 value={newMapping.external_group_name}
                 onChange={(e) => setNewMapping({ ...newMapping, external_group_name: e.target.value })}
@@ -206,15 +208,15 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">MaxIOFS Role</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maxIOFSRole')}</label>
               <select
                 value={newMapping.role}
                 onChange={(e) => setNewMapping({ ...newMapping, role: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white"
               >
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
-                <option value="readonly">Read-only</option>
+                <option value="user">{t('roleUserOption')}</option>
+                <option value="admin">{t('roleAdminOption')}</option>
+                <option value="readonly">{t('roleReadonlyOption')}</option>
               </select>
             </div>
             <div className="flex items-center gap-2">
@@ -225,16 +227,16 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
                 onChange={(e) => setNewMapping({ ...newMapping, auto_sync: e.target.checked })}
                 className="rounded border-gray-300"
               />
-              <label htmlFor="auto_sync" className="text-sm text-gray-700 dark:text-gray-300">Enable automatic sync</label>
+              <label htmlFor="auto_sync" className="text-sm text-gray-700 dark:text-gray-300">{t('enableAutoSync')}</label>
             </div>
           </div>
           <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <Button variant="secondary" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
+            <Button variant="secondary" onClick={() => setIsCreateOpen(false)}>{t('cancel')}</Button>
             <Button
               onClick={() => createMutation.mutate(newMapping)}
               disabled={createMutation.isPending || !newMapping.external_group}
             >
-              {createMutation.isPending ? 'Creating...' : 'Create'}
+              {createMutation.isPending ? t('creating') : t('create')}
             </Button>
           </div>
         </Modal>

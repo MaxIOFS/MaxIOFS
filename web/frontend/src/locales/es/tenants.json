@@ -49,5 +49,10 @@
   "tenantCreatedSuccess": "Inquilino \"{{name}}\" creado exitosamente",
   "tenantUpdatedSuccess": "Inquilino actualizado exitosamente",
   "tenantDeletedSuccess": "Inquilino eliminado exitosamente",
-  "errorLoadingTenants": "Error al cargar inquilinos"
+  "errorLoadingTenants": "Error al cargar inquilinos",
+  "tenantHasBuckets": "El tenant tiene buckets",
+  "tenantHasBucketsMsg": "¿Desea forzar la eliminación de este tenant y todos sus buckets y objetos? Esta acción no se puede deshacer.",
+  "forceDeleteAll": "Sí, forzar eliminación de todo",
+  "forceDeletingTenant": "Eliminando tenant a la fuerza...",
+  "forceDeletingTenantMsg": "Eliminando tenant y todos los recursos asociados"
 }

@@ -18,6 +18,7 @@ import en_dashboard from './locales/en/dashboard.json';
 import en_tenants from './locales/en/tenants.json';
 import en_createBucket from './locales/en/createBucket.json';
 import en_bucketSettings from './locales/en/bucketSettings.json';
+import en_idp from './locales/en/idp.json';
 
 // ES namespaces
 import es_common from './locales/es/common.json';
@@ -36,6 +37,7 @@ import es_dashboard from './locales/es/dashboard.json';
 import es_tenants from './locales/es/tenants.json';
 import es_createBucket from './locales/es/createBucket.json';
 import es_bucketSettings from './locales/es/bucketSettings.json';
+import es_idp from './locales/es/idp.json';
 
 // Read the saved language once synchronously at module load time.
 // This avoids LanguageDetector's multi-step async search (localStorage →
@@ -71,6 +73,7 @@ i18n
         tenants: en_tenants,
         createBucket: en_createBucket,
         bucketSettings: en_bucketSettings,
+        idp: en_idp,
       },
       es: {
         common: es_common,
@@ -89,9 +92,10 @@ i18n
         tenants: es_tenants,
         createBucket: es_createBucket,
         bucketSettings: es_bucketSettings,
+        idp: es_idp,
       },
     },
-    ns: ['common', 'navigation', 'auth', 'users', 'preferences', 'buckets', 'settings', 'security', 'metrics', 'auditLogs', 'about', 'layout', 'dashboard', 'tenants', 'createBucket', 'bucketSettings'],
+    ns: ['common', 'navigation', 'auth', 'users', 'preferences', 'buckets', 'settings', 'security', 'metrics', 'auditLogs', 'about', 'layout', 'dashboard', 'tenants', 'createBucket', 'bucketSettings', 'idp'],
     defaultNS: 'common',
     lng: getSavedLanguage(),   // Explicit language — no runtime detection
     load: 'languageOnly',      // Don't try to load 'en-US', 'en-GB', etc.

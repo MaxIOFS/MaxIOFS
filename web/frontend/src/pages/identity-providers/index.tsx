@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -31,6 +32,7 @@ import { LDAPBrowser } from '@/components/identity-providers/LDAPBrowser';
 import { GroupMappingTable } from '@/components/identity-providers/GroupMappingTable';
 
 export default function IdentityProvidersPage() {
+  const { t } = useTranslation('idp');
   const { isGlobalAdmin, isTenantAdmin } = useCurrentUser();
   const isAnyAdmin = isGlobalAdmin || isTenantAdmin;
   const queryClient = useQueryClient();
@@ -55,7 +57,7 @@ export default function IdentityProvidersPage() {
 
   const tenantMap = new Map((tenants || []).map((t: Tenant) => [t.id, t.displayName || t.name]));
   const getTenantName = (tenantId?: string) => {
-    if (!tenantId) return 'Global';
+    if (!tenantId) return t('global');
     return tenantMap.get(tenantId) || tenantId;
   };
 
@@ -63,10 +65,10 @@ export default function IdentityProvidersPage() {
     mutationFn: (id: string) => APIClient.deleteIDP(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['identity-providers'] });
-      ModalManager.success('Deleted', 'Identity provider deleted successfully');
+      ModalManager.success(t('deleted'), t('providerDeletedSuccess'));
     },
     onError: (err: any) => {
-      ModalManager.error('Error', err.message || 'Failed to delete provider');
+      ModalManager.error(t('errorTitle'), err.message || t('failedToDelete'));
     },
   });
 
@@ -74,13 +76,13 @@ export default function IdentityProvidersPage() {
     mutationFn: (id: string) => APIClient.testIDPConnection(id),
     onSuccess: (data) => {
       if (data.success) {
-        ModalManager.success('Connection OK', data.message || 'Connection test passed');
+        ModalManager.success(t('connectionOK'), data.message || t('connectionPassed'));
       } else {
-        ModalManager.error('Connection Failed', data.message || 'Connection test failed');
+        ModalManager.error(t('connectionFailed'), data.message || t('connectionTestFailed'));
       }
     },
     onError: (err: any) => {
-      ModalManager.error('Connection Failed', err.message || 'Connection test failed');
+      ModalManager.error(t('connectionFailed'), err.message || t('connectionTestFailed'));
     },
   });
 
@@ -100,7 +102,7 @@ export default function IdentityProvidersPage() {
   if (!isAnyAdmin) {
     return (
       <div className="p-6">
-        <p className="text-gray-500 dark:text-gray-400">You do not have permission to view this page.</p>
+        <p className="text-gray-500 dark:text-gray-400">{t('noPermission')}</p>
       </div>
     );
   }
@@ -129,9 +131,9 @@ export default function IdentityProvidersPage() {
     <div>
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Identity Providers</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('pageTitle')}</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          Manage LDAP/AD and OAuth2/SSO integrations for user authentication
+          {t('pageSubtitle')}
         </p>
       </div>
 
@@ -141,7 +143,7 @@ export default function IdentityProvidersPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Search providers..."
+            placeholder={t('searchProviders')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -149,7 +151,7 @@ export default function IdentityProvidersPage() {
         </div>
         <Button onClick={() => setIsCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          Add Provider
+          {t('addProvider')}
         </Button>
       </div>
 
@@ -159,9 +161,9 @@ export default function IdentityProvidersPage() {
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={Shield}
-          title="No Identity Providers"
-          description="Add an LDAP/AD directory or OAuth2/SSO provider to enable external authentication."
-          actionLabel="Add Provider"
+          title={t('noProviders')}
+          description={t('noProvidersDesc')}
+          actionLabel={t('addProvider')}
           onAction={() => setIsCreateOpen(true)}
           showAction
         />
@@ -170,11 +172,11 @@ export default function IdentityProvidersPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Tenant</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t('name')}</TableHead>
+                <TableHead>{t('type')}</TableHead>
+                <TableHead>{t('status')}</TableHead>
+                <TableHead>{t('tenant')}</TableHead>
+                <TableHead className="text-right">{t('actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -204,7 +206,7 @@ export default function IdentityProvidersPage() {
                         ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
                         : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
                     }`}>
-                      {idp.status}
+                      {idp.status === 'active' ? t('statusActive') : idp.status === 'testing' ? t('statusTesting') : t('statusInactive')}
                     </span>
                   </TableCell>
                   <TableCell className="text-sm text-gray-500 dark:text-gray-400">
@@ -216,7 +218,7 @@ export default function IdentityProvidersPage() {
                         onClick={() => testMutation.mutate(idp.id)}
                         disabled={testMutation.isPending}
                         className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
-                        title="Test Connection"
+                        title={t('testConnection')}
                       >
                         <Plug className="h-4 w-4" />
                       </button>
@@ -224,7 +226,7 @@ export default function IdentityProvidersPage() {
                         <button
                           onClick={() => setBrowsingIDP(idp)}
                           className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
-                          title="Browse Users"
+                          title={t('browseUsers')}
                         >
                           <UsersIcon className="h-4 w-4" />
                         </button>
@@ -232,21 +234,21 @@ export default function IdentityProvidersPage() {
                       <button
                         onClick={() => setMappingIDP(idp)}
                         className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
-                        title="Group Mappings"
+                        title={t('groupMappings')}
                       >
                         <FolderTree className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => setEditingIDP(idp)}
                         className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
-                        title="Edit"
+                        title={t('edit')}
                       >
                         <Settings className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => handleDelete(idp)}
                         className="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-500 dark:text-gray-400 hover:text-red-600"
-                        title="Delete"
+                        title={t('delete')}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Modal } from '@/components/ui/Modal';
@@ -48,6 +49,7 @@ const defaultOAuth: OAuth2Config = {
 
 export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps) {
   const isEdit = !!idp;
+  const { t } = useTranslation('idp');
   const { isGlobalAdmin } = useCurrentUser();
   const [name, setName] = useState(idp?.name || '');
   const [type, setType] = useState<IDPType>(idp?.type || 'ldap');
@@ -65,11 +67,11 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
   const createMutation = useMutation({
     mutationFn: (data: any) => isEdit ? APIClient.updateIDP(idp!.id, data) : APIClient.createIDP(data),
     onSuccess: () => {
-      ModalManager.success(isEdit ? 'Updated' : 'Created', `Identity provider ${isEdit ? 'updated' : 'created'} successfully`);
+      ModalManager.success(isEdit ? t('updated') : t('created'), isEdit ? t('providerUpdatedSuccess') : t('providerCreatedSuccess'));
       onSuccess();
     },
     onError: (err: any) => {
-      ModalManager.error('Error', err.message || 'Failed to save provider');
+      ModalManager.error(t('errorTitle'), err.message || t('failedToSave'));
     },
   });
 
@@ -105,18 +107,18 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
   };
 
   return (
-    <Modal isOpen onClose={onClose} title={isEdit ? 'Edit Identity Provider' : 'Add Identity Provider'} size="lg">
+    <Modal isOpen onClose={onClose} title={isEdit ? t('editIdentityProvider') : t('addIdentityProvider')} size="lg">
       <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2">
         {/* Basic Info */}
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Corporate AD, Google SSO" />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('name')}</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('namePlaceholder')} />
           </div>
 
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Type</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('type')}</label>
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
@@ -129,8 +131,8 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
                 >
                   <Globe className={`h-6 w-6 ${type === 'ldap' ? 'text-blue-600' : 'text-gray-400'}`} />
                   <div className="text-left">
-                    <p className="font-medium text-gray-900 dark:text-white text-sm">LDAP / AD</p>
-                    <p className="text-xs text-gray-500">Active Directory, OpenLDAP</p>
+                    <p className="font-medium text-gray-900 dark:text-white text-sm">{t('ldapTitle')}</p>
+                    <p className="text-xs text-gray-500">{t('ldapDesc')}</p>
                   </div>
                 </button>
                 <button
@@ -144,8 +146,8 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
                 >
                   <Shield className={`h-6 w-6 ${type === 'oauth2' ? 'text-purple-600' : 'text-gray-400'}`} />
                   <div className="text-left">
-                    <p className="font-medium text-gray-900 dark:text-white text-sm">OAuth2 / OIDC</p>
-                    <p className="text-xs text-gray-500">Google, Microsoft, Custom</p>
+                    <p className="font-medium text-gray-900 dark:text-white text-sm">{t('oauthTitle')}</p>
+                    <p className="text-xs text-gray-500">{t('oauthDesc')}</p>
                   </div>
                 </button>
               </div>
@@ -153,27 +155,27 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('status')}</label>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value as any)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white"
             >
-              <option value="testing">Testing</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
+              <option value="testing">{t('statusTesting')}</option>
+              <option value="active">{t('statusActive')}</option>
+              <option value="inactive">{t('statusInactive')}</option>
             </select>
           </div>
 
           {isGlobalAdmin && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tenant</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('tenant')}</label>
               <select
                 value={tenantId}
                 onChange={(e) => setTenantId(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white"
               >
-                <option value="">Global (all tenants)</option>
+                <option value="">{t('globalAllTenants')}</option>
                 {(tenants || []).map((t: Tenant) => (
                   <option key={t.id} value={t.id}>{t.displayName || t.name}</option>
                 ))}
@@ -191,9 +193,9 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
       </div>
 
       <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-        <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button variant="secondary" onClick={onClose}>{t('cancel')}</Button>
         <Button onClick={handleSubmit} disabled={createMutation.isPending || !name}>
-          {createMutation.isPending ? 'Saving...' : isEdit ? 'Update' : 'Create'}
+          {createMutation.isPending ? t('saving') : isEdit ? t('update') : t('create')}
         </Button>
       </div>
     </Modal>
@@ -201,84 +203,85 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
 }
 
 function LDAPFields({ config, onChange }: { config: LDAPConfig; onChange: (c: LDAPConfig) => void }) {
+  const { t } = useTranslation('idp');
   const update = (key: keyof LDAPConfig, value: any) => onChange({ ...config, [key]: value });
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">Connection</h3>
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">{t('connection')}</h3>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Host</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('host')}</label>
           <Input value={config.host} onChange={(e) => update('host', e.target.value)} placeholder="ldap.company.com" />
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Port</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('port')}</label>
             <Input type="number" value={config.port} onChange={(e) => update('port', parseInt(e.target.value) || 389)} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Security</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('security')}</label>
             <select value={config.security} onChange={(e) => update('security', e.target.value)} className="w-full px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
-              <option value="none">None</option>
-              <option value="tls">TLS (LDAPS)</option>
-              <option value="starttls">StartTLS</option>
+              <option value="none">{t('securityNone')}</option>
+              <option value="tls">{t('securityTLS')}</option>
+              <option value="starttls">{t('securityStartTLS')}</option>
             </select>
           </div>
         </div>
       </div>
       <div className="grid grid-cols-1 gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Bind DN</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('bindDn')}</label>
           <Input value={config.bind_dn} onChange={(e) => update('bind_dn', e.target.value)} placeholder="cn=readonly,dc=company,dc=com" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Bind Password</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('bindPassword')}</label>
           <Input type="password" value={config.bind_password} onChange={(e) => update('bind_password', e.target.value)} placeholder="********" />
         </div>
       </div>
 
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2 pt-2">Search</h3>
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2 pt-2">{t('ldapSearch')}</h3>
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Base DN</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('baseDn')}</label>
         <Input value={config.base_dn} onChange={(e) => update('base_dn', e.target.value)} placeholder="dc=company,dc=com" />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">User Search Base</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('userSearchBase')}</label>
           <Input value={config.user_search_base} onChange={(e) => update('user_search_base', e.target.value)} placeholder="ou=Users" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">User Filter</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('userFilter')}</label>
           <Input value={config.user_filter} onChange={(e) => update('user_filter', e.target.value)} placeholder="(objectClass=person)" />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Group Search Base</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('groupSearchBase')}</label>
           <Input value={config.group_search_base} onChange={(e) => update('group_search_base', e.target.value)} placeholder="ou=Groups" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Group Filter</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('groupFilter')}</label>
           <Input value={config.group_filter} onChange={(e) => update('group_filter', e.target.value)} placeholder="(objectClass=group)" />
         </div>
       </div>
 
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2 pt-2">Attribute Mapping</h3>
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2 pt-2">{t('attributeMapping')}</h3>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Username Attribute</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('usernameAttribute')}</label>
           <Input value={config.attr_username} onChange={(e) => update('attr_username', e.target.value)} placeholder="sAMAccountName" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Email Attribute</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('emailAttribute')}</label>
           <Input value={config.attr_email} onChange={(e) => update('attr_email', e.target.value)} placeholder="mail" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Display Name Attribute</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('displayNameAttribute')}</label>
           <Input value={config.attr_display_name} onChange={(e) => update('attr_display_name', e.target.value)} placeholder="displayName" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Member Of Attribute</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('memberOfAttribute')}</label>
           <Input value={config.attr_member_of} onChange={(e) => update('attr_member_of', e.target.value)} placeholder="memberOf" />
         </div>
       </div>
@@ -287,75 +290,76 @@ function LDAPFields({ config, onChange }: { config: LDAPConfig; onChange: (c: LD
 }
 
 function OAuthFields({ config, onChange, onPresetChange }: { config: OAuth2Config; onChange: (c: OAuth2Config) => void; onPresetChange: (p: string) => void }) {
+  const { t } = useTranslation('idp');
   const update = (key: keyof OAuth2Config, value: any) => onChange({ ...config, [key]: value });
   const callbackUrl = `${window.location.origin}/api/v1/auth/oauth/callback`;
 
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Preset</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('preset')}</label>
         <select
           value={config.preset}
           onChange={(e) => onPresetChange(e.target.value)}
           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white"
         >
-          <option value="custom">Custom</option>
-          <option value="google">Google</option>
-          <option value="microsoft">Microsoft</option>
+          <option value="custom">{t('presetCustom')}</option>
+          <option value="google">{t('presetGoogle')}</option>
+          <option value="microsoft">{t('presetMicrosoft')}</option>
         </select>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Client ID</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('clientId')}</label>
           <Input value={config.client_id} onChange={(e) => update('client_id', e.target.value)} placeholder="your-client-id" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Client Secret</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('clientSecret')}</label>
           <Input type="password" value={config.client_secret} onChange={(e) => update('client_secret', e.target.value)} placeholder="your-client-secret" />
         </div>
       </div>
 
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2 pt-2">Endpoints</h3>
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2 pt-2">{t('endpoints')}</h3>
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Authorization URL</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('authorizationUrl')}</label>
         <Input value={config.auth_url} onChange={(e) => update('auth_url', e.target.value)} placeholder="https://provider.com/authorize" />
       </div>
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Token URL</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('tokenUrl')}</label>
         <Input value={config.token_url} onChange={(e) => update('token_url', e.target.value)} placeholder="https://provider.com/token" />
       </div>
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">User Info URL</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('userInfoUrl')}</label>
         <Input value={config.userinfo_url} onChange={(e) => update('userinfo_url', e.target.value)} placeholder="https://provider.com/userinfo" />
       </div>
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Redirect URI</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('redirectUri')}</label>
         <Input value={config.redirect_uri} onChange={(e) => update('redirect_uri', e.target.value)} placeholder={callbackUrl} />
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          Leave empty to auto-detect: <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded text-xs select-all cursor-pointer" title="Click to select">{callbackUrl}</code>
-          <br />Configure this URL in your OAuth provider's redirect/callback URI settings.
+          {t('redirectUriHelp')} <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded text-xs select-all cursor-pointer" title="Click to select">{callbackUrl}</code>
+          <br />{t('redirectUriConfigure')}
         </p>
       </div>
 
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2 pt-2">Claim Mapping</h3>
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2 pt-2">{t('claimMapping')}</h3>
       <div className="grid grid-cols-3 gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Email Claim</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('emailClaim')}</label>
           <Input value={config.claim_email} onChange={(e) => update('claim_email', e.target.value)} placeholder="email" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Name Claim</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('nameClaim')}</label>
           <Input value={config.claim_name} onChange={(e) => update('claim_name', e.target.value)} placeholder="name" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Groups Claim</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('groupsClaim')}</label>
           <Input value={config.claim_groups} onChange={(e) => update('claim_groups', e.target.value)} placeholder="groups (optional)" />
         </div>
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Scopes (comma-separated)</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('scopes')}</label>
         <Input value={(config.scopes || []).join(', ')} onChange={(e) => update('scopes', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))} placeholder="openid, profile, email" />
       </div>
     </div>

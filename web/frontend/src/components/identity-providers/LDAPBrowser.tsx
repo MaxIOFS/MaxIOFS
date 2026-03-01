@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMutation } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -21,6 +22,7 @@ interface LDAPBrowserProps {
 }
 
 export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
+  const { t } = useTranslation('idp');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ExternalUser[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -34,7 +36,7 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
       setHasSearched(true);
     },
     onError: (err: any) => {
-      ModalManager.error('Search Failed', err.message || 'Failed to search users');
+      ModalManager.error(t('searchFailed'), err.message || t('failedToSearch'));
     },
   });
 
@@ -46,14 +48,13 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
       return APIClient.idpImportUsers(provider.id, users, importRole);
     },
     onSuccess: (data) => {
-      const msg = `Imported: ${data.imported}, Skipped: ${data.skipped}${
-        data.errors?.length ? `, Errors: ${data.errors.length}` : ''
-      }`;
-      ModalManager.success('Import Complete', msg);
+      const msg = t('importResult', { imported: data.imported, skipped: data.skipped }) +
+        (data.errors?.length ? t('importResultErrors', { errors: data.errors.length }) : '');
+      ModalManager.success(t('importComplete'), msg);
       setSelected(new Set());
     },
     onError: (err: any) => {
-      ModalManager.error('Import Failed', err.message || 'Failed to import users');
+      ModalManager.error(t('importFailed'), err.message || t('failedToImport'));
     },
   });
 
@@ -80,8 +81,8 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
           <ArrowLeft className="h-5 w-5 text-gray-500" />
         </button>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Browse Users</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{provider.name} - Search and import users from LDAP directory</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('browseUsers')}</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{provider.name} - {t('searchAndImport')}</p>
         </div>
       </div>
 
@@ -94,12 +95,12 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && searchMutation.mutate()}
-            placeholder="Search by name, email, or username..."
+            placeholder={t('searchPlaceholder')}
             className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
         <Button onClick={() => searchMutation.mutate()} disabled={searchMutation.isPending || !query}>
-          {searchMutation.isPending ? 'Searching...' : 'Search'}
+          {searchMutation.isPending ? t('searching') : t('search')}
         </Button>
       </div>
 
@@ -107,20 +108,20 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
       {selected.size > 0 && (
         <div className="flex items-center gap-4 mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
           <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
-            {selected.size} user{selected.size > 1 ? 's' : ''} selected
+            {t('usersSelected', { count: selected.size })}
           </span>
           <select
             value={importRole}
             onChange={(e) => setImportRole(e.target.value)}
             className="px-2 py-1 border border-blue-300 dark:border-blue-700 rounded bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white"
           >
-            <option value="user">Role: User</option>
-            <option value="admin">Role: Admin</option>
-            <option value="readonly">Role: Read-only</option>
+            <option value="user">{t('roleUser')}</option>
+            <option value="admin">{t('roleAdmin')}</option>
+            <option value="readonly">{t('roleReadonly')}</option>
           </select>
           <Button size="sm" onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
             <Download className="h-3.5 w-3.5 mr-1.5" />
-            {importMutation.isPending ? 'Importing...' : 'Import Selected'}
+            {importMutation.isPending ? t('importing') : t('importSelected')}
           </Button>
         </div>
       )}
@@ -139,10 +140,10 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
                     className="rounded border-gray-300"
                   />
                 </TableHead>
-                <TableHead>Username</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Display Name</TableHead>
-                <TableHead>Groups</TableHead>
+                <TableHead>{t('username')}</TableHead>
+                <TableHead>{t('email')}</TableHead>
+                <TableHead>{t('displayName')}</TableHead>
+                <TableHead>{t('groups')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -174,12 +175,12 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
       ) : hasSearched ? (
         <div className="text-center py-12 text-gray-500 dark:text-gray-400">
           <Users className="h-12 w-12 mx-auto mb-3 opacity-50" />
-          <p className="text-sm">No users found matching your search.</p>
+          <p className="text-sm">{t('noUsersFound')}</p>
         </div>
       ) : (
         <div className="text-center py-12 text-gray-500 dark:text-gray-400">
           <Search className="h-12 w-12 mx-auto mb-3 opacity-50" />
-          <p className="text-sm">Enter a search query to find users in the LDAP directory.</p>
+          <p className="text-sm">{t('enterSearchQuery')}</p>
         </div>
       )}
     </div>

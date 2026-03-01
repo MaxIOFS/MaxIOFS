@@ -5,7 +5,7 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.2-beta] - 2026-02-24
+## [0.9.2-beta] - 2026-03-01
 
 ### Changed
 - **Metadata engine: BadgerDB → Pebble** — Replaced BadgerDB with `github.com/cockroachdb/pebble` (CockroachDB's LSM-tree engine) for all S3 object/bucket metadata storage. Pebble uses a crash-safe WAL (write-ahead log) that survives unclean shutdowns — the root cause of recurring BadgerDB MANIFEST corruption on power loss or process kill. Pebble is pure-Go (no CGO), zero external dependencies, same paradigm (LSM-tree), same on-disk key format preserved byte-for-byte.
@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Decoupled all packages from BadgerDB**: ACL, bucket, object, metrics, and notifications packages no longer import `github.com/dgraph-io/badger/v4` directly. A new `metadata.RawKVStore` interface (`GetRaw`, `PutRaw`, `DeleteRaw`, `RawBatch`, `RawScan`, `RawGC`) is implemented by PebbleStore and consumed by ACL and metrics history.
   - **TTL replacement**: Pebble has no native TTL. Multipart upload cleanup (previously 7-day TTL in BadgerDB) is replaced by an hourly goroutine that scans multipart entries and removes those older than 7 days.
   - BadgerDB source files (`badger.go`, `badger_objects.go`, `badger_multipart.go`, `badger_rawkv.go`) are retained solely to support the one-time migration path and may be removed in a future release.
+- **Frontend i18n: translation files split** — all translation strings for `es`, `en`, `pt`, `de`, `fr` are now split into per-page JSON files under `src/locales/` instead of one monolithic file per language. Reduces bundle size and makes adding new languages easier.
+- **AppLayout refactored** — navigation sidebar and top bar extracted into `SidebarNav` and `TopBar` components. `AppLayout` is now a thin shell that composes them.
+- **Docs updated** — `ARCHITECTURE.md`, `CONFIGURATION.md`, `DEPLOYMENT.md`, `OPERATIONS.md`, `SECURITY.md`, `CLUSTER.md`, `API.md`, `TESTING.md` revised to reflect Pebble engine, new features, and removed compression support.
+- **Compression removed** — LZ4/Snappy object compression was removed. It provided minimal benefit for already-compressed content (images, videos, ISOs) while adding latency and complexity.
 
 ### Added
 - **Object Integrity Verification** — detects silent data corruption (bad sectors, filesystem errors, write bugs) by re-reading object bytes from disk and comparing the computed MD5 against the stored ETag.
@@ -57,6 +61,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Admin endpoint `POST /buckets/{bucket}/recalculate-stats`** — allows administrators to resync a bucket's counters (`ObjectCount`, `TotalSize`) by scanning all objects present in the metadata store. Useful for correcting metrics that diverged due to system restarts or updates lost under concurrent load. Requires admin role; global admins can pass `?tenantId=` to target a specific tenant's bucket. Returns the recalculated values in the response.
 - **Background stats reconciler** (`startStatsReconciler`) — a goroutine started automatically at server startup that recalculates `ObjectCount` and `TotalSize` for every bucket across all tenants every **15 minutes**. Iterates all buckets via `ListBuckets(ctx, "")` and calls `RecalculateBucketStats` for each one. Starts after an initial 2-minute delay to allow the server to be fully ready. Exits cleanly on context cancellation. Errors on individual buckets are logged as warnings and do not interrupt the rest of the pass. Acts as a continuous safety net independent of the manual admin endpoint.
 - **Non-blocking bulk delete with background progress bar** — selecting multiple objects and clicking Delete no longer blocks the UI. The modal closes immediately, selection clears, and a fixed bottom-right `BackgroundTaskBar` component shows real-time per-item progress using 8 concurrent workers. Displays a success/failure summary on completion and auto-dismisses.
+- **Background task progress bar** — `BackgroundTaskBar` UI component shows long-running server-side operations (scrub, migration, bulk delete) in the console without blocking navigation. Displays per-item progress, success/failure summary, and auto-dismisses on completion.
+- **Sidebar and TopBar extracted from AppLayout** — `SidebarNav` and `TopBar` are now standalone components, making `AppLayout` significantly smaller and easier to maintain.
+- **Maintenance banner** — `MaintenanceBanner` component displayed at the top of the console when the server is in maintenance mode.
+- **`AdjustBucketSize` metric operation** — new `bucket.Manager` method that updates `TotalSize` without touching `ObjectCount`, used when overwriting existing objects so the object count is not inflated.
 
 ### Fixed
 - **Empty folders not displayed in object browser** — folder marker objects (keys ending in `/`, stored with metadata flag `x-maxiofs-implicit-folder=true`) were unconditionally skipped in `ListObjects` and `SearchObjects`. When a folder contained no objects, there were no child-key paths to derive the common prefix from, so the folder was completely invisible in the frontend. The fix: when a delimiter is present (hierarchical listing mode), folder markers are no longer skipped — they fall through to the common-prefix extraction block and are added to `commonPrefixesMap` like any other object whose key contains the delimiter after the prefix. Flat listings (`delimiter=""`) continue to omit implicit folder markers as before. A guard prevents the folder's own key from appearing as a child of itself when listing with the folder as the prefix.
@@ -88,6 +96,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A scope badge and contextual notice in the form make the restriction visible to the admin.
 - **User deletion leaving orphan bucket permissions** — deleting a user did not remove their bucket access grants, leaving stale entries that referenced a non-existent user ID. `authManager.DeleteUser` now calls `store.ListUserBucketPermissions` and revokes every grant before removing the user record. Individual revocation failures are logged as warnings and do not block the deletion.
 - **About page updated to v0.9.2-beta** — "New in" section reflects the changes of this release.
+- **Large file multipart upload — 5 cascading bugs fixed** (`f10b774`, resolves [#5](https://github.com/MaxIOFS/MaxIOFS/issues/5)):
+  1. *Error type mismatch*: HTTP handler checked `ErrUploadNotFound` but the object manager returns `ErrInvalidUploadID`; fell through to a generic 500 instead of 404.
+  2. *`os.Rename` race on Windows*: two concurrent `CompleteMultipartUpload` requests for the same `uploadID` raced to rename the temp file to `objectPath`. On Windows, `os.Open` does not set `FILE_SHARE_DELETE`, causing `ERROR_SHARING_VIOLATION`. Fixed with per-`uploadID` deduplication (`completionFuture`).
+  3. *Excessive I/O (3× full-file read/write)*: `calculateMultipartHash` re-read the entire combined object to compute an MD5 already computed by `storage.Put`; `storeUnencryptedMultipartObject` then re-read and re-wrote the same file just to update the `.metadata` sidecar. For a 6 GB file this added ~60 s of unnecessary I/O. Fixed: use `storage.GetMetadata` + `storage.SetMetadata` on the sidecar only.
+  4. *`http.Flusher` not propagating through metrics middleware*: `metrics.responseWriterWrapper` had no `Flush()` method, so `w.(http.Flusher)` always returned `ok=false` — the immediate `200 OK` was never flushed to the client. Same fix applied to tracing, logging, and verbose-logging wrappers.
+  5. *Background goroutine cancelled on client disconnect*: the combine goroutine used `r.Context()`, which Go cancels when the client disconnects. Metadata operations then failed, leaving multipart state partially cleaned up; retries got `NoSuchUpload`. Fixed: goroutine now uses `context.WithoutCancel(r.Context())`.
+- **Bucket object count inflation on overwrite** — `PutObject` and `CompleteMultipartUpload` incorrectly called `IncrementObjectCount` when replacing an existing object, inflating `ObjectCount`. Now uses `AdjustBucketSize` (size delta only, count unchanged) for overwrites and additional versions.
+- **Bulk delete** — fixed parsing of `Delete` XML body; objects with keys containing special characters were silently skipped.
+- **Frontend upload chunking** — large file uploads from the console web UI now correctly chunk and track upload progress; the upload API client was not splitting streams above the part-size boundary.
+- **Integrity check button** — the "Run Integrity Check" button on the buckets page was missing its click handler after a recent refactor. Re-wired to the new `object_integrity_handler`.
+- **Auth: S3 SigV4 host in virtual-hosted mode** — signature validation now strips the bucket prefix from the `Host` header before verifying the canonical request, matching AWS SDK behaviour.
+- **Server HTTP timeouts** — removed global `ReadTimeout` and `WriteTimeout` (were 30 s, broke large uploads/downloads). Replaced with `ReadHeaderTimeout: 30s` only, leaving body transfer unlimited.
+- **Settings page: email tab** — added SMTP configuration fields, password input, and "Send Test Email" button to the settings UI.
+- **`refetch` on settings and user pages** — values now refresh automatically after save; users no longer need to reload the page.
 
 ### Removed
 - **Test `TestHandleTestLogOutput`** — called `server.handleTestLogOutput` which does not exist on `*Server`, causing a compilation error. The handler was never implemented.

@@ -1,12 +1,12 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Loading } from '@/components/ui/Loading';
 import { MetricCard } from '@/components/ui/MetricCard';
-import { Box, Boxes, FolderOpen, Users, Activity, HardDrive, ArrowUpRight, Shield, BarChart3 } from 'lucide-react';
-import { formatBytes } from '@/lib/utils';
-import { useQuery } from '@tanstack/react-query';
+import { Box, Boxes, FolderOpen, Users, Activity, HardDrive, ArrowUpRight, Shield, BarChart3, RefreshCw } from 'lucide-react';
+import { formatBytes, cn } from '@/lib/utils';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import type { Bucket } from '@/types';
 import { useNavigate } from 'react-router-dom';
@@ -16,9 +16,22 @@ import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, 
 
 export default function Dashboard() {
   const { t } = useTranslation('dashboard');
+  const { t: tc } = useTranslation('common');
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { isGlobalAdmin, isTenantAdmin, isTenantUser } = useCurrentUser();
   const isAnyAdmin = isGlobalAdmin || isTenantAdmin;
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: ['metrics'] });
+    await queryClient.invalidateQueries({ queryKey: ['buckets'] });
+    await queryClient.invalidateQueries({ queryKey: ['systemMetrics'] });
+    await queryClient.invalidateQueries({ queryKey: ['health'] });
+    await queryClient.invalidateQueries({ queryKey: ['users'] });
+    setTimeout(() => setIsRefreshing(false), 600);
+  }, [queryClient]);
 
   // Safe dark mode detection
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -158,6 +171,14 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
+          <Button
+            variant="outline"
+            onClick={handleRefresh}
+            title={tc('refresh')}
+            className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white shadow-sm"
+          >
+            <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
+          </Button>
           <Button
             variant="outline"
             onClick={() => navigate('/buckets')}

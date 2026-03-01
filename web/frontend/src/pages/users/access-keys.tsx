@@ -27,6 +27,7 @@ import { AccessKey } from '@/types';
 import ModalManager from '@/lib/modals';
 
 export default function AccessKeysPage() {
+  const { t } = useTranslation('users');
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
@@ -59,7 +60,7 @@ export default function AccessKeysPage() {
       // Force refetch to ensure we have the latest data from server
       await queryClient.refetchQueries({ queryKey: ['accessKeys'] });
 
-      ModalManager.toast('success', 'Access key deleted successfully');
+      ModalManager.toast('success', t('accessKeyDeletedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.close();
@@ -73,17 +74,17 @@ export default function AccessKeysPage() {
     try {
       const result = await ModalManager.fire({
         icon: 'warning',
-        title: 'Delete Access Key',
-        html: `<p>Are you sure you want to delete access key <strong>"${key.id}"</strong> for user <strong>"${user?.username || 'unknown'}"</strong>?</p>
-               <p class="text-red-600 mt-2">This action cannot be undone</p>`,
+        title: t('deleteAccessKeyTitle'),
+        html: `<p>${t('deleteAccessKeyMessage', { keyId: key.id, username: user?.username || t('unknownUser') })}</p>
+               <p class="text-red-600 mt-2">${t('actionCannotBeUndone')}</p>`,
         showCancelButton: true,
-        confirmButtonText: 'Yes, delete',
-        cancelButtonText: 'Cancel',
+        confirmButtonText: t('yesDelete'),
+        cancelButtonText: t('cancel'),
         confirmButtonColor: '#dc2626',
       });
 
       if (result.isConfirmed) {
-        ModalManager.loading('Deleting access key...', `Deleting "${key.id}"`);
+        ModalManager.loading(t('deletingAccessKey'), t('deletingAccessKeyMessage', { keyId: key.id }));
         deleteAccessKeyMutation.mutate({ userId: key.userId, keyId: key.id });
       }
     } catch (error) {
@@ -107,7 +108,7 @@ export default function AccessKeysPage() {
 
   const getUserName = (userId: string) => {
     const user = users?.find((u: any) => u.id === userId);
-    return user?.username || 'Unknown User';
+    return user?.username || t('unknownUser');
   };
 
   const allKeys = accessKeys || [];
@@ -133,9 +134,9 @@ export default function AccessKeysPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Access Keys</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('accessKeysTitle')}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Manage S3 API access keys for all users
+            {t('manageAccessKeys')}
           </p>
         </div>
       </div>
@@ -143,14 +144,14 @@ export default function AccessKeysPage() {
       {/* Access Keys Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Access Keys ({filteredKeys.length})</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">All S3 API access keys across users</p>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t('accessKeysCount', { count: filteredKeys.length })}</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('allAccessKeysDesc')}</p>
 
           {/* Search */}
           <div className="mt-4 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 h-5 w-5" />
             <Input
-              placeholder="Search by access key ID or username..."
+              placeholder={t('searchByKeyOrUser')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
@@ -161,18 +162,18 @@ export default function AccessKeysPage() {
           {filteredKeys.length === 0 ? (
             <EmptyState
               icon={Key}
-              title={searchTerm ? 'No results found' : 'No access keys found'}
-              description={searchTerm ? 'Try adjusting your search terms.' : 'Access keys will appear here when users create them.'}
+              title={searchTerm ? t('noResultsFound') : t('noAccessKeysFound')}
+              description={searchTerm ? t('noAccessKeysTrySearch') : t('accessKeysWillAppear')}
             />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Access Key ID</TableHead>
-                  <TableHead>User</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Last Used</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t('accessKeyId')}</TableHead>
+                  <TableHead>{t('user')}</TableHead>
+                  <TableHead>{t('created')}</TableHead>
+                  <TableHead>{t('lastUsed')}</TableHead>
+                  <TableHead className="text-right">{t('actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -204,7 +205,7 @@ export default function AccessKeysPage() {
                             {formatDate(key.lastUsed)}
                           </>
                         ) : (
-                          <span className="text-gray-400 dark:text-gray-500">Never</span>
+                          <span className="text-gray-400 dark:text-gray-500">{t('never')}</span>
                         )}
                       </div>
                     </TableCell>
@@ -214,7 +215,7 @@ export default function AccessKeysPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => navigate(`/users/${key.userId}`)}
-                          title="View user details"
+                          title={t('viewUserDetails')}
                         >
                           <User className="h-4 w-4" />
                         </Button>
@@ -223,7 +224,7 @@ export default function AccessKeysPage() {
                           size="sm"
                           onClick={() => handleDeleteKey(key)}
                           disabled={deleteAccessKeyMutation.isPending}
-                          title="Delete access key"
+                          title={t('deleteAccessKey')}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

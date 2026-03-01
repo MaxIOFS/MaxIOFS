@@ -105,17 +105,17 @@ export default function TenantsPage() {
 
       if (errorMessage.includes('has') && errorMessage.includes('bucket')) {
         const result = await ModalManager.fire({
-          title: 'Tenant has buckets',
-          text: `${errorMessage}\n\nDo you want to force delete this tenant and all its buckets and objects? This action cannot be undone.`,
+          title: t('tenantHasBuckets'),
+          text: `${errorMessage}\n\n${t('tenantHasBucketsMsg')}`,
           icon: 'warning',
           showCancelButton: true,
-          confirmButtonText: 'Yes, force delete all',
-          cancelButtonText: 'Cancel',
+          confirmButtonText: t('forceDeleteAll'),
+          cancelButtonText: t('cancel'),
           confirmButtonColor: '#dc2626',
         });
 
         if (result.isConfirmed) {
-          ModalManager.loading('Force deleting tenant...', 'Deleting tenant and all associated resources');
+          ModalManager.loading(t('forceDeletingTenant'), t('forceDeletingTenantMsg'));
           // Explicitly construct the mutation parameters with force=true
           deleteTenantMutation.mutate({
             tenantId: variables.tenantId,

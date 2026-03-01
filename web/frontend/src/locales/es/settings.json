@@ -47,5 +47,15 @@
   "minutes_one": "{{count}} minuto",
   "minutes_other": "{{count}} minutos",
   "seconds_one": "{{count}} segundo",
-  "seconds_other": "{{count}} segundos"
+  "seconds_other": "{{count}} segundos",
+  "noSettingsAvailable": "No hay configuraciones disponibles",
+  "testSmtpConnection": "Probar Conexión SMTP",
+  "testEmailEnabled": "Envía un correo de prueba a tu dirección de cuenta para verificar la configuración",
+  "testEmailDisabled": "Habilita las notificaciones de correo arriba para probar la conexión SMTP",
+  "enableEmailFirst": "Primero habilita las notificaciones de correo",
+  "sending": "Enviando…",
+  "sendTestEmail": "Enviar Correo de Prueba",
+  "backendLogs": "Registros del Servidor",
+  "frontendLogs": "Registros del Navegador",
+  "frontendLogsDesc": "Recopilar errores y advertencias del navegador"
 }

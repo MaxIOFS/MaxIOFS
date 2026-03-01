@@ -261,7 +261,7 @@ export default function SettingsPage() {
   if (!settings) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-gray-500 dark:text-gray-400">No settings available</p>
+        <p className="text-gray-500 dark:text-gray-400">{t('noSettingsAvailable')}</p>
       </div>
     );
   }
@@ -378,7 +378,7 @@ export default function SettingsPage() {
           {/* Category Description */}
           <div className="mb-6 pb-6 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
-              {categoryInfo[activeCategory].title} Settings
+              {t('categorySettings', { category: categoryInfo[activeCategory].title })}
             </h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {categoryInfo[activeCategory].description}
@@ -390,21 +390,19 @@ export default function SettingsPage() {
             <div className="mb-6 pb-6 border-b border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between flex-wrap gap-4">
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Test SMTP Connection</h4>
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t('testSmtpConnection')}</h4>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                    {emailEnabled
-                      ? 'Send a test email to your account address to verify the configuration'
-                      : 'Enable email notifications above to test the SMTP connection'}
+                    {emailEnabled ? t('testEmailEnabled') : t('testEmailDisabled')}
                   </p>
                 </div>
                 <button
                   onClick={handleTestEmail}
                   disabled={testEmailStatus === 'sending' || !emailEnabled}
-                  title={!emailEnabled ? 'Enable email notifications first' : undefined}
+                  title={!emailEnabled ? t('enableEmailFirst') : undefined}
                   className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   <SendHorizonal className="h-4 w-4" />
-                  {testEmailStatus === 'sending' ? 'Sending…' : 'Send Test Email'}
+                  {testEmailStatus === 'sending' ? t('sending') : t('sendTestEmail')}
                 </button>
               </div>
               {testEmailStatus === 'success' && (
@@ -439,7 +437,7 @@ export default function SettingsPage() {
                 if (backendSettings.length === 0) return null;
                 return (
                   <div className="border-l-4 border-blue-500 pl-4">
-                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Backend Logs</h4>
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">{t('backendLogs')}</h4>
                     <div className="space-y-4">
                       {backendSettings.map((setting) => renderSetting(setting))}
                     </div>
@@ -459,8 +457,8 @@ export default function SettingsPage() {
                 const enabled = editedValues['logging.frontend_enabled'] ?? frontendSettings.find(s => s.key === 'logging.frontend_enabled')?.value === 'true';
                 return (
                   <div className={`border-l-4 ${enabled ? 'border-orange-500' : 'border-gray-300'} pl-4`}>
-                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Frontend Logs</h4>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Collect browser errors and warnings</p>
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{t('frontendLogs')}</h4>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{t('frontendLogsDesc')}</p>
                     <div className="space-y-4">
                       {frontendSettings.map((setting) => renderSetting(setting))}
                     </div>

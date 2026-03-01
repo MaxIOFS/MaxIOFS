@@ -49,5 +49,10 @@
   "tenantCreatedSuccess": "Tenant \"{{name}}\" created successfully",
   "tenantUpdatedSuccess": "Tenant updated successfully",
   "tenantDeletedSuccess": "Tenant deleted successfully",
-  "errorLoadingTenants": "Error loading tenants"
+  "errorLoadingTenants": "Error loading tenants",
+  "tenantHasBuckets": "Tenant has buckets",
+  "tenantHasBucketsMsg": "Do you want to force delete this tenant and all its buckets and objects? This action cannot be undone.",
+  "forceDeleteAll": "Yes, force delete all",
+  "forceDeletingTenant": "Force deleting tenant...",
+  "forceDeletingTenantMsg": "Deleting tenant and all associated resources"
 }

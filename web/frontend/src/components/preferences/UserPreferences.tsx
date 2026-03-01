@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Sun, Moon, Monitor, Save, CheckCircle } from 'lucide-react';
+import { Sun, Moon, Monitor, Save } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { APIClient } from '@/lib/api';
+import ModalManager from '@/lib/modals';
 
 type Theme = 'light' | 'dark' | 'system';
 type Language = 'en' | 'es';
@@ -23,50 +24,37 @@ export function UserPreferences({ disabled = false }: UserPreferencesProps) {
 
   const [localTheme, setLocalTheme] = useState<Theme>(theme);
   const [localLanguage, setLocalLanguage] = useState<Language>(language);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   const hasChanges = localTheme !== theme || localLanguage !== language;
 
-  // Update preferences mutation
   const updateMutation = useMutation({
     mutationFn: (data: { themePreference: Theme; languagePreference: Language }) =>
       APIClient.updateUserPreferences(user?.id || '', data.themePreference, data.languagePreference),
     onSuccess: () => {
       setTheme(localTheme);
       setLanguage(localLanguage);
-
       queryClient.invalidateQueries({ queryKey: ['currentUser'] });
-
-      setSaveSuccess(true);
-      setSaveError(null);
-      setTimeout(() => setSaveSuccess(false), 3000);
+      ModalManager.toast('success', t('preferencesUpdated'));
     },
     onError: (error: any) => {
-      setSaveError(error.response?.data?.error || 'Failed to save preferences');
-      setTimeout(() => setSaveError(null), 5000);
-    }
+      ModalManager.toast('error', error.response?.data?.error || t('errorTitle'));
+    },
   });
 
   const handleSave = () => {
     if (!hasChanges || !user?.id) return;
-
-    updateMutation.mutate({
-      themePreference: localTheme,
-      languagePreference: localLanguage,
-    });
+    updateMutation.mutate({ themePreference: localTheme, languagePreference: localLanguage });
   };
 
   const handleReset = () => {
     setLocalTheme(theme);
     setLocalLanguage(language);
-    setSaveError(null);
   };
 
   const themeOptions: { value: Theme; icon: React.ComponentType<any>; label: string }[] = [
     { value: 'light', icon: Sun, label: t('themeLight') },
     { value: 'dark', icon: Moon, label: t('themeDark') },
-    { value: 'system', icon: Monitor, label: t('themeSystem') }
+    { value: 'system', icon: Monitor, label: t('themeSystem') },
   ];
 
   const languageOptions: { value: Language; flag: string; label: string }[] = [
@@ -75,138 +63,85 @@ export function UserPreferences({ disabled = false }: UserPreferencesProps) {
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Success Message */}
-      {saveSuccess && (
-        <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-green-900 dark:text-green-300">
-                {t('preferencesUpdated')}
-              </p>
-            </div>
+    <div className="flex flex-col gap-5">
+      {/* Theme + Language side by side */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* Theme */}
+        <div>
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('theme')}</p>
+          <div className="grid grid-cols-3 gap-1.5">
+            {themeOptions.map(({ value, icon: Icon, label }) => (
+              <button
+                key={value}
+                onClick={() => !disabled && setLocalTheme(value)}
+                disabled={disabled}
+                className={`flex flex-col items-center justify-center p-2 rounded-lg border transition-all ${
+                  disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                } ${
+                  localTheme === value
+                    ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
+                    : `border-gray-200 dark:border-gray-700 ${!disabled ? 'hover:border-gray-300 dark:hover:border-gray-600' : ''}`
+                }`}
+              >
+                <Icon className={`h-4 w-4 mb-1 ${
+                  localTheme === value ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'
+                }`} />
+                <span className={`text-xs font-medium ${
+                  localTheme === value ? 'text-blue-900 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'
+                }`}>
+                  {label}
+                </span>
+              </button>
+            ))}
           </div>
+          {disabled && (
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5">{t('ownThemeOnly')}</p>
+          )}
         </div>
-      )}
 
-      {/* Error Message */}
-      {saveError && (
-        <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <svg className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-            <div>
-              <p className="text-sm font-medium text-red-900 dark:text-red-300">Error</p>
-              <p className="text-sm text-red-700 dark:text-red-400 mt-1">{saveError}</p>
-            </div>
-          </div>
+        {/* Language */}
+        <div className="flex flex-col">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('language')}</p>
+          <select
+            value={localLanguage}
+            onChange={(e) => !disabled && setLocalLanguage(e.target.value as Language)}
+            disabled={disabled}
+            className={`flex-1 w-full px-3 py-2 rounded-lg border text-sm transition-all bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              disabled
+                ? 'opacity-50 cursor-not-allowed border-gray-200 dark:border-gray-700'
+                : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+            }`}
+          >
+            {languageOptions.map(({ value, flag, label }) => (
+              <option key={value} value={value}>
+                {flag} {label}
+              </option>
+            ))}
+          </select>
+          {disabled && (
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5">{t('ownLanguageOnly')}</p>
+          )}
         </div>
-      )}
-
-      {/* Theme Selection */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-          {t('theme')}
-        </label>
-        <div className="grid grid-cols-3 gap-2">
-          {themeOptions.map(({ value, icon: Icon, label }) => (
-            <button
-              key={value}
-              onClick={() => !disabled && setLocalTheme(value)}
-              disabled={disabled}
-              className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all ${
-                disabled
-                  ? 'opacity-50 cursor-not-allowed'
-                  : ''
-              } ${
-                localTheme === value
-                  ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
-                  : `border-gray-200 dark:border-gray-700 ${!disabled ? 'hover:border-gray-300 dark:hover:border-gray-600' : ''}`
-              }`}
-            >
-              <Icon className={`h-5 w-5 mb-1.5 ${
-                localTheme === value
-                  ? 'text-blue-600 dark:text-blue-400'
-                  : 'text-gray-600 dark:text-gray-400'
-              }`} />
-              <span className={`text-xs font-medium ${
-                localTheme === value
-                  ? 'text-blue-900 dark:text-blue-300'
-                  : 'text-gray-700 dark:text-gray-300'
-              }`}>
-                {label}
-              </span>
-            </button>
-          ))}
-        </div>
-        {disabled && (
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-            Only the user themselves can change their theme preference.
-          </p>
-        )}
       </div>
 
-      {/* Language Selection */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-          {t('language')}
-        </label>
-        <div className="grid grid-cols-2 gap-2">
-          {languageOptions.map(({ value, flag, label }) => (
-            <button
-              key={value}
-              onClick={() => !disabled && setLocalLanguage(value)}
-              disabled={disabled}
-              className={`flex items-center justify-center gap-2 p-3 rounded-lg border transition-all ${
-                disabled
-                  ? 'opacity-50 cursor-not-allowed'
-                  : ''
-              } ${
-                localLanguage === value
-                  ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
-                  : `border-gray-200 dark:border-gray-700 ${!disabled ? 'hover:border-gray-300 dark:hover:border-gray-600' : ''}`
-              }`}
-            >
-              <span className="text-lg leading-none">{flag}</span>
-              <span className={`text-xs font-medium ${
-                localLanguage === value
-                  ? 'text-blue-900 dark:text-blue-300'
-                  : 'text-gray-700 dark:text-gray-300'
-              }`}>
-                {label}
-              </span>
-            </button>
-          ))}
-        </div>
-        {disabled && (
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-            Only the user themselves can change their language preference.
-          </p>
-        )}
+      {/* Always-visible Save / Cancel */}
+      <div className="flex items-center gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
+        <button
+          onClick={handleReset}
+          disabled={!hasChanges || updateMutation.isPending}
+          className="flex-1 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg transition-colors enabled:hover:bg-gray-50 dark:enabled:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {t('common:cancel')}
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={!hasChanges || updateMutation.isPending}
+          className="flex-1 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg transition-colors enabled:hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+        >
+          <Save className="h-3.5 w-3.5" />
+          {updateMutation.isPending ? t('common:loading') : t('savePreferences')}
+        </button>
       </div>
-
-      {/* Save/Reset Buttons */}
-      {hasChanges && (
-        <div className="flex items-center gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-          <button
-            onClick={handleReset}
-            disabled={updateMutation.isPending}
-            className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
-          >
-            {t('common:cancel')}
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={updateMutation.isPending}
-            className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
-          >
-            <Save className="h-4 w-4" />
-            {updateMutation.isPending ? t('common:loading') : t('savePreferences')}
-          </button>
-        </div>
-      )}
     </div>
   );
 }

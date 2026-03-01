@@ -27,6 +27,7 @@ import {
   HardDrive,
   Lock,
   Plus,
+  RefreshCw,
   Search,
   Settings,
   Shield,
@@ -38,6 +39,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import { Bucket, IntegrityResult } from '@/types';
 import ModalManager from '@/lib/modals';
 import { useAuth } from '@/hooks/useAuth';
@@ -61,11 +63,21 @@ function getBucketKey(bucket: Bucket): string {
 
 export default function BucketsPage() {
   const { t } = useTranslation('buckets');
+  const { t: tc } = useTranslation('common');
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const isGlobalAdmin = (user?.roles?.includes('admin') ?? false) && !user?.tenantId;
   const isAnyAdmin    = (user?.roles?.includes('admin') ?? false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: ['buckets'] });
+    await queryClient.invalidateQueries({ queryKey: ['users'] });
+    await queryClient.invalidateQueries({ queryKey: ['tenants'] });
+    setTimeout(() => setIsRefreshing(false), 600);
+  }, [queryClient]);
 
   // ── Table state ──────────────────────────────────────────────────────────────
   const [searchTerm, setSearchTerm]   = useState('');
@@ -477,13 +489,23 @@ export default function BucketsPage() {
               {t('manageBuckets')}
             </p>
           </div>
-          <Button
-            onClick={() => navigate('/buckets/create')}
-            className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md hover:shadow-lg transition-all duration-200 inline-flex items-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            {t('createBucket')}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handleRefresh}
+              title={tc('refresh')}
+              className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 shadow-sm"
+            >
+              <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
+            </Button>
+            <Button
+              onClick={() => navigate('/buckets/create')}
+              className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md hover:shadow-lg transition-all duration-200 inline-flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              {t('createBucket')}
+            </Button>
+          </div>
         </div>
 
         {/* ── Background scan indicator bar ── */}

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import APIClient from '@/lib/api';
 import ModalManager, { ModalRenderer, ToastNotifications } from '@/lib/modals';
@@ -18,6 +19,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { effectiveTheme, setTheme } = useTheme();
+  const { language, setLanguage } = useLanguage();
 
   const isGlobalAdmin = (user?.roles?.includes('admin') ?? false) && !user?.tenantId;
   const isTenantAdmin = (user?.roles?.includes('admin') ?? false) && !!user?.tenantId;
@@ -110,17 +112,22 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return item;
   });
 
-  // Theme toggle — also persists to user profile
-  const saveThemeMutation = useMutation({
-    mutationFn: (newTheme: 'light' | 'dark' | 'system') =>
-      APIClient.updateUserPreferences(user?.id || '', newTheme, user?.languagePreference || 'en'),
+  // Theme / language — also persist to user profile
+  const savePreferencesMutation = useMutation({
+    mutationFn: ({ theme, lang }: { theme: 'light' | 'dark' | 'system'; lang: string }) =>
+      APIClient.updateUserPreferences(user?.id || '', theme, lang),
   });
 
   const handleToggleDarkMode = useCallback(() => {
     const newTheme = effectiveTheme === 'dark' ? 'light' : 'dark';
     setTheme(newTheme);
-    if (user?.id) saveThemeMutation.mutate(newTheme);
-  }, [effectiveTheme, setTheme, user?.id]);
+    if (user?.id) savePreferencesMutation.mutate({ theme: newTheme, lang: language });
+  }, [effectiveTheme, setTheme, user?.id, language]);
+
+  const handleLanguageChange = useCallback((lang: 'en' | 'es') => {
+    setLanguage(lang);
+    if (user?.id) savePreferencesMutation.mutate({ theme: effectiveTheme, lang });
+  }, [setLanguage, user?.id, effectiveTheme]);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -163,6 +170,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           tenantDisplayName={tenantDisplayName}
           effectiveTheme={effectiveTheme}
           onToggleDarkMode={handleToggleDarkMode}
+          language={language}
+          onLanguageChange={handleLanguageChange}
           notifications={notifications}
           unreadCount={unreadCount}
           totalUnread={totalUnread}

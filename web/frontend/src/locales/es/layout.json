@@ -27,5 +27,8 @@
   "maintenanceBanner": "El servidor está en modo mantenimiento — las operaciones de escritura están temporalmente deshabilitadas.",
   "securityWarning": "Advertencia de Seguridad",
   "defaultPasswordWarning": "Estás usando la contraseña de administrador por defecto. Por favor cámbiala inmediatamente para asegurar tu sistema.",
-  "noEmail": "Sin correo"
+  "noEmail": "Sin correo",
+  "changeLanguage": "Cambiar idioma",
+  "english": "Inglés",
+  "spanish": "Español"
 }

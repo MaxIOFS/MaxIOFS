@@ -8,5 +8,8 @@
   "languageEnglish": "English",
   "languageSpanish": "Spanish",
   "savePreferences": "Save Preferences",
-  "preferencesUpdated": "Preferences updated successfully"
+  "preferencesUpdated": "Preferences updated successfully",
+  "errorTitle": "Error",
+  "ownThemeOnly": "Only the user themselves can change their theme preference.",
+  "ownLanguageOnly": "Only the user themselves can change their language preference."
 }
