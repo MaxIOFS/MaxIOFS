@@ -75,6 +75,14 @@ func (rw *responseWriterWrapper) Write(b []byte) (int, error) {
 	return size, err
 }
 
+// Flush implements http.Flusher so that handlers can push data to the client
+// before the response is complete (e.g., CompleteMultipartUpload keepalive).
+func (rw *responseWriterWrapper) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 // DefaultLoggingConfig returns the default logging configuration
 func DefaultLoggingConfig() *LoggingConfig {
 	return &LoggingConfig{

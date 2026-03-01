@@ -332,6 +332,58 @@ func TestCompleteMultipartUpload_Success(t *testing.T) {
 	assert.Greater(t, obj.Size, int64(0))
 }
 
+// TestCompleteMultipartUpload_ConcurrentSameID verifies that two concurrent
+// CompleteMultipartUpload calls for the same uploadID do not race: the second
+// waits for the first and gets the same result without causing a 500 error.
+func TestCompleteMultipartUpload_ConcurrentSameID(t *testing.T) {
+	ctx := context.Background()
+	om, metaStore, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+
+	bucket := "concurrent-multipart-bucket"
+	err := metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name:     bucket,
+		TenantID: "tenant-1",
+		OwnerID:  "user-1",
+	})
+	require.NoError(t, err)
+
+	key := "concurrent-complete.bin"
+	headers := http.Header{"Content-Type": []string{"application/octet-stream"}}
+	upload, err := om.CreateMultipartUpload(ctx, bucket, key, headers)
+	require.NoError(t, err)
+
+	part1Data := bytes.Repeat([]byte("C"), 5*1024*1024) // 5 MB
+	part1, err := om.UploadPart(ctx, upload.UploadID, 1, bytes.NewReader(part1Data))
+	require.NoError(t, err)
+
+	parts := []Part{*part1}
+
+	// Launch two goroutines completing the same upload concurrently
+	type result struct {
+		obj *Object
+		err error
+	}
+	ch := make(chan result, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			obj, err := om.CompleteMultipartUpload(ctx, upload.UploadID, parts)
+			ch <- result{obj, err}
+		}()
+	}
+
+	r1 := <-ch
+	r2 := <-ch
+
+	// Both must succeed (no 500) — one waits for the other
+	assert.NoError(t, r1.err, "first concurrent completion must not error")
+	assert.NoError(t, r2.err, "second concurrent completion must not error")
+	assert.NotNil(t, r1.obj)
+	assert.NotNil(t, r2.obj)
+	// Both should return the same ETag
+	assert.Equal(t, r1.obj.ETag, r2.obj.ETag, "both completions should return the same ETag")
+}
+
 // TestListParts_Success tests listing parts of multipart upload
 func TestListParts_Success(t *testing.T) {
 	ctx := context.Background()

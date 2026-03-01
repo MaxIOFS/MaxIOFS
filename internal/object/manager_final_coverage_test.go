@@ -172,6 +172,7 @@ func TestCleanupEmptyDirectories_WithNonFilesystemBackend(t *testing.T) {
 type mockMetricsBucketManager struct {
 	incrementCalled bool
 	decrementCalled bool
+	adjustCalled    bool
 	incrementCount  int
 	lastSize        int64
 }
@@ -186,6 +187,12 @@ func (m *mockMetricsBucketManager) IncrementObjectCount(ctx context.Context, ten
 func (m *mockMetricsBucketManager) DecrementObjectCount(ctx context.Context, tenantID, bucketName string, sizeBytes int64) error {
 	m.decrementCalled = true
 	m.lastSize = -sizeBytes
+	return nil
+}
+
+func (m *mockMetricsBucketManager) AdjustBucketSize(ctx context.Context, tenantID, bucketName string, sizeDelta int64) error {
+	m.adjustCalled = true
+	m.lastSize = sizeDelta
 	return nil
 }
 
@@ -251,8 +258,9 @@ func TestUpdateBucketMetricsAfterPut_NonVersioned_Overwrite(t *testing.T) {
 
 	om.updateBucketMetricsAfterPut(ctx, tenantID, bucketName, bucket, key, newSize, false, existingObj)
 
-	assert.True(t, mockBM.incrementCalled, "Should increment for overwrite")
-	assert.Equal(t, int64(524), mockBM.lastSize, "Should increment by size difference (1024-500=524)")
+	assert.True(t, mockBM.adjustCalled, "Should call AdjustBucketSize for overwrite (not IncrementObjectCount)")
+	assert.False(t, mockBM.incrementCalled, "Should NOT call IncrementObjectCount for overwrite")
+	assert.Equal(t, int64(524), mockBM.lastSize, "Should adjust by size difference (1024-500=524)")
 }
 
 // TestUpdateBucketMetricsAfterPut_NonVersioned_OverwriteSmaller tests overwrite with smaller file
@@ -286,8 +294,9 @@ func TestUpdateBucketMetricsAfterPut_NonVersioned_OverwriteSmaller(t *testing.T)
 
 	om.updateBucketMetricsAfterPut(ctx, tenantID, bucketName, bucket, key, newSize, false, existingObj)
 
-	assert.True(t, mockBM.incrementCalled, "Should still call increment (with negative value)")
-	assert.Equal(t, int64(-1536), mockBM.lastSize, "Should increment by negative difference (512-2048=-1536)")
+	assert.True(t, mockBM.adjustCalled, "Should call AdjustBucketSize for overwrite with smaller file")
+	assert.False(t, mockBM.incrementCalled, "Should NOT call IncrementObjectCount for overwrite")
+	assert.Equal(t, int64(-1536), mockBM.lastSize, "Should adjust by negative difference (512-2048=-1536)")
 }
 
 // TestUpdateBucketMetricsAfterPut_Versioned_FirstVersion tests metrics for first version
@@ -369,12 +378,14 @@ func TestUpdateBucketMetricsAfterPut_Versioned_AdditionalVersions(t *testing.T) 
 
 	// Reset mock for version 2
 	mockBM.incrementCalled = false
+	mockBM.adjustCalled = false
 	mockBM.incrementCount = 0
 
 	// Call updateBucketMetricsAfterPut for second version
 	om.updateBucketMetricsAfterPut(ctx, tenantID, bucketName, bucket, key, obj2.Size, true, nil)
 
-	assert.True(t, mockBM.incrementCalled, "Should increment for additional version (size only)")
+	assert.True(t, mockBM.adjustCalled, "Should call AdjustBucketSize for additional version (size only, not count)")
+	assert.False(t, mockBM.incrementCalled, "Should NOT call IncrementObjectCount for additional version")
 	t.Logf("Version 1 size: %d, Version 2 size: %d", obj1.Size, obj2.Size)
 }
 
@@ -480,10 +491,11 @@ func TestUpdateMetricsAndCleanupMultipart_OverwriteObject(t *testing.T) {
 	parts := []Part{*part}
 	om.updateMetricsAndCleanupMultipart(ctx, bucket, upload.UploadID, int64(2048), false, existingObj, parts)
 
-	assert.True(t, mockBM.incrementCalled, "Should increment bucket metrics")
+	assert.True(t, mockBM.adjustCalled, "Should call AdjustBucketSize for multipart overwrite (not IncrementObjectCount)")
+	assert.False(t, mockBM.incrementCalled, "Should NOT call IncrementObjectCount for multipart overwrite")
 	assert.True(t, mockAuth.incrementCalled, "Should increment tenant quota")
-	// Should increment by size difference: 2048 - 512 = 1536
-	assert.Equal(t, int64(1536), mockBM.lastSize, "Should increment by size difference")
+	// Should adjust by size difference: 2048 - 512 = 1536
+	assert.Equal(t, int64(1536), mockBM.lastSize, "Should adjust by size difference")
 }
 
 // TestUpdateMetricsAndCleanupMultipart_NoManagers tests no-op when managers are nil

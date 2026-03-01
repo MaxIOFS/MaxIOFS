@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/acl"
@@ -94,6 +95,14 @@ type Object struct {
 	ACL *ACL `json:"acl,omitempty"`
 }
 
+// completionFuture tracks an in-progress CompleteMultipartUpload so concurrent requests
+// for the same uploadID wait for the first one instead of racing.
+type completionFuture struct {
+	done chan struct{}
+	obj  *Object
+	err  error
+}
+
 // objectManager implements the Manager interface
 type objectManager struct {
 	storage           storage.Backend
@@ -104,12 +113,17 @@ type objectManager struct {
 	bucketManager     interface {
 		IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 		DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
+		AdjustBucketSize(ctx context.Context, tenantID, name string, sizeDelta int64) error
 	}
 	authManager interface {
 		IncrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
 		DecrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
 		CheckTenantStorageQuota(ctx context.Context, tenantID string, additionalBytes int64) error
 	}
+
+	// Deduplication for concurrent CompleteMultipartUpload calls with the same uploadID
+	completionMu  sync.Mutex
+	completions   map[string]*completionFuture
 }
 
 // NewManager creates a new object manager
@@ -168,6 +182,7 @@ func NewManager(storage storage.Backend, metadataStore metadata.Store, config co
 		aclManager:        aclMgr,
 		encryptionService: encryptionService,
 		bucketManager:     nil, // Will be set later via SetBucketManager
+		completions:       make(map[string]*completionFuture),
 	}
 }
 
@@ -175,6 +190,7 @@ func NewManager(storage storage.Backend, metadataStore metadata.Store, config co
 func (om *objectManager) SetBucketManager(bm interface {
 	IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 	DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
+	AdjustBucketSize(ctx context.Context, tenantID, name string, sizeDelta int64) error
 }) {
 	om.bucketManager = bm
 }
@@ -1643,8 +1659,38 @@ func (om *objectManager) ListParts(ctx context.Context, uploadID string) ([]Part
 	return parts, nil
 }
 
+// CompleteMultipartUpload deduplicates concurrent requests for the same uploadID.
+// If a completion for this uploadID is already in progress, the caller waits and
+// receives the same result — preventing race conditions on the filesystem.
 func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID string, parts []Part) (*Object, error) {
-	// Load multipart upload metadata from BadgerDB
+	om.completionMu.Lock()
+	if f, ok := om.completions[uploadID]; ok {
+		om.completionMu.Unlock()
+		// Another goroutine is already completing this upload — wait for it.
+		select {
+		case <-f.done:
+			return f.obj, f.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	f := &completionFuture{done: make(chan struct{})}
+	om.completions[uploadID] = f
+	om.completionMu.Unlock()
+
+	defer func() {
+		om.completionMu.Lock()
+		delete(om.completions, uploadID)
+		om.completionMu.Unlock()
+		close(f.done)
+	}()
+
+	f.obj, f.err = om.doCompleteMultipartUpload(ctx, uploadID, parts)
+	return f.obj, f.err
+}
+
+func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID string, parts []Part) (*Object, error) {
+	// Load multipart upload metadata
 	metaMU, err := om.metadataStore.GetMultipartUpload(ctx, uploadID)
 	if err != nil {
 		if err == metadata.ErrUploadNotFound {
@@ -1669,27 +1715,57 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 		return nil, err
 	}
 
-	// Combine parts into final object
+	// Combine parts into final object.
+	// storage.Put inside combineMultipartParts already computes etag+size and writes them
+	// to the .metadata sidecar — no need to re-read the data file for MD5.
 	objectPath := om.getObjectPath(multipart.Bucket, multipart.Key)
 	if err := om.combineMultipartParts(ctx, uploadID, parts, objectPath); err != nil {
 		return nil, fmt.Errorf("failed to combine parts: %w", err)
 	}
 
-	// Stream combined file to temp while calculating MD5 hash
-	originalSize, originalETag, tempPath, err := om.calculateMultipartHash(ctx, objectPath)
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(tempPath) // Clean up temp file when done
-
-	// Get timestamp from storage before replacing file
+	// Retrieve etag+size+last_modified already written by combineMultipartParts.
+	// This reads only the tiny .metadata sidecar file, not the data.
 	storageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get object metadata: %w", err)
+		return nil, fmt.Errorf("failed to get object metadata after combining parts: %w", err)
 	}
+	originalETag := storageMetadata["etag"]
+	originalSize, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
 	lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
 
-	// Create and save object metadata to BadgerDB with ORIGINAL values
+	// Apply encryption if enabled (requires reading plaintext → temp → encrypt → write back).
+	if om.shouldEncryptMultipartObject(ctx, multipart.Bucket) {
+		// Buffer plaintext to a temp file so objectPath can be safely overwritten on Windows.
+		tempPath, stageErr := om.stagePlaintextToTemp(ctx, objectPath)
+		if stageErr != nil {
+			return nil, stageErr
+		}
+		defer os.Remove(tempPath)
+		if err := om.storeEncryptedMultipartObject(ctx, objectPath, tempPath, uploadID, multipart, originalSize, originalETag); err != nil {
+			return nil, err
+		}
+		// Re-read metadata after encryption (encrypted size differs from plaintext size).
+		if sm, err2 := om.storage.GetMetadata(ctx, objectPath); err2 == nil {
+			lastModified, _ = strconv.ParseInt(sm["last_modified"], 10, 64)
+		}
+	} else {
+		// Unencrypted: just update the .metadata sidecar with the correct content-type
+		// and user metadata. The data file written by combineMultipartParts is already final —
+		// no need to re-read or re-write the entire file.
+		finalMeta := make(map[string]string, len(storageMetadata)+len(multipart.Metadata))
+		for k, v := range storageMetadata {
+			finalMeta[k] = v
+		}
+		// Multipart upload metadata (content-type, user headers) overrides the combine-time defaults.
+		// etag and size from storageMetadata are preserved (they are correct).
+		for k, v := range multipart.Metadata {
+			finalMeta[k] = v
+		}
+		if err := om.storage.SetMetadata(ctx, objectPath, finalMeta); err != nil {
+			return nil, fmt.Errorf("failed to update object metadata: %w", err)
+		}
+	}
+
 	object := &Object{
 		Key:          multipart.Key,
 		Bucket:       multipart.Bucket,
@@ -1703,30 +1779,43 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 
 	metaObj := toMetadataObject(object)
 	if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
-		logrus.WithError(err).Warn("Failed to save final object metadata to BadgerDB")
+		logrus.WithError(err).Warn("Failed to save final object metadata")
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"uploadID":     uploadID,
-		"originalSize": originalSize,
-		"originalETag": originalETag,
-	}).Info("Saved original metadata to BadgerDB before encryption")
-
-	// Apply encryption if enabled
-	if om.shouldEncryptMultipartObject(ctx, multipart.Bucket) {
-		if err := om.storeEncryptedMultipartObject(ctx, objectPath, tempPath, uploadID, multipart, originalSize, originalETag); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := om.storeUnencryptedMultipartObject(ctx, objectPath, tempPath, uploadID, multipart, originalSize, originalETag); err != nil {
-			return nil, err
-		}
-	}
+		"uploadID": uploadID,
+		"size":     originalSize,
+		"etag":     originalETag,
+	}).Info("Multipart upload completed successfully")
 
 	// Update bucket metrics and clean up multipart data
 	om.updateMetricsAndCleanupMultipart(ctx, multipart.Bucket, uploadID, originalSize, isNewObject, existingObj, parts)
 
 	return object, nil
+}
+
+// stagePlaintextToTemp copies the combined object at objectPath to a temporary file
+// so that objectPath can be safely overwritten during encryption on Windows
+// (os.Open does not set FILE_SHARE_DELETE, preventing os.Rename to an open path).
+func (om *objectManager) stagePlaintextToTemp(ctx context.Context, objectPath string) (string, error) {
+	reader, _, err := om.storage.Get(ctx, objectPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open combined object for encryption staging: %w", err)
+	}
+	defer reader.Close()
+
+	tempFile, err := os.CreateTemp("", "maxiofs-multipart-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file for encryption staging: %w", err)
+	}
+	tempPath := tempFile.Name()
+	if _, err := io.Copy(tempFile, reader); err != nil {
+		tempFile.Close()
+		os.Remove(tempPath)
+		return "", fmt.Errorf("failed to stage plaintext to temp file: %w", err)
+	}
+	tempFile.Close()
+	return tempPath, nil
 }
 
 func (om *objectManager) AbortMultipartUpload(ctx context.Context, uploadID string) error {
@@ -2210,10 +2299,10 @@ func (om *objectManager) updateBucketMetricsAfterPut(ctx context.Context, tenant
 				}).Warn("Failed to increment bucket object count")
 			}
 		} else {
-			// Overwrite - adjust size difference only
+			// Overwrite - adjust size difference only (do NOT increment object count)
 			sizeDiff := size - existingObjBeforeSave.Size
 			if sizeDiff != 0 {
-				if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, sizeDiff); err != nil {
+				if err := om.bucketManager.AdjustBucketSize(ctx, tenantID, bucketName, sizeDiff); err != nil {
 					logrus.WithError(err).WithFields(logrus.Fields{
 						"bucket_path": bucket,
 						"key":         key,
@@ -2233,9 +2322,9 @@ func (om *objectManager) updateBucketMetricsAfterPut(ctx context.Context, tenant
 				logrus.WithError(err).Warn("Failed to increment bucket object count for first version")
 			}
 		} else {
-			// Additional version - only increment size, not count
-			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
-				logrus.WithError(err).Warn("Failed to increment bucket size for additional version")
+			// Additional version - only adjust size, do NOT increment object count
+			if err := om.bucketManager.AdjustBucketSize(ctx, tenantID, bucketName, size); err != nil {
+				logrus.WithError(err).Warn("Failed to adjust bucket size for additional version")
 			}
 		}
 	}
@@ -2524,9 +2613,10 @@ func (om *objectManager) updateMetricsAndCleanupMultipart(ctx context.Context, b
 				logrus.WithError(err).Warn("Failed to increment bucket metrics after multipart upload")
 			}
 		} else {
+			// Overwrite via multipart — adjust size only, do NOT increment object count
 			sizeDiff := originalSize - existingObj.Size
 			if sizeDiff != 0 {
-				if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, sizeDiff); err != nil {
+				if err := om.bucketManager.AdjustBucketSize(ctx, tenantID, bucketName, sizeDiff); err != nil {
 					logrus.WithError(err).Warn("Failed to adjust bucket size after multipart overwrite")
 				}
 			}
@@ -2548,9 +2638,9 @@ func (om *objectManager) updateMetricsAndCleanupMultipart(ctx context.Context, b
 		}
 	}
 
-	// Clean up multipart upload from BadgerDB
+	// Clean up multipart upload state from metadata store
 	if err := om.metadataStore.AbortMultipartUpload(ctx, uploadID); err != nil {
-		logrus.WithError(err).Warn("Failed to delete multipart upload from BadgerDB")
+		logrus.WithError(err).Warn("Failed to delete multipart upload state after completion")
 	}
 
 	// Clean up part files from storage

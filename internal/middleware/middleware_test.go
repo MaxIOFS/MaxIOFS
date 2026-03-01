@@ -202,6 +202,22 @@ func TestResponseWriterWrapper(t *testing.T) {
 
 		assert.Equal(t, []byte("test"), wrapper.body)
 	})
+
+	t.Run("Flush forwards to underlying Flusher", func(t *testing.T) {
+		// httptest.ResponseRecorder implements http.Flusher; the wrapper must
+		// forward the call so CompleteMultipartUpload keepalive writes reach clients.
+		rec := httptest.NewRecorder()
+		wrapper := &responseWriterWrapper{ResponseWriter: rec}
+
+		// Must satisfy the interface at compile-time too
+		var _ http.Flusher = wrapper
+
+		wrapper.WriteHeader(http.StatusOK)
+		wrapper.Write([]byte("hello"))
+		wrapper.Flush() // must not panic and must forward to rec.Flush()
+
+		assert.True(t, rec.Flushed, "Flush must propagate through the wrapper")
+	})
 }
 
 func TestGetRemoteAddr(t *testing.T) {

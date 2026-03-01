@@ -1330,6 +1330,14 @@ func (w *responseWriterWrapper) WriteHeader(statusCode int) {
 	w.ResponseWriter.WriteHeader(statusCode)
 }
 
+// Flush implements http.Flusher so that streaming responses (e.g. CompleteMultipartUpload
+// keepalive whitespace) reach the client through this wrapper.
+func (w *responseWriterWrapper) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 // noopManager is a no-op implementation when metrics are disabled
 type noopManager struct{}
 

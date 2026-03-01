@@ -260,6 +260,7 @@ export default function BucketDetailsPage() {
       return APIClient.deleteObject(bucket, key, tenantId);
     },
     onSuccess: () => {
+      ModalManager.close();
       // Invalidate ALL object queries for this bucket (any prefix)
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
       // Invalidate bucket metadata with specific tenantId
@@ -269,6 +270,7 @@ export default function BucketDetailsPage() {
       ModalManager.toast('success', 'Object deleted successfully');
     },
     onError: (error: Error) => {
+      ModalManager.close();
       ModalManager.apiError(error);
     },
   });

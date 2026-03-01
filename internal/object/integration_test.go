@@ -62,6 +62,7 @@ func setupObjectIntegrationTest(t *testing.T) (Manager, bucket.Manager, func()) 
 		SetBucketManager(interface {
 			IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 			DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
+			AdjustBucketSize(ctx context.Context, tenantID, name string, sizeDelta int64) error
 		})
 	}); ok {
 		om.SetBucketManager(bucketManager)

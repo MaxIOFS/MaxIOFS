@@ -77,6 +77,9 @@ type Manager interface {
 	// Metrics management (for incremental updates)
 	IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 	DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
+	// AdjustBucketSize changes TotalSize by sizeDelta without touching ObjectCount.
+	// Use this for overwrites and additional versions where the count stays the same.
+	AdjustBucketSize(ctx context.Context, tenantID, name string, sizeDelta int64) error
 	RecalculateMetrics(ctx context.Context, tenantID, name string) error
 
 	// Health check

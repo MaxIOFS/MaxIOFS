@@ -837,16 +837,17 @@ func TestS3MultipartUpload(t *testing.T) {
 		assert.Contains(t, w.Body.String(), objectKey, "Response should contain object key")
 	})
 
-	t.Run("Complete multipart upload with invalid uploadId returns 404 not 500", func(t *testing.T) {
-		// Regression test: manager returns ErrInvalidUploadID (not ErrUploadNotFound),
-		// handler must map both to NoSuchUpload (404), not InternalError (500).
+	t.Run("Complete multipart upload with invalid uploadId returns NoSuchUpload in body", func(t *testing.T) {
+		// AWS S3 behaviour: CompleteMultipartUpload always returns 200 OK immediately
+		// to prevent client timeouts on large objects. If processing fails, the error
+		// is embedded as XML in the body (clients must parse the body on 200 responses).
 		completeXML := `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>"abc"</ETag></Part></CompleteMultipartUpload>`
 		req, w := env.makeS3Request("POST", fmt.Sprintf("/%s/nonexistent.dat?uploadId=invalid-upload-id-xyz", bucketName), []byte(completeXML))
 		req.Header.Set("Content-Type", "application/xml")
 		env.router.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusNotFound, w.Code, "Unknown uploadId should return 404 NoSuchUpload, not 500 InternalError")
-		assert.Contains(t, w.Body.String(), "NoSuchUpload", "Response should contain NoSuchUpload error code")
+		assert.Equal(t, http.StatusOK, w.Code, "CompleteMultipartUpload always returns 200 OK immediately (AWS S3 compatible)")
+		assert.Contains(t, w.Body.String(), "NoSuchUpload", "Error body must contain NoSuchUpload code")
 	})
 
 	t.Run("List parts", func(t *testing.T) {

@@ -126,3 +126,11 @@ func (rw *verboseResponseWriter) Write(b []byte) (int, error) {
 
 	return n, err
 }
+
+// Flush implements http.Flusher so that handlers can push data to the client
+// before the response is complete (e.g., CompleteMultipartUpload keepalive).
+func (rw *verboseResponseWriter) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}

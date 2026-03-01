@@ -570,6 +570,12 @@ func (bm *badgerBucketManager) DecrementObjectCount(ctx context.Context, tenantI
 	return bm.metadataStore.UpdateBucketMetrics(ctx, tenantID, name, -1, -sizeBytes)
 }
 
+// AdjustBucketSize adjusts TotalSize by sizeDelta without changing ObjectCount.
+// Use for overwrites (same key) and additional versions where count is unchanged.
+func (bm *badgerBucketManager) AdjustBucketSize(ctx context.Context, tenantID, name string, sizeDelta int64) error {
+	return bm.metadataStore.UpdateBucketMetrics(ctx, tenantID, name, 0, sizeDelta)
+}
+
 // RecalculateMetrics recalculates the object count and total size for a bucket
 func (bm *badgerBucketManager) RecalculateMetrics(ctx context.Context, tenantID, name string) error {
 	return bm.metadataStore.RecalculateBucketStats(ctx, tenantID, name)

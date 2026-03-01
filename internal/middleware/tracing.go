@@ -101,6 +101,14 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	return rw.ResponseWriter.Write(b)
 }
 
+// Flush implements http.Flusher so that handlers can push data to the client
+// before the response is complete (e.g., CompleteMultipartUpload keepalive).
+func (rw *responseWriter) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 // determineOperation attempts to determine the operation type from the request
 func determineOperation(r *http.Request) string {
 	// Check if it's an S3 API request

@@ -1,6 +1,7 @@
 package s3compat
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -440,45 +441,101 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Note: For multipart uploads, quota validation happens in objectManager.CompleteMultipartUpload
-	// which has access to the actual final object size
+	// AWS S3 behaviour for long-running completions: send 200 OK immediately, then
+	// stream whitespace to keep the TCP connection alive while the server combines
+	// the parts. The actual result XML (success or error) is flushed at the end.
+	// Without this, clients time out waiting for the status line on large objects.
+	w.Header().Set("Content-Type", "application/xml")
+	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
+	w.WriteHeader(http.StatusOK)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 
-	// Complete the multipart upload
-	obj, err := h.objectManager.CompleteMultipartUpload(r.Context(), uploadID, parts)
-	if err != nil {
-		if err == object.ErrInvalidUploadID || err == object.ErrUploadNotFound {
-			h.writeError(w, "NoSuchUpload", "The specified multipart upload does not exist", uploadID, r)
+	// Run the heavy processing in the background.
+	// Use context.WithoutCancel so the combine operation survives a client disconnect —
+	// if the client times out and reconnects, the file must already be assembled.
+	type completionResult struct {
+		obj *object.Object
+		err error
+	}
+	resultCh := make(chan completionResult, 1)
+	bgCtx := context.WithoutCancel(r.Context())
+	go func() {
+		obj, err := h.objectManager.CompleteMultipartUpload(bgCtx, uploadID, parts)
+		resultCh <- completionResult{obj, err}
+	}()
+
+	// Send a whitespace byte every 10 seconds to keep the TCP connection alive.
+	// Real S3 clients (CloudBerry, MSP360, s3cmd, etc.) ignore leading whitespace
+	// before the XML payload.
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	var res completionResult
+	for {
+		select {
+		case res = <-resultCh:
+			goto done
+		case <-ticker.C:
+			w.Write([]byte(" ")) //nolint:errcheck
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		case <-r.Context().Done():
+			// Client disconnected; nothing to do — background goroutine will finish
+			// and the deduplication layer will handle any retried request.
 			return
 		}
-		if err == object.ErrInvalidPart {
-			h.writeError(w, "InvalidPart", "One or more of the specified parts could not be found", objectKey, r)
-			return
+	}
+
+done:
+	if res.err != nil {
+		// We already committed 200 OK, so embed the error in the body.
+		// AWS S3 uses this same pattern; compliant clients parse the body.
+		code := "InternalError"
+		if res.err == object.ErrInvalidUploadID || res.err == object.ErrUploadNotFound {
+			code = "NoSuchUpload"
+		} else if res.err == object.ErrInvalidPart {
+			code = "InvalidPart"
+		} else if strings.Contains(res.err.Error(), "storage quota exceeded") || strings.Contains(res.err.Error(), "quota exceeded") {
+			code = "QuotaExceeded"
 		}
-		// Check if it's a quota exceeded error
-		if strings.Contains(err.Error(), "storage quota exceeded") || strings.Contains(err.Error(), "quota exceeded") {
-			h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
-			return
+		logrus.WithFields(logrus.Fields{
+			"bucket":   bucketName,
+			"object":   objectKey,
+			"uploadId": uploadID,
+			"code":     code,
+		}).WithError(res.err).Error("CompleteMultipartUpload failed after 200 OK was sent")
+		errResp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+"\n"+
+			`<Error><Code>%s</Code><Message>%s</Message><Resource>%s</Resource></Error>`,
+			code, res.err.Error(), objectKey)
+		w.Write([]byte(errResp)) //nolint:errcheck
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
 		}
-		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
 
-	// Note: Bucket metrics and tenant storage are updated by objectManager.CompleteMultipartUpload()
-	// No need to increment here to avoid double-counting on overwrites
+	// Return version ID if versioning is enabled
+	if res.obj.VersionID != "" {
+		// Headers already sent; version ID can only be delivered in a trailer,
+		// which most S3 clients don't support. Log it and move on.
+		logrus.WithField("versionID", res.obj.VersionID).Debug("CompleteMultipartUpload: version ID set after early 200, cannot set header")
+	}
 
 	result := CompleteMultipartUploadResult{
 		Location: "/" + bucketName + "/" + objectKey,
 		Bucket:   bucketName,
 		Key:      objectKey,
-		ETag:     obj.ETag,
+		ETag:     res.obj.ETag,
 	}
-
-	// Return version ID if versioning is enabled
-	if obj.VersionID != "" {
-		w.Header().Set("x-amz-version-id", obj.VersionID)
+	if err := xml.NewEncoder(w).Encode(result); err != nil {
+		logrus.WithError(err).Error("Failed to encode CompleteMultipartUpload response")
 	}
-
-	h.writeXMLResponse(w, http.StatusOK, result)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // AbortMultipartUpload aborts a multipart upload
