@@ -154,7 +154,7 @@ export default function Dashboard() {
             {t('title')}
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {isGlobalAdmin ? 'System-wide overview' : 'Your storage overview'}
+            {isGlobalAdmin ? t('systemWideOverview') : t('yourStorageOverview')}
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -198,7 +198,7 @@ export default function Dashboard() {
           title={t('storageUsed')}
           value={formatBytes(totalSize)}
           icon={HardDrive}
-          description={diskTotal > 0 ? `of ${formatBytes(diskTotal)}` : t('totalStorageConsumption')}
+          description={diskTotal > 0 ? t('storageOf', { total: formatBytes(diskTotal) }) : t('totalStorageConsumption')}
           color="warning"
         />
 
@@ -236,9 +236,9 @@ export default function Dashboard() {
               <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
                 <BarChart3 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
               </div>
-              Storage Distribution
+              {t('storageDistribution')}
             </CardTitle>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Top 5 buckets by size</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{t('top5BucketsBySize')}</p>
           </CardHeader>
           <CardContent className="flex-1 flex flex-col justify-center">
             {storageDistribution.length > 0 ? (
@@ -306,8 +306,8 @@ export default function Dashboard() {
                 <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 mb-4 shadow-inner">
                   <BarChart3 className="h-10 w-10 text-gray-400 dark:text-gray-500" />
                 </div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">No storage data yet</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Upload files to buckets to see distribution</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">{t('noStorageDataYet')}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{t('uploadFilesToSeeDist')}</p>
               </div>
             )}
           </CardContent>
@@ -320,9 +320,9 @@ export default function Dashboard() {
               <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-lg">
                 <Box className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
               </div>
-              Top Buckets
+              {t('topBuckets')}
             </CardTitle>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Largest buckets by storage</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{t('largestBucketsByStorage')}</p>
           </CardHeader>
           <CardContent className="flex-1">
             {topBuckets.length > 0 ? (
@@ -364,7 +364,7 @@ export default function Dashboard() {
                       if (name === 'size') return formatBytes(value);
                       return value.toLocaleString();
                     }}
-                    labelFormatter={(label) => `Bucket: ${label}`}
+                    labelFormatter={(label) => t('bucketLabel', { name: label })}
                     contentStyle={{
                       backgroundColor: isDarkMode
                         ? 'rgba(31, 41, 55, 0.95)'
@@ -401,8 +401,8 @@ export default function Dashboard() {
                 <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 mb-4 shadow-inner">
                   <Box className="h-10 w-10 text-gray-400 dark:text-gray-500" />
                 </div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">No buckets yet</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Create your first bucket to get started</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">{t('noBucketsYet')}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{t('createFirstBucket')}</p>
               </div>
             )}
           </CardContent>

@@ -484,15 +484,15 @@ export default function AuditLogsPage() {
           title={t('successful')}
           value={totalSuccessCount.toLocaleString()}
           icon={CheckCircle}
-          description={totalLogs > 0 ? `${Math.round((totalSuccessCount / totalLogs) * 100)}% success rate` : '0% success rate'}
+          description={totalLogs > 0 ? t('successRate', { percent: Math.round((totalSuccessCount / totalLogs) * 100) }) : t('noSuccessRate')}
           color="success"
         />
 
         <MetricCard
-          title="Failed"
+          title={t('failed')}
           value={totalFailedCount.toLocaleString()}
           icon={XCircle}
-          description={totalLogs > 0 ? `${Math.round((totalFailedCount / totalLogs) * 100)}% failure rate` : '0% failure rate'}
+          description={totalLogs > 0 ? t('failureRate', { percent: Math.round((totalFailedCount / totalLogs) * 100) }) : t('noFailureRate')}
           color="error"
         />
 

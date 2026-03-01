@@ -81,5 +81,8 @@
   "confirmEncryption": "✓ Encryption enabled",
   "confirmButton": "Create Bucket",
   "loadingTitle": "Creating bucket...",
-  "loadingMessage": "Configuring \"{{name}}\""
+  "loadingMessage": "Configuring \"{{name}}\"",
+  "ownerUserLabel": "Owner User",
+  "ownerTenantLabel": "Owner Tenant",
+  "noEmail": "no email"
 }

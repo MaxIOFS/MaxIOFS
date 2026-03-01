@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -62,6 +63,7 @@ export default function CreateBucketPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { isGlobalAdmin } = useCurrentUser();
+  const { t } = useTranslation('createBucket');
   const [activeTab, setActiveTab] = useState<'general' | 'objectlock' | 'lifecycle' | 'encryption' | 'access'>('general');
   const [config, setConfig] = useState<BucketCreationConfig>({
     name: '',
@@ -149,7 +151,7 @@ export default function CreateBucketPage() {
       // Refetch to update immediately (buckets list and tenant counters)
       queryClient.refetchQueries({ queryKey: ['buckets'] });
       queryClient.refetchQueries({ queryKey: ['tenants'] });
-      ModalManager.toast('success', `Bucket "${config.name}" created successfully`);
+      ModalManager.toast('success', t('bucketCreatedSuccess', { name: config.name }));
       navigate('/buckets');
     },
     onError: (error) => {
@@ -162,52 +164,52 @@ export default function CreateBucketPage() {
 
     // Validations
     if (!config.name) {
-      ModalManager.toast('error', 'Bucket name is required');
+      ModalManager.toast('error', t('validationNameRequired'));
       return;
     }
 
     if (!/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/.test(config.name)) {
-      ModalManager.toast('error', 'Invalid bucket name. Must contain only lowercase letters, numbers, dots and hyphens');
+      ModalManager.toast('error', t('validationNameInvalid'));
       return;
     }
 
     if (config.objectLockEnabled && !config.versioningEnabled) {
-      ModalManager.toast('error', 'Object Lock requires versioning to be enabled');
+      ModalManager.toast('error', t('validationVersioningRequired'));
       return;
     }
 
     if (config.objectLockEnabled && !config.retentionMode) {
-      ModalManager.toast('error', 'You must select a retention mode for Object Lock');
+      ModalManager.toast('error', t('validationRetentionModeRequired'));
       return;
     }
 
     if (config.objectLockEnabled && config.retentionDays === 0 && config.retentionYears === 0) {
-      ModalManager.toast('error', 'You must specify at least days or years of retention');
+      ModalManager.toast('error', t('validationRetentionPeriodRequired'));
       return;
     }
 
     const result = await ModalManager.fire({
       icon: 'question',
-      title: 'Create bucket?',
+      title: t('confirmTitle'),
       html: `
         <div class="text-left space-y-2">
-          <p><strong>Name:</strong> ${config.name}</p>
-          <p><strong>Region:</strong> ${config.region}</p>
+          <p><strong>${t('confirmName')}</strong> ${config.name}</p>
+          <p><strong>${t('confirmRegion')}</strong> ${config.region}</p>
           ${config.objectLockEnabled ? `
-            <p class="text-yellow-600"><strong>⚠️ Object Lock:</strong> ${config.retentionMode}</p>
-            <p class="text-sm text-red-600">This bucket will be IMMUTABLE and cannot be deleted until retention expires</p>
+            <p class="text-yellow-600"><strong>${t('confirmObjectLock')}</strong> ${config.retentionMode}</p>
+            <p class="text-sm text-red-600">${t('confirmObjectLockWarning')}</p>
           ` : ''}
-          ${config.versioningEnabled ? '<p><strong>✓</strong> Versioning enabled</p>' : ''}
-          ${config.encryptionEnabled ? '<p><strong>✓</strong> Encryption enabled</p>' : ''}
+          ${config.versioningEnabled ? `<p>${t('confirmVersioning')}</p>` : ''}
+          ${config.encryptionEnabled ? `<p>${t('confirmEncryption')}</p>` : ''}
         </div>
       `,
       showCancelButton: true,
-      confirmButtonText: 'Create Bucket',
-      cancelButtonText: 'Cancel',
+      confirmButtonText: t('confirmButton'),
+      cancelButtonText: t('cancel'),
     });
 
     if (result.isConfirmed) {
-      ModalManager.loading('Creating bucket...', `Configuring "${config.name}"`);
+      ModalManager.loading(t('loadingTitle'), t('loadingMessage', { name: config.name }));
       createBucketMutation.mutate();
     }
   };
@@ -238,11 +240,11 @@ export default function CreateBucketPage() {
   };
 
   const tabs = [
-    { id: 'general', label: 'General', icon: Box },
-    { id: 'objectlock', label: 'Object Lock & WORM', icon: Lock },
-    { id: 'lifecycle', label: 'Lifecycle', icon: Clock },
-    { id: 'encryption', label: 'Encryption', icon: Shield },
-    { id: 'access', label: 'Access Control', icon: Settings },
+    { id: 'general', label: t('tabGeneral'), icon: Box },
+    { id: 'objectlock', label: t('tabObjectLock'), icon: Lock },
+    { id: 'lifecycle', label: t('tabLifecycle'), icon: Clock },
+    { id: 'encryption', label: t('tabEncryption'), icon: Shield },
+    { id: 'access', label: t('tabAccessControl'), icon: Settings },
   ];
 
   return (
@@ -257,14 +259,14 @@ export default function CreateBucketPage() {
             className="gap-2 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 transition-all duration-200"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back
+            {t('back')}
           </Button>
           <div>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">
-              Create New Bucket
+              {t('title')}
             </h1>
             <p className="text-gray-500 dark:text-gray-400 mt-1">
-              Configure all advanced options for your new S3 bucket
+              {t('subtitle')}
             </p>
           </div>
         </div>
@@ -303,31 +305,31 @@ export default function CreateBucketPage() {
             <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Bucket Name <span className="text-red-500">*</span>
+                    {t('bucketName')} <span className="text-red-500">*</span>
                   </label>
                   <Input
                     value={config.name}
                     onChange={(e) => updateConfig('name', e.target.value.toLowerCase())}
-                    placeholder="my-s3-bucket"
+                    placeholder={t('bucketNamePlaceholder')}
                     className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
                     required
                   />
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Only lowercase letters, numbers, dots (.) and hyphens (-). Must be globally unique.
+                    {t('bucketNameHelp')}
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Region</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('region')}</label>
                   <select
                     value={config.region}
                     onChange={(e) => updateConfig('region', e.target.value)}
                     className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
                   >
-                    <option value="us-east-1">US East (N. Virginia)</option>
-                    <option value="us-west-2">US West (Oregon)</option>
-                    <option value="eu-west-1">EU (Ireland)</option>
-                    <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                    <option value="us-east-1">{t('regionUsEast')}</option>
+                    <option value="us-west-2">{t('regionUsWest')}</option>
+                    <option value="eu-west-1">{t('regionEuWest')}</option>
+                    <option value="ap-southeast-1">{t('regionApSoutheast')}</option>
                   </select>
                 </div>
 
@@ -336,12 +338,12 @@ export default function CreateBucketPage() {
                   <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
                     <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
                       <Shield className="h-4 w-4" />
-                      Ownership & Access Control
+                      {t('ownershipTitle')}
                     </h3>
 
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Owner Type (Optional)</label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('ownerType')}</label>
                         <select
                           value={config.ownerType}
                           onChange={(e) => {
@@ -350,24 +352,24 @@ export default function CreateBucketPage() {
                           }}
                           className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
                         >
-                          <option value="">No specific owner (Global)</option>
-                          <option value="user">User</option>
-                          <option value="tenant">Tenant</option>
+                          <option value="">{t('noOwner')}</option>
+                          <option value="user">{t('ownerUser')}</option>
+                          <option value="tenant">{t('ownerTenant')}</option>
                         </select>
                       </div>
 
                       {config.ownerType === 'user' && (
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Owner User</label>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('ownerUserLabel')}</label>
                           <select
                             value={config.ownerId}
                             onChange={(e) => updateConfig('ownerId', e.target.value)}
                             className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
                           >
-                            <option value="">Select a user</option>
+                            <option value="">{t('selectUser')}</option>
                             {users?.map((user) => (
                               <option key={user.id} value={user.id}>
-                                {user.username} ({user.email || 'no email'})
+                                {user.username} ({user.email || t('noEmail')})
                               </option>
                             ))}
                           </select>
@@ -376,13 +378,13 @@ export default function CreateBucketPage() {
 
                       {config.ownerType === 'tenant' && (
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Owner Tenant</label>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('ownerTenantLabel')}</label>
                           <select
                             value={config.ownerId}
                             onChange={(e) => updateConfig('ownerId', e.target.value)}
                             className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
                           >
-                            <option value="">Select a tenant</option>
+                            <option value="">{t('selectTenant')}</option>
                             {tenants?.map((tenant) => (
                               <option key={tenant.id} value={tenant.id}>
                                 {tenant.displayName} ({tenant.name})
@@ -401,11 +403,11 @@ export default function CreateBucketPage() {
                           className="rounded border-gray-300 dark:border-gray-600"
                         />
                         <label htmlFor="isPublic" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                          Make bucket public
+                          {t('makePublic')}
                         </label>
                       </div>
                       <p className="text-xs text-gray-500 dark:text-gray-400 ml-6">
-                        Public buckets allow anonymous access. Not recommended for sensitive data.
+                        {t('makePublicHelp')}
                       </p>
                     </div>
                   </div>
@@ -420,26 +422,26 @@ export default function CreateBucketPage() {
                     className="rounded border-gray-300 dark:border-gray-600"
                   />
                   <label htmlFor="versioning" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Enable Object Versioning
+                    {t('enableVersioning')}
                   </label>
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 ml-6">
-                  Keeps multiple versions of each object. Required for Object Lock.
+                  {t('versioningHelp')}
                 </p>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tags</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('tags')}</label>
                   <div className="space-y-2">
                     {config.tags.map((tag, index) => (
                       <div key={index} className="flex gap-2">
                         <Input
-                          placeholder="Key"
+                          placeholder={t('keyPlaceholder')}
                           value={tag.key}
                           onChange={(e) => updateTag(index, 'key', e.target.value)}
                           className="flex-1"
                         />
                         <Input
-                          placeholder="Value"
+                          placeholder={t('valuePlaceholder')}
                           value={tag.value}
                           onChange={(e) => updateTag(index, 'value', e.target.value)}
                           className="flex-1"
@@ -459,7 +461,7 @@ export default function CreateBucketPage() {
                       onClick={addTag}
                       className="w-full"
                     >
-                      + Add Tag
+                      {t('addTag')}
                     </Button>
                   </div>
                 </div>
@@ -473,12 +475,12 @@ export default function CreateBucketPage() {
                   <div className="flex gap-2">
                     <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0" />
                     <div className="text-sm text-yellow-800 dark:text-yellow-300">
-                      <p className="font-semibold mb-1">⚠️ Important: Object Lock is PERMANENT</p>
+                      <p className="font-semibold mb-1">{t('objectLockWarningTitle')}</p>
                       <ul className="list-disc list-inside space-y-1">
-                        <li>Once enabled, it CANNOT BE DISABLED</li>
-                        <li>Objects cannot be deleted until their retention period expires</li>
-                        <li>COMPLIANCE mode: Not even the root user can delete objects</li>
-                        <li>GOVERNANCE mode: Only users with special permissions can bypass</li>
+                        <li>{t('objectLockWarning1')}</li>
+                        <li>{t('objectLockWarning2')}</li>
+                        <li>{t('objectLockWarning3')}</li>
+                        <li>{t('objectLockWarning4')}</li>
                       </ul>
                     </div>
                   </div>
@@ -498,7 +500,7 @@ export default function CreateBucketPage() {
                     className="rounded border-gray-300 dark:border-gray-600"
                   />
                   <label htmlFor="objectLock" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Enable Object Lock (WORM)
+                    {t('enableObjectLock')}
                   </label>
                 </div>
 
@@ -506,7 +508,7 @@ export default function CreateBucketPage() {
                   <>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Retention Mode <span className="text-red-500">*</span>
+                        {t('retentionMode')} <span className="text-red-500">*</span>
                       </label>
                       <div className="space-y-3">
                         <label className="flex items-start space-x-3 p-3 border border-gray-200 dark:border-gray-700 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
@@ -519,11 +521,11 @@ export default function CreateBucketPage() {
                             className="mt-1"
                           />
                           <div>
-                            <div className="font-medium text-sm text-gray-900 dark:text-white">COMPLIANCE (Regulatory Compliance)</div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                              <strong>Maximum protection.</strong> No one can delete or modify objects, not even the root user.
-                              Ideal for legal and regulatory requirements (SEC, FINRA, HIPAA).
-                            </div>
+                            <div className="font-medium text-sm text-gray-900 dark:text-white">{t('complianceMode')}</div>
+                            <div
+                              className="text-xs text-gray-500 dark:text-gray-400 mt-1"
+                              dangerouslySetInnerHTML={{ __html: t('complianceModeDesc') }}
+                            />
                           </div>
                         </label>
 
@@ -537,11 +539,11 @@ export default function CreateBucketPage() {
                             className="mt-1"
                           />
                           <div>
-                            <div className="font-medium text-sm text-gray-900 dark:text-white">GOVERNANCE</div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                              <strong>Flexible protection.</strong> Users with special permissions can bypass retention.
-                              Useful for testing and scenarios where flexibility is needed.
-                            </div>
+                            <div className="font-medium text-sm text-gray-900 dark:text-white">{t('governanceMode')}</div>
+                            <div
+                              className="text-xs text-gray-500 dark:text-gray-400 mt-1"
+                              dangerouslySetInnerHTML={{ __html: t('governanceModeDesc') }}
+                            />
                           </div>
                         </label>
                       </div>
@@ -549,7 +551,7 @@ export default function CreateBucketPage() {
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Retention Days</label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('retentionDays')}</label>
                         <Input
                           type="number"
                           min="0"
@@ -560,7 +562,7 @@ export default function CreateBucketPage() {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Retention Years</label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('retentionYears')}</label>
                         <Input
                           type="number"
                           min="0"
@@ -572,13 +574,12 @@ export default function CreateBucketPage() {
                       </div>
                     </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Specify at least one. Objects cannot be deleted during this period.
+                      {t('retentionHelp')}
                     </p>
 
                     {config.retentionMode === 'COMPLIANCE' && (
                       <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md p-3 text-sm text-red-800 dark:text-red-300">
-                        <strong>⚠️ COMPLIANCE mode selected:</strong> This bucket will be IMMUTABLE.
-                        Objects cannot be deleted under any circumstances until retention expires.
+                        {t('complianceWarning')}
                       </div>
                     )}
                   </>
@@ -598,14 +599,14 @@ export default function CreateBucketPage() {
                     className="rounded border-gray-300 dark:border-gray-600"
                   />
                   <label htmlFor="lifecycle" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Enable Lifecycle Rules
+                    {t('enableLifecycle')}
                   </label>
                 </div>
 
                 {config.lifecycleEnabled && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Object Expiration (days)
+                      {t('expirationDays')}
                     </label>
                     <Input
                       type="number"
@@ -616,7 +617,7 @@ export default function CreateBucketPage() {
                       className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
                     />
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      Objects are permanently deleted after N days (0 = no expiration)
+                      {t('expirationHelp')}
                     </p>
                   </div>
                 )}
@@ -633,11 +634,12 @@ export default function CreateBucketPage() {
                       <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
                       <div>
                         <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                          Server Encryption Disabled
+                          {t('serverEncryptionDisabled')}
                         </p>
-                        <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
-                          Encryption is not enabled on the server. To enable encryption, configure <code className="bg-amber-100 dark:bg-amber-900/50 px-1 rounded">encryption_key</code> in <code className="bg-amber-100 dark:bg-amber-900/50 px-1 rounded">config.yaml</code> and restart the server.
-                        </p>
+                        <p
+                          className="text-xs text-amber-700 dark:text-amber-400 mt-1"
+                          dangerouslySetInnerHTML={{ __html: t('serverEncryptionHelp') }}
+                        />
                       </div>
                     </div>
                   </div>
@@ -656,23 +658,25 @@ export default function CreateBucketPage() {
                     htmlFor="encryption"
                     className={`text-sm font-medium ${!serverEncryptionEnabled ? 'text-gray-400 dark:text-gray-500 cursor-not-allowed' : 'text-gray-700 dark:text-gray-300'}`}
                   >
-                    Enable Encryption for this Bucket
+                    {t('enableEncryption')}
                   </label>
                 </div>
 
                 {serverEncryptionEnabled && config.encryptionEnabled && (
                   <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md p-3">
-                    <p className="text-sm text-blue-800 dark:text-blue-300">
-                      <strong>AES-256-CTR Encryption</strong> - All objects in this bucket will be encrypted at rest using streaming AES-256-CTR encryption
-                    </p>
+                    <p
+                      className="text-sm text-blue-800 dark:text-blue-300"
+                      dangerouslySetInnerHTML={{ __html: t('encryptionInfo') }}
+                    />
                   </div>
                 )}
 
                 {serverEncryptionEnabled && !config.encryptionEnabled && (
                   <div className="bg-gray-50 dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-md p-3">
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      Objects in this bucket will be stored <strong>unencrypted</strong>. You can enable encryption later if needed.
-                    </p>
+                    <p
+                      className="text-sm text-gray-600 dark:text-gray-400"
+                      dangerouslySetInnerHTML={{ __html: t('noEncryptionInfo') }}
+                    />
                   </div>
                 )}
             </div>
@@ -683,7 +687,7 @@ export default function CreateBucketPage() {
             <div className="space-y-4">
                 <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md p-3 text-sm text-blue-800 dark:text-blue-300">
                   <Info className="h-4 w-4 inline mr-2" />
-                  It is recommended to block all public access unless you specifically need to share data.
+                  {t('accessControlInfo')}
                 </div>
 
                 <div className="space-y-3">
@@ -694,7 +698,7 @@ export default function CreateBucketPage() {
                       onChange={(e) => updateConfig('blockPublicAcls', e.target.checked)}
                       className="rounded border-gray-300 dark:border-gray-600"
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">Block public ACLs</span>
+                    <span className="text-sm text-gray-700 dark:text-gray-300">{t('blockPublicAcls')}</span>
                   </label>
 
                   <label className="flex items-center space-x-2">
@@ -704,7 +708,7 @@ export default function CreateBucketPage() {
                       onChange={(e) => updateConfig('ignorePublicAcls', e.target.checked)}
                       className="rounded border-gray-300 dark:border-gray-600"
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">Ignore existing public ACLs</span>
+                    <span className="text-sm text-gray-700 dark:text-gray-300">{t('ignorePublicAcls')}</span>
                   </label>
 
                   <label className="flex items-center space-x-2">
@@ -714,7 +718,7 @@ export default function CreateBucketPage() {
                       onChange={(e) => updateConfig('blockPublicPolicy', e.target.checked)}
                       className="rounded border-gray-300 dark:border-gray-600"
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">Block public bucket policies</span>
+                    <span className="text-sm text-gray-700 dark:text-gray-300">{t('blockPublicPolicy')}</span>
                   </label>
 
                   <label className="flex items-center space-x-2">
@@ -724,7 +728,7 @@ export default function CreateBucketPage() {
                       onChange={(e) => updateConfig('restrictPublicBuckets', e.target.checked)}
                       className="rounded border-gray-300 dark:border-gray-600"
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">Restrict public buckets</span>
+                    <span className="text-sm text-gray-700 dark:text-gray-300">{t('restrictPublicBuckets')}</span>
                   </label>
                 </div>
             </div>
@@ -741,7 +745,7 @@ export default function CreateBucketPage() {
             onClick={() => navigate('/buckets')}
             className="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gradient-to-r hover:from-gray-50 hover:to-gray-100 dark:hover:from-gray-700 dark:hover:to-gray-700/50 transition-all duration-200"
           >
-            Cancel
+            {t('cancel')}
           </Button>
           <Button
             type="submit"
@@ -751,12 +755,12 @@ export default function CreateBucketPage() {
             {createBucketMutation.isPending ? (
               <>
                 <Loading size="sm" />
-                Creating...
+                {t('creating')}
               </>
             ) : (
               <>
                 <CheckCircle2 className="h-4 w-4" />
-                Create Bucket
+                {t('createButton')}
               </>
             )}
           </Button>

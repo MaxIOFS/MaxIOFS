@@ -191,16 +191,16 @@ export default function BucketsPage() {
       const msg = err?.response?.data?.error || err?.message || String(err);
       if (msg.includes('not empty')) {
         const result = await ModalManager.fire({
-          title: 'Bucket is not empty',
-          text: `The bucket "${variables.bucketName}" contains objects. Do you want to force delete it and all its contents? This action cannot be undone.`,
+          title: t('bucketNotEmpty'),
+          text: t('bucketNotEmptyMessage', { name: variables.bucketName }),
           icon: 'warning',
           showCancelButton: true,
-          confirmButtonText: 'Yes, force delete',
-          cancelButtonText: 'Cancel',
+          confirmButtonText: t('forceDeleteConfirm'),
+          cancelButtonText: t('close'),
           confirmButtonColor: '#dc2626',
         });
         if (result.isConfirmed) {
-          ModalManager.loading('Force deleting bucket...', `Deleting "${variables.bucketName}" and all its objects`);
+          ModalManager.loading(t('forceDeletingBucket'), t('forceDeletingBucketMessage', { name: variables.bucketName }));
           deleteBucketMutation.mutate({ bucketName: variables.bucketName, tenantId: variables.tenantId, force: true });
         }
       } else {
@@ -365,7 +365,7 @@ export default function BucketsPage() {
     try {
       const result = await ModalManager.confirmDeleteBucket(bucketName);
       if (result.isConfirmed) {
-        ModalManager.loading('Deleting bucket...', `Deleting "${bucketName}" and all its data`);
+        ModalManager.loading(t('deletingBucket'), t('deletingBucketMessage', { name: bucketName }));
         const bucket = buckets?.find(b => b.name === bucketName);
         deleteBucketMutation.mutate({ bucketName, tenantId: bucket?.tenant_id || bucket?.tenantId });
       }
@@ -413,7 +413,7 @@ export default function BucketsPage() {
       return {
         icon: <ShieldCheck className="h-4 w-4" />,
         className: 'p-2 text-gray-500 dark:text-gray-400 hover:text-success-600 dark:hover:text-success-400 hover:bg-success-50 dark:hover:bg-success-900/20 rounded-lg transition-all duration-200',
-        title: 'Verify integrity',
+        title: t('verifyIntegrity'),
         badge: null,
       };
     }
@@ -421,7 +421,7 @@ export default function BucketsPage() {
       return {
         icon: <ShieldCheck className="h-4 w-4 text-amber-500 animate-pulse" />,
         className: 'p-2 rounded-lg transition-all duration-200 bg-amber-50 dark:bg-amber-900/20',
-        title: `Scanning… ${pct !== null ? pct + '%' : ''}`,
+        title: pct !== null ? t('scanningProgressTitle', { pct }) : t('scanningTitle'),
         badge: pct !== null
           ? <span className="absolute -top-1 -right-1 text-[9px] font-bold leading-none bg-amber-500 text-white rounded-full px-1 py-0.5">{pct}%</span>
           : null,
@@ -431,7 +431,7 @@ export default function BucketsPage() {
       return {
         icon: <ShieldCheck className="h-4 w-4 text-success-600 dark:text-success-400" />,
         className: 'p-2 rounded-lg transition-all duration-200 bg-success-50 dark:bg-success-900/20 hover:bg-success-100 dark:hover:bg-success-900/30',
-        title: `Last scan: clean (${state.checked.toLocaleString()} objects in ${state.duration})`,
+        title: t('lastScanClean', { count: state.checked, duration: state.duration }),
         badge: null,
       };
     }
@@ -439,31 +439,25 @@ export default function BucketsPage() {
       return {
         icon: <ShieldAlert className="h-4 w-4 text-error-600 dark:text-error-400" />,
         className: 'p-2 rounded-lg transition-all duration-200 bg-error-50 dark:bg-error-900/20 hover:bg-error-100 dark:hover:bg-error-900/30',
-        title: `Last scan: ${state.corrupted} issue${state.corrupted !== 1 ? 's' : ''} found`,
-        badge: <span className="absolute -top-1 -right-1 text-[9px] font-bold leading-none bg-error-500 text-white rounded-full px-1 py-0.5">{state.corrupted}</span>,
+        title: t('lastScanIssues', { count: state.corrupted }),
+        badge: <span className="absolute -top-1 -right-1 text-[9px] font-bold leading-none bg-error-500 text-white rounded-full px-1 py-0.5">{state.corrupted}</span>
       };
     }
     // error
     return {
       icon: <ShieldOff className="h-4 w-4 text-gray-400 dark:text-gray-500" />,
       className: 'p-2 rounded-lg transition-all duration-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700',
-      title: 'Last scan failed — click to retry',
+      title: t('lastScanFailed'),
       badge: null,
     };
   };
 
   // ── Render ───────────────────────────────────────────────────────────────────
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64"><Loading size="lg" /></div>;
+    return <Loading />;
   }
   if (error) {
-    return (
-      <div className="rounded-lg bg-error-50 dark:bg-error-900/30 border border-error-200 dark:border-error-800 p-4">
-        <div className="text-sm text-error-700 dark:text-error-400 font-medium">
-          {t('errorLoadingBuckets', { error: error instanceof Error ? error.message : 'Unknown error' })}
-        </div>
-      </div>
-    );
+    return <div>Error: {error.message}</div>;
   }
 
   // Buckets actively running a scan in background (for the toast-style indicator)
@@ -496,11 +490,7 @@ export default function BucketsPage() {
         {runningScanKeys.length > 0 && (
           <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-300">
             <Clock className="h-4 w-4 animate-pulse shrink-0" />
-            <span>
-              Integrity scan running in background on{' '}
-              <strong>{runningScanKeys.length}</strong> bucket{runningScanKeys.length !== 1 ? 's' : ''}.
-              Click the <ShieldCheck className="h-3.5 w-3.5 inline text-amber-600" /> icon on a bucket to view progress.
-            </span>
+            <span>{t('integrityScanRunning', { count: runningScanKeys.length })}</span>
           </div>
         )}
 
@@ -510,14 +500,14 @@ export default function BucketsPage() {
             title={t('totalBuckets')}
             value={sortedBuckets.length}
             icon={Box}
-            description="Active storage containers"
+            description={t('activeStorageContainers')}
             color="brand"
           />
           <MetricCard
             title={t('totalObjects')}
             value={sortedBuckets.reduce((s, b) => s + (b.object_count || b.objectCount || 0), 0).toLocaleString()}
             icon={HardDrive}
-            description="Stored across all buckets"
+            description={t('storedAcrossAllBuckets')}
             color="blue-light"
           />
           <MetricCard
@@ -575,7 +565,7 @@ export default function BucketsPage() {
                       </button>
                     </TableHead>
                     <TableHead>{t('region')}</TableHead>
-                    <TableHead>Node</TableHead>
+                    <TableHead>{t('nodeColumn')}</TableHead>
                     <TableHead>{t('owner')}</TableHead>
                     <TableHead>
                       <button onClick={() => handleSort('objectCount')} className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
@@ -629,14 +619,14 @@ export default function BucketsPage() {
                                       const cnt = bucket.object_count ?? bucket.objectCount ?? 0;
                                       return cnt > 0
                                         ? `${Math.min(100, Math.round(((scanState.checked) / cnt) * 100))}%`
-                                        : 'scanning';
+                                        : t('scanning');
                                     })()}
                                   </span>
                                 )}
                                 {scanState?.phase === 'done' && scanState.corrupted > 0 && (
                                   <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-400">
                                     <AlertTriangle className="h-2.5 w-2.5" />
-                                    {scanState.corrupted} issue{scanState.corrupted !== 1 ? 's' : ''}
+                                    {t('issueCount', { count: scanState.corrupted })}
                                   </span>
                                 )}
                               </div>
@@ -661,7 +651,7 @@ export default function BucketsPage() {
                               <span className="text-sm">{bucket.node_name || bucket.nodeName}</span>
                             </div>
                           ) : (
-                            <span className="text-xs text-gray-400 dark:text-gray-500 italic">Local</span>
+                            <span className="text-xs text-gray-400 dark:text-gray-500 italic">{t('local')}</span>
                           )}
                         </TableCell>
 
@@ -709,7 +699,7 @@ export default function BucketsPage() {
                             <button
                               onClick={() => navigate(`${bucketPath}/settings`)}
                               className="p-2 text-gray-600 dark:text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg transition-all duration-200"
-                              title="Settings"
+                              title={t('settings')}
                             >
                               <Settings className="h-4 w-4" />
                             </button>
@@ -718,7 +708,7 @@ export default function BucketsPage() {
                               onClick={() => handleDeleteBucket(bucket.name)}
                               disabled={deleteBucketMutation.isPending}
                               className="p-2 text-gray-600 dark:text-gray-400 hover:text-error-600 dark:hover:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/20 rounded-lg transition-all duration-200 disabled:opacity-50"
-                              title="Delete"
+                              title={t('delete')}
                             >
                               <Trash2 className="h-4 w-4" />
                             </button>

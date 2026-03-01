@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -40,6 +41,7 @@ export function BucketPermissionsModal({
   tenantId,
   readOnly = false,
 }: BucketPermissionsModalProps) {
+  const { t } = useTranslation('buckets');
   const [isAddPermissionOpen, setIsAddPermissionOpen] = useState(false);
   const [newPermission, setNewPermission] = useState<Partial<GrantPermissionRequest>>({
     permissionLevel: 'read',
@@ -81,8 +83,8 @@ export function BucketPermissionsModal({
   }) ?? [];
 
   const scopeLabel = isGlobalBucket
-    ? 'Global users only'
-    : `Users in this tenant only`;
+    ? t('globalUsersOnly')
+    : t('tenantUsersOnly');
 
   // Grant permission mutation
   const grantPermissionMutation = useMutation({
@@ -92,7 +94,7 @@ export function BucketPermissionsModal({
       queryClient.invalidateQueries({ queryKey: ['bucketPermissions', bucketName] });
       setIsAddPermissionOpen(false);
       setNewPermission({ permissionLevel: 'read', grantedBy: 'admin' });
-      ModalManager.toast('success', 'Permission granted successfully');
+      ModalManager.toast('success', t('permGrantedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -105,7 +107,7 @@ export function BucketPermissionsModal({
       APIClient.revokeBucketPermission(bucketName, userId, permissionTenantId, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucketPermissions', bucketName] });
-      ModalManager.toast('success', 'Permission revoked successfully');
+      ModalManager.toast('success', t('permRevokedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -116,7 +118,7 @@ export function BucketPermissionsModal({
     e.preventDefault();
 
     if (!newPermission.userId) {
-      ModalManager.toast('error', 'Please select a user');
+      ModalManager.toast('error', t('selectUserRequired'));
       return;
     }
 
@@ -136,12 +138,12 @@ export function BucketPermissionsModal({
       ? getUserName(permission.userId)
       : permission.tenantId
         ? getTenantName(permission.tenantId)
-        : 'Unknown';
-    const targetKind = permission.userId ? 'user' : 'tenant';
+        : t('unknown');
+    const targetKind = permission.userId ? t('permTypeUser').toLowerCase() : t('permTypeTenant').toLowerCase();
 
     ModalManager.confirm(
-      'Revoke Permission?',
-      `Are you sure you want to revoke ${permission.permissionLevel} access for ${targetKind} "${targetName}"?`,
+      t('revokePermissionTitle'),
+      t('revokePermissionMsg', { level: permission.permissionLevel, kind: targetKind, name: targetName }),
       () => revokePermissionMutation.mutate({
         userId: permission.userId || undefined,
         permissionTenantId: permission.tenantId || undefined,
@@ -159,7 +161,7 @@ export function BucketPermissionsModal({
   };
 
   const formatDate = (timestamp: number) => {
-    if (!timestamp) return 'N/A';
+    if (!timestamp) return t('permNA');
     return new Date(timestamp * 1000).toLocaleString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -184,7 +186,7 @@ export function BucketPermissionsModal({
       <Modal
         isOpen={isOpen}
         onClose={onClose}
-        title={`Bucket Permissions: ${bucketName}`}
+        title={t('permissionsTitle', { name: bucketName })}
         size="lg"
       >
         <div className="space-y-4">
@@ -197,10 +199,10 @@ export function BucketPermissionsModal({
                   : 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300'
               }`}>
                 {isGlobalBucket ? <Users className="h-3 w-3" /> : <Building2 className="h-3 w-3" />}
-                {isGlobalBucket ? 'Global bucket' : 'Tenant bucket'}
+                {isGlobalBucket ? t('globalBucket') : t('tenantBucket')}
               </span>
               <span className="text-sm text-gray-500 dark:text-gray-400">
-                {readOnly ? 'View access permissions' : 'Manage access permissions'}
+                {readOnly ? t('viewAccessPermissions') : t('manageAccessPermissions')}
               </span>
             </div>
             {!readOnly && (
@@ -210,7 +212,7 @@ export function BucketPermissionsModal({
                 className="gap-2"
               >
                 <Plus className="h-4 w-4" />
-                Grant Permission
+                {t('grantPermission')}
               </Button>
             )}
           </div>
@@ -223,11 +225,11 @@ export function BucketPermissionsModal({
           ) : !permissions || permissions.length === 0 ? (
             <div className="text-center py-8">
               <Shield className="mx-auto h-12 w-12 text-gray-400" />
-              <h3 className="mt-4 text-lg font-semibold">No permissions set</h3>
+              <h3 className="mt-4 text-lg font-semibold">{t('noPermissionsSet')}</h3>
               <p className="text-gray-500 mt-1">
                 {readOnly
-                  ? 'No custom permissions have been granted for this bucket.'
-                  : 'Grant permissions to users to control access to this bucket.'}
+                  ? t('noCustomPermissions')
+                  : t('grantPermissionsDesc')}
               </p>
               {!readOnly && (
                 <Button
@@ -235,7 +237,7 @@ export function BucketPermissionsModal({
                   className="mt-4 gap-2"
                 >
                   <Plus className="h-4 w-4" />
-                  Grant First Permission
+                  {t('grantFirstPermission')}
                 </Button>
               )}
             </div>
@@ -243,12 +245,12 @@ export function BucketPermissionsModal({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Target</TableHead>
-                  <TableHead>Permission Level</TableHead>
-                  <TableHead>Granted By</TableHead>
-                  <TableHead>Granted At</TableHead>
-                  <TableHead>Expires</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t('permTableTarget')}</TableHead>
+                  <TableHead>{t('permTableLevel')}</TableHead>
+                  <TableHead>{t('permTableGrantedBy')}</TableHead>
+                  <TableHead>{t('permTableGrantedAt')}</TableHead>
+                  <TableHead>{t('permTableExpires')}</TableHead>
+                  <TableHead className="text-right">{t('actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -260,16 +262,16 @@ export function BucketPermissionsModal({
                           <>
                             <Users className="h-4 w-4 text-gray-500" />
                             <span className="font-medium">{getUserName(permission.userId)}</span>
-                            <span className="text-xs text-gray-500">(User)</span>
+                            <span className="text-xs text-gray-500">({t('permTypeUser')})</span>
                           </>
                         ) : permission.tenantId ? (
                           <>
                             <Building2 className="h-4 w-4 text-gray-500" />
                             <span className="font-medium">{getTenantName(permission.tenantId)}</span>
-                            <span className="text-xs text-gray-500">(Tenant)</span>
+                            <span className="text-xs text-gray-500">({t('permTypeTenant')})</span>
                           </>
                         ) : (
-                          <span className="text-xs text-gray-400">Unknown</span>
+                          <span className="text-xs text-gray-400">{t('unknown')}</span>
                         )}
                       </div>
                     </TableCell>
@@ -294,7 +296,7 @@ export function BucketPermissionsModal({
                           {formatDate(permission.expiresAt)}
                         </div>
                       ) : (
-                        <span className="text-sm text-gray-400 italic">Never</span>
+                        <span className="text-sm text-gray-400 italic">{t('permNeverExpires')}</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right">
@@ -304,7 +306,7 @@ export function BucketPermissionsModal({
                           size="sm"
                           onClick={() => handleRevokePermission(permission)}
                           disabled={revokePermissionMutation.isPending}
-                          title="Revoke permission"
+                          title={t('revokePermissionTooltip')}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -319,7 +321,7 @@ export function BucketPermissionsModal({
           {/* Close Button */}
           <div className="flex justify-end pt-4 border-t">
             <Button variant="outline" onClick={onClose}>
-              Close
+              {t('close')}
             </Button>
           </div>
         </div>
@@ -332,7 +334,7 @@ export function BucketPermissionsModal({
           setIsAddPermissionOpen(false);
           setNewPermission({ permissionLevel: 'read', grantedBy: 'admin' });
         }}
-        title="Grant Bucket Permission"
+        title={t('grantBucketPermission')}
       >
         <form onSubmit={handleGrantPermission} className="space-y-4">
 
@@ -344,21 +346,21 @@ export function BucketPermissionsModal({
           }`}>
             <Shield className="h-4 w-4 mt-0.5 flex-shrink-0" />
             <span>
-              <strong>{isGlobalBucket ? 'Global bucket:' : 'Tenant bucket:'}</strong>{' '}
-              {scopeLabel}. Cross-scope grants are not allowed.
+              <strong>{isGlobalBucket ? t('globalBucketScope') : t('tenantBucketScope')}</strong>{' '}
+              {scopeLabel}. {t('crossScopeNotAllowed')}
             </span>
           </div>
 
           {/* User selector */}
           <div>
-            <label className="block text-sm font-medium mb-2">User</label>
+            <label className="block text-sm font-medium mb-2">{t('selectUserLabel')}</label>
             <select
               value={newPermission.userId || ''}
               onChange={(e) => setNewPermission({ ...newPermission, userId: e.target.value })}
               className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
               required
             >
-              <option value="">Select a user</option>
+              <option value="">{t('selectUserPlaceholder')}</option>
               {selectableUsers.map((user) => (
                 <option key={user.id} value={user.id}>
                   {user.username}{user.email ? ` (${user.email})` : ''}
@@ -367,14 +369,14 @@ export function BucketPermissionsModal({
             </select>
             {selectableUsers.length === 0 && (
               <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                No eligible users found for this bucket's scope.
+                {t('noEligibleUsers')}
               </p>
             )}
           </div>
 
           {/* Permission Level */}
           <div>
-            <label className="block text-sm font-medium mb-2">Permission Level</label>
+            <label className="block text-sm font-medium mb-2">{t('permissionLevelLabel')}</label>
             <select
               value={newPermission.permissionLevel}
               onChange={(e) =>
@@ -382,15 +384,15 @@ export function BucketPermissionsModal({
               }
               className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              <option value="read">Read — View and download objects</option>
-              <option value="write">Write — Upload, modify, and delete objects</option>
-              <option value="admin">Admin — Full control including permissions</option>
+              <option value="read">{t('readPermission')}</option>
+              <option value="write">{t('writePermission')}</option>
+              <option value="admin">{t('adminPermission')}</option>
             </select>
           </div>
 
           {/* Expiration */}
           <div>
-            <label className="block text-sm font-medium mb-2">Expiration (Optional)</label>
+            <label className="block text-sm font-medium mb-2">{t('expirationLabel')}</label>
             <Input
               type="datetime-local"
               value={
@@ -407,7 +409,7 @@ export function BucketPermissionsModal({
                 })
               }
             />
-            <p className="text-xs text-gray-500 mt-1">Leave empty for permanent access</p>
+            <p className="text-xs text-gray-500 mt-1">{t('permanentAccess')}</p>
           </div>
 
           <div className="flex justify-end gap-2 pt-4">
@@ -419,10 +421,10 @@ export function BucketPermissionsModal({
                 setNewPermission({ permissionLevel: 'read', grantedBy: 'admin' });
               }}
             >
-              Cancel
+              {t('close')}
             </Button>
             <Button type="submit" disabled={grantPermissionMutation.isPending || selectableUsers.length === 0}>
-              {grantPermissionMutation.isPending ? 'Granting...' : 'Grant Permission'}
+              {grantPermissionMutation.isPending ? t('granting') : t('grantPermission')}
             </Button>
           </div>
         </form>

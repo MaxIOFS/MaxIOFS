@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Home,
   Box,
@@ -72,7 +73,25 @@ export function SidebarNav({
 }: SidebarNavProps) {
   const { pathname } = useLocation();
   const basePath = useBasePath();
+  const { t: tNav } = useTranslation('navigation');
+  const { t: tLayout } = useTranslation('layout');
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
+
+  // Map nav item names (used for logic) to translated labels
+  const navLabels: Record<string, string> = {
+    'Dashboard':          tNav('dashboard'),
+    'Buckets':            tNav('buckets'),
+    'Users':              tNav('users'),
+    'Access Keys':        tNav('accessKeys'),
+    'Tenants':            tNav('tenants'),
+    'Identity Providers': tNav('identityProviders'),
+    'Audit Logs':         tNav('auditLogs'),
+    'Metrics':            tNav('metrics'),
+    'Security':           tNav('security'),
+    'Cluster':            tNav('cluster'),
+    'Settings':           tNav('settings'),
+    'About':              tNav('about'),
+  };
 
   const isActiveRoute = (href: string, exact = false): boolean => {
     if (exact || href === '/') return pathname === href;
@@ -105,7 +124,7 @@ export function SidebarNav({
           </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">MaxIOFS</h1>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Object Storage</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{tLayout('objectStorage')}</p>
           </div>
         </Link>
         <button
@@ -138,7 +157,7 @@ export function SidebarNav({
                   >
                     <div className="flex items-center space-x-3">
                       <item.icon className="h-5 w-5 flex-shrink-0" />
-                      <span>{item.name}</span>
+                      <span>{navLabels[item.name] ?? item.name}</span>
                     </div>
                     {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   </button>
@@ -157,7 +176,7 @@ export function SidebarNav({
                           )}
                         >
                           <child.icon className="h-4 w-4" />
-                          <span>{child.name}</span>
+                          <span>{navLabels[child.name] ?? child.name}</span>
                         </Link>
                       ))}
                     </div>
@@ -174,7 +193,7 @@ export function SidebarNav({
                   )}
                 >
                   <item.icon className="h-5 w-5" />
-                  <span>{item.name}</span>
+                  <span>{navLabels[item.name] ?? item.name}</span>
                 </Link>
               )}
             </div>
@@ -189,13 +208,13 @@ export function SidebarNav({
             <div className="w-2 h-2 bg-success-500 rounded-full animate-pulse" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-medium text-gray-900 dark:text-white">System Status</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">All systems operational</p>
+            <p className="text-sm font-medium text-gray-900 dark:text-white">{tLayout('systemStatus')}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{tLayout('allSystemsOperational')}</p>
           </div>
         </div>
         <div className="text-center mt-3">
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            {serverConfig?.version || 'Loading...'}
+            {serverConfig?.version || tLayout('loadingVersion')}
           </p>
           {isGlobalAdmin && (
             hasNewVersion ? (
@@ -206,12 +225,12 @@ export function SidebarNav({
                 className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-full bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 text-xs font-medium hover:bg-amber-100 dark:hover:bg-amber-500/30 transition-colors duration-200 border border-amber-200 dark:border-amber-500/30 animate-pulse"
               >
                 <ArrowUpCircle className="h-3.5 w-3.5" />
-                New Release: {latestVersion}
+                {tLayout('newRelease', { version: latestVersion })}
               </a>
             ) : (
               <span className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-medium border border-emerald-200 dark:border-emerald-500/30">
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                Latest Version
+                {tLayout('latestVersion')}
               </span>
             )
           )}

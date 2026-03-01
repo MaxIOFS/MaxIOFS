@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Bucket, IntegrityResult, LastIntegrityScan } from '@/types';
@@ -82,6 +83,7 @@ export function BucketIntegrityModal({
   onCancel,
   onHide,
 }: Props) {
+  const { t } = useTranslation('buckets');
   const phase = scanState?.phase ?? null;
   const isRateLimited = rateLimitUntil !== null && rateLimitUntil > new Date();
 
@@ -93,8 +95,8 @@ export function BucketIntegrityModal({
     <Modal
       isOpen={isOpen}
       onClose={onHide}
-      title="Verify Bucket Integrity"
-      description={`Bucket: ${bucket.name}`}
+      title={t('integrityTitle')}
+      description={t('integrityBucketDesc', { name: bucket.name })}
       size="xl"
       closeOnOverlay
       closeOnEscape
@@ -109,21 +111,17 @@ export function BucketIntegrityModal({
             </div>
             <div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {canRunScan ? 'Ready to scan' : 'No scan results yet'}
+                {canRunScan ? t('readyToScan') : t('noScanResultsYet')}
               </h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 {canRunScan
-                  ? <>Each object's MD5 is recomputed from disk and compared against its stored ETag.
+                  ? <>
+                      {t('integrityMd5Desc')}
                       {objectCount > 0 && (
-                        <> This bucket has{' '}
-                          <span className="font-semibold text-gray-700 dark:text-gray-200">
-                            {objectCount.toLocaleString()}
-                          </span>{' '}
-                          object{objectCount !== 1 ? 's' : ''}.
-                        </>
+                        <> {t('integrityObjectCount', { count: objectCount })}</>
                       )}
                     </>
-                  : 'Integrity verification has not been run for this bucket yet. Contact a global administrator to run a scan.'
+                  : t('integrityNoScanAdmin')
                 }
               </p>
             </div>
@@ -137,7 +135,7 @@ export function BucketIntegrityModal({
                   className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md"
                 >
                   <ShieldCheck className="h-4 w-4 mr-2" />
-                  Start Verification
+                  {t('startVerification')}
                 </Button>
               )
             )}
@@ -146,7 +144,7 @@ export function BucketIntegrityModal({
 
             {!canRunScan && (
               <div className="flex justify-end pt-2 border-t border-gray-100 dark:border-gray-800">
-                <Button onClick={onHide}>Close</Button>
+                <Button onClick={onHide}>{t('close')}</Button>
               </div>
             )}
           </div>
@@ -160,10 +158,13 @@ export function BucketIntegrityModal({
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
                   <Clock className="h-4 w-4 text-amber-500 animate-pulse" />
-                  Scanning in progress…
+                  {t('scanningInProgress')}
                 </span>
                 <span className="text-gray-500 dark:text-gray-400">
-                  {scanState.checked.toLocaleString()} / {objectCount > 0 ? objectCount.toLocaleString() : '?'} objects
+                  {objectCount > 0
+                    ? t('scanObjectsProgress', { checked: scanState.checked.toLocaleString(), total: objectCount.toLocaleString() })
+                    : t('scanObjectsProgressUnknown', { checked: scanState.checked.toLocaleString() })
+                  }
                 </span>
               </div>
               <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
@@ -177,8 +178,8 @@ export function BucketIntegrityModal({
                 )}
               </div>
               <div className="flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
-                <span>Started {scanState.startedAt.toLocaleTimeString()}</span>
-                {progressPct !== null && <span>{progressPct}% complete</span>}
+                <span>{t('scanStarted', { time: scanState.startedAt.toLocaleTimeString() })}</span>
+                {progressPct !== null && <span>{t('percentComplete', { pct: progressPct })}</span>}
               </div>
             </div>
 
@@ -189,12 +190,12 @@ export function BucketIntegrityModal({
             <div className="flex items-center justify-between pt-1 border-t border-gray-100 dark:border-gray-800">
               <p className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
                 <EyeOff className="h-3.5 w-3.5" />
-                Closing the window does <strong>not</strong> stop the scan
+                <span dangerouslySetInnerHTML={{ __html: t('closingDoesNotStop') }} />
               </p>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={onHide}>
                   <EyeOff className="h-4 w-4 mr-1.5" />
-                  Hide
+                  {t('hide')}
                 </Button>
                 <Button
                   variant="destructive"
@@ -202,7 +203,7 @@ export function BucketIntegrityModal({
                   className="bg-error-600 hover:bg-error-700 text-white"
                 >
                   <XCircle className="h-4 w-4 mr-1.5" />
-                  Cancel scan
+                  {t('cancelScan')}
                 </Button>
               </div>
             </div>
@@ -216,7 +217,7 @@ export function BucketIntegrityModal({
             {scanState.source === 'scrubber' && (
               <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5" />
-                Background scrubber · scanned {scanState.finishedAt?.toLocaleString() ?? 'recently'}
+                {t('backgroundScrubber', { time: scanState.finishedAt?.toLocaleString() ?? t('recently') })}
               </p>
             )}
 
@@ -225,12 +226,12 @@ export function BucketIntegrityModal({
                 <CheckCircle2 className="h-8 w-8 text-success-600 dark:text-success-400 shrink-0" />
                 <div>
                   <p className="font-semibold text-success-800 dark:text-success-300">
-                    All objects verified — no corruption found
+                    {t('allObjectsVerified')}
                   </p>
                   <p className="text-sm text-success-700 dark:text-success-400 mt-0.5">
-                    {scanState.checked.toLocaleString()} object{scanState.checked !== 1 ? 's' : ''} checked
-                    {scanState.skipped > 0 && ` · ${scanState.skipped} skipped`}
-                    {' · '}completed in {scanState.duration}
+                    {t('objectsChecked', { count: scanState.checked })}
+                    {scanState.skipped > 0 && ` · ${scanState.skipped.toLocaleString()} ${t('skippedLabel')}`}
+                    {` · `}{t('completedIn', { duration: scanState.duration })}
                   </p>
                 </div>
               </div>
@@ -239,11 +240,11 @@ export function BucketIntegrityModal({
                 <ShieldAlert className="h-8 w-8 text-error-600 dark:text-error-400 shrink-0" />
                 <div>
                   <p className="font-semibold text-error-800 dark:text-error-300">
-                    {scanState.corrupted} corrupted / missing object{scanState.corrupted !== 1 ? 's' : ''} detected
+                    {t('corruptedDetected', { count: scanState.corrupted })}
                   </p>
                   <p className="text-sm text-error-700 dark:text-error-400 mt-0.5">
-                    {scanState.checked.toLocaleString()} checked · completed in {scanState.duration}
-                    {scanState.errors > 0 && ` · ${scanState.errors} read error${scanState.errors !== 1 ? 's' : ''}`}
+                    {`${scanState.checked.toLocaleString()} ${t('checkedCompletedIn', { duration: scanState.duration })}`}
+                    {scanState.errors > 0 && ` · ${t('readErrors', { count: scanState.errors })}`}
                   </p>
                 </div>
               </div>
@@ -261,7 +262,7 @@ export function BucketIntegrityModal({
                   ) : (
                     <Button variant="outline" onClick={onStart}>
                       <ShieldCheck className="h-4 w-4 mr-1.5" />
-                      Scan again
+                      {t('scanAgain')}
                     </Button>
                   )
                 )}
@@ -270,7 +271,7 @@ export function BucketIntegrityModal({
                 onClick={onHide}
                 className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white"
               >
-                Close
+                {t('close')}
               </Button>
             </div>
           </div>
@@ -282,19 +283,19 @@ export function BucketIntegrityModal({
             <div className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-r from-error-50 to-red-50 dark:from-error-900/20 dark:to-red-900/20 border border-error-200 dark:border-error-800">
               <XCircle className="h-8 w-8 text-error-600 dark:text-error-400 shrink-0" />
               <div>
-                <p className="font-semibold text-error-800 dark:text-error-300">Verification failed</p>
+                <p className="font-semibold text-error-800 dark:text-error-300">{t('verificationFailed')}</p>
                 <p className="text-sm text-error-700 dark:text-error-400 mt-0.5">{scanState.errorMessage}</p>
               </div>
             </div>
             {history.length > 0 && <ScanHistory history={history} />}
             <div className="flex justify-end gap-3 pt-1 border-t border-gray-100 dark:border-gray-800">
-              <Button variant="outline" onClick={onHide}>Close</Button>
+              <Button variant="outline" onClick={onHide}>{t('close')}</Button>
               {canRunScan && !isRateLimited && (
                 <Button
                   onClick={onStart}
                   className="bg-gradient-to-r from-brand-600 to-brand-700 text-white"
                 >
-                  Retry
+                  {t('retry')}
                 </Button>
               )}
               {canRunScan && isRateLimited && <RateLimitBanner until={rateLimitUntil!} compact />}
@@ -309,6 +310,7 @@ export function BucketIntegrityModal({
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 function RateLimitBanner({ until, compact }: { until: Date; compact?: boolean }) {
+  const { t } = useTranslation('buckets');
   const [, forceUpdate] = useState(0);
   // Tick every second so the countdown updates.
   React.useEffect(() => {
@@ -322,7 +324,7 @@ function RateLimitBanner({ until, compact }: { until: Date; compact?: boolean })
     return (
       <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
         <Timer className="h-3.5 w-3.5 shrink-0" />
-        Rate limited — next scan in {remaining}
+        {t('rateLimitedCompact', { remaining })}
       </p>
     );
   }
@@ -331,10 +333,9 @@ function RateLimitBanner({ until, compact }: { until: Date; compact?: boolean })
     <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-300">
       <Timer className="h-5 w-5 shrink-0 text-amber-500" />
       <div>
-        <p className="font-semibold">Rate limit active</p>
+        <p className="font-semibold">{t('rateLimitActive')}</p>
         <p className="text-xs mt-0.5">
-          To protect storage, manual scans are limited to once per hour.
-          Next scan available in <strong>{remaining}</strong>.
+          <span dangerouslySetInnerHTML={{ __html: t('rateLimitDesc', { remaining }) }} />
         </p>
       </div>
     </div>
@@ -342,28 +343,29 @@ function RateLimitBanner({ until, compact }: { until: Date; compact?: boolean })
 }
 
 function LiveCounters({ scanState }: { scanState: BucketScanState }) {
+  const { t } = useTranslation('buckets');
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
       <CounterCard
-        label="Checked"
+        label={t('counterChecked')}
         value={scanState.checked}
         icon={<ShieldCheck className="h-4 w-4" />}
         color="brand"
       />
       <CounterCard
-        label="OK"
+        label={t('counterOk')}
         value={scanState.ok}
         icon={<CheckCircle2 className="h-4 w-4" />}
         color="success"
       />
       <CounterCard
-        label="Issues"
+        label={t('counterIssues')}
         value={scanState.corrupted}
         icon={<AlertTriangle className="h-4 w-4" />}
         color={scanState.corrupted > 0 ? 'error' : 'gray'}
       />
       <CounterCard
-        label="Skipped"
+        label={t('counterSkipped')}
         value={scanState.skipped}
         icon={<SkipForward className="h-4 w-4" />}
         color="gray"
@@ -395,29 +397,34 @@ function CounterCard({ label, value, icon, color }: {
 }
 
 function IssueTable({ issues }: { issues: IntegrityResult[] }) {
+  const { t } = useTranslation('buckets');
   const statusIcon = (s: IntegrityResult['status']) => {
     if (s === 'corrupted') return <AlertTriangle className="h-3.5 w-3.5 text-error-500" />;
     if (s === 'missing')   return <FileX          className="h-3.5 w-3.5 text-warning-500" />;
     return                        <XCircle        className="h-3.5 w-3.5 text-gray-400" />;
   };
   const statusLabel: Record<string, string> = {
-    corrupted: 'Corrupted', missing: 'Missing', error: 'Error', skipped: 'Skipped', ok: 'OK',
+    corrupted: t('statusCorrupted'),
+    missing:   t('statusMissing'),
+    error:     t('statusError'),
+    skipped:   t('statusSkipped'),
+    ok:        t('statusOk'),
   };
 
   return (
     <div>
       <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-        Issues found ({issues.length})
+        {t('issuesFoundTitle', { count: issues.length })}
       </h4>
       <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
         <div className="max-h-56 overflow-y-auto">
           <table className="w-full text-xs">
             <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
               <tr>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Key</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">Status</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">Stored ETag</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">Actual ETag</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400">{t('issueColumnKey')}</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">{t('issueColumnStatus')}</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">{t('issueColumnStoredETag')}</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">{t('issueColumnActualETag')}</th>
               </tr>
             </thead>
             <tbody>
@@ -436,7 +443,7 @@ function IssueTable({ issues }: { issues: IntegrityResult[] }) {
                     {issue.storedETag || '—'}
                   </td>
                   <td className="px-3 py-2 font-mono text-gray-500 dark:text-gray-400 max-w-[120px] truncate" title={issue.computedETag}>
-                    {issue.computedETag || (issue.status === 'missing' ? '(missing)' : '—')}
+                    {issue.computedETag || (issue.status === 'missing' ? t('statusMissingValue') : '—')}
                   </td>
                 </tr>
               ))}
@@ -449,6 +456,7 @@ function IssueTable({ issues }: { issues: IntegrityResult[] }) {
 }
 
 function ScanHistory({ history }: { history: LastIntegrityScan[] }) {
+  const { t } = useTranslation('buckets');
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -459,7 +467,7 @@ function ScanHistory({ history }: { history: LastIntegrityScan[] }) {
       >
         <span className="flex items-center gap-2">
           <Clock className="h-3.5 w-3.5" />
-          Scan history ({history.length} run{history.length !== 1 ? 's' : ''})
+          {t('scanHistory', { count: history.length })}
         </span>
         {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
       </button>
@@ -482,14 +490,14 @@ function ScanHistory({ history }: { history: LastIntegrityScan[] }) {
                     ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
                 }`}>
-                  {entry.source === 'scrubber' ? 'auto' : 'manual'}
+                  {entry.source === 'scrubber' ? t('scanSourceAuto') : t('scanSourceManual')}
                 </span>
               </div>
               <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
-                <span>{entry.checked.toLocaleString()} objects</span>
+                <span>{t('scanObjects', { count: entry.checked })}</span>
                 {entry.corrupted > 0
-                  ? <span className="text-error-600 dark:text-error-400 font-medium">{entry.corrupted} issue{entry.corrupted !== 1 ? 's' : ''}</span>
-                  : <span className="text-success-600 dark:text-success-400">Clean</span>
+                  ? <span className="text-error-600 dark:text-error-400 font-medium">{t('issueCount', { count: entry.corrupted })}</span>
+                  : <span className="text-success-600 dark:text-success-400">{t('scanClean')}</span>
                 }
                 <span>{entry.duration}</span>
               </div>

@@ -8,5 +8,8 @@
   "metrics": "Métricas",
   "security": "Seguridad",
   "about": "Acerca de",
-  "logout": "Cerrar Sesión"
+  "logout": "Cerrar Sesión",
+  "accessKeys": "Claves de Acceso",
+  "identityProviders": "Proveedores de Identidad",
+  "cluster": "Clúster"
 }

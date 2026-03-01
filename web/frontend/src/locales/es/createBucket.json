@@ -81,5 +81,8 @@
   "confirmEncryption": "✓ Cifrado habilitado",
   "confirmButton": "Crear Bucket",
   "loadingTitle": "Creando bucket...",
-  "loadingMessage": "Configurando \"{{name}}\""
+  "loadingMessage": "Configurando \"{{name}}\"",
+  "ownerUserLabel": "Usuario Propietario",
+  "ownerTenantLabel": "Inquilino Propietario",
+  "noEmail": "sin correo"
 }

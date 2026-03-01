@@ -32,5 +32,15 @@
   "noBucketsYet": "No buckets yet",
   "createFirstBucket": "Create your first bucket to get started",
   "objects": "objects",
-  "viewAllBuckets": "View all {{count}} buckets →"
+  "viewAllBuckets": "View all {{count}} buckets →",
+  "systemWideOverview": "System-wide overview",
+  "yourStorageOverview": "Your storage overview",
+  "storageDistribution": "Storage Distribution",
+  "top5BucketsBySize": "Top 5 buckets by size",
+  "noStorageDataYet": "No storage data yet",
+  "uploadFilesToSeeDist": "Upload files to buckets to see distribution",
+  "topBuckets": "Top Buckets",
+  "largestBucketsByStorage": "Largest buckets by storage",
+  "bucketLabel": "Bucket: {{name}}",
+  "storageOf": "of {{total}}"
 }

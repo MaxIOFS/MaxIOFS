@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Bell,
   ChevronDown,
@@ -47,12 +48,13 @@ export function TopBar({
   onLogout,
 }: TopBarProps) {
   const navigate = useNavigate();
+  const { t } = useTranslation('layout');
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
 
   const userLabel = user?.tenantId
     ? tenantDisplayName
-    : isGlobalAdmin ? 'Global Admin' : 'Global User';
+    : isGlobalAdmin ? t('globalAdmin') : t('globalUser');
 
   return (
     <header className="sticky top-0 z-30 flex w-full h-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-soft-md backdrop-blur-sm bg-white/95 dark:bg-gray-900/95">
@@ -75,7 +77,7 @@ export function TopBar({
           <button
             onClick={onToggleDarkMode}
             className="flex h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 shadow-soft hover:shadow-soft-md"
-            title={effectiveTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={effectiveTheme === 'dark' ? t('switchToLightMode') : t('switchToDarkMode')}
           >
             {effectiveTheme === 'dark' ? (
               <Sun className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-yellow-500" />
@@ -103,11 +105,11 @@ export function TopBar({
                 <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
                 <div className="absolute -right-16 sm:right-0 mt-2.5 w-80 sm:w-96 bg-white dark:bg-gray-800 rounded-card shadow-soft-xl border border-gray-200 dark:border-gray-700 z-50">
                   <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h5 className="text-sm font-semibold text-gray-900 dark:text-white">Notifications</h5>
+                    <h5 className="text-sm font-semibold text-gray-900 dark:text-white">{t('notifications')}</h5>
                     <div className="flex gap-2">
                       {unreadCount > 0 && (
                         <span className="rounded-full bg-brand-600 px-2.5 py-0.5 text-xs font-medium text-white">
-                          {unreadCount} New
+                          {unreadCount} {t('newNotifications')}
                         </span>
                       )}
                       {notifications.length > 0 && (
@@ -115,7 +117,7 @@ export function TopBar({
                           onClick={onMarkAllAsRead}
                           className="text-xs text-brand-600 hover:text-brand-700 font-medium"
                         >
-                          Mark all read
+                          {t('markAllRead')}
                         </button>
                       )}
                     </div>
@@ -134,11 +136,11 @@ export function TopBar({
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2 mb-1">
-                            <h6 className="text-sm text-gray-900 dark:text-white font-semibold">Security Warning</h6>
+                            <h6 className="text-sm text-gray-900 dark:text-white font-semibold">{t('securityWarning')}</h6>
                             <span className="h-2 w-2 rounded-full bg-amber-500 flex-shrink-0 mt-1.5" />
                           </div>
                           <p className="text-xs text-gray-600 dark:text-gray-400">
-                            You are using the default admin password. Please change it immediately to secure your system.
+                            {t('defaultPasswordWarning')}
                           </p>
                         </div>
                       </Link>
@@ -147,7 +149,7 @@ export function TopBar({
                     {notifications.length === 0 && !hasDefaultPassword ? (
                       <div className="px-5 py-8 text-center">
                         <Bell className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                        <p className="text-sm text-gray-500 dark:text-gray-400">No notifications</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">{t('noNotifications')}</p>
                       </div>
                     ) : (
                       <div>
@@ -155,10 +157,10 @@ export function TopBar({
                           const timestamp = new Date(notification.timestamp * 1000);
                           const diffMins = Math.floor((Date.now() - timestamp.getTime()) / 60000);
                           const timeAgo =
-                            diffMins < 1 ? 'Just now' :
-                            diffMins < 60 ? `${diffMins}m ago` :
-                            diffMins < 1440 ? `${Math.floor(diffMins / 60)}h ago` :
-                            `${Math.floor(diffMins / 1440)}d ago`;
+                            diffMins < 1 ? t('justNow') :
+                            diffMins < 60 ? t('minutesAgo', { count: diffMins }) :
+                            diffMins < 1440 ? t('hoursAgo', { count: Math.floor(diffMins / 60) }) :
+                            t('daysAgo', { count: Math.floor(diffMins / 1440) });
 
                           return (
                             <Link
@@ -176,7 +178,7 @@ export function TopBar({
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-start justify-between gap-2 mb-1">
                                   <h6 className={cn('text-sm text-gray-900 dark:text-white', !notification.read && 'font-semibold')}>
-                                    {notification.type === 'user_locked' ? 'Account Locked' : notification.type}
+                                    {notification.type === 'user_locked' ? t('accountLocked') : notification.type}
                                   </h6>
                                   {!notification.read && (
                                     <span className="h-2 w-2 rounded-full bg-brand-600 flex-shrink-0 mt-1.5" />
@@ -228,7 +230,7 @@ export function TopBar({
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{user?.username || 'Unknown'}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user?.email || 'No email'}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user?.email || t('noEmail')}</p>
                     </div>
                   </div>
                   <div className="p-2">
@@ -237,14 +239,14 @@ export function TopBar({
                       className="flex w-full items-center gap-3 rounded-button px-3 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-200"
                     >
                       <User className="h-4 w-4" />
-                      My Profile
+                      {t('myProfile')}
                     </button>
                     <button
                       onClick={() => { setShowUserMenu(false); onLogout(); }}
                       className="flex w-full items-center gap-3 rounded-button px-3 py-2.5 text-sm font-medium text-error-600 hover:bg-error-50 dark:hover:bg-error-900/30 transition-all duration-200"
                     >
                       <LogOut className="h-4 w-4" />
-                      Log Out
+                      {t('logOut')}
                     </button>
                   </div>
                 </div>
