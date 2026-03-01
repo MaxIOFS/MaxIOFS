@@ -148,6 +148,7 @@ export default function CreateBucketPage() {
       return APIClient.createBucket(payload);
     },
     onSuccess: () => {
+      ModalManager.close();
       // Refetch to update immediately (buckets list and tenant counters)
       queryClient.refetchQueries({ queryKey: ['buckets'] });
       queryClient.refetchQueries({ queryKey: ['tenants'] });
@@ -155,6 +156,7 @@ export default function CreateBucketPage() {
       navigate('/buckets');
     },
     onError: (error) => {
+      ModalManager.close();
       ModalManager.apiError(error);
     },
   });

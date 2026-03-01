@@ -360,17 +360,15 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Create HTTP servers
 	httpServer := &http.Server{
-		Addr:         cfg.Listen,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              cfg.Listen,
+		ReadHeaderTimeout: 30 * time.Second, // Header read limit; body read unlimited for large uploads/downloads
+		IdleTimeout:       120 * time.Second,
 	}
 
 	consoleServer := &http.Server{
-		Addr:         cfg.ConsoleListen,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              cfg.ConsoleListen,
+		ReadHeaderTimeout: 30 * time.Second, // Header read limit; body read unlimited for large uploads/downloads
+		IdleTimeout:       120 * time.Second,
 	}
 
 	server := &Server{

@@ -589,27 +589,25 @@ export class APIClient {
       ? `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}?tenantId=${encodeURIComponent(request.tenantId)}`
       : `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}`;
 
-    // Read file as arrayBuffer for reliable transfer
-    const fileBuffer = await request.file.arrayBuffer();
-
-    // Send file directly in body instead of FormData (S3-style upload)
+    // Send the File/Blob directly — no arrayBuffer() — lets the browser stream
+    // the file without loading it all into memory first.
     const config = {
       headers: {
         'Content-Type': request.file.type || 'application/octet-stream',
         'Content-Length': request.file.size.toString(),
       } as Record<string, string>,
-      timeout: 300000, // 5 minutes for large files
+      timeout: 0, // No timeout — large files can take minutes; server controls via context
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
       onUploadProgress: request.onProgress ? (progressEvent: any) => {
-        const progress = {
+        const total = progressEvent.total ?? request.file.size;
+        request.onProgress!({
           loaded: progressEvent.loaded,
-          total: progressEvent.total,
-          percentage: Math.round((progressEvent.loaded * 100) / progressEvent.total),
-          speed: 0, // TODO: Calculate speed
-          timeRemaining: 0, // TODO: Calculate time remaining
-        };
-        request.onProgress!(progress);
+          total,
+          percentage: total > 0 ? Math.round((progressEvent.loaded * 100) / total) : 0,
+          speed: 0,
+          timeRemaining: 0,
+        });
       } : undefined,
     };
 
@@ -622,7 +620,7 @@ export class APIClient {
 
     const response = await apiClient.put<APIResponse<S3Object>>(
       uploadUrl,
-      fileBuffer, // Send file as ArrayBuffer
+      request.file, // Stream the File directly — no memory copy
       config
     );
     return response.data.data!;

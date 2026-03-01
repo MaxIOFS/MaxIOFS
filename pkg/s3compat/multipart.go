@@ -446,7 +446,7 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 	// Complete the multipart upload
 	obj, err := h.objectManager.CompleteMultipartUpload(r.Context(), uploadID, parts)
 	if err != nil {
-		if err == object.ErrUploadNotFound {
+		if err == object.ErrInvalidUploadID || err == object.ErrUploadNotFound {
 			h.writeError(w, "NoSuchUpload", "The specified multipart upload does not exist", uploadID, r)
 			return
 		}

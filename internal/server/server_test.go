@@ -272,15 +272,17 @@ func TestServerComponentInitialization(t *testing.T) {
 	})
 
 	t.Run("should initialize HTTP servers with correct timeouts", func(t *testing.T) {
-		// Verify HTTP server timeouts
-		assert.Equal(t, 30*time.Second, server.httpServer.ReadTimeout, "Read timeout should be 30s")
-		assert.Equal(t, 30*time.Second, server.httpServer.WriteTimeout, "Write timeout should be 30s")
-		assert.Equal(t, 60*time.Second, server.httpServer.IdleTimeout, "Idle timeout should be 60s")
+		// ReadTimeout and WriteTimeout are intentionally 0 (unlimited) to support
+		// large file uploads and downloads; ReadHeaderTimeout guards against slow clients.
+		assert.Equal(t, 30*time.Second, server.httpServer.ReadHeaderTimeout, "Read header timeout should be 30s")
+		assert.Equal(t, time.Duration(0), server.httpServer.ReadTimeout, "Read timeout should be 0 (unlimited for uploads)")
+		assert.Equal(t, time.Duration(0), server.httpServer.WriteTimeout, "Write timeout should be 0 (unlimited for downloads)")
+		assert.Equal(t, 120*time.Second, server.httpServer.IdleTimeout, "Idle timeout should be 120s")
 
-		// Verify console server timeouts
-		assert.Equal(t, 30*time.Second, server.consoleServer.ReadTimeout, "Console read timeout should be 30s")
-		assert.Equal(t, 30*time.Second, server.consoleServer.WriteTimeout, "Console write timeout should be 30s")
-		assert.Equal(t, 60*time.Second, server.consoleServer.IdleTimeout, "Console idle timeout should be 60s")
+		assert.Equal(t, 30*time.Second, server.consoleServer.ReadHeaderTimeout, "Console read header timeout should be 30s")
+		assert.Equal(t, time.Duration(0), server.consoleServer.ReadTimeout, "Console read timeout should be 0 (unlimited for uploads)")
+		assert.Equal(t, time.Duration(0), server.consoleServer.WriteTimeout, "Console write timeout should be 0 (unlimited for downloads)")
+		assert.Equal(t, 120*time.Second, server.consoleServer.IdleTimeout, "Console idle timeout should be 120s")
 	})
 
 	t.Run("should set start time when created", func(t *testing.T) {
