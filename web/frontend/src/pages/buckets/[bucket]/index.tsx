@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -32,6 +32,7 @@ import { Share2 as Share2Icon } from 'lucide-react';
 import { History as HistoryIcon } from 'lucide-react';
 import { Link as LinkIcon } from 'lucide-react';
 import { Filter as FilterIcon } from 'lucide-react';
+import { RefreshCw as RefreshCwIcon } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { UploadRequest, ObjectSearchFilter } from '@/types';
@@ -77,6 +78,7 @@ export default function BucketDetailsPage() {
   const [selectedObjects, setSelectedObjects] = useState<Set<string>>(new Set());
   const [objectFilter, setObjectFilter] = useState<ObjectSearchFilter>({});
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const queryClient = useQueryClient();
 
   // Check if user is global admin (no tenantId) accessing a tenant bucket
@@ -89,6 +91,14 @@ export default function BucketDetailsPage() {
     refetchInterval: 30000,
     refetchOnWindowFocus: false,
   });
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
+    await queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
+    await queryClient.invalidateQueries({ queryKey: ['shares', bucketName, tenantId] });
+    setTimeout(() => setIsRefreshing(false), 600);
+  }, [bucketName, tenantId, queryClient]);
 
   const hasActiveFilters = !!(
     (objectFilter.contentTypes && objectFilter.contentTypes.length > 0) ||
@@ -878,7 +888,9 @@ export default function BucketDetailsPage() {
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">{bucketName}</h1>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">
+              {bucketName}
+            </h1>
             {currentPrefix && (
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 Current path: /{currentPrefix}
@@ -887,6 +899,16 @@ export default function BucketDetailsPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button
+              variant="outline"
+              size="icon"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              title="Refresh objects"
+              className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700"
+            >
+              <RefreshCwIcon className="h-4 w-4" />
+            </Button>
+            <Button
               onClick={() => setIsPermissionsModalOpen(true)}
               variant="outline"
               className="gap-2 hover:bg-gradient-to-r hover:from-purple-50 hover:to-violet-50 dark:hover:from-purple-900/30 dark:hover:to-violet-900/30 transition-all duration-200"
@@ -894,36 +916,36 @@ export default function BucketDetailsPage() {
               <ShieldIcon className="h-4 w-4" />
               Permissions
             </Button>
-          <Button
-            onClick={() => setIsCreateFolderModalOpen(true)}
-            variant="outline"
-            className="gap-2 hover:bg-gradient-to-r hover:from-blue-50 hover:to-cyan-50 dark:hover:from-blue-900/30 dark:hover:to-cyan-900/30 transition-all duration-200"
-            disabled={isGlobalAdminInTenantBucket}
-            title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant buckets" : "Create a new folder"}
-          >
-            <FolderIcon className="h-4 w-4" />
-            New Folder
-          </Button>
-          <Button
-            onClick={() => setIsUploadModalOpen(true)}
-            variant="outline"
-            className="gap-2 hover:bg-gradient-to-r hover:from-green-50 hover:to-emerald-50 dark:hover:from-green-900/30 dark:hover:to-emerald-900/30 transition-all duration-200"
-            disabled={isGlobalAdminInTenantBucket}
-            title={isGlobalAdminInTenantBucket ? "Global admins cannot upload to tenant buckets" : "Upload files to this bucket"}
-          >
-            <UploadIcon className="h-4 w-4" />
-            Upload Files
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => navigate(`${bucketPath}/settings`)}
-            className="gap-2 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 transition-all duration-200"
-          >
-            <SettingsIcon className="h-4 w-4" />
-            Settings
-          </Button>
+            <Button
+              onClick={() => setIsCreateFolderModalOpen(true)}
+              variant="outline"
+              className="gap-2 hover:bg-gradient-to-r hover:from-blue-50 hover:to-cyan-50 dark:hover:from-blue-900/30 dark:hover:to-cyan-900/30 transition-all duration-200"
+              disabled={isGlobalAdminInTenantBucket}
+              title={isGlobalAdminInTenantBucket ? 'Global admins cannot modify tenant buckets' : 'Create a new folder'}
+            >
+              <FolderIcon className="h-4 w-4" />
+              New Folder
+            </Button>
+            <Button
+              onClick={() => setIsUploadModalOpen(true)}
+              variant="outline"
+              className="gap-2 hover:bg-gradient-to-r hover:from-green-50 hover:to-emerald-50 dark:hover:from-green-900/30 dark:hover:to-emerald-900/30 transition-all duration-200"
+              disabled={isGlobalAdminInTenantBucket}
+              title={isGlobalAdminInTenantBucket ? 'Global admins cannot upload to tenant buckets' : 'Upload files to this bucket'}
+            >
+              <UploadIcon className="h-4 w-4" />
+              Upload Files
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => navigate(`${bucketPath}/settings`)}
+              className="gap-2 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 transition-all duration-200"
+            >
+              <SettingsIcon className="h-4 w-4" />
+              Settings
+            </Button>
+          </div>
         </div>
-      </div>
       </div>
 
       {/* Stats */}

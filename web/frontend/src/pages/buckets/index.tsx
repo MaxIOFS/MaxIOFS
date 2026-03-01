@@ -35,7 +35,6 @@ import {
   ShieldCheck,
   ShieldOff,
   Trash2,
-  Users,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -98,7 +97,6 @@ export default function BucketsPage() {
     refetchInterval: 30000,
     refetchOnWindowFocus: false,
   });
-  const { data: users }   = useQuery({ queryKey: ['users'],   queryFn: APIClient.getUsers });
   const { data: tenants } = useQuery({ queryKey: ['tenants'], queryFn: APIClient.getTenants });
 
 
@@ -400,16 +398,11 @@ export default function BucketsPage() {
   const getOwnerDisplay = (bucket: Bucket) => {
     const ownerId = bucket.owner_id || bucket.ownerId;
     const ownerType = bucket.owner_type || bucket.ownerType;
-    if (!ownerId || !ownerType) return { type: 'global', name: 'Global', icon: Shield };
-    if (ownerType === 'user') {
-      const user = users?.find(u => u.id === ownerId);
-      return { type: 'user', name: user?.username || ownerId, icon: Users };
-    }
-    if (ownerType === 'tenant') {
+    if (ownerType === 'tenant' && ownerId) {
       const tenant = tenants?.find(t => t.id === ownerId);
       return { type: 'tenant', name: tenant?.displayName || ownerId, icon: Building2 };
     }
-    return { type: 'unknown', name: 'Unknown', icon: Shield };
+    return { type: 'global', name: 'Global', icon: Shield };
   };
 
   // ── Integrity button per row ─────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import { Modal, ConfirmModal, SuccessModal, AlertModal } from '@/components/ui/M
 import { Button } from '@/components/ui/Button';
 import { AlertTriangle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import i18n from '../i18n';
 
 // Simple HTML sanitizer — strips script tags, event handlers, and dangerous attributes
 function sanitizeHtml(html: string): string {
@@ -633,13 +634,18 @@ class ModalManager {
   // Logout confirmation
   static async confirmLogout(): Promise<{ isConfirmed: boolean }> {
     return new Promise((resolve) => {
+      const title = i18n.t('layout:logOut');
+      const message = i18n.t('layout:confirmLogout');
+      const confirmText = i18n.t('common:confirm', { defaultValue: i18n.t('layout:logOut') });
+      const cancelText = i18n.t('common:cancel', { defaultValue: 'Cancel' });
+
       this.setModal({
         isOpen: true,
         type: 'info',
-        title: 'Sign out?',
-        message: 'Are you sure you want to sign out?',
-        confirmText: 'Yes, sign out',
-        cancelText: 'Cancel',
+        title,
+        message,
+        confirmText,
+        cancelText,
         variant: 'info',
         onConfirm: () => resolve({ isConfirmed: true }),
         onClose: () => resolve({ isConfirmed: false }),

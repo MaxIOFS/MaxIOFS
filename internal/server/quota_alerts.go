@@ -47,16 +47,6 @@ func (s *Server) checkQuotaAlert(tenantID string, currentBytes, maxBytes int64) 
 		newLevel = alertLevelNone
 	}
 
-	// Load previous level for this tenant
-	prevRaw, _ := s.quotaAlerts.levels.Load(tenantID)
-	prev, _ := prevRaw.(alertLevel)
-
-	// Only act on escalation
-	if newLevel <= prev {
-		return
-	}
-	s.quotaAlerts.levels.Store(tenantID, newLevel)
-
 	// Get tenant display name for messages
 	tenantName := tenantID
 	if tenant, err := s.authManager.GetTenant(context.Background(), tenantID); err == nil && tenant != nil {
@@ -65,6 +55,34 @@ func (s *Server) checkQuotaAlert(tenantID string, currentBytes, maxBytes int64) 
 		} else {
 			tenantName = tenant.Name
 		}
+	}
+
+	// Load previous level for this tenant and always update it
+	prevRaw, _ := s.quotaAlerts.levels.Load(tenantID)
+	prev, _ := prevRaw.(alertLevel)
+	s.quotaAlerts.levels.Store(tenantID, newLevel)
+
+	// Condition resolved: was alerting, now back to normal
+	if newLevel == alertLevelNone && prev != alertLevelNone {
+		s.notificationHub.SendNotification(&Notification{
+			Type:    "quota_resolved",
+			Message: fmt.Sprintf("Tenant %q storage quota is back to normal (%.1f%% used)", tenantName, usedPct),
+			Data: map[string]interface{}{
+				"tenantId":     tenantID,
+				"tenantName":   tenantName,
+				"usedPercent":  usedPct,
+				"currentBytes": currentBytes,
+				"maxBytes":     maxBytes,
+			},
+			Timestamp: time.Now().Unix(),
+			TenantID:  tenantID,
+		})
+		return
+	}
+
+	// Only act on escalation
+	if newLevel <= prev {
+		return
 	}
 
 	var notifType, subject, logMsg string

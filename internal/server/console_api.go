@@ -2123,6 +2123,8 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 			LastFailedLogin:     u.LastFailedLogin,
 			ThemePreference:     u.ThemePreference,
 			LanguagePreference:  u.LanguagePreference,
+			AuthProvider:        u.AuthProvider,
+			ExternalID:          u.ExternalID,
 			CreatedAt:           u.CreatedAt,
 		}
 	}

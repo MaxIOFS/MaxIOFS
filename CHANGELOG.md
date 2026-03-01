@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.2-beta] - 2026-03-01
 
+### Added
+- **Disk and quota alert auto-resolution** — condition-based SSE notifications now automatically disappear from the admin panel when the triggering condition clears, without requiring manual dismissal.
+  - `disk_alerts.go`: when disk usage drops below the warning threshold after having been in warning or critical state, a `disk_resolved` SSE notification is broadcast to all connected global admins. The frontend removes any `disk_warning` or `disk_critical` notification from the panel on receipt.
+  - `quota_alerts.go`: same pattern for tenant storage quota — `quota_resolved` is emitted (with `tenantId`) when usage drops below the warning level. Additionally fixed a bug where the per-tenant alert level tracker was only updated on escalation, preventing de-escalation from being detected across check cycles.
+  - Frontend (`useNotifications.ts`): handles `disk_resolved` and `quota_resolved` events by filtering the matching condition notifications out of state and `localStorage`. All other notification types (e.g. `user_locked`, `data_corruption`) are unaffected — they remain as point-in-time events.
+- **Audit log entry for automatic account locks** — when a user is locked automatically after exceeding the configured max failed login attempts, the event is now recorded in the audit log as `EventTypeUserBlocked` with `reason: "max_failed_attempts"`, `failed_attempts`, and `duration_minutes` in the details. Previously only manually-triggered locks (from the admin UI) were audited; auto-locks only fired the SSE callback with no persistent record.
+
 ### Changed
 - **Metadata engine: BadgerDB → Pebble** — Replaced BadgerDB with `github.com/cockroachdb/pebble` (CockroachDB's LSM-tree engine) for all S3 object/bucket metadata storage. Pebble uses a crash-safe WAL (write-ahead log) that survives unclean shutdowns — the root cause of recurring BadgerDB MANIFEST corruption on power loss or process kill. Pebble is pure-Go (no CGO), zero external dependencies, same paradigm (LSM-tree), same on-disk key format preserved byte-for-byte.
   - **Transparent auto-migration**: on first startup after upgrade, if `metadata/KEYREGISTRY` is detected (BadgerDB-exclusive file), all keys are read from BadgerDB and written to Pebble in batches. Directories are atomically renamed (`metadata/` → `metadata_badger_backup/`, `metadata_pebble/` → `metadata/`). Users see no interruption. Migration ran successfully in production, additionally correcting previously under-reported object counts and sizes that had diverged in BadgerDB.

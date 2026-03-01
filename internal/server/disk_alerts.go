@@ -78,6 +78,22 @@ func (s *Server) checkDiskAlerts(state *diskAlertState) {
 	state.level = newLevel
 	state.mu.Unlock()
 
+	// Condition resolved: was alerting, now back to normal
+	if newLevel == alertLevelNone && prev != alertLevelNone {
+		s.notificationHub.SendNotification(&Notification{
+			Type:    "disk_resolved",
+			Message: fmt.Sprintf("Disk space is back to normal (%.1f%% used, %.1f / %.1f GB)", used, float64(stats.UsedBytes)/1e9, float64(stats.TotalBytes)/1e9),
+			Data: map[string]interface{}{
+				"usedPercent": used,
+				"usedBytes":   stats.UsedBytes,
+				"totalBytes":  stats.TotalBytes,
+				"freeBytes":   stats.FreeBytes,
+			},
+			Timestamp: time.Now().Unix(),
+		})
+		return
+	}
+
 	// Only fire when the level escalates — don't re-alert at the same level
 	if newLevel <= prev {
 		return

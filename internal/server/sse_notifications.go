@@ -132,6 +132,68 @@ func (h *NotificationHub) SendNotification(notif *Notification) {
 	}
 }
 
+// syncAlertStateToClient sends disk_resolved / quota_resolved events to a newly
+// connected SSE client so that any stale condition notifications persisted in
+// the browser's localStorage are cleared immediately on connect.
+// This is necessary because diskAlertState is in-memory and resets on server
+// restart, so the transition-based resolved events in checkDiskAlerts /
+// checkQuotaAlert are never fired when the server has no prior alert state.
+func (s *Server) syncAlertStateToClient(w http.ResponseWriter, flusher http.Flusher) {
+	send := func(n *Notification) {
+		data, err := json.Marshal(n)
+		if err != nil {
+			return
+		}
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	// --- Disk: send disk_resolved if current usage is below warning threshold ---
+	if s.systemMetrics != nil {
+		stats, err := s.systemMetrics.GetDiskUsage()
+		if err == nil {
+			warnPct := 80
+			if v, err := s.settingsManager.GetInt("system.disk_warning_threshold"); err == nil && v > 0 {
+				warnPct = v
+			}
+			if stats.UsedPercent < float64(warnPct) {
+				send(&Notification{
+					Type:      "disk_resolved",
+					Message:   fmt.Sprintf("Disk space is normal (%.1f%% used)", stats.UsedPercent),
+					Data:      map[string]interface{}{"usedPercent": stats.UsedPercent},
+					Timestamp: time.Now().Unix(),
+				})
+			}
+		}
+	}
+
+	// --- Quota: send quota_resolved for any tenant that de-escalated this session ---
+	// Only tenants that were ever alerting appear in the map (entries with level==None
+	// mean they previously escalated and have since recovered).
+	if s.quotaAlerts != nil {
+		s.quotaAlerts.levels.Range(func(key, value interface{}) bool {
+			tenantID, ok := key.(string)
+			if !ok {
+				return true
+			}
+			level, ok := value.(alertLevel)
+			if !ok {
+				return true
+			}
+			if level == alertLevelNone {
+				send(&Notification{
+					Type:      "quota_resolved",
+					Message:   "Tenant storage quota is back to normal",
+					Data:      map[string]interface{}{"tenantId": tenantID},
+					Timestamp: time.Now().Unix(),
+					TenantID:  tenantID,
+				})
+			}
+			return true
+		})
+	}
+}
+
 // handleNotificationStream handles SSE connections
 func (s *Server) handleNotificationStream(w http.ResponseWriter, r *http.Request) {
 	// Get user from context
@@ -191,6 +253,9 @@ func (s *Server) handleNotificationStream(w http.ResponseWriter, r *http.Request
 	// Send initial connection message
 	fmt.Fprintf(w, "data: {\"type\":\"connected\",\"message\":\"Notification stream connected\"}\n\n")
 	flusher.Flush()
+
+	// Sync current alert state to this client so stale localStorage notifications are cleared
+	s.syncAlertStateToClient(w, flusher)
 
 	// Listen for messages or client disconnect
 	ctx := r.Context()

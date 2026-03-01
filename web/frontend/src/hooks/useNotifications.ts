@@ -121,6 +121,32 @@ export function useNotifications(enabled = true) {
                     continue;
                   }
 
+                  // Condition resolved: remove matching notifications from state
+                  if (parsed.type === 'disk_resolved') {
+                    setNotifications((prev) => {
+                      const updated = prev.filter(
+                        (n) => n.type !== 'disk_warning' && n.type !== 'disk_critical'
+                      );
+                      localStorage.setItem('notifications', JSON.stringify(updated));
+                      return updated;
+                    });
+                    continue;
+                  }
+
+                  if (parsed.type === 'quota_resolved') {
+                    const resolvedTenantId = parsed.data?.tenantId;
+                    setNotifications((prev) => {
+                      const updated = prev.filter((n) => {
+                        if (n.type !== 'quota_warning' && n.type !== 'quota_critical') return true;
+                        if (resolvedTenantId && n.data?.tenantId !== resolvedTenantId) return true;
+                        return false;
+                      });
+                      localStorage.setItem('notifications', JSON.stringify(updated));
+                      return updated;
+                    });
+                    continue;
+                  }
+
                   // Create notification with unique ID and read state
                   const notification: Notification = {
                     id: `${parsed.type}-${parsed.timestamp}`,

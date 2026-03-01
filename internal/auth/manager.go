@@ -1882,6 +1882,25 @@ func (am *authManager) RecordFailedLogin(ctx context.Context, userID, ip string)
 				} else if user != nil {
 					logrus.WithField("user_id", userID).Info("Calling user locked callback")
 					am.userLockedCallback(user)
+
+					// Log audit event for automatic account lock
+					am.logAuditEvent(ctx, &audit.AuditEvent{
+						TenantID:     user.TenantID,
+						UserID:       user.ID,
+						Username:     user.Username,
+						EventType:    audit.EventTypeUserBlocked,
+						ResourceType: audit.ResourceTypeUser,
+						ResourceID:   user.ID,
+						ResourceName: user.Username,
+						Action:       audit.ActionBlock,
+						Status:       audit.StatusSuccess,
+						IPAddress:    ip,
+						Details: map[string]interface{}{
+							"reason":           "max_failed_attempts",
+							"failed_attempts":  failedAttempts,
+							"duration_minutes": lockDuration / 60,
+						},
+					})
 				} else {
 					logrus.Warn("User is nil, cannot call callback")
 				}

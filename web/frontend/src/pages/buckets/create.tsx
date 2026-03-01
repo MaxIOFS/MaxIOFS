@@ -28,7 +28,7 @@ interface BucketCreationConfig {
 
   // Ownership
   ownerId: string;
-  ownerType: 'user' | 'tenant' | '';
+  ownerType: 'tenant' | '';
   isPublic: boolean;
 
   // Versioning
@@ -97,12 +97,7 @@ export default function CreateBucketPage() {
   // Check if server has encryption enabled
   const serverEncryptionEnabled = serverConfig?.storage?.enableEncryption ?? false;
 
-  // Fetch users and tenants for ownership selection
-  const { data: users } = useQuery({
-    queryKey: ['users'],
-    queryFn: APIClient.getUsers,
-  });
-
+  // Fetch tenants for ownership selection
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
     queryFn: APIClient.getTenants,
@@ -350,33 +345,14 @@ export default function CreateBucketPage() {
                           value={config.ownerType}
                           onChange={(e) => {
                             updateConfig('ownerType', e.target.value);
-                            updateConfig('ownerId', ''); // Reset owner ID when type changes
+                            updateConfig('ownerId', '');
                           }}
                           className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
                         >
                           <option value="">{t('noOwner')}</option>
-                          <option value="user">{t('ownerUser')}</option>
                           <option value="tenant">{t('ownerTenant')}</option>
                         </select>
                       </div>
-
-                      {config.ownerType === 'user' && (
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('ownerUserLabel')}</label>
-                          <select
-                            value={config.ownerId}
-                            onChange={(e) => updateConfig('ownerId', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
-                          >
-                            <option value="">{t('selectUser')}</option>
-                            {users?.map((user) => (
-                              <option key={user.id} value={user.id}>
-                                {user.username} ({user.email || t('noEmail')})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
 
                       {config.ownerType === 'tenant' && (
                         <div>
