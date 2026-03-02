@@ -4,12 +4,34 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/sirupsen/logrus"
 )
+
+// uriEncode encodes a URI path according to AWS SigV4 requirements (RFC 3986).
+// It encodes all characters except: A-Z, a-z, 0-9, hyphen (-), underscore (_), period (.), tilde (~), and forward slash (/).
+func uriEncode(path string) string {
+	if path == "" {
+		return "/"
+	}
+	var encoded strings.Builder
+	for i := 0; i < len(path); i++ {
+		c := path[i]
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+			c == '-' || c == '_' || c == '.' || c == '~' || c == '/' {
+			encoded.WriteByte(c)
+		} else {
+			encoded.WriteString(fmt.Sprintf("%%%02X", c))
+		}
+	}
+	return encoded.String()
+}
+
 
 // ValidatePresignedURL validates a presigned URL from an HTTP request
 // Returns true if valid, false otherwise
@@ -82,9 +104,13 @@ func ValidatePresignedURL(r *http.Request, secretAccessKey string) (bool, error)
 
 	// Build canonical request
 	canonicalHeaders := fmt.Sprintf("host:%s\n", r.Host)
+	pathForSigning := r.URL.Path
+	if origPath, ok := auth.OriginalSigV4PathFromContext(r.Context()); ok {
+		pathForSigning = origPath
+	}
 	canonicalRequest := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\nUNSIGNED-PAYLOAD",
 		r.Method,
-		r.URL.Path,
+		uriEncode(pathForSigning),
 		canonicalQuery,
 		canonicalHeaders,
 		signedHeaders,
@@ -151,13 +177,31 @@ func ExtractAccessKeyID(r *http.Request) string {
 
 // buildCanonicalQueryStringForValidation builds canonical query string excluding signature
 func buildCanonicalQueryStringForValidation(query url.Values) string {
-	// Get all parameters except signature
-	params := make(map[string]string)
-	for k, v := range query {
-		if k != "X-Amz-Signature" && len(v) > 0 {
-			params[k] = v[0]
+	// Canonical query string: sort by key, then by value; include all values.
+	type pair struct{ k, v string }
+	pairs := make([]pair, 0, len(query))
+	for k, vals := range query {
+		if k == "X-Amz-Signature" {
+			continue
+		}
+		if len(vals) == 0 {
+			pairs = append(pairs, pair{k: k, v: ""})
+			continue
+		}
+		for _, v := range vals {
+			pairs = append(pairs, pair{k: k, v: v})
 		}
 	}
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].k == pairs[j].k {
+			return pairs[i].v < pairs[j].v
+		}
+		return pairs[i].k < pairs[j].k
+	})
 
-	return buildCanonicalQueryString(params)
+	parts := make([]string, 0, len(pairs))
+	for _, p := range pairs {
+		parts = append(parts, awsQueryEscape(p.k)+"="+awsQueryEscape(p.v))
+	}
+	return strings.Join(parts, "&")
 }

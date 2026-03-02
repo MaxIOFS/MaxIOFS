@@ -30,5 +30,8 @@
   "noEmail": "No email",
   "changeLanguage": "Change language",
   "english": "English",
-  "spanish": "Spanish"
+  "spanish": "Spanish",
+  "openMenu": "Open navigation menu",
+  "closeNavigation": "Close navigation",
+  "openNotifications": "Open notifications"
 }

@@ -15,28 +15,31 @@ declare global {
   }
 }
 
-// Pages
-import Dashboard from '@/pages/index';
+// Critical path — always in main bundle (first pages users land on)
 import Login from '@/pages/login';
-import Buckets from '@/pages/buckets/index';
-import BucketDetail from '@/pages/buckets/[bucket]/index';
-import BucketSettings from '@/pages/buckets/[bucket]/settings';
-import BucketCreate from '@/pages/buckets/create';
-import Users from '@/pages/users/index';
-import UserDetail from '@/pages/users/[user]/index';
-import AccessKeys from '@/pages/users/access-keys';
-import AuditLogs from '@/pages/audit-logs/index';
-import Metrics from '@/pages/metrics/index';
-import Security from '@/pages/security/index';
-import Settings from '@/pages/settings/index';
-import Tenants from '@/pages/tenants/index';
-import About from '@/pages/about/index';
-import ClusterOverview from '@/pages/cluster/Overview';
-import ClusterBuckets from '@/pages/cluster/BucketReplication';
-import ClusterNodes from '@/pages/cluster/Nodes';
-import ClusterMigrations from '@/pages/cluster/Migrations';
-import IdentityProviders from '@/pages/identity-providers/index';
+import Dashboard from '@/pages/index';
 import OAuthComplete from '@/pages/auth/oauth-complete';
+
+// Lazy-loaded pages — each becomes its own chunk, loaded on demand
+const Buckets        = React.lazy(() => import('@/pages/buckets/index'));
+const BucketDetail   = React.lazy(() => import('@/pages/buckets/[bucket]/index'));
+const BucketSettings = React.lazy(() => import('@/pages/buckets/[bucket]/settings'));
+const BucketCreate   = React.lazy(() => import('@/pages/buckets/create'));
+const Users          = React.lazy(() => import('@/pages/users/index'));
+const UserDetail     = React.lazy(() => import('@/pages/users/[user]/index'));
+const AccessKeys     = React.lazy(() => import('@/pages/users/access-keys'));
+const Tenants        = React.lazy(() => import('@/pages/tenants/index'));
+const AuditLogs      = React.lazy(() => import('@/pages/audit-logs/index'));
+const Metrics        = React.lazy(() => import('@/pages/metrics/index'));
+const Security       = React.lazy(() => import('@/pages/security/index'));
+const Settings       = React.lazy(() => import('@/pages/settings/index'));
+const About          = React.lazy(() => import('@/pages/about/index'));
+const IdentityProviders  = React.lazy(() => import('@/pages/identity-providers/index'));
+// Cluster pages grouped in a single chunk — always visited together
+const ClusterOverview    = React.lazy(() => import('@/pages/cluster/Overview'));
+const ClusterBuckets     = React.lazy(() => import('@/pages/cluster/BucketReplication'));
+const ClusterNodes       = React.lazy(() => import('@/pages/cluster/Nodes'));
+const ClusterMigrations  = React.lazy(() => import('@/pages/cluster/Migrations'));
 
 // Error Boundary to catch React render crashes and show a recovery UI
 class ErrorBoundary extends React.Component<

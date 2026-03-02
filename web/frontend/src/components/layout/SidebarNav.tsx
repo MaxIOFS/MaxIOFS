@@ -129,6 +129,7 @@ export function SidebarNav({
         </Link>
         <button
           onClick={onClose}
+          aria-label={tLayout('closeNavigation')}
           className="lg:hidden p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
         >
           <X className="h-5 w-5" />
@@ -148,6 +149,7 @@ export function SidebarNav({
                 <>
                   <button
                     onClick={() => toggleMenu(item.name)}
+                    aria-expanded={!!isExpanded}
                     className={cn(
                       'flex items-center justify-between w-full px-4 py-3 rounded-button text-sm font-medium transition-all duration-200',
                       hasActiveChild || isExpanded
@@ -168,6 +170,8 @@ export function SidebarNav({
                         <Link
                           key={child.name}
                           to={child.href}
+                          aria-current={isActiveRoute(child.href, true) ? 'page' : undefined}
+                          onClick={onClose}
                           className={cn(
                             'flex items-center space-x-3 px-4 py-2.5 rounded-button text-sm transition-all duration-200',
                             isActiveRoute(child.href, true)
@@ -185,6 +189,8 @@ export function SidebarNav({
               ) : (
                 <Link
                   to={item.href}
+                  aria-current={isActive ? 'page' : undefined}
+                  onClick={onClose}
                   className={cn(
                     'flex items-center space-x-3 px-4 py-3 rounded-button text-sm font-medium transition-all duration-200 group',
                     isActive

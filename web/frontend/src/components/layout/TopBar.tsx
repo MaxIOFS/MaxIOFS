@@ -77,6 +77,7 @@ export function TopBar({
         <div className="flex items-center gap-2 sm:gap-4 lg:hidden">
           <button
             onClick={onMenuOpen}
+            aria-label={t('openMenu')}
             className="z-50 block rounded-button border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1.5 shadow-soft hover:shadow-soft-md hover:bg-gray-50 dark:hover:bg-gray-700 lg:hidden transition-all duration-200"
           >
             <Menu className="h-5 w-5 text-gray-600 dark:text-gray-400" />
@@ -90,8 +91,8 @@ export function TopBar({
           {/* Dark Mode Toggle */}
           <button
             onClick={onToggleDarkMode}
+            aria-label={effectiveTheme === 'dark' ? t('switchToLightMode') : t('switchToDarkMode')}
             className="flex h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 shadow-soft hover:shadow-soft-md"
-            title={effectiveTheme === 'dark' ? t('switchToLightMode') : t('switchToDarkMode')}
           >
             {effectiveTheme === 'dark' ? (
               <Sun className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-yellow-500" />
@@ -104,8 +105,9 @@ export function TopBar({
           <div className="relative">
             <button
               onClick={() => setShowLanguageMenu(!showLanguageMenu)}
+              aria-label={t('changeLanguage')}
+              aria-expanded={showLanguageMenu}
               className="flex h-10 3xl:h-12 4xl:h-14 items-center gap-1.5 px-3 rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 shadow-soft hover:shadow-soft-md"
-              title={t('changeLanguage')}
             >
               <span className="text-base leading-none">{currentLang.flag}</span>
               <span className="text-xs font-semibold text-gray-600 dark:text-gray-400">{currentLang.label}</span>
@@ -142,6 +144,8 @@ export function TopBar({
           <div className="relative">
             <button
               onClick={() => setShowNotifications(!showNotifications)}
+              aria-label={t('openNotifications')}
+              aria-expanded={showNotifications}
               className="relative flex h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 shadow-soft hover:shadow-soft-md"
             >
               <Bell className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-gray-600 dark:text-gray-400" />

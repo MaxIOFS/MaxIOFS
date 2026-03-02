@@ -187,6 +187,18 @@ func TestBuildCanonicalQueryString(t *testing.T) {
 	assert.Equal(t, "a=value1&b=value2&c=value3", result)
 }
 
+func TestBuildCanonicalQueryString_EncodesSpacesAsPercent20(t *testing.T) {
+	params := map[string]string{
+		"response-content-disposition": "attachment; filename=\"my file.txt\"",
+	}
+
+	result := buildCanonicalQueryString(params)
+
+	// AWS canonical form must use %20 for spaces (never '+')
+	assert.Contains(t, result, "my%20file.txt")
+	assert.NotContains(t, result, "+")
+}
+
 func TestExtractHost(t *testing.T) {
 	tests := []struct {
 		endpoint string

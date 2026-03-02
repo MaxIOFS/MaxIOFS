@@ -78,7 +78,7 @@ func (h *Handler) generatePresignedURLV4(config PresignedURLConfig) (string, err
 	host = strings.TrimPrefix(host, "https://")
 
 	// Create canonical request
-	canonicalQueryString := queryParams.Encode()
+	canonicalQueryString := canonicalQueryStringV4(queryParams, true)
 	canonicalHeaders := fmt.Sprintf("host:%s\n", host)
 	signedHeaders := "host"
 	payloadHash := "UNSIGNED-PAYLOAD"
@@ -106,7 +106,7 @@ func (h *Handler) generatePresignedURLV4(config PresignedURLConfig) (string, err
 
 	// Build final URL
 	queryParams.Set("X-Amz-Signature", signature)
-	finalURL := fmt.Sprintf("%s%s?%s", h.publicAPIURL, path, queryParams.Encode())
+	finalURL := fmt.Sprintf("%s%s?%s", h.publicAPIURL, path, canonicalQueryStringV4(queryParams, false))
 
 	logrus.Debugf("Generated presigned URL valid until %s", expiresAt.Format(time.RFC3339))
 
@@ -220,7 +220,7 @@ func (h *Handler) validatePresignedURLV4(r *http.Request) error {
 			canonicalQuery[k] = v
 		}
 	}
-	canonicalQueryString := canonicalQuery.Encode()
+	canonicalQueryString := canonicalQueryStringV4(canonicalQuery, false)
 
 	// Build canonical headers
 	canonicalHeaders := fmt.Sprintf("host:%s\n", host)
@@ -258,6 +258,46 @@ func (h *Handler) validatePresignedURLV4(r *http.Request) error {
 	logrus.Debugf("Presigned URL V4 validation passed for access key: %s", accessKey)
 
 	return nil
+}
+
+// canonicalQueryStringV4 builds an AWS SigV4 canonical query string for url.Values.
+// - Sorts by key, then by value.
+// - Uses RFC3986 encoding (spaces as %20, not '+').
+// - If excludeSignature is true, removes X-Amz-Signature.
+func canonicalQueryStringV4(values url.Values, excludeSignature bool) string {
+	type pair struct{ k, v string }
+	pairs := make([]pair, 0, len(values))
+	for k, vals := range values {
+		if excludeSignature && k == "X-Amz-Signature" {
+			continue
+		}
+		if len(vals) == 0 {
+			pairs = append(pairs, pair{k: k, v: ""})
+			continue
+		}
+		for _, v := range vals {
+			pairs = append(pairs, pair{k: k, v: v})
+		}
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].k == pairs[j].k {
+			return pairs[i].v < pairs[j].v
+		}
+		return pairs[i].k < pairs[j].k
+	})
+
+	out := make([]string, 0, len(pairs))
+	for _, p := range pairs {
+		out = append(out, awsQueryEscapeV4(p.k)+"="+awsQueryEscapeV4(p.v))
+	}
+	return strings.Join(out, "&")
+}
+
+func awsQueryEscapeV4(s string) string {
+	escaped := url.QueryEscape(s)
+	escaped = strings.ReplaceAll(escaped, "+", "%20")
+	escaped = strings.ReplaceAll(escaped, "%7E", "~")
+	return escaped
 }
 
 // validatePresignedURLV2 validates AWS Signature V2 presigned URL

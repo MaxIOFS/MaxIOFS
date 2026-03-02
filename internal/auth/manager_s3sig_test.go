@@ -84,6 +84,19 @@ func TestUriEncode(t *testing.T) {
 	}
 }
 
+func TestAwsQueryEscape_SpacesUsePercent20(t *testing.T) {
+	got := awsQueryEscape("hello world ~")
+	if strings.Contains(got, "+") {
+		t.Fatalf("awsQueryEscape used '+': %q", got)
+	}
+	if !strings.Contains(got, "%20") {
+		t.Fatalf("awsQueryEscape did not use %%20: %q", got)
+	}
+	if strings.Contains(got, "%7E") {
+		t.Fatalf("awsQueryEscape should not encode '~': %q", got)
+	}
+}
+
 func TestHmacSHA256(t *testing.T) {
 	tests := []struct {
 		name     string

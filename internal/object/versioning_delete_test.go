@@ -92,8 +92,11 @@ func TestDeleteSpecificVersion_WithVersioning(t *testing.T) {
 	}
 
 	// Test 3: Verify the latest version (version 3) still exists
-	latestObj, _, err := om.GetObject(ctx, bucket, key)
+	latestObj, reader, err := om.GetObject(ctx, bucket, key)
 	require.NoError(t, err, "Latest version should still exist")
+	if reader != nil {
+		_ = reader.Close()
+	}
 	assert.Equal(t, key, latestObj.Key)
 	t.Logf("Latest version still accessible: %s", latestObj.VersionID)
 
@@ -177,8 +180,11 @@ func TestDeleteSpecificVersion_MultipleFiles(t *testing.T) {
 
 	// Verify all files are still accessible (latest versions)
 	for key := range files {
-		obj, _, err := om.GetObject(ctx, bucket, key)
+		obj, reader, err := om.GetObject(ctx, bucket, key)
 		require.NoError(t, err, "File %s should still be accessible", key)
+		if reader != nil {
+			_ = reader.Close()
+		}
 		assert.Equal(t, key, obj.Key)
 		t.Logf("File %s still accessible with version: %s", key, obj.VersionID)
 	}
@@ -240,8 +246,11 @@ func TestDeleteSpecificVersion_DeleteLatest(t *testing.T) {
 			t.Log("Successfully deleted latest version")
 
 			// After deleting latest, version 1 should become the current version
-			currentObj, _, err := om.GetObject(ctx, bucket, key)
+			currentObj, reader, err := om.GetObject(ctx, bucket, key)
 			if err == nil {
+				if reader != nil {
+					_ = reader.Close()
+				}
 				t.Logf("After deleting latest, current version is: %s", currentObj.VersionID)
 				// Should now get version 1
 			} else {

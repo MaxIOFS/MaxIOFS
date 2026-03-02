@@ -140,12 +140,21 @@ func buildCanonicalQueryString(params map[string]string) string {
 	var parts []string
 	for _, k := range keys {
 		// URL encode both key and value
-		encodedKey := url.QueryEscape(k)
-		encodedValue := url.QueryEscape(params[k])
+		encodedKey := awsQueryEscape(k)
+		encodedValue := awsQueryEscape(params[k])
 		parts = append(parts, fmt.Sprintf("%s=%s", encodedKey, encodedValue))
 	}
 
 	return strings.Join(parts, "&")
+}
+
+// awsQueryEscape encodes query keys/values for AWS SigV4 canonical query string (RFC 3986).
+// Go's url.QueryEscape uses '+' for spaces; AWS requires '%20'.
+func awsQueryEscape(s string) string {
+	escaped := url.QueryEscape(s)
+	escaped = strings.ReplaceAll(escaped, "+", "%20")
+	escaped = strings.ReplaceAll(escaped, "%7E", "~")
+	return escaped
 }
 
 // extractHost extracts the host from an endpoint URL
