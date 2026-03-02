@@ -1194,6 +1194,11 @@ func (m *metricsManager) Stop() error {
 
 // metricsCollectionLoop periodically collects and stores metrics snapshots
 func (m *metricsManager) metricsCollectionLoop() {
+	// Take an immediate snapshot on startup so the chart has no gap at the
+	// beginning, then take a final snapshot on shutdown to close the gap.
+	m.collectAndStoreMetrics()
+	defer m.collectAndStoreMetrics()
+
 	ticker := time.NewTicker(m.config.Interval)
 	defer ticker.Stop()
 

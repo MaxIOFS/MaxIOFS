@@ -192,7 +192,11 @@ export default function MetricsPage() {
     if (processed.length > 0) {
       const currentTimestamp = Math.floor(Date.now() / 1000);
       const lastTimestamp = processed[processed.length - 1].timestamp;
-      if (currentTimestamp > lastTimestamp) {
+      const secondsSinceLastSnapshot = currentTimestamp - lastTimestamp;
+      // Only append a "current" point if the last snapshot is older than 30s.
+      // If there's a recent snapshot it already represents the current state —
+      // appending here with potentially stale query data causes false positives.
+      if (secondsSinceLastSnapshot > 30) {
         processed.push({
           timestamp: currentTimestamp,
           cpuUsagePercent: systemMetrics?.cpuUsagePercent || 0,

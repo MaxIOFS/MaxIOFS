@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Plus,
   Trash2,
@@ -38,6 +39,7 @@ const emptyTarget: Partial<LoggingTarget> = {
 };
 
 export default function LoggingTargets() {
+  const { t } = useTranslation('settings');
   const queryClient = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [editingTarget, setEditingTarget] = useState<Partial<LoggingTarget> | null>(null);
@@ -63,7 +65,7 @@ export default function LoggingTargets() {
       setFormErrors(null);
     },
     onError: (error: any) => {
-      setFormErrors(error.response?.data?.error || 'Failed to create target');
+      setFormErrors(error.response?.data?.error || t('failedToCreateTarget'));
     },
   });
 
@@ -78,7 +80,7 @@ export default function LoggingTargets() {
       setFormErrors(null);
     },
     onError: (error: any) => {
-      setFormErrors(error.response?.data?.error || 'Failed to update target');
+      setFormErrors(error.response?.data?.error || t('failedToUpdateTarget'));
     },
   });
 
@@ -95,11 +97,11 @@ export default function LoggingTargets() {
   const testMutation = useMutation({
     mutationFn: (id: string) => APIClient.testLoggingTarget(id),
     onSuccess: (_data, id) => {
-      setTestResult({ id, success: true, message: 'Test message sent' });
+      setTestResult({ id, success: true, message: t('testMessageSent') });
       setTimeout(() => setTestResult(null), 4000);
     },
     onError: (error: any, id) => {
-      setTestResult({ id, success: false, message: error.response?.data?.error || 'Test failed' });
+      setTestResult({ id, success: false, message: error.response?.data?.error || t('testFailed') });
       setTimeout(() => setTestResult(null), 6000);
     },
   });
@@ -109,11 +111,11 @@ export default function LoggingTargets() {
     mutationFn: (target: Partial<LoggingTarget>) => APIClient.testLoggingTargetConfig(target),
     onSuccess: () => {
       setFormErrors(null);
-      setTestResult({ id: 'modal', success: true, message: 'Connection test passed' });
+      setTestResult({ id: 'modal', success: true, message: t('connectionTestPassed') });
       setTimeout(() => setTestResult(null), 4000);
     },
     onError: (error: any) => {
-      setTestResult({ id: 'modal', success: false, message: error.response?.data?.error || 'Connection test failed' });
+      setTestResult({ id: 'modal', success: false, message: error.response?.data?.error || t('connectionTestFailed') });
       setTimeout(() => setTestResult(null), 6000);
     },
   });
@@ -154,7 +156,7 @@ export default function LoggingTargets() {
     return (
       <div className="flex items-center justify-center py-8">
         <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-        <span className="ml-2 text-sm text-gray-500">Loading targets...</span>
+        <span className="ml-2 text-sm text-gray-500">{t('loadingTargets')}</span>
       </div>
     );
   }
@@ -164,9 +166,9 @@ export default function LoggingTargets() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">External Logging Targets</h4>
+          <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t('loggingTargetsTitle')}</h4>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Forward logs to external syslog servers or HTTP endpoints. Multiple targets supported.
+            {t('loggingTargetsDesc')}
           </p>
         </div>
         <button
@@ -174,7 +176,7 @@ export default function LoggingTargets() {
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
         >
           <Plus className="h-3.5 w-3.5" />
-          Add Target
+          {t('addTarget')}
         </button>
       </div>
 
@@ -182,9 +184,9 @@ export default function LoggingTargets() {
       {targets.length === 0 ? (
         <div className="text-center py-8 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
           <Server className="h-8 w-8 mx-auto text-gray-400 dark:text-gray-500 mb-2" />
-          <p className="text-sm text-gray-500 dark:text-gray-400">No external logging targets configured</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t('noTargetsConfigured')}</p>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-            Add a syslog or HTTP target to forward logs externally
+            {t('noTargetsConfiguredHint')}
           </p>
         </div>
       ) : (
@@ -219,7 +221,7 @@ export default function LoggingTargets() {
                         ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                     }`}>
-                      {target.enabled ? '● Active' : '○ Disabled'}
+                      {target.enabled ? t('targetActive') : t('targetDisabled')}
                     </span>
                     {target.tls_enabled && (
                       <span title="TLS Enabled"><Shield className="h-3.5 w-3.5 text-blue-500" /></span>
@@ -251,7 +253,7 @@ export default function LoggingTargets() {
                   onClick={() => testMutation.mutate(target.id)}
                   disabled={testMutation.isPending}
                   className="p-1.5 text-gray-400 hover:text-yellow-600 dark:hover:text-yellow-400 transition-colors disabled:opacity-50"
-                  title="Test connection"
+                  title={t('testConnection')}
                 >
                   {testMutation.isPending && testMutation.variables === target.id ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -263,7 +265,7 @@ export default function LoggingTargets() {
                 <button
                   onClick={() => handleOpenEdit(target)}
                   className="p-1.5 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                  title="Edit target"
+                  title={t('editTarget')}
                 >
                   <Edit2 className="h-4 w-4" />
                 </button>
@@ -271,7 +273,7 @@ export default function LoggingTargets() {
                 <button
                   onClick={() => setDeleteTarget(target)}
                   className="p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                  title="Delete target"
+                  title={t('deleteTarget')}
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -285,7 +287,7 @@ export default function LoggingTargets() {
       <Modal
         isOpen={showModal}
         onClose={() => { setShowModal(false); setEditingTarget(null); setFormErrors(null); }}
-        title={editingTarget?.id ? 'Edit Logging Target' : 'Add Logging Target'}
+        title={editingTarget?.id ? t('editLoggingTarget') : t('addLoggingTarget')}
         size="lg"
       >
         {editingTarget && (
@@ -312,7 +314,7 @@ export default function LoggingTargets() {
             {/* Basic Info */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('nameLabel')}</label>
                 <input
                   type="text"
                   value={editingTarget.name ?? ''}
@@ -322,7 +324,7 @@ export default function LoggingTargets() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Type</label>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('typeLabel')}</label>
                 <select
                   value={editingTarget.type ?? 'syslog'}
                   onChange={e => {
@@ -346,7 +348,7 @@ export default function LoggingTargets() {
             {/* Enabled + Filter Level */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('statusLabel')}</label>
                 <div className="flex gap-2">
                   <button
                     onClick={() => updateField('enabled', true)}
@@ -356,7 +358,7 @@ export default function LoggingTargets() {
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                     }`}
                   >
-                    Enabled
+                    {t('enabled')}
                   </button>
                   <button
                     onClick={() => updateField('enabled', false)}
@@ -366,12 +368,12 @@ export default function LoggingTargets() {
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                     }`}
                   >
-                    Disabled
+                    {t('disabled')}
                   </button>
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Minimum Log Level</label>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('minLogLevel')}</label>
                 <select
                   value={editingTarget.filter_level ?? 'info'}
                   onChange={e => updateField('filter_level', e.target.value)}
@@ -390,7 +392,7 @@ export default function LoggingTargets() {
               <>
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Protocol</label>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('protocolLabel')}</label>
                     <select
                       value={editingTarget.protocol ?? 'tcp'}
                       onChange={e => updateField('protocol', e.target.value)}
@@ -402,7 +404,7 @@ export default function LoggingTargets() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Host</label>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('hostLabel')}</label>
                     <input
                       type="text"
                       value={editingTarget.host ?? ''}
@@ -412,7 +414,7 @@ export default function LoggingTargets() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Port</label>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('portLabel')}</label>
                     <input
                       type="number"
                       value={editingTarget.port ?? 514}
@@ -424,7 +426,7 @@ export default function LoggingTargets() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Tag</label>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('tagLabel')}</label>
                     <input
                       type="text"
                       value={editingTarget.tag ?? 'maxiofs'}
@@ -434,7 +436,7 @@ export default function LoggingTargets() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Format</label>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('formatLabel')}</label>
                     <select
                       value={editingTarget.format ?? 'rfc5424'}
                       onChange={e => updateField('format', e.target.value)}
@@ -451,11 +453,11 @@ export default function LoggingTargets() {
                   <div className="border border-blue-200 dark:border-blue-800/50 rounded-lg p-4 bg-blue-50/50 dark:bg-blue-900/10">
                     <div className="flex items-center gap-2 mb-3">
                       <Shield className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                      <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">TLS Configuration</span>
+                      <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">{t('tlsConfiguration')}</span>
                     </div>
                     <div className="space-y-3">
                       <div>
-                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">CA Certificate (PEM)</label>
+                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('caCert')}</label>
                         <textarea
                           value={editingTarget.tls_ca ?? ''}
                           onChange={e => updateField('tls_ca', e.target.value)}
@@ -466,7 +468,7 @@ export default function LoggingTargets() {
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Client Certificate (PEM)</label>
+                          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('clientCert')}</label>
                           <textarea
                             value={editingTarget.tls_cert ?? ''}
                             onChange={e => updateField('tls_cert', e.target.value)}
@@ -476,7 +478,7 @@ export default function LoggingTargets() {
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Client Key (PEM)</label>
+                          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('clientKey')}</label>
                           <textarea
                             value={editingTarget.tls_key ?? ''}
                             onChange={e => updateField('tls_key', e.target.value)}
@@ -493,7 +495,7 @@ export default function LoggingTargets() {
                           onChange={e => updateField('tls_skip_verify', e.target.checked)}
                           className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         />
-                        Skip TLS certificate verification (insecure)
+                        {t('skipTlsVerify')}
                       </label>
                     </div>
                   </div>
@@ -505,7 +507,7 @@ export default function LoggingTargets() {
             {editingTarget.type === 'http' && (
               <>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Endpoint URL</label>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('endpointUrlLabel')}</label>
                   <input
                     type="text"
                     value={editingTarget.url ?? ''}
@@ -516,7 +518,7 @@ export default function LoggingTargets() {
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Auth Token</label>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('authTokenLabel')}</label>
                     <input
                       type="password"
                       value={editingTarget.auth_token ?? ''}
@@ -526,7 +528,7 @@ export default function LoggingTargets() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Batch Size</label>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('batchSizeLabel')}</label>
                     <input
                       type="number"
                       value={editingTarget.batch_size ?? 100}
@@ -535,7 +537,7 @@ export default function LoggingTargets() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Flush Interval (s)</label>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('flushIntervalLabel')}</label>
                     <input
                       type="number"
                       value={editingTarget.flush_interval ?? 10}
@@ -559,14 +561,14 @@ export default function LoggingTargets() {
                 ) : (
                   <Zap className="h-4 w-4" />
                 )}
-                Test Connection
+                {t('testConnection')}
               </button>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => { setShowModal(false); setEditingTarget(null); setFormErrors(null); }}
                   className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
                 >
-                  Cancel
+                  {t('cancel')}
                 </button>
                 <button
                   onClick={handleSave}
@@ -574,7 +576,7 @@ export default function LoggingTargets() {
                   className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
                 >
                   {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {editingTarget.id ? 'Update' : 'Create'}
+                  {editingTarget.id ? t('update') : t('create')}
                 </button>
               </div>
             </div>
@@ -587,9 +589,9 @@ export default function LoggingTargets() {
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
-        title="Delete Logging Target"
-        message={`Are you sure you want to delete "${deleteTarget?.name}"? This will stop forwarding logs to this target immediately.`}
-        confirmText="Delete"
+        title={t('deleteLoggingTarget')}
+        message={t('deleteLoggingTargetMsg', { name: deleteTarget?.name })}
+        confirmText={t('deleteConfirm')}
         variant="danger"
         loading={deleteMutation.isPending}
       />

@@ -62,8 +62,10 @@ func (m *Manager) LogEvent(ctx context.Context, event *AuditEvent) error {
 		return err
 	}
 
-	// Debug log for successful audit logging
-	m.logger.WithFields(logrus.Fields{
+	// Emit at Info level with all fields so external logging targets (syslog/HTTP)
+	// receive the full structured audit record via the DispatchHook.
+	fields := logrus.Fields{
+		"audit":         true,
 		"event_type":    event.EventType,
 		"user_id":       event.UserID,
 		"username":      event.Username,
@@ -71,7 +73,17 @@ func (m *Manager) LogEvent(ctx context.Context, event *AuditEvent) error {
 		"status":        event.Status,
 		"resource_type": event.ResourceType,
 		"resource_id":   event.ResourceID,
-	}).Debug("Audit event logged successfully")
+		"resource_name": event.ResourceName,
+		"ip_address":    event.IPAddress,
+		"user_agent":    event.UserAgent,
+	}
+	if event.TenantID != "" {
+		fields["tenant_id"] = event.TenantID
+	}
+	if len(event.Details) > 0 {
+		fields["details"] = event.Details
+	}
+	m.logger.WithFields(fields).Info("audit")
 
 	return nil
 }

@@ -1,26 +1,12 @@
 import React from 'react';
 import { Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-
-export interface TimeRange {
-  label: string;
-  hours: number;
-}
+import { TIME_RANGES, type TimeRange } from './timeRanges';
 
 interface TimeRangeSelectorProps {
   selected: TimeRange;
   onChange: (range: TimeRange) => void;
 }
-
-export const TIME_RANGES: TimeRange[] = [
-  { label: 'Real-time', hours: 5 / 60 }, // 5 minutes for true real-time (10s intervals)
-  { label: '1H', hours: 1 },
-  { label: '6H', hours: 6 },
-  { label: '24H', hours: 24 },
-  { label: '7D', hours: 24 * 7 },
-  { label: '30D', hours: 24 * 30 },
-  { label: '1Y', hours: 24 * 365 },
-];
 
 export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
   selected,
