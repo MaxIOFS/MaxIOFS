@@ -43,6 +43,7 @@ import { ObjectVersionsModal } from '@/components/ObjectVersionsModal';
 import { PresignedURLModal } from '@/components/PresignedURLModal';
 import { ObjectFilterPanel } from '@/components/ObjectFilterPanel';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from 'react-i18next';
 
 // Helper function for responsive modal widths
 const getResponsiveModalWidth = (baseWidth: number = 650): string => {
@@ -54,6 +55,7 @@ const getResponsiveModalWidth = (baseWidth: number = 650): string => {
 };
 
 export default function BucketDetailsPage() {
+  const { t } = useTranslation('buckets');
   const { bucket, tenantId } = useParams<{ bucket: string; tenantId?: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -430,7 +432,7 @@ export default function BucketDetailsPage() {
   const handleDownloadObject = async (key: string) => {
     try {
       // Show download indicator
-      ModalManager.loading('Downloading file...', `Downloading "${key}"`);
+      ModalManager.loading(t('downloadingFile'), t('downloadingKey', { key }));
 
       const blob = await APIClient.downloadObject({
         bucket: bucketName,
@@ -512,16 +514,16 @@ export default function BucketDetailsPage() {
 
         if (result.isConfirmed) {
           navigator.clipboard.writeText(shareData.url);
-          ModalManager.toast('success', 'Link copied to clipboard');
+          ModalManager.toast('success', t('linkCopied'));
         } else if (result.isDenied) {
           // Unshare the object
           const confirmDelete = await ModalManager.fire({
             icon: 'warning',
-            title: 'Unshare Object?',
-            text: 'This will delete the share link. The file itself will not be deleted.',
+            title: t('unshareObject'),
+            text: t('unshareObjectText'),
             showCancelButton: true,
-            confirmButtonText: 'Yes, unshare',
-            cancelButtonText: 'Cancel',
+            confirmButtonText: t('yesUnshare'),
+            cancelButtonText: t('cancel'),
             confirmButtonColor: '#dc2626',
           });
 
@@ -535,13 +537,13 @@ export default function BucketDetailsPage() {
       // Object is not shared yet - show create dialog
       const result = await ModalManager.fire({
         icon: 'info',
-        title: 'Share Object',
+        title: t('shareObject'),
         html: `
           <p class="mb-4">Generate a shareable link for <strong>"${key.split('/').pop()}"</strong></p>
           <div class="text-left">
-            <label for="expiresIn" class="block text-sm font-medium mb-2">Link expires in:</label>
+            <label for="expiresIn" class="block text-sm font-medium mb-2">${t('linkExpiresIn')}</label>
             <select id="expiresIn" class="w-full px-3 py-2 border border-gray-300 rounded-md">
-              <option value="0">Never (permanent link)</option>
+              <option value="0">${t('never')}</option>
               <option value="3600">1 hour</option>
               <option value="21600">6 hours</option>
               <option value="43200">12 hours</option>
@@ -551,8 +553,8 @@ export default function BucketDetailsPage() {
           </div>
         `,
         showCancelButton: true,
-        confirmButtonText: 'Generate Link',
-        cancelButtonText: 'Cancel',
+        confirmButtonText: t('generateLink'),
+        cancelButtonText: t('cancel'),
         preConfirm: () => {
           const select = document.getElementById('expiresIn') as HTMLSelectElement;
           const value = parseInt(select.value);
@@ -565,7 +567,7 @@ export default function BucketDetailsPage() {
       const expiresIn = result.value as number | null;
 
       // Show loading indicator
-      ModalManager.loading('Generating shareable link...', `Creating link for "${key}"`);
+      ModalManager.loading(t('generatingLink'), t('creatingLinkFor', { key }));
 
       const shareData = await APIClient.shareObject(bucketName, key, expiresIn, tenantId);
 
@@ -598,14 +600,14 @@ export default function BucketDetailsPage() {
 
       await ModalManager.fire({
         icon: 'success',
-        title: 'Shareable Link Created',
+        title: t('shareableLinkCreated'),
         html: `
           <div class="text-left space-y-4">
             <div class="flex items-center gap-2 mb-2">
               ${statusBadge}
             </div>
             <div>
-              <p class="text-sm font-medium mb-2">Share this link:</p>
+              <p class="text-sm font-medium mb-2">${t('shareThisLink')}</p>
               <div class="bg-gray-50 p-3 rounded border border-gray-200">
                 <code class="text-xs break-all">${shareData.url}</code>
               </div>
@@ -615,13 +617,13 @@ export default function BucketDetailsPage() {
               <p><strong>Created:</strong> ${new Date(shareData.createdAt).toLocaleString()}</p>
             </div>
             <div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
-              <strong>ℹ️ Note:</strong> Anyone with this link can download the file${shareData.expiresAt ? ' until it expires' : ' (no expiration)'}.
+              <strong>ℹ️ Note:</strong> ${t('noteAnyone', { expiry: shareData.expiresAt ? t('noteExpiry') : t('noteNoExpiry') })}
             </div>
           </div>
         `,
         showCancelButton: true,
-        confirmButtonText: 'Copy Link',
-        cancelButtonText: 'Close',
+        confirmButtonText: t('copyLink'),
+        cancelButtonText: t('cancel'),
         width: '650px',
       }).then((copyResult) => {
         if (copyResult.isConfirmed) {
@@ -848,7 +850,7 @@ export default function BucketDetailsPage() {
             className="gap-2 bg-white dark:bg-gray-800 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 border-gray-200 dark:border-gray-700 transition-all duration-200"
           >
             <ArrowLeftIcon className="h-4 w-4" />
-            Back to Buckets
+            {t('backToBuckets')}
           </Button>
           {currentPrefix && (
             <Button
@@ -858,7 +860,7 @@ export default function BucketDetailsPage() {
               className="gap-2 bg-white dark:bg-gray-800 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 border-gray-200 dark:border-gray-700 transition-all duration-200"
             >
               <ArrowLeftIcon className="h-4 w-4" />
-              Up to Parent Folder
+              {t('upToParentFolder')}
             </Button>
           )}
         </div>
@@ -869,7 +871,7 @@ export default function BucketDetailsPage() {
             </h1>
             {currentPrefix && (
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                Current path: /{currentPrefix}
+                {t('currentPath', { prefix: currentPrefix })}
               </p>
             )}
           </div>
@@ -879,7 +881,7 @@ export default function BucketDetailsPage() {
               size="icon"
               onClick={handleRefresh}
               disabled={isRefreshing}
-              title="Refresh objects"
+              title={t('refreshObjects')}
               className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700"
             >
               <RefreshCwIcon className="h-4 w-4" />
@@ -890,27 +892,27 @@ export default function BucketDetailsPage() {
               className="gap-2 hover:bg-gradient-to-r hover:from-purple-50 hover:to-violet-50 dark:hover:from-purple-900/30 dark:hover:to-violet-900/30 transition-all duration-200"
             >
               <ShieldIcon className="h-4 w-4" />
-              Permissions
+              {t('permissions')}
             </Button>
             <Button
               onClick={() => setIsCreateFolderModalOpen(true)}
               variant="outline"
               className="gap-2 hover:bg-gradient-to-r hover:from-blue-50 hover:to-cyan-50 dark:hover:from-blue-900/30 dark:hover:to-cyan-900/30 transition-all duration-200"
               disabled={isGlobalAdminInTenantBucket}
-              title={isGlobalAdminInTenantBucket ? 'Global admins cannot modify tenant buckets' : 'Create a new folder'}
+              title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : t('newFolder')}
             >
               <FolderIcon className="h-4 w-4" />
-              New Folder
+              {t('newFolder')}
             </Button>
             <Button
               onClick={() => setIsUploadModalOpen(true)}
               variant="outline"
               className="gap-2 hover:bg-gradient-to-r hover:from-green-50 hover:to-emerald-50 dark:hover:from-green-900/30 dark:hover:to-emerald-900/30 transition-all duration-200"
               disabled={isGlobalAdminInTenantBucket}
-              title={isGlobalAdminInTenantBucket ? 'Global admins cannot upload to tenant buckets' : 'Upload files to this bucket'}
+              title={isGlobalAdminInTenantBucket ? t('globalAdminCannotUpload') : t('uploadFilesTitle')}
             >
               <UploadIcon className="h-4 w-4" />
-              Upload Files
+              {t('uploadFiles')}
             </Button>
             <Button
               variant="outline"
@@ -918,7 +920,7 @@ export default function BucketDetailsPage() {
               className="gap-2 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 transition-all duration-200"
             >
               <SettingsIcon className="h-4 w-4" />
-              Settings
+              {t('settings')}
             </Button>
           </div>
         </div>
@@ -927,26 +929,26 @@ export default function BucketDetailsPage() {
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-3">
         <MetricCard
-          title="Total Objects"
+          title={t('totalObjects')}
           value={(bucketData?.object_count || 0).toLocaleString()}
           icon={FileIcon}
-          description="Files and folders"
+          description={t('filesAndFolders')}
           color="brand"
         />
 
         <MetricCard
-          title="Total Size"
+          title={t('totalSize')}
           value={formatSize(bucketData?.size || 0)}
           icon={HardDriveIcon}
-          description="Storage used"
+          description={t('storageUsed')}
           color="warning"
         />
 
         <MetricCard
-          title="Region"
+          title={t('region')}
           value={bucketData?.region || 'us-east-1'}
           icon={GlobeIcon}
-          description="Storage region"
+          description={t('storageRegion')}
           color="success"
         />
       </div>
@@ -963,7 +965,7 @@ export default function BucketDetailsPage() {
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-2">
-                  <h3 className="text-lg font-semibold text-blue-900">Object Lock Enabled (WORM)</h3>
+                  <h3 className="text-lg font-semibold text-blue-900">{t('objectLockEnabled')}</h3>
                   {bucketData.objectLock.rule?.defaultRetention && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                       <ShieldIcon className="h-3 w-3" />
@@ -972,26 +974,26 @@ export default function BucketDetailsPage() {
                   )}
                 </div>
                 <p className="text-sm text-blue-800">
-                  This bucket has WORM (Write Once Read Many) protection enabled. Objects are immutable and cannot be deleted until their retention expires.
+                  {t('objectLockDesc')}
                 </p>
                 {bucketData.objectLock.rule?.defaultRetention && (
                   <div className="mt-3 flex items-center gap-4 text-sm">
                     <div className="flex items-center gap-2 text-blue-700">
                       <ClockIcon className="h-4 w-4" />
-                      <span className="font-medium">Default retention:</span>
+                      <span className="font-medium">{t('defaultRetention')}</span>
                       <span>
                         {bucketData.objectLock.rule.defaultRetention.days
-                          ? `${bucketData.objectLock.rule.defaultRetention.days} day${bucketData.objectLock.rule.defaultRetention.days !== 1 ? 's' : ''}`
+                          ? t('retentionDay', { count: bucketData.objectLock.rule.defaultRetention.days })
                           : bucketData.objectLock.rule.defaultRetention.years
-                          ? `${bucketData.objectLock.rule.defaultRetention.years} year${bucketData.objectLock.rule.defaultRetention.years !== 1 ? 's' : ''}`
-                          : 'Not specified'
+                          ? t('retentionYear', { count: bucketData.objectLock.rule.defaultRetention.years })
+                          : t('notSpecified')
                         }
                       </span>
                     </div>
                     <div className="text-blue-600 text-xs">
                       {bucketData.objectLock.rule.defaultRetention.mode === 'COMPLIANCE'
-                        ? '⚠️ COMPLIANCE: Cannot be deleted under any circumstances'
-                        : '⚠️ GOVERNANCE: Requires special permissions to delete'
+                        ? t('complianceMode')
+                        : t('governanceMode')
                       }
                     </div>
                   </div>
@@ -1010,7 +1012,7 @@ export default function BucketDetailsPage() {
               <SearchIcon className="text-gray-400 dark:text-gray-500 h-5 w-5" />
             </div>
             <Input
-              placeholder="Search objects..."
+              placeholder={t('searchObjects')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-12 bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 rounded-lg shadow-sm"
@@ -1023,7 +1025,7 @@ export default function BucketDetailsPage() {
             className="gap-2 relative"
           >
             <FilterIcon className="h-4 w-4" />
-            Filters
+            {t('filters')}
             {activeFilterCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-brand-600 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
                 {activeFilterCount}
@@ -1048,13 +1050,13 @@ export default function BucketDetailsPage() {
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <FileIcon className="h-5 w-5 text-brand-600 dark:text-brand-400" />
-              Objects ({filteredItems.length})
-              {currentPrefix && ` in ${currentPrefix}`}
+              {t('objectsLabel')} ({filteredItems.length})
+              {currentPrefix && ` ${t('inPath', { path: currentPrefix })}`}
             </h3>
             {selectedObjects.size > 0 && !isGlobalAdminInTenantBucket && (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-500 dark:text-gray-400">
-                  {selectedObjects.size} selected
+                  {t('selectedCount', { count: selectedObjects.size })}
                 </span>
                 <Button
                   onClick={handleBulkDelete}
@@ -1063,7 +1065,7 @@ export default function BucketDetailsPage() {
                   className="gap-2"
                 >
                   <Trash2Icon className="h-4 w-4" />
-                  Delete selected
+                  {t('deleteSelected')}
                 </Button>
               </div>
             )}
@@ -1079,9 +1081,9 @@ export default function BucketDetailsPage() {
               <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-gray-100 dark:bg-gray-700 mb-4">
                 <FileIcon className="h-8 w-8 text-gray-400 dark:text-gray-500" />
               </div>
-              <h3 className="text-base font-medium text-gray-900 dark:text-white mb-1">No objects found</h3>
+              <h3 className="text-base font-medium text-gray-900 dark:text-white mb-1">{t('noObjectsFound')}</h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                {searchTerm ? 'Try adjusting your search terms' : 'Create folders or upload files to get started'}
+                {searchTerm ? t('tryAdjustingSearch') : t('emptyBucketHint')}
               </p>
               {!searchTerm && !isGlobalAdminInTenantBucket && (
                 <div className="flex gap-2 justify-center mt-4">
@@ -1091,20 +1093,20 @@ export default function BucketDetailsPage() {
                     className="gap-2"
                   >
                     <FolderIcon className="h-4 w-4" />
-                    New Folder
+                    {t('newFolder')}
                   </Button>
                   <Button
                     onClick={() => setIsUploadModalOpen(true)}
                     className="gap-2"
                   >
                     <UploadIcon className="h-4 w-4" />
-                    Upload Files
+                    {t('uploadFiles')}
                   </Button>
                 </div>
               )}
               {!searchTerm && isGlobalAdminInTenantBucket && (
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                  Global admins have read-only access to tenant buckets
+                  {t('globalAdminReadOnlyHint')}
                 </p>
               )}
             </div>
@@ -1123,17 +1125,17 @@ export default function BucketDetailsPage() {
                       />
                     </TableHead>
                   )}
-                  <TableHead>Name</TableHead>
-                  <TableHead>Size</TableHead>
-                  <TableHead>Modified</TableHead>
-                  <TableHead>Type</TableHead>
+                  <TableHead>{t('name')}</TableHead>
+                  <TableHead>{t('size')}</TableHead>
+                  <TableHead>{t('tableModified')}</TableHead>
+                  <TableHead>{t('tableType')}</TableHead>
                   {bucketData?.objectLock?.objectLockEnabled && (
                     <>
-                      <TableHead>Retention</TableHead>
-                      <TableHead>Legal Hold</TableHead>
+                      <TableHead>{t('tableRetention')}</TableHead>
+                      <TableHead>{t('tableLegalHold')}</TableHead>
                     </>
                   )}
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="text-right">{t('tableActions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1190,7 +1192,7 @@ export default function BucketDetailsPage() {
                     </TableCell>
                     <TableCell>
                       {isFolder(item) ? (
-                        <span className="text-blue-600">Folder</span>
+                        <span className="text-blue-600">{t('folderType')}</span>
                       ) : (
                         item.storageClass || 'STANDARD'
                       )}
@@ -1216,7 +1218,7 @@ export default function BucketDetailsPage() {
                             );
                           }
 
-                          return <span className="text-gray-400">No retention</span>;
+                          return <span className="text-gray-400">{t('noRetention')}</span>;
                         })()}
                       </TableCell>
                     )}
@@ -1229,7 +1231,7 @@ export default function BucketDetailsPage() {
 
                           if ('legalHold' in item && item.legalHold?.status === 'ON') {
                             return (
-                              <div className="flex items-center gap-1" title="Legal Hold is active - object cannot be deleted">
+                              <div className="flex items-center gap-1" title={t('legalHoldActiveTitle')}>
                                 <ShieldIcon className="h-3 w-3 text-yellow-600" />
                                 <span className="text-xs font-medium text-yellow-600">
                                   ON
@@ -1251,7 +1253,7 @@ export default function BucketDetailsPage() {
                               size="sm"
                               onClick={() => handleDownloadObject(item.key)}
                               disabled={isGlobalAdminInTenantBucket}
-                              title={isGlobalAdminInTenantBucket ? "Global admins cannot download from tenant buckets" : "Download"}
+                              title={isGlobalAdminInTenantBucket ? t('globalAdminCannotDownload') : t('download')}
                             >
                               <DownloadIcon className="h-4 w-4" />
                             </Button>
@@ -1260,7 +1262,7 @@ export default function BucketDetailsPage() {
                               size="sm"
                               onClick={() => handleShareObject(item.key)}
                               disabled={isGlobalAdminInTenantBucket}
-                              title={isGlobalAdminInTenantBucket ? "Global admins cannot share objects from tenant buckets" : (sharesMap[item.key] ? "View/Copy share link" : "Share (Public Link)")}
+                              title={isGlobalAdminInTenantBucket ? t('globalAdminCannotShare') : (sharesMap[item.key] ? t('viewCopyShareLink') : t('sharePublicLink'))}
                               className={sharesMap[item.key] ? "text-green-600 hover:text-green-700" : ""}
                             >
                               <Share2Icon className="h-4 w-4" />
@@ -1270,7 +1272,7 @@ export default function BucketDetailsPage() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleViewVersions(item.key)}
-                                title="View versions"
+                                title={t('viewVersions')}
                                 className="text-blue-600 hover:text-blue-700"
                               >
                                 <HistoryIcon className="h-4 w-4" />
@@ -1281,7 +1283,7 @@ export default function BucketDetailsPage() {
                               size="sm"
                               onClick={() => handleGeneratePresignedURL(item.key)}
                               disabled={isGlobalAdminInTenantBucket}
-                              title={isGlobalAdminInTenantBucket ? "Global admins cannot create presigned URLs for tenant buckets" : "Generate Presigned URL"}
+                              title={isGlobalAdminInTenantBucket ? t('globalAdminCannotPresign') : t('generatePresignedUrl')}
                               className="text-purple-600 hover:text-purple-700"
                             >
                               <LinkIcon className="h-4 w-4" />
@@ -1292,7 +1294,7 @@ export default function BucketDetailsPage() {
                                 size="sm"
                                 onClick={() => handleToggleLegalHold(item.key, ('legalHold' in item && item.legalHold?.status === 'ON'))}
                                 disabled={isGlobalAdminInTenantBucket || toggleLegalHoldMutation.isPending}
-                                title={isGlobalAdminInTenantBucket ? "Global admins cannot modify legal hold on tenant buckets" : (('legalHold' in item && item.legalHold?.status === 'ON') ? "Disable Legal Hold" : "Enable Legal Hold")}
+                                title={isGlobalAdminInTenantBucket ? t('globalAdminCannotModifyLegalHold') : (('legalHold' in item && item.legalHold?.status === 'ON') ? t('disableLegalHold') : t('enableLegalHold'))}
                                 className={('legalHold' in item && item.legalHold?.status === 'ON') ? "text-yellow-600 hover:text-yellow-700" : "text-gray-600 hover:text-gray-700"}
                               >
                                 <ShieldIcon className="h-4 w-4" />
@@ -1305,7 +1307,7 @@ export default function BucketDetailsPage() {
                           size="sm"
                           onClick={() => handleDeleteObject(item.key, isFolder(item))}
                           disabled={isGlobalAdminInTenantBucket || deleteObjectMutation.isPending}
-                          title={isGlobalAdminInTenantBucket ? "Global admins cannot delete from tenant buckets" : "Delete"}
+                          title={isGlobalAdminInTenantBucket ? t('globalAdminCannotDelete') : t('delete')}
                         >
                           <Trash2Icon className="h-4 w-4" />
                         </Button>
@@ -1323,12 +1325,12 @@ export default function BucketDetailsPage() {
       <Modal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
-        title="Upload Files"
+        title={t('uploadFilesModalTitle')}
       >
         <form onSubmit={handleUpload} className="space-y-4">
           <div>
             <label htmlFor="files" className="block text-sm font-medium mb-2">
-              Select Files
+              {t('selectFilesLabel')}
             </label>
             <input
               id="files"
@@ -1339,14 +1341,14 @@ export default function BucketDetailsPage() {
             />
             {currentPrefix && (
               <p className="text-xs text-muted-foreground mt-1">
-                Files will be uploaded to: {currentPrefix}/
+                {t('filesUploadedTo', { path: currentPrefix })}
               </p>
             )}
           </div>
 
           {selectedFiles && selectedFiles.length > 0 && (
             <div>
-              <h4 className="text-sm font-medium mb-2">Selected Files:</h4>
+              <h4 className="text-sm font-medium mb-2">{t('selectedFilesLabel')}</h4>
               <ul className="text-sm space-y-1">
                 {Array.from(selectedFiles).map((file, index) => (
                   <li key={index} className="flex justify-between">
@@ -1364,13 +1366,13 @@ export default function BucketDetailsPage() {
               variant="outline"
               onClick={() => setIsUploadModalOpen(false)}
             >
-              Cancel
+              {t('cancel')}
             </Button>
             <Button
               type="submit"
               disabled={!selectedFiles || selectedFiles.length === 0}
             >
-              Upload Files
+              {t('uploadFiles')}
             </Button>
           </div>
         </form>
@@ -1380,38 +1382,36 @@ export default function BucketDetailsPage() {
       <Modal
         isOpen={isCreateFolderModalOpen}
         onClose={() => setIsCreateFolderModalOpen(false)}
-        title="Create New Folder"
+        title={t('createNewFolder')}
       >
         <form onSubmit={handleCreateFolder} className="space-y-4">
           <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
-            <p className="text-sm text-blue-800 dark:text-blue-200">
-              <strong>💡 About S3 Folders:</strong> In S3, folders are <strong>virtual</strong> - they don't physically exist.
-              A folder is represented by adding "/" to object names (e.g., "photos/vacation.jpg").
-              This is the standard S3 behavior used by AWS and all S3-compatible systems.
-            </p>
+            <p className="text-sm text-blue-800 dark:text-blue-200"
+              dangerouslySetInnerHTML={{ __html: t('s3FoldersInfo') }}
+            />
           </div>
 
           <div>
             <label htmlFor="folderName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Folder Name *
+              {t('folderNameLabel')} *
             </label>
             <Input
               id="folderName"
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.target.value)}
-              placeholder="my-folder"
+              placeholder={t('folderNamePlaceholder')}
               required
               pattern="^[a-zA-Z0-9][a-zA-Z0-9\-_]{0,254}$"
-              title="Folder name must be alphanumeric, hyphens, and underscores only"
+              title={t('folderNameValidation')}
               className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white"
             />
             {currentPrefix ? (
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                📁 Full path: <code className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-900 dark:text-white">{currentPrefix}/{newFolderName}/</code>
+                {t('fullPathWithPrefix', { prefix: currentPrefix, name: newFolderName })}
               </p>
             ) : (
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                📁 Full path: <code className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-900 dark:text-white">{newFolderName}/</code>
+                {t('fullPath', { name: newFolderName })}
               </p>
             )}
           </div>
@@ -1424,14 +1424,14 @@ export default function BucketDetailsPage() {
               disabled={createFolderMutation.isPending}
               className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white"
             >
-              Cancel
+              {t('cancel')}
             </Button>
             <Button
               type="submit"
               disabled={createFolderMutation.isPending || !newFolderName.trim()}
               className="bg-brand-600 hover:bg-brand-700 text-white"
             >
-              {createFolderMutation.isPending ? 'Creating...' : 'Create Folder'}
+              {createFolderMutation.isPending ? t('creating') : t('createFolder')}
             </Button>
           </div>
         </form>

@@ -57,5 +57,15 @@
   "sendTestEmail": "Enviar Correo de Prueba",
   "backendLogs": "Registros del Servidor",
   "frontendLogs": "Registros del Navegador",
-  "frontendLogsDesc": "Recopilar errores y advertencias del navegador"
+  "frontendLogsDesc": "Recopilar errores y advertencias del navegador",
+  "categoryLoggingTitle": "Registros",
+  "categoryLoggingDesc": "Configuración de registros estructurados, syslog y endpoint HTTP",
+  "categoryEmailTitle": "Correo",
+  "categoryEmailDesc": "Configuración SMTP para alertas de espacio en disco y notificaciones del sistema",
+  "failedToSaveSettings": "Error al guardar la configuración",
+  "failedToSendTestEmail": "Error al enviar el correo de prueba",
+  "mb": "{{value}} MB",
+  "tlsModeNone": "Ninguno (SMTP simple, sin cifrado)",
+  "tlsModeStarttls": "STARTTLS (actualización en puerto 587)",
+  "tlsModeSsl": "SSL/TLS (implícito, puerto 465)"
 }

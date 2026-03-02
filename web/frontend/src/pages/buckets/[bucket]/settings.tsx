@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Loading } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
@@ -41,50 +42,51 @@ interface TabInfo {
   description: string;
 }
 
-const tabs: TabInfo[] = [
-  {
-    id: 'general',
-    label: 'General',
-    icon: Settings,
-    description: 'Versioning, encryption, and bucket tags',
-  },
-  {
-    id: 'security',
-    label: 'Security & Access',
-    icon: Shield,
-    description: 'Bucket policy, ACL, and CORS configuration',
-  },
-  {
-    id: 'lifecycle',
-    label: 'Lifecycle',
-    icon: Clock,
-    description: 'Lifecycle rules and automatic deletion policies',
-  },
-  {
-    id: 'notifications',
-    label: 'Notifications',
-    icon: Bell,
-    description: 'Event notifications and webhooks',
-  },
-  {
-    id: 'replication',
-    label: 'Replication',
-    icon: RefreshCw,
-    description: 'Cross-bucket and cross-region replication rules',
-  },
-  {
-    id: 'inventory',
-    label: 'Inventory',
-    icon: Package,
-    description: 'Automated bucket inventory reports and configuration',
-  },
-];
-
 export default function BucketSettingsPage() {
+  const { t } = useTranslation('bucketSettings');
   const { bucket, tenantId } = useParams<{ bucket: string; tenantId?: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+
+  const tabs: TabInfo[] = [
+    {
+      id: 'general',
+      label: t('tabs.general.label'),
+      icon: Settings,
+      description: t('tabs.general.description'),
+    },
+    {
+      id: 'security',
+      label: t('tabs.security.label'),
+      icon: Shield,
+      description: t('tabs.security.description'),
+    },
+    {
+      id: 'lifecycle',
+      label: t('tabs.lifecycle.label'),
+      icon: Clock,
+      description: t('tabs.lifecycle.description'),
+    },
+    {
+      id: 'notifications',
+      label: t('tabs.notifications.label'),
+      icon: Bell,
+      description: t('tabs.notifications.description'),
+    },
+    {
+      id: 'replication',
+      label: t('tabs.replication.label'),
+      icon: RefreshCw,
+      description: t('tabs.replication.description'),
+    },
+    {
+      id: 'inventory',
+      label: t('tabs.inventory.label'),
+      icon: Package,
+      description: t('tabs.inventory.description'),
+    },
+  ];
   const bucketName = bucket as string;
   const bucketPath = tenantId ? `/buckets/${tenantId}/${bucketName}` : `/buckets/${bucketName}`;
 
@@ -190,7 +192,7 @@ export default function BucketSettingsPage() {
     mutationFn: (enabled: boolean) => APIClient.putBucketVersioning(bucketName, enabled, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
-      ModalManager.toast('success', 'Versioning updated successfully');
+      ModalManager.toast('success', t('versioning.updatedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -207,7 +209,7 @@ export default function BucketSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsPolicyModalOpen(false);
       loadCurrentPolicy(); // Reload policy after save
-      ModalManager.toast('success', 'Bucket policy updated successfully');
+      ModalManager.toast('success', t('policy.savedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -219,7 +221,7 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       loadCurrentPolicy(); // Reload policy after delete
-      ModalManager.toast('success', 'Bucket policy deleted successfully');
+      ModalManager.toast('success', t('policy.deletedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -232,7 +234,7 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsCORSModalOpen(false);
-      ModalManager.toast('success', 'CORS configuration updated successfully');
+      ModalManager.toast('success', t('cors.savedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -243,7 +245,7 @@ export default function BucketSettingsPage() {
     mutationFn: () => APIClient.deleteBucketCORS(bucketName, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
-      ModalManager.toast('success', 'CORS configuration deleted successfully');
+      ModalManager.toast('success', t('cors.deletedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -256,7 +258,7 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsLifecycleModalOpen(false);
-      ModalManager.toast('success', 'Lifecycle rules updated successfully');
+      ModalManager.toast('success', t('lifecycle.savedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -267,7 +269,7 @@ export default function BucketSettingsPage() {
     mutationFn: () => APIClient.deleteBucketLifecycle(bucketName, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
-      ModalManager.toast('success', 'Lifecycle rules deleted successfully');
+      ModalManager.toast('success', t('lifecycle.deletedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -280,7 +282,7 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsTagsModalOpen(false);
-      ModalManager.toast('success', 'Bucket tags updated successfully');
+      ModalManager.toast('success', t('tags.savedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -291,7 +293,7 @@ export default function BucketSettingsPage() {
     mutationFn: () => APIClient.deleteBucketTagging(bucketName, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
-      ModalManager.toast('success', 'Bucket tags deleted successfully');
+      ModalManager.toast('success', t('tags.deletedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -319,7 +321,7 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket-notification', bucketName, tenantId] });
       refetchNotifications();
-      ModalManager.toast('success', 'Notification configuration updated successfully');
+      ModalManager.toast('success', t('notifications.savedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -331,7 +333,7 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket-notification', bucketName, tenantId] });
       refetchNotifications();
-      ModalManager.toast('success', 'Notification configuration deleted successfully');
+      ModalManager.toast('success', t('notifications.deletedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -361,7 +363,7 @@ export default function BucketSettingsPage() {
         replicate_deletes: true,
         replicate_metadata: true,
       });
-      ModalManager.toast('success', 'Replication rule created successfully');
+      ModalManager.toast('success', t('replication.createdSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -376,7 +378,7 @@ export default function BucketSettingsPage() {
       refetchReplicationRules();
       setIsReplicationModalOpen(false);
       setEditingReplicationRule(null);
-      ModalManager.toast('success', 'Replication rule updated successfully');
+      ModalManager.toast('success', t('replication.updatedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -388,7 +390,7 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName] });
       refetchReplicationRules();
-      ModalManager.toast('success', 'Replication rule deleted successfully');
+      ModalManager.toast('success', t('replication.deletedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -399,7 +401,7 @@ export default function BucketSettingsPage() {
     mutationFn: (ruleId: string) => APIClient.triggerReplicationSync(bucketName, ruleId),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName] });
-      ModalManager.toast('success', `Replication sync triggered! ${data.queued_count} object(s) queued for replication.`);
+      ModalManager.toast('success', t('replication.syncTriggered', { count: data.queued_count }));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -425,7 +427,7 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket-inventory', bucketName, tenantId] });
       refetchInventory();
-      ModalManager.toast('success', 'Inventory configuration saved successfully');
+      ModalManager.toast('success', t('inventory.savedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -437,7 +439,7 @@ export default function BucketSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucket-inventory', bucketName, tenantId] });
       refetchInventory();
-      ModalManager.toast('success', 'Inventory configuration deleted successfully');
+      ModalManager.toast('success', t('inventory.deletedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -451,7 +453,7 @@ export default function BucketSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setIsACLModalOpen(false);
       loadCurrentACL(); // Reload ACL after save
-      ModalManager.toast('success', 'Bucket ACL updated successfully');
+      ModalManager.toast('success', t('acl.savedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -563,8 +565,8 @@ export default function BucketSettingsPage() {
   const handleToggleVersioning = () => {
     const newState = !isVersioningEnabled;
     ModalManager.confirm(
-      `${newState ? 'Enable' : 'Suspend'} versioning?`,
-      `This will ${newState ? 'enable' : 'suspend'} object versioning for this bucket.`,
+      newState ? t('versioning.confirmEnableTitle') : t('versioning.confirmSuspendTitle'),
+      newState ? t('versioning.confirmEnableMsg') : t('versioning.confirmSuspendMsg'),
       () => toggleVersioningMutation.mutate(newState)
     );
   };
@@ -595,8 +597,8 @@ export default function BucketSettingsPage() {
 
   const handleDeletePolicy = () => {
     ModalManager.confirm(
-      'Delete bucket policy?',
-      'This will remove all custom access policies for this bucket.',
+      t('policy.confirmDeleteTitle'),
+      t('policy.confirmDeleteMsg'),
       () => deletePolicyMutation.mutate()
     );
   };
@@ -636,8 +638,8 @@ export default function BucketSettingsPage() {
 
   const handleDeleteCORS = () => {
     ModalManager.confirm(
-      'Delete CORS configuration?',
-      'This will remove all CORS rules for this bucket.',
+      t('cors.confirmDeleteTitle'),
+      t('cors.confirmDeleteMsg'),
       () => deleteCORSMutation.mutate()
     );
   };
@@ -658,11 +660,11 @@ export default function BucketSettingsPage() {
     if (!editingCorsRule) return;
 
     if (editingCorsRule.allowedOrigins.length === 0) {
-      ModalManager.toast('error', 'At least one allowed origin is required');
+      ModalManager.toast('error', t('cors.originRequired'));
       return;
     }
     if (editingCorsRule.allowedMethods.length === 0) {
-      ModalManager.toast('error', 'At least one allowed method is required');
+      ModalManager.toast('error', t('cors.methodRequired'));
       return;
     }
 
@@ -798,8 +800,8 @@ export default function BucketSettingsPage() {
 
   const handleDeleteLifecycle = () => {
     ModalManager.confirm(
-      'Delete lifecycle rules?',
-      'This will remove all lifecycle management rules for this bucket.',
+      t('lifecycle.confirmDeleteTitle'),
+      t('lifecycle.confirmDeleteMsg'),
       () => deleteLifecycleMutation.mutate()
     );
   };
@@ -860,8 +862,8 @@ export default function BucketSettingsPage() {
 
   const handleDeleteAllTags = () => {
     ModalManager.confirm(
-      'Delete all bucket tags?',
-      'This will remove all tags from this bucket.',
+      t('tags.confirmDeleteAllTitle'),
+      t('tags.confirmDeleteAllMsg'),
       () => deleteTagsMutation.mutate()
     );
   };
@@ -903,8 +905,8 @@ export default function BucketSettingsPage() {
     if (!currentConfig) return;
 
     ModalManager.confirm(
-      'Delete notification rule?',
-      'This will remove this notification rule from the bucket.',
+      t('notifications.confirmDeleteRuleTitle'),
+      t('notifications.confirmDeleteRuleMsg'),
       () => {
         const updatedRules = currentConfig.rules.filter((r) => r.id !== ruleId);
         const updatedConfig: NotificationConfiguration = {
@@ -932,7 +934,7 @@ export default function BucketSettingsPage() {
 
   const handleSaveNotificationRule = () => {
     if (!notificationRuleForm.webhookUrl || !notificationRuleForm.events || notificationRuleForm.events.length === 0) {
-      ModalManager.toast('error', 'Please provide webhook URL and select at least one event');
+      ModalManager.toast('error', t('notifications.validationError'));
       return;
     }
 
@@ -967,8 +969,8 @@ export default function BucketSettingsPage() {
 
   const handleDeleteAllNotifications = () => {
     ModalManager.confirm(
-      'Delete all notification rules?',
-      'This will remove all notification rules from this bucket.',
+      t('notifications.confirmDeleteAllTitle'),
+      t('notifications.confirmDeleteAllMsg'),
       () => deleteNotificationMutation.mutate()
     );
   };
@@ -1024,15 +1026,15 @@ export default function BucketSettingsPage() {
 
   const handleSaveReplicationRule = () => {
     if (!replicationRuleForm.destination_endpoint) {
-      ModalManager.toast('error', 'Please provide a destination endpoint URL');
+      ModalManager.toast('error', t('replication.validationEndpoint'));
       return;
     }
     if (!replicationRuleForm.destination_bucket) {
-      ModalManager.toast('error', 'Please provide a destination bucket');
+      ModalManager.toast('error', t('replication.validationBucket'));
       return;
     }
     if (!replicationRuleForm.destination_access_key || !replicationRuleForm.destination_secret_key) {
-      ModalManager.toast('error', 'Please provide access key and secret key');
+      ModalManager.toast('error', t('replication.validationCredentials'));
       return;
     }
 
@@ -1061,8 +1063,8 @@ export default function BucketSettingsPage() {
 
   const handleDeleteReplicationRule = (ruleId: string) => {
     ModalManager.confirm(
-      'Delete replication rule?',
-      'This will remove this replication rule. Objects will no longer be replicated to the destination.',
+      t('replication.confirmDeleteTitle'),
+      t('replication.confirmDeleteMsg'),
       () => deleteReplicationRuleMutation.mutate(ruleId)
     );
   };
@@ -1088,8 +1090,8 @@ export default function BucketSettingsPage() {
 
   const handleTriggerReplicationSync = (ruleId: string) => {
     ModalManager.confirm(
-      'Trigger manual sync?',
-      'This will queue all objects in the source bucket for replication to the destination.',
+      t('replication.confirmTriggerTitle'),
+      t('replication.confirmTriggerMsg'),
       () => triggerReplicationSyncMutation.mutate(ruleId)
     );
   };
@@ -1097,8 +1099,8 @@ export default function BucketSettingsPage() {
   // Policy Templates
   const policyTemplates = {
     publicRead: {
-      name: 'Public Read Access',
-      description: 'Allow anonymous read access to all objects',
+      name: t('policy.templates.publicRead.name'),
+      description: t('policy.templates.publicRead.description'),
       policy: {
         Version: '2012-10-17',
         Statement: [
@@ -1112,8 +1114,8 @@ export default function BucketSettingsPage() {
       },
     },
     publicReadWrite: {
-      name: 'Public Read/Write Access',
-      description: 'Allow anonymous read and write access',
+      name: t('policy.templates.publicReadWrite.name'),
+      description: t('policy.templates.publicReadWrite.description'),
       policy: {
         Version: '2012-10-17',
         Statement: [
@@ -1127,8 +1129,8 @@ export default function BucketSettingsPage() {
       },
     },
     listOnly: {
-      name: 'Public List Access',
-      description: 'Allow listing bucket contents only',
+      name: t('policy.templates.listOnly.name'),
+      description: t('policy.templates.listOnly.description'),
       policy: {
         Version: '2012-10-17',
         Statement: [
@@ -1142,8 +1144,8 @@ export default function BucketSettingsPage() {
       },
     },
     fullPublic: {
-      name: 'Full Public Access',
-      description: 'Allow all operations to everyone',
+      name: t('policy.templates.fullPublic.name'),
+      description: t('policy.templates.fullPublic.description'),
       policy: {
         Version: '2012-10-17',
         Statement: [
@@ -1173,7 +1175,7 @@ export default function BucketSettingsPage() {
       JSON.parse(policyText);
       savePolicyMutation.mutate(policyText);
     } catch (error) {
-      ModalManager.error('Invalid JSON', 'Please enter a valid JSON policy document');
+      ModalManager.error(t('policy.invalidJson'), t('policy.invalidJsonMsg'));
     }
   };
 
@@ -1199,7 +1201,7 @@ export default function BucketSettingsPage() {
           </Button>
           <div>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">{bucketName}</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Bucket Settings</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('pageSubtitle')}</p>
           </div>
         </div>
       </div>
@@ -1250,7 +1252,7 @@ export default function BucketSettingsPage() {
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <Clock className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              Versioning
+              {t('versioning.title')}
             </h3>
           </div>
           <div>
@@ -1258,18 +1260,18 @@ export default function BucketSettingsPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium">Version Control</p>
+                  <p className="font-medium">{t('versioning.versionControl')}</p>
                   <p className="text-sm text-gray-500">
-                    {isVersioningEnabled ? 'Enabled' : 'Disabled'}
+                    {isVersioningEnabled ? t('versioning.enabled') : t('versioning.disabled')}
                   </p>
                 </div>
                 <Button
                   variant="outline"
                   onClick={handleToggleVersioning}
                   disabled={isGlobalAdminInTenantBucket || toggleVersioningMutation.isPending}
-                  title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                  title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : undefined}
                 >
-                  {isVersioningEnabled ? 'Suspend' : 'Enable'}
+                  {isVersioningEnabled ? t('versioning.suspend') : t('versioning.enable')}
                 </Button>
               </div>
             </div>
@@ -1282,7 +1284,7 @@ export default function BucketSettingsPage() {
           <div className="px-6 py-4 border-b border-yellow-200 dark:border-yellow-800/50">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <Lock className="h-5 w-5 text-yellow-600 dark:text-yellow-500" />
-              Object Lock
+              {t('objectLock.title')}
             </h3>
           </div>
           <div>
@@ -1290,9 +1292,9 @@ export default function BucketSettingsPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium">Object Lock Status</p>
+                  <p className="font-medium">{t('objectLock.status')}</p>
                   <p className="text-sm text-gray-500">
-                    {bucketData?.objectLock?.objectLockEnabled ? 'Enabled' : 'Disabled'}
+                    {bucketData?.objectLock?.objectLockEnabled ? t('objectLock.enabled') : t('objectLock.disabled')}
                   </p>
                 </div>
                 {bucketData?.objectLock?.objectLockEnabled && (
@@ -1300,28 +1302,28 @@ export default function BucketSettingsPage() {
                     variant="outline"
                     onClick={() => setIsObjectLockModalOpen(true)}
                     disabled={isGlobalAdminInTenantBucket}
-                    title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                    title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : undefined}
                   >
-                    {isGlobalAdminInTenantBucket ? 'View' : 'Configure'}
+                    {isGlobalAdminInTenantBucket ? t('objectLock.view') : t('objectLock.configure')}
                   </Button>
                 )}
               </div>
               {bucketData?.objectLock?.objectLockEnabled && bucketData?.objectLock?.rule && (
                 <div className="rounded-lg border p-4 space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Mode:</span>
+                    <span className="text-sm text-gray-600">{t('objectLock.mode')}</span>
                     <span className="text-sm font-medium">
-                      {bucketData.objectLock.rule.defaultRetention?.mode || 'Not Set'}
+                      {bucketData.objectLock.rule.defaultRetention?.mode || t('objectLock.notSet')}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Retention:</span>
+                    <span className="text-sm text-gray-600">{t('objectLock.retention')}</span>
                     <span className="text-sm font-medium">
                       {bucketData.objectLock.rule.defaultRetention?.days
-                        ? `${bucketData.objectLock.rule.defaultRetention.days} days`
+                        ? t('objectLock.days', { days: bucketData.objectLock.rule.defaultRetention.days })
                         : bucketData.objectLock.rule.defaultRetention?.years
-                        ? `${bucketData.objectLock.rule.defaultRetention.years} years`
-                        : 'Not Set'}
+                        ? t('objectLock.years', { years: bucketData.objectLock.rule.defaultRetention.years })
+                        : t('objectLock.notSet')}
                     </span>
                   </div>
                 </div>
@@ -1341,7 +1343,7 @@ export default function BucketSettingsPage() {
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <Shield className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              Bucket Policy
+              {t('policy.title')}
             </h3>
           </div>
           <div>
@@ -1349,23 +1351,23 @@ export default function BucketSettingsPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex-1">
-                  <p className="font-medium">Access Policy</p>
+                  <p className="font-medium">{t('policy.sectionTitle')}</p>
                   <p className="text-sm text-gray-500">
-                    Define fine-grained permissions using JSON policy documents
+                    {t('policy.description')}
                   </p>
                   <div className="mt-2">
                     {currentPolicy ? (
                       <div className="flex items-center gap-2">
                         <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                          ✓ Policy Active
+                          {t('policy.policyActive')}
                         </span>
                         <span className="text-xs text-gray-600 dark:text-gray-400">
-                          {policyStatementCount} statement{policyStatementCount !== 1 ? 's' : ''}
+                          {t('policy.statements', { count: policyStatementCount })}
                         </span>
                       </div>
                     ) : (
                       <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
-                        No Policy Set
+                        {t('policy.noPolicySet')}
                       </span>
                     )}
                   </div>
@@ -1375,9 +1377,9 @@ export default function BucketSettingsPage() {
                     variant="outline"
                     onClick={handleEditPolicy}
                     disabled={isGlobalAdminInTenantBucket}
-                    title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                    title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : undefined}
                   >
-                    {isGlobalAdminInTenantBucket ? 'View Policy' : (currentPolicy ? 'Edit Policy' : 'Add Policy')}
+                    {isGlobalAdminInTenantBucket ? t('policy.viewPolicy') : (currentPolicy ? t('policy.editPolicy') : t('policy.addPolicy'))}
                   </Button>
                   {currentPolicy && (
                     <Button
@@ -1385,9 +1387,9 @@ export default function BucketSettingsPage() {
                       size="sm"
                       onClick={handleDeletePolicy}
                       disabled={isGlobalAdminInTenantBucket}
-                      title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                      title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : undefined}
                     >
-                      Delete
+                      {t('policy.delete')}
                     </Button>
                   )}
                 </div>
@@ -1402,7 +1404,7 @@ export default function BucketSettingsPage() {
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <Users className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              Access Control List (ACL)
+              {t('acl.title')}
             </h3>
           </div>
           <div>
@@ -1410,12 +1412,12 @@ export default function BucketSettingsPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex-1">
-                  <p className="font-medium">Bucket Permissions</p>
+                  <p className="font-medium">{t('acl.sectionTitle')}</p>
                   <p className="text-sm text-gray-500">
-                    Control who can access this bucket
+                    {t('acl.description')}
                   </p>
                   <div className="mt-2">
-                    <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Current ACL: </span>
+                    <span className="text-xs font-medium text-gray-600 dark:text-gray-400">{t('acl.currentAcl')}</span>
                     <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
                       currentACL === 'private' ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' :
                       currentACL === 'public-read' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
@@ -1423,10 +1425,10 @@ export default function BucketSettingsPage() {
                       currentACL === 'authenticated-read' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
                       'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
                     }`}>
-                      {currentACL === 'private' && '🔒 Private'}
-                      {currentACL === 'public-read' && '👁️ Public Read'}
-                      {currentACL === 'public-read-write' && '⚠️ Public Read/Write'}
-                      {currentACL === 'authenticated-read' && '🔐 Authenticated Read'}
+                      {currentACL === 'private' && `🔒 ${t('acl.private')}`}
+                      {currentACL === 'public-read' && `👁️ ${t('acl.publicRead')}`}
+                      {currentACL === 'public-read-write' && `⚠️ ${t('acl.publicReadWrite')}`}
+                      {currentACL === 'authenticated-read' && `🔐 ${t('acl.authenticatedRead')}`}
                     </span>
                   </div>
                 </div>
@@ -1435,9 +1437,9 @@ export default function BucketSettingsPage() {
                     variant="outline"
                     onClick={handleManageACL}
                     disabled={isGlobalAdminInTenantBucket}
-                    title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                    title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : undefined}
                   >
-                    {isGlobalAdminInTenantBucket ? 'View ACL' : 'Manage ACL'}
+                    {isGlobalAdminInTenantBucket ? t('acl.viewAcl') : t('acl.manageAcl')}
                   </Button>
                 </div>
               </div>
@@ -1451,7 +1453,7 @@ export default function BucketSettingsPage() {
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <Tag className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              Tags
+              {t('tags.title')}
             </h3>
           </div>
           <div>
@@ -1459,11 +1461,11 @@ export default function BucketSettingsPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium">Bucket Tags</p>
+                  <p className="font-medium">{t('tags.sectionTitle')}</p>
                   <p className="text-sm text-gray-500">
                     {bucketData?.tags && Object.keys(bucketData.tags).length > 0
-                      ? `${Object.keys(bucketData.tags).length} tags`
-                      : 'No tags'}
+                      ? t('tags.tagCount', { count: Object.keys(bucketData.tags).length })
+                      : t('tags.noTags')}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -1471,9 +1473,9 @@ export default function BucketSettingsPage() {
                     variant="outline"
                     onClick={handleManageTags}
                     disabled={isGlobalAdminInTenantBucket}
-                    title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                    title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : undefined}
                   >
-                    {isGlobalAdminInTenantBucket ? 'View Tags' : 'Manage Tags'}
+                    {isGlobalAdminInTenantBucket ? t('tags.viewTags') : t('tags.manageTags')}
                   </Button>
                   {bucketData?.tags && Object.keys(bucketData.tags).length > 0 && (
                     <Button
@@ -1481,9 +1483,9 @@ export default function BucketSettingsPage() {
                       size="sm"
                       onClick={handleDeleteAllTags}
                       disabled={isGlobalAdminInTenantBucket}
-                      title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                      title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : undefined}
                     >
-                      Delete All
+                      {t('tags.deleteAll')}
                     </Button>
                   )}
                 </div>
@@ -1498,7 +1500,7 @@ export default function BucketSettingsPage() {
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <Globe className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              CORS Configuration
+              {t('cors.title')}
             </h3>
           </div>
           <div>
@@ -1506,9 +1508,9 @@ export default function BucketSettingsPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium">Cross-Origin Resource Sharing</p>
+                  <p className="font-medium">{t('cors.sectionTitle')}</p>
                   <p className="text-sm text-gray-500">
-                    {bucketData?.cors ? 'Configured' : 'Not Configured'}
+                    {bucketData?.cors ? t('cors.configured') : t('cors.notConfigured')}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -1516,9 +1518,9 @@ export default function BucketSettingsPage() {
                     variant="outline"
                     onClick={handleEditCORS}
                     disabled={isGlobalAdminInTenantBucket}
-                    title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                    title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : undefined}
                   >
-                    {isGlobalAdminInTenantBucket ? 'View CORS' : (bucketData?.cors ? 'Edit CORS' : 'Add CORS')}
+                    {isGlobalAdminInTenantBucket ? t('cors.viewCors') : (bucketData?.cors ? t('cors.editCors') : t('cors.addCors'))}
                   </Button>
                   {bucketData?.cors && (
                     <Button
@@ -1526,9 +1528,9 @@ export default function BucketSettingsPage() {
                       size="sm"
                       onClick={handleDeleteCORS}
                       disabled={isGlobalAdminInTenantBucket}
-                      title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                      title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : undefined}
                     >
-                      Delete
+                      {t('cors.delete')}
                     </Button>
                   )}
                 </div>
@@ -1548,7 +1550,7 @@ export default function BucketSettingsPage() {
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <FileText className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              Lifecycle Rules
+              {t('lifecycle.title')}
             </h3>
           </div>
           <div>
@@ -1556,9 +1558,9 @@ export default function BucketSettingsPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium">Object Lifecycle Management</p>
+                  <p className="font-medium">{t('lifecycle.sectionTitle')}</p>
                   <p className="text-sm text-gray-500">
-                    {bucketData?.lifecycle ? 'Active Rules' : 'No Rules'}
+                    {bucketData?.lifecycle ? t('lifecycle.activeRules') : t('lifecycle.noRules')}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -1566,9 +1568,9 @@ export default function BucketSettingsPage() {
                     variant="outline"
                     onClick={handleEditLifecycle}
                     disabled={isGlobalAdminInTenantBucket}
-                    title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                    title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : undefined}
                   >
-                    {isGlobalAdminInTenantBucket ? 'View Rules' : (bucketData?.lifecycle ? 'Manage Rules' : 'Add Rule')}
+                    {isGlobalAdminInTenantBucket ? t('lifecycle.viewRules') : (bucketData?.lifecycle ? t('lifecycle.manageRules') : t('lifecycle.addRule'))}
                   </Button>
                   {bucketData?.lifecycle && (
                     <Button
@@ -1576,9 +1578,9 @@ export default function BucketSettingsPage() {
                       size="sm"
                       onClick={handleDeleteLifecycle}
                       disabled={isGlobalAdminInTenantBucket}
-                      title={isGlobalAdminInTenantBucket ? "Global admins cannot modify tenant bucket settings" : undefined}
+                      title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : undefined}
                     >
-                      Delete
+                      {t('lifecycle.delete')}
                     </Button>
                   )}
                 </div>
@@ -1597,7 +1599,7 @@ export default function BucketSettingsPage() {
                   <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                       <Bell className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                      Event Notifications
+                      {t('notifications.title')}
                     </h3>
                   </div>
                   <div>
@@ -1605,11 +1607,11 @@ export default function BucketSettingsPage() {
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="font-medium">Webhook Notifications</p>
+                          <p className="font-medium">{t('notifications.sectionTitle')}</p>
                           <p className="text-sm text-gray-500 dark:text-gray-400">
                             {notificationData?.rules?.length > 0
-                              ? `${notificationData.rules.length} active rule${notificationData.rules.length > 1 ? 's' : ''}`
-                              : 'No notification rules configured'}
+                              ? t('notifications.rulesCount', { count: notificationData.rules.length })
+                              : t('notifications.noRulesConfigured')}
                           </p>
                         </div>
                         <div className="flex gap-2">
@@ -1618,12 +1620,12 @@ export default function BucketSettingsPage() {
                             disabled={isGlobalAdminInTenantBucket}
                             title={
                               isGlobalAdminInTenantBucket
-                                ? 'Global admins cannot modify tenant bucket settings'
+                                ? t('globalAdminReadOnly')
                                 : undefined
                             }
                           >
                             <Plus className="h-4 w-4 mr-2" />
-                            Add Rule
+                            {t('notifications.addRule')}
                           </Button>
                           {notificationData?.rules?.length > 0 && (
                             <Button
@@ -1633,11 +1635,11 @@ export default function BucketSettingsPage() {
                               disabled={isGlobalAdminInTenantBucket}
                               title={
                                 isGlobalAdminInTenantBucket
-                                  ? 'Global admins cannot modify tenant bucket settings'
+                                  ? t('globalAdminReadOnly')
                                   : undefined
                               }
                             >
-                              Delete All
+                              {t('notifications.deleteAll')}
                             </Button>
                           )}
                         </div>
@@ -1669,29 +1671,29 @@ export default function BucketSettingsPage() {
                                           : 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
                                       }`}
                                     >
-                                      {rule.enabled ? 'Enabled' : 'Disabled'}
+                                      {rule.enabled ? t('notifications.enabled') : t('notifications.disabled')}
                                     </span>
                                   </div>
 
                                   <div className="space-y-1 text-sm">
                                     <div>
-                                      <span className="text-gray-500 dark:text-gray-400">Webhook: </span>
+                                      <span className="text-gray-500 dark:text-gray-400">{t('notifications.webhook')}</span>
                                       <span className="text-gray-900 dark:text-white font-mono text-xs">
                                         {rule.webhookUrl}
                                       </span>
                                     </div>
                                     <div>
-                                      <span className="text-gray-500 dark:text-gray-400">Events: </span>
+                                      <span className="text-gray-500 dark:text-gray-400">{t('notifications.eventsLabel')}</span>
                                       <span className="text-gray-900 dark:text-white">
                                         {rule.events.join(', ')}
                                       </span>
                                     </div>
                                     {(rule.filterPrefix || rule.filterSuffix) && (
                                       <div>
-                                        <span className="text-gray-500 dark:text-gray-400">Filters: </span>
+                                        <span className="text-gray-500 dark:text-gray-400">{t('notifications.filters')}</span>
                                         {rule.filterPrefix && (
                                           <span className="text-gray-900 dark:text-white">
-                                            Prefix: {rule.filterPrefix}
+                                            {t('notifications.prefix', { value: rule.filterPrefix })}
                                           </span>
                                         )}
                                         {rule.filterPrefix && rule.filterSuffix && (
@@ -1699,7 +1701,7 @@ export default function BucketSettingsPage() {
                                         )}
                                         {rule.filterSuffix && (
                                           <span className="text-gray-900 dark:text-white">
-                                            Suffix: {rule.filterSuffix}
+                                            {t('notifications.suffix', { value: rule.filterSuffix })}
                                           </span>
                                         )}
                                       </div>
@@ -1713,9 +1715,9 @@ export default function BucketSettingsPage() {
                                     variant="outline"
                                     onClick={() => handleToggleNotificationRule(rule.id)}
                                     disabled={isGlobalAdminInTenantBucket}
-                                    title={rule.enabled ? 'Disable rule' : 'Enable rule'}
+                                    title={rule.enabled ? t('notifications.disableTitle') : t('notifications.enableTitle')}
                                   >
-                                    {rule.enabled ? 'Disable' : 'Enable'}
+                                    {rule.enabled ? t('notifications.disable') : t('notifications.enable')}
                                   </Button>
                                   <Button
                                     size="sm"
@@ -1742,18 +1744,17 @@ export default function BucketSettingsPage() {
                         <div className="text-center py-12 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
                           <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                            No Notification Rules
+                            {t('notifications.noRulesTitle')}
                           </h3>
                           <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto mb-4">
-                            Configure webhook notifications to receive real-time events when objects are created,
-                            modified, or deleted in this bucket.
+                            {t('notifications.noRulesDesc')}
                           </p>
                           <Button
                             onClick={handleAddNotificationRule}
                             disabled={isGlobalAdminInTenantBucket}
                           >
                             <Plus className="h-4 w-4 mr-2" />
-                            Add First Rule
+                            {t('notifications.addFirstRule')}
                           </Button>
                         </div>
                       )}
@@ -1762,12 +1763,12 @@ export default function BucketSettingsPage() {
                       <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                         <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
                         <div className="text-sm text-blue-800 dark:text-blue-300">
-                          <p className="font-medium mb-1">About Bucket Notifications</p>
+                          <p className="font-medium mb-1">{t('notifications.infoTitle')}</p>
                           <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-blue-400">
-                            <li>Webhook notifications are sent as HTTP POST requests</li>
-                            <li>Events follow AWS S3 notification format</li>
-                            <li>Failed webhooks are retried up to 3 times</li>
-                            <li>Use prefix/suffix filters to limit which objects trigger notifications</li>
+                            <li>{t('notifications.infoItem1')}</li>
+                            <li>{t('notifications.infoItem2')}</li>
+                            <li>{t('notifications.infoItem3')}</li>
+                            <li>{t('notifications.infoItem4')}</li>
                           </ul>
                         </div>
                       </div>
@@ -1785,7 +1786,7 @@ export default function BucketSettingsPage() {
                   <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                       <RefreshCw className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                      Bucket Replication
+                      {t('replication.title')}
                     </h3>
                   </div>
                   <div>
@@ -1793,11 +1794,11 @@ export default function BucketSettingsPage() {
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="font-medium">Replication Rules</p>
+                          <p className="font-medium">{t('replication.sectionTitle')}</p>
                           <p className="text-sm text-gray-500 dark:text-gray-400">
                             {replicationRules && replicationRules.length > 0
-                              ? `${replicationRules.length} rule${replicationRules.length > 1 ? 's' : ''} configured`
-                              : 'No replication rules configured'}
+                              ? t('replication.rulesCount', { count: replicationRules.length })
+                              : t('replication.noRulesConfigured')}
                           </p>
                         </div>
                         <div className="flex gap-2">
@@ -1806,12 +1807,12 @@ export default function BucketSettingsPage() {
                             disabled={isGlobalAdminInTenantBucket}
                             title={
                               isGlobalAdminInTenantBucket
-                                ? 'Global admins cannot modify tenant bucket settings'
+                                ? t('globalAdminReadOnly')
                                 : undefined
                             }
                           >
                             <Plus className="h-4 w-4 mr-2" />
-                            Add Rule
+                            {t('replication.addRule')}
                           </Button>
                         </div>
                       </div>
@@ -1833,7 +1834,7 @@ export default function BucketSettingsPage() {
                                       <XCircle className="h-5 w-5 text-gray-400" />
                                     )}
                                     <span className="font-medium text-gray-900 dark:text-white">
-                                      Rule {rule.id}
+                                      {t('replication.ruleLabel', { id: rule.id })}
                                     </span>
                                     <span
                                       className={`text-xs px-2 py-1 rounded ${
@@ -1842,31 +1843,31 @@ export default function BucketSettingsPage() {
                                           : 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
                                       }`}
                                     >
-                                      {rule.enabled ? 'Enabled' : 'Disabled'}
+                                      {rule.enabled ? t('replication.enabled') : t('replication.disabled')}
                                     </span>
                                     <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
                                       {rule.mode}
                                     </span>
                                     <span className="text-xs px-2 py-1 rounded bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
-                                      Priority: {rule.priority}
+                                      {t('replication.priority', { value: rule.priority })}
                                     </span>
                                   </div>
 
                                   <div className="space-y-1 text-sm">
                                     <div>
-                                      <span className="text-gray-500 dark:text-gray-400">Source: </span>
+                                      <span className="text-gray-500 dark:text-gray-400">{t('replication.source')}</span>
                                       <span className="text-gray-900 dark:text-white font-mono text-xs">
                                         {rule.source_bucket}
                                       </span>
                                     </div>
                                     <div>
-                                      <span className="text-gray-500 dark:text-gray-400">Destination Endpoint: </span>
+                                      <span className="text-gray-500 dark:text-gray-400">{t('replication.destinationEndpoint')}</span>
                                       <span className="text-gray-900 dark:text-white font-mono text-xs">
                                         {rule.destination_endpoint}
                                       </span>
                                     </div>
                                     <div>
-                                      <span className="text-gray-500 dark:text-gray-400">Destination Bucket: </span>
+                                      <span className="text-gray-500 dark:text-gray-400">{t('replication.destinationBucket')}</span>
                                       <span className="text-gray-900 dark:text-white font-mono text-xs">
                                         {rule.destination_bucket}
                                         {rule.destination_region && ` [${rule.destination_region}]`}
@@ -1874,32 +1875,32 @@ export default function BucketSettingsPage() {
                                     </div>
                                     {rule.schedule_interval && rule.mode === 'scheduled' && (
                                       <div>
-                                        <span className="text-gray-500 dark:text-gray-400">Schedule: </span>
+                                        <span className="text-gray-500 dark:text-gray-400">{t('replication.schedule')}</span>
                                         <span className="text-gray-900 dark:text-white">
-                                          Every {rule.schedule_interval} minutes
+                                          {t('replication.everyMinutes', { minutes: rule.schedule_interval })}
                                         </span>
                                       </div>
                                     )}
                                     {rule.prefix && (
                                       <div>
-                                        <span className="text-gray-500 dark:text-gray-400">Prefix Filter: </span>
+                                        <span className="text-gray-500 dark:text-gray-400">{t('replication.prefixFilter')}</span>
                                         <span className="text-gray-900 dark:text-white font-mono text-xs">
                                           {rule.prefix}
                                         </span>
                                       </div>
                                     )}
                                     <div>
-                                      <span className="text-gray-500 dark:text-gray-400">Conflict Resolution: </span>
+                                      <span className="text-gray-500 dark:text-gray-400">{t('replication.conflictResolution')}</span>
                                       <span className="text-gray-900 dark:text-white">
                                         {rule.conflict_resolution}
                                       </span>
                                     </div>
                                     <div className="flex gap-4">
                                       <span className={rule.replicate_deletes ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}>
-                                        {rule.replicate_deletes ? '✓' : '✗'} Replicate Deletes
+                                        {rule.replicate_deletes ? '✓' : '✗'} {t('replication.replicateDeletes')}
                                       </span>
                                       <span className={rule.replicate_metadata ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}>
-                                        {rule.replicate_metadata ? '✓' : '✗'} Replicate Metadata
+                                        {rule.replicate_metadata ? '✓' : '✗'} {t('replication.replicateMetadata')}
                                       </span>
                                     </div>
                                   </div>
@@ -1911,19 +1912,19 @@ export default function BucketSettingsPage() {
                                     variant="outline"
                                     onClick={() => handleToggleReplicationRule(rule)}
                                     disabled={isGlobalAdminInTenantBucket}
-                                    title={rule.enabled ? 'Disable rule' : 'Enable rule'}
+                                    title={rule.enabled ? t('replication.disableRule') : t('replication.enableRule')}
                                   >
-                                    {rule.enabled ? 'Disable' : 'Enable'}
+                                    {rule.enabled ? t('replication.disable') : t('replication.enable')}
                                   </Button>
                                   <Button
                                     size="sm"
                                     variant="outline"
                                     onClick={() => handleTriggerReplicationSync(rule.id)}
                                     disabled={isGlobalAdminInTenantBucket || !rule.enabled}
-                                    title="Trigger manual sync"
+                                    title={t('replication.triggerSyncTitle')}
                                   >
                                     <RefreshCw className="h-4 w-4 mr-1" />
-                                    Sync Now
+                                    {t('replication.syncNow')}
                                   </Button>
                                   <Button
                                     size="sm"
@@ -1950,18 +1951,17 @@ export default function BucketSettingsPage() {
                         <div className="text-center py-12 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
                           <RefreshCw className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                            No Replication Rules
+                            {t('replication.noRulesTitle')}
                           </h3>
                           <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto mb-4">
-                            Configure replication rules to automatically copy objects to another bucket.
-                            Support for cross-bucket, cross-region, and cross-tenant replication.
+                            {t('replication.noRulesDesc')}
                           </p>
                           <Button
                             onClick={handleAddReplicationRule}
                             disabled={isGlobalAdminInTenantBucket}
                           >
                             <Plus className="h-4 w-4 mr-2" />
-                            Add First Rule
+                            {t('replication.addFirstRule')}
                           </Button>
                         </div>
                       )}
@@ -1970,13 +1970,13 @@ export default function BucketSettingsPage() {
                       <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                         <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
                         <div className="text-sm text-blue-800 dark:text-blue-300">
-                          <p className="font-medium mb-1">About Bucket Replication</p>
+                          <p className="font-medium mb-1">{t('replication.infoTitle')}</p>
                           <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-blue-400">
-                            <li>Realtime mode replicates objects immediately after upload</li>
-                            <li>Scheduled mode processes replication in batches at intervals</li>
-                            <li>Batch mode processes large volumes of objects efficiently</li>
-                            <li>Use prefix filters to replicate only specific object paths</li>
-                            <li>Higher priority rules are processed first</li>
+                            <li>{t('replication.infoItem1')}</li>
+                            <li>{t('replication.infoItem2')}</li>
+                            <li>{t('replication.infoItem3')}</li>
+                            <li>{t('replication.infoItem4')}</li>
+                            <li>{t('replication.infoItem5')}</li>
                           </ul>
                         </div>
                       </div>
@@ -1994,7 +1994,7 @@ export default function BucketSettingsPage() {
                   <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                       <Package className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                      Bucket Inventory
+                      {t('inventory.title')}
                     </h3>
                   </div>
                   <div className="p-6">
@@ -2011,7 +2011,7 @@ export default function BucketSettingsPage() {
                               disabled={isGlobalAdminInTenantBucket}
                             />
                             <span className="font-medium text-gray-900 dark:text-white">
-                              Enable Inventory Reports
+                              {t('inventory.enableLabel')}
                             </span>
                           </label>
                         </div>
@@ -2021,7 +2021,7 @@ export default function BucketSettingsPage() {
                             <div className="grid grid-cols-2 gap-4">
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                  Frequency
+                                  {t('inventory.frequencyLabel')}
                                 </label>
                                 <select
                                   value={inventoryForm.frequency}
@@ -2029,14 +2029,14 @@ export default function BucketSettingsPage() {
                                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                   disabled={isGlobalAdminInTenantBucket}
                                 >
-                                  <option value="daily">Daily</option>
-                                  <option value="weekly">Weekly</option>
+                                  <option value="daily">{t('inventory.frequencyDaily')}</option>
+                                  <option value="weekly">{t('inventory.frequencyWeekly')}</option>
                                 </select>
                               </div>
 
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                  Format
+                                  {t('inventory.formatLabel')}
                                 </label>
                                 <select
                                   value={inventoryForm.format}
@@ -2052,30 +2052,30 @@ export default function BucketSettingsPage() {
 
                             <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Destination Bucket
+                                {t('inventory.destBucketLabel')}
                               </label>
                               <input
                                 type="text"
                                 value={inventoryForm.destination_bucket}
                                 onChange={(e) => setInventoryForm({ ...inventoryForm, destination_bucket: e.target.value })}
-                                placeholder="Enter destination bucket name"
+                                placeholder={t('inventory.destBucketPlaceholder')}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                 disabled={isGlobalAdminInTenantBucket}
                               />
                               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                Inventory reports will be saved to this bucket
+                                {t('inventory.destBucketHint')}
                               </p>
                             </div>
 
                             <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Destination Prefix (Optional)
+                                {t('inventory.destPrefixLabel')}
                               </label>
                               <input
                                 type="text"
                                 value={inventoryForm.destination_prefix}
                                 onChange={(e) => setInventoryForm({ ...inventoryForm, destination_prefix: e.target.value })}
-                                placeholder="inventory-reports/"
+                                placeholder={t('inventory.destPrefixPlaceholder')}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                 disabled={isGlobalAdminInTenantBucket}
                               />
@@ -2084,7 +2084,7 @@ export default function BucketSettingsPage() {
                             <div className="grid grid-cols-2 gap-4">
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                  Schedule Time
+                                  {t('inventory.scheduleTimeLabel')}
                                 </label>
                                 <input
                                   type="time"
@@ -2094,29 +2094,29 @@ export default function BucketSettingsPage() {
                                   disabled={isGlobalAdminInTenantBucket}
                                 />
                                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                  Time when reports will be generated
+                                  {t('inventory.scheduleTimeHint')}
                                 </p>
                               </div>
                             </div>
 
                             <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Included Fields
+                                {t('inventory.includedFieldsLabel')}
                               </label>
                               <div className="grid grid-cols-2 gap-2">
                                 {[
-                                  { value: 'bucket_name', label: 'Bucket Name' },
-                                  { value: 'object_key', label: 'Object Key' },
-                                  { value: 'version_id', label: 'Version ID' },
-                                  { value: 'is_latest', label: 'Is Latest' },
-                                  { value: 'size', label: 'Size' },
-                                  { value: 'last_modified', label: 'Last Modified' },
-                                  { value: 'etag', label: 'ETag' },
-                                  { value: 'storage_class', label: 'Storage Class' },
-                                  { value: 'is_multipart_uploaded', label: 'Multipart Upload' },
-                                  { value: 'encryption_status', label: 'Encryption Status' },
-                                  { value: 'replication_status', label: 'Replication Status' },
-                                  { value: 'object_acl', label: 'Object ACL' },
+                                  { value: 'bucket_name', label: t('inventory.fields.bucket_name') },
+                                  { value: 'object_key', label: t('inventory.fields.object_key') },
+                                  { value: 'version_id', label: t('inventory.fields.version_id') },
+                                  { value: 'is_latest', label: t('inventory.fields.is_latest') },
+                                  { value: 'size', label: t('inventory.fields.size') },
+                                  { value: 'last_modified', label: t('inventory.fields.last_modified') },
+                                  { value: 'etag', label: t('inventory.fields.etag') },
+                                  { value: 'storage_class', label: t('inventory.fields.storage_class') },
+                                  { value: 'is_multipart_uploaded', label: t('inventory.fields.is_multipart_uploaded') },
+                                  { value: 'encryption_status', label: t('inventory.fields.encryption_status') },
+                                  { value: 'replication_status', label: t('inventory.fields.replication_status') },
+                                  { value: 'object_acl', label: t('inventory.fields.object_acl') },
                                 ].map((field) => (
                                   <label key={field.value} className="flex items-center gap-2 text-sm">
                                     <input
@@ -2150,20 +2150,20 @@ export default function BucketSettingsPage() {
                                 disabled={isGlobalAdminInTenantBucket || !inventoryForm.destination_bucket}
                                 loading={saveInventoryMutation.isPending}
                               >
-                                Save Configuration
+                                {t('inventory.saveConfiguration')}
                               </Button>
                               {inventoryConfig && (
                                 <Button
                                   variant="destructive"
                                   onClick={() => {
-                                    if (confirm('Are you sure you want to delete the inventory configuration?')) {
+                                    if (confirm(t('inventory.confirmDeleteMsg'))) {
                                       deleteInventoryMutation.mutate();
                                     }
                                   }}
                                   disabled={isGlobalAdminInTenantBucket}
                                   loading={deleteInventoryMutation.isPending}
                                 >
-                                  Delete Configuration
+                                  {t('inventory.deleteConfiguration')}
                                 </Button>
                               )}
                             </div>
@@ -2174,7 +2174,7 @@ export default function BucketSettingsPage() {
                       {/* Inventory Reports */}
                       {inventoryReports && inventoryReports.reports && inventoryReports.reports.length > 0 && (
                         <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-                          <h4 className="font-semibold text-gray-900 dark:text-white mb-4">Recent Reports</h4>
+                          <h4 className="font-semibold text-gray-900 dark:text-white mb-4">{t('inventory.recentReports')}</h4>
                           <div className="space-y-2">
                             {inventoryReports.reports.map((report: any) => (
                               <div
@@ -2200,7 +2200,7 @@ export default function BucketSettingsPage() {
                                     </span>
                                   </div>
                                   <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                    {report.object_count} objects • {(report.total_size / 1024 / 1024).toFixed(2)} MB
+                                    {t('inventory.reportObjects', { count: report.object_count })} • {t('inventory.reportSize', { size: (report.total_size / 1024 / 1024).toFixed(2) })}
                                     {report.completed_at && ` • ${new Date(report.completed_at * 1000).toLocaleString()}`}
                                   </div>
                                 </div>
@@ -2214,13 +2214,13 @@ export default function BucketSettingsPage() {
                       <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                         <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
                         <div className="text-sm text-blue-800 dark:text-blue-300">
-                          <p className="font-medium mb-1">About Bucket Inventory</p>
+                          <p className="font-medium mb-1">{t('inventory.infoTitle')}</p>
                           <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-blue-400">
-                            <li>Inventory reports provide a scheduled list of your objects and their metadata</li>
-                            <li>Reports are generated automatically based on the configured frequency</li>
-                            <li>Choose between CSV and JSON formats for compatibility with your tools</li>
-                            <li>Select specific fields to include in your inventory reports</li>
-                            <li>Reports are stored in the destination bucket you specify</li>
+                            <li>{t('inventory.infoItem1')}</li>
+                            <li>{t('inventory.infoItem2')}</li>
+                            <li>{t('inventory.infoItem3')}</li>
+                            <li>{t('inventory.infoItem4')}</li>
+                            <li>{t('inventory.infoItem5')}</li>
                           </ul>
                         </div>
                       </div>
@@ -2237,7 +2237,7 @@ export default function BucketSettingsPage() {
       <Modal
         isOpen={isPolicyModalOpen}
         onClose={() => setIsPolicyModalOpen(false)}
-        title="Bucket Policy"
+        title={t('policy.modalTitle')}
         size="xl"
       >
         <div className="space-y-4">
@@ -2252,7 +2252,7 @@ export default function BucketSettingsPage() {
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
                 }`}
               >
-                Policy Editor
+                {t('policy.editorTab')}
               </button>
               <button
                 onClick={() => setPolicyTab('templates')}
@@ -2262,7 +2262,7 @@ export default function BucketSettingsPage() {
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
                 }`}
               >
-                Templates
+                {t('policy.templatesTab')}
               </button>
             </nav>
           </div>
@@ -2272,22 +2272,22 @@ export default function BucketSettingsPage() {
             <div className="space-y-4">
               <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
                 <p className="text-sm text-blue-800 dark:text-blue-200">
-                  <strong>Tip:</strong> You can use templates as a starting point, then customize them in the editor.
+                  <strong>Tip:</strong> {t('policy.editorTip')}
                 </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Policy JSON
+                  {t('policy.policyJsonLabel')}
                 </label>
                 <textarea
                   value={policyText}
                   onChange={(e) => setPolicyText(e.target.value)}
                   rows={18}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md font-mono text-sm"
-                  placeholder='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::bucket/*"}]}'
+                  placeholder={t('policy.policyJsonPlaceholder')}
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Enter a valid S3 bucket policy in JSON format. The policy will be validated before saving.
+                  {t('policy.policyJsonHint')}
                 </p>
               </div>
             </div>
@@ -2298,7 +2298,7 @@ export default function BucketSettingsPage() {
             <div className="space-y-4">
               <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
                 <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                  <strong>Warning:</strong> These templates grant public access. Use carefully and only when needed.
+                  <strong>Warning:</strong> {t('policy.templatesWarning')}
                 </p>
               </div>
               <div className="space-y-3">
@@ -2321,7 +2321,7 @@ export default function BucketSettingsPage() {
                         variant="outline"
                         onClick={() => handleUseTemplate(key as keyof typeof policyTemplates)}
                       >
-                        Use Template
+                        {t('policy.useTemplate')}
                       </Button>
                     </div>
                   </div>
@@ -2333,13 +2333,13 @@ export default function BucketSettingsPage() {
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
             <Button variant="outline" onClick={() => setIsPolicyModalOpen(false)}>
-              Cancel
+              {t('policy.cancel')}
             </Button>
             <Button
               onClick={handleSavePolicy}
               disabled={isGlobalAdminInTenantBucket || savePolicyMutation.isPending || !policyText.trim()}
             >
-              {savePolicyMutation.isPending ? 'Saving...' : 'Save Policy'}
+              {savePolicyMutation.isPending ? t('policy.saving') : t('policy.savePolicy')}
             </Button>
           </div>
         </div>
@@ -2352,7 +2352,7 @@ export default function BucketSettingsPage() {
           setIsCORSModalOpen(false);
           setEditingCorsRule(null);
         }}
-        title="CORS Configuration"
+        title={t('cors.modalTitle')}
         size="xl"
       >
         <div className="space-y-4">
@@ -2366,7 +2366,7 @@ export default function BucketSettingsPage() {
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              Visual Editor
+              {t('cors.visualEditor')}
             </button>
             <button
               onClick={() => setCorsViewMode('xml')}
@@ -2376,7 +2376,7 @@ export default function BucketSettingsPage() {
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              XML Editor
+              {t('cors.xmlEditor')}
             </button>
           </div>
 
@@ -2385,16 +2385,16 @@ export default function BucketSettingsPage() {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  CORS Rules ({corsRules.length})
+                  {t('cors.rulesCount', { count: corsRules.length })}
                 </h3>
                 <Button variant="default" size="sm" onClick={handleAddCorsRule}>
-                  Add Rule
+                  {t('cors.addRule')}
                 </Button>
               </div>
 
               {corsRules.length === 0 ? (
                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                  No CORS rules configured. Click "Add Rule" to create one.
+                  {t('cors.noRules')}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -2405,48 +2405,48 @@ export default function BucketSettingsPage() {
                     >
                       <div className="flex justify-between items-start mb-2">
                         <div className="font-medium text-sm text-gray-900 dark:text-white">
-                          Rule {index + 1}: {rule.id}
+                          {t('cors.ruleNumber', { number: index + 1, id: rule.id })}
                         </div>
                         <div className="flex gap-2">
                           <button
                             onClick={() => setEditingCorsRule(rule)}
                             className="text-blue-600 hover:text-blue-700 text-sm"
                           >
-                            Edit
+                            {t('cors.edit')}
                           </button>
                           <button
                             onClick={() => handleDeleteCorsRule(rule.id)}
                             className="text-red-600 hover:text-red-700 text-sm"
                           >
-                            Delete
+                            {t('cors.delete')}
                           </button>
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div>
-                          <span className="font-medium text-gray-600 dark:text-gray-400">Origins:</span>{' '}
+                          <span className="font-medium text-gray-600 dark:text-gray-400">{t('cors.origins')}</span>{' '}
                           {rule.allowedOrigins.join(', ')}
                         </div>
                         <div>
-                          <span className="font-medium text-gray-600 dark:text-gray-400">Methods:</span>{' '}
+                          <span className="font-medium text-gray-600 dark:text-gray-400">{t('cors.methods')}</span>{' '}
                           {rule.allowedMethods.join(', ')}
                         </div>
                         {rule.allowedHeaders.length > 0 && (
                           <div>
-                            <span className="font-medium text-gray-600 dark:text-gray-400">Allowed Headers:</span>{' '}
+                            <span className="font-medium text-gray-600 dark:text-gray-400">{t('cors.allowedHeaders')}</span>{' '}
                             {rule.allowedHeaders.join(', ')}
                           </div>
                         )}
                         {rule.exposeHeaders.length > 0 && (
                           <div>
-                            <span className="font-medium text-gray-600 dark:text-gray-400">Expose Headers:</span>{' '}
+                            <span className="font-medium text-gray-600 dark:text-gray-400">{t('cors.exposeHeaders')}</span>{' '}
                             {rule.exposeHeaders.join(', ')}
                           </div>
                         )}
                         {rule.maxAgeSeconds > 0 && (
                           <div>
-                            <span className="font-medium text-gray-600 dark:text-gray-400">Max Age:</span>{' '}
-                            {rule.maxAgeSeconds}s
+                            <span className="font-medium text-gray-600 dark:text-gray-400">{t('cors.maxAge')}</span>{' '}
+                            {t('cors.maxAgeSeconds', { seconds: rule.maxAgeSeconds })}
                           </div>
                         )}
                       </div>
@@ -2457,13 +2457,13 @@ export default function BucketSettingsPage() {
 
               <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
                 <Button variant="outline" onClick={() => setIsCORSModalOpen(false)}>
-                  Cancel
+                  {t('cors.cancel')}
                 </Button>
                 <Button
                   onClick={handleSaveAllCorsRules}
                   disabled={isGlobalAdminInTenantBucket || saveCORSMutation.isPending || corsRules.length === 0}
                 >
-                  {saveCORSMutation.isPending ? 'Saving...' : 'Save Configuration'}
+                  {saveCORSMutation.isPending ? t('cors.saving') : t('cors.saveConfiguration')}
                 </Button>
               </div>
             </div>
@@ -2474,28 +2474,28 @@ export default function BucketSettingsPage() {
             <div className="space-y-4">
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
                 <h3 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">
-                  {corsRules.find(r => r.id === editingCorsRule.id) ? 'Edit' : 'Add'} CORS Rule
+                  {corsRules.find(r => r.id === editingCorsRule.id) ? t('cors.editCorsRuleTitle') : t('cors.addCorsRuleTitle')}
                 </h3>
               </div>
 
               {/* Rule ID */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Rule ID
+                  {t('cors.ruleId')}
                 </label>
                 <input
                   type="text"
                   value={editingCorsRule.id}
                   onChange={(e) => setEditingCorsRule({ ...editingCorsRule, id: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
-                  placeholder="e.g., rule-1"
+                  placeholder={t('cors.ruleIdPlaceholder')}
                 />
               </div>
 
               {/* Allowed Origins */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Allowed Origins <span className="text-red-500">*</span>
+                  {t('cors.allowedOriginsLabel')} <span className="text-red-500">*</span>
                 </label>
                 <div className="flex gap-2 mb-2">
                   <input
@@ -2504,10 +2504,10 @@ export default function BucketSettingsPage() {
                     onChange={(e) => setNewOrigin(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && addOriginToRule()}
                     className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
-                    placeholder="e.g., https://example.com or *"
+                    placeholder={t('cors.allowedOriginPlaceholder')}
                   />
                   <Button onClick={addOriginToRule} disabled={!newOrigin.trim()}>
-                    Add
+                    {t('cors.addButton')}
                   </Button>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -2528,7 +2528,7 @@ export default function BucketSettingsPage() {
               {/* Allowed Methods */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Allowed Methods <span className="text-red-500">*</span>
+                  {t('cors.allowedMethodsLabel')} <span className="text-red-500">*</span>
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {['GET', 'PUT', 'POST', 'DELETE', 'HEAD'].map(method => (
@@ -2548,7 +2548,7 @@ export default function BucketSettingsPage() {
               {/* Allowed Headers */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Allowed Headers (Optional)
+                  {t('cors.allowedHeadersLabel')}
                 </label>
                 <div className="flex gap-2 mb-2">
                   <input
@@ -2557,10 +2557,10 @@ export default function BucketSettingsPage() {
                     onChange={(e) => setNewAllowedHeader(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && addAllowedHeaderToRule()}
                     className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
-                    placeholder="e.g., Authorization, Content-Type, or *"
+                    placeholder={t('cors.allowedHeaderPlaceholder')}
                   />
                   <Button onClick={addAllowedHeaderToRule} disabled={!newAllowedHeader.trim()}>
-                    Add
+                    {t('cors.addButton')}
                   </Button>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -2581,7 +2581,7 @@ export default function BucketSettingsPage() {
               {/* Expose Headers */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Expose Headers (Optional)
+                  {t('cors.exposeHeadersLabel')}
                 </label>
                 <div className="flex gap-2 mb-2">
                   <input
@@ -2590,10 +2590,10 @@ export default function BucketSettingsPage() {
                     onChange={(e) => setNewExposeHeader(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && addExposeHeaderToRule()}
                     className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
-                    placeholder="e.g., ETag, x-amz-request-id"
+                    placeholder={t('cors.exposeHeaderPlaceholder')}
                   />
                   <Button onClick={addExposeHeaderToRule} disabled={!newExposeHeader.trim()}>
-                    Add
+                    {t('cors.addButton')}
                   </Button>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -2614,27 +2614,27 @@ export default function BucketSettingsPage() {
               {/* Max Age Seconds */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Max Age (seconds)
+                  {t('cors.maxAgeLabel')}
                 </label>
                 <input
                   type="number"
                   value={editingCorsRule.maxAgeSeconds}
                   onChange={(e) => setEditingCorsRule({ ...editingCorsRule, maxAgeSeconds: parseInt(e.target.value) || 0 })}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
-                  placeholder="3600"
+                  placeholder={t('cors.maxAgePlaceholder')}
                   min="0"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  How long browsers can cache preflight results (0 to disable)
+                  {t('cors.maxAgeHint')}
                 </p>
               </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
                 <Button variant="outline" onClick={() => setEditingCorsRule(null)}>
-                  Cancel
+                  {t('cors.cancel')}
                 </Button>
                 <Button onClick={handleSaveCorsRule}>
-                  Save Rule
+                  {t('cors.saveRule')}
                 </Button>
               </div>
             </div>
@@ -2645,28 +2645,28 @@ export default function BucketSettingsPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  CORS Configuration XML
+                  {t('cors.corsXmlLabel')}
                 </label>
                 <textarea
                   value={corsText}
                   onChange={(e) => setCorsText(e.target.value)}
                   rows={15}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md font-mono text-sm"
-                  placeholder='<CORSConfiguration><CORSRule>...</CORSRule></CORSConfiguration>'
+                  placeholder={t('cors.corsXmlPlaceholder')}
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Enter valid CORS configuration in XML format
+                  {t('cors.corsXmlHint')}
                 </p>
               </div>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setIsCORSModalOpen(false)}>
-                  Cancel
+                  {t('cors.cancel')}
                 </Button>
                 <Button
                   onClick={() => saveCORSMutation.mutate(corsText)}
                   disabled={isGlobalAdminInTenantBucket || saveCORSMutation.isPending || !corsText.trim()}
                 >
-                  {saveCORSMutation.isPending ? 'Saving...' : 'Save CORS'}
+                  {saveCORSMutation.isPending ? t('cors.saving') : t('cors.saveCors')}
                 </Button>
               </div>
             </div>
@@ -2678,19 +2678,19 @@ export default function BucketSettingsPage() {
       <Modal
         isOpen={isLifecycleModalOpen}
         onClose={() => setIsLifecycleModalOpen(false)}
-        title="Lifecycle Rules"
+        title={t('lifecycle.modalTitle')}
         size="lg"
       >
         <div className="space-y-6">
           <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
             <p className="text-sm text-blue-800 dark:text-blue-200">
-              Lifecycle policies automatically delete old versions and expired delete markers to save storage space.
+              {t('lifecycle.lifecycleInfo')}
             </p>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Delete Noncurrent Versions After (days)
+              {t('lifecycle.noncurrentDaysLabel')}
             </label>
             <input
               type="number"
@@ -2701,7 +2701,7 @@ export default function BucketSettingsPage() {
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Automatically delete versions that are no longer the latest after this many days
+              {t('lifecycle.noncurrentDaysHint')}
             </p>
           </div>
 
@@ -2715,17 +2715,17 @@ export default function BucketSettingsPage() {
             />
             <div>
               <label htmlFor="delete-markers" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Delete Expired Delete Markers
+                {t('lifecycle.deleteMarkersLabel')}
               </label>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Automatically remove delete markers when they are the only version remaining
+                {t('lifecycle.deleteMarkersHint')}
               </p>
             </div>
           </div>
 
           <div className="flex justify-end gap-2 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsLifecycleModalOpen(false)}>
-              Cancel
+              {t('lifecycle.cancel')}
             </Button>
             <Button
               onClick={() => {
@@ -2744,7 +2744,7 @@ export default function BucketSettingsPage() {
               }}
               disabled={isGlobalAdminInTenantBucket || saveLifecycleMutation.isPending}
             >
-              {saveLifecycleMutation.isPending ? 'Saving...' : 'Save Rules'}
+              {saveLifecycleMutation.isPending ? t('lifecycle.saving') : t('lifecycle.saveRules')}
             </Button>
           </div>
         </div>
@@ -2754,13 +2754,13 @@ export default function BucketSettingsPage() {
       <Modal
         isOpen={isTagsModalOpen}
         onClose={() => setIsTagsModalOpen(false)}
-        title="Manage Bucket Tags"
+        title={t('tags.modalTitle')}
         size="lg"
       >
         <div className="space-y-4">
           <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
             <p className="text-sm text-blue-800 dark:text-blue-200">
-              Tags are key-value pairs that help you organize and categorize your buckets.
+              {t('tags.tagsInfo')}
             </p>
           </div>
 
@@ -2768,7 +2768,7 @@ export default function BucketSettingsPage() {
           {Object.keys(tags).length > 0 && (
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Current Tags
+                {t('tags.currentTags')}
               </label>
               <div className="space-y-2">
                 {Object.entries(tags).map(([key, value]) => (
@@ -2790,7 +2790,7 @@ export default function BucketSettingsPage() {
                       variant="destructive"
                       onClick={() => handleRemoveTag(key)}
                     >
-                      Remove
+                      {t('tags.remove')}
                     </Button>
                   </div>
                 ))}
@@ -2801,25 +2801,25 @@ export default function BucketSettingsPage() {
           {/* Add New Tag */}
           <div className="space-y-3">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Add New Tag
+              {t('tags.addNewTag')}
             </label>
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="Key"
+                placeholder={t('tags.keyPlaceholder')}
                 value={newTagKey}
                 onChange={(e) => setNewTagKey(e.target.value)}
                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
               />
               <input
                 type="text"
-                placeholder="Value"
+                placeholder={t('tags.valuePlaceholder')}
                 value={newTagValue}
                 onChange={(e) => setNewTagValue(e.target.value)}
                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
               />
               <Button onClick={handleAddTag} disabled={!newTagKey || !newTagValue}>
-                Add
+                {t('tags.add')}
               </Button>
             </div>
           </div>
@@ -2827,13 +2827,13 @@ export default function BucketSettingsPage() {
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
             <Button variant="outline" onClick={() => setIsTagsModalOpen(false)}>
-              Cancel
+              {t('tags.cancel')}
             </Button>
             <Button
               onClick={handleSaveTags}
               disabled={isGlobalAdminInTenantBucket || saveTagsMutation.isPending}
             >
-              {saveTagsMutation.isPending ? 'Saving...' : 'Save Tags'}
+              {saveTagsMutation.isPending ? t('tags.saving') : t('tags.saveTags')}
             </Button>
           </div>
         </div>
@@ -2843,21 +2843,20 @@ export default function BucketSettingsPage() {
       <Modal
         isOpen={isACLModalOpen}
         onClose={() => setIsACLModalOpen(false)}
-        title="Bucket Access Control List (ACL)"
+        title={t('acl.modalTitle')}
         size="lg"
       >
         <div className="space-y-4">
           <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
             <p className="text-sm text-blue-800 dark:text-blue-200">
-              <strong>ACL (Access Control List)</strong> defines who can access your bucket and what permissions they have.
-              Choose a canned ACL for simple permission management.
+              {t('acl.aclInfo')}
             </p>
           </div>
 
           {/* Canned ACL Selection */}
           <div className="space-y-3">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Select Permission Level
+              {t('acl.selectLevel')}
             </label>
 
             <div className="space-y-2">
@@ -2872,9 +2871,9 @@ export default function BucketSettingsPage() {
                   className="mt-1"
                 />
                 <div className="flex-1">
-                  <div className="font-medium text-sm text-gray-900 dark:text-white">Private</div>
+                  <div className="font-medium text-sm text-gray-900 dark:text-white">{t('acl.privateLabel')}</div>
                   <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Owner gets FULL_CONTROL. No one else has access rights.
+                    {t('acl.privateDesc')}
                   </div>
                 </div>
               </label>
@@ -2890,9 +2889,9 @@ export default function BucketSettingsPage() {
                   className="mt-1"
                 />
                 <div className="flex-1">
-                  <div className="font-medium text-sm text-gray-900 dark:text-white">Public Read</div>
+                  <div className="font-medium text-sm text-gray-900 dark:text-white">{t('acl.publicReadLabel')}</div>
                   <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Owner gets FULL_CONTROL. Anyone (including anonymous users) can READ objects.
+                    {t('acl.publicReadDesc')}
                   </div>
                 </div>
               </label>
@@ -2908,9 +2907,9 @@ export default function BucketSettingsPage() {
                   className="mt-1"
                 />
                 <div className="flex-1">
-                  <div className="font-medium text-sm text-gray-900 dark:text-white">Public Read/Write</div>
+                  <div className="font-medium text-sm text-gray-900 dark:text-white">{t('acl.publicReadWriteLabel')}</div>
                   <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Owner gets FULL_CONTROL. Anyone can READ and WRITE objects. <strong className="text-yellow-600">Use with caution!</strong>
+                    {t('acl.publicReadWriteDesc')} <strong className="text-yellow-600">{t('acl.publicReadWriteCaution')}</strong>
                   </div>
                 </div>
               </label>
@@ -2926,9 +2925,9 @@ export default function BucketSettingsPage() {
                   className="mt-1"
                 />
                 <div className="flex-1">
-                  <div className="font-medium text-sm text-gray-900 dark:text-white">Authenticated Read</div>
+                  <div className="font-medium text-sm text-gray-900 dark:text-white">{t('acl.authenticatedReadLabel')}</div>
                   <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Owner gets FULL_CONTROL. Any authenticated AWS user can READ objects.
+                    {t('acl.authenticatedReadDesc')}
                   </div>
                 </div>
               </label>
@@ -2939,7 +2938,7 @@ export default function BucketSettingsPage() {
           {(selectedCannedACL === 'public-read' || selectedCannedACL === 'public-read-write') && (
             <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
               <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                <strong>Warning:</strong> This ACL grants public access. Anyone on the internet can access your bucket.
+                <strong>Warning:</strong> {t('acl.publicWarning')}
               </p>
             </div>
           )}
@@ -2947,13 +2946,13 @@ export default function BucketSettingsPage() {
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
             <Button variant="outline" onClick={() => setIsACLModalOpen(false)}>
-              Cancel
+              {t('acl.cancel')}
             </Button>
             <Button
               onClick={handleSaveACL}
               disabled={isGlobalAdminInTenantBucket || saveACLMutation.isPending}
             >
-              {saveACLMutation.isPending ? 'Saving...' : 'Save ACL'}
+              {saveACLMutation.isPending ? t('acl.saving') : t('acl.saveAcl')}
             </Button>
           </div>
         </div>
@@ -2963,14 +2962,14 @@ export default function BucketSettingsPage() {
       <Modal
         isOpen={isNotificationModalOpen}
         onClose={() => setIsNotificationModalOpen(false)}
-        title={editingNotificationRule ? 'Edit Notification Rule' : 'Add Notification Rule'}
+        title={editingNotificationRule ? t('notifications.editModalTitle') : t('notifications.addModalTitle')}
         size="xl"
       >
         <div className="space-y-4">
           {/* Rule ID */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Rule ID
+              {t('notifications.ruleIdLabel')}
             </label>
             <input
               type="text"
@@ -2978,19 +2977,19 @@ export default function BucketSettingsPage() {
               onChange={(e) =>
                 setNotificationRuleForm({ ...notificationRuleForm, id: e.target.value })
               }
-              placeholder="rule-1"
+              placeholder={t('notifications.ruleIdPlaceholder')}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
               disabled={!!editingNotificationRule}
             />
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Unique identifier for this notification rule
+              {t('notifications.ruleIdHint')}
             </p>
           </div>
 
           {/* Webhook URL */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Webhook URL <span className="text-red-500">*</span>
+              {t('notifications.webhookUrlLabel')} <span className="text-red-500">*</span>
             </label>
             <input
               type="url"
@@ -2998,29 +2997,29 @@ export default function BucketSettingsPage() {
               onChange={(e) =>
                 setNotificationRuleForm({ ...notificationRuleForm, webhookUrl: e.target.value })
               }
-              placeholder="https://example.com/webhook"
+              placeholder={t('notifications.webhookUrlPlaceholder')}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              HTTP or HTTPS endpoint that will receive event notifications
+              {t('notifications.webhookUrlHint')}
             </p>
           </div>
 
           {/* Event Types */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Event Types <span className="text-red-500">*</span>
+              {t('notifications.eventTypesLabel')} <span className="text-red-500">*</span>
             </label>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { value: 's3:ObjectCreated:*', label: 'All Object Created Events' },
-                { value: 's3:ObjectCreated:Put', label: 'Object Created (Put)' },
-                { value: 's3:ObjectCreated:Post', label: 'Object Created (Post)' },
-                { value: 's3:ObjectCreated:Copy', label: 'Object Created (Copy)' },
-                { value: 's3:ObjectCreated:CompleteMultipartUpload', label: 'Multipart Upload Complete' },
-                { value: 's3:ObjectRemoved:*', label: 'All Object Removed Events' },
-                { value: 's3:ObjectRemoved:Delete', label: 'Object Deleted' },
-                { value: 's3:ObjectRestored:Post', label: 'Object Restored' },
+                { value: 's3:ObjectCreated:*', label: t('notifications.events.objectCreatedAll') },
+                { value: 's3:ObjectCreated:Put', label: t('notifications.events.objectCreatedPut') },
+                { value: 's3:ObjectCreated:Post', label: t('notifications.events.objectCreatedPost') },
+                { value: 's3:ObjectCreated:Copy', label: t('notifications.events.objectCreatedCopy') },
+                { value: 's3:ObjectCreated:CompleteMultipartUpload', label: t('notifications.events.multipartComplete') },
+                { value: 's3:ObjectRemoved:*', label: t('notifications.events.objectRemovedAll') },
+                { value: 's3:ObjectRemoved:Delete', label: t('notifications.events.objectDeleted') },
+                { value: 's3:ObjectRestored:Post', label: t('notifications.events.objectRestored') },
               ].map((eventType) => (
                 <label
                   key={eventType.value}
@@ -3049,7 +3048,7 @@ export default function BucketSettingsPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Prefix Filter (Optional)
+                {t('notifications.prefixFilterLabel')}
               </label>
               <input
                 type="text"
@@ -3057,17 +3056,17 @@ export default function BucketSettingsPage() {
                 onChange={(e) =>
                   setNotificationRuleForm({ ...notificationRuleForm, filterPrefix: e.target.value })
                 }
-                placeholder="images/"
+                placeholder={t('notifications.prefixFilterPlaceholder')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Only trigger for objects with this prefix
+                {t('notifications.prefixFilterHint')}
               </p>
             </div>
 
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Suffix Filter (Optional)
+                {t('notifications.suffixFilterLabel')}
               </label>
               <input
                 type="text"
@@ -3075,11 +3074,11 @@ export default function BucketSettingsPage() {
                 onChange={(e) =>
                   setNotificationRuleForm({ ...notificationRuleForm, filterSuffix: e.target.value })
                 }
-                placeholder=".jpg"
+                placeholder={t('notifications.suffixFilterPlaceholder')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Only trigger for objects with this suffix
+                {t('notifications.suffixFilterHint')}
               </p>
             </div>
           </div>
@@ -3096,7 +3095,7 @@ export default function BucketSettingsPage() {
               className="h-4 w-4"
             />
             <label htmlFor="notificationEnabled" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Enable this rule
+              {t('notifications.enableRuleLabel')}
             </label>
           </div>
 
@@ -3104,12 +3103,12 @@ export default function BucketSettingsPage() {
           <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
             <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
             <div className="text-sm text-blue-800 dark:text-blue-300">
-              <p className="font-medium mb-1">Webhook Format</p>
+              <p className="font-medium mb-1">{t('notifications.webhookFormatTitle')}</p>
               <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-blue-400">
-                <li>Events are sent as HTTP POST requests with JSON payload</li>
-                <li>Payload follows AWS S3 event notification format</li>
-                <li>Failed deliveries are retried up to 3 times</li>
-                <li>Timeout is set to 10 seconds per request</li>
+                <li>{t('notifications.webhookFormatItem1')}</li>
+                <li>{t('notifications.webhookFormatItem2')}</li>
+                <li>{t('notifications.webhookFormatItem3')}</li>
+                <li>{t('notifications.webhookFormatItem4')}</li>
               </ul>
             </div>
           </div>
@@ -3117,7 +3116,7 @@ export default function BucketSettingsPage() {
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
             <Button variant="outline" onClick={() => setIsNotificationModalOpen(false)}>
-              Cancel
+              {t('notifications.cancel')}
             </Button>
             <Button
               onClick={handleSaveNotificationRule}
@@ -3130,10 +3129,10 @@ export default function BucketSettingsPage() {
               }
             >
               {saveNotificationMutation.isPending
-                ? 'Saving...'
+                ? t('notifications.saving')
                 : editingNotificationRule
-                ? 'Update Rule'
-                : 'Add Rule'}
+                ? t('notifications.updateRule')
+                : t('notifications.addRule')}
             </Button>
           </div>
         </div>
@@ -3143,14 +3142,14 @@ export default function BucketSettingsPage() {
       <Modal
         isOpen={isReplicationModalOpen}
         onClose={() => setIsReplicationModalOpen(false)}
-        title={editingReplicationRule ? 'Edit Replication Rule' : 'Add Replication Rule'}
+        title={editingReplicationRule ? t('replication.editModalTitle') : t('replication.addModalTitle')}
         size="xl"
       >
         <div className="space-y-4">
           {/* Destination S3 Endpoint */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Destination S3 Endpoint <span className="text-red-500">*</span>
+              {t('replication.endpointLabel')} <span className="text-red-500">*</span>
             </label>
             <input
               type="url"
@@ -3158,18 +3157,18 @@ export default function BucketSettingsPage() {
               onChange={(e) =>
                 setReplicationRuleForm({ ...replicationRuleForm, destination_endpoint: e.target.value })
               }
-              placeholder="https://s3.amazonaws.com or http://localhost:8080"
+              placeholder={t('replication.endpointPlaceholder')}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              S3-compatible endpoint URL (AWS S3, MinIO, or another MaxIOFS instance)
+              {t('replication.endpointHint')}
             </p>
           </div>
 
           {/* Destination Bucket */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Destination Bucket <span className="text-red-500">*</span>
+              {t('replication.destBucketLabel')} <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
@@ -3177,11 +3176,11 @@ export default function BucketSettingsPage() {
               onChange={(e) =>
                 setReplicationRuleForm({ ...replicationRuleForm, destination_bucket: e.target.value })
               }
-              placeholder="my-destination-bucket"
+              placeholder={t('replication.destBucketPlaceholder')}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              The destination bucket name where objects will be replicated
+              {t('replication.destBucketHint')}
             </p>
           </div>
 
@@ -3189,7 +3188,7 @@ export default function BucketSettingsPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Access Key <span className="text-red-500">*</span>
+                {t('replication.accessKeyLabel')} <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -3197,17 +3196,17 @@ export default function BucketSettingsPage() {
                 onChange={(e) =>
                   setReplicationRuleForm({ ...replicationRuleForm, destination_access_key: e.target.value })
                 }
-                placeholder="AKIAIOSFODNN7EXAMPLE"
+                placeholder={t('replication.accessKeyPlaceholder')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                S3 access key for destination
+                {t('replication.accessKeyHint')}
               </p>
             </div>
 
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Secret Key <span className="text-red-500">*</span>
+                {t('replication.secretKeyLabel')} <span className="text-red-500">*</span>
               </label>
               <input
                 type="password"
@@ -3215,11 +3214,11 @@ export default function BucketSettingsPage() {
                 onChange={(e) =>
                   setReplicationRuleForm({ ...replicationRuleForm, destination_secret_key: e.target.value })
                 }
-                placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                placeholder={t('replication.secretKeyPlaceholder')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                S3 secret key for destination
+                {t('replication.secretKeyHint')}
               </p>
             </div>
           </div>
@@ -3228,7 +3227,7 @@ export default function BucketSettingsPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Destination Region (Optional)
+                {t('replication.regionLabel')}
               </label>
               <input
                 type="text"
@@ -3236,17 +3235,17 @@ export default function BucketSettingsPage() {
                 onChange={(e) =>
                   setReplicationRuleForm({ ...replicationRuleForm, destination_region: e.target.value })
                 }
-                placeholder="us-east-1"
+                placeholder={t('replication.regionPlaceholder')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                S3 region (e.g., us-east-1, eu-west-1)
+                {t('replication.regionHint')}
               </p>
             </div>
 
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Prefix Filter (Optional)
+                {t('replication.prefixLabel')}
               </label>
               <input
                 type="text"
@@ -3254,11 +3253,11 @@ export default function BucketSettingsPage() {
                 onChange={(e) =>
                   setReplicationRuleForm({ ...replicationRuleForm, prefix: e.target.value })
                 }
-                placeholder="images/"
+                placeholder={t('replication.prefixPlaceholder')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Only replicate objects with this prefix
+                {t('replication.prefixHint')}
               </p>
             </div>
           </div>
@@ -3267,7 +3266,7 @@ export default function BucketSettingsPage() {
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Replication Mode <span className="text-red-500">*</span>
+                {t('replication.modeLabel')} <span className="text-red-500">*</span>
               </label>
               <select
                 value={replicationRuleForm.mode || 'realtime'}
@@ -3276,19 +3275,19 @@ export default function BucketSettingsPage() {
                 }
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
               >
-                <option value="realtime">Realtime</option>
-                <option value="scheduled">Scheduled</option>
-                <option value="batch">Batch</option>
+                <option value="realtime">{t('replication.modeRealtime')}</option>
+                <option value="scheduled">{t('replication.modeScheduled')}</option>
+                <option value="batch">{t('replication.modeBatch')}</option>
               </select>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Replication frequency
+                {t('replication.modeHint')}
               </p>
             </div>
 
             {replicationRuleForm.mode === 'scheduled' && (
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Interval (minutes) <span className="text-red-500">*</span>
+                  {t('replication.intervalLabel')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="number"
@@ -3300,14 +3299,14 @@ export default function BucketSettingsPage() {
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Run every N minutes
+                  {t('replication.intervalHint')}
                 </p>
               </div>
             )}
 
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Priority
+                {t('replication.priorityLabel')}
               </label>
               <input
                 type="number"
@@ -3320,7 +3319,7 @@ export default function BucketSettingsPage() {
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Higher priority rules are processed first
+                {t('replication.priorityHint')}
               </p>
             </div>
           </div>
@@ -3328,7 +3327,7 @@ export default function BucketSettingsPage() {
           {/* Conflict Resolution */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Conflict Resolution <span className="text-red-500">*</span>
+              {t('replication.conflictLabel')} <span className="text-red-500">*</span>
             </label>
             <select
               value={replicationRuleForm.conflict_resolution || 'last_write_wins'}
@@ -3337,19 +3336,19 @@ export default function BucketSettingsPage() {
               }
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
             >
-              <option value="last_write_wins">Last Write Wins - Most recent version prevails</option>
-              <option value="version_based">Version Based - Use version numbers</option>
-              <option value="primary_wins">Primary Wins - Source always prevails</option>
+              <option value="last_write_wins">{t('replication.conflictLastWrite')}</option>
+              <option value="version_based">{t('replication.conflictVersionBased')}</option>
+              <option value="primary_wins">{t('replication.conflictPrimaryWins')}</option>
             </select>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Strategy for resolving conflicts when objects exist in both locations
+              {t('replication.conflictHint')}
             </p>
           </div>
 
           {/* Options */}
           <div className="space-y-3">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Replication Options
+              {t('replication.optionsLabel')}
             </label>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -3363,7 +3362,7 @@ export default function BucketSettingsPage() {
                   className="h-4 w-4"
                 />
                 <label htmlFor="replicateDeletes" className="text-sm text-gray-700 dark:text-gray-300">
-                  Replicate delete operations to destination
+                  {t('replication.replicateDeletesLabel')}
                 </label>
               </div>
               <div className="flex items-center gap-2">
@@ -3377,7 +3376,7 @@ export default function BucketSettingsPage() {
                   className="h-4 w-4"
                 />
                 <label htmlFor="replicateMetadata" className="text-sm text-gray-700 dark:text-gray-300">
-                  Replicate object metadata (tags, ACLs, etc.)
+                  {t('replication.replicateMetadataLabel')}
                 </label>
               </div>
               <div className="flex items-center gap-2">
@@ -3391,7 +3390,7 @@ export default function BucketSettingsPage() {
                   className="h-4 w-4"
                 />
                 <label htmlFor="enabled" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Enable this replication rule
+                  {t('replication.enableRuleLabel')}
                 </label>
               </div>
             </div>
@@ -3401,12 +3400,12 @@ export default function BucketSettingsPage() {
           <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
             <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
             <div className="text-sm text-blue-800 dark:text-blue-300">
-              <p className="font-medium mb-1">Replication Requirements</p>
+              <p className="font-medium mb-1">{t('replication.requirementsTitle')}</p>
               <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-blue-400">
-                <li>Destination bucket must exist and be accessible</li>
-                <li>Versioning is recommended for both source and destination</li>
-                <li>Ensure appropriate permissions for cross-tenant replication</li>
-                <li>Rules can be temporarily disabled without deleting them</li>
+                <li>{t('replication.requirementsItem1')}</li>
+                <li>{t('replication.requirementsItem2')}</li>
+                <li>{t('replication.requirementsItem3')}</li>
+                <li>{t('replication.requirementsItem4')}</li>
               </ul>
             </div>
           </div>
@@ -3414,7 +3413,7 @@ export default function BucketSettingsPage() {
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
             <Button variant="outline" onClick={() => setIsReplicationModalOpen(false)}>
-              Cancel
+              {t('replication.cancel')}
             </Button>
             <Button
               onClick={handleSaveReplicationRule}
@@ -3426,10 +3425,10 @@ export default function BucketSettingsPage() {
               }
             >
               {createReplicationRuleMutation.isPending || updateReplicationRuleMutation.isPending
-                ? 'Saving...'
+                ? t('replication.saving')
                 : editingReplicationRule
-                ? 'Update Rule'
-                : 'Add Rule'}
+                ? t('replication.updateRule')
+                : t('replication.addRule')}
             </Button>
           </div>
         </div>

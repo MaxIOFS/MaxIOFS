@@ -256,7 +256,7 @@
     "enabled": "Enabled",
     "disabled": "Disabled",
     "webhook": "Webhook: ",
-    "events": "Events: ",
+    "eventsLabel": "Events: ",
     "filters": "Filters: ",
     "prefix": "Prefix: {{value}}",
     "suffix": "Suffix: {{value}}",

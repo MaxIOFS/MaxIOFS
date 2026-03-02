@@ -57,5 +57,15 @@
   "sendTestEmail": "Send Test Email",
   "backendLogs": "Backend Logs",
   "frontendLogs": "Frontend Logs",
-  "frontendLogsDesc": "Collect browser errors and warnings"
+  "frontendLogsDesc": "Collect browser errors and warnings",
+  "categoryLoggingTitle": "Logging",
+  "categoryLoggingDesc": "Structured logging, syslog, and HTTP endpoint configuration",
+  "categoryEmailTitle": "Email",
+  "categoryEmailDesc": "SMTP configuration for disk space alerts and system notifications",
+  "failedToSaveSettings": "Failed to save settings",
+  "failedToSendTestEmail": "Failed to send test email",
+  "mb": "{{value}} MB",
+  "tlsModeNone": "None (plain SMTP, no encryption)",
+  "tlsModeStarttls": "STARTTLS (upgrade on port 587)",
+  "tlsModeSsl": "SSL/TLS (implicit, port 465)"
 }

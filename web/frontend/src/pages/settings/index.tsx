@@ -23,43 +23,15 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import LoggingTargets from './LoggingTargets';
 import type { Setting, SettingCategory } from '@/types';
 
-// Category metadata
-const categoryInfo: Record<SettingCategory, { icon: React.ComponentType<any>; title: string; description: string }> = {
-  security: {
-    icon: Shield,
-    title: 'Security',
-    description: 'Authentication, password policies, and rate limiting settings',
-  },
-  audit: {
-    icon: FileText,
-    title: 'Audit',
-    description: 'Audit logging and retention configuration',
-  },
-  storage: {
-    icon: HardDrive,
-    title: 'Storage',
-    description: 'Default storage behavior and versioning settings',
-  },
-  metrics: {
-    icon: Activity,
-    title: 'Metrics',
-    description: 'Prometheus metrics and collection settings',
-  },
-  logging: {
-    icon: FileCode,
-    title: 'Logging',
-    description: 'Structured logging, syslog, and HTTP endpoint configuration',
-  },
-  system: {
-    icon: Server,
-    title: 'System',
-    description: 'System-wide settings, maintenance mode, and disk alert thresholds',
-  },
-  email: {
-    icon: Mail,
-    title: 'Email',
-    description: 'SMTP configuration for disk space alerts and system notifications',
-  },
+// Category icon map — icons are static, labels/descriptions come from t()
+const categoryIcons: Record<SettingCategory, React.ComponentType<any>> = {
+  security: Shield,
+  audit: FileText,
+  storage: HardDrive,
+  metrics: Activity,
+  logging: FileCode,
+  system: Server,
+  email: Mail,
 };
 
 export default function SettingsPage() {
@@ -67,6 +39,16 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { isGlobalAdmin, user: currentUser } = useCurrentUser();
+
+  const categoryInfo: Record<SettingCategory, { icon: React.ComponentType<any>; title: string; description: string }> = {
+    security: { icon: categoryIcons.security, title: t('categorySecurityTitle'), description: t('categorySecurityDesc') },
+    audit:    { icon: categoryIcons.audit,    title: t('categoryAuditTitle'),    description: t('categoryAuditDesc') },
+    storage:  { icon: categoryIcons.storage,  title: t('categoryStorageTitle'),  description: t('categoryStorageDesc') },
+    metrics:  { icon: categoryIcons.metrics,  title: t('categoryMetricsTitle'),  description: t('categoryMetricsDesc') },
+    logging:  { icon: categoryIcons.logging,  title: t('categoryLoggingTitle'),  description: t('categoryLoggingDesc') },
+    system:   { icon: categoryIcons.system,   title: t('categorySystemTitle'),   description: t('categorySystemDesc') },
+    email:    { icon: categoryIcons.email,    title: t('categoryEmailTitle'),    description: t('categoryEmailDesc') },
+  };
 
   const [activeCategory, setActiveCategory] = useState<SettingCategory>('security');
   const [editedValues, setEditedValues] = useState<Record<string, string>>({});
@@ -122,7 +104,7 @@ export default function SettingsPage() {
       setTimeout(() => setSaveSuccess(false), 3000);
     },
     onError: (error: any) => {
-      setSaveError(error.response?.data?.error || 'Failed to save settings');
+      setSaveError(error.response?.data?.error || t('failedToSaveSettings'));
       setTimeout(() => setSaveError(null), 5000);
     },
   });
@@ -165,7 +147,7 @@ export default function SettingsPage() {
       setTestEmailMessage(result.message);
     } catch (err: any) {
       setTestEmailStatus('error');
-      setTestEmailMessage(err.response?.data?.error || 'Failed to send test email');
+      setTestEmailMessage(err.response?.data?.error || t('failedToSendTestEmail'));
     }
     setTimeout(() => setTestEmailStatus('idle'), 5000);
   };
@@ -195,7 +177,7 @@ export default function SettingsPage() {
 
   const getSelectLabel = (key: string, value: string): string => {
     if (key === 'email.tls_mode') {
-      return { none: 'None (plain SMTP, no encryption)', starttls: 'STARTTLS (upgrade on port 587)', ssl: 'SSL/TLS (implicit, port 465)' }[value] ?? value;
+      return { none: t('tlsModeNone'), starttls: t('tlsModeStarttls'), ssl: t('tlsModeSsl') }[value] ?? value;
     }
     return value;
   };
@@ -228,22 +210,22 @@ export default function SettingsPage() {
       // Add units based on key
       if (setting.key.includes('timeout') || setting.key.includes('duration')) {
         const seconds = parseInt(value);
-        if (seconds >= 86400) return `${Math.floor(seconds / 86400)} days`;
-        if (seconds >= 3600) return `${Math.floor(seconds / 3600)} hours`;
-        if (seconds >= 60) return `${Math.floor(seconds / 60)} minutes`;
-        return `${seconds} seconds`;
+        if (seconds >= 86400) return t('days', { count: Math.floor(seconds / 86400) });
+        if (seconds >= 3600)  return t('hours', { count: Math.floor(seconds / 3600) });
+        if (seconds >= 60)    return t('minutes', { count: Math.floor(seconds / 60) });
+        return t('seconds', { count: seconds });
       }
       if (setting.key.includes('size') && setting.key.includes('mb')) {
-        return `${value} MB`;
+        return t('mb', { value });
       }
       if (setting.key.includes('days')) {
-        return `${value} days`;
+        return t('days', { count: parseInt(value) });
       }
       if (setting.key.includes('per_minute')) {
-        return `${value} per minute`;
+        return `${value} ${t('perMinute')}`;
       }
       if (setting.key.includes('per_second')) {
-        return `${value} per second`;
+        return `${value} ${t('perSecond')}`;
       }
     }
 
@@ -577,7 +559,7 @@ export default function SettingsPage() {
                               className="w-full max-w-xs px-4 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                             />
                             <span className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                              Current: {formatValueDisplay(setting)}
+                              {t('current', { value: formatValueDisplay(setting) })}
                             </span>
                           </div>
                         ) : (
@@ -599,10 +581,10 @@ export default function SettingsPage() {
 
         {/* Setting Metadata */}
         <div className="mt-3 flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
-          <span>Key: <code className="text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{setting.key}</code></span>
+          <span>{t('key')} <code className="text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{setting.key}</code></span>
           {isEdited && (
             <span className="text-yellow-600 dark:text-yellow-400">
-              Original: {formatValueDisplay({ ...setting, value: setting.value } as Setting)}
+              {t('original', { value: formatValueDisplay({ ...setting, value: setting.value } as Setting) })}
             </span>
           )}
         </div>
