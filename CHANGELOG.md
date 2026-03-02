@@ -5,7 +5,7 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.2-beta] - 2026-03-01
+## [1.0.0-beta] - 2026-03-02
 
 ### Added
 - **Disk and quota alert auto-resolution** — condition-based SSE notifications now automatically disappear from the admin panel when the triggering condition clears, without requiring manual dismissal.
@@ -108,7 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The "Target Type" selector (User / Tenant) has been removed; all grants are now individual-user only.
   - A scope badge and contextual notice in the form make the restriction visible to the admin.
 - **User deletion leaving orphan bucket permissions** — deleting a user did not remove their bucket access grants, leaving stale entries that referenced a non-existent user ID. `authManager.DeleteUser` now calls `store.ListUserBucketPermissions` and revokes every grant before removing the user record. Individual revocation failures are logged as warnings and do not block the deletion.
-- **About page updated to v0.9.2-beta** — "New in" section reflects the changes of this release.
+- **About page updated to v1.0.0-beta** — "New in" section reflects the changes of this release.
 - **Large file multipart upload — 5 cascading bugs fixed** (`f10b774`, resolves [#5](https://github.com/MaxIOFS/MaxIOFS/issues/5)):
   1. *Error type mismatch*: HTTP handler checked `ErrUploadNotFound` but the object manager returns `ErrInvalidUploadID`; fell through to a generic 500 instead of 404.
   2. *`os.Rename` race on Windows*: two concurrent `CompleteMultipartUpload` requests for the same `uploadID` raced to rename the temp file to `objectPath`. On Windows, `os.Open` does not set `FILE_SHARE_DELETE`, causing `ERROR_SHARING_VIOLATION`. Fixed with per-`uploadID` deduplication (`completionFuture`).
@@ -150,7 +150,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `NewProxyClient()` now accepts optional `*tls.Config` parameter for TLS-aware proxying
   - Initial join handshake uses `InsecureSkipVerify` (remote node not yet in cluster); all subsequent communication uses strict CA validation
 - **External syslog targets** — multiple external logging targets (syslog and HTTP) stored in SQLite with full CRUD API. Replaces the single-target legacy `logging.syslog_*` / `logging.http_*` settings with an N-target system supporting independent configuration per target.
-  - New `logging_targets` table (migration 11, v0.9.2) with indexes on type and enabled status
+  - New `logging_targets` table (migration 11, v1.0.0) with indexes on type and enabled status
   - `TargetStore` CRUD in `internal/logging/store.go` with validation, unique name constraint, and automatic migration of legacy settings
   - 7 new console API endpoints: `GET/POST /logs/targets`, `GET/PUT/DELETE /logs/targets/{id}`, `POST /logs/targets/{id}/test`, `POST /logs/targets/test` (test without saving)
   - Frontend `LoggingTargets` component integrated in Settings → Logging with create/edit modal, test connection, delete confirmation, and TLS indicator
@@ -472,7 +472,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dual-level encryption control (server and bucket level)
 - Flexible mixed encrypted/unencrypted object coexistence
 - Configuration management migrated to SQLite database
-- Pebble (LSM-tree engine) for metrics historical storage (migrated from initial BadgerDB in v0.9.2)
+- Pebble (LSM-tree engine) for metrics historical storage (migrated from initial BadgerDB in v1.0.0)
 - Visual encryption status indicators in Web Console
 
 ### Fixed
@@ -609,7 +609,7 @@ MaxIOFS follows semantic versioning:
 - **0.x.x-rc**: Release candidates - Production-ready testing
 - **1.x.x**: Stable releases - Production-ready
 
-### Current Status: BETA (v0.9.2-beta)
+### Current Status: BETA (v1.0.0-beta)
 
 **Completed Core Features:**
 - ✅ All S3 core operations validated with AWS CLI (100% compatible)
@@ -636,9 +636,9 @@ See [TODO.md](TODO.md) for detailed roadmap and requirements.
 
 ## Version History
 
-### Completed Features (v0.1.0 - v0.9.2-beta)
+### Completed Features (v0.1.0 - v1.0.0-beta)
 
-**v0.9.2-beta (February 2026)** - Pebble Metadata Engine, Cluster Snapshot Reconciliation & Veeam Compatibility
+**v1.0.0-beta (February 2026)** - Pebble Metadata Engine, Cluster Snapshot Reconciliation & Veeam Compatibility
 - ✅ Replaced BadgerDB with Pebble (crash-safe WAL, no CGO) for all S3 metadata
 - ✅ Transparent auto-migration from BadgerDB on first startup (no manual steps)
 - ✅ Cluster state snapshot endpoint and stale reconciler (LWW partition handling)

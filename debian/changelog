@@ -1,34 +1,43 @@
-maxiofs (0.9.2-beta) unstable; urgency=high
+maxiofs (1.0.0-beta) unstable; urgency=high
 
-  * Release v0.9.2-beta - Pebble metadata engine, cluster snapshot reconciliation & Veeam compatibility
+  * Release v1.0.0-beta - First major release: Pebble engine, object integrity, maintenance mode,
+    SMTP alerts, cluster resilience, full i18n, audit object events, async audit writes
   * [Changed] Replaced BadgerDB with Pebble (github.com/cockroachdb/pebble) for all S3 metadata.
     Pebble uses a crash-safe WAL — no more MANIFEST corruption on power loss or process kill.
     Pure-Go, no CGO, same LSM-tree paradigm, identical on-disk key format preserved.
   * [Changed] Transparent auto-migration: on first startup, KEYREGISTRY detection triggers
     full BadgerDB→Pebble migration in batches. Atomic directory rename. No user action needed.
-    Migration also corrected under-reported object counts/sizes from prior BadgerDB conflicts.
   * [Changed] Decoupled ACL, bucket, object, metrics, notifications from BadgerDB via new
     metadata.RawKVStore interface. Only migration code retains BadgerDB dependency.
-  * [Added] Cluster state snapshot endpoint GET /api/internal/cluster/state-snapshot
-  * [Added] Cluster StaleReconciler: LWW conflict resolution for partitioned/offline nodes
-  * [Added] Cluster write tracking (last_local_write_at) for partition detection
-  * [Fixed] Bucket metrics under-reported under concurrent load (VEEAM / multiple S3 clients):
-    UpdateBucketMetrics replaced OCC retry loop (5 attempts) with per-bucket sync.Mutex via
-    sync.Map. Serializes metric updates at Go level — ErrConflict impossible
-    by construction. Resolves VEEAM showing 4.2GB stored while web interface reported 2.21GB.
-  * [Fixed] RecalculateBucketStats ignored tenant prefix: function scanned obj:bucketName:
-    instead of obj:tenantID/bucketName:key for tenant buckets, always returning 0 objects/bytes.
-    Now correctly builds full path for tenant buckets; global buckets (no tenant) unaffected.
-  * [Added] Admin endpoint POST /buckets/{bucket}/recalculate-stats: resync bucket counters
-    (ObjectCount, TotalSize) by full metadata scan. Requires admin role; global admins can
-    pass ?tenantId= for a specific tenant's bucket. Returns recalculated values in response.
-  * [Removed] Test TestHandleTestLogOutput: called server.handleTestLogOutput which does not
-    exist on *Server (handler was never implemented), causing compilation failure.
-  * [Tests] TestRecalculateBucketStats_GlobalBucket: new test for global bucket path (no tenant)
-  * [Tests] Updated TestRecalculateBucketStats_Success and subtests to use full tenantID/bucketName
-    path matching production behavior
+  * [Changed] Removed LZ4/Snappy compression (minimal benefit, added latency for compressed content)
+  * [Changed] Full i18n coverage: cluster, metrics, buckets, settings, auth pages translated (en/es)
+  * [Added] Object Integrity Verification: on-demand + background scrubber, corruption SSE+email alerts
+  * [Added] Maintenance Mode enforcement: S3 API (HTTP 503) and Console API middleware, amber banner
+  * [Added] SMTP email notifications: 3-mode TLS (none/starttls/ssl), test endpoint, settings UI
+  * [Added] Disk and quota alert monitoring: SSE + email on threshold escalation (80%/90%)
+  * [Added] Disk/quota alert auto-resolution: condition-based notifications dismiss when resolved
+  * [Added] Cluster state snapshot + Stale Reconciler (LWW conflict resolution for partitioned nodes)
+  * [Added] Background stats reconciler: recalculates ObjectCount/TotalSize every 15 minutes
+  * [Added] Admin endpoint POST /buckets/{bucket}/recalculate-stats
+  * [Added] Non-blocking bulk delete with real-time progress bar (8 concurrent workers)
+  * [Added] Audit: object operation events (uploaded, downloaded, deleted, shared) from Console API
+  * [Added] Audit: structured forwarding to external log targets at Info level with "audit":true tag
+  * [Added] Metrics: immediate startup snapshot (no chart gap on server start)
+  * [Added] Cluster: object_count and total_size per bucket in cluster buckets endpoint
+  * [Fixed] Audit SQLite SQLITE_BUSY under concurrent load: async batched writer goroutine + WAL mode
+  * [Fixed] Large file multipart upload: 5 cascading bugs (error type, Windows rename race,
+    excessive I/O 3x, Flusher propagation, goroutine context cancellation on client disconnect)
+  * [Fixed] Virtual-hosted-style S3 requests (bucket in subdomain): transparent URL rewrite middleware
+  * [Fixed] Bucket object count inflation on overwrite (AdjustBucketSize, no ObjectCount increment)
+  * [Fixed] Bucket metrics under-reported under concurrent load (sync.Mutex replaces OCC retry loop)
+  * [Fixed] RecalculateBucketStats ignored tenant prefix, always returning 0 for tenant buckets
+  * [Fixed] Metrics chart false spikes from stale query data (30s staleness guard)
+  * [Fixed] Empty folders not displayed in object browser (delimiter-based folder marker handling)
+  * [Fixed] Regular users locked out of own profile and access keys (isSelf exception)
+  * [Fixed] SSE notification stream erroneously opened by non-admin users
+  * [Fixed] Bucket permissions modal allowing cross-scope grants (strict tenant isolation)
 
- -- Aluisco Ricardo <aluisco@maxiofs.com>  Mon, 23 Feb 2026 12:00:00 +0000
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Mon, 02 Mar 2026 12:00:00 +0000
 
 maxiofs (0.9.1-beta) unstable; urgency=high
 

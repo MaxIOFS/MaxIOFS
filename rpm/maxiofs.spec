@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 0.9.2}
+%{!?version: %define version 1.0.0}
 %define release 1
 %define debug_package %{nil}
 
@@ -259,11 +259,19 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
-* Sat Feb 22 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 0.9.2-1
-- Version 0.9.2-beta - Concurrent metric reliability and storage reporting fix
-- Fixed: Bucket metrics under-reported under concurrent load (VEEAM / multiple S3 clients)
-  UpdateBucketMetrics replaced OCC retry loop with per-bucket sync.Mutex via sync.Map.
-  ErrConflict impossible by construction. Resolves 4.2GB stored / 2.21GB shown discrepancy.
+* Mon Mar 02 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.0.0-1
+- Version 1.0.0-beta - First major release: Pebble engine, object integrity, maintenance mode,
+  SMTP alerts, cluster resilience, full i18n, audit object events, async audit writes
+- Changed: Replaced BadgerDB with Pebble for metadata (crash-safe WAL, no CGO)
+- Added: Object Integrity Verification with background scrubber and corruption alerts
+- Added: Maintenance Mode enforcement across S3 and Console APIs
+- Added: SMTP email notifications system with 3-mode TLS support
+- Added: Disk and quota alert monitoring (SSE + email on threshold escalation)
+- Added: Audit object operation events and structured forwarding to external log targets
+- Fixed: Audit SQLite SQLITE_BUSY under concurrent load (async batched writer + WAL mode)
+- Fixed: Large file multipart upload 5 cascading bugs
+- Fixed: Virtual-hosted-style S3 requests (bucket in subdomain)
+- Fixed: Bucket metrics under-reported under concurrent load (sync.Mutex replaces OCC)
 - Fixed: RecalculateBucketStats ignored tenant prefix, always returning 0 for tenant buckets.
   Now builds full tenantID/bucketName path; global buckets (no tenant) unaffected.
 - Added: Admin endpoint POST /buckets/{bucket}/recalculate-stats to resync bucket counters

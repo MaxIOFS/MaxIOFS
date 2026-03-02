@@ -1,6 +1,6 @@
 # MaxIOFS Performance & SLOs
 
-**Version**: 0.9.2-beta | **Last Updated**: February 28, 2026
+**Version**: 1.0.0-beta | **Last Updated**: February 28, 2026
 
 ## Performance Summary
 

@@ -1,6 +1,6 @@
 # MaxIOFS - Development Roadmap
 
-**Version**: 0.9.2-beta
+**Version**: 1.0.0-beta
 **Last Updated**: February 26, 2026
 **Status**: Beta - S3 Core 100% Compatible
 
@@ -88,7 +88,7 @@
 
 ---
 
-## 🟠 HIGH — Cluster Resilience: Stale Node & Network Partition (v0.9.2-beta)
+## 🟠 HIGH — Cluster Resilience: Stale Node & Network Partition (v1.0.0-beta)
 
 Two distinct failure scenarios require proper handling. Both involve a node that was isolated
 from the cluster for a period and then reconnects. The current sync system has no conflict
@@ -244,7 +244,7 @@ Detection key:
 
 ---
 
-## 🟡 PENDING — v0.9.2-beta
+## 🟡 PENDING — v1.0.0-beta
 
 ### 1. Maintenance Mode Enforcement ✅
 
@@ -308,7 +308,7 @@ Detection key:
 
 ## ✅ COMPLETED
 
-### v0.9.2-beta (February 2026)
+### v1.0.0-beta (February 2026)
 - ✅ Object integrity verification — `VerifyObjectIntegrity` + `VerifyBucketIntegrity`, background scrubber every 24h, on-demand `POST /buckets/{bucket}/verify-integrity`, SSE + email alerts on corruption, multipart skip, encrypted-object-safe
 - ✅ Non-blocking bulk delete — background task via `BackgroundTaskBar`; shows progress without blocking UI
 - ✅ Dashboard metrics for global non-admin users — `handleGetSystemMetrics` now allows any global user (not just admins); frontend `enabled: !isTenantUser` guard

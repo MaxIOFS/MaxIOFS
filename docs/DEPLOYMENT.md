@@ -1,6 +1,6 @@
 # MaxIOFS Deployment Guide
 
-**Version**: 0.9.2-beta | **Last Updated**: February 28, 2026
+**Version**: 1.0.0-beta | **Last Updated**: February 28, 2026
 
 > **BETA SOFTWARE**: Suitable for development, testing, and staging environments. Production use requires thorough testing in your environment.
 
@@ -150,11 +150,11 @@ Pre-built packages are available for Debian/Ubuntu and RHEL/Rocky:
 
 ```bash
 # Debian/Ubuntu
-sudo dpkg -i maxiofs_0.9.2-beta_amd64.deb
+sudo dpkg -i maxiofs_1.0.0-beta_amd64.deb
 sudo systemctl enable --now maxiofs
 
 # RHEL/Rocky
-sudo rpm -i maxiofs-0.9.2-1.el9.x86_64.rpm
+sudo rpm -i maxiofs-1.0.0-1.el9.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 

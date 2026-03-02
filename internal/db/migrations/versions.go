@@ -1038,11 +1038,11 @@ func migration10_v091_ClusterDeletionLog() Migration {
 }
 
 // migration11_v092_LoggingTargets creates the logging_targets table for multiple external log destinations
-// Corresponds to MaxIOFS v0.9.2 - Multiple external logging targets (syslog, HTTP)
+// Corresponds to MaxIOFS v1.0.0 - Multiple external logging targets (syslog, HTTP)
 func migration11_v092_LoggingTargets() Migration {
 	return Migration{
 		Version:     11,
-		Description: "v0.9.2 - Add logging_targets table for multiple external log destinations",
+		Description: "v1.0.0 - Add logging_targets table for multiple external log destinations",
 		Up: func(tx *sql.Tx) error {
 			if _, err := tx.Exec(`
 				CREATE TABLE IF NOT EXISTS logging_targets (

@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 0.9.2-beta | **Last Updated**: February 28, 2026
+**Version**: 1.0.0-beta | **Last Updated**: February 28, 2026
 
 > **BETA SOFTWARE**: Core security features are implemented. Third-party audits have not been conducted. Test thoroughly before production use.
 

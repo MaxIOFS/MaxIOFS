@@ -1,6 +1,6 @@
 # Frontend Improvements Plan
 
-**Version**: 0.9.2-beta  
+**Version**: 1.0.0-beta  
 **Last Updated**: February 28, 2026  
 **Status**: Implementation roadmap
 
