@@ -237,6 +237,13 @@ func (m *Manager) runRetentionCleanup(ctx context.Context, retentionDays int) {
 	}
 }
 
+// Flush blocks until all queued audit events have been committed to the store.
+func (m *Manager) Flush() {
+	if m.store != nil {
+		m.store.Flush()
+	}
+}
+
 // Close closes the audit manager and underlying store
 func (m *Manager) Close() error {
 	if m.store != nil {

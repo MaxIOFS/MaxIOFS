@@ -43,6 +43,7 @@ type SQLiteStore struct {
 	db        *sql.DB
 	logger    *logrus.Logger
 	writeChan chan *pendingWrite
+	flushChan chan chan struct{} // flush barrier requests
 	done      chan struct{}
 }
 
@@ -62,6 +63,7 @@ func NewSQLiteStore(dbPath string, logger *logrus.Logger) (*SQLiteStore, error) 
 		db:        db,
 		logger:    logger,
 		writeChan: make(chan *pendingWrite, writeQueueSize),
+		flushChan: make(chan chan struct{}, 8),
 		done:      make(chan struct{}),
 	}
 
@@ -157,11 +159,31 @@ func (s *SQLiteStore) writeWorker() {
 				timer.Reset(batchTimeout)
 			}
 
+		case reply := <-s.flushChan:
+			// Drain any writes that are already sitting in writeChan
+			// so the caller sees a consistent view of all events queued
+			// before the Flush() call.
+			for len(s.writeChan) > 0 {
+				if w, ok := <-s.writeChan; ok {
+					batch = append(batch, w)
+				}
+			}
+			flush()
+			close(reply)
+
 		case <-timer.C:
 			flush()
 			timer.Reset(batchTimeout)
 		}
 	}
+}
+
+// Flush blocks until all events queued before this call have been committed to SQLite.
+// Useful in tests and for graceful shutdown scenarios.
+func (s *SQLiteStore) Flush() {
+	reply := make(chan struct{})
+	s.flushChan <- reply
+	<-reply
 }
 
 // insertBatch inserts a slice of events in a single transaction.

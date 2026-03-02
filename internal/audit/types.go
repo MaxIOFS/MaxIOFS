@@ -159,6 +159,9 @@ type Store interface {
 	// PurgeLogs deletes logs older than specified days (maintenance)
 	PurgeLogs(ctx context.Context, olderThanDays int) (int, error)
 
+	// Flush blocks until all queued writes have been committed to the store.
+	Flush()
+
 	// Close closes the store
 	Close() error
 }

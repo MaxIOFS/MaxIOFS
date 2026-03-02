@@ -110,6 +110,7 @@ func TestGetLogs(t *testing.T) {
 			t.Fatalf("Failed to log event: %v", err)
 		}
 	}
+	mgr.Flush()
 
 	// Test: Get all logs
 	logs, total, err := mgr.GetLogs(ctx, &AuditLogFilters{
@@ -168,6 +169,7 @@ func TestGetLogsByTenant(t *testing.T) {
 			t.Fatalf("Failed to log event: %v", err)
 		}
 	}
+	mgr.Flush()
 
 	// Test: Get tenant-1 logs
 	logs, total, err := mgr.GetLogsByTenant(ctx, "tenant-1", &AuditLogFilters{
@@ -230,6 +232,7 @@ func TestFilterByEventType(t *testing.T) {
 			t.Fatalf("Failed to log event: %v", err)
 		}
 	}
+	mgr.Flush()
 
 	// Test: Filter by EventTypeLoginSuccess
 	logs, total, err := mgr.GetLogs(ctx, &AuditLogFilters{
@@ -290,6 +293,7 @@ func TestFilterByStatus(t *testing.T) {
 			t.Fatalf("Failed to log event: %v", err)
 		}
 	}
+	mgr.Flush()
 
 	// Test: Filter by failed status
 	logs, total, err := mgr.GetLogs(ctx, &AuditLogFilters{
@@ -375,6 +379,7 @@ func TestPagination(t *testing.T) {
 			t.Fatalf("Failed to log event: %v", err)
 		}
 	}
+	mgr.Flush()
 
 	// Test: Page 1 with 10 items
 	logs, total, err := mgr.GetLogs(ctx, &AuditLogFilters{
@@ -438,6 +443,7 @@ func TestGetLogByID(t *testing.T) {
 	if err := mgr.LogEvent(ctx, event); err != nil {
 		t.Fatalf("Failed to log event: %v", err)
 	}
+	mgr.Flush()
 
 	// Get the log we just created
 	logs, _, err := mgr.GetLogs(ctx, &AuditLogFilters{
@@ -492,6 +498,7 @@ func TestPurgeLogs(t *testing.T) {
 			t.Fatalf("Failed to log event: %v", err)
 		}
 	}
+	mgr.Flush()
 
 	// Verify we have 5 logs
 	_, total, err := mgr.GetLogs(ctx, &AuditLogFilters{
@@ -572,6 +579,7 @@ func TestMultipleFilters(t *testing.T) {
 			t.Fatalf("Failed to log event: %v", err)
 		}
 	}
+	mgr.Flush()
 
 	// Test: Multiple filters (tenant + status)
 	logs, total, err := mgr.GetLogs(ctx, &AuditLogFilters{

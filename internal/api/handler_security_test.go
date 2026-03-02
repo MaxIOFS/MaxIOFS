@@ -181,6 +181,11 @@ func (m *MockBucketManager) RecalculateMetrics(ctx context.Context, tenantID, na
 	return args.Error(0)
 }
 
+func (m *MockBucketManager) AdjustBucketSize(ctx context.Context, tenantID, name string, sizeDelta int64) error {
+	args := m.Called(ctx, tenantID, name, sizeDelta)
+	return args.Error(0)
+}
+
 func (m *MockBucketManager) IsReady() bool {
 	args := m.Called()
 	return args.Bool(0)

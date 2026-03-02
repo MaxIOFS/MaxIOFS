@@ -184,6 +184,9 @@ func (m *MockBucketManagerForLocation) DecrementObjectCount(ctx context.Context,
 func (m *MockBucketManagerForLocation) RecalculateMetrics(ctx context.Context, tenantID, name string) error {
 	return nil
 }
+func (m *MockBucketManagerForLocation) AdjustBucketSize(ctx context.Context, tenantID, name string, sizeDelta int64) error {
+	return nil
+}
 func (m *MockBucketManagerForLocation) IsReady() bool {
 	return true
 }
