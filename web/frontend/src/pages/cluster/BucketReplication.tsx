@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Loading } from '@/components/ui/Loading';
@@ -20,6 +21,7 @@ import type { BucketWithReplication, ClusterNode, CreateClusterReplicationReques
 type FilterType = 'all' | 'replicated' | 'local';
 
 export default function BucketReplication() {
+  const { t } = useTranslation('cluster');
   const navigate = useNavigate();
   const [buckets, setBuckets] = useState<BucketWithReplication[]>([]);
   const [filteredBuckets, setFilteredBuckets] = useState<BucketWithReplication[]>([]);
@@ -51,7 +53,7 @@ export default function BucketReplication() {
         setBuckets([]);
       }
     } catch (err: unknown) {
-      setError(getErrorMessage(err, 'Failed to load buckets'));
+      setError(getErrorMessage(err, t('failedToLoadBuckets')));
       setBuckets([]);
     } finally {
       setLoading(false);
@@ -60,28 +62,20 @@ export default function BucketReplication() {
 
   const applyFilter = () => {
     let filtered = buckets;
-
     if (filter === 'replicated') {
       filtered = buckets.filter(b => b.has_replication);
     } else if (filter === 'local') {
       filtered = buckets.filter(b => !b.has_replication);
     }
-
     setFilteredBuckets(filtered);
   };
 
   const loadNodes = async () => {
     try {
       setLoadingNodes(true);
-
-      // Get local node ID
       const clusterConfig = await APIClient.getClusterConfig();
       setLocalNodeId(clusterConfig.node_id);
-
-      // Get all cluster nodes
       const data = await APIClient.listClusterNodes();
-
-      // Filter out local node (cannot replicate to itself)
       const remoteNodes = data.filter(node => node.id !== clusterConfig.node_id);
       setNodes(remoteNodes);
     } catch (err: unknown) {
@@ -95,23 +89,20 @@ export default function BucketReplication() {
     try {
       setConfiguring(true);
 
-      // Find the target node
       const targetNode = nodes.find(n => n.id === targetNodeId);
       if (!targetNode) {
-        throw new Error('Target node not found');
+        throw new Error(t('targetNodeNotFound'));
       }
 
-      // Validate sync interval (minimum 10 seconds)
       const syncInterval = parseInt(formData.syncInterval) || 60;
       if (syncInterval < 10) {
-        throw new Error('Sync interval must be at least 10 seconds');
+        throw new Error(t('syncIntervalMin10'));
       }
 
-      // Create cluster replication rule (NO CREDENTIALS needed)
       const request: CreateClusterReplicationRequest = {
         source_bucket: bucket,
         destination_node_id: targetNodeId,
-        destination_bucket: bucket, // Same bucket name on destination
+        destination_bucket: bucket,
         sync_interval_seconds: syncInterval,
         enabled: true,
         replicate_deletes: formData.replicateDeletes !== false,
@@ -122,11 +113,11 @@ export default function BucketReplication() {
 
       await APIClient.createClusterReplication(request);
 
-      alert('Cluster replication configured successfully!');
+      alert(t('replicationConfiguredSuccess'));
       setSelectedBucket(null);
       loadBuckets();
     } catch (err: unknown) {
-      alert(getErrorMessage(err, 'Failed to configure replication'));
+      alert(getErrorMessage(err, t('failedToConfigureReplication')));
     } finally {
       setConfiguring(false);
     }
@@ -140,7 +131,7 @@ export default function BucketReplication() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loading size="lg" text="Loading buckets..." />
+        <Loading size="lg" text={t('loadingBuckets')} />
       </div>
     );
   }
@@ -153,9 +144,9 @@ export default function BucketReplication() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Cluster Bucket Replication</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('clusterBucketReplication')}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Configure high-availability replication between cluster nodes
+            {t('clusterBucketReplicationDesc')}
           </p>
         </div>
         <Button
@@ -165,7 +156,7 @@ export default function BucketReplication() {
           className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
         >
           <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
+          {t('refresh')}
         </Button>
       </div>
 
@@ -183,7 +174,7 @@ export default function BucketReplication() {
           onClick={() => setFilter('all')}
           className={filter === 'all' ? 'bg-brand-600 text-white' : ''}
         >
-          All Buckets ({buckets.length})
+          {t('allBuckets', { count: buckets.length })}
         </Button>
         <Button
           variant={filter === 'replicated' ? 'default' : 'outline'}
@@ -191,7 +182,7 @@ export default function BucketReplication() {
           onClick={() => setFilter('replicated')}
           className={filter === 'replicated' ? 'bg-brand-600 text-white' : ''}
         >
-          Replicated ({buckets.filter(b => b.has_replication).length})
+          {t('replicated', { count: buckets.filter(b => b.has_replication).length })}
         </Button>
         <Button
           variant={filter === 'local' ? 'default' : 'outline'}
@@ -199,7 +190,7 @@ export default function BucketReplication() {
           onClick={() => setFilter('local')}
           className={filter === 'local' ? 'bg-brand-600 text-white' : ''}
         >
-          Local Only ({buckets.filter(b => !b.has_replication).length})
+          {t('localOnly', { count: buckets.filter(b => !b.has_replication).length })}
         </Button>
       </div>
 
@@ -220,9 +211,9 @@ export default function BucketReplication() {
             </div>
 
             <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400 mb-4">
-              <div>Objects: {bucket.object_count}</div>
-              <div>Size: {formatBytes(bucket.total_size)}</div>
-              <div>Status: {bucket.has_replication ? 'Replicated' : 'Local only'}</div>
+              <div>{t('objectsCount', { count: bucket.object_count })}</div>
+              <div>{t('sizeLabel', { size: formatBytes(bucket.total_size) })}</div>
+              <div>{bucket.has_replication ? t('statusReplicated') : t('statusLocalOnly')}</div>
             </div>
 
             <Button
@@ -232,7 +223,7 @@ export default function BucketReplication() {
               className={bucket.has_replication ? '' : 'bg-brand-600 hover:bg-brand-700 text-white w-full'}
             >
               <Settings className="h-4 w-4 mr-2" />
-              {bucket.has_replication ? 'Manage Replication' : 'Configure Replication'}
+              {bucket.has_replication ? t('manageReplicationBtn') : t('configureReplicationBtn')}
             </Button>
           </Card>
         ))}
@@ -241,7 +232,7 @@ export default function BucketReplication() {
       {filteredBuckets.length === 0 && (
         <Card className="p-8 text-center">
           <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-600 dark:text-gray-400">No buckets found matching the filter</p>
+          <p className="text-gray-600 dark:text-gray-400">{t('noBucketsMatchingFilter')}</p>
         </Card>
       )}
 
@@ -251,7 +242,7 @@ export default function BucketReplication() {
           <Card className="w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                Configure Cluster Replication
+                {t('configureClusterReplicationTitle')}
               </h2>
               <button
                 onClick={() => setSelectedBucket(null)}
@@ -266,8 +257,8 @@ export default function BucketReplication() {
               <div className="flex gap-3">
                 <AlertTriangle className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
                 <div className="text-sm text-blue-800 dark:text-blue-200">
-                  <p className="font-semibold mb-1">Cluster Replication</p>
-                  <p>Nodes authenticate using cluster tokens - no credentials needed. Objects are automatically encrypted/decrypted during replication.</p>
+                  <p className="font-semibold mb-1">{t('clusterReplicationInfoTitle')}</p>
+                  <p>{t('clusterReplicationInfoDesc')}</p>
                 </div>
               </div>
             </div>
@@ -290,7 +281,7 @@ export default function BucketReplication() {
                 {/* Source Bucket */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Source Bucket
+                    {t('sourceBucket')}
                   </label>
                   <input
                     type="text"
@@ -303,11 +294,11 @@ export default function BucketReplication() {
                 {/* Destination Node */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Destination Node *
+                    {t('destinationNode')}
                   </label>
                   {loadingNodes ? (
                     <div className="flex items-center justify-center py-8">
-                      <Loading size="sm" text="Loading nodes..." />
+                      <Loading size="sm" text={t('loadingNodes2')} />
                     </div>
                   ) : (
                     <>
@@ -316,7 +307,7 @@ export default function BucketReplication() {
                         required
                         className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
                       >
-                        <option value="">Select destination node...</option>
+                        <option value="">{t('selectDestinationNode')}</option>
                         {nodes.map((node) => (
                           <option key={node.id} value={node.id}>
                             {node.name} ({node.endpoint}) - {node.health_status}
@@ -324,21 +315,21 @@ export default function BucketReplication() {
                         ))}
                       </select>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        Note: Local node is not shown. Cluster replication is for HA between different MaxIOFS servers.
+                        {t('localNodeNotShownHint')}
                       </p>
                     </>
                   )}
                   {nodes.some(n => n.health_status !== 'healthy') && (
                     <p className="text-sm text-yellow-600 dark:text-yellow-400 mt-1">
-                      ⚠️ Some nodes are unhealthy. Replication may be affected.
+                      {t('someNodesUnhealthy')}
                     </p>
                   )}
                 </div>
 
-                {/* Sync Interval (in seconds) */}
+                {/* Sync Interval */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Sync Interval (seconds) *
+                    {t('syncInterval')}
                   </label>
                   <input
                     name="syncInterval"
@@ -350,14 +341,14 @@ export default function BucketReplication() {
                     placeholder="60"
                   />
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Minimum 10 seconds. Use 60 for real-time HA, or higher values (e.g., 21600 = 6 hours) for backups.
+                    {t('syncIntervalHintLong')}
                   </p>
                 </div>
 
-                {/* Prefix Filter (optional) */}
+                {/* Prefix Filter */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Prefix Filter (optional)
+                    {t('prefixFilter')}
                   </label>
                   <input
                     name="prefix"
@@ -366,7 +357,7 @@ export default function BucketReplication() {
                     placeholder="folder/"
                   />
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Only replicate objects with keys starting with this prefix
+                    {t('prefixFilterHint')}
                   </p>
                 </div>
 
@@ -379,7 +370,7 @@ export default function BucketReplication() {
                       defaultChecked
                       className="rounded border-gray-300 dark:border-gray-600 text-brand-600 focus:ring-brand-500"
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">Replicate deletions</span>
+                    <span className="text-sm text-gray-700 dark:text-gray-300">{t('replicateDeletions')}</span>
                   </label>
 
                   <label className="flex items-center gap-2">
@@ -389,7 +380,7 @@ export default function BucketReplication() {
                       defaultChecked
                       className="rounded border-gray-300 dark:border-gray-600 text-brand-600 focus:ring-brand-500"
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">Replicate metadata</span>
+                    <span className="text-sm text-gray-700 dark:text-gray-300">{t('replicateMetadata')}</span>
                   </label>
                 </div>
               </div>
@@ -403,14 +394,14 @@ export default function BucketReplication() {
                   className="flex-1"
                   disabled={configuring}
                 >
-                  Cancel
+                  {t('cancel')}
                 </Button>
                 <Button
                   type="submit"
                   className="flex-1 bg-brand-600 hover:bg-brand-700 text-white"
                   disabled={configuring || loadingNodes}
                 >
-                  {configuring ? 'Configuring...' : 'Configure Replication'}
+                  {configuring ? t('configuring') : t('configureReplication')}
                 </Button>
               </div>
             </form>

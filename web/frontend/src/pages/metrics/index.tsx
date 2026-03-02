@@ -88,7 +88,15 @@ export default function MetricsPage() {
     refetchOnWindowFocus: false,
   });
 
-  // Fetch historical metrics based on active tab and time range
+  const historyRefetchInterval =
+    timeRange.hours <= 1 ? 10000 :
+    timeRange.hours <= 6 ? 30000 :
+    timeRange.hours <= 24 ? 60000 :
+    timeRange.hours <= 168 ? 300000 :
+    timeRange.hours <= 720 ? 600000 :
+    1800000;
+
+  // Fetch historical system/api metrics (for overview, system, api, performance tabs)
   const { data: historyData, isLoading: historyLoading } = useQuery({
     queryKey: ['historicalMetrics', activeTab, timeRange.label],
     queryFn: async () => {
@@ -98,30 +106,36 @@ export default function MetricsPage() {
       const metricTypeMap: Record<string, string> = {
         overview: 'system',
         system: 'system',
-        storage: 'storage',
         api: 's3',
         performance: 'system',
       };
 
       const result = await APIClient.getHistoricalMetrics({
-        type: metricTypeMap[activeTab],
+        type: metricTypeMap[activeTab] || 'system',
         start,
         end,
       });
 
-      // Store time range for gap filling
       return { ...result, requestedRange: { start, end } };
     },
-    // Adaptive refetch based on time range - longer periods need less frequent updates
-    refetchInterval:
-      timeRange.hours <= 1 ? 10000 :      // ≤1h: every 10s (real-time)
-      timeRange.hours <= 6 ? 30000 :      // ≤6h: every 30s
-      timeRange.hours <= 24 ? 60000 :     // ≤24h: every 1min
-      timeRange.hours <= 168 ? 300000 :   // ≤7d: every 5min
-      timeRange.hours <= 720 ? 600000 :   // ≤30d: every 10min
-      1800000,                             // >30d (year): every 30min
-    staleTime: 5000, // Consider data fresh for 5 seconds
-    enabled: isGlobalAdmin,
+    refetchInterval: historyRefetchInterval,
+    staleTime: 5000,
+    enabled: isGlobalAdmin && activeTab !== 'storage',
+    refetchOnWindowFocus: false,
+  });
+
+  // Fetch historical storage metrics separately (for overview and storage tabs)
+  const { data: storageHistoryData, isLoading: storageHistoryLoading } = useQuery({
+    queryKey: ['storageHistoricalMetrics', timeRange.label],
+    queryFn: async () => {
+      const end = Math.floor(Date.now() / 1000);
+      const start = end - (timeRange.hours * 3600);
+      const result = await APIClient.getHistoricalMetrics({ type: 'storage', start, end });
+      return { ...result, requestedRange: { start, end } };
+    },
+    refetchInterval: historyRefetchInterval,
+    staleTime: 5000,
+    enabled: isGlobalAdmin && (activeTab === 'overview' || activeTab === 'storage'),
     refetchOnWindowFocus: false,
   });
 
@@ -141,9 +155,9 @@ export default function MetricsPage() {
     return `${minutes}m`;
   };
 
-  const processHistoricalData = () => {
-    if (!historyData || !historyData.snapshots) return [];
-    const processed = historyData.snapshots.map((snapshot: any) => {
+  const processHistoricalData = (source?: typeof historyData) => {
+    if (!source || !source.snapshots) return [];
+    const processed = source.snapshots.map((snapshot: any) => {
       // Convert timestamp to Unix timestamp (seconds)
       let timestamp: number;
       if (typeof snapshot.timestamp === 'string') {
@@ -175,13 +189,10 @@ export default function MetricsPage() {
       };
     });
 
-    // Add current metrics as the most recent data point (only if we have historical data)
-    if (processed.length > 0 && (systemMetrics || storageMetrics || s3Metrics)) {
+    if (processed.length > 0) {
       const currentTimestamp = Math.floor(Date.now() / 1000);
       const lastTimestamp = processed[processed.length - 1].timestamp;
-
-      // Only add if current time is newer than last snapshot (avoid duplicates)
-      if (currentTimestamp > lastTimestamp + 30) { // 30 seconds threshold
+      if (currentTimestamp > lastTimestamp) {
         processed.push({
           timestamp: currentTimestamp,
           cpuUsagePercent: systemMetrics?.cpuUsagePercent || 0,
@@ -228,14 +239,15 @@ export default function MetricsPage() {
   }
 
   const tabs = [
-    { id: 'overview', label: 'Overview', icon: Gauge },
-    { id: 'system', label: 'System', icon: Server },
-    { id: 'storage', label: 'Storage', icon: Box },
-    { id: 'api', label: 'API & Requests', icon: Globe },
-    { id: 'performance', label: 'Performance', icon: Activity },
+    { id: 'overview',    label: t('tabOverview'),    icon: Gauge },
+    { id: 'system',      label: t('tabSystem'),      icon: Server },
+    { id: 'storage',     label: t('tabStorage'),     icon: Box },
+    { id: 'api',         label: t('tabApi'),         icon: Globe },
+    { id: 'performance', label: t('tabPerformance'), icon: Activity },
   ];
 
-  const chartData = processHistoricalData();
+  const chartData = processHistoricalData(historyData);
+  const storageChartData = processHistoricalData(storageHistoryData);
 
   return (
     <div className="space-y-6">
@@ -286,45 +298,45 @@ export default function MetricsPage() {
               {/* Quick Stats Grid - General Summary */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <MetricCard
-                  title="System Health"
+                  title={t('systemHealth')}
                   value={`${(systemMetrics.cpuUsagePercent || 0).toFixed(0)}% CPU`}
                   icon={Server}
                   description={`${(systemMetrics.memoryUsagePercent || 0).toFixed(0)}% Memory`}
                   color="blue-light"
                 />
                 <MetricCard
-                  title="Total Storage"
+                  title={t('totalStorage')}
                   value={formatBytes(storageMetrics.totalSize || 0)}
                   icon={Box}
-                  description={`${formatNumber(storageMetrics.totalBuckets || 0)} buckets`}
+                  description={`${formatNumber(storageMetrics.totalBuckets || 0)} ${t('bucketsCount')}`}
                   color="brand"
                 />
                 <MetricCard
-                  title="Total Requests"
+                  title={t('totalRequests')}
                   value={formatNumber(s3Metrics.totalRequests || 0)}
                   icon={Globe}
-                  description={`${formatNumber(s3Metrics.totalErrors || 0)} errors`}
+                  description={`${formatNumber(s3Metrics.totalErrors || 0)} ${t('errors')}`}
                   color="warning"
                 />
                 <MetricCard
-                  title="Uptime"
+                  title={t('uptime')}
                   value={formatUptime(systemMetrics.uptime || 0)}
                   icon={Clock}
-                  description="System running"
+                  description={t('systemRunning')}
                   color="success"
                 />
               </div>
 
               {/* Charts - Combined overview */}
-              {historyLoading ? (
+              {(historyLoading || storageHistoryLoading) ? (
                 <div className="flex items-center justify-center h-64">
                   <Loading size="lg" />
                 </div>
-              ) : chartData.length > 0 ? (
+              ) : (chartData.length > 0 || storageChartData.length > 0) ? (
                 <div className="grid gap-6 md:grid-cols-2">
                   <MetricLineChart
                     data={chartData}
-                    title="System Resources Over Time"
+                    title={t('systemResourcesOverTime')}
                     dataKeys={[
                       { key: 'cpuUsagePercent', name: 'CPU %', color: '#3b82f6' },
                       { key: 'memoryUsagePercent', name: 'Memory %', color: '#10b981' },
@@ -336,22 +348,22 @@ export default function MetricsPage() {
                     timeRange={historyData?.requestedRange}
                   />
                   <MetricLineChart
-                    data={chartData}
-                    title="Storage Growth Over Time"
+                    data={storageChartData}
+                    title={t('storageGrowthOverTime')}
                     dataKeys={[
                       { key: 'totalObjects', name: 'Objects', color: '#8b5cf6' },
                     ]}
                     height={300}
                     formatYAxis={(value) => formatNumber(value)}
                     formatTooltip={(value) => `${formatNumber(value)} objects`}
-                    timeRange={historyData?.requestedRange}
+                    timeRange={storageHistoryData?.requestedRange}
                   />
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
                   <AlertCircle className="h-12 w-12 mb-4" />
-                  <p className="text-lg font-medium">No historical data available yet</p>
-                  <p className="text-sm">Metrics will appear after the system collects data</p>
+                  <p className="text-lg font-medium">{t('noHistoricalData')}</p>
+                  <p className="text-sm">{t('metricsWillAppear')}</p>
                 </div>
               )}
             </div>
@@ -363,35 +375,35 @@ export default function MetricsPage() {
               {/* System Resources */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <MetricCard
-                  title="CPU Usage"
+                  title={t('cpuUsage')}
                   value={`${(systemMetrics.cpuUsagePercent || 0).toFixed(1)}%`}
                   icon={Cpu}
                   description={
                     systemMetrics.cpuCores
                       ? `${systemMetrics.cpuCores} cores @ ${(systemMetrics.cpuFrequencyMhz || 0) > 1000 ? ((systemMetrics.cpuFrequencyMhz || 0) / 1000).toFixed(2) + ' GHz' : (systemMetrics.cpuFrequencyMhz || 0).toFixed(0) + ' MHz'}`
-                      : 'CPU info unavailable'
+                      : t('cpuInfoUnavailable')
                   }
                   color="blue-light"
                 />
                 <MetricCard
-                  title="Memory"
+                  title={t('memoryUsage')}
                   value={`${(systemMetrics.memoryUsagePercent || 0).toFixed(1)}%`}
                   icon={MemoryStick}
                   description={`${formatBytes(systemMetrics.memoryUsedBytes || 0)} / ${formatBytes(systemMetrics.memoryTotalBytes || 0)}`}
                   color="success"
                 />
                 <MetricCard
-                  title="Disk Usage"
+                  title={t('diskUsage')}
                   value={`${(systemMetrics.diskUsagePercent || 0).toFixed(1)}%`}
                   icon={HardDrive}
                   description={`${formatBytes(systemMetrics.diskUsedBytes || 0)} / ${formatBytes(systemMetrics.diskTotalBytes || 0)}`}
                   color="warning"
                 />
                 <MetricCard
-                  title="Uptime"
+                  title={t('uptime')}
                   value={formatUptime(systemMetrics.uptime || 0)}
                   icon={Clock}
-                  description="System running"
+                  description={t('systemRunning')}
                   color="brand"
                 />
               </div>
@@ -399,28 +411,28 @@ export default function MetricsPage() {
               {/* Runtime Metrics */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <MetricCard
-                  title="Goroutines"
+                  title={t('goroutines')}
                   value={formatNumber(systemMetrics.goroutines || 0)}
                   icon={Activity}
-                  description="Active"
+                  description={t('active')}
                   color="brand"
                 />
                 <MetricCard
-                  title="Heap Memory"
+                  title={t('heapMemory')}
                   value={`${((systemMetrics.heapAllocBytes || 0) / (1024 * 1024)).toFixed(1)} MB`}
                   icon={BarChart3}
-                  description="Allocated"
+                  description={t('allocated')}
                   color="blue-light"
                 />
                 <MetricCard
-                  title="GC Runs"
+                  title={t('gcRuns')}
                   value={formatNumber(systemMetrics.gcRuns || 0)}
                   icon={TrendingUp}
-                  description="Collections"
+                  description={t('collections')}
                   color="warning"
                 />
                 <MetricCard
-                  title="Network I/O"
+                  title={t('networkIO')}
                   value={formatBytes(systemMetrics.networkBytesOut || 0)}
                   icon={ArrowUp}
                   description={`↓ ${formatBytes(systemMetrics.networkBytesIn || 0)}`}
@@ -437,7 +449,7 @@ export default function MetricsPage() {
                 <div className="grid gap-6 md:grid-cols-2">
                   <MetricLineChart
                     data={chartData}
-                    title="CPU & Memory Usage Over Time"
+                    title={t('cpuMemoryUsageOverTime')}
                     dataKeys={[
                       { key: 'cpuUsagePercent', name: 'CPU %', color: '#3b82f6' },
                       { key: 'memoryUsagePercent', name: 'Memory %', color: '#10b981' },
@@ -449,7 +461,7 @@ export default function MetricsPage() {
                   />
                   <MetricLineChart
                     data={chartData}
-                    title="Disk Usage Over Time"
+                    title={t('diskUsageOverTime')}
                     dataKeys={[
                       { key: 'diskUsagePercent', name: 'Disk %', color: '#f59e0b' },
                     ]}
@@ -462,8 +474,8 @@ export default function MetricsPage() {
               ) : (
                 <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
                   <AlertCircle className="h-12 w-12 mb-4" />
-                  <p className="text-lg font-medium">No historical data available yet</p>
-                  <p className="text-sm">Metrics will appear after the system collects data</p>
+                  <p className="text-lg font-medium">{t('noHistoricalData')}</p>
+                  <p className="text-sm">{t('metricsWillAppear')}</p>
                 </div>
               )}
             </div>
@@ -475,70 +487,70 @@ export default function MetricsPage() {
               {/* Quick Stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <MetricCard
-                  title="Total Storage"
+                  title={t('totalStorage')}
                   value={formatBytes(storageMetrics.totalSize || 0)}
                   icon={HardDrive}
-                  description="Used space"
+                  description={t('usedSpace')}
                   color="brand"
                 />
                 <MetricCard
-                  title="Total Objects"
+                  title={t('totalObjectsCount')}
                   value={formatNumber(storageMetrics.totalObjects || 0)}
                   icon={Box}
-                  description="Stored files"
+                  description={t('storedFiles')}
                   color="blue-light"
                 />
                 <MetricCard
-                  title="Buckets"
+                  title={t('buckets')}
                   value={formatNumber(storageMetrics.totalBuckets || 0)}
                   icon={Box}
-                  description="Total buckets"
+                  description={t('totalBucketsCount')}
                   color="success"
                 />
                 <MetricCard
-                  title="Avg Object Size"
+                  title={t('avgObjectSize')}
                   value={formatBytes(storageMetrics.averageObjectSize || 0)}
                   icon={BarChart3}
-                  description="Per object"
+                  description={t('perObject')}
                   color="warning"
                 />
               </div>
 
               {/* Charts */}
-              {historyLoading ? (
+              {storageHistoryLoading ? (
                 <div className="flex items-center justify-center h-64">
                   <Loading size="lg" />
                 </div>
-              ) : chartData.length > 0 ? (
+              ) : storageChartData.length > 0 ? (
                 <div className="grid gap-6 md:grid-cols-2">
                   <MetricLineChart
-                    data={chartData}
-                    title="Objects Count Over Time"
+                    data={storageChartData}
+                    title={t('objectsCountOverTime')}
                     dataKeys={[
                       { key: 'totalObjects', name: 'Objects', color: '#3b82f6' },
                     ]}
                     height={350}
                     formatYAxis={(value) => formatNumber(value)}
                     formatTooltip={(value) => formatNumber(value)}
-                    timeRange={historyData?.requestedRange}
+                    timeRange={storageHistoryData?.requestedRange}
                   />
                   <MetricLineChart
-                    data={chartData}
-                    title="Storage Size Over Time"
+                    data={storageChartData}
+                    title={t('storageSizeOverTime')}
                     dataKeys={[
                       { key: 'totalSizeMB', name: 'Size (MB)', color: '#10b981' },
                     ]}
                     height={350}
                     formatYAxis={(value) => `${value.toFixed(0)} MB`}
                     formatTooltip={(value) => formatBytes(value * 1024 * 1024)}
-                    timeRange={historyData?.requestedRange}
+                    timeRange={storageHistoryData?.requestedRange}
                   />
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
                   <AlertCircle className="h-12 w-12 mb-4" />
-                  <p className="text-lg font-medium">No storage history available yet</p>
-                  <p className="text-sm">Historical storage metrics will appear here</p>
+                  <p className="text-lg font-medium">{t('noStorageHistory')}</p>
+                  <p className="text-sm">{t('historicalStorageMetrics')}</p>
                 </div>
               )}
             </div>
@@ -550,70 +562,70 @@ export default function MetricsPage() {
               {/* API Metrics */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <MetricCard
-                  title="Total Requests"
+                  title={t('totalRequests')}
                   value={formatNumber(s3Metrics.totalRequests || 0)}
                   icon={Globe}
-                  description="Since startup"
+                  description={t('sinceStartup')}
                   color="blue-light"
                 />
                 <MetricCard
-                  title="Total Errors"
+                  title={t('totalErrors')}
                   value={formatNumber(s3Metrics.totalErrors || 0)}
                   icon={XCircle}
-                  description="Failed requests"
+                  description={t('failedRequests')}
                   color="error"
                 />
                 <MetricCard
-                  title="Success Rate"
+                  title={t('successRate')}
                   value={`${
                     s3Metrics.totalRequests > 0
                       ? (((s3Metrics.totalRequests - s3Metrics.totalErrors) / s3Metrics.totalRequests) * 100).toFixed(2)
                       : 100
                   }%`}
                   icon={CheckCircle}
-                  description="Request success"
+                  description={t('requestSuccess')}
                   color="success"
                 />
                 <MetricCard
-                  title="Avg Latency"
+                  title={t('avgLatency')}
                   value={`${(s3Metrics.avgLatency || 0).toFixed(1)}ms`}
                   icon={Clock}
-                  description="Average response time"
+                  description={t('averageResponseTime')}
                   color="warning"
                 />
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <MetricCard
-                  title="Requests/Sec"
+                  title={t('requestsPerSec')}
                   value={(s3Metrics.requestsPerSec || 0).toFixed(2)}
                   icon={TrendingUp}
-                  description="Current rate"
+                  description={t('currentRate')}
                   color="brand"
                 />
                 <MetricCard
-                  title="Error Rate"
+                  title={t('errorRate')}
                   value={`${
                     s3Metrics.totalRequests > 0
                       ? ((s3Metrics.totalErrors / s3Metrics.totalRequests) * 100).toFixed(2)
                       : 0
                   }%`}
                   icon={AlertCircle}
-                  description="Percentage of errors"
+                  description={t('percentageErrors')}
                   color="error"
                 />
                 <MetricCard
-                  title="Total Operations"
+                  title={t('totalOperations')}
                   value={formatNumber(s3Metrics.totalRequests || 0)}
                   icon={Activity}
-                  description="All API calls"
+                  description={t('allApiCalls')}
                   color="blue-light"
                 />
                 <MetricCard
-                  title="Response Time"
+                  title={t('responseTime')}
                   value={`${(s3Metrics.avgLatency || 0).toFixed(0)}ms`}
                   icon={Zap}
-                  description="Avg latency"
+                  description={t('avgLatencyShort')}
                   color="success"
                 />
               </div>
@@ -627,7 +639,7 @@ export default function MetricsPage() {
                 <div className="grid gap-6 md:grid-cols-2">
                   <MetricLineChart
                     data={chartData}
-                    title="Request Throughput Over Time"
+                    title={t('requestThroughputOverTime')}
                     dataKeys={[
                       { key: 'requestsPerSec', name: 'Requests/sec', color: '#3b82f6' },
                     ]}
@@ -638,7 +650,7 @@ export default function MetricsPage() {
                   />
                   <MetricLineChart
                     data={chartData}
-                    title="Average Latency Over Time"
+                    title={t('averageLatencyOverTime')}
                     dataKeys={[
                       { key: 'avgLatency', name: 'Latency (ms)', color: '#f59e0b' },
                     ]}
@@ -651,8 +663,8 @@ export default function MetricsPage() {
               ) : (
                 <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
                   <AlertCircle className="h-12 w-12 mb-4" />
-                  <p className="text-lg font-medium">No API history available yet</p>
-                  <p className="text-sm">Request metrics will appear after collecting data</p>
+                  <p className="text-lg font-medium">{t('noApiHistory')}</p>
+                  <p className="text-sm">{t('requestMetricsWillAppear')}</p>
                 </div>
               )}
             </div>
@@ -670,39 +682,39 @@ export default function MetricsPage() {
                   {/* Section 1: General Overview */}
                   <div>
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">
-                      Overview
+                      {t('tabOverview')}
                     </h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <MetricCard
-                        title="Total Requests"
+                        title={t('totalRequests')}
                         value={formatNumber(s3Metrics.totalRequests || 0)}
                         icon={Globe}
-                        description="Since startup"
+                        description={t('sinceStartup')}
                         color="blue-light"
                       />
                       <MetricCard
-                        title="Total Errors"
+                        title={t('totalErrors')}
                         value={formatNumber(s3Metrics.totalErrors || 0)}
                         icon={AlertCircle}
-                        description="Failed requests"
+                        description={t('failedRequests')}
                         color="error"
                       />
                       <MetricCard
-                        title="Success Rate"
+                        title={t('successRate')}
                         value={`${
                           s3Metrics.totalRequests > 0
                             ? (((s3Metrics.totalRequests - s3Metrics.totalErrors) / s3Metrics.totalRequests) * 100).toFixed(2)
                             : 100
                         }%`}
                         icon={Zap}
-                        description="Request success"
+                        description={t('requestSuccess')}
                         color="success"
                       />
                       <MetricCard
-                        title="Avg Latency"
+                        title={t('avgLatency')}
                         value={`${(s3Metrics.avgLatency || 0).toFixed(1)}ms`}
                         icon={Activity}
-                        description="Overall average"
+                        description={t('overallAverage')}
                         color="warning"
                       />
                     </div>
@@ -711,32 +723,32 @@ export default function MetricsPage() {
                   {/* Section 2: Real-time Throughput */}
                   <div>
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">
-                      Real-time Throughput
+                      {t('realtimeThroughput')}
                     </h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <MetricCard
-                        title="Requests/Sec"
+                        title={t('requestsPerSec')}
                         value={performanceThroughput.current.requests_per_second.toFixed(2)}
                         icon={Zap}
-                        description="Current rate"
+                        description={t('currentRate')}
                         color="brand"
                       />
                       <MetricCard
-                        title="Bytes/Sec"
+                        title={t('bytesPerSec')}
                         value={formatBytes(performanceThroughput.current.bytes_per_second)}
                         icon={HardDrive}
-                        description="Data transfer"
+                        description={t('dataTransfer')}
                         color="blue-light"
                       />
                       <MetricCard
-                        title="Objects/Sec"
+                        title={t('objectsPerSec')}
                         value={performanceThroughput.current.objects_per_second.toFixed(2)}
                         icon={Box}
-                        description="Object ops"
+                        description={t('objectOps')}
                         color="success"
                       />
                       <MetricCard
-                        title="Total Operations"
+                        title={t('totalOperations')}
                         value={formatNumber(
                           Object.values(performanceLatencies.latencies).reduce(
                             (sum, stat) => sum + stat.count,
@@ -744,7 +756,7 @@ export default function MetricsPage() {
                           )
                         )}
                         icon={Activity}
-                        description="Since last reset"
+                        description={t('sinceLastReset')}
                         color="warning"
                       />
                     </div>
@@ -753,7 +765,7 @@ export default function MetricsPage() {
                   {/* Section 3: Operation Latencies */}
                   <div>
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">
-                      Operation Latencies (p50 / p95 / p99)
+                      {t('operationLatencies')}
                     </h3>
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                       {/* Always show these 4 main operations even if no data yet */}
@@ -790,18 +802,18 @@ export default function MetricsPage() {
                                       : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
                                   }`}
                                 >
-                                  {stats.success_rate.toFixed(2)}% success
+                                  {stats.success_rate.toFixed(2)}% {t('requestSuccess')}
                                 </span>
                               ) : (
                                 <span className="px-2 py-1 text-xs font-medium rounded bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">
-                                  No data
+                                  {t('noData')}
                                 </span>
                               )}
                             </div>
 
                             <div className="space-y-2">
                               <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">Count</span>
+                                <span className="text-sm text-gray-600 dark:text-gray-400">{t('count')}</span>
                                 <span className="text-sm font-medium text-gray-900 dark:text-white">
                                   {formatNumber(stats.count)}
                                 </span>
@@ -825,20 +837,20 @@ export default function MetricsPage() {
                                 </span>
                               </div>
                               <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">Mean</span>
+                                <span className="text-sm text-gray-600 dark:text-gray-400">{t('mean')}</span>
                                 <span className="text-sm font-medium text-gray-900 dark:text-white">
                                   {stats.mean_ms.toFixed(2)} ms
                                 </span>
                               </div>
                               <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">Min/Max</span>
+                                <span className="text-sm text-gray-600 dark:text-gray-400">{t('minMax')}</span>
                                 <span className="text-sm font-medium text-gray-900 dark:text-white">
                                   {stats.min_ms.toFixed(2)} / {stats.max_ms.toFixed(2)} ms
                                 </span>
                               </div>
                               {stats.error_count > 0 && (
                                 <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                                  <span className="text-sm text-red-600 dark:text-red-400">Errors</span>
+                                  <span className="text-sm text-red-600 dark:text-red-400">{t('errors')}</span>
                                   <span className="text-sm font-medium text-red-600 dark:text-red-400">
                                     {formatNumber(stats.error_count)}
                                   </span>
@@ -859,12 +871,12 @@ export default function MetricsPage() {
                   ) : chartData.length > 0 ? (
                     <div>
                       <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">
-                        Historical Trends
+                        {t('historicalTrends')}
                       </h3>
                       <div className="grid gap-6 md:grid-cols-2">
                         <MetricLineChart
                           data={chartData}
-                          title="Request Throughput Over Time"
+                          title={t('requestThroughputOverTime')}
                           dataKeys={[
                             { key: 'requestsPerSec', name: 'Requests/sec', color: '#3b82f6' },
                           ]}
@@ -875,7 +887,7 @@ export default function MetricsPage() {
                         />
                         <MetricLineChart
                           data={chartData}
-                          title="Average Latency Over Time"
+                          title={t('averageLatencyOverTime')}
                           dataKeys={[
                             { key: 'avgLatency', name: 'Latency (ms)', color: '#f59e0b' },
                           ]}
@@ -891,16 +903,16 @@ export default function MetricsPage() {
                   {Object.keys(performanceLatencies.latencies).length === 0 && (
                     <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
                       <AlertCircle className="h-12 w-12 mb-4" />
-                      <p className="text-lg font-medium">No performance data collected yet</p>
-                      <p className="text-sm">S3 operation metrics will appear after requests are made</p>
+                      <p className="text-lg font-medium">{t('noPerformanceData')}</p>
+                      <p className="text-sm">{t('s3MetricsWillAppear')}</p>
                     </div>
                   )}
                 </>
               ) : (
                 <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
                   <AlertCircle className="h-12 w-12 mb-4" />
-                  <p className="text-lg font-medium">Performance collector not available</p>
-                  <p className="text-sm">Ensure the server is running with performance metrics enabled</p>
+                  <p className="text-lg font-medium">{t('performanceCollectorNA')}</p>
+                  <p className="text-sm">{t('performanceMetricsEnabled')}</p>
                 </div>
               )}
             </div>

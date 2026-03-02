@@ -429,6 +429,8 @@ func (s *Server) handleGetClusterBuckets(w http.ResponseWriter, r *http.Request)
 		ReplicaCount     int    `json:"replica_count"`
 		HasReplication   bool   `json:"has_replication"`
 		ReplicationRules int    `json:"replication_rules"`
+		ObjectCount      int64  `json:"object_count"`
+		TotalSize        int64  `json:"total_size"`
 	}
 
 	var bucketsWithReplication []BucketWithReplication
@@ -460,6 +462,8 @@ func (s *Server) handleGetClusterBuckets(w http.ResponseWriter, r *http.Request)
 			ReplicaCount:     replicaCount,
 			HasReplication:   hasReplication,
 			ReplicationRules: replicaCount,
+			ObjectCount:      bucket.ObjectCount,
+			TotalSize:        bucket.TotalSize,
 		})
 	}
 

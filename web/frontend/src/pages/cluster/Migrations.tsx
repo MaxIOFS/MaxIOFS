@@ -1,17 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import APIClient from '@/lib/api';
 import { getErrorMessage } from '@/lib/utils';
 import {
   ArrowRightLeft,
   Clock,
-  TrendingUp,
-  CheckCircle,
-  XCircle,
-  AlertTriangle,
   Eye,
-  Server,
   Box,
   ArrowLeft,
   Filter
@@ -28,11 +24,11 @@ interface MigrationsTabProps {
 }
 
 export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDetails, onRefresh }: MigrationsTabProps) {
+  const { t } = useTranslation('cluster');
   const [showMigrateDialog, setShowMigrateDialog] = useState(false);
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'completed' | 'failed'>('all');
 
-  // Filter migrations based on selected filter
   const filteredMigrations = migrations.filter(m => {
     if (filter === 'all') return true;
     if (filter === 'active') return m.status === 'pending' || m.status === 'in_progress';
@@ -69,26 +65,21 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
     return Math.round((migrated / total) * 100);
   };
 
-  const handleStartMigration = (bucket: string) => {
-    setSelectedBucket(bucket);
-    setShowMigrateDialog(true);
-  };
-
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
       {/* Header with actions */}
       <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Bucket Migrations</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">Move buckets between cluster nodes</p>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t('bucketMigrationsTitle')}</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">{t('moveBucketsDesc')}</p>
           </div>
           <button
             onClick={() => setShowMigrateDialog(true)}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
           >
             <ArrowRightLeft className="w-4 h-4" />
-            Migrate Bucket
+            {t('migrateBucket')}
           </button>
         </div>
 
@@ -104,7 +95,7 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
-              All ({migrations.length})
+              {t('allMigrations', { count: migrations.length })}
             </button>
             <button
               onClick={() => setFilter('active')}
@@ -114,7 +105,7 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
-              Active ({migrations.filter(m => m.status === 'pending' || m.status === 'in_progress').length})
+              {t('activeMigrations', { count: migrations.filter(m => m.status === 'pending' || m.status === 'in_progress').length })}
             </button>
             <button
               onClick={() => setFilter('completed')}
@@ -124,7 +115,7 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
-              Completed ({migrations.filter(m => m.status === 'completed').length})
+              {t('completedMigrations', { count: migrations.filter(m => m.status === 'completed').length })}
             </button>
             <button
               onClick={() => setFilter('failed')}
@@ -134,7 +125,7 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
-              Failed ({migrations.filter(m => m.status === 'failed' || m.status === 'cancelled').length})
+              {t('failedMigrations', { count: migrations.filter(m => m.status === 'failed' || m.status === 'cancelled').length })}
             </button>
           </div>
         </div>
@@ -145,14 +136,14 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
         <table className="w-full">
           <thead className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">ID</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Bucket</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Source → Target</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Progress</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Data Size</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Started</th>
-              <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Actions</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colId')}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colBucket')}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colSourceTarget')}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colStatus')}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colProgress')}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colDataSize')}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colStarted')}</th>
+              <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colActions')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -163,10 +154,10 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
                     <ArrowRightLeft className="w-12 h-12 text-gray-400" />
                     <div>
                       <p className="text-gray-900 dark:text-white font-medium">
-                        {migrations.length === 0 ? 'No migrations yet' : `No ${filter} migrations`}
+                        {migrations.length === 0 ? t('noMigrationsYet') : t('noFilterMigrations', { filter })}
                       </p>
                       <p className="text-sm text-gray-600 dark:text-gray-400">
-                        {migrations.length === 0 ? 'Start migrating buckets between nodes' : 'Try selecting a different filter'}
+                        {migrations.length === 0 ? t('startMigratingBuckets') : t('tryDifferentFilter')}
                       </p>
                     </div>
                   </div>
@@ -212,7 +203,7 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
                           <span className="text-xs font-medium text-gray-900 dark:text-gray-300 w-12 text-right">{progress}%</span>
                         </div>
                         <div className="text-xs text-gray-600 dark:text-gray-400">
-                          {migration.objects_migrated.toLocaleString()} / {migration.objects_total.toLocaleString()} objects
+                          {t('objectsProgress', { migrated: migration.objects_migrated.toLocaleString(), total: migration.objects_total.toLocaleString() })}
                         </div>
                       </div>
                     </td>
@@ -233,7 +224,7 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
                         className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 hover:bg-gradient-to-br hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 rounded-lg transition-all duration-200"
                       >
                         <Eye className="w-3.5 h-3.5" />
-                        Details
+                        {t('details')}
                       </button>
                     </td>
                   </tr>
@@ -279,26 +270,25 @@ function MigrateBucketDialog({
   onClose: () => void;
   onSubmit: (bucket: string, request: MigrateBucketRequest) => void;
 }) {
+  const { t } = useTranslation('cluster');
   const [bucket, setBucket] = useState(selectedBucket || '');
   const [targetNodeId, setTargetNodeId] = useState('');
   const [deleteSource, setDeleteSource] = useState(false);
   const [verifyData, setVerifyData] = useState(true);
 
-  // Get the source node for the selected bucket
   const selectedBucketData = buckets.find(b => b.name === bucket);
   const sourceNodeId = selectedBucketData?.primary_node || '';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!bucket || !targetNodeId) {
-      alert('Please select a bucket and target node');
+      alert(t('selectBucketAndNode'));
       return;
     }
 
-    // Validate that source and target are different (compare with both id and name)
     const targetNode = nodes.find(n => n.id === targetNodeId);
     if (sourceNodeId && targetNode && (targetNodeId === sourceNodeId || targetNode.name === sourceNodeId)) {
-      alert('Source node and target node cannot be the same!');
+      alert(t('sameNodeError'));
       return;
     }
 
@@ -314,10 +304,10 @@ function MigrateBucketDialog({
   return (
     <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Migrate Bucket</h2>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{t('migrateBucketTitle')}</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bucket *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('bucketLabel')}</label>
             <select
               value={bucket}
               onChange={(e) => setBucket(e.target.value)}
@@ -325,7 +315,7 @@ function MigrateBucketDialog({
               required
               disabled={!!selectedBucket}
             >
-              <option value="">Select a bucket</option>
+              <option value="">{t('selectBucket')}</option>
               {buckets.map((b) => (
                 <option key={b.name} value={b.name}>
                   {b.name} ({b.primary_node})
@@ -335,19 +325,17 @@ function MigrateBucketDialog({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Target Node *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('targetNodeLabel')}</label>
             <select
               value={targetNodeId}
               onChange={(e) => setTargetNodeId(e.target.value)}
               className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               required
             >
-              <option value="">Select target node</option>
+              <option value="">{t('selectTargetNodeOption')}</option>
               {nodes
                 .filter(n => {
-                  // Only healthy nodes
                   if (n.health_status !== 'healthy') return false;
-                  // Exclude the source node (compare with both id and name)
                   if (!sourceNodeId) return true;
                   return n.id !== sourceNodeId && n.name !== sourceNodeId;
                 })
@@ -359,8 +347,8 @@ function MigrateBucketDialog({
             </select>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               {sourceNodeId
-                ? `Only healthy nodes (excluding source node ${sourceNodeId}) are shown`
-                : 'Only healthy nodes are shown'}
+                ? t('onlyHealthyNodesExcluding', { id: sourceNodeId })
+                : t('onlyHealthyNodes')}
             </p>
           </div>
 
@@ -372,7 +360,7 @@ function MigrateBucketDialog({
                 onChange={(e) => setVerifyData(e.target.checked)}
                 className="rounded border-gray-300 dark:border-gray-600"
               />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Verify data integrity after migration</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">{t('verifyDataIntegrity')}</span>
             </label>
 
             <label className="flex items-center gap-2">
@@ -382,13 +370,13 @@ function MigrateBucketDialog({
                 onChange={(e) => setDeleteSource(e.target.checked)}
                 className="rounded border-gray-300 dark:border-gray-600"
               />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Delete source data after successful migration</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">{t('deleteSourceData')}</span>
             </label>
           </div>
 
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
             <p className="text-xs text-yellow-800 dark:text-yellow-200">
-              <strong>Warning:</strong> Migration will move all bucket data to the target node. Ensure the target node has sufficient storage space.
+              {t('migrationWarning')}
             </p>
           </div>
 
@@ -398,13 +386,13 @@ function MigrateBucketDialog({
               onClick={onClose}
               className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
             >
-              Cancel
+              {t('cancel')}
             </button>
             <button
               type="submit"
               className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
             >
-              Start Migration
+              {t('startMigration')}
             </button>
           </div>
         </form>
@@ -415,6 +403,7 @@ function MigrateBucketDialog({
 
 // Main page component
 export default function ClusterMigrations() {
+  const { t } = useTranslation('cluster');
   const navigate = useNavigate();
   const [migrations, setMigrations] = useState<MigrationJob[]>([]);
   const [buckets, setBuckets] = useState<BucketWithReplication[]>([]);
@@ -449,10 +438,10 @@ export default function ClusterMigrations() {
 
     try {
       await APIClient.migrateBucket(selectedBucket, request);
-      alert('Migration started successfully!');
+      alert(t('migrationStartedSuccess'));
       await loadData();
     } catch (err: unknown) {
-      alert(getErrorMessage(err, 'Failed to start migration'));
+      alert(getErrorMessage(err, t('failedToStartMigration')));
     }
   };
 
@@ -481,9 +470,9 @@ export default function ClusterMigrations() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Bucket Migrations</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('bucketMigrationsTitle')}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            View migration history and manage active migrations
+            {t('bucketMigrationsDesc')}
           </p>
         </div>
       </div>

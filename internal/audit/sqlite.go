@@ -11,10 +11,39 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// SQLiteStore implements the Store interface using SQLite
+const (
+	// writeQueueSize is the number of events that can be buffered before LogEvent blocks.
+	writeQueueSize = 4096
+	// batchSize is the maximum number of events written per SQLite transaction.
+	batchSize = 128
+	// batchTimeout is how long the worker waits for more events before flushing.
+	batchTimeout = 100 * time.Millisecond
+)
+
+// pendingWrite holds a pre-serialized audit event ready to be inserted.
+type pendingWrite struct {
+	timestamp    int64
+	tenantID     string
+	userID       string
+	username     string
+	eventType    string
+	resourceType string
+	resourceID   string
+	resourceName string
+	action       string
+	status       string
+	ipAddress    string
+	userAgent    string
+	detailsJSON  string
+}
+
+// SQLiteStore implements the Store interface using SQLite.
+// All writes are serialized through a single worker goroutine to avoid SQLITE_BUSY.
 type SQLiteStore struct {
-	db     *sql.DB
-	logger *logrus.Logger
+	db        *sql.DB
+	logger    *logrus.Logger
+	writeChan chan *pendingWrite
+	done      chan struct{}
 }
 
 // NewSQLiteStore creates a new SQLite-based audit log store
@@ -24,21 +53,25 @@ func NewSQLiteStore(dbPath string, logger *logrus.Logger) (*SQLiteStore, error) 
 		return nil, fmt.Errorf("failed to open audit database: %w", err)
 	}
 
-	// Configure connection pool
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	// A single connection is all we need — the worker goroutine is the only writer.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
 
 	store := &SQLiteStore{
-		db:     db,
-		logger: logger,
+		db:        db,
+		logger:    logger,
+		writeChan: make(chan *pendingWrite, writeQueueSize),
+		done:      make(chan struct{}),
 	}
 
-	// Initialize database schema
 	if err := store.initSchema(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to initialize audit schema: %w", err)
 	}
+
+	// Start the single writer goroutine.
+	go store.writeWorker()
 
 	logger.Info("Audit log SQLite store initialized successfully")
 	return store, nil
@@ -46,6 +79,10 @@ func NewSQLiteStore(dbPath string, logger *logrus.Logger) (*SQLiteStore, error) 
 
 // initSchema creates the audit_logs table and indexes if they don't exist
 func (s *SQLiteStore) initSchema() error {
+	if _, err := s.db.Exec(`PRAGMA journal_mode=WAL;`); err != nil {
+		return fmt.Errorf("failed to enable WAL mode: %w", err)
+	}
+
 	schema := `
 	CREATE TABLE IF NOT EXISTS audit_logs (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,78 +110,143 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_audit_logs_resource_type ON audit_logs(resource_type);
 	`
 
-	_, err := s.db.Exec(schema)
-	if err != nil {
+	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("failed to create audit schema: %w", err)
 	}
 
 	return nil
 }
 
-// LogEvent records an audit event
-func (s *SQLiteStore) LogEvent(ctx context.Context, event *AuditEvent) error {
-	now := time.Now().Unix()
+// writeWorker is the only goroutine that writes to SQLite.
+// It drains writeChan in batches for efficiency.
+func (s *SQLiteStore) writeWorker() {
+	defer close(s.done)
 
-	// Convert details map to JSON
-	var detailsJSON string
-	if len(event.Details) > 0 {
-		detailsBytes, err := json.Marshal(event.Details)
-		if err != nil {
-			s.logger.WithError(err).Warn("Failed to marshal audit event details to JSON")
-			detailsJSON = "{}"
-		} else {
-			detailsJSON = string(detailsBytes)
+	batch := make([]*pendingWrite, 0, batchSize)
+	timer := time.NewTimer(batchTimeout)
+	defer timer.Stop()
+
+	flush := func() {
+		if len(batch) == 0 {
+			return
 		}
-	} else {
-		detailsJSON = "{}"
+		if err := s.insertBatch(batch); err != nil {
+			s.logger.WithError(err).Error("Failed to write audit log batch")
+		}
+		batch = batch[:0]
 	}
 
-	query := `
+	for {
+		select {
+		case w, ok := <-s.writeChan:
+			if !ok {
+				// Channel closed — flush remaining and exit.
+				flush()
+				return
+			}
+			batch = append(batch, w)
+			if len(batch) >= batchSize {
+				flush()
+				// Reset the timer so we don't fire immediately again.
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(batchTimeout)
+			}
+
+		case <-timer.C:
+			flush()
+			timer.Reset(batchTimeout)
+		}
+	}
+}
+
+// insertBatch inserts a slice of events in a single transaction.
+func (s *SQLiteStore) insertBatch(batch []*pendingWrite) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	stmt, err := tx.Prepare(`
 		INSERT INTO audit_logs (
 			timestamp, tenant_id, user_id, username, event_type,
 			resource_type, resource_id, resource_name, action, status,
 			ip_address, user_agent, details, created_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
-
-	_, err := s.db.ExecContext(ctx, query,
-		now,
-		event.TenantID,
-		event.UserID,
-		event.Username,
-		event.EventType,
-		event.ResourceType,
-		event.ResourceID,
-		event.ResourceName,
-		event.Action,
-		event.Status,
-		event.IPAddress,
-		event.UserAgent,
-		detailsJSON,
-		now,
-	)
-
+	`)
 	if err != nil {
-		return fmt.Errorf("failed to insert audit log: %w", err)
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, w := range batch {
+		if _, err := stmt.Exec(
+			w.timestamp, w.tenantID, w.userID, w.username, w.eventType,
+			w.resourceType, w.resourceID, w.resourceName, w.action, w.status,
+			w.ipAddress, w.userAgent, w.detailsJSON, w.timestamp,
+		); err != nil {
+			return fmt.Errorf("failed to insert audit log row: %w", err)
+		}
 	}
 
-	return nil
+	return tx.Commit()
+}
+
+// LogEvent records an audit event. The write is queued asynchronously so it
+// never blocks the caller and never contends with other writers on SQLite.
+func (s *SQLiteStore) LogEvent(ctx context.Context, event *AuditEvent) error {
+	var detailsJSON string
+	if len(event.Details) > 0 {
+		b, err := json.Marshal(event.Details)
+		if err != nil {
+			s.logger.WithError(err).Warn("Failed to marshal audit event details to JSON")
+			detailsJSON = "{}"
+		} else {
+			detailsJSON = string(b)
+		}
+	} else {
+		detailsJSON = "{}"
+	}
+
+	w := &pendingWrite{
+		timestamp:    time.Now().Unix(),
+		tenantID:     event.TenantID,
+		userID:       event.UserID,
+		username:     event.Username,
+		eventType:    event.EventType,
+		resourceType: event.ResourceType,
+		resourceID:   event.ResourceID,
+		resourceName: event.ResourceName,
+		action:       event.Action,
+		status:       event.Status,
+		ipAddress:    event.IPAddress,
+		userAgent:    event.UserAgent,
+		detailsJSON:  detailsJSON,
+	}
+
+	select {
+	case s.writeChan <- w:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // GetLogs retrieves audit logs with filters (for global admin)
 func (s *SQLiteStore) GetLogs(ctx context.Context, filters *AuditLogFilters) ([]*AuditLog, int, error) {
-	// Build WHERE clause
 	whereClause, args := s.buildWhereClause(filters)
 
-	// Get total count
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM audit_logs %s", whereClause)
 	var total int
-	err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
-	if err != nil {
+	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("failed to count audit logs: %w", err)
 	}
 
-	// Get paginated results
 	offset := (filters.Page - 1) * filters.PageSize
 	query := fmt.Sprintf(`
 		SELECT id, timestamp, tenant_id, user_id, username, event_type,
@@ -172,9 +274,7 @@ func (s *SQLiteStore) GetLogs(ctx context.Context, filters *AuditLogFilters) ([]
 
 // GetLogsByTenant retrieves logs for a specific tenant (for tenant admin)
 func (s *SQLiteStore) GetLogsByTenant(ctx context.Context, tenantID string, filters *AuditLogFilters) ([]*AuditLog, int, error) {
-	// Override tenant_id in filters to ensure isolation
 	filters.TenantID = tenantID
-
 	return s.GetLogs(ctx, filters)
 }
 
@@ -194,23 +294,10 @@ func (s *SQLiteStore) GetLogByID(ctx context.Context, id int64) (*AuditLog, erro
 	var tenantID, resourceType, resourceID, resourceName, ipAddress, userAgent, detailsJSON sql.NullString
 
 	err := row.Scan(
-		&log.ID,
-		&log.Timestamp,
-		&tenantID,
-		&log.UserID,
-		&log.Username,
-		&log.EventType,
-		&resourceType,
-		&resourceID,
-		&resourceName,
-		&log.Action,
-		&log.Status,
-		&ipAddress,
-		&userAgent,
-		&detailsJSON,
-		&log.CreatedAt,
+		&log.ID, &log.Timestamp, &tenantID, &log.UserID, &log.Username,
+		&log.EventType, &resourceType, &resourceID, &resourceName,
+		&log.Action, &log.Status, &ipAddress, &userAgent, &detailsJSON, &log.CreatedAt,
 	)
-
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("audit log not found: %d", id)
 	}
@@ -218,7 +305,6 @@ func (s *SQLiteStore) GetLogByID(ctx context.Context, id int64) (*AuditLog, erro
 		return nil, fmt.Errorf("failed to get audit log: %w", err)
 	}
 
-	// Handle nullable fields
 	log.TenantID = tenantID.String
 	log.ResourceType = resourceType.String
 	log.ResourceID = resourceID.String
@@ -226,7 +312,6 @@ func (s *SQLiteStore) GetLogByID(ctx context.Context, id int64) (*AuditLog, erro
 	log.IPAddress = ipAddress.String
 	log.UserAgent = userAgent.String
 
-	// Parse details JSON
 	if detailsJSON.Valid && detailsJSON.String != "" && detailsJSON.String != "{}" {
 		var details map[string]interface{}
 		if err := json.Unmarshal([]byte(detailsJSON.String), &details); err != nil {
@@ -246,8 +331,7 @@ func (s *SQLiteStore) GetLogByID(ctx context.Context, id int64) (*AuditLog, erro
 func (s *SQLiteStore) PurgeLogs(ctx context.Context, olderThanDays int) (int, error) {
 	cutoffTime := time.Now().AddDate(0, 0, -olderThanDays).Unix()
 
-	query := "DELETE FROM audit_logs WHERE timestamp < ?"
-	result, err := s.db.ExecContext(ctx, query, cutoffTime)
+	result, err := s.db.ExecContext(ctx, "DELETE FROM audit_logs WHERE timestamp < ?", cutoffTime)
 	if err != nil {
 		return 0, fmt.Errorf("failed to purge old audit logs: %w", err)
 	}
@@ -260,8 +344,12 @@ func (s *SQLiteStore) PurgeLogs(ctx context.Context, olderThanDays int) (int, er
 	return int(deleted), nil
 }
 
-// Close closes the database connection
+// Close flushes pending writes and closes the database connection.
 func (s *SQLiteStore) Close() error {
+	// Closing the channel signals the worker to flush and exit.
+	close(s.writeChan)
+	// Wait for the worker to finish flushing.
+	<-s.done
 	if s.db != nil {
 		return s.db.Close()
 	}
@@ -277,37 +365,30 @@ func (s *SQLiteStore) buildWhereClause(filters *AuditLogFilters) (string, []inte
 		conditions = append(conditions, "tenant_id = ?")
 		args = append(args, filters.TenantID)
 	}
-
 	if filters.UserID != "" {
 		conditions = append(conditions, "user_id = ?")
 		args = append(args, filters.UserID)
 	}
-
 	if filters.EventType != "" {
 		conditions = append(conditions, "event_type = ?")
 		args = append(args, filters.EventType)
 	}
-
 	if filters.ResourceType != "" {
 		conditions = append(conditions, "resource_type = ?")
 		args = append(args, filters.ResourceType)
 	}
-
 	if filters.Action != "" {
 		conditions = append(conditions, "action = ?")
 		args = append(args, filters.Action)
 	}
-
 	if filters.Status != "" {
 		conditions = append(conditions, "status = ?")
 		args = append(args, filters.Status)
 	}
-
 	if filters.StartDate > 0 {
 		conditions = append(conditions, "timestamp >= ?")
 		args = append(args, filters.StartDate)
 	}
-
 	if filters.EndDate > 0 {
 		conditions = append(conditions, "timestamp <= ?")
 		args = append(args, filters.EndDate)
@@ -334,28 +415,14 @@ func (s *SQLiteStore) scanLogs(rows *sql.Rows) ([]*AuditLog, error) {
 		var tenantID, resourceType, resourceID, resourceName, ipAddress, userAgent, detailsJSON sql.NullString
 
 		err := rows.Scan(
-			&log.ID,
-			&log.Timestamp,
-			&tenantID,
-			&log.UserID,
-			&log.Username,
-			&log.EventType,
-			&resourceType,
-			&resourceID,
-			&resourceName,
-			&log.Action,
-			&log.Status,
-			&ipAddress,
-			&userAgent,
-			&detailsJSON,
-			&log.CreatedAt,
+			&log.ID, &log.Timestamp, &tenantID, &log.UserID, &log.Username,
+			&log.EventType, &resourceType, &resourceID, &resourceName,
+			&log.Action, &log.Status, &ipAddress, &userAgent, &detailsJSON, &log.CreatedAt,
 		)
-
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan audit log: %w", err)
 		}
 
-		// Handle nullable fields
 		log.TenantID = tenantID.String
 		log.ResourceType = resourceType.String
 		log.ResourceID = resourceID.String
@@ -363,7 +430,6 @@ func (s *SQLiteStore) scanLogs(rows *sql.Rows) ([]*AuditLog, error) {
 		log.IPAddress = ipAddress.String
 		log.UserAgent = userAgent.String
 
-		// Parse details JSON
 		if detailsJSON.Valid && detailsJSON.String != "" && detailsJSON.String != "{}" {
 			var details map[string]interface{}
 			if err := json.Unmarshal([]byte(detailsJSON.String), &details); err != nil {
