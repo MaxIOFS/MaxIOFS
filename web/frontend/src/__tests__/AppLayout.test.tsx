@@ -117,14 +117,29 @@ beforeEach(async () => {
   vi.mocked(useNotifications).mockReturnValue({
     notifications: [],
     unreadCount: 0,
+    connected: true, // Agregado para cumplir con el tipo esperado
     markAsRead: vi.fn(),
     markAllAsRead: vi.fn(),
+    clearNotification: vi.fn(), // Agregado para cumplir con el tipo esperado
   });
 
   const APIClient = (await import('@/lib/api')).default;
   vi.mocked(APIClient.getServerConfig).mockResolvedValue(mockServerConfig);
   vi.mocked(APIClient.getVersionCheck).mockResolvedValue({ version: '1.0.0-beta' });
-  vi.mocked(APIClient.getTenant).mockResolvedValue({ id: 'tenant-1', name: 'Tenant One', display_name: 'Tenant One' });
+  vi.mocked(APIClient.getTenant).mockResolvedValue({
+    id: 'tenant-1',
+    name: 'Tenant One',
+    displayName: 'Tenant One', // Cambiado de display_name a displayName
+    status: 'active',
+    maxAccessKeys: 5,
+    currentAccessKeys: 2,
+    maxStorageBytes: 1000000000,
+    currentStorageBytes: 500000000,
+    maxBuckets: 10,
+    currentBuckets: 5,
+    createdAt: Date.now(), // Cambiado a número
+    updatedAt: Date.now(),
+  });
   vi.mocked(APIClient.updateUserPreferences).mockResolvedValue(undefined);
   vi.mocked(APIClient.updateS3BaseUrl).mockImplementation(() => {});
 });
@@ -225,8 +240,10 @@ describe('AppLayout', () => {
       vi.mocked(useNotifications).mockReturnValue({
         notifications: [],
         unreadCount: 5,
+        connected: true,
         markAsRead: vi.fn(),
         markAllAsRead: vi.fn(),
+        clearNotification: vi.fn(),
       });
 
       renderWithUser(globalAdmin);
@@ -255,8 +272,10 @@ describe('AppLayout', () => {
       vi.mocked(useNotifications).mockReturnValue({
         notifications: [],
         unreadCount: 2,
+        connected: true,
         markAsRead: vi.fn(),
         markAllAsRead: vi.fn(),
+        clearNotification: vi.fn(),
       });
 
       renderWithUser(globalAdmin);
