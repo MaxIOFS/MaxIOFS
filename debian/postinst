@@ -103,7 +103,13 @@ case "$1" in
                 echo "════════════════════════════════════════════════════"
                 echo ""
             else
-                # Upgrade
+                # Upgrade — restart the service if it was running before the upgrade
+                if [ -f /tmp/maxiofs-service-was-running ]; then
+                    rm -f /tmp/maxiofs-service-was-running
+                    echo "Restarting MaxIOFS service..."
+                    systemctl start maxiofs.service >/dev/null || true
+                fi
+
                 echo ""
                 echo "========================================"
                 echo "MaxIOFS has been upgraded successfully!"
@@ -116,9 +122,6 @@ case "$1" in
                 echo "   /etc/maxiofs/config.example.yaml"
                 echo ""
                 echo "📁 Data directory: /var/lib/maxiofs"
-                echo ""
-                echo "To restart MaxIOFS with the new version:"
-                echo "  sudo systemctl restart maxiofs"
                 echo ""
                 echo "To check status:"
                 echo "  sudo systemctl status maxiofs"

@@ -107,6 +107,13 @@ if [ -f /etc/maxiofs/config.yaml ]; then
 fi
 
 %post
+# On upgrade: restart the service if it was running before the package was replaced.
+# %systemd_postun_with_restart runs too late (old %postun); doing it here ensures
+# the new binary is picked up immediately after installation.
+if [ $1 -gt 1 ]; then
+    /bin/systemctl try-restart maxiofs.service >/dev/null 2>&1 || :
+fi
+
 # Set ownership of directories
 chown -R maxiofs:maxiofs /var/lib/maxiofs
 chown -R maxiofs:maxiofs /var/log/maxiofs

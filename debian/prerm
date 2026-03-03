@@ -9,10 +9,12 @@ case "$1" in
         # Stop the service if it's running
         if [ -d /run/systemd/system ]; then
             if systemctl is-active --quiet maxiofs.service; then
+                # Track that the service was running so postinst can restart it after upgrade
+                touch /tmp/maxiofs-service-was-running 2>/dev/null || true
                 echo "Stopping MaxIOFS service..."
                 systemctl stop maxiofs.service >/dev/null || true
             fi
-            
+
             # Disable the service on removal (not on upgrade)
             if [ "$1" = "remove" ]; then
                 systemctl disable maxiofs.service >/dev/null || true
