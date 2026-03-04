@@ -3,7 +3,6 @@ import { isErrorWithResponse } from '@/lib/utils';
 import type {
   APIResponse,
   User,
-  AuthToken,
   LoginRequest,
   LoginResponse,
   Bucket,
@@ -447,29 +446,6 @@ export class APIClient {
   static async getCurrentUser(): Promise<User> {
     const response = await apiClient.get<APIResponse<User>>('/auth/me');
     return response.data.data!;
-  }
-
-  static async refreshToken(): Promise<AuthToken> {
-    const rt = tokenManager.getRefreshToken();
-    if (!rt) {
-      throw new Error('No refresh token available');
-    }
-
-    // Field name must be snake_case to match the backend handler
-    const response = await axios.post(
-      `${API_CONFIG.baseURL}/auth/refresh`,
-      { refresh_token: rt },
-      { headers: { 'Content-Type': 'application/json' } }
-    );
-
-    const { access_token, refresh_token, expires_in } = response.data;
-    const authToken: AuthToken = {
-      token: access_token,
-      refreshToken: refresh_token,
-      expiresIn: expires_in,
-    };
-    tokenManager.setTokens(access_token, refresh_token);
-    return authToken;
   }
 
   // Users Management
