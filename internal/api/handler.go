@@ -137,6 +137,40 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 		// Versioning - list all object versions in bucket
 		bucketRouter.HandleFunc(path, h.s3Handler.ListBucketVersions).Methods("GET").Queries("versions", "")
 
+		// ListObjectsV2 (list-type=2) - must be registered BEFORE generic ListObjects
+		bucketRouter.HandleFunc(path, h.s3Handler.ListObjectsV2).Methods("GET").Queries("list-type", "2")
+
+		// Bucket notification
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketNotification).Methods("GET").Queries("notification", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketNotification).Methods("PUT").Queries("notification", "")
+
+		// Bucket website
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketWebsite).Methods("GET").Queries("website", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketWebsite).Methods("PUT").Queries("website", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketWebsite).Methods("DELETE").Queries("website", "")
+
+		// Transfer acceleration
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketAccelerateConfiguration).Methods("GET").Queries("accelerate", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketAccelerateConfiguration).Methods("PUT").Queries("accelerate", "")
+
+		// Request payment
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketRequestPayment).Methods("GET").Queries("requestPayment", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketRequestPayment).Methods("PUT").Queries("requestPayment", "")
+
+		// Bucket encryption
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketEncryption).Methods("GET").Queries("encryption", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketEncryption).Methods("PUT").Queries("encryption", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketEncryption).Methods("DELETE").Queries("encryption", "")
+
+		// Bucket replication
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketReplication).Methods("GET").Queries("replication", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketReplication).Methods("PUT").Queries("replication", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketReplication).Methods("DELETE").Queries("replication", "")
+
+		// Bucket logging
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketLogging).Methods("GET").Queries("logging", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketLogging).Methods("PUT").Queries("logging", "")
+
 		// Generic bucket operations (without query parameters - registered last)
 		bucketRouter.HandleFunc(path, h.s3Handler.HeadBucket).Methods("HEAD")
 		bucketRouter.HandleFunc(path, h.s3Handler.CreateBucket).Methods("PUT")
@@ -185,14 +219,17 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	// Copy operations (with header filter - must be before PutObject)
 	objectRouter.HandleFunc("", h.s3Handler.CopyObject).Methods("PUT").Headers("x-amz-copy-source", "{source}")
 
+	// Presigned URL operations (must be before basic object operations)
+	// V4 presigned URLs contain X-Amz-Algorithm query parameter
+	objectRouter.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("GET", "PUT", "DELETE", "HEAD").Queries("X-Amz-Algorithm", "{algorithm}")
+	// V2 presigned URLs contain AWSAccessKeyId query parameter
+	objectRouter.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("GET", "PUT", "DELETE", "HEAD").Queries("AWSAccessKeyId", "{keyid}")
+
 	// Basic object operations (without query parameters - registered LAST)
 	objectRouter.HandleFunc("", h.s3Handler.HeadObject).Methods("HEAD")
 	objectRouter.HandleFunc("", h.s3Handler.GetObject).Methods("GET")
 	objectRouter.HandleFunc("", h.s3Handler.PutObject).Methods("PUT")
 	objectRouter.HandleFunc("", h.s3Handler.DeleteObject).Methods("DELETE")
-
-	// Presigned URL support (for compatibility)
-	router.HandleFunc("/{bucket}/{object:.+}", h.s3Handler.PresignedOperation).Methods("GET", "PUT", "DELETE").Queries("X-Amz-Algorithm", "{algorithm}")
 }
 
 // Health check handlers

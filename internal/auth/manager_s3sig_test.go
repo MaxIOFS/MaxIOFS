@@ -223,11 +223,11 @@ func TestCreateCanonicalRequest(t *testing.T) {
 		setupReq      func() *http.Request
 		signedHeaders string
 		expectedParts struct {
-			method        string
-			uri           string
-			hasQueryStr   bool
-			hasHeaders    bool
-			payloadHash   string
+			method      string
+			uri         string
+			hasQueryStr bool
+			hasHeaders  bool
+			payloadHash string
 		}
 	}{
 		{
@@ -240,11 +240,11 @@ func TestCreateCanonicalRequest(t *testing.T) {
 			},
 			signedHeaders: "host;x-amz-content-sha256",
 			expectedParts: struct {
-				method        string
-				uri           string
-				hasQueryStr   bool
-				hasHeaders    bool
-				payloadHash   string
+				method      string
+				uri         string
+				hasQueryStr bool
+				hasHeaders  bool
+				payloadHash string
 			}{
 				method:      "GET",
 				uri:         "/bucket/object.txt",
@@ -263,11 +263,11 @@ func TestCreateCanonicalRequest(t *testing.T) {
 			},
 			signedHeaders: "host",
 			expectedParts: struct {
-				method        string
-				uri           string
-				hasQueryStr   bool
-				hasHeaders    bool
-				payloadHash   string
+				method      string
+				uri         string
+				hasQueryStr bool
+				hasHeaders  bool
+				payloadHash string
 			}{
 				method:      "GET",
 				uri:         "/bucket",
@@ -288,11 +288,11 @@ func TestCreateCanonicalRequest(t *testing.T) {
 			},
 			signedHeaders: "content-type;host;x-amz-content-sha256;x-amz-date",
 			expectedParts: struct {
-				method        string
-				uri           string
-				hasQueryStr   bool
-				hasHeaders    bool
-				payloadHash   string
+				method      string
+				uri         string
+				hasQueryStr bool
+				hasHeaders  bool
+				payloadHash string
 			}{
 				method:      "PUT",
 				uri:         "/bucket/file.txt",
@@ -311,11 +311,11 @@ func TestCreateCanonicalRequest(t *testing.T) {
 			},
 			signedHeaders: "host",
 			expectedParts: struct {
-				method        string
-				uri           string
-				hasQueryStr   bool
-				hasHeaders    bool
-				payloadHash   string
+				method      string
+				uri         string
+				hasQueryStr bool
+				hasHeaders  bool
+				payloadHash string
 			}{
 				method:      "GET",
 				uri:         "/",
@@ -333,11 +333,11 @@ func TestCreateCanonicalRequest(t *testing.T) {
 			},
 			signedHeaders: "host",
 			expectedParts: struct {
-				method        string
-				uri           string
-				hasQueryStr   bool
-				hasHeaders    bool
-				payloadHash   string
+				method      string
+				uri         string
+				hasQueryStr bool
+				hasHeaders  bool
+				payloadHash string
 			}{
 				method:      "GET",
 				uri:         "/bucket",
@@ -356,11 +356,11 @@ func TestCreateCanonicalRequest(t *testing.T) {
 			},
 			signedHeaders: "host",
 			expectedParts: struct {
-				method        string
-				uri           string
-				hasQueryStr   bool
-				hasHeaders    bool
-				payloadHash   string
+				method      string
+				uri         string
+				hasQueryStr bool
+				hasHeaders  bool
+				payloadHash string
 			}{
 				method:      "GET",
 				uri:         "/bucket/my%20file.txt",
@@ -384,11 +384,11 @@ func TestCreateCanonicalRequest(t *testing.T) {
 			},
 			signedHeaders: "host;x-amz-content-sha256;x-amz-date",
 			expectedParts: struct {
-				method        string
-				uri           string
-				hasQueryStr   bool
-				hasHeaders    bool
-				payloadHash   string
+				method      string
+				uri         string
+				hasQueryStr bool
+				hasHeaders  bool
+				payloadHash string
 			}{
 				method:      "GET",
 				uri:         "/", // Must use original path for verification, not /inmutable/
@@ -985,11 +985,11 @@ func TestValidateS3Signature_AutoDetect(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
-		setupReq   func() *http.Request
-		wantV4     bool
-		wantErr    bool
-		errType    error
+		name     string
+		setupReq func() *http.Request
+		wantV4   bool
+		wantErr  bool
+		errType  error
 	}{
 		{
 			name: "Detects SigV4 from Authorization header",
@@ -1093,10 +1093,10 @@ func TestValidateS3SignatureV4_FullFlow(t *testing.T) {
 	secretKey := accessKeyObj.SecretAccessKey
 
 	tests := []struct {
-		name    string
+		name     string
 		setupReq func() *http.Request
-		wantErr bool
-		errType error
+		wantErr  bool
+		errType  error
 	}{
 		{
 			name: "Valid SigV4 request",
@@ -1233,10 +1233,10 @@ func TestValidateS3SignatureV2_FullFlow(t *testing.T) {
 	secretKey := accessKeyObj.SecretAccessKey
 
 	tests := []struct {
-		name    string
+		name     string
 		setupReq func() *http.Request
-		wantErr bool
-		errType error
+		wantErr  bool
+		errType  error
 	}{
 		{
 			name: "Valid SigV2 request",
@@ -1334,3 +1334,79 @@ func TestValidateS3SignatureV2_FullFlow(t *testing.T) {
 	}
 }
 
+// TestCreateStringToSignV2CanonicalAmzHeaders verifies that x-amz-* headers are correctly
+// included in the SigV2 string-to-sign per the AWS SigV2 specification.
+func TestCreateStringToSignV2CanonicalAmzHeaders(t *testing.T) {
+	managerInterface, tmpDir := setupTestAuthManager(t)
+	defer cleanupTestAuthManager(t, tmpDir)
+	manager := managerInterface.(*authManager)
+
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		headers map[string]string
+		want    string
+	}{
+		{
+			name:   "No x-amz headers — classic 5-field format unchanged",
+			method: "PUT",
+			path:   "/my-bucket/my-object",
+			headers: map[string]string{
+				"Content-MD5":  "abc123",
+				"Content-Type": "application/octet-stream",
+				"Date":         "Tue, 27 Mar 2007 19:36:42 +0000",
+			},
+			want: "PUT\nabc123\napplication/octet-stream\nTue, 27 Mar 2007 19:36:42 +0000\n/my-bucket/my-object",
+		},
+		{
+			name:   "x-amz-date header empties the Date field",
+			method: "GET",
+			path:   "/bucket",
+			headers: map[string]string{
+				"Date":       "Thu, 01 Jan 2026 00:00:00 +0000",
+				"X-Amz-Date": "20260101T000000Z",
+			},
+			want: "GET\n\n\n\nx-amz-date:20260101T000000Z\n/bucket",
+		},
+		{
+			name:   "x-amz-acl header included in canonical headers",
+			method: "PUT",
+			path:   "/bucket/key",
+			headers: map[string]string{
+				"Content-Type": "text/plain",
+				"Date":         "Tue, 27 Mar 2007 19:36:42 +0000",
+				"X-Amz-Acl":    "public-read",
+			},
+			want: "PUT\n\ntext/plain\nTue, 27 Mar 2007 19:36:42 +0000\nx-amz-acl:public-read\n/bucket/key",
+		},
+		{
+			name:   "Multiple x-amz headers are sorted alphabetically",
+			method: "PUT",
+			path:   "/bucket/obj",
+			headers: map[string]string{
+				"Date":                "Mon, 01 Dec 2025 00:00:00 GMT",
+				"X-Amz-Storage-Class": "REDUCED_REDUNDANCY",
+				"X-Amz-Acl":           "bucket-owner-read",
+				"X-Amz-Meta-Author":   "Alice",
+			},
+			want: "PUT\n\n\nMon, 01 Dec 2025 00:00:00 GMT\nx-amz-acl:bucket-owner-read\nx-amz-meta-author:Alice\nx-amz-storage-class:REDUCED_REDUNDANCY\n/bucket/obj",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(tc.method, "http://localhost"+tc.path, nil)
+			if err != nil {
+				t.Fatalf("Failed to create request: %v", err)
+			}
+			for k, v := range tc.headers {
+				req.Header.Set(k, v)
+			}
+			got := manager.createStringToSignV2(req)
+			if got != tc.want {
+				t.Errorf("createStringToSignV2() mismatch\n got: %q\nwant: %q", got, tc.want)
+			}
+		})
+	}
+}

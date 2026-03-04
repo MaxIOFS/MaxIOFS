@@ -36,11 +36,11 @@ func TestExtractCredentialsFromHeader(t *testing.T) {
 	helper := NewS3AuthHelper(manager)
 
 	tests := []struct {
-		name        string
-		setupReq    func() *http.Request
-		wantKey     string
-		wantSig     string
-		wantErr     bool
+		name     string
+		setupReq func() *http.Request
+		wantKey  string
+		wantSig  string
+		wantErr  bool
 	}{
 		{
 			name: "SigV4 Authorization header",
@@ -270,10 +270,10 @@ func TestValidateTimestamp(t *testing.T) {
 	now := time.Now().UTC()
 
 	tests := []struct {
-		name    string
+		name     string
 		setupReq func() *http.Request
-		maxSkew time.Duration
-		wantErr bool
+		maxSkew  time.Duration
+		wantErr  bool
 	}{
 		{
 			name: "Valid X-Amz-Date (current time)",
@@ -659,4 +659,70 @@ func TestParseAuthorizationHeader(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestWriteS3ErrorIncludesAmzHeaders verifies that writeS3Error sets the required
+// X-Amz-Request-Id and X-Amz-Id-2 headers on auth-failure responses.
+// Absent these headers, Veeam and other enterprise S3 clients may misidentify the
+// endpoint as non-compliant (M8 fix).
+func TestWriteS3ErrorIncludesAmzHeaders(t *testing.T) {
+	tests := []struct {
+		name       string
+		code       string
+		message    string
+		statusCode int
+	}{
+		{"Unauthorized", "InvalidAccessKeyId", "The key does not exist", 401},
+		{"Forbidden", "AccessDenied", "Access Denied", 403},
+		{"Internal", "InternalError", "Server error", 500},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, "/bucket/key", nil)
+			if err != nil {
+				t.Fatalf("Failed to create request: %v", err)
+			}
+			w := newTestResponseWriter()
+			writeS3Error(w, req, tc.code, tc.message, tc.statusCode)
+
+			if w.code != tc.statusCode {
+				t.Errorf("Status code = %d, want %d", w.code, tc.statusCode)
+			}
+
+			requestID := w.headers.Get("X-Amz-Request-Id")
+			if requestID == "" {
+				t.Error("X-Amz-Request-Id header must be set on error responses")
+			}
+			if len(requestID) != 16 {
+				t.Errorf("X-Amz-Request-Id length = %d, want 16 (uppercase hex)", len(requestID))
+			}
+
+			amzId2 := w.headers.Get("X-Amz-Id-2")
+			if amzId2 == "" {
+				t.Error("X-Amz-Id-2 header must be set on error responses")
+			}
+			if len(amzId2) != 64 {
+				t.Errorf("X-Amz-Id-2 length = %d, want 64 (hex)", len(amzId2))
+			}
+		})
+	}
+}
+
+// testResponseWriter is a minimal http.ResponseWriter for unit testing.
+type testResponseWriter struct {
+	headers http.Header
+	code    int
+	body    []byte
+}
+
+func newTestResponseWriter() *testResponseWriter {
+	return &testResponseWriter{headers: make(http.Header)}
+}
+
+func (rw *testResponseWriter) Header() http.Header        { return rw.headers }
+func (rw *testResponseWriter) WriteHeader(statusCode int) { rw.code = statusCode }
+func (rw *testResponseWriter) Write(b []byte) (int, error) {
+	rw.body = append(rw.body, b...)
+	return len(b), nil
 }

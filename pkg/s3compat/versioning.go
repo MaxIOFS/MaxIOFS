@@ -12,19 +12,20 @@ import (
 
 // ListVersionsResult is the XML response for ListObjectVersions
 type ListVersionsResult struct {
-	XMLName             xml.Name        `xml:"ListVersionsResult"`
-	Name                string          `xml:"Name"`
-	Prefix              string          `xml:"Prefix,omitempty"`
-	KeyMarker           string          `xml:"KeyMarker,omitempty"`
-	VersionIdMarker     string          `xml:"VersionIdMarker,omitempty"`
-	NextKeyMarker       string          `xml:"NextKeyMarker,omitempty"`
-	NextVersionIdMarker string          `xml:"NextVersionIdMarker,omitempty"`
-	MaxKeys             int             `xml:"MaxKeys"`
-	Delimiter           string          `xml:"Delimiter,omitempty"`
-	IsTruncated         bool            `xml:"IsTruncated"`
-	Versions            []VersionEntry  `xml:"Version,omitempty"`
-	DeleteMarkers       []DeleteMarker  `xml:"DeleteMarker,omitempty"`
-	CommonPrefixes      []CommonPrefix  `xml:"CommonPrefixes,omitempty"`
+	XMLName             xml.Name       `xml:"ListVersionsResult"`
+	Name                string         `xml:"Name"`
+	Prefix              string         `xml:"Prefix,omitempty"`
+	KeyMarker           string         `xml:"KeyMarker,omitempty"`
+	VersionIdMarker     string         `xml:"VersionIdMarker,omitempty"`
+	NextKeyMarker       string         `xml:"NextKeyMarker,omitempty"`
+	NextVersionIdMarker string         `xml:"NextVersionIdMarker,omitempty"`
+	MaxKeys             int            `xml:"MaxKeys"`
+	Delimiter           string         `xml:"Delimiter,omitempty"`
+	EncodingType        string         `xml:"EncodingType,omitempty"`
+	IsTruncated         bool           `xml:"IsTruncated"`
+	Versions            []VersionEntry `xml:"Version,omitempty"`
+	DeleteMarkers       []DeleteMarker `xml:"DeleteMarker,omitempty"`
+	CommonPrefixes      []CommonPrefix `xml:"CommonPrefixes,omitempty"`
 }
 
 // VersionEntry represents a single object version
@@ -74,6 +75,19 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Parse encoding-type — only "url" is valid per the S3 spec.
+	encodingType := r.URL.Query().Get("encoding-type")
+	if encodingType != "" && encodingType != "url" {
+		h.writeError(w, "InvalidArgument", "Invalid Encoding Method specified in Request", bucketName, r)
+		return
+	}
+	encodeStr := func(s string) string {
+		if encodingType == "url" {
+			return s3URLEncode(s)
+		}
+		return s
+	}
+
 	// Get all versions directly from metadata (don't rely on ListObjects which excludes deleted objects)
 	allObjectVersions, err := h.metadataStore.ListAllObjectVersions(r.Context(), bucketPath, prefix, maxKeys*10)
 	if err != nil {
@@ -107,7 +121,7 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 		if isDeleteMarker {
 			// Add as DeleteMarker
 			allDeleteMarkers = append(allDeleteMarkers, DeleteMarker{
-				Key:          ver.Key,
+				Key:          encodeStr(ver.Key),
 				VersionId:    versionID,
 				IsLatest:     ver.IsLatest,
 				LastModified: ver.LastModified,
@@ -119,7 +133,7 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// Add as regular version
 			allVersions = append(allVersions, VersionEntry{
-				Key:          ver.Key,
+				Key:          encodeStr(ver.Key),
 				VersionId:    versionID,
 				IsLatest:     ver.IsLatest,
 				LastModified: ver.LastModified,
@@ -129,7 +143,7 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 					ID:          "maxiofs",
 					DisplayName: "MaxIOFS",
 				},
-				StorageClass: "STANDARD",
+				StorageClass: storageClassOrStandard(ver.StorageClass),
 			})
 		}
 	}
@@ -168,13 +182,14 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 
 	result := ListVersionsResult{
 		Name:                bucketName,
-		Prefix:              prefix,
-		KeyMarker:           keyMarker,
+		Prefix:              encodeStr(prefix),
+		KeyMarker:           encodeStr(keyMarker),
 		VersionIdMarker:     versionIDMarker,
-		NextKeyMarker:       nextKeyMarker,
+		NextKeyMarker:       encodeStr(nextKeyMarker),
 		NextVersionIdMarker: nextVersionIDMarker,
 		MaxKeys:             maxKeys,
-		Delimiter:           delimiter,
+		Delimiter:           encodeStr(delimiter),
+		EncodingType:        encodingType,
 		IsTruncated:         isTruncated,
 		Versions:            allVersions,
 		DeleteMarkers:       allDeleteMarkers,

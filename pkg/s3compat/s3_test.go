@@ -111,8 +111,8 @@ func setupCompleteS3Environment(t *testing.T) *s3TestEnv {
 
 	// Initialize BadgerDB metadata store
 	dbPath := filepath.Join(tempDir, "metadata")
-	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: dbPath,
-		Logger:  logrus.StandardLogger(),})
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{DataDir: dbPath,
+		Logger: logrus.StandardLogger()})
 	require.NoError(t, err, "Failed to create metadata store")
 
 	// Create managers
@@ -216,6 +216,7 @@ func setupCompleteS3Environment(t *testing.T) *s3TestEnv {
 	router.HandleFunc("/{bucket}/{object:.+}", handler.HeadObject).Methods("HEAD")
 
 	// List objects
+	router.HandleFunc("/{bucket}/", handler.ListObjectsV2).Methods("GET").Queries("list-type", "2")
 	router.HandleFunc("/{bucket}/", handler.ListObjects).Methods("GET")
 
 	// Cleanup function
@@ -521,6 +522,53 @@ func TestS3HeadObject(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code, "Should return 200 for existing object")
 	assert.NotEmpty(t, w.Header().Get("ETag"), "Should return ETag")
 	assert.NotEmpty(t, w.Header().Get("Content-Length"), "Should return Content-Length")
+}
+
+// TestS3HeadErrorNoBody verifies that error responses to HEAD requests comply
+// with RFC 7231: the response must carry the correct status code and headers
+// but MUST NOT include a message body. AWS S3 follows this rule.
+func TestS3HeadErrorNoBody(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "head-error-bucket"
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+
+	t.Run("HeadObject 404 has no body", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucketName+"/does-not-exist.txt", nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNotFound, w.Code, "Should return 404 for missing object")
+		assert.Empty(t, w.Body.Bytes(), "HEAD error response must have no body (RFC 7231)")
+	})
+
+	t.Run("HeadBucket 404 has no body", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/no-such-bucket", nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNotFound, w.Code, "Should return 404 for missing bucket")
+		assert.Empty(t, w.Body.Bytes(), "HEAD error response must have no body (RFC 7231)")
+	})
+
+	t.Run("HeadObject 404 still sets X-Amz-Request-Id header", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucketName+"/does-not-exist.txt", nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNotFound, w.Code)
+		assert.NotEmpty(t, w.Header().Get("X-Amz-Request-Id"), "Must set X-Amz-Request-Id even on HEAD errors")
+	})
+
+	t.Run("GET object 404 still has XML body", func(t *testing.T) {
+		// Confirm GET errors still return the full XML body (regression guard)
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/does-not-exist.txt", nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNotFound, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, "<Error>", "GET error must still include XML body")
+		assert.Contains(t, body, "NoSuchKey")
+	})
 }
 
 // TestS3ListObjects tests object listing via S3 API
@@ -1582,6 +1630,110 @@ func TestAbortMultipartUpload(t *testing.T) {
 	assert.Len(t, listResult.Uploads, 0, "Aborted upload should not appear in list")
 }
 
+// TestCompleteMultipartUploadLocation verifies that the <Location> field in the
+// CompleteMultipartUpload response is an absolute URL that mirrors the addressing
+// style of the request (path-style or virtual-hosted-style).
+func TestCompleteMultipartUploadLocation(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "location-test-bucket"
+	objectKey := "assembled.dat"
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+
+	// helper: run a full multipart upload and return the Location from the response.
+	doComplete := func(host string) string {
+		makeReq := func(method, path string, body []byte) (*http.Request, *httptest.ResponseRecorder) {
+			var b io.Reader
+			if body != nil {
+				b = bytes.NewReader(body)
+			}
+			req := httptest.NewRequest(method, path, b)
+			if host != "" {
+				req.Host = host
+			}
+			signRequestV4(req, env.accessKey, env.secretKey, "us-east-1", "s3")
+			return req, httptest.NewRecorder()
+		}
+
+		// Create multipart upload
+		initReq, initW := makeReq("POST", "/"+bucketName+"/"+objectKey+"?uploads", nil)
+		env.router.ServeHTTP(initW, initReq)
+		require.Equal(t, http.StatusOK, initW.Code)
+		var initRes struct {
+			UploadId string `xml:"UploadId"`
+		}
+		xml.Unmarshal(initW.Body.Bytes(), &initRes)
+		uploadID := initRes.UploadId
+
+		// Upload one part (minimum 5 MB)
+		partData := bytes.Repeat([]byte("Z"), 5*1024*1024)
+		partReq, partW := makeReq("PUT",
+			fmt.Sprintf("/%s/%s?partNumber=1&uploadId=%s", bucketName, objectKey, uploadID),
+			partData)
+		env.router.ServeHTTP(partW, partReq)
+		require.Equal(t, http.StatusOK, partW.Code)
+		etag := partW.Header().Get("ETag")
+
+		// Complete
+		completeXML := fmt.Sprintf(
+			`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>%s</ETag></Part></CompleteMultipartUpload>`,
+			etag)
+		completeReq, completeW := makeReq("POST",
+			fmt.Sprintf("/%s/%s?uploadId=%s", bucketName, objectKey, uploadID),
+			[]byte(completeXML))
+		completeReq.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(completeW, completeReq)
+		require.Equal(t, http.StatusOK, completeW.Code)
+
+		var result struct {
+			Location string `xml:"Location"`
+		}
+		xml.Unmarshal(completeW.Body.Bytes(), &result)
+		return result.Location
+	}
+
+	t.Run("Path-style host produces absolute path-style URL", func(t *testing.T) {
+		loc := doComplete("s3.example.com")
+		assert.True(t,
+			strings.HasPrefix(loc, "http://") || strings.HasPrefix(loc, "https://"),
+			"Location must be an absolute URL, got: %s", loc)
+		assert.Contains(t, loc, bucketName, "Location must contain the bucket name")
+		assert.Contains(t, loc, objectKey, "Location must contain the object key")
+		// Must NOT be a relative path
+		assert.NotEqual(t, "/"+bucketName+"/"+objectKey, loc, "Location must not be a relative path")
+	})
+
+	t.Run("Virtual-hosted-style host produces absolute virtual-hosted URL", func(t *testing.T) {
+		vhHost := bucketName + ".s3.example.com"
+		loc := doComplete(vhHost)
+		assert.True(t,
+			strings.HasPrefix(loc, "http://"+vhHost) || strings.HasPrefix(loc, "https://"+vhHost),
+			"Virtual-hosted Location must start with scheme://bucket.host, got: %s", loc)
+		assert.Contains(t, loc, objectKey)
+		assert.NotContains(t, loc, "/"+bucketName+"/",
+			"Virtual-hosted Location must not repeat the bucket in the path")
+	})
+
+	t.Run("No host falls back to publicAPIURL", func(t *testing.T) {
+		// Unit-test the helper directly: simulate a request where the Host header
+		// is absent (e.g. direct internal call) but publicAPIURL is configured.
+		env.handler.SetPublicAPIURL("https://s3.mycompany.com")
+		defer env.handler.SetPublicAPIURL("")
+
+		req := httptest.NewRequest("POST", "/"+bucketName+"/"+objectKey, nil)
+		req.Host = "" // simulate missing Host header
+
+		loc := env.handler.buildLocationURL(req, bucketName, objectKey)
+		assert.True(t,
+			strings.HasPrefix(loc, "https://s3.mycompany.com"),
+			"Should fall back to publicAPIURL, got: %s", loc)
+		assert.Contains(t, loc, bucketName)
+		assert.Contains(t, loc, objectKey)
+	})
+}
+
 // TestUploadPartCopy tests copying an object as part of a multipart upload
 func TestUploadPartCopy(t *testing.T) {
 	env := setupCompleteS3Environment(t)
@@ -1763,9 +1915,12 @@ func TestGetBucketLocation(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code, "Should get bucket location successfully")
 
-	// Verify response contains LocationConstraint
+	// Verify response contains LocationConstraint with S3 namespace and XML declaration
 	body := w.Body.String()
 	assert.Contains(t, body, "LocationConstraint", "Response should contain LocationConstraint")
+	assert.Contains(t, body, `xmlns="http://s3.amazonaws.com/doc/2006-03-01/"`, "LocationConstraint must include S3 namespace")
+	assert.Contains(t, body, "<?xml", "Response must include XML declaration")
+	assert.Contains(t, body, "us-east-1", "Response should contain the region")
 }
 
 // TestObjectLockConfiguration tests object lock configuration (Get/Put)
@@ -2327,5 +2482,1009 @@ func TestPutObjectErrorCases(t *testing.T) {
 			assert.Equal(t, http.StatusOK, w.Code, fmt.Sprintf("Should upload object with key: %s", key))
 			assert.NotEmpty(t, w.Header().Get("ETag"), fmt.Sprintf("Should have ETag for key: %s", key))
 		}
+	})
+}
+
+// TestS3ListObjectsV2 tests the ListObjectsV2 (list-type=2) endpoint per the AWS S3 spec.
+func TestS3ListObjectsV2(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "v2-list-bucket"
+
+	// Create bucket and seed objects
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	bucketPath := env.tenantID + "/" + bucketName
+
+	testObjects := []string{"a.txt", "b.txt", "c.txt", "dir/d.txt", "dir/e.txt"}
+	for _, key := range testObjects {
+		_, err := env.objectManager.PutObject(ctx, bucketPath, key, bytes.NewReader([]byte("content")), http.Header{})
+		require.NoError(t, err)
+	}
+
+	// ── Basic V2 listing ──────────────────────────────────────────────────────
+	t.Run("Basic listing returns V2 fields", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2", nil)
+		env.router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+
+		// V2-specific fields must be present
+		assert.Contains(t, body, "<KeyCount>", "Response must contain KeyCount")
+		assert.Contains(t, body, `<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`, "Root element must include S3 namespace")
+		assert.Contains(t, body, "<IsTruncated>false</IsTruncated>")
+
+		// V1-specific fields must NOT be present
+		assert.NotContains(t, body, "<Marker>", "V1 Marker must not appear in V2 response")
+		assert.NotContains(t, body, "<NextMarker>", "V1 NextMarker must not appear in V2 response")
+		assert.NotContains(t, body, "<ContinuationToken>", "ContinuationToken must be absent when not sent")
+
+		// All objects should be listed
+		for _, key := range testObjects {
+			assert.Contains(t, body, key, "Response should contain object key: "+key)
+		}
+	})
+
+	// ── KeyCount matches number of objects returned ───────────────────────────
+	t.Run("KeyCount equals number of objects returned", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		body := w.Body.String()
+		assert.Contains(t, body, fmt.Sprintf("<KeyCount>%d</KeyCount>", len(testObjects)))
+	})
+
+	// ── fetch-owner=false (default) omits <Owner> ─────────────────────────────
+	t.Run("Owner omitted by default (fetch-owner=false)", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.NotContains(t, w.Body.String(), "<Owner>", "Owner element must be absent when fetch-owner is not set")
+	})
+
+	// ── fetch-owner=true includes <Owner> ─────────────────────────────────────
+	t.Run("Owner included when fetch-owner=true", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2&fetch-owner=true", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "<Owner>", "Owner element must be present when fetch-owner=true")
+	})
+
+	// ── prefix filtering ─────────────────────────────────────────────────────
+	t.Run("Prefix filter", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2&prefix=dir/", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		body := w.Body.String()
+		assert.Contains(t, body, "dir/d.txt")
+		assert.Contains(t, body, "dir/e.txt")
+		assert.NotContains(t, body, "a.txt")
+		assert.NotContains(t, body, "b.txt")
+	})
+
+	// ── start-after skips objects ─────────────────────────────────────────────
+	t.Run("start-after skips earlier objects", func(t *testing.T) {
+		// start-after=b.txt should skip a.txt and b.txt, returning c.txt and dir/*
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2&start-after=b.txt", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		body := w.Body.String()
+		assert.NotContains(t, body, "a.txt", "a.txt must be skipped (before start-after)")
+		assert.NotContains(t, body, "<Key>b.txt</Key>", "b.txt itself must be excluded")
+		assert.Contains(t, body, "c.txt")
+	})
+
+	// ── StartAfter echoed in response ─────────────────────────────────────────
+	t.Run("StartAfter is echoed in response", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2&start-after=a.txt", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "<StartAfter>a.txt</StartAfter>")
+	})
+
+	// ── max-keys > 1000 returns InvalidArgument ───────────────────────────────
+	t.Run("max-keys greater than 1000 returns InvalidArgument", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2&max-keys=1001", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "InvalidArgument")
+	})
+
+	// ── invalid continuation-token returns InvalidArgument ────────────────────
+	t.Run("Invalid continuation-token returns InvalidArgument", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2&continuation-token=!!not-base64!!", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "InvalidArgument")
+	})
+
+	// ── non-existent bucket returns NoSuchBucket ──────────────────────────────
+	t.Run("Non-existent bucket returns NoSuchBucket", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/no-such-bucket/?list-type=2", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code)
+		assert.Contains(t, w.Body.String(), "NoSuchBucket")
+	})
+
+	// ── delimiter groups common prefixes ─────────────────────────────────────
+	t.Run("Delimiter produces CommonPrefixes", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2&delimiter=/", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		body := w.Body.String()
+		assert.Contains(t, body, "<CommonPrefixes>", "Should have CommonPrefixes when delimiter is set")
+		assert.Contains(t, body, "dir/", "Common prefix dir/ should appear")
+	})
+}
+
+// TestS3CreateBucketConflict verifies the distinction between BucketAlreadyOwnedByYou
+// (same owner) and BucketAlreadyExists (different owner) per the AWS S3 spec (M3).
+func TestS3CreateBucketConflict(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	bucketName := "conflict-test-bucket"
+
+	// First creation must succeed.
+	req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "First PUT should succeed")
+
+	t.Run("Same owner gets BucketAlreadyOwnedByYou", func(t *testing.T) {
+		// Same credentials → same effective owner.
+		req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusConflict, w.Code)
+		assert.Contains(t, w.Body.String(), "BucketAlreadyOwnedByYou",
+			"Same-owner re-creation must return BucketAlreadyOwnedByYou")
+	})
+
+	t.Run("BucketAlreadyOwnedByYou is still 409", func(t *testing.T) {
+		// HTTP status must be 409 Conflict for both error codes.
+		req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusConflict, w.Code)
+	})
+}
+
+// TestS3CreateBucketLocationHeader verifies that a successful CreateBucket response
+// includes the Location header set to "/{bucketName}", as required by the AWS S3 spec.
+func TestS3CreateBucketLocationHeader(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	t.Run("Location header present on new bucket", func(t *testing.T) {
+		bucketName := "location-header-bucket"
+		req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
+
+		env.router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code, "Should create bucket successfully")
+		assert.Equal(t, "/"+bucketName, w.Header().Get("Location"),
+			"Location header must equal /bucketName per AWS S3 spec")
+	})
+
+	t.Run("Location header value matches bucket name", func(t *testing.T) {
+		bucketName := "another-location-bucket"
+		req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
+
+		env.router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		loc := w.Header().Get("Location")
+		assert.True(t, len(loc) > 0, "Location header must not be empty")
+		assert.Equal(t, "/"+bucketName, loc, "Location must be /bucketName")
+	})
+
+	t.Run("Duplicate bucket returns error without Location header", func(t *testing.T) {
+		bucketName := "duplicate-bucket"
+		// Create the bucket first directly via manager
+		ctx := context.Background()
+		require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+
+		req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
+		env.router.ServeHTTP(w, req)
+
+		assert.NotEqual(t, http.StatusOK, w.Code, "Duplicate bucket should not return 200")
+		assert.Empty(t, w.Header().Get("Location"), "No Location header on error response")
+	})
+}
+
+// TestS3CreateBucketObjectLockEnabled verifies that x-amz-bucket-object-lock-enabled:true
+// is persisted when creating a bucket via the API (bug fix: header was previously ignored).
+func TestS3CreateBucketObjectLockEnabled(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+
+	t.Run("Object Lock enabled via header and persisted", func(t *testing.T) {
+		bucketName := "ol-api-bucket"
+		req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
+		req.Header.Set("x-amz-bucket-object-lock-enabled", "true")
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code, "Bucket creation should succeed")
+
+		// Verify Object Lock is actually enabled.
+		cfg, err := env.bucketManager.GetObjectLockConfig(ctx, env.tenantID, bucketName)
+		require.NoError(t, err)
+		require.NotNil(t, cfg, "Object Lock config must not be nil")
+		assert.True(t, cfg.ObjectLockEnabled, "Object Lock must be enabled")
+	})
+
+	t.Run("Bucket without header has Object Lock disabled", func(t *testing.T) {
+		bucketName := "no-ol-bucket"
+		req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Object Lock config should be nil or disabled.
+		cfg, _ := env.bucketManager.GetObjectLockConfig(ctx, env.tenantID, bucketName)
+		if cfg != nil {
+			assert.False(t, cfg.ObjectLockEnabled, "Object Lock must NOT be enabled")
+		}
+	})
+
+	t.Run("Object Lock bucket accepts PutObjectLockConfiguration after creation", func(t *testing.T) {
+		bucketName := "ol-put-config-bucket"
+		req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
+		req.Header.Set("x-amz-bucket-object-lock-enabled", "true")
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Now set a default retention rule via the API.
+		body := `<?xml version="1.0" encoding="UTF-8"?>
+<ObjectLockConfiguration>
+  <ObjectLockEnabled>Enabled</ObjectLockEnabled>
+  <Rule>
+    <DefaultRetention>
+      <Mode>GOVERNANCE</Mode>
+      <Days>7</Days>
+    </DefaultRetention>
+  </Rule>
+</ObjectLockConfiguration>`
+		req, w = env.makeS3Request("PUT", "/"+bucketName+"?object-lock", []byte(body))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "PutObjectLockConfiguration must succeed on OL-enabled bucket")
+	})
+
+	t.Run("x-amz-bucket-object-lock-enabled=false does not enable Object Lock", func(t *testing.T) {
+		bucketName := "ol-false-bucket"
+		req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
+		req.Header.Set("x-amz-bucket-object-lock-enabled", "false")
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		cfg, _ := env.bucketManager.GetObjectLockConfig(ctx, env.tenantID, bucketName)
+		if cfg != nil {
+			assert.False(t, cfg.ObjectLockEnabled, "Object Lock must NOT be enabled when header is false")
+		}
+	})
+}
+
+// honoured: COPY keeps source metadata; REPLACE substitutes request headers.
+func TestS3CopyObjectMetadataDirective(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucket := "md-dir-bucket"
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucket, ""))
+
+	// Create source object with a specific content-type and user metadata.
+	sourcePath := env.tenantID + "/" + bucket
+	sourceKey := "src.bin"
+	srcHeaders := http.Header{}
+	srcHeaders.Set("Content-Type", "application/octet-stream")
+	srcHeaders.Set("X-Amz-Meta-Original", "yes")
+	_, err := env.objectManager.PutObject(ctx, sourcePath, sourceKey, bytes.NewReader([]byte("data")), srcHeaders)
+	require.NoError(t, err)
+
+	t.Run("Default (COPY) preserves source metadata", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", "/"+bucket+"/copy-default.bin", nil)
+		req.Header.Set("x-amz-copy-source", "/"+bucket+"/"+sourceKey)
+		// No x-amz-metadata-directive → defaults to COPY
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Fetch and verify content-type was preserved from source.
+		req, w = env.makeS3Request("GET", "/"+bucket+"/copy-default.bin", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "application/octet-stream", w.Header().Get("Content-Type"))
+	})
+
+	t.Run("REPLACE substitutes metadata from request headers", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", "/"+bucket+"/copy-replace.bin", nil)
+		req.Header.Set("x-amz-copy-source", "/"+bucket+"/"+sourceKey)
+		req.Header.Set("x-amz-metadata-directive", "REPLACE")
+		req.Header.Set("Content-Type", "text/plain")
+		req.Header.Set("X-Amz-Meta-Replaced", "true")
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Fetch and verify new content-type is applied.
+		req, w = env.makeS3Request("GET", "/"+bucket+"/copy-replace.bin", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "text/plain", w.Header().Get("Content-Type"))
+	})
+
+	t.Run("Invalid directive returns InvalidArgument", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", "/"+bucket+"/copy-bad.bin", nil)
+		req.Header.Set("x-amz-copy-source", "/"+bucket+"/"+sourceKey)
+		req.Header.Set("x-amz-metadata-directive", "BOGUS")
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "InvalidArgument")
+	})
+}
+
+// TestS3CopyObjectConditionals verifies x-amz-copy-source-if-* headers return
+// 412 PreconditionFailed when the condition is not met.
+func TestS3CopyObjectConditionals(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucket := "cond-copy-bucket"
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucket, ""))
+
+	sourcePath := env.tenantID + "/" + bucket
+	sourceKey := "src.txt"
+	srcInfo, err := env.objectManager.PutObject(ctx, sourcePath, sourceKey, bytes.NewReader([]byte("hello")), http.Header{})
+	require.NoError(t, err)
+	srcETag := srcInfo.ETag // e.g. "\"abc123\""
+
+	copyDest := func(n int) string { return fmt.Sprintf("/"+bucket+"/dest-%d.txt", n) }
+	setSrc := func(req *http.Request) { req.Header.Set("x-amz-copy-source", "/"+bucket+"/"+sourceKey) }
+
+	t.Run("if-match passes when ETag matches", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", copyDest(1), nil)
+		setSrc(req)
+		req.Header.Set("x-amz-copy-source-if-match", srcETag)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("if-match fails when ETag does not match → 412", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", copyDest(2), nil)
+		setSrc(req)
+		req.Header.Set("x-amz-copy-source-if-match", "\"wrongetag\"")
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusPreconditionFailed, w.Code)
+		assert.Contains(t, w.Body.String(), "PreconditionFailed")
+	})
+
+	t.Run("if-none-match passes when ETag does not match", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", copyDest(3), nil)
+		setSrc(req)
+		req.Header.Set("x-amz-copy-source-if-none-match", "\"differentetag\"")
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("if-none-match fails when ETag matches → 412", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", copyDest(4), nil)
+		setSrc(req)
+		req.Header.Set("x-amz-copy-source-if-none-match", srcETag)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusPreconditionFailed, w.Code)
+		assert.Contains(t, w.Body.String(), "PreconditionFailed")
+	})
+
+	t.Run("if-modified-since passes when object is newer than date", func(t *testing.T) {
+		// Give a date in the distant past — object IS modified after it.
+		past := time.Now().Add(-24 * time.Hour).UTC().Format(http.TimeFormat)
+		req, w := env.makeS3Request("PUT", copyDest(5), nil)
+		setSrc(req)
+		req.Header.Set("x-amz-copy-source-if-modified-since", past)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("if-modified-since fails when object is NOT newer than date → 412", func(t *testing.T) {
+		// Give a date far in the future — object is NOT modified after it.
+		future := time.Now().Add(24 * time.Hour).UTC().Format(http.TimeFormat)
+		req, w := env.makeS3Request("PUT", copyDest(6), nil)
+		setSrc(req)
+		req.Header.Set("x-amz-copy-source-if-modified-since", future)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusPreconditionFailed, w.Code)
+		assert.Contains(t, w.Body.String(), "PreconditionFailed")
+	})
+
+	t.Run("if-unmodified-since passes when object is NOT newer than date", func(t *testing.T) {
+		// Future date — object was last modified before it → condition holds.
+		future := time.Now().Add(24 * time.Hour).UTC().Format(http.TimeFormat)
+		req, w := env.makeS3Request("PUT", copyDest(7), nil)
+		setSrc(req)
+		req.Header.Set("x-amz-copy-source-if-unmodified-since", future)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("if-unmodified-since fails when object IS newer than date → 412", func(t *testing.T) {
+		// Past date — object was modified after it → condition fails.
+		past := time.Now().Add(-24 * time.Hour).UTC().Format(http.TimeFormat)
+		req, w := env.makeS3Request("PUT", copyDest(8), nil)
+		setSrc(req)
+		req.Header.Set("x-amz-copy-source-if-unmodified-since", past)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusPreconditionFailed, w.Code)
+		assert.Contains(t, w.Body.String(), "PreconditionFailed")
+	})
+}
+
+// TestS3ConditionalDateHeaders verifies If-Modified-Since and If-Unmodified-Since
+// are honoured by GetObject and HeadObject (I4).
+func TestS3ConditionalDateHeaders(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucket := "cond-date-bucket"
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucket, ""))
+
+	key := "file.txt"
+	bucketPath := env.tenantID + "/" + bucket
+	_, err := env.objectManager.PutObject(ctx, bucketPath, key, bytes.NewReader([]byte("hello")), http.Header{})
+	require.NoError(t, err)
+
+	past := time.Now().Add(-24 * time.Hour).UTC().Format(http.TimeFormat)
+	future := time.Now().Add(24 * time.Hour).UTC().Format(http.TimeFormat)
+
+	// ── GetObject ─────────────────────────────────────────────────────────────
+
+	t.Run("GET If-Modified-Since past → 200 (object is newer)", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucket+"/"+key, nil)
+		req.Header.Set("If-Modified-Since", past)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("GET If-Modified-Since future → 304 (object is NOT newer)", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucket+"/"+key, nil)
+		req.Header.Set("If-Modified-Since", future)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotModified, w.Code)
+	})
+
+	t.Run("GET If-Unmodified-Since future → 200 (object unchanged since)", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucket+"/"+key, nil)
+		req.Header.Set("If-Unmodified-Since", future)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("GET If-Unmodified-Since past → 412 (object changed after date)", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucket+"/"+key, nil)
+		req.Header.Set("If-Unmodified-Since", past)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusPreconditionFailed, w.Code)
+	})
+
+	// ── HeadObject ────────────────────────────────────────────────────────────
+
+	t.Run("HEAD If-Modified-Since past → 200", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucket+"/"+key, nil)
+		req.Header.Set("If-Modified-Since", past)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("HEAD If-Modified-Since future → 304", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucket+"/"+key, nil)
+		req.Header.Set("If-Modified-Since", future)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotModified, w.Code)
+	})
+
+	t.Run("HEAD If-Unmodified-Since future → 200", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucket+"/"+key, nil)
+		req.Header.Set("If-Unmodified-Since", future)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("HEAD If-Unmodified-Since past → 412", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucket+"/"+key, nil)
+		req.Header.Set("If-Unmodified-Since", past)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusPreconditionFailed, w.Code)
+	})
+
+	// ── If-None-Match takes precedence over If-Modified-Since (RFC 7232 §6) ─
+	t.Run("GET If-None-Match match + If-Modified-Since past → 304 (ETag wins)", func(t *testing.T) {
+		// First get the ETag
+		req, w := env.makeS3Request("HEAD", "/"+bucket+"/"+key, nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		etag := w.Header().Get("ETag")
+		require.NotEmpty(t, etag)
+
+		req, w = env.makeS3Request("GET", "/"+bucket+"/"+key, nil)
+		req.Header.Set("If-None-Match", etag)
+		req.Header.Set("If-Modified-Since", past) // would normally pass by itself
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotModified, w.Code, "ETag match should take precedence")
+	})
+}
+
+// TestS3ListObjectsMaxKeys verifies that ListObjects V1 rejects max-keys > 1000
+// with 400 InvalidArgument, matching the same behaviour already present in V2 (I5).
+func TestS3ListObjectsMaxKeys(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucket := "maxkeys-bucket"
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucket, ""))
+
+	// ── V1 ────────────────────────────────────────────────────────────────────
+
+	t.Run("V1 max-keys=500 is valid", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucket+"/?max-keys=500", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("V1 max-keys=1000 is valid (boundary)", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucket+"/?max-keys=1000", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("V1 max-keys=1001 returns InvalidArgument", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucket+"/?max-keys=1001", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "InvalidArgument")
+	})
+
+	t.Run("V1 max-keys=9999 returns InvalidArgument", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucket+"/?max-keys=9999", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "InvalidArgument")
+	})
+
+	t.Run("V1 max-keys=0 is valid (returns empty list)", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucket+"/?max-keys=0", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("V1 max-keys=-1 returns InvalidArgument", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucket+"/?max-keys=-1", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "InvalidArgument")
+	})
+
+	t.Run("V1 max-keys non-numeric returns InvalidArgument", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucket+"/?max-keys=abc", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "InvalidArgument")
+	})
+
+	// ── V2 (should already pass — regression guard) ────────────────────────
+
+	t.Run("V2 max-keys=1001 also returns InvalidArgument", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucket+"/?list-type=2&max-keys=1001", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "InvalidArgument")
+	})
+}
+
+// TestObjectLockModeAndPeriodMutability verifies that AWS S3-compliant behaviour is
+// preserved after I7: bucket-level default retention mode AND period can both be
+// changed freely (GOVERNANCE ↔ COMPLIANCE, increase or decrease days).
+func TestObjectLockModeAndPeriodMutability(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "lock-mutability-bucket"
+
+	// Create bucket and enable Object Lock directly via bucket manager
+	// (CreateBucket API does not process x-amz-bucket-object-lock-enabled header).
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.SetObjectLockConfig(ctx, env.tenantID, bucketName, &bucket.ObjectLockConfig{
+		ObjectLockEnabled: true,
+	}))
+
+	putLock := func(t *testing.T, mode string, days int) *httptest.ResponseRecorder {
+		t.Helper()
+		body := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<ObjectLockConfiguration>
+  <ObjectLockEnabled>Enabled</ObjectLockEnabled>
+  <Rule>
+    <DefaultRetention>
+      <Mode>%s</Mode>
+      <Days>%d</Days>
+    </DefaultRetention>
+  </Rule>
+</ObjectLockConfiguration>`, mode, days)
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"?object-lock", []byte(body))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+		return w
+	}
+
+	// Set initial configuration: GOVERNANCE, 30 days.
+	t.Run("Initial GOVERNANCE 30 days accepted", func(t *testing.T) {
+		w := putLock(t, "GOVERNANCE", 30)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	// Change mode GOVERNANCE → COMPLIANCE (previously blocked — now must succeed).
+	t.Run("Mode change GOVERNANCE→COMPLIANCE is allowed", func(t *testing.T) {
+		w := putLock(t, "COMPLIANCE", 30)
+		assert.Equal(t, http.StatusOK, w.Code,
+			"AWS S3 allows changing the bucket-level default retention mode")
+		assert.NotContains(t, w.Body.String(), "InvalidRequest")
+	})
+
+	// Change mode back COMPLIANCE → GOVERNANCE (both directions must work).
+	t.Run("Mode change COMPLIANCE→GOVERNANCE is allowed", func(t *testing.T) {
+		w := putLock(t, "GOVERNANCE", 30)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	// Decrease retention period 30 → 15 days (previously blocked — now must succeed).
+	t.Run("Decreasing retention period is allowed", func(t *testing.T) {
+		w := putLock(t, "GOVERNANCE", 15)
+		assert.Equal(t, http.StatusOK, w.Code,
+			"AWS S3 allows decreasing the bucket-level default retention period")
+		assert.NotContains(t, w.Body.String(), "InvalidRequest")
+	})
+
+	// Increase retention period 15 → 60 days (should always work).
+	t.Run("Increasing retention period is allowed", func(t *testing.T) {
+		w := putLock(t, "GOVERNANCE", 60)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	// Verify the final configuration via GET.
+	t.Run("Final config reflects last PUT", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?object-lock", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, "GOVERNANCE", "Mode should be GOVERNANCE")
+		assert.Contains(t, body, "60", "Days should be 60")
+	})
+}
+
+// TestS3DeleteObjectsDeleteMarkers verifies that DeleteObjects returns
+// DeleteMarker and DeleteMarkerVersionId fields when operating on a
+// versioning-enabled bucket without specifying a VersionId (I8).
+func TestS3DeleteObjectsDeleteMarkers(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "dm-batch-delete-bucket"
+
+	// Create bucket.
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+
+	bucketPath := env.tenantID + "/" + bucketName
+
+	// Enable versioning via S3 API.
+	versioningXML := `<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>`
+	req, w := env.makeS3Request("PUT", "/"+bucketName+"?versioning", []byte(versioningXML))
+	req.Header.Set("Content-Type", "application/xml")
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "Should enable versioning")
+
+	// Upload an object — this creates an initial version.
+	_, err := env.objectManager.PutObject(ctx, bucketPath, "doc.txt", bytes.NewReader([]byte("v1")), http.Header{})
+	require.NoError(t, err)
+
+	t.Run("Delete without VersionId creates delete marker", func(t *testing.T) {
+		deleteXML := `<Delete><Object><Key>doc.txt</Key></Object></Delete>`
+		req, w := env.makeS3Request("POST", "/"+bucketName+"?delete", []byte(deleteXML))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+
+		// Response must contain the DeleteMarker and DeleteMarkerVersionId elements.
+		assert.Contains(t, body, "<DeleteMarker>true</DeleteMarker>",
+			"DeleteMarker field must be true when a delete marker is created")
+		assert.Contains(t, body, "<DeleteMarkerVersionId>",
+			"DeleteMarkerVersionId field must be present")
+		assert.Contains(t, body, "doc.txt", "Key must appear in response")
+	})
+
+	t.Run("Non-versioned bucket delete does NOT include DeleteMarker fields", func(t *testing.T) {
+		nvBucketName := "no-versioning-batch-bucket"
+		require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, nvBucketName, ""))
+		nvBucketPath := env.tenantID + "/" + nvBucketName
+
+		_, err := env.objectManager.PutObject(ctx, nvBucketPath, "plain.txt", bytes.NewReader([]byte("data")), http.Header{})
+		require.NoError(t, err)
+
+		deleteXML := `<Delete><Object><Key>plain.txt</Key></Object></Delete>`
+		req, w := env.makeS3Request("POST", "/"+nvBucketName+"?delete", []byte(deleteXML))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+
+		assert.NotContains(t, body, "<DeleteMarker>true</DeleteMarker>",
+			"Non-versioned bucket should not produce a DeleteMarker element")
+		assert.NotContains(t, body, "<DeleteMarkerVersionId>",
+			"Non-versioned bucket should not produce a DeleteMarkerVersionId element")
+		assert.Contains(t, body, "plain.txt", "Key must appear in response")
+	})
+
+	t.Run("Delete with specific VersionId permanently removes version (no delete marker)", func(t *testing.T) {
+		// Upload a fresh object to get a known version ID.
+		vInfo, err := env.objectManager.PutObject(ctx, bucketPath, "versioned.txt", bytes.NewReader([]byte("v1")), http.Header{})
+		require.NoError(t, err)
+		versionID := vInfo.VersionID
+		require.NotEmpty(t, versionID, "PutObject must return a VersionID in versioned bucket")
+
+		deleteXML := `<Delete><Object><Key>versioned.txt</Key><VersionId>` + versionID + `</VersionId></Object></Delete>`
+		req, w := env.makeS3Request("POST", "/"+bucketName+"?delete", []byte(deleteXML))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+
+		// Permanently deleted version → no new delete marker.
+		assert.NotContains(t, body, "<DeleteMarker>true</DeleteMarker>",
+			"Deleting a specific version must not produce a DeleteMarker element")
+		assert.Contains(t, body, "versioned.txt", "Key must appear in response")
+		assert.Contains(t, body, versionID, "Deleted VersionId must appear in response")
+	})
+}
+
+// TestS3EncodingTypeURL verifies that ?encoding-type=url percent-encodes Key,
+// Prefix, Delimiter, Marker, and NextMarker in the ListObjects (V1), ListObjectsV2,
+// and ListBucketVersions responses (I9).
+func TestS3EncodingTypeURL(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "encoding-type-bucket"
+
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	bucketPath := env.tenantID + "/" + bucketName
+
+	// Object keys that contain characters requiring percent-encoding.
+	// Note: < > ? : * | are not valid in Windows file names, so we use
+	// space, &, and + — all valid on Windows but encoded by s3URLEncode.
+	specialKeys := []string{
+		"folder/file with spaces.txt",
+		"folder/ampersand&file.txt",
+		"folder/plus+file.txt",
+		"café/résumé.txt",
+	}
+	for _, key := range specialKeys {
+		_, err := env.objectManager.PutObject(ctx, bucketPath, key, bytes.NewReader([]byte("data")), http.Header{})
+		require.NoError(t, err, "should create object: "+key)
+	}
+
+	t.Run("ListObjects V1 without encoding-type returns raw keys", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, "file with spaces.txt", "Raw key must appear without encoding")
+		assert.Contains(t, body, "ampersand&amp;file.txt", "& is XML-escaped but not percent-encoded")
+		assert.NotContains(t, body, "<EncodingType>", "EncodingType must be absent when not requested")
+	})
+
+	t.Run("ListObjects V1 with encoding-type=url percent-encodes keys", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?encoding-type=url", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		// url.PathEscape converts space → %20 and & → %26
+		assert.Contains(t, body, "file%20with%20spaces.txt", "Space must be percent-encoded as %20")
+		assert.Contains(t, body, "ampersand%26file.txt", "& must be percent-encoded as %26")
+		assert.Contains(t, body, "plus%2Bfile.txt", "+ must be percent-encoded as %2B")
+		assert.Contains(t, body, "<EncodingType>url</EncodingType>", "EncodingType element must be present")
+	})
+
+	t.Run("ListObjects V2 with encoding-type=url percent-encodes keys", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2&encoding-type=url", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, "file%20with%20spaces.txt", "Space must be percent-encoded as %20")
+		assert.Contains(t, body, "ampersand%26file.txt", "& must be percent-encoded as %26")
+		assert.Contains(t, body, "<EncodingType>url</EncodingType>", "EncodingType element must be present")
+	})
+
+	t.Run("ListObjects V1 with prefix containing special chars encoded", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?encoding-type=url&prefix=caf%C3%A9", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		// The prefix itself in the response must be URL-encoded.
+		assert.Contains(t, body, "<Prefix>caf%C3%A9</Prefix>", "Prefix must be URL-encoded in response")
+		assert.Contains(t, body, "<EncodingType>url</EncodingType>")
+	})
+
+	t.Run("ListBucketVersions with encoding-type=url", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?versions&encoding-type=url", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, "file%20with%20spaces.txt", "Space must be percent-encoded as %20")
+		assert.Contains(t, body, "ampersand%26file.txt", "& must be percent-encoded as %26")
+		assert.Contains(t, body, "<EncodingType>url</EncodingType>", "EncodingType element must be present")
+	})
+
+	t.Run("Invalid encoding-type value returns 400", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?encoding-type=base64", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Non-url encoding-type must return 400")
+		assert.Contains(t, w.Body.String(), "InvalidArgument")
+	})
+
+	t.Run("Invalid encoding-type value in V2 returns 400", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2&encoding-type=base64", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Non-url encoding-type must return 400")
+		assert.Contains(t, w.Body.String(), "InvalidArgument")
+	})
+}
+
+// TestS3StorageClass verifies that x-amz-storage-class is persisted during PutObject and
+// returned correctly by ListObjects and ListObjectsV2 instead of being hardcoded to STANDARD.
+func TestS3StorageClass(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "storage-class-bucket"
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
+	require.NoError(t, err)
+
+	// Upload object with non-default storage class
+	req, w := env.makeS3Request("PUT", "/"+bucketName+"/obj.txt", []byte("body"))
+	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("x-amz-storage-class", "REDUCED_REDUNDANCY")
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "PutObject should succeed")
+
+	t.Run("ListObjects returns stored StorageClass", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "<StorageClass>REDUCED_REDUNDANCY</StorageClass>",
+			"ListObjects should reflect the x-amz-storage-class used at upload time")
+	})
+
+	t.Run("ListObjectsV2 returns stored StorageClass", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "<StorageClass>REDUCED_REDUNDANCY</StorageClass>",
+			"ListObjectsV2 should reflect the x-amz-storage-class used at upload time")
+	})
+}
+
+// TestS3MultipartStorageClass verifies that x-amz-storage-class is persisted during
+// CreateMultipartUpload and returned correctly by ListMultipartUploads and ListParts.
+func TestS3MultipartStorageClass(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "mp-storage-class-bucket"
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
+	require.NoError(t, err)
+
+	// Initiate multipart upload with non-default storage class
+	req, w := env.makeS3Request("POST", "/"+bucketName+"/multipart.bin?uploads", nil)
+	req.Header.Set("x-amz-storage-class", "STANDARD_IA")
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "CreateMultipartUpload should succeed")
+
+	// Extract upload ID from response
+	body := w.Body.String()
+	assert.Contains(t, body, "<UploadId>", "Should contain UploadId")
+
+	t.Run("ListMultipartUploads returns stored StorageClass", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?uploads", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "<StorageClass>STANDARD_IA</StorageClass>",
+			"ListMultipartUploads should reflect the x-amz-storage-class from CreateMultipartUpload")
+	})
+}
+
+// TestNormalizeETag verifies that normalizeETag strips surrounding double-quotes.
+func TestNormalizeETag(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{`"abc123"`, "abc123"},
+		{"abc123", "abc123"},
+		{`""`, ""},
+		{"", ""},
+		{`"with"middle"`, `with"middle`}, // only outer quotes stripped by strings.Trim
+	}
+	for _, tc := range tests {
+		got := normalizeETag(tc.input)
+		if got != tc.want {
+			t.Errorf("normalizeETag(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+// TestS3ETagConditionalHeaders verifies that If-Match and If-None-Match work correctly
+// regardless of whether the stored ETag has surrounding quotes or not (M7 fix).
+func TestS3ETagConditionalHeaders(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "etag-cond-bucket"
+	objectKey := "obj.txt"
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
+	require.NoError(t, err)
+
+	// Upload an object
+	putReq, putW := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey, []byte("content"))
+	putReq.Header.Set("Content-Type", "text/plain")
+	env.router.ServeHTTP(putW, putReq)
+	require.Equal(t, http.StatusOK, putW.Code, "PutObject should succeed")
+	etag := strings.Trim(putW.Header().Get("ETag"), "\"") // bare hex
+
+	t.Run("If-Match with quoted ETag matches", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("If-Match", `"`+etag+`"`)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "If-Match with quoted ETag should succeed")
+	})
+
+	t.Run("If-Match with bare ETag matches", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("If-Match", etag) // no quotes
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "If-Match with bare ETag should succeed")
+	})
+
+	t.Run("If-Match with wrong ETag returns 412", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("If-Match", `"00000000000000000000000000000000"`)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusPreconditionFailed, w.Code, "Wrong If-Match should return 412")
+	})
+
+	t.Run("If-None-Match with matching quoted ETag returns 304", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("If-None-Match", `"`+etag+`"`)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotModified, w.Code, "If-None-Match on same ETag should return 304")
+	})
+
+	t.Run("If-None-Match with different ETag returns 200", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("If-None-Match", `"00000000000000000000000000000000"`)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "If-None-Match on different ETag should return 200")
 	})
 }

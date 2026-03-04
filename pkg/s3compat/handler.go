@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -29,6 +31,25 @@ import (
 func getObjectKey(r *http.Request) string {
 	vars := mux.Vars(r)
 	return vars["object"]
+}
+
+// s3URLEncode performs percent-encoding compatible with the S3 encoding-type=url
+// query parameter. Only RFC 3986 unreserved characters (A-Z a-z 0-9 - . _ ~)
+// and the object-key path separator '/' are kept as-is; every other byte is
+// encoded as %XX. This matches AWS S3 behaviour (e.g. space → %20, & → %26).
+func s3URLEncode(s string) string {
+	const unreservedAndSlash = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/"
+	var buf strings.Builder
+	buf.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if strings.IndexByte(unreservedAndSlash, b) >= 0 {
+			buf.WriteByte(b)
+		} else {
+			fmt.Fprintf(&buf, "%%%02X", b)
+		}
+	}
+	return buf.String()
 }
 
 // generateRequestID generates a SHORT request ID (like MaxIOFS does)
@@ -87,6 +108,7 @@ type Handler struct {
 	metadataStore interface {
 		ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error)
 		GetBucketByName(ctx context.Context, name string) (*metadata.BucketMetadata, error)
+		GetMultipartUpload(ctx context.Context, uploadID string) (*metadata.MultipartUploadMetadata, error)
 	}
 	clusterManager interface {
 		IsClusterEnabled() bool
@@ -129,6 +151,44 @@ func (h *Handler) SetDataDir(dataDir string) {
 	h.dataDir = dataDir
 }
 
+// buildLocationURL constructs the absolute <Location> URL for CompleteMultipartUpload
+// responses, mirroring the addressing style of the incoming request:
+//
+//   - Virtual-hosted-style (bucket.s3.host/key)  → https://bucket.s3.host/key
+//   - Path-style (s3.host/bucket/key)             → https://s3.host/bucket/key
+//   - No usable host (tests / internal calls)     → falls back to publicAPIURL
+func (h *Handler) buildLocationURL(r *http.Request, bucketName, objectKey string) string {
+	// Determine scheme: use https unless we know the server is plain http.
+	scheme := "https"
+	if r.TLS == nil && !strings.HasPrefix(h.publicAPIURL, "https") {
+		scheme = "http"
+	}
+
+	host := r.Host
+	if host != "" {
+		// Strip port for the prefix comparison only.
+		hostname := host
+		if h2, _, err := net.SplitHostPort(host); err == nil {
+			hostname = h2
+		}
+		// Virtual-hosted-style: the Host header is "{bucket}.{anything}".
+		if strings.HasPrefix(hostname, bucketName+".") {
+			return fmt.Sprintf("%s://%s/%s", scheme, host, objectKey)
+		}
+		// Path-style: preserve the host as-is (including any port).
+		return fmt.Sprintf("%s://%s/%s/%s", scheme, host, bucketName, objectKey)
+	}
+
+	// Fallback: use the configured publicAPIURL.
+	if h.publicAPIURL != "" {
+		base := strings.TrimRight(h.publicAPIURL, "/")
+		return fmt.Sprintf("%s/%s/%s", base, bucketName, objectKey)
+	}
+
+	// Last resort: relative path (should never be reached in production).
+	return "/" + bucketName + "/" + objectKey
+}
+
 // SetClusterManager sets the cluster manager for checking cluster status
 func (h *Handler) SetClusterManager(cm interface {
 	IsClusterEnabled() bool
@@ -147,6 +207,7 @@ func (h *Handler) SetBucketAggregator(ba interface {
 func (h *Handler) SetMetadataStore(ms interface {
 	ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error)
 	GetBucketByName(ctx context.Context, name string) (*metadata.BucketMetadata, error)
+	GetMultipartUpload(ctx context.Context, uploadID string) (*metadata.MultipartUploadMetadata, error)
 }) {
 	h.metadataStore = ms
 }
@@ -173,7 +234,7 @@ type BucketInfo struct {
 }
 
 type ListBucketResult struct {
-	XMLName        xml.Name       `xml:"ListBucketResult"`
+	XMLName        xml.Name       `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListBucketResult"`
 	Name           string         `xml:"Name"`
 	Prefix         string         `xml:"Prefix"`
 	Marker         string         `xml:"Marker"`
@@ -181,8 +242,27 @@ type ListBucketResult struct {
 	Delimiter      string         `xml:"Delimiter,omitempty"`
 	IsTruncated    bool           `xml:"IsTruncated"`
 	NextMarker     string         `xml:"NextMarker,omitempty"`
+	EncodingType   string         `xml:"EncodingType,omitempty"`
 	Contents       []ObjectInfo   `xml:"Contents"`
 	CommonPrefixes []CommonPrefix `xml:"CommonPrefixes"`
+}
+
+// ListBucketResultV2 is the response struct for ListObjectsV2 (list-type=2).
+// The root element is still <ListBucketResult> per the AWS S3 spec.
+type ListBucketResultV2 struct {
+	XMLName               xml.Name       `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListBucketResult"`
+	Name                  string         `xml:"Name"`
+	Prefix                string         `xml:"Prefix"`
+	Delimiter             string         `xml:"Delimiter,omitempty"`
+	MaxKeys               int            `xml:"MaxKeys"`
+	KeyCount              int            `xml:"KeyCount"`
+	IsTruncated           bool           `xml:"IsTruncated"`
+	ContinuationToken     string         `xml:"ContinuationToken,omitempty"`
+	NextContinuationToken string         `xml:"NextContinuationToken,omitempty"`
+	StartAfter            string         `xml:"StartAfter,omitempty"`
+	EncodingType          string         `xml:"EncodingType,omitempty"`
+	Contents              []ObjectInfo   `xml:"Contents"`
+	CommonPrefixes        []CommonPrefix `xml:"CommonPrefixes"`
 }
 
 type ObjectInfo struct {
@@ -191,11 +271,18 @@ type ObjectInfo struct {
 	ETag         string    `xml:"ETag"`
 	Size         int64     `xml:"Size"`
 	StorageClass string    `xml:"StorageClass"`
-	Owner        Owner     `xml:"Owner"`
+	Owner        *Owner    `xml:"Owner,omitempty"`
 }
 
 type CommonPrefix struct {
 	Prefix string `xml:"Prefix"`
+}
+
+// LocationConstraintResponse is the XML response for GetBucketLocation.
+// AWS S3 returns <LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">region</LocationConstraint>.
+type LocationConstraintResponse struct {
+	XMLName  xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ LocationConstraint"`
+	Location string   `xml:",chardata"`
 }
 
 type Error struct {
@@ -489,13 +576,50 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.bucketManager.CreateBucket(r.Context(), tenantID, bucketName, user.ID); err != nil {
 		if err == bucket.ErrBucketAlreadyExists {
-			h.writeError(w, "BucketAlreadyExists", "The requested bucket name is not available", bucketName, r)
+			// AWS S3 distinguishes two cases:
+			//   - BucketAlreadyOwnedByYou (409): the caller already owns the bucket.
+			//   - BucketAlreadyExists     (409): a different account owns it.
+			// Determine ownership by fetching the existing bucket metadata.
+			errorCode := "BucketAlreadyExists"
+			errorMsg := "The requested bucket name is not available"
+			if existingBucket, infoErr := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName); infoErr == nil {
+				// The bucket manager stores user.ID as OwnerID regardless of tenantID.
+				if existingBucket.OwnerID == user.ID {
+					errorCode = "BucketAlreadyOwnedByYou"
+					errorMsg = "Your previous request to create the named bucket succeeded and you already own it"
+				}
+			}
+			h.writeError(w, errorCode, errorMsg, bucketName, r)
 			return
 		}
 		h.writeError(w, "InternalError", err.Error(), bucketName, r)
 		return
 	}
 
+	// AWS S3: if the request carries "x-amz-bucket-object-lock-enabled: true",
+	// Object Lock must be enabled at creation time (it cannot be enabled later).
+	if strings.EqualFold(r.Header.Get("x-amz-bucket-object-lock-enabled"), "true") {
+		if err := h.bucketManager.SetObjectLockConfig(r.Context(), tenantID, bucketName, &bucket.ObjectLockConfig{
+			ObjectLockEnabled: true,
+		}); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"bucket":   bucketName,
+				"tenantID": tenantID,
+			}).Error("CreateBucket: failed to enable Object Lock")
+			// Bucket was created; roll back by deleting it to avoid an inconsistent state.
+			_ = h.bucketManager.DeleteBucket(r.Context(), tenantID, bucketName)
+			h.writeError(w, "InternalError", "Failed to enable Object Lock on bucket", bucketName, r)
+			return
+		}
+		logrus.WithFields(logrus.Fields{
+			"bucket":   bucketName,
+			"tenantID": tenantID,
+		}).Info("CreateBucket: Object Lock enabled via x-amz-bucket-object-lock-enabled header")
+	}
+
+	// AWS S3 requires a Location header on successful bucket creation.
+	// Value is always "/{bucketName}" regardless of addressing style.
+	w.Header().Set("Location", "/"+bucketName)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -663,9 +787,24 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 	maxKeys := 1000
 
 	if maxKeysStr := r.URL.Query().Get("max-keys"); maxKeysStr != "" {
-		if parsed, err := strconv.Atoi(maxKeysStr); err == nil && parsed > 0 {
-			maxKeys = parsed
+		parsed, err := strconv.Atoi(maxKeysStr)
+		if err != nil || parsed < 0 {
+			h.writeError(w, "InvalidArgument", "The specified value for max-keys is not valid. It must be between 0 and 1000.", bucketName, r)
+			return
 		}
+		maxKeys = parsed
+	}
+
+	if maxKeys > 1000 {
+		h.writeError(w, "InvalidArgument", "The specified value for max-keys is not valid. It must be between 0 and 1000.", bucketName, r)
+		return
+	}
+
+	// Parse encoding-type — only "url" is valid per the S3 spec.
+	encodingType := r.URL.Query().Get("encoding-type")
+	if encodingType != "" && encodingType != "url" {
+		h.writeError(w, "InvalidArgument", "Invalid Encoding Method specified in Request", bucketName, r)
+		return
 	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
@@ -679,36 +818,197 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert common prefixes to S3 format
+	// Apply URL encoding to string fields when requested.
+	encodeStr := func(s string) string {
+		if encodingType == "url" {
+			return s3URLEncode(s)
+		}
+		return s
+	}
+
+	// Convert common prefixes to S3 format.
 	var commonPrefixes []CommonPrefix
 	for _, cp := range listResult.CommonPrefixes {
-		commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: cp.Prefix})
+		commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: encodeStr(cp.Prefix)})
 	}
 
 	result := ListBucketResult{
 		Name:           bucketName,
-		Prefix:         prefix,
-		Marker:         marker,
+		Prefix:         encodeStr(prefix),
+		Marker:         encodeStr(marker),
 		MaxKeys:        maxKeys,
-		Delimiter:      delimiter,
+		Delimiter:      encodeStr(delimiter),
 		IsTruncated:    listResult.IsTruncated,
-		NextMarker:     listResult.NextMarker,
+		NextMarker:     encodeStr(listResult.NextMarker),
+		EncodingType:   encodingType,
 		CommonPrefixes: commonPrefixes,
 		Contents:       make([]ObjectInfo, len(listResult.Objects)),
 	}
 
 	for i, obj := range listResult.Objects {
 		result.Contents[i] = ObjectInfo{
-			Key:          obj.Key,
+			Key:          encodeStr(obj.Key),
 			LastModified: obj.LastModified,
 			ETag:         obj.ETag,
 			Size:         obj.Size,
-			StorageClass: "STANDARD",
-			Owner: Owner{
+			StorageClass: storageClassOrStandard(obj.StorageClass),
+			Owner: &Owner{
 				ID:          "maxiofs",
 				DisplayName: "MaxIOFS",
 			},
 		}
+	}
+
+	h.writeXMLResponse(w, http.StatusOK, result)
+}
+
+// ListObjectsV2 handles GET /{bucket}?list-type=2 per the AWS S3 ListObjectsV2 API.
+// Key differences from V1 ListObjects:
+//   - Uses ContinuationToken/NextContinuationToken instead of Marker/NextMarker
+//   - Supports start-after to skip objects lexicographically prior to a key
+//   - Adds KeyCount to the response (number of objects returned)
+//   - Owner is omitted by default unless fetch-owner=true is requested
+func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	logrus.WithField("bucket", bucketName).Debug("S3 API: ListObjectsV2")
+
+	// Permission check: identical logic to ListObjects
+	user, userExists := auth.GetUserFromContext(r.Context())
+	tenantID := h.getTenantIDFromRequest(r)
+
+	if userExists {
+		if user.TenantID != tenantID {
+			hasPermission := h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionRead)
+			if !hasPermission {
+				hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+			}
+			if !hasPermission {
+				hasPermission = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+			}
+			if !hasPermission {
+				logrus.WithFields(logrus.Fields{
+					"bucket":       bucketName,
+					"userID":       user.ID,
+					"userTenantID": user.TenantID,
+					"bucketTenant": tenantID,
+				}).Warn("ACL permission denied for ListObjectsV2 - cross-tenant access")
+				h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+				return
+			}
+		}
+	} else {
+		if !h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
+			logrus.WithField("bucket", bucketName).Warn("Public access denied for ListObjectsV2")
+			h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+			return
+		}
+	}
+
+	q := r.URL.Query()
+
+	// V2-specific parameters
+	continuationToken := q.Get("continuation-token")
+	startAfter := q.Get("start-after")
+	fetchOwner := strings.EqualFold(q.Get("fetch-owner"), "true")
+
+	// Shared parameters
+	prefix := q.Get("prefix")
+	delimiter := q.Get("delimiter")
+	maxKeys := 1000
+
+	if s := q.Get("max-keys"); s != "" {
+		parsed, err := strconv.Atoi(s)
+		if err != nil || parsed < 0 {
+			h.writeError(w, "InvalidArgument", "The specified value for max-keys is not valid. It must be between 0 and 1000.", bucketName, r)
+			return
+		}
+		maxKeys = parsed
+	}
+	if maxKeys > 1000 {
+		h.writeError(w, "InvalidArgument", "The specified value for max-keys is not valid. It must be between 0 and 1000.", bucketName, r)
+		return
+	}
+
+	// Parse encoding-type — only "url" is valid per the S3 spec.
+	encodingTypeV2 := q.Get("encoding-type")
+	if encodingTypeV2 != "" && encodingTypeV2 != "url" {
+		h.writeError(w, "InvalidArgument", "Invalid Encoding Method specified in Request", bucketName, r)
+		return
+	}
+
+	// Resolve the internal pagination marker.
+	// continuation-token takes precedence over start-after.
+	marker := startAfter
+	if continuationToken != "" {
+		decoded, err := base64.StdEncoding.DecodeString(continuationToken)
+		if err != nil {
+			h.writeError(w, "InvalidArgument", "The continuation token provided is invalid.", bucketName, r)
+			return
+		}
+		marker = string(decoded)
+	}
+
+	bucketPath := h.getBucketPath(r, bucketName)
+	listResult, err := h.objectManager.ListObjects(r.Context(), bucketPath, prefix, delimiter, marker, maxKeys)
+	if err != nil {
+		if err == object.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	// Apply URL encoding to string fields when requested.
+	encodeStrV2 := func(s string) string {
+		if encodingTypeV2 == "url" {
+			return s3URLEncode(s)
+		}
+		return s
+	}
+
+	var commonPrefixes []CommonPrefix
+	for _, cp := range listResult.CommonPrefixes {
+		commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: encodeStrV2(cp.Prefix)})
+	}
+
+	result := ListBucketResultV2{
+		Name:              bucketName,
+		Prefix:            encodeStrV2(prefix),
+		Delimiter:         encodeStrV2(delimiter),
+		MaxKeys:           maxKeys,
+		KeyCount:          len(listResult.Objects),
+		IsTruncated:       listResult.IsTruncated,
+		ContinuationToken: continuationToken,
+		StartAfter:        encodeStrV2(startAfter),
+		EncodingType:      encodingTypeV2,
+		CommonPrefixes:    commonPrefixes,
+		Contents:          make([]ObjectInfo, len(listResult.Objects)),
+	}
+
+	// NextContinuationToken is a base64-encoded opaque marker for the next page.
+	if listResult.IsTruncated && listResult.NextMarker != "" {
+		result.NextContinuationToken = base64.StdEncoding.EncodeToString([]byte(listResult.NextMarker))
+	}
+
+	for i, obj := range listResult.Objects {
+		info := ObjectInfo{
+			Key:          encodeStrV2(obj.Key),
+			LastModified: obj.LastModified,
+			ETag:         obj.ETag,
+			Size:         obj.Size,
+			StorageClass: storageClassOrStandard(obj.StorageClass),
+		}
+		// Owner is only included when explicitly requested via fetch-owner=true
+		if fetchOwner {
+			info.Owner = &Owner{
+				ID:          "maxiofs",
+				DisplayName: "MaxIOFS",
+			}
+		}
+		result.Contents[i] = info
 	}
 
 	h.writeXMLResponse(w, http.StatusOK, result)
@@ -835,8 +1135,8 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer reader.Close()
 
-	// Handle conditional requests (If-Match, If-None-Match)
-	if !h.validateConditionalHeaders(w, r, obj.ETag) {
+	// Handle conditional requests (If-Match, If-None-Match, If-Modified-Since, If-Unmodified-Since)
+	if !h.validateConditionalHeaders(w, r, obj.ETag, obj.LastModified) {
 		return
 	}
 
@@ -1001,6 +1301,12 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	// Apply legal hold if specified (Veeam compatibility)
 	h.applyLegalHold(r, bucketPath, bucketName, objectKey, legalHoldStatus)
 
+	// Apply canned ACL from x-amz-acl header if present.
+	// Must be done after object is stored so SetObjectACL has something to act on.
+	if cannedACL := r.Header.Get("x-amz-acl"); cannedACL != "" {
+		h.applyObjectCannedACLHeader(r.Context(), bucketPath, objectKey, cannedACL)
+	}
+
 	// Note: Bucket metrics and tenant storage are updated by objectManager.PutObject()
 	// No need to increment here to avoid double-counting on overwrites
 
@@ -1126,8 +1432,8 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle conditional requests (If-Match, If-None-Match) for HeadObject
-	if !h.validateConditionalHeaders(w, r, obj.ETag) {
+	// Handle conditional requests (If-Match, If-None-Match, If-Modified-Since, If-Unmodified-Since)
+	if !h.validateConditionalHeaders(w, r, obj.ETag, obj.LastModified) {
 		return
 	}
 
@@ -1158,7 +1464,7 @@ func (h *Handler) GetBucketLocation(w http.ResponseWriter, r *http.Request) {
 		}).Warn("VEEAM GetBucketLocation - DETECTION PHASE - May determine auto-provisioning")
 	}
 
-	h.writeXMLResponse(w, http.StatusOK, `<LocationConstraint>us-east-1</LocationConstraint>`)
+	h.writeXMLResponse(w, http.StatusOK, LocationConstraintResponse{Location: "us-east-1"})
 }
 
 func (h *Handler) GetBucketVersioning(w http.ResponseWriter, r *http.Request) {
@@ -1434,37 +1740,13 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Validar que el modo no haya cambiado (inmutable)
-	currentMode := ""
-	if bucketInfo.ObjectLock.Rule != nil && bucketInfo.ObjectLock.Rule.DefaultRetention != nil {
-		currentMode = bucketInfo.ObjectLock.Rule.DefaultRetention.Mode
-	}
-
+	// AWS S3 allows changing the bucket-level default retention mode (e.g. GOVERNANCE → COMPLIANCE)
+	// and allows decreasing the default retention period.
+	// The only truly immutable property is ObjectLockEnabled, which is already enforced above
+	// by the ObjectLockConfigurationNotFoundError check.
+	// Individual object retention under COMPLIANCE mode remains immutable per the S3 spec.
 	newMode := newConfig.Rule.DefaultRetention.Mode
-	if !h.validateObjectLockModeImmutable(w, r, currentMode, newMode, bucketName) {
-		return
-	}
-
-	// Calcular días actuales y nuevos
-	var currentDays int
-	if bucketInfo.ObjectLock.Rule != nil && bucketInfo.ObjectLock.Rule.DefaultRetention != nil {
-		currentYears := 0
-		currentDaysValue := 0
-		if bucketInfo.ObjectLock.Rule.DefaultRetention.Years != nil {
-			currentYears = *bucketInfo.ObjectLock.Rule.DefaultRetention.Years
-		}
-		if bucketInfo.ObjectLock.Rule.DefaultRetention.Days != nil {
-			currentDaysValue = *bucketInfo.ObjectLock.Rule.DefaultRetention.Days
-		}
-		currentDays = calculateRetentionDays(currentYears, currentDaysValue)
-	}
-
 	newDays := calculateRetentionDays(newConfig.Rule.DefaultRetention.Years, newConfig.Rule.DefaultRetention.Days)
-
-	// Validar que solo se aumente el período de retención (nunca disminuir)
-	if !h.validateRetentionPeriodIncrease(w, r, currentDays, newDays, bucketName) {
-		return
-	}
 
 	// Actualizar configuración de Object Lock en el bucket
 	updateBucketRetentionConfig(bucketInfo, newConfig)
@@ -1477,10 +1759,9 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"bucket":      bucketName,
-		"currentDays": currentDays,
-		"newDays":     newDays,
-		"mode":        newMode,
+		"bucket":  bucketName,
+		"newDays": newDays,
+		"mode":    newMode,
 	}).Info("PutObjectLockConfiguration - Configuration updated successfully")
 
 	w.WriteHeader(http.StatusOK)
@@ -1493,10 +1774,16 @@ func (h *Handler) writeXMLResponse(w http.ResponseWriter, statusCode int, data i
 	w.WriteHeader(statusCode)
 
 	if str, ok := data.(string); ok {
+		// Prepend XML declaration only if the string doesn't already carry one.
+		if !strings.HasPrefix(strings.TrimSpace(str), "<?xml") {
+			w.Write([]byte(xml.Header))
+		}
 		w.Write([]byte(str))
 		return
 	}
 
+	// Write XML declaration before the encoded struct (AWS S3 always includes it).
+	w.Write([]byte(xml.Header))
 	if err := xml.NewEncoder(w).Encode(data); err != nil {
 		logrus.WithError(err).Error("Failed to encode XML response")
 	}
@@ -1557,7 +1844,7 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	case "MethodNotAllowed":
 		statusCode = http.StatusMethodNotAllowed
 	// 409 Conflict
-	case "BucketAlreadyExists", "BucketNotEmpty", "OperationAborted":
+	case "BucketAlreadyExists", "BucketAlreadyOwnedByYou", "BucketNotEmpty", "OperationAborted":
 		statusCode = http.StatusConflict
 	// 412 Precondition Failed
 	case "PreconditionFailed":
@@ -1586,6 +1873,13 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 
 	w.WriteHeader(statusCode)
+
+	// RFC 7231: HEAD responses MUST NOT include a message body. Sending an XML
+	// body on a HEAD error causes strict clients to block waiting for bytes that
+	// will never arrive, or to report a protocol violation.
+	if r != nil && r.Method == http.MethodHead {
+		return
+	}
 
 	// Write XML declaration (S3-compatible format)
 	w.Write([]byte(xml.Header))
@@ -1946,9 +2240,6 @@ func (h *Handler) DeleteObjectVersion(w http.ResponseWriter, r *http.Request) {
 	// This handler is called when DELETE has versionId query parameter
 	// Redirect to DeleteObject which now handles versionId
 	h.DeleteObject(w, r)
-}
-func (h *Handler) PresignedOperation(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Note: The following operations are now implemented in separate files:
@@ -2375,22 +2666,59 @@ func (h *Handler) validateBucketReadPermission(
 	return false
 }
 
-// validateConditionalHeaders validates If-Match and If-None-Match headers
-func (h *Handler) validateConditionalHeaders(w http.ResponseWriter, r *http.Request, etag string) bool {
+// validateConditionalHeaders validates If-Match, If-None-Match, If-Modified-Since
+// and If-Unmodified-Since headers per the AWS S3 / RFC 7232 spec.
+// ETag conditions are evaluated first; date conditions follow.
+func (h *Handler) validateConditionalHeaders(w http.ResponseWriter, r *http.Request, etag string, lastModified time.Time) bool {
 	ifMatch := r.Header.Get("If-Match")
 	ifNoneMatch := r.Header.Get("If-None-Match")
 
-	if ifMatch != "" && etag != strings.Trim(ifMatch, "\"") {
-		w.WriteHeader(http.StatusPreconditionFailed)
-		return false
+	// ETag conditions take precedence over date conditions (RFC 7232 §6).
+	// Normalize both sides to strip surrounding double-quotes before comparing so that
+	// stored ETags with quotes ("abc123") are handled identically to those without.
+	if ifMatch != "" {
+		if normalizeETag(etag) != normalizeETag(ifMatch) {
+			w.WriteHeader(http.StatusPreconditionFailed)
+			return false
+		}
 	}
 
-	if ifNoneMatch != "" && etag == strings.Trim(ifNoneMatch, "\"") {
-		w.WriteHeader(http.StatusNotModified)
-		return false
+	if ifNoneMatch != "" {
+		if normalizeETag(etag) == normalizeETag(ifNoneMatch) {
+			w.WriteHeader(http.StatusNotModified)
+			return false
+		}
+	}
+
+	// Date conditions (only evaluated when the corresponding ETag header is absent).
+	if ifModifiedSince := r.Header.Get("If-Modified-Since"); ifModifiedSince != "" && ifNoneMatch == "" {
+		if t, err := http.ParseTime(ifModifiedSince); err == nil {
+			// Object has NOT been modified since the given time → 304.
+			if !lastModified.After(t) {
+				w.WriteHeader(http.StatusNotModified)
+				return false
+			}
+		}
+	}
+
+	if ifUnmodifiedSince := r.Header.Get("If-Unmodified-Since"); ifUnmodifiedSince != "" && ifMatch == "" {
+		if t, err := http.ParseTime(ifUnmodifiedSince); err == nil {
+			// Object HAS been modified since the given time → 412.
+			if lastModified.After(t) {
+				w.WriteHeader(http.StatusPreconditionFailed)
+				return false
+			}
+		}
 	}
 
 	return true
+}
+
+// normalizeETag strips surrounding double-quote characters from an ETag value so that
+// "abc123" and abc123 compare as equal. This is needed because the stored ETag may or
+// may not include quotes while the If-Match / If-None-Match header value may differ.
+func normalizeETag(etag string) string {
+	return strings.Trim(etag, "\"")
 }
 
 // validateObjectReadPermission validates object-level read permissions for cross-tenant access
@@ -2731,6 +3059,58 @@ func (h *Handler) applyLegalHold(
 	}).Info("Applied legal hold from headers")
 }
 
+// applyObjectCannedACLHeader applies a canned ACL value to an object.
+// The authenticated user is resolved from ctx for the owner field.
+// Called after successful PutObject and CompleteMultipartUpload when x-amz-acl is present.
+func (h *Handler) applyObjectCannedACLHeader(ctx context.Context, bucketPath, objectKey, cannedACL string) {
+	if !acl.IsValidCannedACL(cannedACL) {
+		logrus.WithFields(logrus.Fields{
+			"bucketPath": bucketPath,
+			"object":     objectKey,
+			"acl":        cannedACL,
+		}).Warn("applyObjectCannedACLHeader: invalid canned ACL value, skipping")
+		return
+	}
+
+	ownerID, ownerDisplayName := "maxiofs", "MaxIOFS"
+	if user, ok := auth.GetUserFromContext(ctx); ok && user != nil {
+		ownerID = user.ID
+		ownerDisplayName = user.Username
+	}
+
+	grants := acl.GetCannedACLGrants(cannedACL, ownerID, ownerDisplayName)
+	if grants == nil {
+		return
+	}
+
+	objectGrants := make([]object.Grant, len(grants))
+	for i, g := range grants {
+		objectGrants[i] = object.Grant{
+			Grantee: object.Grantee{
+				Type:         string(g.Grantee.Type),
+				ID:           g.Grantee.ID,
+				DisplayName:  g.Grantee.DisplayName,
+				EmailAddress: g.Grantee.EmailAddress,
+				URI:          g.Grantee.URI,
+			},
+			Permission: string(g.Permission),
+		}
+	}
+
+	aclData := &object.ACL{
+		Owner:  object.Owner{ID: ownerID, DisplayName: ownerDisplayName},
+		Grants: objectGrants,
+	}
+
+	if err := h.objectManager.SetObjectACL(ctx, bucketPath, objectKey, aclData); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"bucketPath": bucketPath,
+			"object":     objectKey,
+			"acl":        cannedACL,
+		}).WithError(err).Warn("applyObjectCannedACLHeader: failed to apply canned ACL")
+	}
+}
+
 // setPutObjectResponseHeaders sets response headers for PutObject operation
 func (h *Handler) setPutObjectResponseHeaders(w http.ResponseWriter, obj *object.Object) {
 	w.Header().Set("ETag", obj.ETag)
@@ -2871,55 +3251,12 @@ func (h *Handler) parseObjectLockConfigXML(
 	return &config, true
 }
 
-// validateObjectLockModeImmutable validates that Object Lock mode cannot be changed (immutable)
-func (h *Handler) validateObjectLockModeImmutable(
-	w http.ResponseWriter,
-	r *http.Request,
-	currentMode string,
-	newMode string,
-	bucketName string,
-) bool {
-	if currentMode != "" && newMode != currentMode {
-		logrus.WithFields(logrus.Fields{
-			"currentMode": currentMode,
-			"newMode":     newMode,
-		}).Warn("PutObjectLockConfiguration - Attempt to change mode")
-		h.writeError(w, "InvalidRequest",
-			fmt.Sprintf("Object Lock mode cannot be changed (current: %s)", currentMode),
-			bucketName, r)
-		return false
-	}
-	return true
-}
-
 // calculateRetentionDays converts years/days to total days
 func calculateRetentionDays(years int, days int) int {
 	if years > 0 {
 		return years * 365
 	}
 	return days
-}
-
-// validateRetentionPeriodIncrease ensures retention period can only be increased, never decreased
-func (h *Handler) validateRetentionPeriodIncrease(
-	w http.ResponseWriter,
-	r *http.Request,
-	currentDays int,
-	newDays int,
-	bucketName string,
-) bool {
-	if newDays < currentDays {
-		logrus.WithFields(logrus.Fields{
-			"currentDays": currentDays,
-			"newDays":     newDays,
-		}).Warn("PutObjectLockConfiguration - Attempt to decrease retention period")
-		h.writeError(w, "InvalidRequest",
-			fmt.Sprintf("Retention period can only be increased (current: %d days, requested: %d days)",
-				currentDays, newDays),
-			bucketName, r)
-		return false
-	}
-	return true
 }
 
 // updateBucketRetentionConfig updates bucket's Object Lock retention configuration
@@ -2948,4 +3285,12 @@ func updateBucketRetentionConfig(
 		bucketInfo.ObjectLock.Rule.DefaultRetention.Days = &days
 		bucketInfo.ObjectLock.Rule.DefaultRetention.Years = nil
 	}
+}
+
+// storageClassOrStandard returns sc if non-empty, otherwise "STANDARD".
+func storageClassOrStandard(sc string) string {
+	if sc == "" {
+		return "STANDARD"
+	}
+	return sc
 }

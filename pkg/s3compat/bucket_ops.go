@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/acl"
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/sirupsen/logrus"
 )
@@ -133,8 +134,8 @@ func (h *Handler) DeleteBucketPolicy(w http.ResponseWriter, r *http.Request) {
 
 // Bucket Lifecycle XML structures
 type LifecycleConfiguration struct {
-	XMLName xml.Name         `xml:"LifecycleConfiguration"`
-	Rules   []LifecycleRule  `xml:"Rule"`
+	XMLName xml.Name        `xml:"LifecycleConfiguration"`
+	Rules   []LifecycleRule `xml:"Rule"`
 }
 
 type LifecycleRule struct {
@@ -288,11 +289,19 @@ func (h *Handler) PutBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for i, rule := range xmlConfig.Rules {
+		// Resolve prefix from either the legacy top-level <Prefix> element (old-style)
+		// or from the modern <Filter><Prefix> element (sent by aws-cli, Terraform, SDKv2).
+		// Both represent the same concept; prefer the Filter field when it is present.
+		prefix := rule.Prefix
+		if prefix == "" && rule.Filter != nil {
+			prefix = rule.Filter.Prefix
+		}
+
 		internalRule := bucket.LifecycleRule{
 			ID:     rule.ID,
 			Status: rule.Status,
 			Filter: bucket.LifecycleFilter{
-				Prefix: rule.Prefix,
+				Prefix: prefix,
 			},
 		}
 
@@ -697,7 +706,12 @@ func (h *Handler) PutBucketACL(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Create ACL from canned ACL using helper function
-		grants := acl.GetCannedACLGrants(cannedACL, "maxiofs", "MaxIOFS")
+		ownerID, ownerDisplayName := "maxiofs", "MaxIOFS"
+		if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil {
+			ownerID = user.ID
+			ownerDisplayName = user.Username
+		}
+		grants := acl.GetCannedACLGrants(cannedACL, ownerID, ownerDisplayName)
 		if grants == nil {
 			h.writeError(w, "InvalidArgument", "Invalid canned ACL: "+cannedACL, bucketName, r)
 			return
@@ -705,8 +719,8 @@ func (h *Handler) PutBucketACL(w http.ResponseWriter, r *http.Request) {
 
 		aclData = &acl.ACL{
 			Owner: acl.Owner{
-				ID:          "maxiofs",
-				DisplayName: "MaxIOFS",
+				ID:          ownerID,
+				DisplayName: ownerDisplayName,
 			},
 			Grants:    grants,
 			CannedACL: cannedACL,
@@ -741,5 +755,136 @@ func (h *Handler) PutBucketACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.WriteHeader(http.StatusOK)
+}
+
+// ---------------------------------------------------------------------------
+// Bucket sub-resource stubs — these sub-resources are not implemented by
+// MaxIOFS but must return well-formed AWS-compatible responses so that tools
+// like aws-cli, Terraform, and SDK probes do not fall through to ListObjects.
+// ---------------------------------------------------------------------------
+
+// GetBucketNotification returns an empty NotificationConfiguration (no notifications configured).
+func (h *Handler) GetBucketNotification(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><NotificationConfiguration/>`)) //nolint:errcheck
+}
+
+// PutBucketNotification accepts a notification configuration (no-op).
+func (h *Handler) PutBucketNotification(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetBucketWebsite returns NoSuchWebsiteConfiguration (static website not supported).
+func (h *Handler) GetBucketWebsite(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	h.writeError(w, "NoSuchWebsiteConfiguration",
+		"The specified bucket does not have a website configuration", vars["bucket"], r)
+}
+
+// PutBucketWebsite accepts a website configuration (no-op).
+func (h *Handler) PutBucketWebsite(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	w.WriteHeader(http.StatusOK)
+}
+
+// DeleteBucketWebsite removes a website configuration (no-op).
+func (h *Handler) DeleteBucketWebsite(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetBucketAccelerateConfiguration returns an empty AccelerateConfiguration
+// (Transfer Acceleration is not supported; Status is omitted which means Suspended).
+func (h *Handler) GetBucketAccelerateConfiguration(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>` + //nolint:errcheck
+		`<AccelerateConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status/></AccelerateConfiguration>`))
+}
+
+// PutBucketAccelerateConfiguration accepts an acceleration configuration (no-op).
+func (h *Handler) PutBucketAccelerateConfiguration(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetBucketRequestPayment returns BucketOwner as the payer (Requester Pays not supported).
+func (h *Handler) GetBucketRequestPayment(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>` + //nolint:errcheck
+		`<RequestPaymentConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
+		`<Payer>BucketOwner</Payer>` +
+		`</RequestPaymentConfiguration>`))
+}
+
+// PutBucketRequestPayment accepts a request payment configuration (no-op).
+func (h *Handler) PutBucketRequestPayment(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetBucketEncryption returns ServerSideEncryptionConfigurationNotFoundError
+// (per-bucket SSE config is not stored separately; encryption is managed globally).
+func (h *Handler) GetBucketEncryption(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	h.writeError(w, "ServerSideEncryptionConfigurationNotFoundError",
+		"The server side encryption configuration was not found", vars["bucket"], r)
+}
+
+// PutBucketEncryption accepts a server-side encryption configuration (no-op).
+func (h *Handler) PutBucketEncryption(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	w.WriteHeader(http.StatusOK)
+}
+
+// DeleteBucketEncryption removes a server-side encryption configuration (no-op).
+func (h *Handler) DeleteBucketEncryption(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetBucketReplication returns ReplicationConfigurationNotFoundError
+// (cross-region replication via S3 API not supported; MaxIOFS uses its own cluster replication).
+func (h *Handler) GetBucketReplication(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	h.writeError(w, "ReplicationConfigurationNotFoundError",
+		"The replication configuration was not found", vars["bucket"], r)
+}
+
+// PutBucketReplication returns NotImplemented — use the MaxIOFS replication API instead.
+func (h *Handler) PutBucketReplication(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	h.writeError(w, "NotImplemented",
+		"S3 bucket replication is not supported. Use the MaxIOFS cluster replication API.", vars["bucket"], r)
+}
+
+// DeleteBucketReplication removes a replication configuration (no-op).
+func (h *Handler) DeleteBucketReplication(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetBucketLogging returns an empty BucketLoggingStatus (access logging not supported via S3 API).
+func (h *Handler) GetBucketLogging(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><BucketLoggingStatus/>`)) //nolint:errcheck
+}
+
+// PutBucketLogging accepts a logging configuration (no-op).
+func (h *Handler) PutBucketLogging(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	w.WriteHeader(http.StatusOK)
 }

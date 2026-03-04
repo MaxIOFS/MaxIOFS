@@ -996,7 +996,10 @@ func TestS3Operation_MissingAuthentication(t *testing.T) {
 			// Should return 403 Forbidden for missing auth
 			// The s3Handler checks for user in context and returns AccessDenied
 			assert.Equal(t, http.StatusForbidden, rr.Code, "Expected 403 for "+tc.name)
-			assert.Contains(t, rr.Body.String(), "AccessDenied", "Should contain AccessDenied error")
+			// HEAD responses must NOT have a body per RFC 7231 — only check body for non-HEAD requests
+			if tc.method != http.MethodHead {
+				assert.Contains(t, rr.Body.String(), "AccessDenied", "Should contain AccessDenied error")
+			}
 		})
 	}
 }

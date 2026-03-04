@@ -111,9 +111,15 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Delete object (filesystem + BadgerDB metadata + bucket metrics)
-		// Batch delete doesn't support bypass governance
-		_, err := h.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false)
+		// Delete object with optional version ID.
+		// Batch delete doesn't support bypass governance.
+		var deleteMarkerVersionID string
+		var err error
+		if obj.VersionId != "" {
+			deleteMarkerVersionID, err = h.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false, obj.VersionId)
+		} else {
+			deleteMarkerVersionID, err = h.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false)
+		}
 
 		if err != nil {
 			// Log error but continue with other objects
@@ -140,12 +146,19 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		} else {
-			// Success - add to deleted list if not quiet mode
+			// Success - add to deleted list if not quiet mode.
+			// When a delete marker was created (versioned bucket, no VersionId specified),
+			// include DeleteMarker and DeleteMarkerVersionId per S3 spec.
 			if !deleteRequest.Quiet {
-				result.Deleted = append(result.Deleted, DeletedObject{
+				deleted := DeletedObject{
 					Key:       obj.Key,
 					VersionId: obj.VersionId,
-				})
+				}
+				if deleteMarkerVersionID != "" {
+					deleted.DeleteMarker = true
+					deleted.DeleteMarkerVersionId = deleteMarkerVersionID
+				}
+				result.Deleted = append(result.Deleted, deleted)
 			}
 		}
 	}

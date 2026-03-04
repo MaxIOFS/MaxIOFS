@@ -358,10 +358,34 @@ func (h *Handler) HandlePresignedRequest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Resolve the user associated with the presigned URL access key and inject into context.
+	// This ensures PutObject/DeleteObject permission checks see an authenticated user,
+	// since those handlers rely on auth.GetUserFromContext() for access control.
+	query := r.URL.Query()
+	accessKeyID := ""
+	if cred := query.Get("X-Amz-Credential"); cred != "" {
+		// V4: credential=<ACCESS_KEY>/<date>/<region>/<service>/aws4_request
+		if idx := strings.Index(cred, "/"); idx > 0 {
+			accessKeyID = cred[:idx]
+		}
+	} else if query.Get("AWSAccessKeyId") != "" {
+		// V2: AWSAccessKeyId=<ACCESS_KEY>&Signature=...
+		accessKeyID = query.Get("AWSAccessKeyId")
+	}
+
+	if accessKeyID != "" && h.authManager != nil {
+		if accessKey, err := h.authManager.GetAccessKey(r.Context(), accessKeyID); err == nil {
+			if user, err := h.authManager.GetUser(r.Context(), accessKey.UserID); err == nil {
+				enrichedCtx := context.WithValue(r.Context(), "user", user)
+				r = r.WithContext(enrichedCtx)
+			}
+		}
+	}
+
 	// Extract bucket and object from URL
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	objectKey := vars["key"]
+	objectKey := vars["object"]
 
 	// Route to appropriate handler based on method
 	switch r.Method {
@@ -446,4 +470,3 @@ func buildCanonicalQueryString(query url.Values) string {
 
 	return strings.Join(parts, "&")
 }
-

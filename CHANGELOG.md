@@ -5,6 +5,65 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`ListObjectsV2` handler** (`GET /{bucket}?list-type=2`) — dedicated V2 handler with proper `ContinuationToken`/`NextContinuationToken`, `StartAfter`, `KeyCount`, and `fetch-owner` parameter support. AWS CLI v2, AWS SDK v3 (Go/Python/JavaScript), and all modern clients that default to `list-type=2` now paginate correctly. (`pkg/s3compat/handler.go`, `internal/api/handler.go`)
+- **`encoding-type=url` support** in `ListObjects` V1/V2 and `ListObjectVersions` — URL-encodes `Key`, `Prefix`, `Delimiter`, `Marker`, and `NextMarker` fields when the `?encoding-type=url` query parameter is present. Invalid values return `400 InvalidArgument`. (`pkg/s3compat/handler.go`, `pkg/s3compat/versioning.go`)
+- **`x-amz-metadata-directive` in `CopyObject`** — `COPY` (default) preserves source metadata; `REPLACE` uses request headers (`Content-Type`, `x-amz-meta-*`) as new metadata, enabling ETL-style copy-and-relabel in one request. (`pkg/s3compat/object_ops.go`)
+- **Copy-source conditional headers in `CopyObject`** — `x-amz-copy-source-if-match`, `x-amz-copy-source-if-none-match`, `x-amz-copy-source-if-modified-since`, `x-amz-copy-source-if-unmodified-since`. Returns `412 PreconditionFailed` when conditions are not met. (`pkg/s3compat/object_ops.go`)
+- **`If-Modified-Since` and `If-Unmodified-Since`** conditional headers in `GetObject` and `HeadObject` — returns `304 Not Modified` or `412 Precondition Failed` per RFC 7232; date conditions evaluated after ETag per spec precedence. Used by `aws s3 sync`, Veeam backup verification, and download managers to skip unchanged objects. (`pkg/s3compat/handler.go`)
+- **`StorageClass` persistence** — `x-amz-storage-class` header value is stored during `PutObject` and `CreateMultipartUpload` and returned correctly in all listing operations (`ListObjects` V1/V2, `ListObjectVersions`, `ListParts`, `ListMultipartUploads`). Defaults to `STANDARD` when not set. (`internal/object/manager.go`, `pkg/s3compat/handler.go`, `pkg/s3compat/versioning.go`, `pkg/s3compat/multipart.go`)
+- **`BucketAlreadyOwnedByYou` error code** — `CreateBucket` now fetches the existing bucket owner and distinguishes between a bucket already owned by the requesting user (`BucketAlreadyOwnedByYou`, 409) and one owned by a different user (`BucketAlreadyExists`, 409), matching AWS S3 semantics. (`pkg/s3compat/handler.go`)
+- **`X-Amz-Request-Id` and `X-Amz-Id-2` headers on auth-failure responses** — `writeS3Error()` in the auth middleware generates and sets both tracing headers before `WriteHeader` on every error response (401, 403, 5xx). Absent these headers, Veeam and other enterprise S3 clients may reject the endpoint as non-compliant during connection validation. (`internal/auth/manager.go`)
+
+### Changed
+- **`writeXMLResponse` prepends XML declaration** — all successful XML responses (`ListBuckets`, `ListObjects`, `GetBucketVersioning`, `CompleteMultipartUpload`, etc.) now include `<?xml version="1.0" encoding="UTF-8"?>`. Strict XML parsers (some Java SDK versions, XML validators) no longer fail on missing declaration. (`pkg/s3compat/handler.go`)
+- **`ListBucketResult` and `ListBucketResultV2` carry S3 namespace** — both structs now use the `http://s3.amazonaws.com/doc/2006-03-01/` XML namespace, rendering as `<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` per the AWS S3 spec. (`pkg/s3compat/handler.go`)
+- **`GetBucketLocation` now returns a proper XML document** — replaced raw string `<LocationConstraint>` with a `LocationConstraintResponse` struct carrying the `http://s3.amazonaws.com/doc/2006-03-01/` namespace and rendered via `writeXMLResponse` (includes XML declaration). (`pkg/s3compat/handler.go`)
+- **`CompleteMultipartUpload` `<Location>` field is now an absolute URL** — mirrors the request style (virtual-hosted or path-style) and uses `publicAPIURL` as fallback, instead of the previous relative path `/bucketname/key`. (`pkg/s3compat/multipart.go`, `pkg/s3compat/handler.go`)
+- **`CreateBucket` sets `Location` response header** — adds `Location: /{bucketName}` on HTTP 200 success, as required by the AWS S3 specification and expected by AWS SDK v2's `CreateBucketCommand`. (`pkg/s3compat/handler.go`)
+- **`max-keys` capped at 1000** — `ListObjects` V1 and V2 return `400 InvalidArgument` for `max-keys` values greater than 1000, matching AWS S3 behavior. Non-numeric or negative values also return `InvalidArgument`. (`pkg/s3compat/handler.go`)
+- **SigV2 string-to-sign includes canonical AMZ headers** — `createStringToSignV2()` now collects all `x-amz-*` request headers, lowercases names, sorts them, and appends as `name:value\n` lines. When `X-Amz-Date` is present the `Date` line in the string-to-sign is set to empty (AWS SigV2 spec). Fixes SigV2 validation for any client that includes `x-amz-*` headers. (`internal/auth/manager.go`)
+- **Object Lock bucket-level configuration is now mutable** — removed non-standard restrictions: changing the default retention mode (e.g., `GOVERNANCE` → `COMPLIANCE`) and decreasing the default retention period are now permitted, matching AWS S3 behavior. `ObjectLockEnabled` remains immutable once set to `true`. (`pkg/s3compat/handler.go`)
+- **`DeleteObjects` response now includes delete marker fields** — when deleting from a versioning-enabled bucket without a `VersionId`, the `<Deleted>` entry now includes `<DeleteMarker>true</DeleteMarker>` and `<DeleteMarkerVersionId>...</DeleteMarkerVersionId>`. Required by Veeam and backup tools to track created delete markers for later cleanup. (`pkg/s3compat/batch.go`)
+- **ETag comparison normalized in conditional header validation** — replaced inline `strings.Trim(etag, "\"")` with a `normalizeETag()` helper that strips surrounding double-quotes from both the stored ETag and the request header value before comparison. Prevents false `412 Precondition Failed` responses when the stored ETag already includes surrounding quotes. (`pkg/s3compat/handler.go`)
+- **Presigned URL handling fully implemented** — removed the `PresignedOperation` stub route that returned `501 Not Implemented`. `HandlePresignedRequest` now correctly reads `vars["object"]` (was `vars["key"]`), resolves and injects the authenticated user into the request context via `GetAccessKey` → `GetUser` → `context.WithValue`, then delegates to the appropriate downstream handler (`GetObject`, `PutObject`, `DeleteObject`, `HeadObject`). V4 (`?X-Amz-Algorithm=`) and V2 (`?AWSAccessKeyId=`) presigned routes are registered before the basic object routes in the router to ensure correct precedence. (`pkg/s3compat/presigned.go`, `internal/api/handler.go`)
+- **`HEAD` error responses contain no body** — `writeError()` now early-returns after setting the HTTP status code when the request method is `HEAD`, per RFC 7231 §3.3. Previously a full XML body was written, which could cause strict HTTP/1.1 clients to block waiting for a body that should not exist. (`pkg/s3compat/handler.go`)
+
+### Fixed
+- **`x-amz-acl` silently discarded on `PutObject`** — the `x-amz-acl` header was accepted but never applied; `SetObjectACL` was never called after the object was stored. Fixed by calling the new `applyObjectCannedACLHeader` helper after a successful `PutObject`. (`pkg/s3compat/handler.go`)
+- **`x-amz-acl` silently discarded on `CompleteMultipartUpload`** — same bug for multipart uploads. The `x-amz-acl` header passed to `CreateMultipartUpload` is now read from the stored upload metadata before the goroutine launches (it is deleted during completion), and applied after the goroutine succeeds. (`pkg/s3compat/multipart.go`)
+- **`x-amz-acl` silently discarded on `CopyObject`** — `aws s3api copy-object --acl public-read` had no effect. Fixed with the same pattern as `PutObject`. (`pkg/s3compat/object_ops.go`)
+- **`?versionId=xxx` in `x-amz-copy-source` not parsed** — when copying a specific version (`x-amz-copy-source: bucket/key?versionId=ABC123`), the `?versionId=ABC123` suffix was included literally in the source key, causing a `NoSuchKey` error. It is now stripped and passed as a positional version ID to `GetObject`. (`pkg/s3compat/object_ops.go`)
+- **Hardcoded owner `"maxiofs"` in `PutBucketACL` and `PutObjectACL`** — canned ACL paths used literal `"maxiofs"` / `"MaxIOFS"` as the owner instead of the authenticated user. Fixed to resolve the real user from `auth.GetUserFromContext`. (`pkg/s3compat/bucket_ops.go`, `pkg/s3compat/object_ops.go`)
+- **Missing bucket sub-resource routes** — `?notification`, `?website`, `?accelerate`, `?requestPayment`, `?encryption`, `?replication`, and `?logging` routes were not registered; requests fell through to `ListObjects`, returning a confusing 200 XML body. Added 17 new handler methods returning AWS-spec-compliant responses (`NotificationConfiguration`, `AccelerateConfiguration`, `RequestPaymentConfiguration`, etc.). (`pkg/s3compat/bucket_ops.go`, `internal/api/handler.go`)
+- **`PutBucketLifecycle` silently ignores `<Filter><Prefix>`** — modern clients (aws-cli v2, SDKv2, Terraform AWS provider) send the prefix inside `<Filter><Prefix>…</Prefix></Filter>` rather than the legacy top-level `<Prefix>`. The handler only read the old-style element, silently losing the prefix. Now prefers `rule.Filter.Prefix` and falls back to `rule.Prefix` for backward compatibility. (`pkg/s3compat/bucket_ops.go`)
+- **`ListMultipartUploads` reports spurious `IsTruncated=true`** — the condition `len(uploads) > len(filteredUploads)` was true whenever any upload was skipped by marker filtering, even if `maxUploads` was never reached. `IsTruncated` is now set only when the loop actually hits the `maxUploads` limit. (`pkg/s3compat/multipart.go`)
+
+### Tests
+- `TestS3ListObjectsV2` (11 sub-tests) — pagination, `ContinuationToken`, `StartAfter`, `KeyCount`, `fetch-owner=false`
+- `TestS3HeadErrorNoBody` (4 sub-tests) — verified no body on HEAD 404/403 errors
+- `TestCompleteMultipartUploadLocation` (3 sub-tests) — absolute URL in `<Location>` for path-style and virtual-hosted-style
+- `TestWriteXMLResponseDeclaration` (4 sub-tests) — XML declaration present in all major XML responses
+- `TestS3CreateBucketLocationHeader` (3 sub-tests) — `Location: /bucketname` header on 200 response
+- `TestS3CopyObjectMetadataDirective` (3 sub-tests) + `TestS3CopyObjectConditionals` (8 sub-tests)
+- `TestS3ConditionalDateHeaders` (9 sub-tests) — `If-Modified-Since`/`If-Unmodified-Since` for GetObject and HeadObject
+- `TestS3ListObjectsMaxKeys` (8 sub-tests) — `max-keys` > 1000 → `InvalidArgument`
+- `TestObjectLockModeAndPeriodMutability` (6 sub-tests) — mode switch and period decrease accepted
+- `TestS3CreateBucketObjectLockEnabled` (4 sub-tests) — `x-amz-bucket-object-lock-enabled` persisted on bucket creation
+- `TestS3DeleteObjectsDeleteMarkers` (3 sub-tests) — versioned and non-versioned batch deletes
+- `TestS3EncodingTypeURL` (7 sub-tests) — keys with `&`, `<`, `>`, spaces, non-ASCII
+- `TestS3ListObjectsV2Namespace` — `<ListBucketResult xmlns="...">` rendered correctly
+- `TestS3CreateBucketConflict` (2 sub-tests) — `BucketAlreadyOwnedByYou` vs `BucketAlreadyExists`
+- `TestCreateStringToSignV2CanonicalAmzHeaders` (4 sub-tests) — `x-amz-*` headers in SigV2 string-to-sign
+- `TestS3StorageClass` + `TestS3MultipartStorageClass` — storage class stored and returned in listings
+- `TestPresignedGetRoutesFallsThrough` — V4 and V2 presigned routes matched before basic handlers
+- `TestNormalizeETag` (5 cases) + `TestS3ETagConditionalHeaders` (5 sub-tests) — ETag quote normalization
+- `TestWriteS3ErrorIncludesAmzHeaders` (3 sub-tests: Unauthorized, Forbidden, Internal) — `X-Amz-Request-Id` and `X-Amz-Id-2` present on auth errors
+
+---
+
 ## [1.0.0-beta] - 2026-03-02
 
 ### Added
@@ -626,6 +685,7 @@ MaxIOFS follows semantic versioning:
 - ✅ Two-Factor Authentication (2FA)
 
 **Current Metrics:**
+- S3 API Compatibility: ~99% (full audit completed March 2026 — 20 issues identified and resolved)
 - Backend Test Coverage: ~75% (at practical ceiling)
 - Frontend Test Coverage: 100%
 - Performance: P95 <10ms (Linux production)
@@ -639,7 +699,8 @@ See [TODO.md](TODO.md) for detailed roadmap and requirements.
 
 ### Completed Features (v0.1.0 - v1.0.0-beta)
 
-**v1.0.0-beta (February 2026)** - Pebble Metadata Engine, Cluster Snapshot Reconciliation & Veeam Compatibility
+**v1.0.0-beta (February–March 2026)** - Pebble Metadata Engine, S3 Compatibility Audit, Cluster Snapshot Reconciliation & Veeam Compatibility
+- ✅ Full S3 compatibility audit — 20 issues identified and resolved (ListObjectsV2, encoding-type, presigned URLs, ETag normalization, XML namespaces, SigV2 canonical headers, StorageClass, conditional headers, and more)
 - ✅ Replaced BadgerDB with Pebble (crash-safe WAL, no CGO) for all S3 metadata
 - ✅ Transparent auto-migration from BadgerDB on first startup (no manual steps)
 - ✅ Cluster state snapshot endpoint and stale reconciler (LWW partition handling)

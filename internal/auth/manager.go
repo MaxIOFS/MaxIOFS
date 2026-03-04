@@ -181,14 +181,14 @@ type AccessKey struct {
 
 // authManager implements the Manager interface
 type authManager struct {
-	config                      config.AuthConfig
-	store                       *SQLiteStore
-	rateLimiter                 *LoginRateLimiter
-	auditManager                *audit.Manager
-	userLockedCallback          func(*User)
-	storageQuotaAlertCallback   func(tenantID string, currentBytes, maxBytes int64)
-	settingsManager             SettingsManager
-	clusterManager     interface {
+	config                    config.AuthConfig
+	store                     *SQLiteStore
+	rateLimiter               *LoginRateLimiter
+	auditManager              *audit.Manager
+	userLockedCallback        func(*User)
+	storageQuotaAlertCallback func(tenantID string, currentBytes, maxBytes int64)
+	settingsManager           SettingsManager
+	clusterManager            interface {
 		IsClusterEnabled() bool
 	}
 	quotaAggregator interface {
@@ -1569,13 +1569,49 @@ func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders str
 	return canonicalRequest
 }
 
-// createStringToSignV2 creates string to sign for SigV2
+// createStringToSignV2 creates string to sign for SigV2.
+// Format (per AWS docs):
+//
+//	HTTP-Verb     + "\n"
+//	Content-MD5   + "\n"
+//	Content-Type  + "\n"
+//	Date          + "\n"   (empty when x-amz-date header is present)
+//	CanonicalizedAmzHeaders          (sorted x-amz-* lines, each ending in "\n")
+//	CanonicalizedResource
 func (am *authManager) createStringToSignV2(r *http.Request) string {
-	// Simplified string to sign for SigV2
 	method := r.Method
 	contentMD5 := r.Header.Get("Content-MD5")
 	contentType := r.Header.Get("Content-Type")
+
+	// Per SigV2 spec: if x-amz-date is present, the Date field must be empty.
 	date := r.Header.Get("Date")
+	if r.Header.Get("X-Amz-Date") != "" {
+		date = ""
+	}
+
+	// Canonicalize x-amz-* headers: lowercase name, trimmed value, sorted.
+	amzHeaders := make(map[string][]string)
+	for name, values := range r.Header {
+		lower := strings.ToLower(name)
+		if strings.HasPrefix(lower, "x-amz-") {
+			amzHeaders[lower] = append(amzHeaders[lower], values...)
+		}
+	}
+	var amzKeys []string
+	for k := range amzHeaders {
+		amzKeys = append(amzKeys, k)
+	}
+	sort.Strings(amzKeys)
+
+	var canonAmzHeaders strings.Builder
+	for _, k := range amzKeys {
+		// Join multiple values with comma, trim whitespace from each value.
+		var trimmed []string
+		for _, v := range amzHeaders[k] {
+			trimmed = append(trimmed, strings.TrimSpace(v))
+		}
+		canonAmzHeaders.WriteString(k + ":" + strings.Join(trimmed, ",") + "\n")
+	}
 
 	resource := "/"
 	if r.URL != nil {
@@ -1588,8 +1624,8 @@ func (am *authManager) createStringToSignV2(r *http.Request) string {
 		}
 	}
 
-	return fmt.Sprintf("%s\n%s\n%s\n%s\n%s",
-		method, contentMD5, contentType, date, resource)
+	return fmt.Sprintf("%s\n%s\n%s\n%s\n%s%s",
+		method, contentMD5, contentType, date, canonAmzHeaders.String(), resource)
 }
 
 // calculateSignatureV4 calculates AWS SigV4 signature
@@ -1666,9 +1702,15 @@ func IsAdminUser(ctx context.Context) bool {
 	return false
 }
 
-// writeS3Error writes an S3-compatible XML error response
+// writeS3Error writes an S3-compatible XML error response and sets
+// X-Amz-Request-Id and X-Amz-Id-2 headers required by compliant S3 clients
+// (e.g. Veeam) even on auth failures.
 func writeS3Error(w http.ResponseWriter, r *http.Request, code, message string, statusCode int) {
+	// Generate S3-compatible tracing headers before WriteHeader so clients see them.
 	w.Header().Set("Content-Type", "application/xml")
+	requestID := generateS3RequestID()
+	w.Header().Set("X-Amz-Request-Id", requestID)
+	w.Header().Set("X-Amz-Id-2", generateS3AmzId2())
 	w.WriteHeader(statusCode)
 
 	type S3Error struct {
@@ -1683,10 +1725,24 @@ func writeS3Error(w http.ResponseWriter, r *http.Request, code, message string, 
 		Code:      code,
 		Message:   message,
 		Resource:  r.URL.Path,
-		RequestId: r.Header.Get("X-Request-ID"),
+		RequestId: requestID,
 	}
 
 	xml.NewEncoder(w).Encode(errorResponse)
+}
+
+// generateS3RequestID generates a 16-char uppercase hex request ID (matches S3 format).
+func generateS3RequestID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return strings.ToUpper(hex.EncodeToString(b))
+}
+
+// generateS3AmzId2 generates a 64-char hex host ID (matches S3 x-amz-id-2 format).
+func generateS3AmzId2() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // CheckRateLimit checks if login is allowed from given IP address

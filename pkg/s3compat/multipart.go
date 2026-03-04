@@ -153,8 +153,11 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Filter and paginate results
+	// Filter and paginate results.
+	// isTruncated must only be true when the maxUploads limit was hit,
+	// NOT simply because marker-based filtering skipped some uploads.
 	var filteredUploads []MultipartUpload
+	isTruncated := false
 	for _, upload := range uploads {
 		// Apply marker filtering
 		if keyMarker != "" && upload.Key < keyMarker {
@@ -175,17 +178,17 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 				ID:          "maxiofs",
 				DisplayName: "MaxIOFS",
 			},
-			StorageClass: "STANDARD",
+			StorageClass: storageClassOrStandard(upload.StorageClass),
 			Initiated:    upload.Initiated,
 		})
 
 		if len(filteredUploads) >= maxUploads {
+			isTruncated = true
 			break
 		}
 	}
 
-	// Determine if truncated
-	isTruncated := len(uploads) > len(filteredUploads)
+	// isTruncated is already set correctly in the loop above
 	nextKeyMarker := ""
 	nextUploadIdMarker := ""
 	if isTruncated && len(filteredUploads) > 0 {
@@ -346,6 +349,14 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve StorageClass from the upload metadata; fall back to STANDARD.
+	uploadStorageClass := "STANDARD"
+	if h.metadataStore != nil {
+		if uploadMeta, metaErr := h.metadataStore.GetMultipartUpload(r.Context(), uploadID); metaErr == nil && uploadMeta != nil {
+			uploadStorageClass = storageClassOrStandard(uploadMeta.StorageClass)
+		}
+	}
+
 	// Sort parts by part number
 	sort.Slice(parts, func(i, j int) bool {
 		return parts[i].PartNumber < parts[j].PartNumber
@@ -389,7 +400,7 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 			ID:          "maxiofs",
 			DisplayName: "MaxIOFS",
 		},
-		StorageClass:         "STANDARD",
+		StorageClass:         uploadStorageClass,
 		PartNumberMarker:     partNumberMarker,
 		NextPartNumberMarker: nextPartNumberMarker,
 		MaxParts:             maxParts,
@@ -438,6 +449,19 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		parts[i] = object.Part{
 			PartNumber: part.PartNumber,
 			ETag:       part.ETag,
+		}
+	}
+
+	// Resolve bucket path and capture x-amz-acl BEFORE launching the goroutine.
+	// The upload metadata (which stores the ACL header from CreateMultipartUpload)
+	// is deleted during CompleteMultipartUpload, so we must read it now.
+	bucketPath := h.getBucketPath(r, bucketName)
+	var storedCannedACL string
+	if h.metadataStore != nil {
+		if uploadMeta, metaErr := h.metadataStore.GetMultipartUpload(r.Context(), uploadID); metaErr == nil && uploadMeta != nil {
+			if uploadMeta.Metadata != nil {
+				storedCannedACL = uploadMeta.Metadata["x-amz-acl"]
+			}
 		}
 	}
 
@@ -524,8 +548,13 @@ done:
 		logrus.WithField("versionID", res.obj.VersionID).Debug("CompleteMultipartUpload: version ID set after early 200, cannot set header")
 	}
 
+	// Apply x-amz-acl originally set during CreateMultipartUpload (if any).
+	if storedCannedACL != "" {
+		h.applyObjectCannedACLHeader(bgCtx, bucketPath, objectKey, storedCannedACL)
+	}
+
 	result := CompleteMultipartUploadResult{
-		Location: "/" + bucketName + "/" + objectKey,
+		Location: h.buildLocationURL(r, bucketName, objectKey),
 		Bucket:   bucketName,
 		Key:      objectKey,
 		ETag:     res.obj.ETag,

@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/acl"
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
@@ -451,7 +452,12 @@ func (h *Handler) PutObjectACL(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Create ACL from canned ACL using helper function
-		grants := acl.GetCannedACLGrants(cannedACL, "maxiofs", "MaxIOFS")
+		ownerID, ownerDisplayName := "maxiofs", "MaxIOFS"
+		if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil {
+			ownerID = user.ID
+			ownerDisplayName = user.Username
+		}
+		grants := acl.GetCannedACLGrants(cannedACL, ownerID, ownerDisplayName)
 		if grants == nil {
 			h.writeError(w, "InvalidArgument", "Invalid canned ACL: "+cannedACL, objectKey, r)
 			return
@@ -474,8 +480,8 @@ func (h *Handler) PutObjectACL(w http.ResponseWriter, r *http.Request) {
 
 		aclData = &object.ACL{
 			Owner: object.Owner{
-				ID:          "maxiofs",
-				DisplayName: "MaxIOFS",
+				ID:          ownerID,
+				DisplayName: ownerDisplayName,
 			},
 			Grants: objectGrants,
 		}
@@ -582,6 +588,14 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse optional ?versionId=xxx from the source key.
+	// The header format can be: "bucket/key?versionId=ABC123"
+	var copySourceVersionID string
+	if vIdx := strings.Index(sourceKey, "?versionId="); vIdx != -1 {
+		copySourceVersionID = sourceKey[vIdx+len("?versionId="):]
+		sourceKey = sourceKey[:vIdx]
+	}
+
 	if sourceBucket == "" || sourceKey == "" {
 		logrus.WithFields(logrus.Fields{
 			"sourceBucket": sourceBucket,
@@ -592,15 +606,31 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sourceBucketPath := h.getBucketPath(r, sourceBucket)
-	// Get source object
-	sourceObj, reader, err := h.objectManager.GetObject(r.Context(), sourceBucketPath, sourceKey)
-	if err != nil {
-		if err == object.ErrObjectNotFound {
-			h.writeError(w, "NoSuchKey", "The specified source key does not exist", sourceKey, r)
+	// Get source object, requesting a specific version if indicated in the copy source.
+	var sourceObj *object.Object
+	var reader io.ReadCloser
+	if copySourceVersionID != "" {
+		var getErr error
+		sourceObj, reader, getErr = h.objectManager.GetObject(r.Context(), sourceBucketPath, sourceKey, copySourceVersionID)
+		if getErr != nil {
+			if getErr == object.ErrObjectNotFound {
+				h.writeError(w, "NoSuchKey", "The specified source key does not exist", sourceKey, r)
+				return
+			}
+			h.writeError(w, "InternalError", getErr.Error(), sourceKey, r)
 			return
 		}
-		h.writeError(w, "InternalError", err.Error(), sourceKey, r)
-		return
+	} else {
+		var getErr error
+		sourceObj, reader, getErr = h.objectManager.GetObject(r.Context(), sourceBucketPath, sourceKey)
+		if getErr != nil {
+			if getErr == object.ErrObjectNotFound {
+				h.writeError(w, "NoSuchKey", "The specified source key does not exist", sourceKey, r)
+				return
+			}
+			h.writeError(w, "InternalError", getErr.Error(), sourceKey, r)
+			return
+		}
 	}
 	defer reader.Close()
 
@@ -613,11 +643,70 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		"source_etag":   sourceObj.ETag,
 	}).Info("CopyObject: Starting copy operation")
 
-	// Copy metadata
+	// Evaluate copy-source conditional headers (AWS S3 spec §CopyObject).
+	// All conditions are checked against the SOURCE object's ETag / LastModified.
+	if ifMatch := r.Header.Get("x-amz-copy-source-if-match"); ifMatch != "" {
+		want := strings.Trim(ifMatch, "\"")
+		got := strings.Trim(sourceObj.ETag, "\"")
+		if want != got {
+			h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", sourceKey, r)
+			return
+		}
+	}
+	if ifNoneMatch := r.Header.Get("x-amz-copy-source-if-none-match"); ifNoneMatch != "" {
+		want := strings.Trim(ifNoneMatch, "\"")
+		got := strings.Trim(sourceObj.ETag, "\"")
+		if want == got {
+			h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", sourceKey, r)
+			return
+		}
+	}
+	if ifModifiedSince := r.Header.Get("x-amz-copy-source-if-modified-since"); ifModifiedSince != "" {
+		t, parseErr := http.ParseTime(ifModifiedSince)
+		if parseErr == nil && !sourceObj.LastModified.After(t) {
+			// Not modified since the given time — condition fails (412)
+			h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", sourceKey, r)
+			return
+		}
+	}
+	if ifUnmodifiedSince := r.Header.Get("x-amz-copy-source-if-unmodified-since"); ifUnmodifiedSince != "" {
+		t, parseErr := http.ParseTime(ifUnmodifiedSince)
+		if parseErr == nil && sourceObj.LastModified.After(t) {
+			// Modified since the given time — condition fails (412)
+			h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", sourceKey, r)
+			return
+		}
+	}
+
+	// Build destination metadata based on x-amz-metadata-directive (default: COPY).
+	directive := strings.ToUpper(r.Header.Get("x-amz-metadata-directive"))
+	if directive == "" {
+		directive = "COPY"
+	}
+	if directive != "COPY" && directive != "REPLACE" {
+		h.writeError(w, "InvalidArgument", "x-amz-metadata-directive must be COPY or REPLACE", destKey, r)
+		return
+	}
+
 	headers := make(http.Header)
-	headers.Set("Content-Type", sourceObj.ContentType)
-	for k, v := range sourceObj.Metadata {
-		headers.Set("X-Amz-Meta-"+k, v)
+	if directive == "REPLACE" {
+		// Caller is setting fresh metadata — use headers from the request.
+		ct := r.Header.Get("Content-Type")
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		headers.Set("Content-Type", ct)
+		for k, vals := range r.Header {
+			if strings.HasPrefix(strings.ToLower(k), "x-amz-meta-") {
+				headers[k] = vals
+			}
+		}
+	} else {
+		// COPY — preserve source object metadata.
+		headers.Set("Content-Type", sourceObj.ContentType)
+		for k, v := range sourceObj.Metadata {
+			headers.Set("X-Amz-Meta-"+k, v)
+		}
 	}
 
 	destBucketPath := h.getBucketPath(r, destBucket)
@@ -632,6 +721,11 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		}
 		h.writeError(w, "InternalError", err.Error(), destKey, r)
 		return
+	}
+
+	// Apply canned ACL from x-amz-acl header if present (e.g. --acl public-read on copy).
+	if cannedACL := r.Header.Get("x-amz-acl"); cannedACL != "" {
+		h.applyObjectCannedACLHeader(r.Context(), destBucketPath, destKey, cannedACL)
 	}
 
 	// Return copy result

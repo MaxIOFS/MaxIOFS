@@ -122,8 +122,8 @@ type objectManager struct {
 	}
 
 	// Deduplication for concurrent CompleteMultipartUpload calls with the same uploadID
-	completionMu  sync.Mutex
-	completions   map[string]*completionFuture
+	completionMu sync.Mutex
+	completions  map[string]*completionFuture
 }
 
 // NewManager creates a new object manager
@@ -403,8 +403,8 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		return nil, fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tempPath := tempFile.Name()
-	defer os.Remove(tempPath)       // Clean up temp file when done
-	defer tempFile.Close()          // Ensure handle is closed on panic
+	defer os.Remove(tempPath) // Clean up temp file when done
+	defer tempFile.Close()    // Ensure handle is closed on panic
 
 	// Write to temp file while calculating MD5 hash
 	hasher := md5.New()
@@ -479,7 +479,7 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		ETag:         originalETag, // Original ETag (MD5 of unencrypted data)
 		ContentType:  finalStorageMetadata["content-type"],
 		Metadata:     userMetadata, // User metadata from x-amz-meta-* headers
-		StorageClass: StorageClassStandard,
+		StorageClass: storageClassOrDefault(storageMetadata["storage-class"]),
 		VersionID:    versionID, // Set versionID (empty string if versioning disabled)
 	}
 
@@ -506,7 +506,7 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 			Size:         size,
 			ETag:         object.ETag,
 			LastModified: object.LastModified,
-			StorageClass: StorageClassStandard,
+			StorageClass: object.StorageClass,
 		}
 
 		// Store version (this also updates the main object if IsLatest=true)
@@ -1570,7 +1570,7 @@ func (om *objectManager) CreateMultipartUpload(ctx context.Context, bucket, key 
 		Bucket:       bucket,
 		Key:          key,
 		Initiated:    time.Now(),
-		StorageClass: StorageClassStandard,
+		StorageClass: storageClassOrDefault(headers.Get("x-amz-storage-class")),
 		Metadata:     metadata,
 		Parts:        []Part{},
 	}
@@ -2179,6 +2179,11 @@ func (om *objectManager) extractMetadataFromHeaders(headers http.Header) (storag
 		storageMetadata["content-type"] = "application/octet-stream"
 	}
 
+	// Extract x-amz-storage-class header
+	if sc := headers.Get("x-amz-storage-class"); sc != "" {
+		storageMetadata["storage-class"] = sc
+	}
+
 	// Extract user-defined metadata (x-amz-meta-* headers)
 	for headerKey, values := range headers {
 		if len(values) > 0 {
@@ -2192,6 +2197,14 @@ func (om *objectManager) extractMetadataFromHeaders(headers http.Header) (storag
 	}
 
 	return storageMetadata, userMetadata
+}
+
+// storageClassOrDefault returns sc if non-empty, otherwise "STANDARD".
+func storageClassOrDefault(sc string) string {
+	if sc == "" {
+		return StorageClassStandard
+	}
+	return sc
 }
 
 // shouldEncryptObject determines if an object should be encrypted based on server and bucket configuration
