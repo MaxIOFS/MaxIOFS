@@ -2,14 +2,13 @@ package auth
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -292,30 +291,19 @@ func TestValidateJWT_ForgedSignature(t *testing.T) {
 
 	// Now forge a token with a DIFFERENT secret key
 	forgeToken := func(secretKey string) string {
-		header := map[string]string{"typ": "JWT", "alg": "HS256"}
-		headerJSON, _ := json.Marshal(header)
-		headerB64 := base64.URLEncoding.EncodeToString(headerJSON)
-
 		claims := JWTClaims{
+			RegisteredClaims: jwt.RegisteredClaims{
+				Subject:   user.ID,
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+			},
 			UserID:    user.ID,
 			AccessKey: user.Username,
 			Roles:     []string{"admin"},
-			ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
-			IssuedAt:  time.Now().Unix(),
-			NotBefore: time.Now().Unix(),
-			Issuer:    "maxiofs",
-			Subject:   user.ID,
-			Audience:  "maxiofs-api",
 		}
-		payloadJSON, _ := json.Marshal(claims)
-		payloadB64 := base64.URLEncoding.EncodeToString(payloadJSON)
-
-		message := headerB64 + "." + payloadB64
-		mac := hmac.New(sha256.New, []byte(secretKey))
-		mac.Write([]byte(message))
-		signature := base64.URLEncoding.EncodeToString(mac.Sum(nil))
-
-		return message + "." + signature
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		signed, _ := token.SignedString([]byte(secretKey))
+		return signed
 	}
 
 	tests := []struct {
@@ -390,7 +378,7 @@ func TestValidateJWT_TamperedPayload(t *testing.T) {
 	parts := splitToken(validToken)
 	require.Len(t, parts, 3)
 
-	payloadBytes, err := base64.URLEncoding.DecodeString(parts[1])
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	require.NoError(t, err)
 
 	var claims map[string]interface{}
@@ -400,7 +388,7 @@ func TestValidateJWT_TamperedPayload(t *testing.T) {
 	// Escalate privileges
 	claims["roles"] = []string{"admin", "superadmin"}
 	tamperedPayload, _ := json.Marshal(claims)
-	tamperedPayloadB64 := base64.URLEncoding.EncodeToString(tamperedPayload)
+	tamperedPayloadB64 := base64.RawURLEncoding.EncodeToString(tamperedPayload)
 
 	// Reconstruct token with tampered payload but original signature
 	tamperedToken := parts[0] + "." + tamperedPayloadB64 + "." + parts[2]

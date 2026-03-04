@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/acl"
@@ -2236,11 +2237,23 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Password is required for local users", http.StatusBadRequest)
 		return
 	}
+	if !isExternalUser {
+		if msg := s.validatePasswordPolicy(createRequest.Password); msg != "" {
+			s.writeError(w, msg, http.StatusBadRequest)
+			return
+		}
+	}
 
 	// Get current user for tenant validation
 	currentUser, userExists := auth.GetUserFromContext(r.Context())
 	if !userExists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	// Only admins (global or tenant) can create users
+	if !s.isAdmin(currentUser) {
+		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}
 
@@ -2835,10 +2848,10 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
 			"logLevel":         s.config.LogLevel,
 		},
 		"storage": map[string]interface{}{
-			"backend":           s.config.Storage.Backend,
-			"root":              s.config.Storage.Root,
-			"enableEncryption":  s.config.Storage.EnableEncryption,
-			"enableObjectLock":  s.config.Storage.EnableObjectLock,
+			"backend":          s.config.Storage.Backend,
+			"root":             s.config.Storage.Root,
+			"enableEncryption": s.config.Storage.EnableEncryption,
+			"enableObjectLock": s.config.Storage.EnableObjectLock,
 		},
 		"auth": map[string]interface{}{
 			"enableAuth": s.config.Auth.EnableAuth,
@@ -2893,6 +2906,62 @@ func (s *Server) handleAPIHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // Helper methods
+// validatePasswordPolicy checks a password against the settings-configured rules.
+// Returns a non-empty error message if validation fails, empty string if the password is valid.
+func (s *Server) validatePasswordPolicy(password string) string {
+	minLen := 8
+	if v, err := s.settingsManager.GetInt("security.password_min_length"); err == nil && v > 0 {
+		minLen = v
+	}
+	if len(password) < minLen {
+		return fmt.Sprintf("Password must be at least %d characters", minLen)
+	}
+
+	requireUpper, _ := s.settingsManager.GetBool("security.password_require_uppercase")
+	if requireUpper {
+		hasUpper := false
+		for _, r := range password {
+			if unicode.IsUpper(r) {
+				hasUpper = true
+				break
+			}
+		}
+		if !hasUpper {
+			return "Password must contain at least one uppercase letter"
+		}
+	}
+
+	requireNumbers, _ := s.settingsManager.GetBool("security.password_require_numbers")
+	if requireNumbers {
+		hasDigit := false
+		for _, r := range password {
+			if unicode.IsDigit(r) {
+				hasDigit = true
+				break
+			}
+		}
+		if !hasDigit {
+			return "Password must contain at least one number"
+		}
+	}
+
+	requireSpecial, _ := s.settingsManager.GetBool("security.password_require_special")
+	if requireSpecial {
+		hasSpecial := false
+		for _, r := range password {
+			if unicode.IsPunct(r) || unicode.IsSymbol(r) {
+				hasSpecial = true
+				break
+			}
+		}
+		if !hasSpecial {
+			return "Password must contain at least one special character"
+		}
+	}
+
+	return ""
+}
+
 func (s *Server) writeJSON(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -3262,9 +3331,9 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate new password strength
-	if len(changeRequest.NewPassword) < 6 {
-		s.writeError(w, "New password must be at least 6 characters", http.StatusBadRequest)
+	// Validate new password against configured policy
+	if msg := s.validatePasswordPolicy(changeRequest.NewPassword); msg != "" {
+		s.writeError(w, msg, http.StatusBadRequest)
 		return
 	}
 

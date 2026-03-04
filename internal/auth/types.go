@@ -1,6 +1,10 @@
 package auth
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/golang-jwt/jwt/v5"
+)
 
 // Common authentication errors
 var (
@@ -36,8 +40,8 @@ type Statement struct {
 	Sid       string                 `json:"Sid,omitempty"`
 	Effect    string                 `json:"Effect"` // Allow, Deny
 	Principal map[string]interface{} `json:"Principal,omitempty"`
-	Action    interface{}            `json:"Action"`    // string or []string
-	Resource  interface{}            `json:"Resource"`  // string or []string
+	Action    interface{}            `json:"Action"`   // string or []string
+	Resource  interface{}            `json:"Resource"` // string or []string
 	Condition map[string]interface{} `json:"Condition,omitempty"`
 }
 
@@ -50,40 +54,35 @@ type Permission struct {
 
 // S3SignatureV4 represents AWS Signature Version 4 components
 type S3SignatureV4 struct {
-	Algorithm      string
-	Credential     string
-	SignedHeaders  string
-	Signature      string
-	Date           string
-	Region         string
-	Service        string
-	AccessKey      string
-	SecretKey      string
-	SessionToken   string
-	PayloadHash    string
+	Algorithm     string
+	Credential    string
+	SignedHeaders string
+	Signature     string
+	Date          string
+	Region        string
+	Service       string
+	AccessKey     string
+	SecretKey     string
+	SessionToken  string
+	PayloadHash   string
 }
 
 // S3SignatureV2 represents AWS Signature Version 2 components
 type S3SignatureV2 struct {
-	AccessKey   string
-	Signature   string
+	AccessKey    string
+	Signature    string
 	StringToSign string
-	SecretKey   string
+	SecretKey    string
 }
 
 // JWTClaims represents JWT token claims
 type JWTClaims struct {
+	jwt.RegisteredClaims
 	UserID      string   `json:"user_id"`
 	TenantID    string   `json:"tenant_id,omitempty"`
 	AccessKey   string   `json:"access_key"`
 	Roles       []string `json:"roles"`
 	Permissions []string `json:"permissions"`
-	ExpiresAt   int64    `json:"exp"`
-	IssuedAt    int64    `json:"iat"`
-	NotBefore   int64    `json:"nbf"`
-	Issuer      string   `json:"iss"`
-	Subject     string   `json:"sub"`
-	Audience    string   `json:"aud"`
 }
 
 // AuthContext represents authentication context in request
@@ -98,15 +97,15 @@ type AuthContext struct {
 
 // SessionInfo represents user session information
 type SessionInfo struct {
-	SessionID   string            `json:"session_id"`
-	UserID      string            `json:"user_id"`
-	AccessKey   string            `json:"access_key"`
-	CreatedAt   int64             `json:"created_at"`
-	ExpiresAt   int64             `json:"expires_at"`
-	LastAccess  int64             `json:"last_access"`
-	IPAddress   string            `json:"ip_address"`
-	UserAgent   string            `json:"user_agent"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	SessionID  string            `json:"session_id"`
+	UserID     string            `json:"user_id"`
+	AccessKey  string            `json:"access_key"`
+	CreatedAt  int64             `json:"created_at"`
+	ExpiresAt  int64             `json:"expires_at"`
+	LastAccess int64             `json:"last_access"`
+	IPAddress  string            `json:"ip_address"`
+	UserAgent  string            `json:"user_agent"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 
 // UserGroup represents a group of users
@@ -177,10 +176,10 @@ const (
 
 // Constants for default roles
 const (
-	RoleAdmin     = "admin"
-	RoleUser      = "user"
-	RoleReadOnly  = "readonly"
-	RoleGuest     = "guest"
+	RoleAdmin    = "admin"
+	RoleUser     = "user"
+	RoleReadOnly = "readonly"
+	RoleGuest    = "guest"
 )
 
 // Constants for S3 actions
@@ -189,42 +188,42 @@ const (
 	ActionListAllMyBuckets = "s3:ListAllMyBuckets"
 
 	// Bucket actions
-	ActionCreateBucket         = "s3:CreateBucket"
-	ActionDeleteBucket         = "s3:DeleteBucket"
-	ActionListBucket           = "s3:ListBucket"
-	ActionListBucketVersions   = "s3:ListBucketVersions"
-	ActionGetBucketLocation    = "s3:GetBucketLocation"
-	ActionGetBucketVersioning  = "s3:GetBucketVersioning"
-	ActionPutBucketVersioning  = "s3:PutBucketVersioning"
-	ActionGetBucketPolicy      = "s3:GetBucketPolicy"
-	ActionPutBucketPolicy      = "s3:PutBucketPolicy"
-	ActionDeleteBucketPolicy   = "s3:DeleteBucketPolicy"
-	ActionGetBucketLifecycle   = "s3:GetBucketLifecycle"
-	ActionPutBucketLifecycle   = "s3:PutBucketLifecycle"
+	ActionCreateBucket          = "s3:CreateBucket"
+	ActionDeleteBucket          = "s3:DeleteBucket"
+	ActionListBucket            = "s3:ListBucket"
+	ActionListBucketVersions    = "s3:ListBucketVersions"
+	ActionGetBucketLocation     = "s3:GetBucketLocation"
+	ActionGetBucketVersioning   = "s3:GetBucketVersioning"
+	ActionPutBucketVersioning   = "s3:PutBucketVersioning"
+	ActionGetBucketPolicy       = "s3:GetBucketPolicy"
+	ActionPutBucketPolicy       = "s3:PutBucketPolicy"
+	ActionDeleteBucketPolicy    = "s3:DeleteBucketPolicy"
+	ActionGetBucketLifecycle    = "s3:GetBucketLifecycle"
+	ActionPutBucketLifecycle    = "s3:PutBucketLifecycle"
 	ActionDeleteBucketLifecycle = "s3:DeleteBucketLifecycle"
-	ActionGetBucketCORS        = "s3:GetBucketCORS"
-	ActionPutBucketCORS        = "s3:PutBucketCORS"
-	ActionDeleteBucketCORS     = "s3:DeleteBucketCORS"
+	ActionGetBucketCORS         = "s3:GetBucketCORS"
+	ActionPutBucketCORS         = "s3:PutBucketCORS"
+	ActionDeleteBucketCORS      = "s3:DeleteBucketCORS"
 
 	// Object actions
-	ActionGetObject            = "s3:GetObject"
-	ActionPutObject            = "s3:PutObject"
-	ActionDeleteObject         = "s3:DeleteObject"
-	ActionGetObjectVersion     = "s3:GetObjectVersion"
-	ActionDeleteObjectVersion  = "s3:DeleteObjectVersion"
-	ActionGetObjectAcl         = "s3:GetObjectAcl"
-	ActionPutObjectAcl         = "s3:PutObjectAcl"
-	ActionGetObjectTagging     = "s3:GetObjectTagging"
-	ActionPutObjectTagging     = "s3:PutObjectTagging"
-	ActionDeleteObjectTagging  = "s3:DeleteObjectTagging"
-	ActionRestoreObject        = "s3:RestoreObject"
+	ActionGetObject           = "s3:GetObject"
+	ActionPutObject           = "s3:PutObject"
+	ActionDeleteObject        = "s3:DeleteObject"
+	ActionGetObjectVersion    = "s3:GetObjectVersion"
+	ActionDeleteObjectVersion = "s3:DeleteObjectVersion"
+	ActionGetObjectAcl        = "s3:GetObjectAcl"
+	ActionPutObjectAcl        = "s3:PutObjectAcl"
+	ActionGetObjectTagging    = "s3:GetObjectTagging"
+	ActionPutObjectTagging    = "s3:PutObjectTagging"
+	ActionDeleteObjectTagging = "s3:DeleteObjectTagging"
+	ActionRestoreObject       = "s3:RestoreObject"
 
 	// Object Lock actions
-	ActionGetObjectRetention    = "s3:GetObjectRetention"
-	ActionPutObjectRetention    = "s3:PutObjectRetention"
+	ActionGetObjectRetention        = "s3:GetObjectRetention"
+	ActionPutObjectRetention        = "s3:PutObjectRetention"
 	ActionBypassGovernanceRetention = "s3:BypassGovernanceRetention"
-	ActionGetObjectLegalHold    = "s3:GetObjectLegalHold"
-	ActionPutObjectLegalHold    = "s3:PutObjectLegalHold"
+	ActionGetObjectLegalHold        = "s3:GetObjectLegalHold"
+	ActionPutObjectLegalHold        = "s3:PutObjectLegalHold"
 
 	// Multipart actions
 	ActionListMultipartUploadParts = "s3:ListMultipartUploadParts"
