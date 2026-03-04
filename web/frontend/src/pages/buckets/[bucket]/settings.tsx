@@ -21,6 +21,8 @@ import {
   Edit,
   AlertCircle,
   AlertTriangle,
+  CheckCircle,
+  XCircle,
   RefreshCw,
   Package,
 } from 'lucide-react';

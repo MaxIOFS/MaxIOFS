@@ -281,7 +281,7 @@ function doLogout(): void {
   }
 }
 
-const handleError = async (error: AxiosError): Promise<never> => {
+const handleError = async (error: AxiosError): Promise<unknown> => {
   // Handle 401 errors — attempt token refresh before logging out
   if (error.response?.status === 401) {
     const requestUrl = error.config?.url ?? '';
@@ -296,8 +296,7 @@ const handleError = async (error: AxiosError): Promise<never> => {
         if (isRefreshing) {
           return new Promise((resolve, reject) => {
             pendingRefreshCallbacks.push((newToken: string) => {
-              originalRequest.headers = originalRequest.headers ?? {};
-              (originalRequest.headers as Record<string, string>)['Authorization'] = `Bearer ${newToken}`;
+              (originalRequest.headers as any)['Authorization'] = `Bearer ${newToken}`;
               apiClient(originalRequest).then(resolve as any).catch(reject);
             });
           });
@@ -323,9 +322,8 @@ const handleError = async (error: AxiosError): Promise<never> => {
           pendingRefreshCallbacks.forEach(cb => cb(access_token));
           pendingRefreshCallbacks = [];
 
-          originalRequest.headers = originalRequest.headers ?? {};
-          (originalRequest.headers as Record<string, string>)['Authorization'] = `Bearer ${access_token}`;
-          return apiClient(originalRequest) as any;
+          (originalRequest.headers as any)['Authorization'] = `Bearer ${access_token}`;
+          return apiClient(originalRequest);
         } catch {
           isRefreshing = false;
           pendingRefreshCallbacks = [];
