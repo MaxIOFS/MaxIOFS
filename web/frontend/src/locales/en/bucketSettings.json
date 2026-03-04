@@ -25,6 +25,10 @@
     "inventory": {
       "label": "Inventory",
       "description": "Automated bucket inventory reports and configuration"
+    },
+    "website": {
+      "label": "Static Website",
+      "description": "Host a static website directly from this bucket"
     }
   },
 
@@ -450,5 +454,38 @@
     "infoItem3": "Choose between CSV and JSON formats for compatibility with your tools",
     "infoItem4": "Select specific fields to include in your inventory reports",
     "infoItem5": "Reports are stored in the destination bucket you specify"
+  },
+
+  "website": {
+    "title": "Static Website Hosting",
+    "toggleLabel": "Enable static website hosting",
+    "toggleActiveDesc": "This bucket is publicly serving its objects as a website. Disable to stop public access.",
+    "toggleInactiveDesc": "Enable to serve the objects of this bucket as a public website without S3 authentication.",
+    "enableLabel": "Enable Static Website Hosting",
+    "enabledBadge": "Enabled",
+    "disabledBadge": "Disabled",
+    "indexDocRequired": "An index document is required to enable website hosting.",
+    "indexDocLabel": "Index Document",
+    "indexDocPlaceholder": "index.html",
+    "indexDocHint": "The default page served when a directory is requested (e.g. index.html)",
+    "errorDocLabel": "Error Document (optional)",
+    "errorDocPlaceholder": "error.html",
+    "errorDocHint": "The page served when an object is not found (e.g. error.html)",
+    "websiteUrlLabel": "Website Endpoint",
+    "websiteUrlHint": "Your bucket's website will be accessible at this URL once enabled",
+    "notConfiguredYet": "Configure website_hostname in your server settings to get the public URL",
+    "hostnameNotConfiguredTitle": "Website hosting not available",
+    "hostnameNotConfiguredHelp": "Static website hosting requires configuring <code class=\"bg-amber-100 dark:bg-amber-900/50 px-1 rounded\">website_hostname</code> in <code class=\"bg-amber-100 dark:bg-amber-900/50 px-1 rounded\">config.yaml</code> and restarting the server.",
+    "saveConfiguration": "Save Configuration",
+    "deleteConfiguration": "Disable Website Hosting",
+    "confirmDeleteMsg": "Are you sure you want to disable static website hosting for this bucket?",
+    "savedSuccess": "Website hosting configuration saved successfully",
+    "deletedSuccess": "Website hosting disabled successfully",
+    "infoTitle": "About Static Website Hosting",
+    "infoItem1": "Objects in this bucket will be served publicly without requiring authentication",
+    "infoItem2": "The bucket must have public-read or public-read-write ACL for visitors to access files",
+    "infoItem3": "Index document is served when a request targets a directory path",
+    "infoItem4": "Error document is served when the requested object is not found (HTTP 404)",
+    "infoItem5": "Access via the website endpoint bypasses S3 authentication"
   }
 }

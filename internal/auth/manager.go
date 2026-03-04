@@ -30,6 +30,17 @@ type Manager interface {
 	ValidateConsoleCredentials(ctx context.Context, username, password string) (*User, error)
 	ValidateJWT(ctx context.Context, token string) (*User, error)
 	GenerateJWT(ctx context.Context, user *User) (string, error)
+	// GenerateTokenPair issues a short-lived access token and a longer-lived
+	// refresh token. TTLs are read from the settings:
+	//   security.access_token_lifetime  → access  token (default 900 s = 15 min)
+	//   security.session_timeout        → refresh token  (default 86400 s = 24 h)
+	// Sliding window: each POST /auth/refresh call issues a brand-new pair,
+	// so the session stays alive as long as the user is active.
+	GenerateTokenPair(ctx context.Context, user *User) (*TokenPair, error)
+	// ValidateRefreshToken parses a refresh token (token_type == "refresh") and
+	// returns the associated user. Returns ErrInvalidToken for access tokens or
+	// any malformed input, and ErrTokenExpired when the token is past its TTL.
+	ValidateRefreshToken(ctx context.Context, token string) (*User, error)
 
 	// S3 Signature validation
 	ValidateS3Signature(ctx context.Context, r *http.Request) (*User, error)
@@ -444,7 +455,9 @@ func hashPasswordSHA256(password string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// ValidateJWT validates a JWT token
+// ValidateJWT validates a JWT access token.
+// Refresh tokens (token_type == "refresh") are rejected with ErrInvalidToken
+// to prevent them from being used as API credentials.
 func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, error) {
 	if token == "" {
 		return nil, ErrInvalidToken
@@ -468,6 +481,11 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 		return nil, ErrInvalidToken
 	}
 
+	// Reject refresh tokens — they must only be used at POST /auth/refresh.
+	if claims.TokenType == "refresh" {
+		return nil, ErrInvalidToken
+	}
+
 	// Get user by username (AccessKey in claims is username for console users)
 	user, err := am.store.GetUserByUsername(claims.AccessKey)
 	if err != nil {
@@ -477,9 +495,10 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 	return user, nil
 }
 
-// GenerateJWT generates a JWT token for a user
-func (am *authManager) GenerateJWT(ctx context.Context, user *User) (string, error) {
-	// For console users, always use username as AccessKey
+// generateToken is the shared JWT-signing helper used by GenerateJWT and
+// GenerateTokenPair. tokenType must be "access" or "refresh"; ttlSeconds is
+// the token lifetime.
+func (am *authManager) generateToken(user *User, tokenType string, ttlSeconds int) (string, error) {
 	accessKey := user.Username
 	if accessKey == "" {
 		return "", fmt.Errorf("user has no username")
@@ -489,21 +508,13 @@ func (am *authManager) GenerateJWT(ctx context.Context, user *User) (string, err
 	secret := am.config.JWTSecret
 	am.jwtSecretMu.RUnlock()
 
-	// Read session timeout from settings (default 86400 = 24h)
-	sessionTimeout := 86400
-	if am.settingsManager != nil {
-		if v, err := am.settingsManager.GetInt("security.session_timeout"); err == nil && v > 0 {
-			sessionTimeout = v
-		}
-	}
-
 	now := time.Now()
 	claims := JWTClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "maxiofs",
 			Subject:   user.ID,
 			Audience:  jwt.ClaimStrings{"maxiofs-api"},
-			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(sessionTimeout) * time.Second)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(ttlSeconds) * time.Second)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 		},
@@ -511,10 +522,105 @@ func (am *authManager) GenerateJWT(ctx context.Context, user *User) (string, err
 		TenantID:  user.TenantID,
 		AccessKey: accessKey,
 		Roles:     user.Roles,
+		TokenType: tokenType,
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(secret))
+	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return t.SignedString([]byte(secret))
+}
+
+// GenerateJWT generates a single long-lived access token using session_timeout.
+// Kept for backward compatibility with OAuth redirect flows; new code should
+// prefer GenerateTokenPair.
+func (am *authManager) GenerateJWT(ctx context.Context, user *User) (string, error) {
+	sessionTimeout := 86400
+	if am.settingsManager != nil {
+		if v, err := am.settingsManager.GetInt("security.session_timeout"); err == nil && v > 0 {
+			sessionTimeout = v
+		}
+	}
+	return am.generateToken(user, "access", sessionTimeout)
+}
+
+// GenerateTokenPair issues a short-lived access token and a sliding-window
+// refresh token. TTLs come from:
+//
+//	security.access_token_lifetime  — access  token default 900 s (15 min)
+//	security.session_timeout        — refresh token default 86400 s (24 h)
+//
+// Each POST /auth/refresh call re-issues a full new pair, so the session
+// stays alive as long as the user is active. Idle users whose access token
+// expires and whose refresh token has also expired must re-authenticate.
+func (am *authManager) GenerateTokenPair(ctx context.Context, user *User) (*TokenPair, error) {
+	accessTTL := 900 // 15 min default
+	if am.settingsManager != nil {
+		if v, err := am.settingsManager.GetInt("security.access_token_lifetime"); err == nil && v > 0 {
+			accessTTL = v
+		}
+	}
+
+	refreshTTL := 86400 // 24 h default
+	if am.settingsManager != nil {
+		if v, err := am.settingsManager.GetInt("security.session_timeout"); err == nil && v > 0 {
+			refreshTTL = v
+		}
+	}
+
+	accessToken, err := am.generateToken(user, "access", accessTTL)
+	if err != nil {
+		return nil, err
+	}
+
+	refreshToken, err := am.generateToken(user, "refresh", refreshTTL)
+	if err != nil {
+		return nil, err
+	}
+
+	return &TokenPair{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresIn:    accessTTL,
+		TokenType:    "Bearer",
+	}, nil
+}
+
+// ValidateRefreshToken parses and validates a refresh token.
+// Returns ErrInvalidToken if the token is an access token or malformed,
+// and ErrTokenExpired if it has passed its expiry.
+func (am *authManager) ValidateRefreshToken(ctx context.Context, token string) (*User, error) {
+	if token == "" {
+		return nil, ErrInvalidToken
+	}
+
+	am.jwtSecretMu.RLock()
+	secret := am.config.JWTSecret
+	am.jwtSecretMu.RUnlock()
+
+	claims := &JWTClaims{}
+	_, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return []byte(secret), nil
+	})
+	if err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, ErrTokenExpired
+		}
+		return nil, ErrInvalidToken
+	}
+
+	// Must be a refresh token — reject access tokens.
+	if claims.TokenType != "refresh" {
+		return nil, ErrInvalidToken
+	}
+
+	user, err := am.store.GetUserByUsername(claims.AccessKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
 }
 
 // ValidateS3Signature validates S3 request signature (auto-detect version)

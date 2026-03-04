@@ -28,6 +28,7 @@ func toMetadataBucket(b *Bucket) *metadata.BucketMetadata {
 		CORS:              toMetadataCORS(b.CORS),
 		Encryption:        toMetadataEncryption(b.Encryption),
 		PublicAccessBlock: toMetadataPublicAccessBlock(b.PublicAccessBlock),
+		Website:           toMetadataWebsite(b.Website),
 
 		// Tags and metadata
 		Tags:     b.Tags,
@@ -62,6 +63,7 @@ func fromMetadataBucket(mb *metadata.BucketMetadata) *Bucket {
 		CORS:              fromMetadataCORS(mb.CORS),
 		Encryption:        fromMetadataEncryption(mb.Encryption),
 		PublicAccessBlock: fromMetadataPublicAccessBlock(mb.PublicAccessBlock),
+		Website:           fromMetadataWebsite(mb.Website),
 
 		// Tags and metadata
 		Tags:     mb.Tags,
@@ -447,5 +449,60 @@ func fromMetadataPublicAccessBlock(p *metadata.PublicAccessBlockMetadata) *Publi
 		IgnorePublicAcls:      p.IgnorePublicAcls,
 		BlockPublicPolicy:     p.BlockPublicPolicy,
 		RestrictPublicBuckets: p.RestrictPublicBuckets,
+	}
+}
+
+// Website conversion
+func toMetadataWebsite(w *WebsiteConfig) *metadata.WebsiteMetadata {
+	if w == nil {
+		return nil
+	}
+	rules := make([]metadata.WebsiteRoutingRuleMetadata, len(w.RoutingRules))
+	for i, rr := range w.RoutingRules {
+		rules[i] = metadata.WebsiteRoutingRuleMetadata{
+			Condition: metadata.WebsiteRoutingConditionMetadata{
+				HTTPErrorCodeReturnedEquals: rr.Condition.HTTPErrorCodeReturnedEquals,
+				KeyPrefixEquals:             rr.Condition.KeyPrefixEquals,
+			},
+			Redirect: metadata.WebsiteRoutingRedirectMetadata{
+				HostName:             rr.Redirect.HostName,
+				HTTPRedirectCode:     rr.Redirect.HTTPRedirectCode,
+				Protocol:             rr.Redirect.Protocol,
+				ReplaceKeyPrefixWith: rr.Redirect.ReplaceKeyPrefixWith,
+				ReplaceKeyWith:       rr.Redirect.ReplaceKeyWith,
+			},
+		}
+	}
+	return &metadata.WebsiteMetadata{
+		IndexDocument: w.IndexDocument,
+		ErrorDocument: w.ErrorDocument,
+		RoutingRules:  rules,
+	}
+}
+
+func fromMetadataWebsite(w *metadata.WebsiteMetadata) *WebsiteConfig {
+	if w == nil {
+		return nil
+	}
+	rules := make([]WebsiteRoutingRule, len(w.RoutingRules))
+	for i, rr := range w.RoutingRules {
+		rules[i] = WebsiteRoutingRule{
+			Condition: WebsiteRoutingCondition{
+				HTTPErrorCodeReturnedEquals: rr.Condition.HTTPErrorCodeReturnedEquals,
+				KeyPrefixEquals:             rr.Condition.KeyPrefixEquals,
+			},
+			Redirect: WebsiteRoutingRedirect{
+				HostName:             rr.Redirect.HostName,
+				HTTPRedirectCode:     rr.Redirect.HTTPRedirectCode,
+				Protocol:             rr.Redirect.Protocol,
+				ReplaceKeyPrefixWith: rr.Redirect.ReplaceKeyPrefixWith,
+				ReplaceKeyWith:       rr.Redirect.ReplaceKeyWith,
+			},
+		}
+	}
+	return &WebsiteConfig{
+		IndexDocument: w.IndexDocument,
+		ErrorDocument: w.ErrorDocument,
+		RoutingRules:  rules,
 	}
 }

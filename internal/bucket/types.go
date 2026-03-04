@@ -14,7 +14,38 @@ var (
 	ErrPolicyNotFound      = errors.New("policy not found")
 	ErrLifecycleNotFound   = errors.New("lifecycle configuration not found")
 	ErrCORSNotFound        = errors.New("CORS configuration not found")
+	ErrWebsiteNotFound     = errors.New("website configuration not found")
 )
+
+// WebsiteConfig represents static website hosting configuration for a bucket.
+// IndexDocument is the suffix appended to directory requests (e.g. "index.html").
+// ErrorDocument is the object key returned on 4xx errors (e.g. "error.html").
+type WebsiteConfig struct {
+	IndexDocument string               `json:"index_document"`
+	ErrorDocument string               `json:"error_document,omitempty"`
+	RoutingRules  []WebsiteRoutingRule `json:"routing_rules,omitempty"`
+}
+
+// WebsiteRoutingRule represents a single URL rewrite/redirect rule.
+type WebsiteRoutingRule struct {
+	Condition WebsiteRoutingCondition `json:"condition,omitempty"`
+	Redirect  WebsiteRoutingRedirect  `json:"redirect"`
+}
+
+// WebsiteRoutingCondition specifies when a routing rule is applied.
+type WebsiteRoutingCondition struct {
+	HTTPErrorCodeReturnedEquals string `json:"http_error_code,omitempty"`
+	KeyPrefixEquals             string `json:"key_prefix_equals,omitempty"`
+}
+
+// WebsiteRoutingRedirect describes the redirect to perform.
+type WebsiteRoutingRedirect struct {
+	HostName             string `json:"host_name,omitempty"`
+	HTTPRedirectCode     string `json:"http_redirect_code,omitempty"`
+	Protocol             string `json:"protocol,omitempty"`
+	ReplaceKeyPrefixWith string `json:"replace_key_prefix_with,omitempty"`
+	ReplaceKeyWith       string `json:"replace_key_with,omitempty"`
+}
 
 // Policy represents a bucket policy
 type Policy struct {

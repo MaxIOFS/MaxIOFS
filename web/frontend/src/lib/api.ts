@@ -115,12 +115,17 @@ class TokenManager {
   private static instance: TokenManager;
   private token: string | null = null;
   private refreshToken: string | null = null;
+  private proactiveRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   private constructor() {
     // Load tokens from localStorage if available
     if (typeof window !== 'undefined') {
       this.token = localStorage.getItem('auth_token');
       this.refreshToken = localStorage.getItem('refresh_token');
+      // Reschedule proactive refresh if we already have a token (e.g. page reload)
+      if (this.token) {
+        this.scheduleProactiveRefresh(this.token);
+      }
     }
   }
 
@@ -149,17 +154,25 @@ class TokenManager {
         localStorage.setItem('refresh_token', refreshToken);
       }
 
-      // Also set in cookies for middleware (24 hours max, idle timeout handled by useIdleTimer)
-      document.cookie = `auth_token=${token}; path=/; max-age=${24 * 60 * 60}`; // 24 hours
+      // Also set in cookies for middleware (24 hours max)
+      document.cookie = `auth_token=${token}; path=/; max-age=${24 * 60 * 60}`;
       if (refreshToken) {
         document.cookie = `refresh_token=${refreshToken}; path=/; max-age=${24 * 60 * 60}`;
       }
     }
+
+    // Schedule a proactive refresh 2 min before the access token expires
+    this.scheduleProactiveRefresh(token);
   }
 
   clearTokens(): void {
     this.token = null;
     this.refreshToken = null;
+
+    if (this.proactiveRefreshTimer !== null) {
+      clearTimeout(this.proactiveRefreshTimer);
+      this.proactiveRefreshTimer = null;
+    }
 
     if (typeof window !== 'undefined') {
       localStorage.removeItem('auth_token');
@@ -173,6 +186,48 @@ class TokenManager {
 
   isAuthenticated(): boolean {
     return !!this.token;
+  }
+
+  // Proactively refresh the access token 2 min before it expires so the user
+  // never hits a 401 mid-session.
+  private scheduleProactiveRefresh(token: string): void {
+    if (this.proactiveRefreshTimer !== null) {
+      clearTimeout(this.proactiveRefreshTimer);
+      this.proactiveRefreshTimer = null;
+    }
+
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return;
+      const payload = JSON.parse(atob(parts[1]));
+      const exp: number = payload.exp;
+      if (!exp) return;
+
+      const nowSecs = Math.floor(Date.now() / 1000);
+      const ttl = exp - nowSecs;
+      // Refresh 2 min before expiry; wait at least 5 s to avoid tight loops
+      const refreshInMs = Math.max((ttl - 120) * 1000, 5000);
+
+      this.proactiveRefreshTimer = setTimeout(async () => {
+        const rt = this.refreshToken;
+        if (!rt) return;
+        try {
+          const resp = await axios.post(
+            `${API_CONFIG.baseURL}/auth/refresh`,
+            { refresh_token: rt },
+            { headers: { 'Content-Type': 'application/json' } }
+          );
+          const { access_token, refresh_token } = resp.data;
+          if (access_token) {
+            this.setTokens(access_token, refresh_token);
+          }
+        } catch {
+          // Silent — the response interceptor will handle the eventual 401
+        }
+      }, refreshInMs);
+    } catch {
+      // Ignore JWT parse errors
+    }
   }
 }
 
@@ -210,54 +265,78 @@ s3Client.interceptors.request.use(
 
 // Response interceptors
 const handleResponse = (response: AxiosResponse): AxiosResponse => {
-  // Reset 401 counter on successful response
-  consecutive401Count = 0;
-  lastSuccessfulRequest = Date.now();
   return response;
 };
 
 // Track if we're already redirecting to prevent loops
 let isRedirectingToLogin = false;
-// Track consecutive 401 errors to avoid logout on transient errors
-let consecutive401Count = 0;
-let lastSuccessfulRequest = Date.now();
-const MAX_CONSECUTIVE_401 = 3; // Allow 3 consecutive 401s before logout
-const AUTH_ERROR_TIMEOUT = 10000; // 10 seconds - if no success in this time, consider session dead
+// Refresh-and-retry state
+let isRefreshing = false;
+let pendingRefreshCallbacks: ((token: string) => void)[] = [];
+
+function doLogout(): void {
+  tokenManager.clearTokens();
+  if (!isRedirectingToLogin && typeof window !== 'undefined') {
+    isRedirectingToLogin = true;
+    setTimeout(() => window.location.replace(`${getBasePath()}/login`), 100);
+  }
+}
 
 const handleError = async (error: AxiosError): Promise<never> => {
-  // Handle 401 errors - session expired or invalid token
+  // Handle 401 errors — attempt token refresh before logging out
   if (error.response?.status === 401) {
-    // Don't clear tokens if this is a login request (user might have wrong password)
-    const isLoginRequest = error.config?.url?.includes('/auth/login');
+    const requestUrl = error.config?.url ?? '';
+    const isAuthEndpoint =
+      requestUrl.includes('/auth/login') || requestUrl.includes('/auth/refresh');
 
-    if (!isLoginRequest) {
-      consecutive401Count++;
-      const timeSinceLastSuccess = Date.now() - lastSuccessfulRequest;
+    if (!isAuthEndpoint) {
+      const originalRequest = error.config!;
 
-      // Only logout if:
-      // 1. We've had multiple consecutive 401s (likely token expired)
-      // 2. OR it's been too long since last successful request (session likely dead)
-      const shouldLogout = consecutive401Count >= MAX_CONSECUTIVE_401 ||
-                          timeSinceLastSuccess > AUTH_ERROR_TIMEOUT;
-
-      if (shouldLogout) {
-        // Clear tokens and redirect to login
-        tokenManager.clearTokens();
-        consecutive401Count = 0; // Reset counter
-
-        // Prevent multiple redirects
-        if (!isRedirectingToLogin && typeof window !== 'undefined') {
-          isRedirectingToLogin = true;
-
-          // Use setTimeout to ensure the redirect happens after current call stack
-          setTimeout(() => {
-            window.location.replace(`${getBasePath()}/login`);
-          }, 100);
+      if (!(originalRequest as any)._retry) {
+        // If a refresh is already in flight, queue this request
+        if (isRefreshing) {
+          return new Promise((resolve, reject) => {
+            pendingRefreshCallbacks.push((newToken: string) => {
+              originalRequest.headers = originalRequest.headers ?? {};
+              (originalRequest.headers as Record<string, string>)['Authorization'] = `Bearer ${newToken}`;
+              apiClient(originalRequest).then(resolve as any).catch(reject);
+            });
+          });
         }
-      } else {
-        // Allow retry - don't logout yet
-        console.warn(`Auth error ${consecutive401Count}/${MAX_CONSECUTIVE_401} - allowing retry`);
+
+        (originalRequest as any)._retry = true;
+        isRefreshing = true;
+
+        try {
+          const rt = tokenManager.getRefreshToken();
+          if (!rt) throw new Error('No refresh token');
+
+          const resp = await axios.post(
+            `${API_CONFIG.baseURL}/auth/refresh`,
+            { refresh_token: rt },
+            { headers: { 'Content-Type': 'application/json' } }
+          );
+
+          const { access_token, refresh_token } = resp.data;
+          tokenManager.setTokens(access_token, refresh_token);
+          isRefreshing = false;
+          // Resume queued requests with the new token
+          pendingRefreshCallbacks.forEach(cb => cb(access_token));
+          pendingRefreshCallbacks = [];
+
+          originalRequest.headers = originalRequest.headers ?? {};
+          (originalRequest.headers as Record<string, string>)['Authorization'] = `Bearer ${access_token}`;
+          return apiClient(originalRequest) as any;
+        } catch {
+          isRefreshing = false;
+          pendingRefreshCallbacks = [];
+          doLogout();
+          return Promise.reject(error);
+        }
       }
+
+      // _retry already set means refresh itself failed → logout
+      doLogout();
     }
 
     return Promise.reject(error);
@@ -371,18 +450,25 @@ export class APIClient {
   }
 
   static async refreshToken(): Promise<AuthToken> {
-    const refreshToken = tokenManager.getRefreshToken();
-    if (!refreshToken) {
+    const rt = tokenManager.getRefreshToken();
+    if (!rt) {
       throw new Error('No refresh token available');
     }
 
-    const response = await apiClient.post<APIResponse<AuthToken>>('/auth/refresh', {
-      refreshToken,
-    });
+    // Field name must be snake_case to match the backend handler
+    const response = await axios.post(
+      `${API_CONFIG.baseURL}/auth/refresh`,
+      { refresh_token: rt },
+      { headers: { 'Content-Type': 'application/json' } }
+    );
 
-    const authToken = response.data.data!;
-    tokenManager.setTokens(authToken.token, authToken.refreshToken);
-
+    const { access_token, refresh_token, expires_in } = response.data;
+    const authToken: AuthToken = {
+      token: access_token,
+      refreshToken: refresh_token,
+      expiresIn: expires_in,
+    };
+    tokenManager.setTokens(access_token, refresh_token);
     return authToken;
   }
 
@@ -1056,6 +1142,28 @@ export class APIClient {
 
   static async deleteBucketInventory(bucketName: string, tenantId?: string): Promise<void> {
     const url = tenantId ? `/buckets/${bucketName}/inventory?tenantId=${tenantId}` : `/buckets/${bucketName}/inventory`;
+    await apiClient.delete(url);
+  }
+
+  // Bucket Website Hosting
+  static async getBucketWebsite(bucketName: string, tenantId?: string): Promise<any> {
+    const url = tenantId ? `/buckets/${bucketName}/website?tenantId=${tenantId}` : `/buckets/${bucketName}/website`;
+    try {
+      const response = await apiClient.get(url);
+      return response.data;
+    } catch (e: any) {
+      if (e.response?.status === 404 || e.response?.status === 501) return null;
+      throw e;
+    }
+  }
+
+  static async putBucketWebsite(bucketName: string, config: { indexDocument: string; errorDocument?: string }, tenantId?: string): Promise<void> {
+    const url = tenantId ? `/buckets/${bucketName}/website?tenantId=${tenantId}` : `/buckets/${bucketName}/website`;
+    await apiClient.put(url, config);
+  }
+
+  static async deleteBucketWebsite(bucketName: string, tenantId?: string): Promise<void> {
+    const url = tenantId ? `/buckets/${bucketName}/website?tenantId=${tenantId}` : `/buckets/${bucketName}/website`;
     await apiClient.delete(url);
   }
 

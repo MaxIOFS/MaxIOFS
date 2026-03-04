@@ -16,12 +16,12 @@ import (
 
 // MockBucketManagerForLocation is a mock implementation of bucket.Manager for location tests
 type MockBucketManagerForLocation struct {
-	mu             sync.RWMutex
-	buckets        map[string]*bucket.Bucket // key: "tenantID/bucketName"
-	err            error                      // error to return on operations
-	getErr         error                      // error to return on GetBucketInfo
-	updateErr      error                      // error to return on UpdateBucket
-	callCount      map[string]int             // track method call counts
+	mu        sync.RWMutex
+	buckets   map[string]*bucket.Bucket // key: "tenantID/bucketName"
+	err       error                     // error to return on operations
+	getErr    error                     // error to return on GetBucketInfo
+	updateErr error                     // error to return on UpdateBucket
+	callCount map[string]int            // track method call counts
 }
 
 func NewMockBucketManagerForLocation() *MockBucketManagerForLocation {
@@ -158,6 +158,15 @@ func (m *MockBucketManagerForLocation) SetCORS(ctx context.Context, tenantID, na
 	return nil
 }
 func (m *MockBucketManagerForLocation) DeleteCORS(ctx context.Context, tenantID, name string) error {
+	return nil
+}
+func (m *MockBucketManagerForLocation) GetWebsite(ctx context.Context, tenantID, name string) (*bucket.WebsiteConfig, error) {
+	return nil, bucket.ErrWebsiteNotFound
+}
+func (m *MockBucketManagerForLocation) SetWebsite(ctx context.Context, tenantID, name string, config *bucket.WebsiteConfig) error {
+	return nil
+}
+func (m *MockBucketManagerForLocation) DeleteWebsite(ctx context.Context, tenantID, name string) error {
 	return nil
 }
 func (m *MockBucketManagerForLocation) GetObjectLockConfig(ctx context.Context, tenantID, name string) (*bucket.ObjectLockConfig, error) {

@@ -60,6 +60,7 @@ type BucketMetadata struct {
 	CORS              *CORSMetadata              `json:"cors,omitempty"`
 	Encryption        *EncryptionMetadata        `json:"encryption,omitempty"`
 	PublicAccessBlock *PublicAccessBlockMetadata `json:"public_access_block,omitempty"`
+	Website           *WebsiteMetadata           `json:"website,omitempty"`
 
 	// Tags and custom metadata
 	Tags     map[string]string `json:"tags,omitempty"`
@@ -68,6 +69,36 @@ type BucketMetadata struct {
 	// Cached metrics (updated incrementally for performance)
 	ObjectCount int64 `json:"object_count"`
 	TotalSize   int64 `json:"total_size"`
+}
+
+// WebsiteMetadata represents static website hosting configuration for a bucket.
+// IndexDocument is the suffix served when a directory path is requested (e.g. "index.html").
+// ErrorDocument is the object key served on 4xx errors (e.g. "error.html").
+type WebsiteMetadata struct {
+	IndexDocument string                       `json:"index_document"`
+	ErrorDocument string                       `json:"error_document,omitempty"`
+	RoutingRules  []WebsiteRoutingRuleMetadata `json:"routing_rules,omitempty"`
+}
+
+// WebsiteRoutingRuleMetadata represents a single URL rewrite/redirect rule.
+type WebsiteRoutingRuleMetadata struct {
+	Condition WebsiteRoutingConditionMetadata `json:"condition,omitempty"`
+	Redirect  WebsiteRoutingRedirectMetadata  `json:"redirect"`
+}
+
+// WebsiteRoutingConditionMetadata specifies when a routing rule is applied.
+type WebsiteRoutingConditionMetadata struct {
+	HTTPErrorCodeReturnedEquals string `json:"http_error_code,omitempty"`
+	KeyPrefixEquals             string `json:"key_prefix_equals,omitempty"`
+}
+
+// WebsiteRoutingRedirectMetadata describes the redirect to perform.
+type WebsiteRoutingRedirectMetadata struct {
+	HostName             string `json:"host_name,omitempty"`
+	HTTPRedirectCode     string `json:"http_redirect_code,omitempty"`
+	Protocol             string `json:"protocol,omitempty"`
+	ReplaceKeyPrefixWith string `json:"replace_key_prefix_with,omitempty"`
+	ReplaceKeyWith       string `json:"replace_key_with,omitempty"`
 }
 
 // VersioningMetadata represents bucket versioning configuration
@@ -92,10 +123,10 @@ type ObjectLockRuleMetadata struct {
 // For bucket default retention: Uses Days/Years (one of them, not both)
 // For object retention: Uses RetainUntilDate
 type RetentionMetadata struct {
-	Mode            string     `json:"mode"` // "GOVERNANCE" or "COMPLIANCE"
-	RetainUntilDate time.Time  `json:"retain_until_date,omitempty"`
-	Days            *int       `json:"days,omitempty"`  // For bucket default retention
-	Years           *int       `json:"years,omitempty"` // For bucket default retention
+	Mode            string    `json:"mode"` // "GOVERNANCE" or "COMPLIANCE"
+	RetainUntilDate time.Time `json:"retain_until_date,omitempty"`
+	Days            *int      `json:"days,omitempty"`  // For bucket default retention
+	Years           *int      `json:"years,omitempty"` // For bucket default retention
 }
 
 // PolicyMetadata represents bucket policy
@@ -107,7 +138,7 @@ type PolicyMetadata struct {
 // PolicyStatement represents a single policy statement
 type PolicyStatement struct {
 	Sid       string                 `json:"sid,omitempty"`
-	Effect    string                 `json:"effect"` // "Allow" or "Deny"
+	Effect    string                 `json:"effect"`              // "Allow" or "Deny"
 	Principal interface{}            `json:"principal,omitempty"` // Can be string "*" or map[string]interface{}
 	Action    interface{}            `json:"action"`              // Can be string or []string
 	Resource  interface{}            `json:"resource"`            // Can be string or []string

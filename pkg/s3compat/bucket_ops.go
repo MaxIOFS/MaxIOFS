@@ -778,23 +778,171 @@ func (h *Handler) PutBucketNotification(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusOK)
 }
 
-// GetBucketWebsite returns NoSuchWebsiteConfiguration (static website not supported).
+// websiteXML holds the S3-compatible XML structures for website configuration.
+type websiteIndexDocument struct {
+	Suffix string `xml:"Suffix"`
+}
+type websiteErrorDocument struct {
+	Key string `xml:"Key"`
+}
+type websiteRoutingCondition struct {
+	HTTPErrorCodeReturnedEquals string `xml:"HttpErrorCodeReturnedEquals,omitempty"`
+	KeyPrefixEquals             string `xml:"KeyPrefixEquals,omitempty"`
+}
+type websiteRoutingRedirect struct {
+	HostName             string `xml:"HostName,omitempty"`
+	HTTPRedirectCode     string `xml:"HttpRedirectCode,omitempty"`
+	Protocol             string `xml:"Protocol,omitempty"`
+	ReplaceKeyPrefixWith string `xml:"ReplaceKeyPrefixWith,omitempty"`
+	ReplaceKeyWith       string `xml:"ReplaceKeyWith,omitempty"`
+}
+type websiteRoutingRule struct {
+	Condition *websiteRoutingCondition `xml:"Condition,omitempty"`
+	Redirect  websiteRoutingRedirect   `xml:"Redirect"`
+}
+type websiteConfiguration struct {
+	XMLName       xml.Name              `xml:"WebsiteConfiguration"`
+	IndexDocument *websiteIndexDocument `xml:"IndexDocument,omitempty"`
+	ErrorDocument *websiteErrorDocument `xml:"ErrorDocument,omitempty"`
+	RoutingRules  []websiteRoutingRule  `xml:"RoutingRules>RoutingRule,omitempty"`
+}
+
+// GetBucketWebsite returns the static website configuration for the bucket.
 func (h *Handler) GetBucketWebsite(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
-	h.writeError(w, "NoSuchWebsiteConfiguration",
-		"The specified bucket does not have a website configuration", vars["bucket"], r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
+		"tenant": tenantID,
+	}).Debug("S3 API: GetBucketWebsite")
+
+	websiteCfg, err := h.bucketManager.GetWebsite(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		if err == bucket.ErrWebsiteNotFound {
+			h.writeError(w, "NoSuchWebsiteConfiguration",
+				"The specified bucket does not have a website configuration", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	resp := websiteConfiguration{
+		IndexDocument: &websiteIndexDocument{Suffix: websiteCfg.IndexDocument},
+	}
+	if websiteCfg.ErrorDocument != "" {
+		resp.ErrorDocument = &websiteErrorDocument{Key: websiteCfg.ErrorDocument}
+	}
+	for _, rr := range websiteCfg.RoutingRules {
+		rule := websiteRoutingRule{
+			Redirect: websiteRoutingRedirect{
+				HostName:             rr.Redirect.HostName,
+				HTTPRedirectCode:     rr.Redirect.HTTPRedirectCode,
+				Protocol:             rr.Redirect.Protocol,
+				ReplaceKeyPrefixWith: rr.Redirect.ReplaceKeyPrefixWith,
+				ReplaceKeyWith:       rr.Redirect.ReplaceKeyWith,
+			},
+		}
+		if rr.Condition.HTTPErrorCodeReturnedEquals != "" || rr.Condition.KeyPrefixEquals != "" {
+			rule.Condition = &websiteRoutingCondition{
+				HTTPErrorCodeReturnedEquals: rr.Condition.HTTPErrorCodeReturnedEquals,
+				KeyPrefixEquals:             rr.Condition.KeyPrefixEquals,
+			}
+		}
+		resp.RoutingRules = append(resp.RoutingRules, rule)
+	}
+
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	xml.NewEncoder(w).Encode(resp) //nolint:errcheck
 }
 
-// PutBucketWebsite accepts a website configuration (no-op).
+// PutBucketWebsite stores a static website configuration for the bucket.
 func (h *Handler) PutBucketWebsite(w http.ResponseWriter, r *http.Request) {
-	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
+		"tenant": tenantID,
+	}).Debug("S3 API: PutBucketWebsite")
+
+	var xmlCfg websiteConfiguration
+	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {
+		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed or did not validate against the published schema", bucketName, r)
+		return
+	}
+
+	if xmlCfg.IndexDocument == nil || xmlCfg.IndexDocument.Suffix == "" {
+		h.writeError(w, "InvalidArgument", "A non-empty IndexDocument Suffix is required for website configuration", bucketName, r)
+		return
+	}
+
+	websiteCfg := &bucket.WebsiteConfig{
+		IndexDocument: xmlCfg.IndexDocument.Suffix,
+	}
+	if xmlCfg.ErrorDocument != nil {
+		websiteCfg.ErrorDocument = xmlCfg.ErrorDocument.Key
+	}
+	for _, rr := range xmlCfg.RoutingRules {
+		rule := bucket.WebsiteRoutingRule{
+			Redirect: bucket.WebsiteRoutingRedirect{
+				HostName:             rr.Redirect.HostName,
+				HTTPRedirectCode:     rr.Redirect.HTTPRedirectCode,
+				Protocol:             rr.Redirect.Protocol,
+				ReplaceKeyPrefixWith: rr.Redirect.ReplaceKeyPrefixWith,
+				ReplaceKeyWith:       rr.Redirect.ReplaceKeyWith,
+			},
+		}
+		if rr.Condition != nil {
+			rule.Condition = bucket.WebsiteRoutingCondition{
+				HTTPErrorCodeReturnedEquals: rr.Condition.HTTPErrorCodeReturnedEquals,
+				KeyPrefixEquals:             rr.Condition.KeyPrefixEquals,
+			}
+		}
+		websiteCfg.RoutingRules = append(websiteCfg.RoutingRules, rule)
+	}
+
+	if err := h.bucketManager.SetWebsite(r.Context(), tenantID, bucketName, websiteCfg); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
-// DeleteBucketWebsite removes a website configuration (no-op).
+// DeleteBucketWebsite removes the static website configuration from the bucket.
 func (h *Handler) DeleteBucketWebsite(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
+		"tenant": tenantID,
+	}).Debug("S3 API: DeleteBucketWebsite")
+
+	if err := h.bucketManager.DeleteWebsite(r.Context(), tenantID, bucketName); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		// ErrWebsiteNotFound on DELETE is a no-op (idempotent per AWS spec)
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -48,10 +48,10 @@ func TestMain(m *testing.M) {
 		PublicConsoleURL: "http://localhost:8081",
 		EnableTLS:        false,
 		Storage: config.StorageConfig{
-			Backend:           "filesystem",
-			Root:              filepath.Join(sharedTempDir, "storage"),
-			EnableEncryption:  false,
-			EnableObjectLock:  false,
+			Backend:          "filesystem",
+			Root:             filepath.Join(sharedTempDir, "storage"),
+			EnableEncryption: false,
+			EnableObjectLock: false,
 		},
 		Auth: config.AuthConfig{
 			EnableAuth: true,
@@ -5176,7 +5176,6 @@ func TestHandleReconfigureLogging(t *testing.T) {
 	})
 }
 
-
 func TestHandlePostFrontendLogs(t *testing.T) {
 	server := getSharedServer()
 
@@ -7691,25 +7690,46 @@ func TestParseVersioningFromString(t *testing.T) {
 
 // Test getClientIP function
 func TestGetClientIP(t *testing.T) {
-	t.Run("should return X-Forwarded-For IP when set", func(t *testing.T) {
+	// Trusted peer (loopback) — proxy headers should be honoured
+	t.Run("should return X-Forwarded-For IP when behind trusted proxy", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
-		req.Header.Set("X-Forwarded-For", "192.168.1.100, 10.0.0.1")
-		ip := getClientIP(req)
-		assert.Equal(t, "192.168.1.100", ip)
+		req.RemoteAddr = "127.0.0.1:12345" // loopback = always trusted
+		req.Header.Set("X-Forwarded-For", "203.0.113.5, 10.0.0.1")
+		ip := getClientIP(req, nil)
+		assert.Equal(t, "203.0.113.5", ip)
 	})
 
-	t.Run("should return X-Real-IP when X-Forwarded-For not set", func(t *testing.T) {
+	t.Run("should return X-Real-IP when behind trusted proxy and no XFF", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
-		req.Header.Set("X-Real-IP", "192.168.1.50")
-		ip := getClientIP(req)
-		assert.Equal(t, "192.168.1.50", ip)
+		req.RemoteAddr = "10.0.0.1:443" // RFC-1918 = trusted
+		req.Header.Set("X-Real-IP", "203.0.113.10")
+		ip := getClientIP(req, nil)
+		assert.Equal(t, "203.0.113.10", ip)
 	})
 
 	t.Run("should return RemoteAddr when no headers set", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		req.RemoteAddr = "127.0.0.1:8080"
-		ip := getClientIP(req)
-		assert.Contains(t, ip, "127.0.0.1")
+		ip := getClientIP(req, nil)
+		assert.Equal(t, "127.0.0.1", ip)
+	})
+
+	// Untrusted peer (public IP) — proxy headers must be ignored
+	t.Run("should ignore X-Forwarded-For from untrusted peer", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.RemoteAddr = "203.0.113.99:54321" // public IP, not trusted
+		req.Header.Set("X-Forwarded-For", "1.2.3.4")
+		ip := getClientIP(req, nil)
+		assert.Equal(t, "203.0.113.99", ip)
+	})
+
+	// Explicitly trusted proxy with public IP
+	t.Run("should honour XFF from explicitly trusted public proxy", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.RemoteAddr = "104.16.1.1:443"
+		req.Header.Set("X-Forwarded-For", "198.51.100.7")
+		ip := getClientIP(req, []string{"104.16.0.0/12"}) // Cloudflare range
+		assert.Equal(t, "198.51.100.7", ip)
 	})
 }
 
@@ -9836,5 +9856,90 @@ func TestHandleReceiveDeletionLogSync(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, true, resp["success"])
 		assert.Equal(t, float64(0), resp["recorded"])
+	})
+}
+
+// TestLastAdminGuard verifies that the system never allows removing the last
+// global admin via DELETE /users/{id} or PUT /users/{id} (role demotion).
+func TestLastAdminGuard(t *testing.T) {
+	server := getSharedServer()
+	ctx := context.Background()
+
+	// Locate the real global-admin user in the DB (created by TestMain setup).
+	users, err := server.authManager.ListUsers(ctx)
+	require.NoError(t, err)
+	var adminUser *auth.User
+	for i := range users {
+		if users[i].TenantID != "" {
+			continue
+		}
+		for _, r := range users[i].Roles {
+			if r == "admin" {
+				adminUser = &users[i]
+				break
+			}
+		}
+		if adminUser != nil {
+			break
+		}
+	}
+	require.NotNil(t, adminUser, "expected at least one global admin in the shared server DB")
+
+	t.Run("cannot delete the sole global admin", func(t *testing.T) {
+		req := createAuthenticatedRequest("DELETE", "/api/v1/users/"+adminUser.ID, nil, "", adminUser.ID, true)
+		req = mux.SetURLVars(req, map[string]string{"user": adminUser.ID})
+		rr := httptest.NewRecorder()
+		server.handleDeleteUser(rr, req)
+		assert.Equal(t, http.StatusConflict, rr.Code, "should block deleting the last global admin")
+	})
+
+	t.Run("cannot strip admin role from the sole global admin", func(t *testing.T) {
+		body := strings.NewReader(`{"roles":["user"]}`)
+		req := createAuthenticatedRequest("PUT", "/api/v1/users/"+adminUser.ID, body, "", adminUser.ID, true)
+		req = mux.SetURLVars(req, map[string]string{"user": adminUser.ID})
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		server.handleUpdateUser(rr, req)
+		assert.Equal(t, http.StatusConflict, rr.Code, "should block demoting the last global admin's role")
+	})
+
+	// --- Positive cases: operations are allowed when a second admin exists ---
+
+	t.Run("can delete a non-last global admin", func(t *testing.T) {
+		secondAdmin := &auth.User{
+			ID:       "test-last-admin-guard-del",
+			Username: "test-last-admin-guard-del",
+			TenantID: "",
+			Roles:    []string{"admin"},
+			Status:   "active",
+		}
+		require.NoError(t, server.authManager.CreateUser(ctx, secondAdmin))
+		t.Cleanup(func() { _ = server.authManager.DeleteUser(ctx, secondAdmin.ID) })
+
+		req := createAuthenticatedRequest("DELETE", "/api/v1/users/"+secondAdmin.ID, nil, "", adminUser.ID, true)
+		req = mux.SetURLVars(req, map[string]string{"user": secondAdmin.ID})
+		rr := httptest.NewRecorder()
+		server.handleDeleteUser(rr, req)
+		assert.Equal(t, http.StatusNoContent, rr.Code, "should allow deleting a non-last global admin")
+	})
+
+	t.Run("can demote an admin when another global admin exists", func(t *testing.T) {
+		secondAdmin := &auth.User{
+			ID:       "test-last-admin-guard-upd",
+			Username: "test-last-admin-guard-upd",
+			TenantID: "",
+			Roles:    []string{"admin"},
+			Status:   "active",
+		}
+		require.NoError(t, server.authManager.CreateUser(ctx, secondAdmin))
+		t.Cleanup(func() { _ = server.authManager.DeleteUser(ctx, secondAdmin.ID) })
+
+		body := strings.NewReader(`{"roles":["user"]}`)
+		req := createAuthenticatedRequest("PUT", "/api/v1/users/"+secondAdmin.ID, body, "", adminUser.ID, true)
+		req = mux.SetURLVars(req, map[string]string{"user": secondAdmin.ID})
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		server.handleUpdateUser(rr, req)
+		assert.Equal(t, http.StatusOK, rr.Code, "should allow demoting an admin when another global admin exists")
 	})
 }

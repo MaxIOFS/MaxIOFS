@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"runtime"
 	"strings"
 	"time"
@@ -998,11 +1000,14 @@ func (s *Server) setupRoutes() error {
 	apiHandler.RegisterRoutes(s3Router)
 
 	// Setup CORS and other middleware.
-	// Wrap with virtual-hosted-style middleware so that requests of the form
-	// "GET http://bucket.s3.example.com/..." are rewritten to the path-style
-	// "GET http://s3.example.com/bucket/..." before Gorilla Mux routes them.
+	// Middleware chain (outermost first):
+	//   RecoveryHandler → websiteServingMiddleware → virtualHostedStyleMiddleware → apiRouter
+	// The website middleware intercepts requests for "{bucket}.{website_hostname}" before
+	// virtual-hosted-style rewriting or S3 auth, serving them as plain HTML.
 	s.httpServer.Handler = handlers.RecoveryHandler()(
-		virtualHostedStyleMiddleware(apiRouter, s.config.PublicAPIURL),
+		websiteServingMiddleware(s,
+			virtualHostedStyleMiddleware(apiRouter, s.config.PublicAPIURL),
+		),
 	)
 
 	// Setup console routes (Web UI)
@@ -1141,6 +1146,165 @@ func virtualHostedStyleMiddleware(next http.Handler, publicAPIURL string) http.H
 
 		next.ServeHTTP(w, r2)
 	})
+}
+
+// websiteServingMiddleware intercepts requests whose Host header matches
+// "{bucket}.{websiteHostname}" and serves them as static websites without
+// requiring S3 authentication.  All other requests pass through to next.
+func websiteServingMiddleware(s *Server, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		websiteHostname := s.config.WebsiteHostname
+		if websiteHostname == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Extract hostname (strip port if present).
+		reqHost := r.Host
+		if host, _, err := net.SplitHostPort(reqHost); err == nil {
+			reqHost = host
+		}
+
+		suffix := "." + websiteHostname
+		if !strings.HasSuffix(reqHost, suffix) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		bucketName := strings.TrimSuffix(reqHost, suffix)
+		if bucketName == "" || strings.Contains(bucketName, ".") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Only GET and HEAD are meaningful on a website endpoint.
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "405 Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		s.handleWebsiteRequest(w, r, bucketName)
+	})
+}
+
+// handleWebsiteRequest serves a static website request for the given bucket.
+// It respects the bucket's WebsiteConfiguration (IndexDocument, ErrorDocument,
+// RoutingRules) and does not require S3 authentication.
+func (s *Server) handleWebsiteRequest(w http.ResponseWriter, r *http.Request, bucketName string) {
+	ctx := r.Context()
+
+	// Resolve bucket metadata (tenant-agnostic lookup).
+	bucketMeta, err := s.metadataStore.GetBucketByName(ctx, bucketName)
+	if err != nil || bucketMeta == nil {
+		http.Error(w, "404 page not found", http.StatusNotFound)
+		return
+	}
+
+	if bucketMeta.Website == nil {
+		http.Error(w, "404 This bucket does not have static website hosting configured.", http.StatusNotFound)
+		return
+	}
+
+	website := bucketMeta.Website
+
+	// Build the internal bucket storage path.
+	bucketPath := bucketName
+	if bucketMeta.TenantID != "" {
+		bucketPath = bucketMeta.TenantID + "/" + bucketName
+	}
+
+	// Resolve the requested URL path to an object key.
+	urlPath := path.Clean("/" + r.URL.Path)
+	if urlPath == "/" || strings.HasSuffix(r.URL.Path, "/") {
+		urlPath = urlPath + "/" + website.IndexDocument
+	}
+	objectKey := strings.TrimPrefix(urlPath, "/")
+
+	// Apply prefix-based RoutingRules (redirects only — rewrites not supported yet).
+	for _, rule := range website.RoutingRules {
+		if rule.Condition.KeyPrefixEquals != "" &&
+			!strings.HasPrefix(objectKey, rule.Condition.KeyPrefixEquals) {
+			continue
+		}
+		redirect := rule.Redirect
+		if redirect.ReplaceKeyPrefixWith != "" || redirect.ReplaceKeyWith != "" ||
+			redirect.HostName != "" || redirect.Protocol != "" {
+			targetPath := objectKey
+			if redirect.ReplaceKeyWith != "" {
+				targetPath = redirect.ReplaceKeyWith
+			} else if redirect.ReplaceKeyPrefixWith != "" && rule.Condition.KeyPrefixEquals != "" {
+				targetPath = redirect.ReplaceKeyPrefixWith + strings.TrimPrefix(objectKey, rule.Condition.KeyPrefixEquals)
+			}
+			targetScheme := "https"
+			if redirect.Protocol != "" {
+				targetScheme = redirect.Protocol
+			}
+			targetHost := r.Host
+			if redirect.HostName != "" {
+				targetHost = redirect.HostName
+			}
+			code := http.StatusMovedPermanently
+			if redirect.HTTPRedirectCode == "302" {
+				code = http.StatusFound
+			}
+			http.Redirect(w, r, targetScheme+"://"+targetHost+"/"+targetPath, code)
+			return
+		}
+	}
+
+	// serveWebsiteObject tries to get and stream an object; returns false if not found.
+	serveWebsiteObject := func(key string, statusCode int) bool {
+		obj, reader, err := s.objectManager.GetObject(ctx, bucketPath, key)
+		if err != nil {
+			return false
+		}
+		defer reader.Close() //nolint:errcheck
+
+		contentType := obj.ContentType
+		if contentType == "" {
+			if ct := mime.TypeByExtension(path.Ext(key)); ct != "" {
+				contentType = ct
+			} else {
+				contentType = "application/octet-stream"
+			}
+		}
+
+		w.Header().Set("Content-Type", contentType)
+		if obj.ETag != "" {
+			w.Header().Set("ETag", `"`+obj.ETag+`"`)
+		}
+		w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Header().Set("x-amz-website-redirect-location", "")
+		w.WriteHeader(statusCode)
+		if r.Method != http.MethodHead {
+			io.Copy(w, reader) //nolint:errcheck
+		}
+		return true
+	}
+
+	// Try the resolved object key first.
+	if serveWebsiteObject(objectKey, http.StatusOK) {
+		return
+	}
+
+	// Not found: try {key}/index.html (trailing-slash convention without the slash).
+	if serveWebsiteObject(objectKey+"/"+website.IndexDocument, http.StatusOK) {
+		return
+	}
+
+	// Serve error document (with 404 status, matching AWS behaviour).
+	if website.ErrorDocument != "" && serveWebsiteObject(website.ErrorDocument, http.StatusNotFound) {
+		return
+	}
+
+	// Generic 404.
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusNotFound)
+	if r.Method != http.MethodHead {
+		fmt.Fprintf(w, "<html><body><h1>404 Not Found</h1><p>The requested resource %q was not found.</p></body></html>", r.URL.Path)
+	}
 }
 
 // objectManagerAdapter adapts object.Manager to replication.ObjectManager interface

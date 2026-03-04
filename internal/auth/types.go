@@ -83,6 +83,20 @@ type JWTClaims struct {
 	AccessKey   string   `json:"access_key"`
 	Roles       []string `json:"roles"`
 	Permissions []string `json:"permissions"`
+	// TokenType distinguishes "access" tokens (used in Authorization headers)
+	// from "refresh" tokens (used only in POST /auth/refresh).
+	// Empty or missing means "access" (backward-compatible with pre-v1.1 tokens).
+	TokenType string `json:"token_type,omitempty"`
+}
+
+// TokenPair holds a short-lived access token and a longer-lived refresh token.
+// ExpiresIn contains the access-token TTL in seconds so the client can schedule
+// proactive refresh calls without parsing the JWT.
+type TokenPair struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int    `json:"expires_in"` // access-token TTL, seconds
+	TokenType    string `json:"token_type"` // always "Bearer"
 }
 
 // AuthContext represents authentication context in request

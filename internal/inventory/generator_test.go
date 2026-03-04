@@ -131,6 +131,22 @@ func (m *MockBucketManager) DeleteCORS(ctx context.Context, tenantID, name strin
 	return args.Error(0)
 }
 
+func (m *MockBucketManager) GetWebsite(ctx context.Context, tenantID, name string) (*bucket.WebsiteConfig, error) {
+	args := m.Called(ctx, tenantID, name)
+	res, _ := args.Get(0).(*bucket.WebsiteConfig)
+	return res, args.Error(1)
+}
+
+func (m *MockBucketManager) SetWebsite(ctx context.Context, tenantID, name string, config *bucket.WebsiteConfig) error {
+	args := m.Called(ctx, tenantID, name, config)
+	return args.Error(0)
+}
+
+func (m *MockBucketManager) DeleteWebsite(ctx context.Context, tenantID, name string) error {
+	args := m.Called(ctx, tenantID, name)
+	return args.Error(0)
+}
+
 func (m *MockBucketManager) SetBucketTags(ctx context.Context, tenantID, name string, tags map[string]string) error {
 	args := m.Called(ctx, tenantID, name, tags)
 	return args.Error(0)

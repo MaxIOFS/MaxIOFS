@@ -20,8 +20,7 @@ import {
   Trash2,
   Edit,
   AlertCircle,
-  CheckCircle,
-  XCircle,
+  AlertTriangle,
   RefreshCw,
   Package,
 } from 'lucide-react';
@@ -33,7 +32,7 @@ import { useAuth } from '@/hooks/useAuth';
 import type { NotificationConfiguration, NotificationRule, ReplicationRule, CreateReplicationRuleRequest } from '@/types';
 
 // Tab types
-type TabId = 'general' | 'security' | 'lifecycle' | 'notifications' | 'replication' | 'inventory';
+type TabId = 'general' | 'security' | 'lifecycle' | 'notifications' | 'replication' | 'inventory' | 'website';
 
 interface TabInfo {
   id: TabId;
@@ -85,6 +84,12 @@ export default function BucketSettingsPage() {
       label: t('tabs.inventory.label'),
       icon: Package,
       description: t('tabs.inventory.description'),
+    },
+    {
+      id: 'website',
+      label: t('tabs.website.label'),
+      icon: Globe,
+      description: t('tabs.website.description'),
     },
   ];
   const bucketName = bucket as string;
@@ -440,6 +445,66 @@ export default function BucketSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['bucket-inventory', bucketName, tenantId] });
       refetchInventory();
       ModalManager.toast('success', t('inventory.deletedSuccess'));
+    },
+    onError: (error: Error) => {
+      ModalManager.apiError(error);
+    },
+  });
+
+  // Website state
+  const [websiteEnabled, setWebsiteEnabled] = useState<boolean>(false);
+  const [websiteIndexDoc, setWebsiteIndexDoc] = useState<string>('index.html');
+  const [websiteErrorDoc, setWebsiteErrorDoc] = useState<string>('');
+
+  // Server config (para saber si website_hostname está configurado)
+  const { data: serverConfig } = useQuery({
+    queryKey: ['serverConfig'],
+    queryFn: APIClient.getServerConfig,
+    enabled: activeTab === 'website',
+  });
+  const websiteHostnameConfigured = !!serverConfig?.server?.websiteHostname;
+  const websiteHostname = serverConfig?.server?.websiteHostname ?? '';
+
+  // Website query
+  const { data: websiteConfig, refetch: refetchWebsite } = useQuery({
+    queryKey: ['bucket-website', bucketName, tenantId],
+    queryFn: () => APIClient.getBucketWebsite(bucketName, tenantId),
+    enabled: activeTab === 'website',
+  });
+
+  // Sync website form when query loads
+  useEffect(() => {
+    if (websiteConfig) {
+      setWebsiteEnabled(true);
+      setWebsiteIndexDoc(websiteConfig.indexDocument || 'index.html');
+      setWebsiteErrorDoc(websiteConfig.errorDocument || '');
+    } else if (websiteConfig === null) {
+      setWebsiteEnabled(false);
+      setWebsiteIndexDoc('index.html');
+      setWebsiteErrorDoc('');
+    }
+  }, [websiteConfig]);
+
+  // Website mutations
+  const saveWebsiteMutation = useMutation({
+    mutationFn: (config: { indexDocument: string; errorDocument?: string }) =>
+      APIClient.putBucketWebsite(bucketName, config, tenantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bucket-website', bucketName, tenantId] });
+      refetchWebsite();
+      ModalManager.toast('success', t('website.savedSuccess'));
+    },
+    onError: (error: Error) => {
+      ModalManager.apiError(error);
+    },
+  });
+
+  const deleteWebsiteMutation = useMutation({
+    mutationFn: () => APIClient.deleteBucketWebsite(bucketName, tenantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bucket-website', bucketName, tenantId] });
+      refetchWebsite();
+      ModalManager.toast('success', t('website.deletedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -2225,6 +2290,172 @@ export default function BucketSettingsPage() {
                         </div>
                       </div>
                     </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* WEBSITE TAB */}
+            {activeTab === 'website' && (
+              <>
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
+                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                      <Globe className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                      {t('website.title')}
+                    </h3>
+                  </div>
+                  <div className="p-6 space-y-6">
+
+                    {/* Banner: website_hostname no configurado en el servidor */}
+                    {!websiteHostnameConfigured && (
+                      <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-md p-3">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                              {t('website.hostnameNotConfiguredTitle')}
+                            </p>
+                            <p
+                              className="text-xs text-amber-700 dark:text-amber-400 mt-1"
+                              dangerouslySetInnerHTML={{ __html: t('website.hostnameNotConfiguredHelp') }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Toggle principal: activar / desactivar */}
+                    <div className={`flex items-start justify-between p-4 rounded-lg border-2 transition-colors ${
+                      websiteEnabled
+                        ? 'border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-900/20'
+                        : 'border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/20'
+                    }`}>
+                      <div className="flex-1 pr-4">
+                        <p className="font-medium text-gray-900 dark:text-white">
+                          {t('website.toggleLabel')}
+                        </p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                          {websiteEnabled ? t('website.toggleActiveDesc') : t('website.toggleInactiveDesc')}
+                        </p>
+                      </div>
+                      {/* Toggle switch */}
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={websiteEnabled}
+                        onClick={() => !isGlobalAdminInTenantBucket && websiteHostnameConfigured && setWebsiteEnabled(!websiteEnabled)}
+                        disabled={isGlobalAdminInTenantBucket || !websiteHostnameConfigured}
+                        className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                          websiteEnabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                            websiteEnabled ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Formulario de configuración — visible sólo cuando está activado */}
+                    {websiteEnabled && (
+                      <div className="space-y-4 pt-2">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            {t('website.indexDocLabel')} <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={websiteIndexDoc}
+                            onChange={(e) => setWebsiteIndexDoc(e.target.value)}
+                            placeholder={t('website.indexDocPlaceholder')}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            disabled={isGlobalAdminInTenantBucket}
+                          />
+                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            {t('website.indexDocHint')}
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            {t('website.errorDocLabel')}
+                          </label>
+                          <input
+                            type="text"
+                            value={websiteErrorDoc}
+                            onChange={(e) => setWebsiteErrorDoc(e.target.value)}
+                            placeholder={t('website.errorDocPlaceholder')}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            disabled={isGlobalAdminInTenantBucket}
+                          />
+                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            {t('website.errorDocHint')}
+                          </p>
+                        </div>
+
+                        {/* Endpoint URL */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            {t('website.websiteUrlLabel')}
+                          </label>
+                          <div className="flex items-center px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg font-mono text-sm text-gray-700 dark:text-gray-300 select-all">
+                            {websiteHostname ? `${bucketName}.${websiteHostname}` : t('website.notConfiguredYet')}
+                          </div>
+                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            {t('website.websiteUrlHint')}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Botón guardar configuración */}
+                    <div className="flex items-center gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+                      <Button
+                        onClick={() => {
+                          if (websiteEnabled) {
+                            saveWebsiteMutation.mutate({
+                              indexDocument: websiteIndexDoc,
+                              errorDocument: websiteErrorDoc || undefined,
+                            });
+                          } else {
+                            deleteWebsiteMutation.mutate();
+                          }
+                        }}
+                        disabled={
+                          isGlobalAdminInTenantBucket ||
+                          !websiteHostnameConfigured ||
+                          saveWebsiteMutation.isPending ||
+                          deleteWebsiteMutation.isPending ||
+                          (websiteEnabled && !websiteIndexDoc.trim())
+                        }
+                        loading={saveWebsiteMutation.isPending || deleteWebsiteMutation.isPending}
+                      >
+                        {t('website.saveConfiguration')}
+                      </Button>
+                      {websiteEnabled && !websiteIndexDoc.trim() && (
+                        <p className="text-sm text-amber-600 dark:text-amber-400">
+                          {t('website.indexDocRequired')}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Info Box */}
+                    <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                      <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                      <div className="text-sm text-blue-800 dark:text-blue-300">
+                        <p className="font-medium mb-1">{t('website.infoTitle')}</p>
+                        <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-blue-400">
+                          <li>{t('website.infoItem1')}</li>
+                          <li>{t('website.infoItem2')}</li>
+                          <li>{t('website.infoItem3')}</li>
+                          <li>{t('website.infoItem4')}</li>
+                          <li>{t('website.infoItem5')}</li>
+                        </ul>
+                      </div>
+                    </div>
+
                   </div>
                 </div>
               </>

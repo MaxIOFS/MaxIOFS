@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -129,6 +130,22 @@ func (m *MockBucketManager) SetCORS(ctx context.Context, tenantID, name string, 
 }
 
 func (m *MockBucketManager) DeleteCORS(ctx context.Context, tenantID, name string) error {
+	args := m.Called(ctx, tenantID, name)
+	return args.Error(0)
+}
+
+func (m *MockBucketManager) GetWebsite(ctx context.Context, tenantID, name string) (*bucket.WebsiteConfig, error) {
+	args := m.Called(ctx, tenantID, name)
+	res, _ := args.Get(0).(*bucket.WebsiteConfig)
+	return res, args.Error(1)
+}
+
+func (m *MockBucketManager) SetWebsite(ctx context.Context, tenantID, name string, config *bucket.WebsiteConfig) error {
+	args := m.Called(ctx, tenantID, name, config)
+	return args.Error(0)
+}
+
+func (m *MockBucketManager) DeleteWebsite(ctx context.Context, tenantID, name string) error {
 	args := m.Called(ctx, tenantID, name)
 	return args.Error(0)
 }
@@ -423,6 +440,14 @@ func (m *MockAuthManager) ValidateJWT(ctx context.Context, token string) (*auth.
 func (m *MockAuthManager) GenerateJWT(ctx context.Context, user *auth.User) (string, error) {
 	args := m.Called(ctx, user)
 	return args.String(0), args.Error(1)
+}
+
+func (m *MockAuthManager) GenerateTokenPair(ctx context.Context, user *auth.User) (*auth.TokenPair, error) {
+	return &auth.TokenPair{AccessToken: "mock-access", RefreshToken: "mock-refresh", ExpiresIn: 900, TokenType: "Bearer"}, nil
+}
+
+func (m *MockAuthManager) ValidateRefreshToken(ctx context.Context, token string) (*auth.User, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (m *MockAuthManager) ValidateS3Signature(ctx context.Context, r *http.Request) (*auth.User, error) {

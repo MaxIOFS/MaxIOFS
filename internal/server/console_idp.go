@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -105,7 +106,7 @@ func (s *Server) handleCreateIDP(w http.ResponseWriter, r *http.Request) {
 		ResourceName: provider.Name,
 		Action:       "create_identity_provider",
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r),
+		IPAddress:    getClientIP(r, s.config.TrustedProxies),
 		UserAgent:    r.Header.Get("User-Agent"),
 	})
 
@@ -241,7 +242,7 @@ func (s *Server) handleDeleteIDP(w http.ResponseWriter, r *http.Request) {
 		ResourceName: existing.Name,
 		Action:       "delete_identity_provider",
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r),
+		IPAddress:    getClientIP(r, s.config.TrustedProxies),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"linked_users": linkedCount,
@@ -480,7 +481,7 @@ func (s *Server) handleIDPImportUsers(w http.ResponseWriter, r *http.Request) {
 		ResourceName: provider.Name,
 		Action:       "import_users",
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r),
+		IPAddress:    getClientIP(r, s.config.TrustedProxies),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"imported": imported,
@@ -975,7 +976,7 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	s.authManager.RecordSuccessfulLogin(r.Context(), user.ID)
 
-	token, err := s.authManager.GenerateJWT(r.Context(), user)
+	pair, err := s.authManager.GenerateTokenPair(r.Context(), user)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to generate JWT after OAuth login")
 		http.Redirect(w, r, "/login?error=token_failed", http.StatusFound)
@@ -992,7 +993,7 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		ResourceName: user.Username,
 		Action:       audit.ActionLogin,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r),
+		IPAddress:    getClientIP(r, s.config.TrustedProxies),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"method":      "oauth",
@@ -1006,7 +1007,11 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		"provider": providerID,
 	}).Info("Successful OAuth login")
 
-	http.Redirect(w, r, "/auth/oauth/complete?token="+token, http.StatusFound)
+	q := url.Values{}
+	q.Set("token", pair.AccessToken) // backward-compat key
+	q.Set("access_token", pair.AccessToken)
+	q.Set("refresh_token", pair.RefreshToken)
+	http.Redirect(w, r, "/auth/oauth/complete?"+q.Encode(), http.StatusFound)
 }
 
 func (s *Server) handleListOAuthProviders(w http.ResponseWriter, r *http.Request) {
@@ -1065,6 +1070,28 @@ func (s *Server) isAdmin(user *auth.User) bool {
 
 func (s *Server) isGlobalAdmin(user *auth.User) bool {
 	return s.isAdmin(user) && user.TenantID == ""
+}
+
+// countGlobalAdmins returns the number of active global-admin users
+// (role == "admin", TenantID == ""). Used to prevent removing the last admin.
+func (s *Server) countGlobalAdmins(ctx context.Context) (int, error) {
+	users, err := s.authManager.ListUsers(ctx)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, u := range users {
+		if u.TenantID != "" {
+			continue
+		}
+		for _, r := range u.Roles {
+			if r == auth.RoleAdmin {
+				count++
+				break
+			}
+		}
+	}
+	return count, nil
 }
 
 // findOAuthUser searches for an existing user across ALL active OAuth providers
@@ -1147,7 +1174,7 @@ func (s *Server) tryAutoProvision(ctx context.Context, r *http.Request, external
 			ResourceName: newUser.Username,
 			Action:       "auto_provision_oauth",
 			Status:       audit.StatusSuccess,
-			IPAddress:    getClientIP(r),
+			IPAddress:    getClientIP(r, s.config.TrustedProxies),
 			UserAgent:    r.Header.Get("User-Agent"),
 			Details: map[string]interface{}{
 				"provider_id": provider.ID,

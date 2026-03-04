@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"path/filepath"
 	"runtime"
@@ -155,23 +156,39 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 			}
 
 			// Skip authentication for public endpoints.
-			// Two matching strategies depending on whether the path is a prefix
-			// pattern (trailing slash, e.g. "/auth/oauth/") or an exact endpoint
-			// (no trailing slash, e.g. "/version", "/auth/login"):
-			//   - Prefix pattern  → strings.Contains: any sub-path matches.
-			//   - Exact endpoint  → strings.HasSuffix: the URL must END with the
-			//     token, preventing "/version" from matching "versioning" or
-			//     "version-file.txt" mid-path.
-			publicPaths := []string{"/auth/login", "/auth/2fa/verify", "/health", "/auth/oauth/", "/version"}
+			//
+			// Security note: r.URL.Path contains the FULL request path, e.g.
+			// "/api/v1/auth/login" or "/ui/api/v1/health" when a basePath is
+			// configured. We must NOT use HasSuffix on the raw path because it
+			// would create auth-bypass vectors — for instance
+			// "/api/v1/cluster/nodes/node-1/health" ends with "/health" and
+			// "/api/v1/buckets/version" ends with "/version".
+			//
+			// Instead we extract the relative segment that comes after the
+			// literal "/api/v1" token and compare that segment exactly.
+			//   - Prefix pattern (trailing "/"): HasPrefix on the relative segment.
+			//   - Exact endpoint: direct equality on the relative segment.
+			publicPaths := []string{"/auth/login", "/auth/refresh", "/auth/2fa/verify", "/health", "/auth/oauth/", "/version"}
+			const apiV1Segment = "/api/v1"
+			urlPath := r.URL.Path
+			// Find the "/api/v1" token in the full request path (handles basePath
+			// prefixes such as "/ui/api/v1/...").
+			apiIdx := strings.Index(urlPath, apiV1Segment)
+			relPath := urlPath // fallback: compare against the full path
+			if apiIdx >= 0 {
+				relPath = urlPath[apiIdx+len(apiV1Segment):]
+				if relPath == "" {
+					relPath = "/"
+				}
+			}
 			for _, pub := range publicPaths {
-				urlPath := r.URL.Path
 				var matched bool
 				if strings.HasSuffix(pub, "/") {
-					// Prefix pattern — match anywhere in the path
-					matched = strings.Contains(urlPath, pub)
+					// Prefix pattern: relative path must START with the token.
+					matched = strings.HasPrefix(relPath, pub)
 				} else {
-					// Exact endpoint — match only at the end of the path
-					matched = urlPath == pub || strings.HasSuffix(urlPath, pub)
+					// Exact endpoint: relative path must equal the token exactly.
+					matched = relPath == pub
 				}
 				if matched {
 					next.ServeHTTP(w, r)
@@ -217,9 +234,30 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 			//   /settings      — so the admin can turn maintenance mode off
 			//   /api/internal/ — cluster sync must not be blocked
 			//   /notifications — SSE stream must stay open
-			exemptPrefixes := []string{"/auth/", "/health", "/settings", "/api/internal/", "/notifications"}
-			for _, prefix := range exemptPrefixes {
-				if strings.Contains(r.URL.Path, prefix) {
+			// Exempt paths from maintenance mode.
+			//
+			// Security note: use the same relPath extraction as the auth
+			// middleware to avoid substring collisions (e.g. a bucket named
+			// "health" would match /health via strings.Contains on the full
+			// path). Paths under /api/internal/ are not under /api/v1, so we
+			// match those against the full URL path separately.
+			{
+				const v1seg = "/api/v1"
+				mmURLPath := r.URL.Path
+				mmAPIIdx := strings.Index(mmURLPath, v1seg)
+				mmRel := mmURLPath
+				if mmAPIIdx >= 0 {
+					mmRel = mmURLPath[mmAPIIdx+len(v1seg):]
+					if mmRel == "" {
+						mmRel = "/"
+					}
+				}
+				exempt := strings.HasPrefix(mmRel, "/auth/") ||
+					mmRel == "/health" ||
+					strings.HasPrefix(mmRel, "/settings") ||
+					strings.HasPrefix(mmRel, "/notifications") ||
+					strings.HasPrefix(mmURLPath, "/api/internal/")
+				if exempt {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -243,6 +281,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 
 	// Auth endpoints
 	router.HandleFunc("/auth/login", s.handleLogin).Methods("POST", "OPTIONS")
+	router.HandleFunc("/auth/refresh", s.handleRefreshToken).Methods("POST", "OPTIONS")
 	router.HandleFunc("/auth/logout", s.handleLogout).Methods("POST", "OPTIONS")
 	router.HandleFunc("/auth/me", s.handleGetCurrentUser).Methods("GET", "OPTIONS")
 
@@ -382,6 +421,11 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/inventory", s.handlePutBucketInventory).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/inventory", s.handleDeleteBucketInventory).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/inventory/reports", s.handleListBucketInventoryReports).Methods("GET", "OPTIONS")
+
+	// Bucket static website hosting endpoints
+	router.HandleFunc("/buckets/{bucket}/website", s.handleGetBucketWebsite).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/website", s.handlePutBucketWebsite).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/website", s.handleDeleteBucketWebsite).Methods("DELETE", "OPTIONS")
 
 	// Bucket tagging endpoints
 	router.HandleFunc("/buckets/{bucket}/tagging", s.handleGetBucketTagging).Methods("GET", "OPTIONS")
@@ -542,7 +586,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get client IP address
-	clientIP := getClientIP(r)
+	clientIP := getClientIP(r, s.config.TrustedProxies)
 
 	// Log login attempt
 	logrus.WithFields(logrus.Fields{
@@ -724,8 +768,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	// Step 7: Generate JWT token
-	token, err := s.authManager.GenerateJWT(r.Context(), user)
+	// Step 7: Generate short-lived access token + sliding-window refresh token
+	pair, err := s.authManager.GenerateTokenPair(r.Context(), user)
 	if err != nil {
 		s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
 		return
@@ -744,7 +788,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":          true,
-		"token":            token,
+		"token":            pair.AccessToken, // kept for backward compat
+		"access_token":     pair.AccessToken,
+		"refresh_token":    pair.RefreshToken,
+		"expires_in":       pair.ExpiresIn,
+		"token_type":       pair.TokenType,
 		"default_password": defaultPassword,
 		"user": UserResponse{
 			ID:                  user.ID,
@@ -764,29 +812,118 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// getClientIP extracts the client IP address from the request
-func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header first (for proxies)
-	forwarded := r.Header.Get("X-Forwarded-For")
-	if forwarded != "" {
-		// X-Forwarded-For can contain multiple IPs, use the first one
-		ips := strings.Split(forwarded, ",")
-		return strings.TrimSpace(ips[0])
+// handleRefreshToken exchanges a valid refresh token for a new token pair.
+// The endpoint is public (no Authorization header required) so the frontend
+// can silently renew the session when the access token is about to expire.
+func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
+		s.writeError(w, "refresh_token is required", http.StatusBadRequest)
+		return
 	}
 
-	// Check X-Real-IP header
-	realIP := r.Header.Get("X-Real-IP")
-	if realIP != "" {
-		return realIP
+	user, err := s.authManager.ValidateRefreshToken(r.Context(), req.RefreshToken)
+	if err != nil {
+		switch err {
+		case auth.ErrTokenExpired:
+			s.writeError(w, "Refresh token expired. Please log in again.", http.StatusUnauthorized)
+		default:
+			s.writeError(w, "Invalid refresh token", http.StatusUnauthorized)
+		}
+		return
 	}
 
-	// Fall back to RemoteAddr
-	ip := r.RemoteAddr
-	// Remove port if present
-	if idx := strings.LastIndex(ip, ":"); idx != -1 {
-		ip = ip[:idx]
+	pair, err := s.authManager.GenerateTokenPair(r.Context(), user)
+	if err != nil {
+		s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
+		return
 	}
-	return ip
+
+	s.writeJSON(w, map[string]interface{}{
+		"access_token":  pair.AccessToken,
+		"refresh_token": pair.RefreshToken,
+		"expires_in":    pair.ExpiresIn,
+		"token_type":    pair.TokenType,
+	})
+}
+
+// privateIPNets contains the CIDR ranges that are always considered trusted
+// (loopback, RFC-1918 private, and IPv6 equivalents).
+var privateIPNets = func() []*net.IPNet {
+	ranges := []string{
+		"127.0.0.0/8",    // IPv4 loopback
+		"10.0.0.0/8",     // RFC-1918
+		"172.16.0.0/12",  // RFC-1918
+		"192.168.0.0/16", // RFC-1918
+		"::1/128",        // IPv6 loopback
+		"fc00::/7",       // IPv6 unique local
+	}
+	nets := make([]*net.IPNet, 0, len(ranges))
+	for _, cidr := range ranges {
+		_, n, err := net.ParseCIDR(cidr)
+		if err == nil {
+			nets = append(nets, n)
+		}
+	}
+	return nets
+}()
+
+// isIPTrusted returns true if ip is in a private/loopback range or in the
+// user-supplied trustedProxies list (IPs or CIDRs).
+func isIPTrusted(ip net.IP, trustedProxies []string) bool {
+	for _, n := range privateIPNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	for _, entry := range trustedProxies {
+		if strings.Contains(entry, "/") {
+			_, cidr, err := net.ParseCIDR(entry)
+			if err == nil && cidr.Contains(ip) {
+				return true
+			}
+		} else {
+			if net.ParseIP(entry).Equal(ip) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// getClientIP extracts the real client IP address from the request.
+// It only trusts X-Forwarded-For / X-Real-IP headers when the direct
+// connection (RemoteAddr) comes from a private/loopback network or from
+// an address in trustedProxies, preventing IP spoofing by external clients.
+func getClientIP(r *http.Request, trustedProxies []string) string {
+	// Parse the direct upstream IP from RemoteAddr
+	remoteHost := r.RemoteAddr
+	if idx := strings.LastIndex(remoteHost, ":"); idx != -1 {
+		remoteHost = remoteHost[:idx]
+	}
+	// Strip IPv6 brackets if present
+	remoteHost = strings.Trim(remoteHost, "[]")
+	upstreamIP := net.ParseIP(remoteHost)
+
+	// Only honour proxy headers when the direct peer is trusted
+	if upstreamIP != nil && isIPTrusted(upstreamIP, trustedProxies) {
+		// X-Forwarded-For may contain a comma-separated chain; the leftmost
+		// entry is the original client IP as reported by the first proxy.
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			ips := strings.Split(forwarded, ",")
+			if candidate := strings.TrimSpace(ips[0]); candidate != "" {
+				return candidate
+			}
+		}
+		if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+			return realIP
+		}
+	}
+
+	// Untrusted peer or no proxy headers — use RemoteAddr directly
+	return remoteHost
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -794,7 +931,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	user, userExists := auth.GetUserFromContext(r.Context())
 	if userExists {
 		// Log audit event for logout
-		clientIP := getClientIP(r)
+		clientIP := getClientIP(r, s.config.TrustedProxies)
 		s.logAuditEvent(r.Context(), &audit.AuditEvent{
 			TenantID:     user.TenantID,
 			UserID:       user.ID,
@@ -1759,7 +1896,7 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 		ResourceName: objectKey,
 		Action:       audit.ActionDownload,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r),
+		IPAddress:    getClientIP(r, s.config.TrustedProxies),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"bucket":       bucketName,
@@ -1881,7 +2018,7 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 		ResourceName: objectKey,
 		Action:       audit.ActionUpload,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r),
+		IPAddress:    getClientIP(r, s.config.TrustedProxies),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"bucket":       bucketName,
@@ -2058,7 +2195,7 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		ResourceName: objectKey,
 		Action:       audit.ActionShare,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r),
+		IPAddress:    getClientIP(r, s.config.TrustedProxies),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"bucket":   bucketName,
@@ -2181,7 +2318,7 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 		ResourceName: objectKey,
 		Action:       audit.ActionDelete,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r),
+		IPAddress:    getClientIP(r, s.config.TrustedProxies),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details:      details,
 	})
@@ -2474,6 +2611,33 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// --- Last-admin guard ---
+	// If the update would strip global-admin status from `user` (removing the
+	// "admin" role OR moving the account to a tenant) and `user` is currently a
+	// global admin, ensure at least one OTHER global admin exists.
+	if s.isGlobalAdmin(user) {
+		rolesChangingAwayFromAdmin := updateRequest.Roles != nil && !func() bool {
+			for _, r := range updateRequest.Roles {
+				if r == "admin" {
+					return true
+				}
+			}
+			return false
+		}()
+		tenantChanging := updateRequest.TenantID != nil && *updateRequest.TenantID != ""
+		if rolesChangingAwayFromAdmin || tenantChanging {
+			n, err := s.countGlobalAdmins(r.Context())
+			if err != nil {
+				s.writeError(w, "Failed to verify admin count", http.StatusInternalServerError)
+				return
+			}
+			if n <= 1 {
+				s.writeError(w, "Cannot remove the last global admin. Assign another admin first.", http.StatusConflict)
+				return
+			}
+		}
+	}
+
 	// Update fields if provided
 	if updateRequest.Email != nil {
 		user.Email = *updateRequest.Email
@@ -2541,6 +2705,20 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	if !s.isGlobalAdmin(currentUser) && targetUser.TenantID != currentUser.TenantID {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
+	}
+
+	// --- Last-admin guard ---
+	// A global admin cannot be deleted if they are the only one.
+	if s.isGlobalAdmin(targetUser) {
+		n, err := s.countGlobalAdmins(r.Context())
+		if err != nil {
+			s.writeError(w, "Failed to verify admin count", http.StatusInternalServerError)
+			return
+		}
+		if n <= 1 {
+			s.writeError(w, "Cannot delete the last global admin. Assign another admin first.", http.StatusConflict)
+			return
+		}
 	}
 
 	// Delete user
@@ -2889,6 +3067,7 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
 			"publicConsoleUrl": s.config.PublicConsoleURL,
 			"enableTls":        s.config.EnableTLS,
 			"logLevel":         s.config.LogLevel,
+			"websiteHostname":  s.config.WebsiteHostname,
 		},
 		"storage": map[string]interface{}{
 			"backend":          s.config.Storage.Backend,
@@ -6041,8 +6220,8 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 	// Record successful login now that 2FA is verified
 	s.authManager.RecordSuccessfulLogin(r.Context(), user.ID)
 
-	// Generate JWT token
-	token, err := s.authManager.GenerateJWT(r.Context(), user)
+	// Generate token pair
+	pair, err := s.authManager.GenerateTokenPair(r.Context(), user)
 	if err != nil {
 		s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
 		return
@@ -6056,8 +6235,12 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"token":   token,
+		"success":       true,
+		"token":         pair.AccessToken, // kept for backward compat
+		"access_token":  pair.AccessToken,
+		"refresh_token": pair.RefreshToken,
+		"expires_in":    pair.ExpiresIn,
+		"token_type":    pair.TokenType,
 		"user": UserResponse{
 			ID:                  user.ID,
 			Username:            user.Username,

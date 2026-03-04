@@ -513,6 +513,47 @@ func (bm *badgerBucketManager) DeleteCORS(ctx context.Context, tenantID, name st
 	return bm.SetCORS(ctx, tenantID, name, nil)
 }
 
+// GetWebsite retrieves the static website hosting configuration for a bucket.
+func (bm *badgerBucketManager) GetWebsite(ctx context.Context, tenantID, name string) (*WebsiteConfig, error) {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return nil, ErrBucketNotFound
+		}
+		return nil, err
+	}
+	if metaBucket.Website == nil {
+		return nil, ErrWebsiteNotFound
+	}
+	return fromMetadataWebsite(metaBucket.Website), nil
+}
+
+// SetWebsite stores static website hosting configuration for a bucket.
+func (bm *badgerBucketManager) SetWebsite(ctx context.Context, tenantID, name string, config *WebsiteConfig) error {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+	metaBucket.Website = toMetadataWebsite(config)
+	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
+}
+
+// DeleteWebsite removes the static website hosting configuration from a bucket.
+func (bm *badgerBucketManager) DeleteWebsite(ctx context.Context, tenantID, name string) error {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+	metaBucket.Website = nil
+	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
+}
+
 // SetBucketTags sets the bucket tags
 func (bm *badgerBucketManager) SetBucketTags(ctx context.Context, tenantID, name string, tags map[string]string) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)

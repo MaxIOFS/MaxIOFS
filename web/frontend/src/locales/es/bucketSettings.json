@@ -25,6 +25,10 @@
     "inventory": {
       "label": "Inventario",
       "description": "Informes de inventario automatizados y configuración"
+    },
+    "website": {
+      "label": "Web Estática",
+      "description": "Aloja un sitio web estático directamente desde este bucket"
     }
   },
 
@@ -450,5 +454,38 @@
     "infoItem3": "Elige entre los formatos CSV y JSON para compatibilidad con tus herramientas",
     "infoItem4": "Selecciona campos específicos para incluir en tus informes de inventario",
     "infoItem5": "Los informes se almacenan en el bucket de destino que especifiques"
+  },
+
+  "website": {
+    "title": "Alojamiento Web Estático",
+    "toggleLabel": "Activar alojamiento web estático",
+    "toggleActiveDesc": "Este bucket está sirviendo sus objetos públicamente como sitio web. Desactívalo para detener el acceso público.",
+    "toggleInactiveDesc": "Activa para servir los objetos de este bucket como un sitio web público sin autenticación S3.",
+    "enableLabel": "Activar Alojamiento Web Estático",
+    "enabledBadge": "Activo",
+    "disabledBadge": "Inactivo",
+    "indexDocRequired": "Se requiere un documento de índice para activar el alojamiento web.",
+    "indexDocLabel": "Documento de índice",
+    "indexDocPlaceholder": "index.html",
+    "indexDocHint": "La página predeterminada al acceder a un directorio (p. ej. index.html)",
+    "errorDocLabel": "Documento de error (opcional)",
+    "errorDocPlaceholder": "error.html",
+    "errorDocHint": "La página servida cuando no se encuentra un objeto (p. ej. error.html)",
+    "websiteUrlLabel": "Endpoint del sitio web",
+    "websiteUrlHint": "Tu bucket será accesible públicamente en esta URL cuando esté activo",
+    "notConfiguredYet": "Configura website_hostname en el servidor para obtener la URL pública",
+    "hostnameNotConfiguredTitle": "Alojamiento web no disponible",
+    "hostnameNotConfiguredHelp": "El alojamiento web estático requiere configurar <code class=\"bg-amber-100 dark:bg-amber-900/50 px-1 rounded\">website_hostname</code> en <code class=\"bg-amber-100 dark:bg-amber-900/50 px-1 rounded\">config.yaml</code> y reiniciar el servidor.",
+    "saveConfiguration": "Guardar configuración",
+    "deleteConfiguration": "Desactivar alojamiento web",
+    "confirmDeleteMsg": "¿Estás seguro de que quieres desactivar el alojamiento web estático para este bucket?",
+    "savedSuccess": "Configuración del sitio web guardada correctamente",
+    "deletedSuccess": "Alojamiento web desactivado correctamente",
+    "infoTitle": "Sobre el alojamiento web estático",
+    "infoItem1": "Los objetos del bucket se servirán públicamente sin autenticación",
+    "infoItem2": "El bucket debe tener ACL public-read o public-read-write para que los visitantes puedan acceder",
+    "infoItem3": "El documento de índice se sirve cuando la petición apunta a un directorio",
+    "infoItem4": "El documento de error se sirve cuando el objeto solicitado no existe (HTTP 404)",
+    "infoItem5": "El acceso a través del endpoint web no requiere autenticación S3"
   }
 }

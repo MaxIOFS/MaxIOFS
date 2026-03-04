@@ -21,6 +21,11 @@ type Config struct {
 	// Public URLs (for redirects, presigned URLs, etc.)
 	PublicAPIURL     string `mapstructure:"public_api_url"`     // e.g., https://s3.example.com or http://localhost:8080
 	PublicConsoleURL string `mapstructure:"public_console_url"` // e.g., https://console.example.com or http://localhost:8081
+	// WebsiteHostname is the hostname suffix that triggers static website serving.
+	// When set, requests with Host matching "{bucket}.{website_hostname}" are served
+	// as static websites without S3 authentication.
+	// Example: "s3-website.example.com" → mybucket.s3-website.example.com serves the bucket.
+	WebsiteHostname string `mapstructure:"website_hostname"`
 
 	// TLS configuration
 	EnableTLS bool   `mapstructure:"enable_tls"`

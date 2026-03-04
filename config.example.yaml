@@ -145,6 +145,22 @@ public_api_url: "http://localhost:8080"
 #   - https://s3.mydomain.com/ui (production, same domain with path)
 public_console_url: "http://localhost:8081"
 
+# Static Website Hosting Hostname (optional)
+# When set, requests whose Host header matches "{bucket}.{website_hostname}" are
+# served as static websites — no S3 authentication required.
+# The bucket must have a WebsiteConfiguration (PUT /?website) with an IndexDocument.
+#
+# This is a SEPARATE hostname from the S3 API endpoint, just as AWS uses:
+#   - S3 API:      mybucket.s3.example.com       (SigV4 required)
+#   - Website:     mybucket.s3-website.example.com (public HTML serving)
+#
+# Example — pointing a wildcard DNS entry to your MaxIOFS server:
+#   *.s3-website.example.com  →  <MaxIOFS IP>:8080
+#   website_hostname: "s3-website.example.com"
+#
+# Disable by leaving empty (default):
+# website_hostname: ""
+
 # =============================================================================
 # TLS/SSL CONFIGURATION
 # =============================================================================

@@ -71,7 +71,15 @@ func (m *Manager) insertDefaults() error {
 			Value:       "86400",
 			Type:        string(TypeInt),
 			Category:    string(CategorySecurity),
-			Description: "Session timeout in seconds (24 hours)",
+			Description: "Refresh-token lifetime in seconds (= inactivity timeout). When the refresh token expires the user must re-authenticate. Default: 86400 (24 h).",
+			Editable:    true,
+		},
+		{
+			Key:         "security.access_token_lifetime",
+			Value:       "900",
+			Type:        string(TypeInt),
+			Category:    string(CategorySecurity),
+			Description: "Access-token lifetime in seconds. The frontend must call POST /auth/refresh before this window elapses to maintain the session. Default: 900 (15 min).",
 			Editable:    true,
 		},
 		{

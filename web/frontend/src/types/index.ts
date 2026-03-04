@@ -727,6 +727,7 @@ export interface ServerConfig {
     publicConsoleUrl: string;
     enableTls: boolean;
     logLevel: string;
+    websiteHostname: string;
   };
   storage: {
     backend: string;
