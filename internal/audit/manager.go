@@ -7,10 +7,17 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// SettingsManager is the subset of settings.Manager used by the audit package.
+type SettingsManager interface {
+	GetBool(key string) (bool, error)
+	GetInt(key string) (int, error)
+}
+
 // Manager handles audit logging operations
 type Manager struct {
-	store  Store
-	logger *logrus.Logger
+	store           Store
+	logger          *logrus.Logger
+	settingsManager SettingsManager
 }
 
 // NewManager creates a new audit manager
@@ -21,12 +28,37 @@ func NewManager(store Store, logger *logrus.Logger) *Manager {
 	}
 }
 
+// SetSettingsManager wires the settings manager for dynamic configuration.
+func (m *Manager) SetSettingsManager(sm SettingsManager) {
+	m.settingsManager = sm
+}
+
 // LogEvent records an audit event
 // This is the main entry point for logging audit events from across the application
 func (m *Manager) LogEvent(ctx context.Context, event *AuditEvent) error {
 	if event == nil {
 		m.logger.Warn("Attempted to log nil audit event")
 		return nil
+	}
+
+	// --- Dynamic settings checks ---
+	if m.settingsManager != nil {
+		// Global audit toggle
+		if enabled, err := m.settingsManager.GetBool("audit.enabled"); err == nil && !enabled {
+			return nil
+		}
+
+		// Per-category toggles: S3 object operations vs console/admin operations
+		isS3Op := event.ResourceType == ResourceTypeObject
+		if isS3Op {
+			if log, err := m.settingsManager.GetBool("audit.log_s3_operations"); err == nil && !log {
+				return nil
+			}
+		} else {
+			if log, err := m.settingsManager.GetBool("audit.log_console_operations"); err == nil && !log {
+				return nil
+			}
+		}
 	}
 
 	// Validate required fields
@@ -190,22 +222,29 @@ func (m *Manager) PurgeLogs(ctx context.Context, olderThanDays int) (int, error)
 	return count, nil
 }
 
-// StartRetentionJob starts a background job to automatically purge old logs
-// This should be called once on server startup
-func (m *Manager) StartRetentionJob(ctx context.Context, retentionDays int) {
-	if retentionDays <= 0 {
+// StartRetentionJob starts a background job to automatically purge old logs.
+// The retention period is read from the audit.retention_days setting on every run
+// (hot-reload). Falls back to the supplied defaultDays if settings are unavailable.
+func (m *Manager) StartRetentionJob(ctx context.Context, defaultDays int) {
+	effective := defaultDays
+	if effective <= 0 && m.settingsManager != nil {
+		if v, err := m.settingsManager.GetInt("audit.retention_days"); err == nil && v > 0 {
+			effective = v
+		}
+	}
+	if effective <= 0 {
 		m.logger.Info("Audit log retention disabled (retention_days <= 0)")
 		return
 	}
 
-	m.logger.WithField("retention_days", retentionDays).Info("Starting audit log retention job")
+	m.logger.WithField("retention_days", effective).Info("Starting audit log retention job")
 
 	go func() {
 		ticker := time.NewTicker(24 * time.Hour) // Run once per day
 		defer ticker.Stop()
 
 		// Run immediately on startup
-		m.runRetentionCleanup(ctx, retentionDays)
+		m.retentionCleanupWithSettings(ctx, defaultDays)
 
 		for {
 			select {
@@ -213,10 +252,22 @@ func (m *Manager) StartRetentionJob(ctx context.Context, retentionDays int) {
 				m.logger.Info("Stopping audit log retention job")
 				return
 			case <-ticker.C:
-				m.runRetentionCleanup(ctx, retentionDays)
+				m.retentionCleanupWithSettings(ctx, defaultDays)
 			}
 		}
 	}()
+}
+
+// retentionCleanupWithSettings reads the current retention_days from settings (hot-reload)
+// and runs a cleanup pass.
+func (m *Manager) retentionCleanupWithSettings(ctx context.Context, fallbackDays int) {
+	days := fallbackDays
+	if m.settingsManager != nil {
+		if v, err := m.settingsManager.GetInt("audit.retention_days"); err == nil && v > 0 {
+			days = v
+		}
+	}
+	m.runRetentionCleanup(ctx, days)
 }
 
 // runRetentionCleanup performs the actual cleanup operation

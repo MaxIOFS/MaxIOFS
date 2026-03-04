@@ -132,9 +132,9 @@ type metricsManager struct {
 	cacheSizeBytes         prometheus.Gauge
 
 	// Operation Latency Metrics (from PerformanceCollector)
-	operationLatencyP50 *prometheus.GaugeVec
-	operationLatencyP95 *prometheus.GaugeVec
-	operationLatencyP99 *prometheus.GaugeVec
+	operationLatencyP50  *prometheus.GaugeVec
+	operationLatencyP95  *prometheus.GaugeVec
+	operationLatencyP99  *prometheus.GaugeVec
 	operationLatencyMean *prometheus.GaugeVec
 	operationSuccessRate *prometheus.GaugeVec
 	operationCount       *prometheus.GaugeVec
@@ -161,6 +161,12 @@ type metricsManager struct {
 
 	// Storage metrics provider
 	storageMetricsProvider StorageMetricsProvider
+
+	// Dynamic settings
+	settingsManager interface {
+		GetInt(key string) (int, error)
+		GetBool(key string) (bool, error)
+	}
 
 	// Lifecycle
 	started bool
@@ -1142,6 +1148,16 @@ func (m *metricsManager) persistCounters() error {
 	return nil
 }
 
+// SetSettingsManager wires the settings manager for dynamic configuration (hot-reload).
+func (m *metricsManager) SetSettingsManager(sm interface {
+	GetInt(key string) (int, error)
+	GetBool(key string) (bool, error)
+}) {
+	m.mu.Lock()
+	m.settingsManager = sm
+	m.mu.Unlock()
+}
+
 func (m *metricsManager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1192,14 +1208,16 @@ func (m *metricsManager) Stop() error {
 	return nil
 }
 
-// metricsCollectionLoop periodically collects and stores metrics snapshots
+// metricsCollectionLoop periodically collects and stores metrics snapshots.
+// The collection interval is re-read from settings on every tick (hot-reload).
 func (m *metricsManager) metricsCollectionLoop() {
 	// Take an immediate snapshot on startup so the chart has no gap at the
 	// beginning, then take a final snapshot on shutdown to close the gap.
 	m.collectAndStoreMetrics()
 	defer m.collectAndStoreMetrics()
 
-	ticker := time.NewTicker(m.config.Interval)
+	currentInterval := m.config.Interval
+	ticker := time.NewTicker(currentInterval)
 	defer ticker.Stop()
 
 	for {
@@ -1207,6 +1225,19 @@ func (m *metricsManager) metricsCollectionLoop() {
 		case <-m.ctx.Done():
 			return
 		case <-ticker.C:
+			// Hot-reload: re-read the interval from settings
+			m.mu.RLock()
+			sm := m.settingsManager
+			m.mu.RUnlock()
+			if sm != nil {
+				if secs, err := sm.GetInt("metrics.collection_interval"); err == nil && secs > 0 {
+					newInterval := time.Duration(secs) * time.Second
+					if newInterval != currentInterval {
+						ticker.Reset(newInterval)
+						currentInterval = newInterval
+					}
+				}
+			}
 			m.collectAndStoreMetrics()
 		}
 	}

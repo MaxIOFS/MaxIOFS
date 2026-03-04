@@ -415,7 +415,18 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/notification", s.handlePutBucketNotification).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/notification", s.handleDeleteBucketNotification).Methods("DELETE", "OPTIONS")
 
+	// Bucket encryption endpoints
+	router.HandleFunc("/buckets/{bucket}/encryption", s.handleGetBucketEncryption).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/encryption", s.handlePutBucketEncryption).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/encryption", s.handleDeleteBucketEncryption).Methods("DELETE", "OPTIONS")
+
+	// Bucket public-access-block endpoints
+	router.HandleFunc("/buckets/{bucket}/public-access-block", s.handleGetPublicAccessBlock).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/public-access-block", s.handlePutPublicAccessBlock).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/public-access-block", s.handleDeletePublicAccessBlock).Methods("DELETE", "OPTIONS")
+
 	// Bucket Object Lock endpoints
+	router.HandleFunc("/buckets/{bucket}/object-lock", s.handleGetObjectLockConfiguration).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/object-lock", s.handlePutObjectLockConfiguration).Methods("PUT", "OPTIONS")
 
 	// Object Legal Hold endpoints
@@ -652,6 +663,24 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		logrus.WithError(err).Error("Failed to check 2FA status")
 		s.writeError(w, "Internal server error", http.StatusInternalServerError)
 		return
+	}
+
+	// If require_2fa_admin is enabled and the user is an admin without 2FA → block login.
+	if !twoFactorEnabled {
+		require2FAAdmin, _ := s.settingsManager.GetBool("security.require_2fa_admin")
+		if require2FAAdmin {
+			isAdmin := false
+			for _, role := range user.Roles {
+				if role == "admin" || role == "globalAdmin" {
+					isAdmin = true
+					break
+				}
+			}
+			if isAdmin {
+				s.writeError(w, "Admin accounts must have two-factor authentication enabled. Please set up 2FA before logging in.", http.StatusForbidden)
+				return
+			}
+		}
 	}
 
 	// If 2FA is enabled, don't record successful login yet
@@ -1095,6 +1124,13 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Apply default versioning from settings if client did not specify it
+	if req.Versioning == nil {
+		if defVersioning, err := s.settingsManager.GetBool("storage.default_bucket_versioning"); err == nil && defVersioning {
+			req.Versioning = &bucket.VersioningConfig{Status: "Enabled"}
+		}
+	}
+
 	// Validar Object Lock - requiere versionado
 	if req.ObjectLock != nil && req.ObjectLock.Enabled {
 		if req.Versioning == nil || req.Versioning.Status != "Enabled" {
@@ -1106,6 +1142,13 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		if req.ObjectLock.Mode == "" {
 			s.writeError(w, "Object Lock mode (GOVERNANCE or COMPLIANCE) is required", http.StatusBadRequest)
 			return
+		}
+
+		// Apply default retention days from settings if not specified by client
+		if req.ObjectLock.Days == 0 && req.ObjectLock.Years == 0 {
+			if defDays, err := s.settingsManager.GetInt("storage.default_object_lock_days"); err == nil && defDays > 0 {
+				req.ObjectLock.Days = defDays
+			}
 		}
 
 		// Validar que tenga al menos días o años
@@ -6718,4 +6761,362 @@ func (s *Server) handleDeleteBucketNotification(w http.ResponseWriter, r *http.R
 		"success": true,
 		"message": "Notification configuration deleted successfully",
 	})
+}
+
+// ============================================================================
+// Bucket Encryption Handlers
+// ============================================================================
+
+// handleGetBucketEncryption returns the SSE configuration of a bucket.
+// The response also includes whether server-level encryption is active so the
+// frontend can display appropriate warnings when the master key is not
+// configured (objects would not actually be encrypted at rest).
+func (s *Server) handleGetBucketEncryption(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	queryTenantID := r.URL.Query().Get("tenantId")
+	tenantID := user.TenantID
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
+
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		// Server-level encryption state (read from static config, not from DB settings)
+		"serverEncryptionEnabled":       s.config.Storage.EnableEncryption,
+		"serverEncryptionKeyConfigured": s.config.Storage.EncryptionKey != "",
+		// Per-bucket SSE config (nil means "inherit server default")
+		"encryption": bucketInfo.Encryption,
+	})
+}
+
+// handlePutBucketEncryption sets the SSE configuration for a bucket.
+// It requires server-level encryption to be active; otherwise setting a
+// bucket-level policy would be misleading — the objects would not actually
+// be encrypted because the master key is absent.
+func (s *Server) handlePutBucketEncryption(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	// Guard: server must have encryption enabled AND a key configured.
+	// Without the persistent master key objects under this bucket would be
+	// stored in plain text (or corrupt after a key rotation/loss).
+	if !s.config.Storage.EnableEncryption || s.config.Storage.EncryptionKey == "" {
+		s.writeError(w,
+			"Cannot configure bucket encryption: server-level encryption is not enabled. "+
+				"Set enable_encryption: true and a permanent encryption_key in config.yaml first.",
+			http.StatusBadRequest)
+		return
+	}
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	queryTenantID := r.URL.Query().Get("tenantId")
+	tenantID := user.TenantID
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
+
+	var req struct {
+		Type     string `json:"type"`               // "AES256" or "aws:kms"
+		KMSKeyID string `json:"kmsKeyId,omitempty"` // only for aws:kms
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if req.Type != "AES256" && req.Type != "aws:kms" {
+		s.writeError(w, "Invalid encryption type. Must be 'AES256' or 'aws:kms'", http.StatusBadRequest)
+		return
+	}
+	if req.Type == "aws:kms" && req.KMSKeyID == "" {
+		s.writeError(w, "kmsKeyId is required when type is 'aws:kms'", http.StatusBadRequest)
+		return
+	}
+
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	bucketInfo.Encryption = &bucket.EncryptionConfig{
+		Type:     req.Type,
+		KMSKeyID: req.KMSKeyID,
+	}
+
+	if err := s.bucketManager.UpdateBucket(r.Context(), tenantID, bucketName, bucketInfo); err != nil {
+		s.writeError(w, "Failed to update encryption configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		EventType:    "bucket_encryption_configured",
+		UserID:       user.ID,
+		TenantID:     tenantID,
+		ResourceType: "bucket",
+		ResourceID:   bucketName,
+		Status:       "success",
+		IPAddress:    r.RemoteAddr,
+		UserAgent:    r.UserAgent(),
+	})
+
+	s.writeJSON(w, map[string]interface{}{
+		"success": true,
+		"message": "Encryption configuration updated successfully",
+		"encryption": map[string]string{
+			"type":     req.Type,
+			"kmsKeyId": req.KMSKeyID,
+		},
+	})
+}
+
+// handleDeleteBucketEncryption removes the per-bucket SSE configuration,
+// returning the bucket to the server-level default behaviour.
+func (s *Server) handleDeleteBucketEncryption(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	queryTenantID := r.URL.Query().Get("tenantId")
+	tenantID := user.TenantID
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
+
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	bucketInfo.Encryption = nil
+
+	if err := s.bucketManager.UpdateBucket(r.Context(), tenantID, bucketName, bucketInfo); err != nil {
+		s.writeError(w, "Failed to remove encryption configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ============================================================================
+// Bucket Object Lock — GET (the PUT already exists)
+// ============================================================================
+
+// handleGetObjectLockConfiguration returns the current Object Lock configuration
+// for a bucket (enabled flag + default retention rule).
+func (s *Server) handleGetObjectLockConfiguration(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	queryTenantID := r.URL.Query().Get("tenantId")
+	tenantID := user.TenantID
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
+
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if bucketInfo.ObjectLock == nil || !bucketInfo.ObjectLock.ObjectLockEnabled {
+		// Object Lock not enabled — return a clear empty state
+		s.writeJSON(w, map[string]interface{}{
+			"objectLockEnabled": false,
+		})
+		return
+	}
+
+	s.writeJSON(w, bucketInfo.ObjectLock)
+}
+
+// ============================================================================
+// Bucket Public-Access-Block Handlers
+// ============================================================================
+
+// handleGetPublicAccessBlock returns the public-access-block configuration.
+func (s *Server) handleGetPublicAccessBlock(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	queryTenantID := r.URL.Query().Get("tenantId")
+	tenantID := user.TenantID
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
+
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if bucketInfo.PublicAccessBlock == nil {
+		// Not configured → return all-false defaults (S3 behaviour)
+		s.writeJSON(w, bucket.PublicAccessBlock{})
+		return
+	}
+
+	s.writeJSON(w, bucketInfo.PublicAccessBlock)
+}
+
+// handlePutPublicAccessBlock sets the public-access-block configuration.
+func (s *Server) handlePutPublicAccessBlock(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	queryTenantID := r.URL.Query().Get("tenantId")
+	tenantID := user.TenantID
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
+
+	var req bucket.PublicAccessBlock
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	bucketInfo.PublicAccessBlock = &req
+
+	if err := s.bucketManager.UpdateBucket(r.Context(), tenantID, bucketName, bucketInfo); err != nil {
+		s.writeError(w, "Failed to update public-access-block configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		EventType:    "bucket_public_access_block_configured",
+		UserID:       user.ID,
+		TenantID:     tenantID,
+		ResourceType: "bucket",
+		ResourceID:   bucketName,
+		Status:       "success",
+		IPAddress:    r.RemoteAddr,
+		UserAgent:    r.UserAgent(),
+	})
+
+	s.writeJSON(w, map[string]interface{}{
+		"success": true,
+		"message": "Public access block configuration updated successfully",
+	})
+}
+
+// handleDeletePublicAccessBlock removes the public-access-block configuration,
+// returning the bucket to fully open access (all flags false).
+func (s *Server) handleDeletePublicAccessBlock(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	queryTenantID := r.URL.Query().Get("tenantId")
+	tenantID := user.TenantID
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	if queryTenantID != "" && isGlobalAdmin {
+		tenantID = queryTenantID
+	}
+
+	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	bucketInfo.PublicAccessBlock = nil
+
+	if err := s.bucketManager.UpdateBucket(r.Context(), tenantID, bucketName, bucketInfo); err != nil {
+		s.writeError(w, "Failed to remove public-access-block configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -63,6 +63,7 @@ type Server struct {
 	bucketAggregator        *cluster.BucketAggregator
 	quotaAggregator         *cluster.QuotaAggregator
 	rateLimiter             *cluster.RateLimiter
+	apiRateLimiter          *auth.APIRateLimiter // per-user S3 API rate limiter
 	tenantSyncMgr           *cluster.TenantSyncManager
 	userSyncMgr             *cluster.UserSyncManager
 	accessKeySyncMgr        *cluster.AccessKeySyncManager
@@ -157,13 +158,19 @@ func New(cfg *config.Config) (*Server, error) {
 		am.SetAuditManager(auditManager)
 	}
 
-	// Connect settings manager to auth manager for dynamic rate limiting
+	// Connect settings manager to auth manager for dynamic rate limiting and session config
 	if am, ok := authManager.(interface {
 		SetSettingsManager(interface {
 			GetInt(key string) (int, error)
+			GetBool(key string) (bool, error)
 		})
 	}); ok {
 		am.SetSettingsManager(settingsManager)
+	}
+
+	// Connect settings manager to audit manager for dynamic configuration
+	if auditManager != nil {
+		auditManager.SetSettingsManager(settingsManager)
 	}
 
 	// Connect audit manager to bucket manager
@@ -192,6 +199,16 @@ func New(cfg *config.Config) (*Server, error) {
 		SetSystemMetrics(*metrics.SystemMetricsTracker)
 	}); ok {
 		mm.SetSystemMetrics(systemMetrics)
+	}
+
+	// Connect settings manager to metrics manager for dynamic configuration (hot-reload)
+	if mm, ok := metricsManager.(interface {
+		SetSettingsManager(interface {
+			GetInt(key string) (int, error)
+			GetBool(key string) (bool, error)
+		})
+	}); ok {
+		mm.SetSettingsManager(settingsManager)
 	}
 
 	// Initialize global performance collector
@@ -395,6 +412,7 @@ func New(cfg *config.Config) (*Server, error) {
 		bucketAggregator:        bucketAggregator,
 		quotaAggregator:         quotaAggregator,
 		rateLimiter:             rateLimiter,
+		apiRateLimiter:          auth.NewAPIRateLimiter(),
 		tenantSyncMgr:           tenantSyncMgr,
 		userSyncMgr:             userSyncMgr,
 		accessKeySyncMgr:        accessKeySyncMgr,
@@ -833,8 +851,16 @@ func (s *Server) setupRoutes() error {
 	apiRouter := mux.NewRouter()
 
 	// Prometheus metrics endpoint (no auth, no middleware)
+	// Wraps with a settings check so metrics.enabled can be toggled from the UI without restart.
 	if s.config.Metrics.Enable {
-		apiRouter.Handle("/metrics", s.metricsManager.GetMetricsHandler()).Methods("GET")
+		metricsHandler := s.metricsManager.GetMetricsHandler()
+		apiRouter.Handle("/metrics", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if enabled, err := s.settingsManager.GetBool("metrics.enabled"); err == nil && !enabled {
+				http.NotFound(w, r)
+				return
+			}
+			metricsHandler.ServeHTTP(w, r)
+		})).Methods("GET")
 		logrus.Info("Prometheus metrics endpoint enabled at /metrics on S3 API")
 	}
 
@@ -942,6 +968,25 @@ func (s *Server) setupRoutes() error {
 	if s.config.Metrics.Enable {
 		s3Router.Use(s.metricsManager.Middleware())
 	}
+
+	// Per-user S3 API rate limiting (security.ratelimit_api_per_second)
+	if s.config.Auth.EnableAuth {
+		s3Router.Use(auth.APIRateLimitMiddleware(s.settingsManager, s.apiRateLimiter))
+	}
+
+	// Enforce maximum upload body size (system.max_upload_size_mb)
+	s3Router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPut || r.Method == http.MethodPost {
+				maxMB := 5120 // 5 GB default
+				if v, err := s.settingsManager.GetInt("system.max_upload_size_mb"); err == nil && v > 0 {
+					maxMB = v
+				}
+				r.Body = http.MaxBytesReader(w, r.Body, int64(maxMB)*1024*1024)
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
 
 	// Maintenance mode: block S3 write operations (PUT/DELETE/POST) when enabled.
 	s3Router.Use(middleware.MaintenanceModeS3(func() bool {

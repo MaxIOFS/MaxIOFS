@@ -202,6 +202,7 @@ type authManager struct {
 // SettingsManager interface for retrieving system settings
 type SettingsManager interface {
 	GetInt(key string) (int, error)
+	GetBool(key string) (bool, error)
 }
 
 // NewManager creates a new authentication manager with SQLite backend
@@ -488,13 +489,21 @@ func (am *authManager) GenerateJWT(ctx context.Context, user *User) (string, err
 	secret := am.config.JWTSecret
 	am.jwtSecretMu.RUnlock()
 
+	// Read session timeout from settings (default 86400 = 24h)
+	sessionTimeout := 86400
+	if am.settingsManager != nil {
+		if v, err := am.settingsManager.GetInt("security.session_timeout"); err == nil && v > 0 {
+			sessionTimeout = v
+		}
+	}
+
 	now := time.Now()
 	claims := JWTClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "maxiofs",
 			Subject:   user.ID,
 			Audience:  jwt.ClaimStrings{"maxiofs-api"},
-			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(sessionTimeout) * time.Second)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 		},
@@ -1703,8 +1712,19 @@ func generateS3AmzId2() string {
 	return hex.EncodeToString(b)
 }
 
-// CheckRateLimit checks if login is allowed from given IP address
+// CheckRateLimit checks if login is allowed from given IP address.
+// Reads ratelimit_enabled and ratelimit_login_per_minute from settings on every call (hot-reload).
 func (am *authManager) CheckRateLimit(ip string) bool {
+	if am.settingsManager != nil {
+		// Hot-reload: disable entirely if setting is false
+		if enabled, err := am.settingsManager.GetBool("security.ratelimit_enabled"); err == nil && !enabled {
+			return true
+		}
+		// Hot-reload: update max attempts dynamically
+		if max, err := am.settingsManager.GetInt("security.ratelimit_login_per_minute"); err == nil && max > 0 {
+			am.rateLimiter.UpdateMaxAttempts(max)
+		}
+	}
 	return am.rateLimiter.AllowLogin(ip)
 }
 

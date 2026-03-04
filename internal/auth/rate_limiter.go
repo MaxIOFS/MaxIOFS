@@ -7,9 +7,9 @@ import (
 
 // RateLimitAttempt tracks login attempts from an IP address for rate limiting
 type RateLimitAttempt struct {
-	Count     int
-	FirstTry  time.Time
-	LastTry   time.Time
+	Count    int
+	FirstTry time.Time
+	LastTry  time.Time
 }
 
 // LoginRateLimiter implements in-memory rate limiting for login attempts
@@ -99,6 +99,16 @@ func (l *LoginRateLimiter) RecordFailedAttempt(ip string) {
 	// Increment counter
 	attempt.Count++
 	attempt.LastTry = now
+}
+
+// UpdateMaxAttempts updates the maximum allowed login attempts (hot-reload support)
+func (l *LoginRateLimiter) UpdateMaxAttempts(n int) {
+	if n <= 0 {
+		return
+	}
+	l.mu.Lock()
+	l.maxAttempts = n
+	l.mu.Unlock()
 }
 
 // ResetIP removes rate limit for an IP address
