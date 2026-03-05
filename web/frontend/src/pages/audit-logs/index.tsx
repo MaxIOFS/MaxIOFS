@@ -66,10 +66,14 @@ const isCriticalEvent = (eventType: string | undefined, status: string): boolean
   return criticalEvents.includes(eventType) || status === 'failed';
 };
 
-// Format timestamp
+// Format timestamp — ISO-like format with no commas (comma-safe for CSV)
 const formatTimestamp = (timestamp: number): string => {
-  const date = new Date(timestamp * 1000);
-  return date.toLocaleString();
+  const d = new Date(timestamp * 1000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  );
 };
 
 export default function AuditLogsPage() {
@@ -102,20 +106,33 @@ export default function AuditLogsPage() {
   const totalLogs = auditLogsData?.total || 0;
   const totalPages = Math.ceil(totalLogs / pageSize);
 
-  // Fetch overall stats (without pagination, just counts)
-  const { data: statsData } = useQuery<AuditLogsResponse>({
-    queryKey: ['auditLogsStats', filters.eventType, filters.status, filters.resourceType, filters.startDate, filters.endDate],
+  // Fetch overall stats: get the server-reported total for each status.
+  // We send status filter + pageSize:1 — we only need the `total` field,
+  // not the actual records, so this is a very cheap request.
+  const { data: successStatsData } = useQuery<AuditLogsResponse>({
+    queryKey: ['auditLogsStats', 'success', filters.eventType, filters.resourceType, filters.startDate, filters.endDate, filters.tenantId, filters.userId],
     queryFn: () => APIClient.getAuditLogs({
       ...filters,
+      status: 'success',
       page: 1,
-      pageSize: 1000, // Get enough to calculate stats
+      pageSize: 1,
     }),
     enabled: canViewAuditLogs,
   });
 
-  const allLogs = statsData?.logs || [];
-  const totalSuccessCount = allLogs.filter((l) => l.status === 'success').length;
-  const totalFailedCount = allLogs.filter((l) => l.status === 'failed').length;
+  const { data: failedStatsData } = useQuery<AuditLogsResponse>({
+    queryKey: ['auditLogsStats', 'failed', filters.eventType, filters.resourceType, filters.startDate, filters.endDate, filters.tenantId, filters.userId],
+    queryFn: () => APIClient.getAuditLogs({
+      ...filters,
+      status: 'failed',
+      page: 1,
+      pageSize: 1,
+    }),
+    enabled: canViewAuditLogs,
+  });
+
+  const totalSuccessCount = successStatsData?.total ?? 0;
+  const totalFailedCount = failedStatsData?.total ?? 0;
 
   // Filter logs by search term (client-side for current page)
   const filteredLogs = logs.filter((log) => {
@@ -201,21 +218,29 @@ export default function AuditLogsPage() {
     return 'All time';
   };
 
-  // Export to CSV — fetches ALL pages, not just the current one
+  // Export to CSV — fetches ALL records matching the current filters by
+  // walking through every page (100 records each) and concatenating them.
+  // Pagination limits in the API are intentional and stay unchanged.
   const exportToCSV = async () => {
     if (isExporting) return;
     setIsExporting(true);
     try {
-      // Fetch all matching records in a single request.
-      // We use totalLogs as the page size so the backend returns everything;
-      // fall back to 10 000 if totalLogs is not yet known.
-      const allData = await APIClient.getAuditLogs({
-        ...filters,
-        page: 1,
-        pageSize: totalLogs > 0 ? totalLogs : 10_000,
-      });
+      const PAGE_SIZE = 100;
+      let logsToExport: typeof logs = [];
+      let page = 1;
 
-      let logsToExport = allData.logs || [];
+      while (true) {
+        const chunk = await APIClient.getAuditLogs({
+          ...filters,
+          page,
+          pageSize: PAGE_SIZE,
+        });
+        const pageLogs = chunk.logs || [];
+        logsToExport = [...logsToExport, ...pageLogs];
+        // Stop when the server returns fewer records than requested — that's the last page
+        if (pageLogs.length < PAGE_SIZE) break;
+        page++;
+      }
 
       // Re-apply the client-side search term across the full dataset
       if (searchTerm.trim()) {

@@ -308,7 +308,13 @@ const handleError = async (error: AxiosError): Promise<unknown> => {
 
         try {
           const rt = tokenManager.getRefreshToken();
-          if (!rt) throw new Error('No refresh token');
+          if (!rt) {
+            // No refresh token at all — hard logout, nothing to recover
+            isRefreshing = false;
+            pendingRefreshCallbacks = [];
+            doLogout();
+            return Promise.reject(error);
+          }
 
           const resp = await axios.post(
             `${API_CONFIG.baseURL}/auth/refresh`,
@@ -325,15 +331,24 @@ const handleError = async (error: AxiosError): Promise<unknown> => {
 
           (originalRequest.headers as any)['Authorization'] = `Bearer ${access_token}`;
           return apiClient(originalRequest);
-        } catch {
+        } catch (refreshErr: unknown) {
           isRefreshing = false;
           pendingRefreshCallbacks = [];
-          doLogout();
+
+          // Only log out if the refresh endpoint explicitly rejected the token
+          // (401 / 403). Network errors or 5xx (server restarting) are transient
+          // — do NOT log out; let the user retry.
+          const refreshStatus = (refreshErr as any)?.response?.status;
+          const isAuthRejection = refreshStatus === 401 || refreshStatus === 403;
+          if (isAuthRejection) {
+            doLogout();
+          }
           return Promise.reject(error);
         }
       }
 
-      // _retry already set means refresh itself failed → logout
+      // _retry already set means the refresh succeeded but the retried request
+      // still returned 401 — legitimate auth failure, log out.
       doLogout();
     }
 
@@ -1283,12 +1298,13 @@ export class APIClient {
     const result: LoginResponse = {
       success: response.data.success,
       token: response.data.token,
+      refreshToken: response.data.refresh_token,
       user: response.data.user,
       error: response.data.error,
     };
 
     if (result.success && result.token) {
-      tokenManager.setTokens(result.token);
+      tokenManager.setTokens(result.token, result.refreshToken);
     }
 
     return result;
