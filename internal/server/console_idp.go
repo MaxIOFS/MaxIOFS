@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -865,6 +866,7 @@ func (s *Server) startOAuthFlow(w http.ResponseWriter, r *http.Request, provider
 		Path:     "/",
 		MaxAge:   600,
 		HttpOnly: true,
+		Secure:   isHTTPS(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -909,7 +911,8 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	csrfToken := parts[1]
 
 	cookie, err := r.Cookie("oauth_state")
-	if err != nil || cookie.Value != csrfToken {
+	// Use constant-time comparison to prevent timing-based CSRF token enumeration.
+	if err != nil || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(csrfToken)) != 1 {
 		logrus.Warn("OAuth CSRF validation failed")
 		http.Redirect(w, r, "/login?error=csrf_failed", http.StatusFound)
 		return
@@ -1226,4 +1229,16 @@ func resolveRoleFromMappings(userGroups []string, mappings []*idp.GroupMapping) 
 		return "", false
 	}
 	return bestRole, true
+}
+
+// isHTTPS returns true when the request was received over a TLS connection
+// or when a trusted reverse-proxy forwarded it as HTTPS.
+func isHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		return true
+	}
+	return false
 }

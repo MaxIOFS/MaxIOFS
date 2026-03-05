@@ -154,14 +154,32 @@ func (s *Sender) deliver(client *smtp.Client, to []string, msg []byte) error {
 }
 
 func buildMessage(from string, to []string, subject, body string) []byte {
+	// Sanitize header fields to prevent SMTP header injection.
+	// CR and LF characters in any header value would allow an attacker to
+	// inject arbitrary headers (e.g. Bcc:) or split the message body.
+	safeFrom := sanitizeHeader(from)
+	safeTo := make([]string, len(to))
+	for i, r := range to {
+		safeTo[i] = sanitizeHeader(r)
+	}
+	safeSubject := sanitizeHeader(subject)
+
 	var sb strings.Builder
-	sb.WriteString("From: " + from + "\r\n")
-	sb.WriteString("To: " + strings.Join(to, ", ") + "\r\n")
-	sb.WriteString("Subject: " + subject + "\r\n")
+	sb.WriteString("From: " + safeFrom + "\r\n")
+	sb.WriteString("To: " + strings.Join(safeTo, ", ") + "\r\n")
+	sb.WriteString("Subject: " + safeSubject + "\r\n")
 	sb.WriteString("MIME-Version: 1.0\r\n")
 	sb.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
 	sb.WriteString("Date: " + time.Now().Format("Mon, 02 Jan 2006 15:04:05 -0700") + "\r\n")
 	sb.WriteString("\r\n")
 	sb.WriteString(body)
 	return []byte(sb.String())
+}
+
+// sanitizeHeader removes CR (\r) and LF (\n) characters from an SMTP header
+// value to prevent header injection attacks.
+func sanitizeHeader(s string) string {
+	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, "\n", "")
+	return s
 }

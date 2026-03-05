@@ -137,9 +137,15 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 	maxUploads := 1000
 
 	if maxUploadsStr := r.URL.Query().Get("max-uploads"); maxUploadsStr != "" {
-		if parsed, err := strconv.Atoi(maxUploadsStr); err == nil && parsed > 0 {
-			maxUploads = parsed
+		parsed, err := strconv.Atoi(maxUploadsStr)
+		if err != nil || parsed <= 0 {
+			h.writeError(w, "InvalidArgument", "Argument max-uploads must be a positive integer", bucketName, r)
+			return
 		}
+		if parsed > 1000 {
+			parsed = 1000 // S3 spec cap
+		}
+		maxUploads = parsed
 	}
 
 	// List multipart uploads
@@ -333,9 +339,15 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 
 	maxParts := 1000
 	if maxPartsStr := r.URL.Query().Get("max-parts"); maxPartsStr != "" {
-		if parsed, err := strconv.Atoi(maxPartsStr); err == nil && parsed > 0 {
-			maxParts = parsed
+		parsed, err := strconv.Atoi(maxPartsStr)
+		if err != nil || parsed <= 0 {
+			h.writeError(w, "InvalidArgument", "Argument max-parts must be a positive integer", uploadID, r)
+			return
 		}
+		if parsed > 1000 {
+			parsed = 1000 // S3 spec cap
+		}
+		maxParts = parsed
 	}
 
 	// List parts

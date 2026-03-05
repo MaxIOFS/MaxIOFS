@@ -34,15 +34,16 @@ func NewManager(store Store) Manager {
 	}
 }
 
-// NewManagerWithDB creates a new share manager with SQLite database
-func NewManagerWithDB(dataDir string) (Manager, error) {
+// NewManagerWithDB creates a new share manager with SQLite database.
+// encryptionKey is used to encrypt secret_key at rest (AES-256-GCM); pass "" to disable.
+func NewManagerWithDB(dataDir string, encryptionKey string) (Manager, error) {
 	dbPath := filepath.Join(dataDir, "db", "maxiofs.db")
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	store, err := NewSQLiteStore(db)
+	store, err := NewSQLiteStore(db, encryptionKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create share store: %w", err)
 	}

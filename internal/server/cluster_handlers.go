@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/tls"
 	"encoding/json"
 	"io"
@@ -487,9 +488,9 @@ func (s *Server) handleGetBucketReplicas(w http.ResponseWriter, r *http.Request)
 	}
 
 	s.writeJSON(w, map[string]interface{}{
-		"bucket":  bucketName,
-		"rules":   rules,
-		"total":   len(rules),
+		"bucket": bucketName,
+		"rules":  rules,
+		"total":  len(rules),
 	})
 }
 
@@ -622,8 +623,8 @@ func (s *Server) handleValidateClusterToken(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Validate token matches local cluster token
-	if config.ClusterToken != req.ClusterToken {
+	// Validate token matches local cluster token (timing-safe to prevent timing attacks).
+	if !hmac.Equal([]byte(config.ClusterToken), []byte(req.ClusterToken)) {
 		s.writeError(w, "Invalid cluster token", http.StatusUnauthorized)
 		return
 	}
@@ -648,15 +649,64 @@ func (s *Server) handleValidateClusterToken(w http.ResponseWriter, r *http.Reque
 		"cluster_info": clusterInfo,
 	}
 
-	// Include CA cert and key so joining node can set up TLS
+	// Include only the CA *certificate* (public). The CA private key is never transmitted.
+	// Joining nodes obtain their signed certificate via the /sign-csr endpoint instead.
 	if caCert := s.clusterManager.GetCACertPEM(); caCert != "" {
 		resp["ca_cert"] = caCert
 	}
-	if caKey := s.clusterManager.GetCAKeyPEM(); caKey != "" {
-		resp["ca_key"] = caKey
-	}
 
 	s.writeJSON(w, resp)
+}
+
+// handleSignCSR signs a Certificate Signing Request (CSR) from a node that is joining the cluster.
+// Authentication uses the shared cluster token (pre-HMAC bootstrap flow).
+// The CA private key never leaves this handler — only the signed certificate is returned.
+func (s *Server) handleSignCSR(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ClusterToken string `json:"cluster_token"`
+		CSR          string `json:"csr"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.ClusterToken == "" || req.CSR == "" {
+		s.writeError(w, "cluster_token and csr are required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate cluster token
+	config, err := s.clusterManager.GetConfig(r.Context())
+	if err != nil {
+		s.writeError(w, "Cluster not initialized", http.StatusInternalServerError)
+		return
+	}
+	if !hmac.Equal([]byte(config.ClusterToken), []byte(req.ClusterToken)) {
+		s.writeError(w, "Invalid cluster token", http.StatusUnauthorized)
+		return
+	}
+
+	// Get CA cert and key (key stays server-side, never transmitted)
+	caCertPEM := s.clusterManager.GetCACertPEM()
+	caKeyPEM := s.clusterManager.GetCAKeyPEM()
+	if caCertPEM == "" || caKeyPEM == "" {
+		s.writeError(w, "CA certificates not available on this node", http.StatusInternalServerError)
+		return
+	}
+
+	// Sign the CSR
+	nodeCertPEM, err := cluster.SignCSR([]byte(req.CSR), []byte(caCertPEM), []byte(caKeyPEM))
+	if err != nil {
+		logrus.WithError(err).Error("Failed to sign node CSR")
+		s.writeError(w, "Failed to sign CSR: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]string{
+		"node_cert": string(nodeCertPEM),
+	})
 }
 
 // handleRegisterNode registers a new node joining the cluster
@@ -689,7 +739,7 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if config.ClusterToken != req.ClusterToken {
+	if !hmac.Equal([]byte(config.ClusterToken), []byte(req.ClusterToken)) {
 		s.writeError(w, "Invalid cluster token", http.StatusUnauthorized)
 		return
 	}
@@ -733,9 +783,17 @@ func (s *Server) handleGetClusterJWTSecret(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// handleGetClusterNodesInternal returns cluster nodes for internal cluster sync (with token auth)
+// handleGetClusterNodesInternal returns cluster nodes for internal cluster sync (with token auth).
+// The cluster token is expected in the Authorization header as "Bearer <token>" to avoid
+// leaking the token into HTTP access logs which record the full URL.
 func (s *Server) handleGetClusterNodesInternal(w http.ResponseWriter, r *http.Request) {
-	clusterToken := r.URL.Query().Get("cluster_token")
+	authHeader := r.Header.Get("Authorization")
+	const bearerPrefix = "Bearer "
+	if !strings.HasPrefix(authHeader, bearerPrefix) {
+		s.writeError(w, "Cluster token is required (Authorization: Bearer <token>)", http.StatusBadRequest)
+		return
+	}
+	clusterToken := strings.TrimPrefix(authHeader, bearerPrefix)
 	if clusterToken == "" {
 		s.writeError(w, "Cluster token is required", http.StatusBadRequest)
 		return
@@ -749,7 +807,7 @@ func (s *Server) handleGetClusterNodesInternal(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if config.ClusterToken != clusterToken {
+	if !hmac.Equal([]byte(config.ClusterToken), []byte(clusterToken)) {
 		s.writeError(w, "Invalid cluster token", http.StatusUnauthorized)
 		return
 	}

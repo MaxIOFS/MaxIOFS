@@ -5243,7 +5243,7 @@ func TestHandleGetClusterNodesInternal(t *testing.T) {
 	server := getSharedServer()
 
 	t.Run("should require cluster token", func(t *testing.T) {
-		// Handler requires cluster_token query param, returns BadRequest without it
+		// Handler requires Authorization: Bearer <token> header, returns BadRequest without it
 		req := httptest.NewRequest("GET", "/api/internal/cluster/nodes", nil)
 		rr := httptest.NewRecorder()
 		server.handleGetClusterNodesInternal(rr, req)
@@ -5251,7 +5251,8 @@ func TestHandleGetClusterNodesInternal(t *testing.T) {
 	})
 
 	t.Run("should reject invalid cluster token", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/internal/cluster/nodes?cluster_token=invalid", nil)
+		req := httptest.NewRequest("GET", "/api/internal/cluster/nodes", nil)
+		req.Header.Set("Authorization", "Bearer invalid")
 		rr := httptest.NewRecorder()
 		server.handleGetClusterNodesInternal(rr, req)
 		// Returns 500 if cluster not configured, or 401 if token invalid
@@ -6161,7 +6162,8 @@ func TestHandleClusterNodesInternalEdgeCases(t *testing.T) {
 	})
 
 	t.Run("should reject invalid cluster token", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/internal/cluster/nodes?cluster_token=invalid", nil)
+		req := httptest.NewRequest("GET", "/api/internal/cluster/nodes", nil)
+		req.Header.Set("Authorization", "Bearer invalid")
 		rr := httptest.NewRecorder()
 		server.handleGetClusterNodesInternal(rr, req)
 		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusBadRequest}, rr.Code)

@@ -111,7 +111,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	// Start workers
 	m.workers = make([]*Worker, m.config.WorkerCount)
 	for i := 0; i < m.config.WorkerCount; i++ {
-		worker := NewWorkerWithS3Factory(i, m.queue, m.db, m.objectAdapter, m.objectManager, m.s3ClientFactory)
+		worker := newWorkerWithEncryption(i, m.queue, m.db, m.objectAdapter, m.objectManager, m.s3ClientFactory, m.config.CredentialEncryptionKey)
 		m.workers[i] = worker
 		m.wg.Add(1)
 		go func(w *Worker) {
@@ -169,6 +169,12 @@ func (m *Manager) CreateRule(ctx context.Context, rule *ReplicationRule) error {
 	rule.CreatedAt = time.Now()
 	rule.UpdatedAt = time.Now()
 
+	// Encrypt the destination secret key before storing
+	encryptedSecret, err := encryptCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt destination secret key: %w", err)
+	}
+
 	query := `
 		INSERT INTO replication_rules (
 			id, tenant_id, source_bucket, destination_endpoint, destination_bucket,
@@ -178,9 +184,9 @@ func (m *Manager) CreateRule(ctx context.Context, rule *ReplicationRule) error {
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := m.db.ExecContext(ctx, query,
+	_, err = m.db.ExecContext(ctx, query,
 		rule.ID, rule.TenantID, rule.SourceBucket, rule.DestinationEndpoint, rule.DestinationBucket,
-		rule.DestinationAccessKey, rule.DestinationSecretKey, rule.DestinationRegion, rule.Prefix, rule.Enabled,
+		rule.DestinationAccessKey, encryptedSecret, rule.DestinationRegion, rule.Prefix, rule.Enabled,
 		rule.Priority, rule.Mode, rule.ScheduleInterval, rule.ConflictResolution, rule.ReplicateDeletes,
 		rule.ReplicateMetadata, rule.CreatedAt, rule.UpdatedAt,
 	)
@@ -207,6 +213,11 @@ func (m *Manager) GetRule(ctx context.Context, ruleID string) (*ReplicationRule,
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
+	if err != nil {
+		return rule, err
+	}
+	// Decrypt the destination secret key
+	rule.DestinationSecretKey, err = decryptCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey)
 	return rule, err
 }
 
@@ -239,6 +250,10 @@ func (m *Manager) ListRules(ctx context.Context, tenantID string) ([]*Replicatio
 		)
 		if err != nil {
 			return nil, err
+		}
+		// Decrypt the destination secret key
+		if rule.DestinationSecretKey, err = decryptCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey); err != nil {
+			return nil, fmt.Errorf("failed to decrypt secret key for rule %s: %w", rule.ID, err)
 		}
 		rules = append(rules, rule)
 	}
@@ -275,6 +290,10 @@ func (m *Manager) GetRulesForBucket(ctx context.Context, bucketName string) ([]*
 		if err != nil {
 			return nil, err
 		}
+		// Decrypt the destination secret key
+		if rule.DestinationSecretKey, err = decryptCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey); err != nil {
+			return nil, fmt.Errorf("failed to decrypt secret key for rule %s: %w", rule.ID, err)
+		}
 		rules = append(rules, rule)
 	}
 	return rules, rows.Err()
@@ -283,6 +302,12 @@ func (m *Manager) GetRulesForBucket(ctx context.Context, bucketName string) ([]*
 // UpdateRule updates an existing replication rule
 func (m *Manager) UpdateRule(ctx context.Context, rule *ReplicationRule) error {
 	rule.UpdatedAt = time.Now()
+
+	// Encrypt the destination secret key before storing
+	encryptedSecret, err := encryptCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt destination secret key: %w", err)
+	}
 
 	query := `
 		UPDATE replication_rules SET
@@ -294,7 +319,7 @@ func (m *Manager) UpdateRule(ctx context.Context, rule *ReplicationRule) error {
 	`
 
 	result, err := m.db.ExecContext(ctx, query,
-		rule.DestinationEndpoint, rule.DestinationBucket, rule.DestinationAccessKey, rule.DestinationSecretKey,
+		rule.DestinationEndpoint, rule.DestinationBucket, rule.DestinationAccessKey, encryptedSecret,
 		rule.DestinationRegion, rule.Prefix, rule.Enabled, rule.Priority, rule.Mode, rule.ScheduleInterval,
 		rule.ConflictResolution, rule.ReplicateDeletes, rule.ReplicateMetadata,
 		rule.UpdatedAt, rule.ID, rule.TenantID,
@@ -348,13 +373,13 @@ func (m *Manager) QueueObject(ctx context.Context, tenantID, bucket, objectKey, 
 	// Queue object for each matching rule
 	for _, rule := range rules {
 		item := &QueueItem{
-			RuleID:     rule.ID,
-			TenantID:   tenantID,
-			Bucket:     bucket,
-			ObjectKey:  objectKey,
-			Action:     action,
-			Status:     StatusPending,
-			MaxRetries: m.config.MaxRetries,
+			RuleID:      rule.ID,
+			TenantID:    tenantID,
+			Bucket:      bucket,
+			ObjectKey:   objectKey,
+			Action:      action,
+			Status:      StatusPending,
+			MaxRetries:  m.config.MaxRetries,
 			ScheduledAt: time.Now(),
 		}
 

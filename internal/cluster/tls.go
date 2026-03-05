@@ -182,6 +182,104 @@ func IsCertExpiringSoon(certPEM []byte, days int) (bool, error) {
 	return cert.NotAfter.Before(threshold), nil
 }
 
+// GenerateKeyAndCSR generates a new ECDSA P-256 private key and a PEM-encoded
+// Certificate Signing Request (CSR) for the given commonName.
+// The private key never needs to leave the requesting node.
+func GenerateKeyAndCSR(commonName string) (keyPEM, csrPEM []byte, err error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate key: %w", err)
+	}
+
+	template := &x509.CertificateRequest{
+		Subject: pkix.Name{
+			CommonName:   commonName,
+			Organization: []string{"MaxIOFS"},
+		},
+		DNSNames:    []string{commonName, "localhost"},
+		IPAddresses: []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
+	}
+
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, template, key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create CSR: %w", err)
+	}
+
+	csrPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})
+
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal key: %w", err)
+	}
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+
+	return keyPEM, csrPEM, nil
+}
+
+// SignCSR signs a PEM-encoded CSR using the given CA certificate and key, returning
+// a PEM-encoded signed certificate (1-year validity).
+// This is called by the cluster leader when a new node requests to join.
+func SignCSR(csrPEM, caCertPEM, caKeyPEM []byte) (certPEM []byte, err error) {
+	// Parse CSR
+	csrBlock, _ := pem.Decode(csrPEM)
+	if csrBlock == nil {
+		return nil, fmt.Errorf("failed to decode CSR PEM")
+	}
+	csr, err := x509.ParseCertificateRequest(csrBlock.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CSR: %w", err)
+	}
+	if err := csr.CheckSignature(); err != nil {
+		return nil, fmt.Errorf("CSR signature invalid: %w", err)
+	}
+
+	// Parse CA cert
+	caBlock, _ := pem.Decode(caCertPEM)
+	if caBlock == nil {
+		return nil, fmt.Errorf("failed to decode CA certificate PEM")
+	}
+	caCert, err := x509.ParseCertificate(caBlock.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CA certificate: %w", err)
+	}
+
+	// Parse CA key
+	caKeyBlock, _ := pem.Decode(caKeyPEM)
+	if caKeyBlock == nil {
+		return nil, fmt.Errorf("failed to decode CA key PEM")
+	}
+	caKey, err := x509.ParseECPrivateKey(caKeyBlock.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CA key: %w", err)
+	}
+
+	serialNumber, err := randomSerialNumber()
+	if err != nil {
+		return nil, err
+	}
+
+	template := &x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject:      csr.Subject,
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(365 * 24 * time.Hour), // 1 year
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage: []x509.ExtKeyUsage{
+			x509.ExtKeyUsageServerAuth,
+			x509.ExtKeyUsageClientAuth,
+		},
+		DNSNames:    csr.DNSNames,
+		IPAddresses: csr.IPAddresses,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, caCert, csr.PublicKey, caKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign CSR: %w", err)
+	}
+
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}), nil
+}
+
 // InsecureClusterTLSConfig returns a TLS config that skips server verification.
 // Used only during the initial join handshake before the CA cert is available.
 func InsecureClusterTLSConfig() *tls.Config {

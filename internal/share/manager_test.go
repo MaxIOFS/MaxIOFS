@@ -30,7 +30,7 @@ func TestNewManager(t *testing.T) {
 	db, _ := setupTestDB(t)
 	defer db.Close()
 
-	store, err := NewSQLiteStore(db)
+	store, err := NewSQLiteStore(db, "")
 	require.NoError(t, err)
 
 	manager := NewManager(store)
@@ -51,7 +51,7 @@ func TestCreateShare(t *testing.T) {
 	db, _ := setupTestDB(t)
 	defer db.Close()
 
-	store, err := NewSQLiteStore(db)
+	store, err := NewSQLiteStore(db, "")
 	require.NoError(t, err)
 
 	manager := NewManager(store)
@@ -73,7 +73,7 @@ func TestCreateShare_NoExpiration(t *testing.T) {
 	db, _ := setupTestDB(t)
 	defer db.Close()
 
-	store, err := NewSQLiteStore(db)
+	store, err := NewSQLiteStore(db, "")
 	require.NoError(t, err)
 
 	manager := NewManager(store)
@@ -89,7 +89,7 @@ func TestGetShare(t *testing.T) {
 	db, _ := setupTestDB(t)
 	defer db.Close()
 
-	store, err := NewSQLiteStore(db)
+	store, err := NewSQLiteStore(db, "")
 	require.NoError(t, err)
 
 	manager := NewManager(store)
@@ -111,7 +111,7 @@ func TestGetShare_Expired(t *testing.T) {
 	db, _ := setupTestDB(t)
 	defer db.Close()
 
-	store, err := NewSQLiteStore(db)
+	store, err := NewSQLiteStore(db, "")
 	require.NoError(t, err)
 
 	manager := NewManager(store)
@@ -134,7 +134,7 @@ func TestGetShareByToken(t *testing.T) {
 	db, _ := setupTestDB(t)
 	defer db.Close()
 
-	store, err := NewSQLiteStore(db)
+	store, err := NewSQLiteStore(db, "")
 	require.NoError(t, err)
 
 	manager := NewManager(store)
@@ -155,7 +155,7 @@ func TestGetShareByObject(t *testing.T) {
 	db, _ := setupTestDB(t)
 	defer db.Close()
 
-	store, err := NewSQLiteStore(db)
+	store, err := NewSQLiteStore(db, "")
 	require.NoError(t, err)
 
 	manager := NewManager(store)
@@ -176,7 +176,7 @@ func TestListShares(t *testing.T) {
 	db, _ := setupTestDB(t)
 	defer db.Close()
 
-	store, err := NewSQLiteStore(db)
+	store, err := NewSQLiteStore(db, "")
 	require.NoError(t, err)
 
 	manager := NewManager(store)
@@ -206,7 +206,7 @@ func TestListBucketShares(t *testing.T) {
 	db, _ := setupTestDB(t)
 	defer db.Close()
 
-	store, err := NewSQLiteStore(db)
+	store, err := NewSQLiteStore(db, "")
 	require.NoError(t, err)
 
 	manager := NewManager(store)
@@ -236,7 +236,7 @@ func TestDeleteShare(t *testing.T) {
 	db, _ := setupTestDB(t)
 	defer db.Close()
 
-	store, err := NewSQLiteStore(db)
+	store, err := NewSQLiteStore(db, "")
 	require.NoError(t, err)
 
 	manager := NewManager(store)
@@ -260,7 +260,7 @@ func TestDeleteExpiredShares(t *testing.T) {
 	db, _ := setupTestDB(t)
 	defer db.Close()
 
-	store, err := NewSQLiteStore(db)
+	store, err := NewSQLiteStore(db, "")
 	require.NoError(t, err)
 
 	manager := NewManager(store)

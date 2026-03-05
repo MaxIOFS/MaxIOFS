@@ -14,12 +14,13 @@ type S3ClientFactory func(endpoint, region, accessKey, secretKey string) S3Clien
 
 // Worker processes replication queue items
 type Worker struct {
-	id              int
-	queue           <-chan *QueueItem
-	db              *sql.DB
-	objectAdapter   ObjectAdapter
-	objectManager   ObjectManager
-	s3ClientFactory S3ClientFactory
+	id                      int
+	queue                   <-chan *QueueItem
+	db                      *sql.DB
+	objectAdapter           ObjectAdapter
+	objectManager           ObjectManager
+	s3ClientFactory         S3ClientFactory
+	credentialEncryptionKey string // AES-256-GCM key for decrypting destination_secret_key
 }
 
 // NewWorker creates a new replication worker
@@ -46,6 +47,13 @@ func NewWorkerWithS3Factory(id int, queue <-chan *QueueItem, db *sql.DB, objectA
 		objectManager:   objectManager,
 		s3ClientFactory: factory,
 	}
+}
+
+// newWorkerWithEncryption creates a worker with credential encryption support (used by Manager)
+func newWorkerWithEncryption(id int, queue <-chan *QueueItem, db *sql.DB, objectAdapter ObjectAdapter, objectManager ObjectManager, factory S3ClientFactory, credentialEncryptionKey string) *Worker {
+	w := NewWorkerWithS3Factory(id, queue, db, objectAdapter, objectManager, factory)
+	w.credentialEncryptionKey = credentialEncryptionKey
+	return w
 }
 
 // Start starts the worker
@@ -238,7 +246,7 @@ func (w *Worker) replicateDelete(ctx context.Context, rule *ReplicationRule, ite
 	return nil
 }
 
-// getRule retrieves a replication rule
+// getRule retrieves a replication rule and decrypts the destination secret key
 func (w *Worker) getRule(ctx context.Context, ruleID string) (*ReplicationRule, error) {
 	query := `
 		SELECT id, tenant_id, source_bucket, destination_endpoint, destination_bucket,
@@ -258,6 +266,11 @@ func (w *Worker) getRule(ctx context.Context, ruleID string) (*ReplicationRule, 
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
+	if err != nil {
+		return nil, err
+	}
+	// Decrypt the destination secret key before use
+	rule.DestinationSecretKey, err = decryptCredential(rule.DestinationSecretKey, w.credentialEncryptionKey)
 	return rule, err
 }
 

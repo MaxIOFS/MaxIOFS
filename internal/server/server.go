@@ -237,8 +237,14 @@ func New(cfg *config.Config) (*Server, error) {
 		})
 	}
 
+	// Derive encryption key used by multiple subsystems (IDP, replication, share)
+	cryptoSecret := cfg.Auth.SecretKey
+	if cryptoSecret == "" {
+		cryptoSecret = cfg.Auth.JWTSecret // fallback
+	}
+
 	// Initialize share manager with same database as auth
-	shareManager, err := share.NewManagerWithDB(cfg.DataDir)
+	shareManager, err := share.NewManagerWithDB(cfg.DataDir, cryptoSecret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create share manager: %w", err)
 	}
@@ -261,22 +267,19 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize IDP manager
 	idpStore := idpkg.NewStore(db)
-	cryptoSecret := cfg.Auth.SecretKey
-	if cryptoSecret == "" {
-		cryptoSecret = cfg.Auth.JWTSecret // fallback
-	}
 	idpManager := idpkg.NewManager(idpStore, cryptoSecret)
 
 	// Initialize replication manager
 	replicationConfig := replication.ReplicationConfig{
-		Enable:          true, // Now enabled with AWS SDK implementation
-		WorkerCount:     5,
-		QueueSize:       1000,
-		BatchSize:       100,
-		RetryInterval:   5 * time.Minute,
-		MaxRetries:      3,
-		CleanupInterval: 24 * time.Hour,
-		RetentionDays:   30,
+		Enable:                  true, // Now enabled with AWS SDK implementation
+		WorkerCount:             5,
+		QueueSize:               1000,
+		BatchSize:               100,
+		RetryInterval:           5 * time.Minute,
+		MaxRetries:              3,
+		CleanupInterval:         24 * time.Hour,
+		RetentionDays:           30,
+		CredentialEncryptionKey: cryptoSecret, // AES-256-GCM encrypt destination_secret_key at rest
 	}
 	// Create adapters for replication manager
 	objectManagerAdapted := &objectManagerAdapter{mgr: objectManager}
@@ -878,6 +881,8 @@ func (s *Server) setupRoutes() error {
 		internalPublicRouter.HandleFunc("/validate-token", s.handleValidateClusterToken).Methods("POST")
 		internalPublicRouter.HandleFunc("/register-node", s.handleRegisterNode).Methods("POST")
 		internalPublicRouter.HandleFunc("/nodes", s.handleGetClusterNodesInternal).Methods("GET")
+		// CSR signing: joining node sends a CSR, receives only the signed certificate (CA key stays server-side)
+		internalPublicRouter.HandleFunc("/sign-csr", s.handleSignCSR).Methods("POST")
 
 		if s.clusterManager.IsClusterEnabled() {
 			clusterAuthMiddleware := middleware.NewClusterAuthMiddleware(s.db)

@@ -1481,21 +1481,16 @@ func (am *authManager) verifyS3SignatureV4(r *http.Request, sig *S3SignatureV4, 
 	// Calculate signature
 	calculatedSig := am.calculateSignatureV4(stringToSign, secretKey, sig.Date, sig.Region, sig.Service)
 
-	// Debug logging
+	// Debug logging — log only non-sensitive fields
 	logrus.WithFields(logrus.Fields{
-		"received_signature":     sig.Signature,
-		"calculated_signature":   calculatedSig,
-		"access_key":             sig.AccessKey,
-		"signed_headers":         sig.SignedHeaders,
-		"date":                   sig.Date,
-		"region":                 sig.Region,
-		"service":                sig.Service,
-		"x_amz_date":             r.Header.Get("X-Amz-Date"),
-		"canonical_request_hash": canonicalRequestHash,
-		"match":                  calculatedSig == sig.Signature,
-	}).Info("SigV4 verification details")
+		"access_key":     sig.AccessKey,
+		"signed_headers": sig.SignedHeaders,
+		"date":           sig.Date,
+		"region":         sig.Region,
+		"service":        sig.Service,
+	}).Debug("SigV4 verification")
 
-	return calculatedSig == sig.Signature
+	return hmac.Equal([]byte(calculatedSig), []byte(sig.Signature))
 }
 
 // verifyS3SignatureV2 verifies AWS Signature Version 2
@@ -1508,7 +1503,7 @@ func (am *authManager) verifyS3SignatureV2(r *http.Request, sig *S3SignatureV2, 
 	hash.Write([]byte(stringToSign))
 	calculatedSig := base64.StdEncoding.EncodeToString(hash.Sum(nil))
 
-	return calculatedSig == sig.Signature
+	return hmac.Equal([]byte(calculatedSig), []byte(sig.Signature))
 }
 
 // uriEncode encodes a URI path according to AWS SigV4 requirements (RFC 3986)

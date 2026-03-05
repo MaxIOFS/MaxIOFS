@@ -1,6 +1,7 @@
 package presigned
 
 import (
+	"crypto/hmac"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -31,7 +32,6 @@ func uriEncode(path string) string {
 	}
 	return encoded.String()
 }
-
 
 // ValidatePresignedURL validates a presigned URL from an HTTP request
 // Returns true if valid, false otherwise
@@ -130,8 +130,8 @@ func ValidatePresignedURL(r *http.Request, secretAccessKey string) (bool, error)
 	expectedSignature := hmacSHA256(signingKey, []byte(stringToSign))
 	expectedSignatureHex := strings.ToLower(fmt.Sprintf("%x", expectedSignature))
 
-	// Compare signatures
-	if strings.ToLower(providedSignature) != expectedSignatureHex {
+	// Compare signatures using constant-time comparison to prevent timing attacks
+	if !hmac.Equal([]byte(strings.ToLower(providedSignature)), []byte(expectedSignatureHex)) {
 		logrus.WithFields(logrus.Fields{
 			"accessKeyID":       accessKeyID,
 			"providedSignature": providedSignature,

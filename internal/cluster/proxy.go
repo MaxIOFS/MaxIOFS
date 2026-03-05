@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
@@ -41,8 +42,17 @@ func NewProxyClient(tlsConfig *tls.Config) *ProxyClient {
 	}
 }
 
-// ProxyRequest proxies an HTTP request to a remote node
+// ProxyRequest proxies an HTTP request to a remote node.
+// If the incoming request already carries the X-MaxIOFS-Proxied header, the call is rejected
+// to prevent infinite proxy loops (A→B→A→...).
 func (p *ProxyClient) ProxyRequest(ctx context.Context, node *Node, originalReq *http.Request) (*http.Response, error) {
+	// Guard against proxy loops: if this request was already forwarded by another node, refuse to
+	// forward it again. The caller must handle it locally or return an error to the client.
+	if originalReq.Header.Get("X-MaxIOFS-Proxied") == "true" {
+		return nil, fmt.Errorf("refusing to proxy an already-proxied request (loop prevention): %s %s",
+			originalReq.Method, originalReq.URL.RequestURI())
+	}
+
 	// Build remote URL
 	remoteURL := fmt.Sprintf("%s%s", node.Endpoint, originalReq.URL.RequestURI())
 
@@ -168,8 +178,20 @@ func isHopByHopHeader(header string) bool {
 // This is used when making authenticated requests to other nodes for replication
 func (p *ProxyClient) SignClusterRequest(req *http.Request, localNodeID, nodeToken string) {
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
-	nonce := fmt.Sprintf("%d", time.Now().UnixNano())
 
+	// Generate a cryptographically secure random nonce
+	nonceBytes := make([]byte, 16)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		// Fallback — still better than pure UnixNano due to timestamp addition
+		nonce := fmt.Sprintf("%d-%d", time.Now().UnixNano(), time.Now().UnixMicro())
+		p.signWithNonce(req, localNodeID, nodeToken, timestamp, nonce)
+		return
+	}
+	nonce := hex.EncodeToString(nonceBytes)
+	p.signWithNonce(req, localNodeID, nodeToken, timestamp, nonce)
+}
+
+func (p *ProxyClient) signWithNonce(req *http.Request, localNodeID, nodeToken, timestamp, nonce string) {
 	// Compute signature: HMAC-SHA256(nodeToken, method + path + timestamp + nonce)
 	payload := fmt.Sprintf("%s\n%s\n%s\n%s", req.Method, req.URL.Path, timestamp, nonce)
 	h := hmac.New(sha256.New, []byte(nodeToken))

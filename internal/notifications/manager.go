@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -16,12 +18,12 @@ import (
 )
 
 const (
-	eventVersion      = "2.1"
-	eventSource       = "maxiofs:s3"
-	s3SchemaVersion   = "1.0"
-	webhookTimeout    = 10 * time.Second
-	maxRetries        = 3
-	retryDelay        = 2 * time.Second
+	eventVersion    = "2.1"
+	eventSource     = "maxiofs:s3"
+	s3SchemaVersion = "1.0"
+	webhookTimeout  = 10 * time.Second
+	maxRetries      = 3
+	retryDelay      = 2 * time.Second
 )
 
 // Manager handles bucket notification configurations and event sending
@@ -37,13 +39,85 @@ type Manager struct {
 // The store parameter must implement metadata.RawKVStore (both BadgerStore and
 // PebbleStore satisfy this interface).
 func NewManager(store metadata.RawKVStore) *Manager {
+	// Use a custom dialer that blocks SSRF by refusing connections to
+	// loopback, link-local, and private (RFC-1918/RFC-4193) addresses.
+	dialer := &net.Dialer{Timeout: webhookTimeout}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// addr is "host:port" after DNS resolution within the dialer.
+			// We resolve the name ourselves first so we can inspect the IP
+			// before a connection is established (prevents DNS-rebinding).
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, fmt.Errorf("webhook SSRF guard: invalid address %q: %w", addr, err)
+			}
+
+			ips, err := net.DefaultResolver.LookupHost(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("webhook SSRF guard: DNS lookup failed for %q: %w", host, err)
+			}
+
+			for _, ipStr := range ips {
+				ip := net.ParseIP(ipStr)
+				if ip == nil {
+					continue
+				}
+				if isBlockedIP(ip) {
+					return nil, fmt.Errorf("webhook SSRF guard: address %q resolves to blocked IP %s", host, ipStr)
+				}
+			}
+
+			// Use the first resolved IP to connect (avoid a second resolution).
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0], port))
+		},
+	}
+
 	return &Manager{
 		kvStore: store,
 		httpClient: &http.Client{
-			Timeout: webhookTimeout,
+			Timeout:   webhookTimeout,
+			Transport: transport,
+			// Do not follow redirects — a redirect could lead to an internal address.
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return fmt.Errorf("webhook SSRF guard: redirects are not allowed")
+			},
 		},
 		configCache: make(map[string]*NotificationConfiguration),
 	}
+}
+
+// isBlockedIP returns true for loopback, link-local, and private/internal addresses
+// that must not be reached via outbound webhooks.
+func isBlockedIP(ip net.IP) bool {
+	// Loopback (127.0.0.0/8, ::1)
+	if ip.IsLoopback() {
+		return true
+	}
+	// Unspecified (0.0.0.0, ::0)
+	if ip.IsUnspecified() {
+		return true
+	}
+	// Link-local (169.254.0.0/16, fe80::/10) — includes AWS/Azure/GCP metadata
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+	// Private / site-local (10/8, 172.16/12, 192.168/16, fc00::/7)
+	privateRanges := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"fc00::/7",
+	}
+	for _, cidr := range privateRanges {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // GetConfiguration retrieves the notification configuration for a bucket
@@ -343,8 +417,46 @@ func validateConfiguration(config *NotificationConfiguration) error {
 		if !strings.HasPrefix(rule.WebhookURL, "http://") && !strings.HasPrefix(rule.WebhookURL, "https://") {
 			return fmt.Errorf("rule %d: webhook URL must start with http:// or https://", i)
 		}
+		// SSRF guard: reject URLs that target loopback or private addresses.
+		if err := validateWebhookURL(rule.WebhookURL); err != nil {
+			return fmt.Errorf("rule %d: %w", i, err)
+		}
 		if len(rule.Events) == 0 {
 			return fmt.Errorf("rule %d: at least one event is required", i)
+		}
+	}
+
+	return nil
+}
+
+// validateWebhookURL performs a static SSRF check on the given webhook URL.
+// It parses the hostname and, if it is a literal IP, verifies it is not a
+// blocked (private/loopback/link-local) address.  DNS-based checks are
+// performed at delivery time by the custom HTTP transport in NewManager.
+func validateWebhookURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid webhook URL: %w", err)
+	}
+
+	host := parsed.Hostname()
+	if host == "" {
+		return fmt.Errorf("webhook URL missing host")
+	}
+
+	// Reject obviously dangerous hostnames outright.
+	lower := strings.ToLower(host)
+	blocked := []string{"localhost", "ip6-localhost", "ip6-loopback", "broadcasthost"}
+	for _, b := range blocked {
+		if lower == b {
+			return fmt.Errorf("webhook URL target %q is not allowed", host)
+		}
+	}
+
+	// If the host is a literal IP, validate it immediately.
+	if ip := net.ParseIP(host); ip != nil {
+		if isBlockedIP(ip) {
+			return fmt.Errorf("webhook URL resolves to a blocked IP address: %s", ip)
 		}
 	}
 

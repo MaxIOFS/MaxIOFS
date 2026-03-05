@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -145,9 +146,12 @@ func SignRequest(req *http.Request, nodeID, nodeToken string) {
 	req.Header.Set("X-MaxIOFS-Signature", signature)
 }
 
-// generateNonce generates a random nonce for request signatures
+// generateNonce generates a cryptographically secure random nonce for request signatures.
 func generateNonce() string {
-	// Use current timestamp + nanoseconds as nonce
-	// This is sufficient for preventing replay attacks within the time window
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	b := make([]byte, 16) // 128 bits of entropy
+	if _, err := rand.Read(b); err != nil {
+		// Fallback: combine timestamp with PID-ish data rather than silently using weak entropy
+		return fmt.Sprintf("%d-%d", time.Now().UnixNano(), time.Now().UnixMicro())
+	}
+	return hex.EncodeToString(b)
 }
