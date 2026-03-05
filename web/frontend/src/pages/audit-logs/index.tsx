@@ -34,6 +34,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/EmptyState';
+import ModalManager from '@/lib/modals';
 
 // Event type badges color mapping - gray for all events
 const getEventTypeColor = (eventType: string | undefined): string => {
@@ -79,6 +80,7 @@ export default function AuditLogsPage() {
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [isExporting, setIsExporting] = useState(false);
   const [activeTimeFilter, setActiveTimeFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [filters, setFilters] = useState<AuditLogFilters>({
     page: 1,
@@ -199,31 +201,65 @@ export default function AuditLogsPage() {
     return 'All time';
   };
 
-  // Export to CSV
-  const exportToCSV = () => {
-    const csvHeaders = ['Timestamp', 'User', 'Event Type', 'Resource', 'Action', 'Status', 'IP Address'];
-    const csvRows = filteredLogs.map((log) => [
-      formatTimestamp(log.timestamp),
-      log.username,
-      formatEventType(log.event_type),
-      log.resource_name || log.resource_id || '-',
-      log.action,
-      log.status,
-      log.ip_address || '-',
-    ]);
+  // Export to CSV — fetches ALL pages, not just the current one
+  const exportToCSV = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      // Fetch all matching records in a single request.
+      // We use totalLogs as the page size so the backend returns everything;
+      // fall back to 10 000 if totalLogs is not yet known.
+      const allData = await APIClient.getAuditLogs({
+        ...filters,
+        page: 1,
+        pageSize: totalLogs > 0 ? totalLogs : 10_000,
+      });
 
-    const csv = [
-      csvHeaders.join(','),
-      ...csvRows.map((row) => row.map((cell) => `"${cell}"`).join(',')),
-    ].join('\n');
+      let logsToExport = allData.logs || [];
 
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `audit-logs-${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+      // Re-apply the client-side search term across the full dataset
+      if (searchTerm.trim()) {
+        const lower = searchTerm.toLowerCase();
+        logsToExport = logsToExport.filter(
+          (log) =>
+            (log.username && log.username.toLowerCase().includes(lower)) ||
+            (log.event_type && log.event_type.toLowerCase().includes(lower)) ||
+            (log.action && log.action.toLowerCase().includes(lower)) ||
+            (log.resource_name && log.resource_name.toLowerCase().includes(lower)) ||
+            (log.ip_address && log.ip_address.toLowerCase().includes(lower))
+        );
+      }
+
+      const csvHeaders = ['Timestamp', 'User', 'Event Type', 'Resource', 'Action', 'Status', 'IP Address'];
+      const csvRows = logsToExport.map((log) => [
+        formatTimestamp(log.timestamp),
+        log.username || '-',
+        formatEventType(log.event_type),
+        log.resource_name || log.resource_id || '-',
+        log.action || '-',
+        log.status,
+        log.ip_address || '-',
+      ]);
+
+      const csv = [
+        csvHeaders.join(','),
+        ...csvRows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')),
+      ].join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `audit-logs-${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+
+      ModalManager.toast('success', `Exported ${logsToExport.length} records`);
+    } catch (err) {
+      ModalManager.apiError(err);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   // Toggle row expansion
@@ -274,9 +310,9 @@ export default function AuditLogsPage() {
               : t('viewTenantLogs')}
           </p>
         </div>
-        <Button onClick={exportToCSV} variant="outline">
-          <Download className="w-4 h-4 mr-2" />
-          {t('exportCsv')}
+        <Button onClick={exportToCSV} variant="outline" disabled={isExporting}>
+          <Download className={cn('w-4 h-4 mr-2', isExporting && 'animate-spin')} />
+          {isExporting ? t('exporting', 'Exporting…') : t('exportCsv')}
         </Button>
       </div>
 
