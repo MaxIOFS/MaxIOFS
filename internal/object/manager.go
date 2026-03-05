@@ -327,9 +327,15 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 		// Object is encrypted - decrypt stream
 		pipeReader, pipeWriter := io.Pipe()
 
-		// Create encryption metadata for decryption
+		// Create encryption metadata for decryption.
+		// Read the algorithm stored at write time so that legacy AES-CTR objects
+		// (encrypted before Bug #21 fix) are still decrypted correctly.
+		sseAlgorithm := storageMetadata["x-amz-server-side-encryption-algorithm"]
+		if sseAlgorithm == "" {
+			sseAlgorithm = "AES-256-CTR" // assume legacy CTR for unmarked objects
+		}
 		encryptionMeta := &encryption.EncryptionMetadata{
-			Algorithm: "AES-256-GCM",
+			Algorithm: sseAlgorithm,
 		}
 
 		// Decrypt in a goroutine — monitor context to prevent goroutine leak
@@ -2236,7 +2242,7 @@ func (om *objectManager) storeEncryptedObject(ctx context.Context, objectPath, t
 	storageMetadata["original-etag"] = originalETag
 	storageMetadata["encrypted"] = "true"
 	storageMetadata["x-amz-server-side-encryption"] = "AES256"
-	storageMetadata["x-amz-server-side-encryption-algorithm"] = "AES-256-CTR"
+	storageMetadata["x-amz-server-side-encryption-algorithm"] = "AES-256-GCM-STREAM"
 
 	// Open temp file for reading and encrypt while streaming to storage
 	tempFileRead, err := os.Open(tempPath)
@@ -2555,7 +2561,7 @@ func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, obje
 		"original-etag":                          originalETag,
 		"encrypted":                              "true",
 		"x-amz-server-side-encryption":           "AES256",
-		"x-amz-server-side-encryption-algorithm": "AES-256-CTR",
+		"x-amz-server-side-encryption-algorithm": "AES-256-GCM-STREAM",
 		"content-type":                           multipart.Metadata["content-type"],
 	}
 

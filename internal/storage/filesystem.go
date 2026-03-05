@@ -242,6 +242,14 @@ func (fs *FilesystemBackend) Exists(ctx context.Context, path string) (bool, err
 func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive bool) ([]ObjectInfo, error) {
 	var objects []ObjectInfo
 
+	// Validate prefix to prevent directory traversal via crafted prefix values.
+	// An empty prefix is valid (list all); non-empty prefixes must stay within root.
+	if prefix != "" {
+		if err := fs.validatePath(prefix); err != nil {
+			return nil, err
+		}
+	}
+
 	searchPath := fs.getFullPath(prefix)
 
 	err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
@@ -403,13 +411,23 @@ func (fs *FilesystemBackend) validatePath(path string) error {
 		return ErrInvalidPath
 	}
 
-	// Prevent directory traversal attacks
+	// Prevent directory traversal attacks (catches ../, ..\, etc.)
 	if strings.Contains(path, "..") {
 		return ErrInvalidPath
 	}
 
-	// Ensure path doesn't start with /
-	if strings.HasPrefix(path, "/") {
+	// Ensure path doesn't start with a Unix absolute prefix (/) or
+	// a Windows volume-relative prefix (\), preventing absolute path injection.
+	if strings.HasPrefix(path, "/") || strings.HasPrefix(path, "\\") {
+		return ErrInvalidPath
+	}
+
+	// Defense-in-depth: canonicalize the resolved full path and verify it
+	// remains inside rootPath. This catches OS-specific edge cases (e.g.
+	// Windows drive-relative paths) that the above string checks may miss.
+	fullPath := filepath.Clean(filepath.Join(fs.rootPath, filepath.FromSlash(path)))
+	cleanRoot := filepath.Clean(fs.rootPath) + string(filepath.Separator)
+	if !strings.HasPrefix(fullPath, cleanRoot) {
 		return ErrInvalidPath
 	}
 
