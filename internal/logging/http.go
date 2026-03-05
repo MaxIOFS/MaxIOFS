@@ -2,9 +2,12 @@ package logging
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -22,15 +25,74 @@ type HTTPOutput struct {
 	wg            sync.WaitGroup
 }
 
+// ssrfBlockingDialer returns a net.Dialer DialContext function that rejects
+// connections to loopback, private, link-local, and unspecified IP ranges
+// to prevent SSRF attacks via the log HTTP forwarder target URL.
+func ssrfBlockingDialer() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	privateRanges := []string{
+		"127.0.0.0/8", "::1/128",
+		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+		"fc00::/7", "fe80::/10",
+		"169.254.0.0/16", // AWS/GCP metadata
+		"0.0.0.0/8",
+	}
+	nets := make([]*net.IPNet, 0, len(privateRanges))
+	for _, cidr := range privateRanges {
+		_, n, _ := net.ParseCIDR(cidr)
+		if n != nil {
+			nets = append(nets, n)
+		}
+	}
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid address %q: %w", addr, err)
+		}
+		ips, err := net.DefaultResolver.LookupHost(ctx, host)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve %q: %w", host, err)
+		}
+		for _, ipStr := range ips {
+			ip := net.ParseIP(ipStr)
+			for _, n := range nets {
+				if n.Contains(ip) {
+					return nil, fmt.Errorf("log HTTP forwarder target resolves to a private/internal address: %s", ipStr)
+				}
+			}
+		}
+		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0], port))
+	}
+}
+
+// validateLogURL ensures the URL scheme is http or https (rejects file://, etc.).
+func validateLogURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid log HTTP target URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("log HTTP target URL must use http or https scheme, got %q", u.Scheme)
+	}
+	return nil
+}
+
 // NewHTTPOutput creates a new HTTP output
-func NewHTTPOutput(url, authToken string, batchSize int, flushInterval time.Duration) *HTTPOutput {
+func NewHTTPOutput(rawURL, authToken string, batchSize int, flushInterval time.Duration) *HTTPOutput {
 	output := &HTTPOutput{
-		url:           url,
+		url:           rawURL,
 		authToken:     authToken,
 		batchSize:     batchSize,
 		flushInterval: flushInterval,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
+			// Block redirects to prevent redirect-based SSRF bypass
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return fmt.Errorf("log HTTP forwarder does not follow redirects")
+			},
+			Transport: &http.Transport{
+				DialContext: ssrfBlockingDialer(),
+			},
 		},
 		buffer:   make([]*LogEntry, 0, batchSize),
 		stopChan: make(chan struct{}),

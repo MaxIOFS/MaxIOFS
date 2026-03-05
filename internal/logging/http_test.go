@@ -52,7 +52,7 @@ func TestHTTPOutputWrite(t *testing.T) {
 	}))
 	defer server.Close()
 
-	output := NewHTTPOutput(server.URL, "token123", 2, 100*time.Millisecond)
+	output := newHTTPOutputForTesting(server.URL, "token123", 2, 100*time.Millisecond)
 
 	// Write entries
 	entry1 := &LogEntry{
@@ -98,7 +98,7 @@ func TestHTTPOutputBatching(t *testing.T) {
 	}))
 	defer server.Close()
 
-	output := NewHTTPOutput(server.URL, "", 3, 100*time.Millisecond)
+	output := newHTTPOutputForTesting(server.URL, "", 3, 100*time.Millisecond)
 
 	// Write 5 entries (should result in 2 batches: 3 + 2)
 	for i := 0; i < 5; i++ {
@@ -138,7 +138,7 @@ func TestHTTPOutputFlushInterval(t *testing.T) {
 	defer server.Close()
 
 	// Small flush interval
-	output := NewHTTPOutput(server.URL, "", 100, 50*time.Millisecond)
+	output := newHTTPOutputForTesting(server.URL, "", 100, 50*time.Millisecond)
 
 	// Write one entry
 	entry := &LogEntry{
@@ -162,7 +162,7 @@ func TestHTTPOutputClose(t *testing.T) {
 	}))
 	defer server.Close()
 
-	output := NewHTTPOutput(server.URL, "", 10, time.Second)
+	output := newHTTPOutputForTesting(server.URL, "", 10, time.Second)
 
 	// Write entry
 	entry := &LogEntry{
@@ -185,7 +185,7 @@ func TestHTTPOutputNoAuth(t *testing.T) {
 	}))
 	defer server.Close()
 
-	output := NewHTTPOutput(server.URL, "", 1, 100*time.Millisecond)
+	output := newHTTPOutputForTesting(server.URL, "", 1, 100*time.Millisecond)
 
 	entry := &LogEntry{
 		Timestamp: time.Now(),
@@ -204,7 +204,7 @@ func TestHTTPOutputServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	output := NewHTTPOutput(server.URL, "", 1, 50*time.Millisecond)
+	output := newHTTPOutputForTesting(server.URL, "", 1, 50*time.Millisecond)
 
 	entry := &LogEntry{
 		Timestamp: time.Now(),

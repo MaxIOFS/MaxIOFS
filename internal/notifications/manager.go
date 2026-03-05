@@ -33,6 +33,9 @@ type Manager struct {
 	mu         sync.RWMutex
 	// Cache of configurations by bucket path (tenantID/bucketName)
 	configCache map[string]*NotificationConfiguration
+	// bypassSSRFValidation disables the static SSRF check in PutConfiguration.
+	// Must only be set in tests; never in production code!
+	bypassSSRFValidation bool
 }
 
 // NewManager creates a new notification manager.
@@ -160,7 +163,7 @@ func (m *Manager) PutConfiguration(ctx context.Context, config *NotificationConf
 	bucketPath := getBucketPath(config.TenantID, config.BucketName)
 
 	// Validate configuration
-	if err := validateConfiguration(config); err != nil {
+	if err := m.validateConfiguration(config); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
@@ -398,7 +401,7 @@ func matchesEventType(ruleEvent, actualEvent EventType) bool {
 	return false
 }
 
-func validateConfiguration(config *NotificationConfiguration) error {
+func (m *Manager) validateConfiguration(config *NotificationConfiguration) error {
 	if config.BucketName == "" {
 		return fmt.Errorf("bucket name is required")
 	}
@@ -418,8 +421,11 @@ func validateConfiguration(config *NotificationConfiguration) error {
 			return fmt.Errorf("rule %d: webhook URL must start with http:// or https://", i)
 		}
 		// SSRF guard: reject URLs that target loopback or private addresses.
-		if err := validateWebhookURL(rule.WebhookURL); err != nil {
-			return fmt.Errorf("rule %d: %w", i, err)
+		// Skipped when bypassSSRFValidation is set (tests only).
+		if !m.bypassSSRFValidation {
+			if err := validateWebhookURL(rule.WebhookURL); err != nil {
+				return fmt.Errorf("rule %d: %w", i, err)
+			}
 		}
 		if len(rule.Events) == 0 {
 			return fmt.Errorf("rule %d: at least one event is required", i)

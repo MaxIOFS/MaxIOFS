@@ -135,7 +135,13 @@ func CORSWithConfig(config *CORSConfig) func(http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Max-Age", config.MaxAge)
 			}
 
-			if config.AllowCredentials {
+			// Per RFC 6454 / CORS spec: Access-Control-Allow-Credentials must
+			// not be set to "true" when the origin is a wildcard (*), because
+			// browsers reject that combination for credentialed requests.
+			// We also guard against the reflected-origin case where the config
+			// contains "*" as an entry (isOriginAllowed returns true for any
+			// origin, so the origin gets reflected — that is equally dangerous).
+			if config.AllowCredentials && !config.hasWildcardOrigin() {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 

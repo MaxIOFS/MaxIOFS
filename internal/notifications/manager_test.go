@@ -39,7 +39,7 @@ func setupTestStore(t *testing.T) *metadata.PebbleStore {
 func TestNewManager(t *testing.T) {
 	store := setupTestStore(t)
 
-	manager := NewManager(store)
+	manager := newManagerForTesting(store)
 	assert.NotNil(t, manager)
 	assert.NotNil(t, manager.httpClient)
 	assert.NotNil(t, manager.configCache)
@@ -48,7 +48,7 @@ func TestNewManager(t *testing.T) {
 func TestGetConfiguration_NotFound(t *testing.T) {
 	store := setupTestStore(t)
 
-	manager := NewManager(store)
+	manager := newManagerForTesting(store)
 	ctx := context.Background()
 
 	config, err := manager.GetConfiguration(ctx, "tenant-1", "test-bucket")
@@ -59,7 +59,7 @@ func TestGetConfiguration_NotFound(t *testing.T) {
 func TestPutConfiguration(t *testing.T) {
 	store := setupTestStore(t)
 
-	manager := NewManager(store)
+	manager := newManagerForTesting(store)
 	ctx := context.Background()
 
 	config := &NotificationConfiguration{
@@ -82,7 +82,7 @@ func TestPutConfiguration(t *testing.T) {
 func TestGetConfiguration(t *testing.T) {
 	store := setupTestStore(t)
 
-	manager := NewManager(store)
+	manager := newManagerForTesting(store)
 	ctx := context.Background()
 
 	config := &NotificationConfiguration{
@@ -113,7 +113,7 @@ func TestGetConfiguration(t *testing.T) {
 func TestGetConfiguration_Cache(t *testing.T) {
 	store := setupTestStore(t)
 
-	manager := NewManager(store)
+	manager := newManagerForTesting(store)
 	ctx := context.Background()
 
 	config := &NotificationConfiguration{
@@ -145,7 +145,7 @@ func TestGetConfiguration_Cache(t *testing.T) {
 func TestDeleteConfiguration(t *testing.T) {
 	store := setupTestStore(t)
 
-	manager := NewManager(store)
+	manager := newManagerForTesting(store)
 	ctx := context.Background()
 
 	config := &NotificationConfiguration{
@@ -175,7 +175,7 @@ func TestDeleteConfiguration(t *testing.T) {
 func TestPutConfiguration_MultipleRules(t *testing.T) {
 	store := setupTestStore(t)
 
-	manager := NewManager(store)
+	manager := newManagerForTesting(store)
 	ctx := context.Background()
 
 	config := &NotificationConfiguration{
@@ -208,7 +208,7 @@ func TestPutConfiguration_MultipleRules(t *testing.T) {
 func TestPutConfiguration_WithPrefix(t *testing.T) {
 	store := setupTestStore(t)
 
-	manager := NewManager(store)
+	manager := newManagerForTesting(store)
 	ctx := context.Background()
 
 	config := &NotificationConfiguration{
@@ -236,7 +236,7 @@ func TestPutConfiguration_WithPrefix(t *testing.T) {
 func TestPutConfiguration_WithSuffix(t *testing.T) {
 	store := setupTestStore(t)
 
-	manager := NewManager(store)
+	manager := newManagerForTesting(store)
 	ctx := context.Background()
 
 	config := &NotificationConfiguration{
@@ -301,7 +301,7 @@ func TestEventInfo_Validation(t *testing.T) {
 func TestNotificationRule_Disabled(t *testing.T) {
 	store := setupTestStore(t)
 
-	manager := NewManager(store)
+	manager := newManagerForTesting(store)
 	ctx := context.Background()
 
 	config := &NotificationConfiguration{
@@ -328,7 +328,7 @@ func TestNotificationRule_Disabled(t *testing.T) {
 func TestNotificationConfiguration_UpdatedAt(t *testing.T) {
 	store := setupTestStore(t)
 
-	manager := NewManager(store)
+	manager := newManagerForTesting(store)
 	ctx := context.Background()
 
 	config := &NotificationConfiguration{
@@ -361,7 +361,7 @@ func TestEventTypes(t *testing.T) {
 func TestNotificationRule_CustomHeaders(t *testing.T) {
 	store := setupTestStore(t)
 
-	manager := NewManager(store)
+	manager := newManagerForTesting(store)
 	ctx := context.Background()
 
 	config := &NotificationConfiguration{
@@ -579,9 +579,12 @@ func TestValidateConfiguration(t *testing.T) {
 		},
 	}
 
+	store := setupTestStore(t)
+	mgr := newManagerForTesting(store)
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateConfiguration(tt.config)
+			err := mgr.validateConfiguration(tt.config)
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errorMsg)
@@ -608,7 +611,7 @@ func TestGenerateSequencer(t *testing.T) {
 func TestCreateEvent(t *testing.T) {
 	store := setupTestStore(t)
 
-	manager := NewManager(store)
+	manager := newManagerForTesting(store)
 
 	info := EventInfo{
 		EventType:  EventObjectCreatedPut,
@@ -658,7 +661,7 @@ func TestCreateEvent(t *testing.T) {
 func TestMatchesRule(t *testing.T) {
 	store := setupTestStore(t)
 
-	manager := NewManager(store)
+	manager := newManagerForTesting(store)
 
 	tests := []struct {
 		name     string
@@ -858,7 +861,7 @@ func TestSendWebhook(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		manager := NewManager(store)
+		manager := newManagerForTesting(store)
 
 		rule := NotificationRule{
 			ID:         "rule-1",
@@ -889,7 +892,7 @@ func TestSendWebhook(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		manager := NewManager(store)
+		manager := newManagerForTesting(store)
 
 		rule := NotificationRule{
 			ID:         "rule-1",
@@ -929,7 +932,7 @@ func TestSendWebhook(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		manager := NewManager(store)
+		manager := newManagerForTesting(store)
 
 		rule := NotificationRule{
 			ID:         "rule-1",
@@ -962,7 +965,7 @@ func TestSendWebhook(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		manager := NewManager(store)
+		manager := newManagerForTesting(store)
 
 		rule := NotificationRule{
 			ID:         "rule-1",
@@ -996,7 +999,7 @@ func TestSendWebhook(t *testing.T) {
 				defer server.Close()
 
 				store := setupTestStore(t)
-				manager := NewManager(store)
+				manager := newManagerForTesting(store)
 
 				rule := NotificationRule{
 					ID:         "rule-1",
@@ -1032,7 +1035,7 @@ func TestSendEvent(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		manager := NewManager(store)
+		manager := newManagerForTesting(store)
 		ctx := context.Background()
 
 		// Configure notification
@@ -1082,7 +1085,7 @@ func TestSendEvent(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		manager := NewManager(store)
+		manager := newManagerForTesting(store)
 		ctx := context.Background()
 
 		// Send event without configuration
@@ -1111,7 +1114,7 @@ func TestSendEvent(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		manager := NewManager(store)
+		manager := newManagerForTesting(store)
 		ctx := context.Background()
 
 		// Configure notification with disabled rule
@@ -1156,7 +1159,7 @@ func TestSendEvent(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		manager := NewManager(store)
+		manager := newManagerForTesting(store)
 		ctx := context.Background()
 
 		// Configure notification for ObjectRemoved events
@@ -1211,7 +1214,7 @@ func TestSendEvent(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		manager := NewManager(store)
+		manager := newManagerForTesting(store)
 		ctx := context.Background()
 
 		// Configure multiple matching rules
@@ -1268,7 +1271,7 @@ func TestSendEvent(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		manager := NewManager(store)
+		manager := newManagerForTesting(store)
 		ctx := context.Background()
 
 		// Configure notification with prefix filter
@@ -1323,7 +1326,7 @@ func TestSendEvent(t *testing.T) {
 		defer server.Close()
 
 		store := setupTestStore(t)
-		manager := NewManager(store)
+		manager := newManagerForTesting(store)
 		ctx := context.Background()
 
 		// Configure notification with suffix filter

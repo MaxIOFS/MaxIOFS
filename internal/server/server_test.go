@@ -9867,13 +9867,20 @@ func TestLastAdminGuard(t *testing.T) {
 	server := getSharedServer()
 	ctx := context.Background()
 
-	// Locate the real global-admin user in the DB (created by TestMain setup).
+	// Locate the canonical global-admin account created by TestMain (username "admin").
+	// We intentionally target this specific user rather than any global admin, because
+	// the shared DB may contain extra admins left behind by other tests; picking one
+	// of those would make the "sole admin" guard fire only when there happens to be
+	// exactly one admin, causing a flaky test.
 	users, err := server.authManager.ListUsers(ctx)
 	require.NoError(t, err)
 	var adminUser *auth.User
 	for i := range users {
 		if users[i].TenantID != "" {
-			continue
+			continue // skip tenant-scoped users
+		}
+		if users[i].Username != "admin" {
+			continue // skip any extra global admins created by other tests
 		}
 		for _, r := range users[i].Roles {
 			if r == "admin" {
@@ -9885,7 +9892,27 @@ func TestLastAdminGuard(t *testing.T) {
 			break
 		}
 	}
-	require.NotNil(t, adminUser, "expected at least one global admin in the shared server DB")
+	require.NotNil(t, adminUser, "expected global 'admin' user in the shared server DB")
+
+	// Ensure no other global admins exist at the start of this test; if some
+	// other test left stale admins behind, clean them up so that "admin" is truly
+	// the sole global admin for the negative sub-tests below.
+	for i := range users {
+		u := &users[i]
+		if u.TenantID != "" || u.Username == "admin" {
+			continue
+		}
+		isAdmin := false
+		for _, r := range u.Roles {
+			if r == "admin" {
+				isAdmin = true
+				break
+			}
+		}
+		if isAdmin {
+			_ = server.authManager.DeleteUser(ctx, u.ID)
+		}
+	}
 
 	t.Run("cannot delete the sole global admin", func(t *testing.T) {
 		req := createAuthenticatedRequest("DELETE", "/api/v1/users/"+adminUser.ID, nil, "", adminUser.ID, true)

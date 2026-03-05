@@ -893,6 +893,22 @@ func isIPTrusted(ip net.IP, trustedProxies []string) bool {
 	return false
 }
 
+// sanitizeFilename strips characters that could be used for HTTP header injection
+// (\r, \n) or break the Content-Disposition filename token (\", \).
+// This prevents response-header injection via attacker-controlled object keys.
+func sanitizeFilename(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		switch r {
+		case '\r', '\n', '"', '\\':
+			// Skip dangerous characters
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // getClientIP extracts the real client IP address from the request.
 // It only trusts X-Forwarded-For / X-Real-IP headers when the direct
 // connection (RemoteAddr) comes from a private/loopback network or from
@@ -1908,7 +1924,7 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 	// Set appropriate headers for file download
 	w.Header().Set("Content-Type", obj.ContentType)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(objectKey)))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeFilename(filepath.Base(objectKey))))
 	w.Header().Set("ETag", obj.ETag)
 	w.Header().Set("Last-Modified", obj.LastModified.Format(http.TimeFormat))
 

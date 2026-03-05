@@ -259,6 +259,9 @@ func (m *Manager) createOutputFromConfig(cfg *TargetConfig) (Output, error) {
 		if flushInterval <= 0 {
 			flushInterval = 10
 		}
+		if err := validateLogURL(cfg.URL); err != nil {
+			return nil, err
+		}
 		return NewHTTPOutput(
 			cfg.URL,
 			cfg.AuthToken,
