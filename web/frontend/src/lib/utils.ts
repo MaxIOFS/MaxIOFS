@@ -95,3 +95,18 @@ export function isErrorWithResponse(err: unknown): err is {
 } {
   return typeof err === 'object' && err !== null && 'response' in err;
 }
+
+/**
+ * Escapes a plain-text string for safe inclusion inside an HTML document.
+ * Use this whenever interpolating server- or user-supplied values into an
+ * HTML template literal that will be rendered via dangerouslySetInnerHTML or
+ * passed as the `html:` option to ModalManager.fire().
+ */
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}

@@ -163,6 +163,10 @@ func (m *Manager) Stop() error {
 
 // CreateRule creates a new replication rule
 func (m *Manager) CreateRule(ctx context.Context, rule *ReplicationRule) error {
+	if err := validateReplicationEndpoint(rule.DestinationEndpoint); err != nil {
+		return fmt.Errorf("invalid destination endpoint: %w", err)
+	}
+
 	if rule.ID == "" {
 		rule.ID = uuid.New().String()
 	}
@@ -301,6 +305,10 @@ func (m *Manager) GetRulesForBucket(ctx context.Context, bucketName string) ([]*
 
 // UpdateRule updates an existing replication rule
 func (m *Manager) UpdateRule(ctx context.Context, rule *ReplicationRule) error {
+	if err := validateReplicationEndpoint(rule.DestinationEndpoint); err != nil {
+		return fmt.Errorf("invalid destination endpoint: %w", err)
+	}
+
 	rule.UpdatedAt = time.Now()
 
 	// Encrypt the destination secret key before storing

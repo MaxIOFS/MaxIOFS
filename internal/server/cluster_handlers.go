@@ -5,8 +5,10 @@ import (
 	"crypto/hmac"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -16,6 +18,11 @@ import (
 
 // handleInitializeCluster initializes a new cluster
 func (s *Server) handleInitializeCluster(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
+
 	var req struct {
 		NodeName string `json:"node_name"`
 		Region   string `json:"region"`
@@ -48,6 +55,11 @@ func (s *Server) handleInitializeCluster(w http.ResponseWriter, r *http.Request)
 
 // handleJoinCluster joins an existing cluster
 func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
+
 	var req struct {
 		ClusterToken string `json:"cluster_token"`
 		NodeEndpoint string `json:"node_endpoint"`
@@ -92,6 +104,11 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 
 // handleLeaveCluster removes this node from the cluster
 func (s *Server) handleLeaveCluster(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
+
 	err := s.clusterManager.LeaveCluster(r.Context())
 	if err != nil {
 		logrus.WithError(err).Error("Failed to leave cluster")
@@ -197,6 +214,11 @@ func (s *Server) handleListClusterNodes(w http.ResponseWriter, r *http.Request) 
 // It authenticates to the remote node using admin credentials, then
 // triggers a cluster join on the remote node.
 func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
+
 	var req struct {
 		Endpoint string `json:"endpoint"`
 		Username string `json:"username"`
@@ -210,6 +232,14 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 
 	if req.Endpoint == "" || req.Username == "" || req.Password == "" {
 		s.writeError(w, "Endpoint, username, and password are required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate the remote endpoint scheme to prevent SSRF via cloud metadata IPs.
+	// We intentionally allow private-range IPs (RFC 1918) because cluster nodes
+	// are commonly deployed on private networks.
+	if err := validateClusterNodeEndpoint(req.Endpoint); err != nil {
+		s.writeError(w, "Invalid node endpoint: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -336,6 +366,11 @@ func (s *Server) handleGetClusterNode(w http.ResponseWriter, r *http.Request) {
 
 // handleUpdateClusterNode updates a node's information
 func (s *Server) handleUpdateClusterNode(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	nodeID := vars["nodeId"]
 
@@ -361,6 +396,11 @@ func (s *Server) handleUpdateClusterNode(w http.ResponseWriter, r *http.Request)
 
 // handleRemoveClusterNode removes a node from the cluster
 func (s *Server) handleRemoveClusterNode(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	nodeID := vars["nodeId"]
 
@@ -823,4 +863,29 @@ func (s *Server) handleGetClusterNodesInternal(w http.ResponseWriter, r *http.Re
 	s.writeJSON(w, map[string]interface{}{
 		"nodes": nodes,
 	})
+}
+
+// validateClusterNodeEndpoint checks that a cluster node endpoint URL uses an
+// http or https scheme.  Unlike the replication SSRF validator we deliberately
+// allow RFC-1918 / link-local addresses because cluster peers are commonly
+// deployed on private LANs.  We only reject the most obviously malicious values:
+// an empty/non-http(s) scheme and the cloud metadata address 169.254.169.254
+// (which is never a valid MaxIOFS node endpoint).
+func validateClusterNodeEndpoint(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("malformed URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("scheme must be http or https, got %q", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("host is empty")
+	}
+	// Block the cloud instance-metadata address regardless of path.
+	if host == "169.254.169.254" {
+		return fmt.Errorf("endpoint resolves to a cloud metadata address")
+	}
+	return nil
 }

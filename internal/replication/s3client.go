@@ -5,6 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -12,6 +16,76 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/sirupsen/logrus"
 )
+
+// validateReplicationEndpoint ensures the destination endpoint is a valid http/https
+// URL that does not point to loopback, private, link-local, or AWS/GCP metadata addresses.
+// This prevents an admin with replication-rule write access from using the replication
+// worker as an SSRF proxy to reach internal services.
+// An empty endpoint is allowed (the rule will simply fail at connection time without
+// causing any unintended outbound request).
+func validateReplicationEndpoint(rawURL string) error {
+	if rawURL == "" {
+		return nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid replication destination endpoint: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("replication destination endpoint must use http or https scheme, got %q", u.Scheme)
+	}
+
+	// Static check on the hostname as supplied (catches literal IPs and obvious names).
+	host := u.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		if isBlockedIP(ip) {
+			return fmt.Errorf("replication destination endpoint resolves to a private/internal address: %s", host)
+		}
+	}
+	return nil
+}
+
+// ssrfBlockingDialer returns a DialContext function that resolves hostnames before
+// connecting and rejects any IP in loopback, private, link-local, or unspecified ranges.
+func ssrfBlockingReplicationDialer() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid replication address %q: %w", addr, err)
+		}
+		ips, err := net.DefaultResolver.LookupHost(ctx, host)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve replication host %q: %w", host, err)
+		}
+		for _, ipStr := range ips {
+			ip := net.ParseIP(ipStr)
+			if isBlockedIP(ip) {
+				return nil, fmt.Errorf("replication endpoint resolves to a private/internal address: %s", ipStr)
+			}
+		}
+		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0], port))
+	}
+}
+
+// isBlockedIP returns true if ip falls within loopback, unspecified, link-local, private,
+// or cloud-metadata ranges that must never be reachable from user-supplied endpoints.
+func isBlockedIP(ip net.IP) bool {
+	privateRanges := []string{
+		"127.0.0.0/8", "::1/128",
+		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+		"fc00::/7", "fe80::/10",
+		"169.254.0.0/16", // AWS/GCP metadata
+		"0.0.0.0/8",
+	}
+	for _, cidr := range privateRanges {
+		_, network, _ := net.ParseCIDR(cidr)
+		if network != nil && network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
 
 // S3Client is an interface for S3 operations (for testing)
 type S3Client interface {
@@ -31,18 +105,37 @@ type S3RemoteClient struct {
 	region   string
 }
 
-// NewS3RemoteClient creates a new S3 client configured for a remote endpoint
+// NewS3RemoteClient creates a new S3 client configured for a remote endpoint.
+// The HTTP transport uses an SSRF-blocking dialer that prevents the replication
+// worker from being used as a proxy to reach internal/private addresses.
 func NewS3RemoteClient(endpoint, region, accessKey, secretKey string) *S3RemoteClient {
-	// Create AWS config with static credentials
+	// Build an HTTP client that blocks connections to private/internal IPs.
+	ssrfSafeTransport := &http.Transport{
+		DialContext:           ssrfBlockingReplicationDialer(),
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+	ssrfSafeClient := &http.Client{
+		Transport: ssrfSafeTransport,
+		Timeout:   120 * time.Second,
+		// Block redirects to prevent redirect-based SSRF bypass.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return fmt.Errorf("replication client does not follow redirects")
+		},
+	}
+
 	cfg := aws.Config{
 		Region:      region,
 		Credentials: credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
+		HTTPClient:  ssrfSafeClient,
 	}
 
-	// Create S3 client with service-specific endpoint configuration
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
-		o.UsePathStyle = true // Use path-style URLs for compatibility
+		o.UsePathStyle = true
 	})
 
 	return &S3RemoteClient{

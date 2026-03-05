@@ -6087,8 +6087,8 @@ func TestHandleLeaveClusterEdgeCases(t *testing.T) {
 		req := httptest.NewRequest("POST", "/api/v1/cluster/leave", nil)
 		rr := httptest.NewRecorder()
 		server.handleLeaveCluster(rr, req)
-		// May return 200 if no auth middleware on handler level
-		assert.Contains(t, []int{http.StatusOK, http.StatusUnauthorized, http.StatusServiceUnavailable}, rr.Code)
+		// Returns 403 when no authenticated user (handler-level admin guard)
+		assert.Contains(t, []int{http.StatusOK, http.StatusUnauthorized, http.StatusForbidden, http.StatusServiceUnavailable}, rr.Code)
 	})
 }
 
@@ -6127,8 +6127,8 @@ func TestHandleRemoveClusterNodeEdgeCases(t *testing.T) {
 		req = mux.SetURLVars(req, map[string]string{"nodeId": "some-node"})
 		rr := httptest.NewRecorder()
 		server.handleRemoveClusterNode(rr, req)
-		// May return 200 if no auth middleware on handler level
-		assert.Contains(t, []int{http.StatusOK, http.StatusUnauthorized, http.StatusServiceUnavailable}, rr.Code)
+		// Returns 403 when no authenticated user (handler-level admin guard)
+		assert.Contains(t, []int{http.StatusOK, http.StatusUnauthorized, http.StatusForbidden, http.StatusServiceUnavailable}, rr.Code)
 	})
 }
 

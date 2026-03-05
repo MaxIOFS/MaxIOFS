@@ -154,9 +154,10 @@ class TokenManager {
       }
 
       // Also set in cookies for middleware (24 hours max)
-      document.cookie = `auth_token=${token}; path=/; max-age=${24 * 60 * 60}`;
+      // Secure: never sent over HTTP · SameSite=Strict: CSRF protection
+      document.cookie = `auth_token=${token}; path=/; max-age=${24 * 60 * 60}; Secure; SameSite=Strict`;
       if (refreshToken) {
-        document.cookie = `refresh_token=${refreshToken}; path=/; max-age=${24 * 60 * 60}`;
+        document.cookie = `refresh_token=${refreshToken}; path=/; max-age=${24 * 60 * 60}; Secure; SameSite=Strict`;
       }
     }
 
@@ -178,8 +179,8 @@ class TokenManager {
       localStorage.removeItem('refresh_token');
 
       // Also clear cookies
-      document.cookie = 'auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-      document.cookie = 'refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      document.cookie = 'auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; SameSite=Strict';
+      document.cookie = 'refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; SameSite=Strict';
     }
   }
 

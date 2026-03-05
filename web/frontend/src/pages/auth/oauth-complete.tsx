@@ -18,7 +18,8 @@ export default function OAuthCompletePage() {
 
     if (token) {
       localStorage.setItem('auth_token', token);
-      document.cookie = `auth_token=${token}; path=/; max-age=${24 * 60 * 60}`;
+      // Secure: never sent over HTTP · SameSite=Strict: CSRF protection
+      document.cookie = `auth_token=${token}; path=/; max-age=${24 * 60 * 60}; Secure; SameSite=Strict`;
       window.location.href = getBasePath() || '/';
     } else {
       setError('No authentication token received');

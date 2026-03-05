@@ -88,4 +88,4 @@ test*.bin
 *.src.rpm
 build/
 scripts/
-
+SECURITY_AUDIT.md

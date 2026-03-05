@@ -6,22 +6,55 @@ import { AlertTriangle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import i18n from '../i18n';
 
-// Simple HTML sanitizer — strips script tags, event handlers, and dangerous attributes
+// HTML sanitizer — strips dangerous tags, event handlers, and non-allowlisted URL schemes.
+// Uses the browser's own HTML parser so HTML-entity variants (&#106;avascript:) and
+// whitespace tricks are normalised automatically before any scheme check.
 function sanitizeHtml(html: string): string {
   const div = document.createElement('div');
   div.innerHTML = html;
-  // Remove script, iframe, object, embed, form tags
-  const dangerous = div.querySelectorAll('script, iframe, object, embed, form, link, style');
-  dangerous.forEach((el) => el.remove());
-  // Remove event handler attributes (onclick, onerror, onload, etc.)
+
+  // Remove all inherently dangerous elements, including meta/base which can
+  // redirect the page or set a malicious base URL.
+  const dangerousTags = div.querySelectorAll(
+    'script, iframe, object, embed, form, link, style, meta, base'
+  );
+  dangerousTags.forEach((el) => el.remove());
+
+  // Attributes that carry URLs and must be limited to safe schemes only.
+  const URL_ATTRS = new Set(['href', 'src', 'action', 'formaction', 'data', 'xlink:href']);
+
   const allElements = div.querySelectorAll('*');
   allElements.forEach((el) => {
     for (const attr of Array.from(el.attributes)) {
-      if (attr.name.startsWith('on') || attr.value.startsWith('javascript:')) {
+      const attrName = attr.name.toLowerCase();
+
+      // Strip all event-handler attributes (onclick, onerror, onload …).
+      if (attrName.startsWith('on')) {
         el.removeAttribute(attr.name);
+        continue;
+      }
+
+      // For URL attributes enforce an allowlist of safe schemes.
+      // getAttribute() already decodes HTML entities, so &#106;avascript: → javascript:
+      if (URL_ATTRS.has(attrName)) {
+        // Collapse all ASCII whitespace / control chars before comparing schemes
+        const normalised = (el.getAttribute(attr.name) ?? '')
+          .replace(/[\s\u0000-\u001f\u007f]+/g, '')
+          .toLowerCase();
+        const isSafe =
+          normalised === '' ||
+          normalised.startsWith('#') ||
+          normalised.startsWith('/') ||
+          normalised.startsWith('http://') ||
+          normalised.startsWith('https://') ||
+          normalised.startsWith('mailto:');
+        if (!isSafe) {
+          el.removeAttribute(attr.name);
+        }
       }
     }
   });
+
   return div.innerHTML;
 }
 

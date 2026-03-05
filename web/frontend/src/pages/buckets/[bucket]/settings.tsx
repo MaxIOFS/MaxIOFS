@@ -532,7 +532,6 @@ export default function BucketSettingsPage() {
   const loadCurrentACL = async () => {
     try {
       const response = await APIClient.getBucketACL(bucketName, tenantId);
-      console.log('ACL Response:', response); // Debug
 
       // First, check if the backend sent the canned_acl field directly
       const acl = response.data || response;
@@ -540,11 +539,9 @@ export default function BucketSettingsPage() {
       if (acl.canned_acl || acl.CannedACL) {
         // Backend provided the canned ACL directly - use it!
         const cannedACL = acl.canned_acl || acl.CannedACL;
-        console.log('Using canned_acl from backend:', cannedACL);
         setCurrentACL(cannedACL);
       } else {
         // Fallback: detect from grants
-        console.log('Detecting ACL from grants');
         const grants = acl.Grant || acl.grants || [];
         const detectedACL = detectCannedACL(grants);
         setCurrentACL(detectedACL);
@@ -559,7 +556,6 @@ export default function BucketSettingsPage() {
   const loadCurrentPolicy = async () => {
     try {
       const response = await APIClient.getBucketPolicy(bucketName, tenantId);
-      console.log('Policy Response:', response); // Debug
 
       const policy = response.data || response;
 
@@ -572,7 +568,6 @@ export default function BucketSettingsPage() {
       }
     } catch (error: unknown) {
       // Policy not found or error - this is normal if no policy is set
-      console.log('No policy set or error loading policy:', getErrorStatus(error));
       setCurrentPolicy(null);
       setPolicyStatementCount(0);
     }

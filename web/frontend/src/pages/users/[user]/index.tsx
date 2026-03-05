@@ -38,15 +38,13 @@ import { AccessKey, EditUserForm } from '@/types';
 import Setup2FAModal, { BackupCodesModal } from '@/components/Setup2FAModal';
 import { ConfirmModal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { escapeHtml } from '@/lib/utils';
 
 export default function UserDetailsPage() {
   const { t } = useTranslation('users');
   const { user } = useParams<{ user: string }>();
   const navigate = useNavigate();
   const userId = user as string;
-  
-  // Debug: Log to verify this component is rendering
-  console.log('UserDetailsPage rendering with userId:', userId);
   
   const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
   const [isCreateKeyModalOpen, setIsCreateKeyModalOpen] = useState(false);
@@ -250,7 +248,7 @@ export default function UserDetailsPage() {
       const result = await ModalManager.fire({
         icon: 'warning',
         title: t('deleteAccessKeyQuestion'),
-        html: `<p>${t('aboutToDeleteKey')} <strong>"${keyDescription}"</strong></p>
+        html: `<p>${t('aboutToDeleteKey')} <strong>"${escapeHtml(keyDescription)}"</strong></p>
                <p class="text-red-600 mt-2">${t('actionCannotBeUndone')}</p>`,
         showCancelButton: true,
         confirmButtonText: t('yesDelete'),

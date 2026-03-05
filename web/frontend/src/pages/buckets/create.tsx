@@ -20,6 +20,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { escapeHtml } from '@/lib/utils';
 
 interface BucketCreationConfig {
   // General
@@ -190,10 +191,10 @@ export default function CreateBucketPage() {
       title: t('confirmTitle'),
       html: `
         <div class="text-left space-y-2">
-          <p><strong>${t('confirmName')}</strong> ${config.name}</p>
-          <p><strong>${t('confirmRegion')}</strong> ${config.region}</p>
+          <p><strong>${t('confirmName')}</strong> ${escapeHtml(config.name)}</p>
+          <p><strong>${t('confirmRegion')}</strong> ${escapeHtml(config.region)}</p>
           ${config.objectLockEnabled ? `
-            <p class="text-yellow-600"><strong>${t('confirmObjectLock')}</strong> ${config.retentionMode}</p>
+            <p class="text-yellow-600"><strong>${t('confirmObjectLock')}</strong> ${escapeHtml(config.retentionMode)}</p>
             <p class="text-sm text-red-600">${t('confirmObjectLockWarning')}</p>
           ` : ''}
           ${config.versioningEnabled ? `<p>${t('confirmVersioning')}</p>` : ''}

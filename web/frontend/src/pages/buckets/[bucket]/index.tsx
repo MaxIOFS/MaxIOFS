@@ -37,7 +37,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { UploadRequest, ObjectSearchFilter } from '@/types';
 import ModalManager from '@/lib/modals';
-import { isHttpStatus, getErrorMessage } from '@/lib/utils';
+import { isHttpStatus, getErrorMessage, escapeHtml } from '@/lib/utils';
 import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 import { ObjectVersionsModal } from '@/components/ObjectVersionsModal';
 import { PresignedURLModal } from '@/components/PresignedURLModal';
@@ -410,9 +410,9 @@ export default function BucketDetailsPage() {
         icon: 'warning',
         title: `Delete ${itemType}?`,
         html: isFolder
-          ? `<p>You are about to delete the folder <strong>"${key}"</strong></p>
+          ? `<p>You are about to delete the folder <strong>"${escapeHtml(key)}"</strong></p>
              <p class="text-orange-600 mt-2">This will fail if folder contains objects</p>`
-          : `<p>You are about to delete <strong>"${key}"</strong></p>
+          : `<p>You are about to delete <strong>"${escapeHtml(key)}"</strong></p>
              <p class="text-red-600 mt-2">This action cannot be undone</p>`,
         showCancelButton: true,
         confirmButtonText: 'Yes, delete',
@@ -495,12 +495,12 @@ export default function BucketDetailsPage() {
               <div>
                 <p class="text-sm font-medium mb-2">Share this link:</p>
                 <div class="bg-gray-50 p-3 rounded border border-gray-200">
-                  <code class="text-xs break-all">${shareData.url}</code>
+                  <code class="text-xs break-all">${escapeHtml(shareData.url)}</code>
                 </div>
               </div>
               <div class="text-sm text-gray-600">
                 ${expirationInfo}
-                <p><strong>Created:</strong> ${new Date(shareData.createdAt).toLocaleString()}</p>
+                <p><strong>Created:</strong> ${escapeHtml(new Date(shareData.createdAt).toLocaleString())}</p>
               </div>
             </div>
           `,
@@ -539,7 +539,7 @@ export default function BucketDetailsPage() {
         icon: 'info',
         title: t('shareObject'),
         html: `
-          <p class="mb-4">Generate a shareable link for <strong>"${key.split('/').pop()}"</strong></p>
+          <p class="mb-4">Generate a shareable link for <strong>"${escapeHtml(key.split('/').pop() ?? '')}"</strong></p>
           <div class="text-left">
             <label for="expiresIn" class="block text-sm font-medium mb-2">${t('linkExpiresIn')}</label>
             <select id="expiresIn" class="w-full px-3 py-2 border border-gray-300 rounded-md">
@@ -609,12 +609,12 @@ export default function BucketDetailsPage() {
             <div>
               <p class="text-sm font-medium mb-2">${t('shareThisLink')}</p>
               <div class="bg-gray-50 p-3 rounded border border-gray-200">
-                <code class="text-xs break-all">${shareData.url}</code>
+                <code class="text-xs break-all">${escapeHtml(shareData.url)}</code>
               </div>
             </div>
             <div class="text-sm text-gray-600">
               ${expirationInfo}
-              <p><strong>Created:</strong> ${new Date(shareData.createdAt).toLocaleString()}</p>
+              <p><strong>Created:</strong> ${escapeHtml(new Date(shareData.createdAt).toLocaleString())}</p>
             </div>
             <div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
               <strong>ℹ️ Note:</strong> ${t('noteAnyone', { expiry: shareData.expiresAt ? t('noteExpiry') : t('noteNoExpiry') })}
