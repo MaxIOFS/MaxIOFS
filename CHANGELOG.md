@@ -5,6 +5,42 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-rc1] - 2026-03-07
+
+### Security
+- **CRITICAL: AES-256-GCM replaces AES-256-CTR for object encryption** — AES-CTR provides confidentiality but no authentication: an attacker with write access to the storage backend could silently flip bits in ciphertext and the server would accept and decrypt the corrupted data (malleable ciphertext). Replaced with AES-256-GCM in 64 KB authenticated chunks. Each chunk has an independent nonce and authentication tag; any tampered chunk is detected and rejected on read. A backward-compatible legacy path decrypts existing AES-CTR objects transparently on first access; re-encryption happens lazily. New objects are always written with GCM.
+- **CRITICAL: Cluster CA private key no longer transmitted over the network** — during cluster join, the CA private key was included in the HTTP response body, meaning any MITM or compromised node could steal it and sign arbitrary node certificates. Reworked to a CSR-based flow: the joining node generates its own ECDSA P-256 key pair locally, sends only a CSR to the `POST /sign-csr` endpoint, and the CA node signs it without ever transmitting the CA private key. The CA key now never leaves the originating node.
+- **HIGH: 6 cluster management handlers missing `isGlobalAdmin` authorization check** — `handleAddClusterNode`, `handleRemoveClusterNode`, `handleInitializeCluster`, `handleJoinCluster`, `handleLeaveCluster`, and `handleGetClusterToken` accepted any authenticated request. Any tenant user or non-admin could initialize, join, or dismantle the cluster. All 6 handlers now enforce `isGlobalAdmin` before proceeding. Additionally, `handleAddClusterNode` had a partial SSRF: the caller-supplied node endpoint URL was fetched without validation. Added `validateClusterNodeEndpoint()` with SSRF-blocking dial restrictions.
+- **HIGH: SSRF via notification webhook URLs** — the webhook notification system accepted arbitrary URLs from the database and made outbound HTTP requests without validation. An admin who set a webhook URL to `http://169.254.169.254/latest/meta-data/` (AWS metadata) or any internal service could exfiltrate instance credentials or probe the internal network. Added `ssrfBlockingDialer()` that blocks RFC 1918 private ranges, loopback, link-local (169.254.x.x), and IPv6 equivalents.
+- **HIGH: SSRF via external HTTP logging targets** — same pattern as webhooks: user-configured HTTP log destinations were fetched without SSRF protection. Applied the same `ssrfBlockingDialer()` to the HTTP logging output.
+- **HIGH: Path traversal via backslash on Windows** — `filesystem.go` sanitized `/` separators but not `\`, allowing object keys like `..\..\etc\passwd` to escape the data directory on Windows hosts. Added explicit `\` blocking, post-join canonical path validation with `filepath.Clean`, and `validatePath` in `List()`.
+- **HIGH: Replication credentials stored in plaintext** — target bucket secret keys were stored unencrypted in the replication SQLite database. Any user with read access to the database file could extract valid AWS-compatible credentials. Now encrypted with AES-256-GCM using the server's `SecretKey`; stored with an `enc1:` prefix. Existing plaintext entries are read and re-encrypted on first access.
+- **HIGH: HMAC nonce derived from `time.Now().UnixNano()` (predictable)** — inter-node cluster authentication used `time.Now().UnixNano()` as a nonce, making it predictable within a known time window and potentially replayable. Replaced with 16 bytes from `crypto/rand`.
+- **HIGH: Infinite cluster proxy loop** — when node A proxied a request to node B, B could proxy it back to A (A→B→A→…) if routing logic disagreed. Added `X-MaxIOFS-Proxied: true` header; nodes reject any incoming request already carrying this header with 508 Loop Detected.
+- **MEDIUM: OAuth callback missing CSRF state validation** — the Google OAuth callback accepted any `code` parameter without verifying the `state` value against the session, making it vulnerable to CSRF login attacks. Added `state` parameter generation, storage, and strict validation on callback.
+- **MEDIUM: CORS origin allowlist replaced wildcard** — `Access-Control-Allow-Origin: *` was set unconditionally on all responses, allowing any website to make credentialed cross-origin requests to the console API. Replaced with `CORSWithConfig` using an explicit origin allowlist derived from `server.public_console_url`.
+- **MEDIUM: DoS via multipart upload without part count limit** — a client could open a multipart upload and submit an unlimited number of parts (each consuming server memory and disk), eventually exhausting resources. Added a 10,000-part cap per upload (matching the S3 spec) and `partNumber` validation (must be 1–10,000).
+- **MEDIUM: SSRF via replication destination endpoint** — user-configured replication target URLs were passed directly to the AWS SDK HTTP client without validation. Added `validateReplicationEndpoint()` and `ssrfBlockingReplicationDialer()` injected into the SDK's transport.
+- **Frontend MEDIUM: Auth cookies missing `Secure` and `SameSite` flags** — JWT auth cookies were set without `Secure` (transmittable over plain HTTP) or `SameSite=Strict` (susceptible to CSRF). Added both flags to all `document.cookie` write and clear operations in `api.ts` and `oauth-complete.tsx`.
+- **Frontend MEDIUM: Incomplete HTML sanitizer** — `sanitizeHtml()` in `modals.tsx` only blocked lowercase `javascript:`; missed `JAVASCRIPT:`, `data:` URIs, whitespace padding (`javascript :`) and HTML-entity variants. Rewrote sanitizer using the browser's own HTML parser for entity decoding, strict URL attribute inspection via `getAttribute()`, and an `http/https/mailto/#/` allowlist. Also removes `<meta>` and `<base>` tags.
+- **Frontend MEDIUM: XSS via server values interpolated into HTML templates** — `shareData.url`, object keys, and bucket names returned by the server were interpolated directly into HTML template literals passed as `html:` to `ModalManager.fire()`. If the server were compromised or values contained HTML metacharacters, this would execute arbitrary scripts. Added `escapeHtml()` to `src/lib/utils.ts` and applied at every dynamic interpolation site.
+- **Frontend LOW: Debug `console.log` statements in production** — `settings.tsx` and `users/[user]/index.tsx` left debug log calls that exposed ACL/policy API responses and internal user IDs in the browser DevTools console. Removed all non-error debug statements.
+
+### Changed
+- **Frontend: code splitting with `React.lazy`** — 18 pages now load on demand; main bundle reduced from **1,003 kB → 550 kB** (gzip: 252 kB → 170 kB, −33%). The recharts library (383 kB) only loads when navigating to the Metrics page.
+- **Frontend: accessibility improvements** — `aria-current="page"` on all active nav links; `aria-label` and `aria-expanded` on all icon-only buttons (mobile menu, dark mode toggle, language selector, notifications bell); `aria-expanded` on the expandable Users submenu.
+- **Debian/RPM packages: service auto-restart on upgrade** — `prerm` now records whether the service was running (flag file `/tmp/maxiofs-service-was-running`) before stopping it; `postinst` restarts it after upgrade if the flag is present. Services manually stopped before upgrading are not auto-started. RPM `%post` runs `try-restart` when `$1 -gt 1`.
+- **Makefile: `VERSION_CLEAN` strips `-rc*` suffix** — `v1.0.0-rc1` now produces `1.0.0` for RPM/tarball naming, matching the existing `-beta`/`-alpha` stripping behaviour.
+
+### Fixed
+- **Mobile sidebar stays open after navigation** — clicking a nav link on small screens navigated to the page but left the sidebar overlay open; the user had to tap outside to dismiss it. All nav `<Link>` elements in `SidebarNav` now call `onClose()` on click.
+
+### Tests
+- `LanguageContext.test.tsx` — 8 tests covering default language, localStorage persistence, `setLanguage` state update, `i18n.changeLanguage` call, `initialLanguage` prop, round-trip switch, and `useLanguage` outside-provider error.
+- `AppLayout.test.tsx` — 12 tests covering nav visibility by role (global admin / tenant admin / regular user), maintenance banner on/off, notification badge count, and default-password warning contribution to badge total.
+
+---
+
 ## [Unreleased]
 
 ### Fixed
@@ -736,7 +772,7 @@ MaxIOFS follows semantic versioning:
 - **0.x.x-rc**: Release candidates - Production-ready testing
 - **1.x.x**: Stable releases - Production-ready
 
-### Current Status: BETA (v1.0.0-beta)
+### Current Status: RELEASE CANDIDATE (v1.0.0-rc1)
 
 **Completed Core Features:**
 - ✅ All S3 core operations validated with AWS CLI (100% compatible)
@@ -745,11 +781,12 @@ MaxIOFS follows semantic versioning:
 - ✅ LDAP/AD and OAuth2/OIDC identity provider system with SSO
 - ✅ Object Filters & Advanced Search
 - ✅ Production monitoring (Prometheus, Grafana, performance metrics)
-- ✅ Server-side encryption (AES-256-CTR)
+- ✅ Server-side encryption (AES-256-GCM authenticated encryption)
 - ✅ Bucket policy enforcement (AWS S3-compatible evaluation engine)
 - ✅ Presigned URL signature validation (V4 and V2)
 - ✅ Audit logging and compliance features
 - ✅ Two-Factor Authentication (2FA)
+- ✅ Comprehensive security audit — 169 files reviewed, 24 vulnerabilities fixed
 
 **Current Metrics:**
 - S3 API Compatibility: ~99% (full audit completed March 2026 — 20 issues identified and resolved)
@@ -764,7 +801,14 @@ See [TODO.md](TODO.md) for detailed roadmap and requirements.
 
 ## Version History
 
-### Completed Features (v0.1.0 - v1.0.0-beta)
+### Completed Features (v0.1.0 - v1.0.0-rc1)
+
+**v1.0.0-rc1 (March 2026)** - Comprehensive Security Audit, AES-256-GCM Encryption, CSR-based Cluster TLS, SSRF Hardening
+- ✅ 169-file security audit — 2 CRITICAL, 8 HIGH, 5 MEDIUM, 1 LOW vulnerabilities identified and fixed
+- ✅ AES-256-GCM authenticated encryption (replaces AES-CTR, backward-compatible)
+- ✅ CSR-based cluster join — CA private key never transmitted over the network
+- ✅ SSRF protection on webhooks, HTTP logging targets, and replication endpoints
+- ✅ Frontend bundle reduced 45% via React.lazy code splitting
 
 **v1.0.0-beta (February–March 2026)** - Pebble Metadata Engine, S3 Compatibility Audit, Cluster Snapshot Reconciliation & Veeam Compatibility
 - ✅ Full S3 compatibility audit — 20 issues identified and resolved (ListObjectsV2, encoding-type, presigned URLs, ETag normalization, XML namespaces, SigV2 canonical headers, StorageClass, conditional headers, and more)

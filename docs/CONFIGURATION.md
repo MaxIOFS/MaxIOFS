@@ -1,6 +1,6 @@
 # MaxIOFS Configuration Guide
 
-**Version**: 1.0.0-beta | **Last Updated**: February 28, 2026
+**Version**: 1.0.0-rc1 | **Last Updated**: February 28, 2026
 
 ## Configuration Architecture
 
@@ -52,7 +52,7 @@ trusted_proxies: []
 storage:
   backend: "filesystem"           # Only supported backend
   root: ""                        # Default: {data_dir}/objects
-  enable_encryption: false        # AES-256-CTR at rest
+  enable_encryption: false        # AES-256-GCM at rest
   encryption_key: ""              # 64 hex chars (32 bytes). Generate: openssl rand -hex 32
   enable_object_lock: true        # S3 Object Lock / WORM retention
 

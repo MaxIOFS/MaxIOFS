@@ -1,8 +1,8 @@
 # MaxIOFS Security Guide
 
-**Version**: 1.0.0-beta | **Last Updated**: February 28, 2026
+**Version**: 1.0.0-rc1 | **Last Updated**: March 7, 2026
 
-> **BETA SOFTWARE**: Core security features are implemented. Third-party audits have not been conducted. Test thoroughly before production use.
+> **RELEASE CANDIDATE**: A comprehensive 169-file security audit was completed for this release. All identified vulnerabilities have been fixed and verified with a full test suite (29/29 packages passing).
 
 ## Security Overview
 
@@ -19,7 +19,7 @@
 | Role-Based Access Control | ✅ | 5 roles (admin, tenant-admin, user, readonly, guest) |
 | Rate limiting | ✅ | IP-based login throttling |
 | Account lockout | ✅ | Configurable threshold and duration |
-| Encryption at rest | ✅ | AES-256-CTR streaming encryption |
+| Encryption at rest | ✅ | AES-256-GCM authenticated encryption (64 KB chunks) |
 | IDP secrets encryption | ✅ | AES-256-GCM for stored OAuth secrets |
 | Object Lock (WORM) | ✅ | COMPLIANCE and GOVERNANCE modes |
 | ACLs | ✅ | S3-compatible canned + custom ACLs |
@@ -153,9 +153,9 @@ Protects individual accounts after repeated failed logins:
 
 ## Encryption at Rest
 
-### Object Encryption (AES-256-CTR)
+### Object Encryption (AES-256-GCM)
 
-Streaming encryption for objects stored on disk.
+Authenticated encryption for objects stored on disk. Each object is encrypted in 64 KB chunks; each chunk has an independent nonce and GCM authentication tag — any tampered chunk is detected and rejected on read. Objects written with the legacy AES-256-CTR format are decrypted transparently on first access.
 
 **Enable:**
 ```yaml
@@ -309,7 +309,7 @@ Custom ACLs with grant-based permissions (READ, WRITE, READ_ACP, WRITE_ACP, FULL
 
 ## Known Limitations
 
-1. **No third-party security audit** — no SOC 2, ISO 27001 certification
+1. **No SOC 2 / ISO 27001 certification** — a comprehensive internal security audit (169 files, 24 vulnerabilities fixed) was completed for v1.0.0-rc1, but no formal third-party certification exists
 2. **Single master encryption key** — no per-tenant keys, no HSM integration
 3. **No SAML SSO** — OAuth2/OIDC recommended instead
 4. **Basic session management** — no device tracking or geographic restrictions

@@ -1,6 +1,6 @@
 # MaxIOFS - Development Roadmap
 
-**Version**: 1.0.0-beta
+**Version**: 1.0.0-rc1
 **Last Updated**: March 4, 2026
 **Status**: Beta
 

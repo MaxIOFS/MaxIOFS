@@ -1,6 +1,6 @@
 # Multi-Node Cluster Management
 
-**Version**: 1.0.0-beta
+**Version**: 1.0.0-rc1
 **Status**: Production-Ready
 **Last Updated**: February 28, 2026
 
@@ -353,7 +353,7 @@ Deletions are synchronized using a **tombstone-based** approach to prevent entit
 - Single table for all 6 entity types (not 6 separate tables)
 - 7-day TTL is safe because all nodes will have processed the deletion by then
 
-### Stale Node Reconciler (v1.0.0-beta)
+### Stale Node Reconciler (v1.0.0-rc1)
 
 When a node reconnects after being offline or network-partitioned for longer than the staleness threshold (7 days), the **Stale Reconciler** runs at startup to restore consistency:
 
@@ -1303,7 +1303,7 @@ CREATE INDEX idx_cluster_migrations_tenant ON cluster_migrations(tenant_id);
 
 ---
 
-**Version**: 1.0.0-beta
+**Version**: 1.0.0-rc1
 **Last Updated**: February 19, 2026
 **Documentation Status**: Complete
 

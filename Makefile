@@ -35,15 +35,15 @@ endif
 # Build variables
 BINARY_NAME=maxiofs$(BINARY_EXT)
 # Default version - update this when releasing new versions
-DEFAULT_VERSION=v1.0.0-beta
+DEFAULT_VERSION=v1.0.0-rc1
 # Try to get VERSION from environment, fallback to DEFAULT_VERSION
 ifeq ($(DETECTED_OS),Windows)
 	VERSION?=$(if $(VERSION_ENV),$(VERSION_ENV),$(DEFAULT_VERSION))
 else
 	VERSION?=$(DEFAULT_VERSION)
 endif
-# Clean version for RPM (remove v prefix and -beta/-alpha/-nightly suffix)
-VERSION_CLEAN=$(shell echo $(VERSION) | sed 's/^v//' | sed 's/-beta$$//' | sed 's/-alpha$$//' | sed 's/-nightly-.*//')
+# Clean version for RPM (remove v prefix and pre-release suffix: -beta, -alpha, -rc*, -nightly)
+VERSION_CLEAN=$(shell echo $(VERSION) | sed 's/^v//' | sed 's/-beta$$//' | sed 's/-alpha$$//' | sed 's/-rc[0-9]*$$//' | sed 's/-nightly-.*//')
 COMMIT?=$(COMMIT)
 BUILD_DATE?=$(BUILD_DATE)
 LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_DATE)"

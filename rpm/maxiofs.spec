@@ -266,6 +266,23 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Fri Mar 07 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.0.0-0.rc1
+- Version 1.0.0-rc1 - First release candidate: security audit, AES-256-GCM encryption,
+  CSR-based cluster TLS, SSRF hardening, frontend code splitting
+- Security CRITICAL: AES-256-CTR replaced with AES-256-GCM (authenticated encryption)
+- Security CRITICAL: Cluster CA private key no longer transmitted on node join (CSR flow)
+- Security HIGH: 6 cluster handlers missing isGlobalAdmin check — fixed
+- Security HIGH: SSRF protection on webhooks, HTTP logging, replication endpoints
+- Security HIGH: Path traversal via backslash on Windows filesystem backend — fixed
+- Security HIGH: Replication credentials now encrypted at rest (AES-256-GCM)
+- Security HIGH: HMAC nonce replaced with crypto/rand (was time.Now().UnixNano())
+- Security HIGH: Infinite proxy loop prevented via X-MaxIOFS-Proxied header
+- Security MEDIUM: OAuth CSRF state validation, CORS allowlist, multipart part cap
+- Security MEDIUM: Auth cookies Secure+SameSite=Strict, HTML sanitizer rewrite, XSS fix
+- Changed: Frontend JS bundle -45% via React.lazy code splitting (1003->550 kB)
+- Changed: Debian/RPM packages auto-restart service after upgrade
+- Fixed: Mobile sidebar auto-closes after navigation
+
 * Mon Mar 02 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.0.0-1
 - Version 1.0.0-beta - First major release: Pebble engine, object integrity, maintenance mode,
   SMTP alerts, cluster resilience, full i18n, audit object events, async audit writes
