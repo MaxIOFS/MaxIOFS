@@ -61,7 +61,7 @@ const regularUser: User = {
 };
 
 const mockServerConfig = {
-  version: '1.0.0-beta',
+  version: '1.0.0-rc1',
   commit: 'abc123',
   buildDate: '2026-03-02',
   server: {
@@ -125,7 +125,7 @@ beforeEach(async () => {
 
   const APIClient = (await import('@/lib/api')).default;
   vi.mocked(APIClient.getServerConfig).mockResolvedValue(mockServerConfig);
-  vi.mocked(APIClient.getVersionCheck).mockResolvedValue({ version: '1.0.0-beta' });
+  vi.mocked(APIClient.getVersionCheck).mockResolvedValue({ version: '1.0.0-rc1' });
   vi.mocked(APIClient.getTenant).mockResolvedValue({
     id: 'tenant-1',
     name: 'Tenant One',

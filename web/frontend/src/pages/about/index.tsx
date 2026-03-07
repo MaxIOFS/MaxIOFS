@@ -326,73 +326,95 @@ export default function AboutPage() {
             {t('newFeaturesTitle', { version })}
           </h2>
           <div className="space-y-4">
-            <div className="border-l-4 border-indigo-500 pl-4">
+            <div className="border-l-4 border-red-600 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Metadata Engine: BadgerDB → Pebble
+                [CRITICAL] AES-256-CTR → AES-256-GCM Authenticated Encryption
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Replaced BadgerDB with <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">github.com/cockroachdb/pebble</code> (CockroachDB's LSM-tree engine) for all S3 object and bucket metadata.
-                Pebble's crash-safe WAL eliminates the recurring BadgerDB MANIFEST corruption on power loss or process kill.
-                On first startup after upgrade, if <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">metadata/KEYREGISTRY</code> is detected,
-                all keys are automatically migrated to Pebble in batches with atomic directory renames — completely transparent to users.
-                Pure-Go, no CGO, same on-disk key format preserved byte-for-byte.
+                Replaced AES-256-CTR with AES-256-GCM for all object encryption. CTR mode provides no authentication
+                tag — a malicious actor with write access to the data directory could silently corrupt or tamper with
+                ciphertext without detection. GCM adds a 128-bit authentication tag per 64 KB chunk; any tampered chunk
+                is detected and rejected on read. Objects written in the legacy CTR format are decrypted transparently
+                on first access (backward-compatible). New writes always use GCM.
               </p>
             </div>
 
-            <div className="border-l-4 border-green-500 pl-4">
+            <div className="border-l-4 border-red-600 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Cluster: State Snapshot & Stale Reconciler
+                [CRITICAL] Cluster CA Private Key No Longer Transmitted on Node Join
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                When a cluster node reconnects after a partition or extended downtime, it fetches a healthy peer's full state snapshot
-                and applies LWW (Last-Write-Wins) conflict resolution across all entity types (users, tenants, access keys, IDPs, group mappings).
-                Supports two modes: <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ModeOffline</code> (node was unreachable, no local writes) and
-                {' '}<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ModePartition</code> (node was isolated but continued serving clients, locally-newer entities are pushed to peers).
-                A new <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">last_local_write_at</code> column tracks client-driven writes per node for correct partition detection.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-red-500 pl-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Storage Metrics — Concurrent Write Reliability
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Fixed a critical issue where bucket storage counters were under-reported under high concurrency.
-                The previous OCC retry loop (only 5 attempts) caused metric updates to be silently discarded when
-                multiple S3 clients (e.g. VEEAM Backup with parallel upload threads) wrote to the same bucket simultaneously.
-                Replaced with a per-bucket <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">sync.Mutex</code> via
-                {' '}<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">sync.Map</code>,
-                serializing updates at the Go level and making conflicts impossible by construction.
-                Storage metrics are now fully reliable under any concurrency level.
+                Previously, the cluster CA private key was sent in plaintext over the network when a node joined the
+                cluster — anyone intercepting the join request could impersonate any node indefinitely. Fixed with a
+                proper CSR flow: the joining node generates its own key pair locally, sends only a Certificate Signing
+                Request (CSR) to the leader, and receives back a signed certificate. The CA private key never leaves
+                the leader node.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Bucket Stats Recalculation — Tenant Prefix Fix
+                [HIGH] 6 Cluster Admin Handlers Missing Authorization Check
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Fixed <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">RecalculateBucketStats</code> silently
-                returning 0 objects and 0 bytes for tenant buckets. The function was scanning the wrong
-                key prefix (<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">obj:bucketName:</code> instead
-                of <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">obj:tenantID/bucketName:</code>),
-                effectively resetting counters on every recalculation. Now correctly builds the full path for
-                tenant buckets while preserving global bucket behaviour (no prefix).
+                Six cluster management endpoints (node removal, replication rule CRUD, cluster token retrieval) were
+                missing the <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">isGlobalAdmin</code> check,
+                allowing any authenticated user to perform privileged cluster operations. All six handlers now enforce
+                global admin authorization before processing the request.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-orange-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                [HIGH] SSRF Protection on Webhooks, HTTP Logging & Replication
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Webhook URLs, HTTP log targets, and replication endpoint URLs were forwarded without validation,
+                allowing Server-Side Request Forgery (SSRF) attacks to scan internal networks, reach cloud metadata
+                endpoints (e.g. <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">169.254.169.254</code>),
+                or exfiltrate credentials. All three entry points now enforce an allowlist-based SSRF guard that
+                blocks private, loopback, link-local, and reserved IP ranges.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-orange-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                [HIGH] HMAC Nonce: time.Now().UnixNano() → crypto/rand
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                The HMAC-SHA256 nonce used for inter-node authentication was generated with{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">time.Now().UnixNano()</code>,
+                which is predictable — an attacker observing a few requests could predict future nonces and replay
+                signed messages. Replaced with <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">crypto/rand</code> (128-bit),
+                making nonces cryptographically unpredictable.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-yellow-500 pl-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                [MEDIUM] Auth Cookies: Secure + SameSite=Strict; OAuth CSRF; CORS Allowlist
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Auth cookies now set <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Secure</code> and{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">SameSite=Strict</code> to prevent session
+                hijacking over HTTP and CSRF via cross-site requests. OAuth2 login now validates the{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">state</code> parameter against a
+                signed cookie to prevent CSRF in the OAuth flow. The CORS configuration was tightened from a wildcard
+                allowlist to explicit trusted origins only.
               </p>
             </div>
 
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                Admin: Recalculate Bucket Stats Endpoint & Background Reconciler
+                Frontend Bundle −45% via React.lazy Code Splitting
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                New <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">POST /buckets/&#123;bucket&#125;/recalculate-stats</code> endpoint
-                for administrators to resync a bucket's counters from scratch.
-                Global admins can pass <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">?tenantId=</code> to
-                target a specific tenant's bucket. Additionally, a background goroutine recalculates{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ObjectCount</code> and{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">TotalSize</code> for every bucket every 15 minutes automatically,
-                acting as a continuous safety net for metrics that diverge under load or after restarts.
+                The React application was previously bundled as a single monolithic chunk (1003 kB). All page
+                components are now loaded lazily with{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">React.lazy</code> +{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Suspense</code>, reducing the initial
+                bundle to ~550 kB (−45%). Users only download the code for the pages they visit, improving first
+                load time especially on slower connections.
               </p>
             </div>
           </div>

@@ -431,42 +431,42 @@ export default function SecurityPage() {
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
               <Bell className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              Event Monitoring & Logging
+              {t('eventMonitoringLogging')}
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Advanced Logging System</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">HTTP output with batching and Syslog integration (TCP/UDP)</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('advancedLoggingSystem')}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('advancedLoggingSystemDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Comprehensive Audit Logging</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">20+ event types tracked with automatic retention ({getSetting('audit.retention_days', '90')} days)</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('comprehensiveAuditLogging')}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('comprehensiveAuditLoggingDesc', { days: getSetting('audit.retention_days', '90') })}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Bucket Notifications (Webhooks)</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Real-time HTTP webhooks for S3 events (ObjectCreated, ObjectRemoved)</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('bucketNotifications')}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('bucketNotificationsDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Prometheus Metrics</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Real-time metrics export for monitoring and alerting</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('prometheusMetrics')}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('prometheusMetricsDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Email Alerts (SMTP)</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatic email notifications for disk space alerts and tenant quota warnings</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('emailAlerts')}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('emailAlertsDesc')}</p>
                 </div>
               </div>
               <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
@@ -474,7 +474,7 @@ export default function SecurityPage() {
                   to="/audit-logs"
                   className="text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium"
                 >
-                  View Audit Logs →
+                  {t('viewAuditLogs')} →
                 </Link>
               </div>
             </div>
@@ -484,35 +484,35 @@ export default function SecurityPage() {
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
               <FileText className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              Compliance & Standards
+              {t('complianceStandards')}
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Compliance Ready</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">GDPR, SOC 2, HIPAA, ISO 27001, PCI DSS support</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('complianceReady')}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('complianceReadyDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Audit Trail Access</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Complete logging of authentication and access events</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('auditTrailAccess')}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('auditTrailAccessDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Read-Only Audit Mode</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Global admins can audit tenant buckets without modification</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('readOnlyAuditMode')}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('readOnlyAuditModeDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">CSV Export</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Export audit logs for compliance reporting and analysis</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('csvExport')}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('csvExportDesc')}</p>
                 </div>
               </div>
             </div>

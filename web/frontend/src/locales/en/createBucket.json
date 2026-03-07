@@ -59,7 +59,7 @@
   "serverEncryptionDisabled": "Server Encryption Disabled",
   "serverEncryptionHelp": "Encryption is not enabled on the server. To enable encryption, configure <code class=\"bg-amber-100 dark:bg-amber-900/50 px-1 rounded\">encryption_key</code> in <code class=\"bg-amber-100 dark:bg-amber-900/50 px-1 rounded\">config.yaml</code> and restart the server.",
   "enableEncryption": "Enable Encryption for this Bucket",
-  "encryptionInfo": "<strong>AES-256-CTR Encryption</strong> - All objects in this bucket will be encrypted at rest using streaming AES-256-CTR encryption",
+  "encryptionInfo": "<strong>AES-256-GCM Encryption</strong> - All objects in this bucket will be encrypted at rest using authenticated AES-256-GCM encryption (64 KB chunks, tamper-proof)",
   "noEncryptionInfo": "Objects in this bucket will be stored <strong>unencrypted</strong>. You can enable encryption later if needed.",
   "accessControlTitle": "Public Access Control",
   "accessControlInfo": "It is recommended to block all public access unless you specifically need to share data.",
