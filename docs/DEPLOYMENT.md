@@ -2,7 +2,7 @@
 
 **Version**: 1.0.0-rc1 | **Last Updated**: February 28, 2026
 
-> **BETA SOFTWARE**: Suitable for development, testing, and staging environments. Production use requires thorough testing in your environment.
+> **RELEASE CANDIDATE**: Feature-complete and security-audited. Suitable for production use — always backup your data and change default credentials before deploying.
 
 ## System Requirements
 

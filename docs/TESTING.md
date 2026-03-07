@@ -309,7 +309,7 @@ npx vitest run --coverage
 
 | File | Description |
 |------|-------------|
-| `encryption_test.go` | AES-256-CTR encrypt/decrypt roundtrip |
+| `encryption_test.go` | AES-256-GCM encrypt/decrypt roundtrip (legacy CTR backward-compat) |
 | `encryption_bench_test.go` | Encryption throughput benchmarks |
 
 ### `pkg/s3compat/` — 5 test files
@@ -436,7 +436,7 @@ Tests filesystem throughput for various file sizes (1KB to 100MB), measuring wri
 go test ./pkg/encryption -bench=. -benchmem -benchtime=3s
 ```
 
-Tests AES-256-CTR encryption/decryption throughput and memory allocation.
+Tests AES-256-GCM encryption/decryption throughput and memory allocation.
 
 ### Profiling
 
@@ -565,7 +565,7 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Middleware | 3 | Auth, CORS, tracing |
 | Inventory | 3 | Report generation, scheduling |
 | Storage | 2 | Filesystem, benchmarks |
-| Encryption | 2 | AES-256-CTR, benchmarks |
+| Encryption | 2 | AES-256-GCM, benchmarks |
 | Replication | 2 | Manager, end-to-end |
 | Other | 9 | Config, migrations, lifecycle, notifications, presigned, settings, share, cmd, embed |
 | **Total Go** | **112** | |
