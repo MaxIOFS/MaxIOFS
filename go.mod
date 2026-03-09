@@ -2,14 +2,16 @@ module github.com/maxiofs/maxiofs
 
 go 1.25.0
 
-toolchain go1.25.4
+toolchain go1.25.8
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.40.1
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.3
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.93.0
+	github.com/cockroachdb/pebble v1.1.5
 	github.com/dgraph-io/badger/v4 v4.8.0
 	github.com/go-ldap/ldap/v3 v3.4.12
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/handlers v1.5.2
 	github.com/gorilla/mux v1.8.1
@@ -44,7 +46,6 @@ require (
 	github.com/cockroachdb/errors v1.11.3 // indirect
 	github.com/cockroachdb/fifo v0.0.0-20240606204812-0bbfbd93a7ce // indirect
 	github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b // indirect
-	github.com/cockroachdb/pebble v1.1.5 // indirect
 	github.com/cockroachdb/redact v1.1.5 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -59,7 +60,6 @@ require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/flatbuffers v25.9.23+incompatible // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
