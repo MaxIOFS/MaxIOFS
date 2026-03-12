@@ -92,6 +92,7 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 
 	// S3 API endpoints
 	s3Router := router.PathPrefix("/").Subrouter()
+	s3Router.Use(h.s3ClientMiddleware)
 
 	// Service operations - root handler with browser detection
 	s3Router.HandleFunc("/", h.handleRoot).Methods("GET")
@@ -232,6 +233,61 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	objectRouter.HandleFunc("", h.s3Handler.DeleteObject).Methods("DELETE")
 }
 
+// s3ClientMiddleware redirige todo lo que NO sea un cliente S3 real
+func (h *Handler) s3ClientMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.isS3Client(r) {
+			http.Redirect(w, r, h.publicConsoleURL, http.StatusTemporaryRedirect)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isS3Client detecta clientes S3 de forma fiable
+func (h *Handler) isS3Client(r *http.Request) bool {
+	// 1. Authorization con firma AWS (V4 o V2) → casi todos los clientes reales
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "AWS4-HMAC-SHA256") ||
+		strings.HasPrefix(auth, "AWS ") ||
+		strings.HasPrefix(auth, "AWS4 ") {
+		return true
+	}
+
+	// 2. Cualquier header x-amz-* (muy típico en peticiones S3)
+	for key := range r.Header {
+		if strings.HasPrefix(strings.ToLower(key), "x-amz-") {
+			return true
+		}
+	}
+
+	// 3. User-Agent de clientes/SKDs conocidos
+	ua := strings.ToLower(r.Header.Get("User-Agent"))
+	clients := []string{
+		"aws-cli", "aws-sdk", "boto", "boto3", "s3cmd",
+		"minio", "rclone", "cyberduck", "s3fs", "goamz",
+		"aws", "s3",
+	}
+	for _, c := range clients {
+		if strings.Contains(ua, c) {
+			return true
+		}
+	}
+
+	// Excepción opcional: permitir ListBuckets anónimo (GET / sin auth)
+	// Útil si quieres que cualquiera pueda ver la lista de buckets públicos
+	// sin necesidad de credenciales (como en algunos entornos de desarrollo o buckets públicos)
+	if r.Method == http.MethodGet &&
+		r.URL.Path == "/" &&
+		r.Header.Get("Authorization") == "" &&
+		len(r.URL.Query()) == 0 { // sin parámetros raros
+		return true
+	}
+
+	// Si llegó aquí → NO es cliente S3 (navegador, curl simple, Postman sin auth, etc.)
+	return false
+}
+
 // Health check handlers
 func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -254,21 +310,5 @@ func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 
 // handleRoot handles requests to the root path with browser detection
 func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
-	userAgent := strings.ToLower(r.Header.Get("User-Agent"))
-
-	// Detect if request is from a web browser
-	isBrowser := strings.Contains(userAgent, "mozilla") ||
-		strings.Contains(userAgent, "chrome") ||
-		strings.Contains(userAgent, "safari") ||
-		strings.Contains(userAgent, "firefox") ||
-		strings.Contains(userAgent, "edge")
-
-	// If it's a browser, redirect to the web console
-	if isBrowser {
-		http.Redirect(w, r, h.publicConsoleURL, http.StatusTemporaryRedirect)
-		return
-	}
-
-	// Otherwise, handle as S3 API (ListBuckets)
 	h.s3Handler.ListBuckets(w, r)
 }
