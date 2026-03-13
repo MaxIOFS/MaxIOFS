@@ -233,7 +233,7 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	objectRouter.HandleFunc("", h.s3Handler.DeleteObject).Methods("DELETE")
 }
 
-// s3ClientMiddleware redirige todo lo que NO sea un cliente S3 real
+// s3ClientMiddleware redirects any non-S3 client requests to the web console
 func (h *Handler) s3ClientMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !h.isS3Client(r) {
@@ -244,9 +244,15 @@ func (h *Handler) s3ClientMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// isS3Client detecta clientes S3 de forma fiable
+// isS3Client tries to reliably detect real S3 clients
 func (h *Handler) isS3Client(r *http.Request) bool {
-	// 1. Authorization con firma AWS (V4 o V2) → casi todos los clientes reales
+	// 0.x - Presigned URLs (V2/V4) detected by query params
+	q := r.URL.Query()
+	if q.Has("X-Amz-Algorithm") || q.Has("AWSAccessKeyId") {
+		return true
+	}
+
+	// 1. Authorization header with AWS signature (V4 or V2) → most real clients
 	auth := r.Header.Get("Authorization")
 	if strings.HasPrefix(auth, "AWS4-HMAC-SHA256") ||
 		strings.HasPrefix(auth, "AWS ") ||
@@ -254,18 +260,28 @@ func (h *Handler) isS3Client(r *http.Request) bool {
 		return true
 	}
 
-	// 2. Cualquier header x-amz-* (muy típico en peticiones S3)
+	// 2. Any x-amz-* header (very common in S3 requests)
 	for key := range r.Header {
 		if strings.HasPrefix(strings.ToLower(key), "x-amz-") {
 			return true
 		}
 	}
 
-	// 3. User-Agent de clientes/SKDs conocidos
+	// 3. User-Agent of known S3 clients/SDKs
 	ua := strings.ToLower(r.Header.Get("User-Agent"))
 	clients := []string{
-		"aws-cli", "aws-sdk", "boto", "boto3", "s3cmd",
-		"minio", "rclone", "cyberduck", "s3fs", "goamz",
+		// CLI tools
+		"aws-cli", "aws-sdk", "boto", "boto3", "s3cmd", "s5cmd", "mc", "rclone",
+
+		// GUI / browsers
+		"cyberduck", "mountainduck", "s3 browser", "s3browser",
+		"cloudberry", "msp360", "winscp", "transmit", "dragondisk", "dragon disk",
+
+		// SDKs / libraries
+		"aws-sdk-java", "aws-sdk-go", "aws-sdk-php", "aws-sdk-ruby", "aws-sdk-net", "awssdk",
+		"minio",
+
+		// Generic
 		"aws", "s3",
 	}
 	for _, c := range clients {
@@ -274,17 +290,7 @@ func (h *Handler) isS3Client(r *http.Request) bool {
 		}
 	}
 
-	// Excepción opcional: permitir ListBuckets anónimo (GET / sin auth)
-	// Útil si quieres que cualquiera pueda ver la lista de buckets públicos
-	// sin necesidad de credenciales (como en algunos entornos de desarrollo o buckets públicos)
-	if r.Method == http.MethodGet &&
-		r.URL.Path == "/" &&
-		r.Header.Get("Authorization") == "" &&
-		len(r.URL.Query()) == 0 { // sin parámetros raros
-		return true
-	}
-
-	// Si llegó aquí → NO es cliente S3 (navegador, curl simple, Postman sin auth, etc.)
+	// If we get here, this is NOT an S3 client (browser, simple curl, Postman without auth, etc.)
 	return false
 }
 
