@@ -267,6 +267,13 @@ func (h *Handler) isS3Client(r *http.Request) bool {
 		}
 	}
 
+	// 2.b - Allow object GET/HEAD requests (/{bucket}/{object}) to reach S3 layer,
+	// so that bucket/object ACLs or policies can decide if they are public.
+	// This is important for browsers downloading shared/public objects.
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && isObjectPath(r.URL.Path) {
+		return true
+	}
+
 	// 3. User-Agent of known S3 clients/SDKs
 	ua := strings.ToLower(r.Header.Get("User-Agent"))
 	clients := []string{
@@ -317,4 +324,14 @@ func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 // handleRoot handles requests to the root path with browser detection
 func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 	h.s3Handler.ListBuckets(w, r)
+}
+
+// isObjectPath checks if the path matches /{bucket}/{object...}
+func isObjectPath(path string) bool {
+	trimmed := strings.Trim(path, "/")
+	if trimmed == "" {
+		return false
+	}
+	parts := strings.Split(trimmed, "/")
+	return len(parts) >= 2
 }
