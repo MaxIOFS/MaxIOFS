@@ -47,7 +47,7 @@ func (s *Server) handleGetBucketWebsite(w http.ResponseWriter, r *http.Request) 
 
 	type websiteResponse struct {
 		IndexDocument string `json:"indexDocument"`
-		ErrorDocument string `json:"errorDocument,omitempty"`
+		ErrorDocument string `json:"errorDocument,omitempty"` // optional; when set, returned so UI shows it
 	}
 	s.writeJSON(w, websiteResponse{
 		IndexDocument: websiteCfg.IndexDocument,

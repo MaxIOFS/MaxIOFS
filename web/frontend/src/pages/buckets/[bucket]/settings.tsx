@@ -2412,9 +2412,10 @@ export default function BucketSettingsPage() {
                       <Button
                         onClick={() => {
                           if (websiteEnabled) {
+                            const errDoc = websiteErrorDoc.trim();
                             saveWebsiteMutation.mutate({
-                              indexDocument: websiteIndexDoc,
-                              errorDocument: websiteErrorDoc || undefined,
+                              indexDocument: websiteIndexDoc.trim(),
+                              ...(errDoc ? { errorDocument: errDoc } : {}),
                             });
                           } else {
                             deleteWebsiteMutation.mutate();

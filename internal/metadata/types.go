@@ -76,7 +76,7 @@ type BucketMetadata struct {
 // ErrorDocument is the object key served on 4xx errors (e.g. "error.html").
 type WebsiteMetadata struct {
 	IndexDocument string                       `json:"index_document"`
-	ErrorDocument string                       `json:"error_document,omitempty"`
+	ErrorDocument string                       `json:"error_document,omitempty"` // optional; when set, persist so it loads back
 	RoutingRules  []WebsiteRoutingRuleMetadata `json:"routing_rules,omitempty"`
 }
 
