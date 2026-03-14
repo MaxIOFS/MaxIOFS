@@ -720,8 +720,8 @@ func TestAccessKeySyncManager_Start(t *testing.T) {
 		db, cleanup := setupTestDB(t)
 		defer cleanup()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
+		// Use unbounded context for setup so slow CI doesn't hit deadline on schema/inserts
+		ctxSetup := context.Background()
 
 		// Initialize schemas
 		if err := InitSchema(db); err != nil {
@@ -732,7 +732,7 @@ func TestAccessKeySyncManager_Start(t *testing.T) {
 		}
 
 		// Insert local node config
-		_, err := db.ExecContext(ctx, `
+		_, err := db.ExecContext(ctxSetup, `
 			INSERT INTO cluster_config (node_id, node_name, cluster_token, is_cluster_enabled)
 			VALUES ('local-node', 'Local', 'local-token', 0)
 		`)
@@ -741,7 +741,7 @@ func TestAccessKeySyncManager_Start(t *testing.T) {
 		}
 
 		// Enable auto sync
-		_, err = db.ExecContext(ctx, `
+		_, err = db.ExecContext(ctxSetup, `
 			INSERT OR REPLACE INTO cluster_global_config (key, value, created_at, updated_at)
 			VALUES ('auto_access_key_sync_enabled', 'true', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		`)
@@ -749,7 +749,7 @@ func TestAccessKeySyncManager_Start(t *testing.T) {
 			t.Fatalf("Failed to enable auto sync: %v", err)
 		}
 
-		_, err = db.ExecContext(ctx, `
+		_, err = db.ExecContext(ctxSetup, `
 			INSERT OR REPLACE INTO cluster_global_config (key, value, created_at, updated_at)
 			VALUES ('access_key_sync_interval_seconds', '1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		`)
@@ -760,8 +760,12 @@ func TestAccessKeySyncManager_Start(t *testing.T) {
 		clusterManager := NewManager(db, "http://localhost:8080")
 		syncManager := NewAccessKeySyncManager(db, clusterManager)
 
+		// Timeout only for Start() so we don't block forever if it hangs
+		ctxStart, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
 		// Start should launch goroutine and return immediately
-		syncManager.Start(ctx)
+		syncManager.Start(ctxStart)
 
 		// Give it a moment to start
 		time.Sleep(100 * time.Millisecond)
