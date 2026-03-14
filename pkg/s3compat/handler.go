@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -2313,7 +2314,9 @@ func (h *Handler) handleVeeamSOSAPIObject(w http.ResponseWriter, r *http.Request
 	return true
 }
 
-// validateShareAccess validates if object is shared and returns real bucket/object names and tenant
+// validateShareAccess validates if object is shared and returns real bucket/object names and tenant.
+// For clean share URLs (no tenant in path), lookup is by bucket+object only; tenantID is passed
+// empty so the store finds the share regardless of which tenant owns the bucket.
 func (h *Handler) validateShareAccess(r *http.Request, bucketName, objectKey string) (string, string, string, error) {
 	if h.shareManager == nil {
 		return "", "", "", fmt.Errorf("share manager not available")
@@ -2323,10 +2326,9 @@ func (h *Handler) validateShareAccess(r *http.Request, bucketName, objectKey str
 	realObject := objectKey
 	extractedTenant := ""
 
-	// If bucketName starts with "tenant-", it's actually the tenant ID
+	// If bucketName starts with "tenant-", it's actually the tenant ID (legacy path-style)
 	if strings.HasPrefix(bucketName, "tenant-") {
 		extractedTenant = bucketName
-		// The object key contains bucket/object, split it
 		parts := strings.SplitN(objectKey, "/", 2)
 		if len(parts) == 2 {
 			realBucket = parts[0]
@@ -2335,7 +2337,6 @@ func (h *Handler) validateShareAccess(r *http.Request, bucketName, objectKey str
 			realBucket = objectKey
 			realObject = ""
 		}
-
 		logrus.WithFields(logrus.Fields{
 			"originalBucket":  bucketName,
 			"originalObject":  objectKey,
@@ -2345,31 +2346,41 @@ func (h *Handler) validateShareAccess(r *http.Request, bucketName, objectKey str
 		}).Debug("Extracted tenant from URL path")
 	}
 
-	// Try to find share with extracted tenant ID
-	shareInterface, err := h.shareManager.GetShareByObject(r.Context(), realBucket, realObject, extractedTenant)
+	// Normalize for lookup: URL path may be percent-encoded (e.g. %2F for /)
+	lookupBucket := realBucket
+	lookupObject := realObject
+	if d, err := url.PathUnescape(realBucket); err == nil {
+		lookupBucket = d
+	}
+	if d, err := url.PathUnescape(realObject); err == nil {
+		lookupObject = d
+	}
+
+	shareInterface, err := h.shareManager.GetShareByObject(r.Context(), lookupBucket, lookupObject, extractedTenant)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
-			"bucket": realBucket,
-			"object": realObject,
+			"bucket": lookupBucket,
+			"object": lookupObject,
 			"tenant": extractedTenant,
 			"error":  err.Error(),
 		}).Warn("Unauthenticated access denied - no active share found")
 		return "", "", "", err
 	}
 
-	// Type assert to *share.Share
-	var shareTenantID string
-	if s, ok := shareInterface.(*share.Share); ok {
-		shareTenantID = s.TenantID
+	s, ok := shareInterface.(*share.Share)
+	if !ok || s == nil {
+		return "", "", "", fmt.Errorf("share manager returned invalid type")
 	}
 
+	// Return the share's bucket/object so path resolution uses the canonical stored values
+	shareTenantID := s.TenantID
 	logrus.WithFields(logrus.Fields{
-		"bucket":   realBucket,
-		"object":   realObject,
+		"bucket":   s.BucketName,
+		"object":   s.ObjectKey,
 		"tenantID": shareTenantID,
 	}).Info("Shared object access - bypassing authentication")
 
-	return realBucket, realObject, shareTenantID, nil
+	return s.BucketName, s.ObjectKey, shareTenantID, nil
 }
 
 // sendRangeResponse sends a partial content response for Range requests

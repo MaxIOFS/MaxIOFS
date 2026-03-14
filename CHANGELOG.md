@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Audit logs export only fetched the current page** — `exportToCSV` used `filteredLogs` (capped to current page). Export now loops through all pages via the API. (`web/frontend/src/pages/audit-logs/index.tsx`)
 - **Audit logs stats cards showed counts for current page only** — success/failed counters were derived from the current page. Replaced with queries that use the `total` field from the API. (`web/frontend/src/pages/audit-logs/index.tsx`)
 - **CSV export: timestamp column split by comma** — `formatTimestamp` used `toLocaleString()` (e.g. `"3/5/2026, 2:30:00 PM"`), so the comma split the timestamp into two columns. Replaced with `YYYY-MM-DD HH:MM:SS` format. (`web/frontend/src/pages/audit-logs/index.tsx`)
+- **Clean share (URL limpia) 403 — S3 API** — unauthenticated GET to `/{bucket}/{object}` (clean share link, no presigned params) now resolves the share via `GetShareByObject` with empty tenant and, when found, serves the object instead of returning 403. (`pkg/s3compat/handler.go`; lookup by bucket+object when tenant empty in `internal/share/sqlite.go`.)
+- **Website 403 HostId** — when the static website endpoint returns 403 Access Denied (bucket without website config or bucket not found), the response `<HostId>` and header `X-Amz-Id-2` now use the request host (`r.Host`) instead of a static value. (`internal/server/server.go`)
 
 ---
 

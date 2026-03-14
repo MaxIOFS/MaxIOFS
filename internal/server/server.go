@@ -1209,9 +1209,13 @@ type s3ErrorXML struct {
 // the S3 API when access is denied (no hint that the bucket exists or that website is disabled).
 func (s *Server) writeWebsiteAccessDenied(w http.ResponseWriter, r *http.Request) {
 	reqID := fmt.Sprintf("%d", time.Now().UnixNano())
+	hostID := r.Host
+	if hostID == "" {
+		hostID = "unknown"
+	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.Header().Set("X-Amz-Request-Id", reqID)
-	w.Header().Set("X-Amz-Id-2", "website-access-denied")
+	w.Header().Set("X-Amz-Id-2", hostID)
 	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 	w.WriteHeader(http.StatusForbidden)
 	if r.Method == http.MethodHead {
@@ -1222,7 +1226,7 @@ func (s *Server) writeWebsiteAccessDenied(w http.ResponseWriter, r *http.Request
 		Code:      "AccessDenied",
 		Message:   "Access Denied.",
 		RequestID: reqID,
-		HostID:    "website-access-denied",
+		HostID:    hostID,
 	}
 	_ = xml.NewEncoder(w).Encode(body)
 }
