@@ -1089,6 +1089,7 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	// 1. /bucket/object (global bucket)
 	// 2. /tenant-xxx/bucket/object (tenant bucket)
 	var shareTenantID string
+	allowedByShare := false
 	if !userExists && !allowedByPresignedURL && h.shareManager != nil {
 		realBucket, realObject, tenantFromShare, err := h.validateShareAccess(r, bucketName, objectKey)
 		if err != nil {
@@ -1097,6 +1098,7 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		}
 
 		shareTenantID = tenantFromShare
+		allowedByShare = true // access granted via share (shareTenantID may be "" for global bucket)
 		// Override vars for subsequent processing
 		bucketName = realBucket
 		objectKey = realObject
@@ -1116,7 +1118,7 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 
 	// 1. Verificar permiso de BUCKET únicamente (NO verificar ACL de objeto aún)
 	// El objeto puede no existir, así que solo verificamos permisos de bucket
-	if !h.validateBucketReadPermission(w, r, user, userExists, allowedByPresignedURL, shareTenantID, tenantID, bucketName, objectKey) {
+	if !h.validateBucketReadPermission(w, r, user, userExists, allowedByPresignedURL, allowedByShare, shareTenantID, tenantID, bucketName, objectKey) {
 		return
 	}
 
@@ -2617,13 +2619,14 @@ func (h *Handler) validateBucketReadPermission(
 	user *auth.User,
 	userExists bool,
 	allowedByPresignedURL bool,
+	allowedByShare bool,
 	shareTenantID string,
 	tenantID string,
 	bucketName string,
 	objectKey string,
 ) bool {
-	// Si acceso por presigned URL o share, permitir
-	if allowedByPresignedURL || shareTenantID != "" {
+	// Allow if access was granted via presigned URL or via clean share (shareTenantID may be "" for global bucket)
+	if allowedByPresignedURL || allowedByShare {
 		return true
 	}
 
