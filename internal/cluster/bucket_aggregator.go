@@ -190,6 +190,10 @@ func (ba *BucketAggregator) ListAllBuckets(ctx context.Context, tenantID string)
 		successCount++
 	}
 
+	// Deduplicate by (TenantID, Name): same logical bucket on multiple nodes appears once.
+	// Prefer local node as representative; otherwise keep first by NodeID (stable order).
+	allBuckets = deduplicateBucketsByTenantAndName(allBuckets)
+
 	duration := time.Since(startTime)
 
 	ba.log.WithFields(logrus.Fields{
@@ -204,6 +208,34 @@ func (ba *BucketAggregator) ListAllBuckets(ctx context.Context, tenantID string)
 	// Note: We always have local buckets, so never return error
 	// Even if all remote nodes fail, local buckets are still available
 	return allBuckets, nil
+}
+
+// deduplicateBucketsByTenantAndName returns one entry per (TenantID, Name).
+// Prefers the entry with NodeStatus == "local"; otherwise keeps the first by NodeID.
+func deduplicateBucketsByTenantAndName(buckets []BucketWithLocation) []BucketWithLocation {
+	type key struct {
+		tenantID string
+		name     string
+	}
+	byKey := make(map[key]BucketWithLocation)
+	for _, b := range buckets {
+		k := key{tenantID: b.TenantID, name: b.Name}
+		existing, ok := byKey[k]
+		if !ok {
+			byKey[k] = b
+			continue
+		}
+		// Prefer local; if both local or both remote, keep first (existing).
+		if b.NodeStatus == "local" && existing.NodeStatus != "local" {
+			byKey[k] = b
+		}
+		// If existing is local, keep it. If both remote, keep existing (first seen).
+	}
+	out := make([]BucketWithLocation, 0, len(byKey))
+	for _, b := range byKey {
+		out = append(out, b)
+	}
+	return out
 }
 
 // queryBucketsFromNode queries bucket list from a specific node via internal API

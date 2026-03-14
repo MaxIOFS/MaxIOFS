@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"database/sql"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"mime"
@@ -1192,21 +1193,57 @@ func websiteServingMiddleware(s *Server, next http.Handler) http.Handler {
 	})
 }
 
+// s3ErrorXML is the S3-compatible error response for website endpoint.
+// When the bucket has no website config (or bucket not found), we return 403 AccessDenied
+// so it looks like a normal permission denial instead of revealing bucket/website state.
+type s3ErrorXML struct {
+	XMLName xml.Name `xml:"Error"`
+	Code    string   `xml:"Code"`
+	Message string   `xml:"Message"`
+	Resource string  `xml:"Resource,omitempty"`
+	RequestID string `xml:"RequestId"`
+	HostID   string  `xml:"HostId"`
+}
+
+// writeWebsiteAccessDenied sends 403 with S3-style XML so the endpoint behaves like
+// the S3 API when access is denied (no hint that the bucket exists or that website is disabled).
+func (s *Server) writeWebsiteAccessDenied(w http.ResponseWriter, r *http.Request) {
+	reqID := fmt.Sprintf("%d", time.Now().UnixNano())
+	w.Header().Set("Content-Type", "application/xml")
+	w.Header().Set("X-Amz-Request-Id", reqID)
+	w.Header().Set("X-Amz-Id-2", "website-access-denied")
+	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
+	w.WriteHeader(http.StatusForbidden)
+	if r.Method == http.MethodHead {
+		return
+	}
+	w.Write([]byte(xml.Header))
+	body := s3ErrorXML{
+		Code:      "AccessDenied",
+		Message:   "Access Denied.",
+		RequestID: reqID,
+		HostID:    "website-access-denied",
+	}
+	_ = xml.NewEncoder(w).Encode(body)
+}
+
 // handleWebsiteRequest serves a static website request for the given bucket.
 // It respects the bucket's WebsiteConfiguration (IndexDocument, ErrorDocument,
 // RoutingRules) and does not require S3 authentication.
+// If the bucket does not exist or has no website config, returns 403 AccessDenied (S3-style)
+// instead of 404, so the endpoint does not reveal that the bucket exists or that website is off.
 func (s *Server) handleWebsiteRequest(w http.ResponseWriter, r *http.Request, bucketName string) {
 	ctx := r.Context()
 
 	// Resolve bucket metadata (tenant-agnostic lookup).
 	bucketMeta, err := s.metadataStore.GetBucketByName(ctx, bucketName)
 	if err != nil || bucketMeta == nil {
-		http.Error(w, "404 page not found", http.StatusNotFound)
+		s.writeWebsiteAccessDenied(w, r)
 		return
 	}
 
 	if bucketMeta.Website == nil {
-		http.Error(w, "404 This bucket does not have static website hosting configured.", http.StatusNotFound)
+		s.writeWebsiteAccessDenied(w, r)
 		return
 	}
 

@@ -1007,69 +1007,42 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 	// Check if cluster mode is enabled
 	isClusterEnabled := s.clusterManager != nil && s.clusterManager.IsClusterEnabled()
 
-	// Get local node name
+	// Get local node name (for standalone display and response fallback)
 	var localNodeName string
-	var localNodeID string
 	if isClusterEnabled {
 		config, err := s.clusterManager.GetConfig(r.Context())
 		if err == nil {
 			localNodeName = config.NodeName
-			localNodeID = config.NodeID
 		}
 	}
 	if localNodeName == "" {
 		localNodeName = "standalone"
 	}
 
-	// STEP 1: ALWAYS get local buckets from database (source of truth)
-	localBuckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
-	if err != nil {
-		s.writeError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// STEP 2: If cluster mode, get buckets from OTHER nodes (not local)
+	// STEP 1 & 2: Get bucket list. In cluster mode use the same deduplicated list as S3 API.
 	var allBuckets []bucket.Bucket
-	var bucketNodeMap map[string]string // bucket name -> node name
+	var bucketNodeMap map[string]string // bucket name -> node name (for response)
 
-	if isClusterEnabled {
-		// Start with local buckets
-		allBuckets = localBuckets
-		bucketNodeMap = make(map[string]string)
-
-		// Mark local buckets
-		for _, b := range localBuckets {
-			bucketNodeMap[b.Name] = localNodeName
+	if isClusterEnabled && s.bucketAggregator != nil {
+		// Use aggregator: same deduplicated list as S3 ListBuckets (one entry per logical bucket).
+		aggregated, err := s.bucketAggregator.ListAllBuckets(r.Context(), tenantID)
+		if err != nil {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
-
-		// Get OTHER nodes (exclude local node)
-		nodes, err := s.clusterManager.GetHealthyNodes(r.Context())
-		if err == nil {
-			for _, node := range nodes {
-				// Skip if this is the local node
-				if node.ID == localNodeID {
-					continue
-				}
-
-				// Query buckets from this remote node
-				remoteBuckets, err := s.queryBucketsFromNode(r.Context(), node, tenantID)
-				if err != nil {
-					logrus.WithError(err).WithFields(logrus.Fields{
-						"node_id":   node.ID,
-						"node_name": node.Name,
-					}).Warn("Failed to query buckets from remote node, skipping")
-					continue
-				}
-
-				// Add remote buckets to the list
-				for _, rb := range remoteBuckets {
-					allBuckets = append(allBuckets, rb)
-					bucketNodeMap[rb.Name] = node.Name
-				}
-			}
+		allBuckets = make([]bucket.Bucket, 0, len(aggregated))
+		bucketNodeMap = make(map[string]string)
+		for _, bwl := range aggregated {
+			allBuckets = append(allBuckets, bucketWithLocationToBucket(bwl))
+			bucketNodeMap[bwl.Name] = bwl.NodeName
 		}
 	} else {
-		// Standalone mode: only local buckets
+		// Standalone or no aggregator: local buckets only
+		localBuckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
+		if err != nil {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		allBuckets = localBuckets
 		bucketNodeMap = make(map[string]string)
 		for _, b := range localBuckets {
@@ -1207,6 +1180,22 @@ func (s *Server) queryBucketsFromNode(ctx context.Context, node *cluster.Node, t
 	}
 
 	return buckets, nil
+}
+
+// bucketWithLocationToBucket converts cluster.BucketWithLocation to bucket.Bucket for filtering.
+func bucketWithLocationToBucket(bwl cluster.BucketWithLocation) bucket.Bucket {
+	return bucket.Bucket{
+		Name:        bwl.Name,
+		TenantID:    bwl.TenantID,
+		OwnerID:     bwl.OwnerID,
+		OwnerType:   bwl.OwnerType,
+		CreatedAt:   bwl.CreatedAt,
+		Versioning:  parseVersioningFromString(bwl.Versioning),
+		ObjectCount: bwl.ObjectCount,
+		TotalSize:   bwl.SizeBytes,
+		Metadata:    bwl.Metadata,
+		Tags:        bwl.Tags,
+	}
 }
 
 // parseVersioningFromString converts versioning string to VersioningConfig
@@ -2111,18 +2100,11 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 			"shareID": existingShare.ID,
 		}).Info("Found existing share for object")
 
-		// Generate clean S3 URL with proper protocol and host
-		// Use PublicAPIURL if configured, otherwise build from request
+		// Generate clean S3 URL (bucket names are global; no tenant in path)
 		var s3URL string
 		if s.config.PublicAPIURL != "" {
-			// Use configured public URL
-			if shareTenantID != "" {
-				s3URL = fmt.Sprintf("%s/%s/%s/%s", s.config.PublicAPIURL, shareTenantID, bucketName, objectKey)
-			} else {
-				s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, bucketName, objectKey)
-			}
+			s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, bucketName, objectKey)
 		} else {
-			// Build URL from request context
 			protocol := "http"
 			if r.TLS != nil {
 				protocol = "https"
@@ -2130,15 +2112,10 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 				protocol = proto
 			}
 			host := r.Host
-			// If host doesn't include port, add the API listen port
 			if !strings.Contains(host, ":") {
 				host = strings.Split(r.Host, ":")[0] + s.config.Listen
 			}
-			if shareTenantID != "" {
-				s3URL = fmt.Sprintf("%s://%s/%s/%s/%s", protocol, host, shareTenantID, bucketName, objectKey)
-			} else {
-				s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, bucketName, objectKey)
-			}
+			s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, bucketName, objectKey)
 		}
 
 		logrus.WithFields(logrus.Fields{
@@ -2219,15 +2196,12 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	// Generate clean S3 URL with proper protocol and host
-	// Use PublicAPIURL if configured, otherwise build from request
-	// Bucket names are globally unique, no need for tenant prefix in URL
+	// Generate clean S3 URL with proper protocol and host.
+	// Bucket names are globally unique; URL is always /bucket/object (no tenant in path).
 	var s3URL string
 	if s.config.PublicAPIURL != "" {
-		// Use configured public URL (no tenant prefix)
 		s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, bucketName, objectKey)
 	} else {
-		// Build URL from request context
 		protocol := "http"
 		if r.TLS != nil {
 			protocol = "https"
@@ -2235,7 +2209,6 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 			protocol = proto
 		}
 		host := r.Host
-		// If host doesn't include port, add the API listen port
 		if !strings.Contains(host, ":") {
 			host = strings.Split(r.Host, ":")[0] + s.config.Listen
 		}

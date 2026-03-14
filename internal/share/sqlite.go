@@ -226,16 +226,29 @@ func (s *SQLiteStore) GetShareByToken(ctx context.Context, shareToken string) (*
 	return s.scanShare(row)
 }
 
-// GetShareByObject retrieves a share by bucket and object
+// GetShareByObject retrieves a share by bucket and object.
+// When tenantID is empty (e.g. clean URL /bucket/object), lookup is by bucket+object only
+// since bucket names are globally unique. The returned share's TenantID is used for path resolution.
 func (s *SQLiteStore) GetShareByObject(ctx context.Context, bucketName, objectKey, tenantID string) (*Share, error) {
-	query := `
-		SELECT id, bucket_name, object_key, tenant_id, access_key_id, secret_key, share_token, expires_at, created_at, created_by
-		FROM shares
-		WHERE bucket_name = ? AND object_key = ? AND tenant_id = ?
-		AND (expires_at IS NULL OR expires_at > ?)
-	`
-
-	row := s.db.QueryRowContext(ctx, query, bucketName, objectKey, tenantID, time.Now().UTC().Unix())
+	var row *sql.Row
+	if tenantID == "" {
+		query := `
+			SELECT id, bucket_name, object_key, tenant_id, access_key_id, secret_key, share_token, expires_at, created_at, created_by
+			FROM shares
+			WHERE bucket_name = ? AND object_key = ?
+			AND (expires_at IS NULL OR expires_at > ?)
+			LIMIT 1
+		`
+		row = s.db.QueryRowContext(ctx, query, bucketName, objectKey, time.Now().UTC().Unix())
+	} else {
+		query := `
+			SELECT id, bucket_name, object_key, tenant_id, access_key_id, secret_key, share_token, expires_at, created_at, created_by
+			FROM shares
+			WHERE bucket_name = ? AND object_key = ? AND tenant_id = ?
+			AND (expires_at IS NULL OR expires_at > ?)
+		`
+		row = s.db.QueryRowContext(ctx, query, bucketName, objectKey, tenantID, time.Now().UTC().Unix())
+	}
 	return s.scanShare(row)
 }
 

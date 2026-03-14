@@ -269,6 +269,40 @@ func TestBucketAggregator_queryBucketsFromNode_InvalidJSON(t *testing.T) {
 	assert.Error(t, err, "Should fail to decode invalid JSON")
 }
 
+func TestDeduplicateBucketsByTenantAndName(t *testing.T) {
+	now := time.Now()
+	// Same (tenant, name) on local and remote: one entry, prefer local
+	buckets := []BucketWithLocation{
+		{Name: "b1", TenantID: "t1", CreatedAt: now, NodeID: "local", NodeName: "local", NodeStatus: "local"},
+		{Name: "b1", TenantID: "t1", CreatedAt: now, NodeID: "remote1", NodeName: "remote-1", NodeStatus: "remote"},
+	}
+	out := deduplicateBucketsByTenantAndName(buckets)
+	require.Len(t, out, 1)
+	assert.Equal(t, "local", out[0].NodeID, "should prefer local when same bucket on local and remote")
+	assert.Equal(t, "b1", out[0].Name)
+
+	// Same bucket on two remotes: one entry, keep first by order
+	buckets2 := []BucketWithLocation{
+		{Name: "b2", TenantID: "t1", NodeID: "r1", NodeName: "r1", NodeStatus: "remote"},
+		{Name: "b2", TenantID: "t1", NodeID: "r2", NodeName: "r2", NodeStatus: "remote"},
+	}
+	out2 := deduplicateBucketsByTenantAndName(buckets2)
+	require.Len(t, out2, 1)
+	assert.Equal(t, "b2", out2[0].Name)
+
+	// Different tenants, same name: two entries
+	buckets3 := []BucketWithLocation{
+		{Name: "same", TenantID: "t1", NodeID: "local", NodeStatus: "local"},
+		{Name: "same", TenantID: "t2", NodeID: "local", NodeStatus: "local"},
+	}
+	out3 := deduplicateBucketsByTenantAndName(buckets3)
+	require.Len(t, out3, 2)
+
+	// Empty input
+	out4 := deduplicateBucketsByTenantAndName(nil)
+	assert.Empty(t, out4)
+}
+
 func TestBucketAggregator_BucketWithLocation_JSON(t *testing.T) {
 	// Test serialization of BucketWithLocation
 	now := time.Now()

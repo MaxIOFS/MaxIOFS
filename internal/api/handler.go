@@ -92,8 +92,9 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 
 	// S3 API endpoints
 	s3Router := router.PathPrefix("/").Subrouter()
+	s3Router.Use(h.s3ClientMiddleware)
 
-	// Service operations - root handler with browser detection
+	// Service operations - root handler
 	s3Router.HandleFunc("/", h.handleRoot).Methods("GET")
 
 	// Bucket operations (support both with and without trailing slash)
@@ -232,6 +233,69 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	objectRouter.HandleFunc("", h.s3Handler.DeleteObject).Methods("DELETE")
 }
 
+// s3ClientMiddleware redirects non-S3 client requests to the web console.
+func (h *Handler) s3ClientMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.isS3Client(r) {
+			http.Redirect(w, r, h.publicConsoleURL, http.StatusTemporaryRedirect)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isS3Client detects whether the request is from an S3 client (CLI, SDK, GUI) vs browser/curl.
+func (h *Handler) isS3Client(r *http.Request) bool {
+	q := r.URL.Query()
+	if q.Has("X-Amz-Algorithm") || q.Has("AWSAccessKeyId") {
+		return true
+	}
+
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "AWS4-HMAC-SHA256") ||
+		strings.HasPrefix(auth, "AWS ") ||
+		strings.HasPrefix(auth, "AWS4 ") {
+		return true
+	}
+
+	for key := range r.Header {
+		if strings.HasPrefix(strings.ToLower(key), "x-amz-") {
+			return true
+		}
+	}
+
+	// Allow GET/HEAD to /{bucket}/{object} so shared/public objects work in browsers.
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && isObjectPath(r.URL.Path) {
+		return true
+	}
+
+	ua := strings.ToLower(r.Header.Get("User-Agent"))
+	clients := []string{
+		"aws-cli", "aws-sdk", "boto", "boto3", "s3cmd", "s5cmd", "mc", "rclone",
+		"cyberduck", "mountainduck", "s3 browser", "s3browser",
+		"cloudberry", "msp360", "winscp", "transmit", "dragondisk", "dragon disk",
+		"aws-sdk-java", "aws-sdk-go", "aws-sdk-php", "aws-sdk-ruby", "aws-sdk-net", "awssdk",
+		"minio", "aws", "s3",
+	}
+	for _, c := range clients {
+		if strings.Contains(ua, c) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isObjectPath returns true if path is /{bucket}/{object...} (at least two segments).
+func isObjectPath(path string) bool {
+	trimmed := strings.Trim(path, "/")
+	if trimmed == "" {
+		return false
+	}
+	parts := strings.Split(trimmed, "/")
+	return len(parts) >= 2
+}
+
 // Health check handlers
 func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -252,23 +316,7 @@ func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status": "ready", "service": "maxiofs"}`))
 }
 
-// handleRoot handles requests to the root path with browser detection
+// handleRoot handles GET / (ListBuckets). Non-S3 clients are redirected by s3ClientMiddleware.
 func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
-	userAgent := strings.ToLower(r.Header.Get("User-Agent"))
-
-	// Detect if request is from a web browser
-	isBrowser := strings.Contains(userAgent, "mozilla") ||
-		strings.Contains(userAgent, "chrome") ||
-		strings.Contains(userAgent, "safari") ||
-		strings.Contains(userAgent, "firefox") ||
-		strings.Contains(userAgent, "edge")
-
-	// If it's a browser, redirect to the web console
-	if isBrowser {
-		http.Redirect(w, r, h.publicConsoleURL, http.StatusTemporaryRedirect)
-		return
-	}
-
-	// Otherwise, handle as S3 API (ListBuckets)
 	h.s3Handler.ListBuckets(w, r)
 }
