@@ -233,6 +233,18 @@ type BucketInfo struct {
 	CreationDate time.Time `xml:"CreationDate"`
 }
 
+// MarshalXML serializes CreationDate in UTC with Z suffix, matching AWS S3 and MinIO format.
+func (b BucketInfo) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	type bucketInfoAlias struct {
+		Name         string `xml:"Name"`
+		CreationDate string `xml:"CreationDate"`
+	}
+	return e.EncodeElement(bucketInfoAlias{
+		Name:         b.Name,
+		CreationDate: b.CreationDate.UTC().Format("2006-01-02T15:04:05.000Z"),
+	}, start)
+}
+
 type ListBucketResult struct {
 	XMLName        xml.Name       `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListBucketResult"`
 	Name           string         `xml:"Name"`
