@@ -14,16 +14,17 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: false,
-    minify: 'esbuild',
+    minify: 'oxc',
     chunkSizeWarningLimit: 1024,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          router: ['react-router-dom'],
-          query: ['@tanstack/react-query'],
-          charts: ['recharts'],
-          icons: ['lucide-react'],
-          utils: ['axios', 'date-fns', 'clsx', 'class-variance-authority', 'tailwind-merge'],
+        manualChunks: (id) => {
+          if (id.includes('react-router-dom')) return 'router';
+          if (id.includes('@tanstack/react-query')) return 'query';
+          if (id.includes('recharts')) return 'charts';
+          if (id.includes('lucide-react')) return 'icons';
+          if (id.includes('axios') || id.includes('date-fns') || id.includes('clsx') ||
+              id.includes('class-variance-authority') || id.includes('tailwind-merge')) return 'utils';
         },
       },
     },

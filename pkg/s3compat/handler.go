@@ -1467,7 +1467,11 @@ func (h *Handler) GetBucketLocation(w http.ResponseWriter, r *http.Request) {
 		}).Warn("VEEAM GetBucketLocation - DETECTION PHASE - May determine auto-provisioning")
 	}
 
-	h.writeXMLResponse(w, http.StatusOK, LocationConstraintResponse{Location: "us-east-1"})
+	// AWS S3 spec: buckets in the default region (us-east-1) must return an empty
+	// LocationConstraint, not the string "us-east-1".  Clients such as MinIO follow
+	// this rule and returning the explicit region name causes Veeam (and others) to
+	// treat the storage as a named-region deployment and enable multi-bucket mode.
+	h.writeXMLResponse(w, http.StatusOK, LocationConstraintResponse{Location: ""})
 }
 
 func (h *Handler) GetBucketVersioning(w http.ResponseWriter, r *http.Request) {
@@ -1729,17 +1733,27 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Verificar que Object Lock esté habilitado
+	// Verificar que Object Lock esté habilitado.
+	// AWS S3 spec: PutObjectLockConfiguration on a bucket without Object Lock returns
+	// InvalidBucketState (409), not ObjectLockConfigurationNotFoundError (404).
 	if bucketInfo.ObjectLock == nil || !bucketInfo.ObjectLock.ObjectLockEnabled {
-		logrus.Warn("PutObjectLockConfiguration - Object Lock not enabled")
-		h.writeError(w, "ObjectLockConfigurationNotFoundError",
-			"Object Lock configuration does not exist for this bucket", bucketName, r)
+		logrus.Warn("PutObjectLockConfiguration - Object Lock not enabled on bucket")
+		h.writeError(w, "InvalidBucketState",
+			"Object Lock must be enabled on the bucket at creation time. Create a new bucket with Object Lock enabled.", bucketName, r)
 		return
 	}
 
 	// Leer y parsear la nueva configuración del body
 	newConfig, ok := h.parseObjectLockConfigXML(w, r, bucketName)
 	if !ok {
+		return
+	}
+
+	// Validate that a Rule with DefaultRetention is present; calling code may send a
+	// bare <ObjectLockConfiguration> without a Rule when just checking capabilities.
+	if newConfig.Rule == nil || newConfig.Rule.DefaultRetention == nil {
+		h.writeError(w, "MalformedXML",
+			"Object Lock configuration must include a Rule element with DefaultRetention", bucketName, r)
 		return
 	}
 
@@ -1847,7 +1861,7 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	case "MethodNotAllowed":
 		statusCode = http.StatusMethodNotAllowed
 	// 409 Conflict
-	case "BucketAlreadyExists", "BucketAlreadyOwnedByYou", "BucketNotEmpty", "OperationAborted":
+	case "BucketAlreadyExists", "BucketAlreadyOwnedByYou", "BucketNotEmpty", "OperationAborted", "InvalidBucketState":
 		statusCode = http.StatusConflict
 	// 412 Precondition Failed
 	case "PreconditionFailed":

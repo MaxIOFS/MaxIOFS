@@ -61,9 +61,26 @@ func TracingMiddleware(next http.Handler) http.Handler {
 		// Determine success based on status code
 		success := wrapped.statusCode >= 200 && wrapped.statusCode < 400
 
-		// Record latency in performance collector
+		// Record latency and throughput in performance collector
 		if collector := metrics.GetGlobalPerformanceCollector(); collector != nil && operation != "" {
 			collector.RecordLatency(metrics.OperationType(operation), duration, success)
+
+			// Count bytes: upload size (request body) + download size (response body)
+			var totalBytes int64
+			if r.ContentLength > 0 {
+				totalBytes += r.ContentLength
+			}
+			totalBytes += wrapped.bytesWritten
+
+			// Count as an object operation if it's a data operation
+			objects := 0
+			switch metrics.OperationType(operation) {
+			case metrics.OpPutObject, metrics.OpGetObject, metrics.OpDeleteObject,
+				metrics.OpCopyObject, metrics.OpMultipartUpload:
+				objects = 1
+			}
+
+			collector.RecordThroughput(totalBytes, objects)
 		}
 
 		// Log request completion
@@ -79,11 +96,12 @@ func TracingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// responseWriter wraps http.ResponseWriter to capture status code
+// responseWriter wraps http.ResponseWriter to capture status code and bytes written
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode int
-	written    bool
+	statusCode   int
+	written      bool
+	bytesWritten int64
 }
 
 func (rw *responseWriter) WriteHeader(code int) {
@@ -98,7 +116,9 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	if !rw.written {
 		rw.WriteHeader(http.StatusOK)
 	}
-	return rw.ResponseWriter.Write(b)
+	n, err := rw.ResponseWriter.Write(b)
+	rw.bytesWritten += int64(n)
+	return n, err
 }
 
 // Flush implements http.Flusher so that handlers can push data to the client

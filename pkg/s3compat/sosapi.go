@@ -75,8 +75,8 @@ func isVeeamClient(userAgent string) bool {
 // generateSystemXML generates the SOSAPI system.xml content
 func generateSystemXML() ([]byte, error) {
 	sysInfo := SystemInfo{
-		ProtocolVersion: `"1.0"`,
-		ModelName:       `"MaxIOFS"`,
+		ProtocolVersion: "1.0",
+		ModelName:       "MaxIOFS",
 		APIEndpoints:    nil, // nil = omitempty will exclude from XML (we don't support IAM/STS)
 	}
 
