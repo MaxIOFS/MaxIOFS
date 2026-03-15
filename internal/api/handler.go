@@ -320,13 +320,10 @@ func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRoot handles GET / and HEAD /. Non-S3 clients are redirected by s3ClientMiddleware.
-// HEAD / must return 200 with S3 headers: Veeam uses it to detect a valid S3 endpoint
-// before making GET /. A 404 on HEAD / causes Veeam to enable multi-bucket mode.
+// Both GET and HEAD run ListBuckets so that HEAD / returns the same headers (including
+// Content-Length) as GET / but without the body. Veeam uses HEAD / to detect a valid S3
+// service endpoint and checks Content-Length to confirm the endpoint is functional.
+// net/http automatically suppresses the body for HEAD requests.
 func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodHead {
-		w.Header().Set("Content-Type", "application/xml")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
 	h.s3Handler.ListBuckets(w, r)
 }
