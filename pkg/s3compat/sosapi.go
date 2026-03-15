@@ -150,32 +150,38 @@ func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, objectKey string) 
 		// Get user from context to determine if we should use tenant quota
 		user, userExists := auth.GetUserFromContext(ctx)
 
+		useDisk := true
+
 		if userExists && user.TenantID != "" && h.authManager != nil {
-			// User is from a tenant - ALWAYS use tenant quota (shared by all users in tenant)
+			// User is from a tenant - use tenant quota if one is configured
 			tenant, err := h.authManager.GetTenant(ctx, user.TenantID)
 			if err != nil {
 				logrus.WithError(err).WithField("tenantID", user.TenantID).Error("Failed to get tenant for SOSAPI capacity")
-				// On error, fall back to defaults
-			} else {
-				// ALWAYS use tenant quota - all users in a tenant share the same quota
+				// On error fall through to disk usage
+			} else if tenant.MaxStorageBytes > 0 {
+				// Quota is configured: report quota as capacity
 				totalCapacity = tenant.MaxStorageBytes
 				usedCapacity := tenant.CurrentStorageBytes
 				availableCapacity = totalCapacity - usedCapacity
-
 				if availableCapacity < 0 {
 					availableCapacity = 0
 				}
-
+				useDisk = false
 				logrus.WithFields(logrus.Fields{
-					"tenant_id":    user.TenantID,
-					"quota_bytes":  totalCapacity,
-					"used_bytes":   usedCapacity,
-					"free_bytes":   availableCapacity,
-					"username":     user.Username,
-				}).Info("SOSAPI capacity calculated from tenant quota (shared by all tenant users)")
+					"tenant_id":   user.TenantID,
+					"quota_bytes": totalCapacity,
+					"used_bytes":  usedCapacity,
+					"free_bytes":  availableCapacity,
+					"username":    user.Username,
+				}).Info("SOSAPI capacity calculated from tenant quota")
+			} else {
+				// No quota configured: fall through to actual disk usage
+				logrus.WithField("tenantID", user.TenantID).Info("SOSAPI: tenant has no quota configured, using disk capacity")
 			}
-		} else {
-			// Global user or no auth - use full disk capacity
+		}
+
+		if useDisk {
+			// Global user or tenant with no quota — use full disk capacity
 			if h.dataDir != "" {
 				diskInfo, err := disk.Usage(h.dataDir)
 				if err != nil {
@@ -188,7 +194,7 @@ func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, objectKey string) 
 						"free_bytes":  availableCapacity,
 						"used_bytes":  int64(diskInfo.Used),
 						"data_dir":    h.dataDir,
-					}).Info("SOSAPI capacity calculated from disk (global user)")
+					}).Info("SOSAPI capacity calculated from disk")
 				}
 			}
 		}
