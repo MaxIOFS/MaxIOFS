@@ -653,18 +653,6 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 	// Add S3-compatible headers (CRITICAL for Veeam recognition)
 	addS3CompatHeaders(w)
 
-	// Detect Veeam and log ALL response headers
-	userAgent := r.Header.Get("User-Agent")
-	if isVeeamClient(userAgent) {
-		logrus.WithFields(logrus.Fields{
-			"bucket":           bucketName,
-			"user_agent":       userAgent,
-			"method":           r.Method,
-			"uri":              r.RequestURI,
-			"response_headers": w.Header(),
-		}).Warn("VEEAM HeadBucket - RESPONSE HEADERS - MaxIOFS S3-compatible")
-	}
-
 	logrus.WithField("bucket", bucketName).Debug("S3 API: HeadBucket")
 
 	tenantID := h.getTenantIDFromRequest(r)
@@ -713,15 +701,29 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	exists, err := h.bucketManager.BucketExists(r.Context(), tenantID, bucketName)
+	bkt, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
-		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 		return
 	}
 
-	if !exists {
-		h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
-		return
+	// x-amz-bucket-object-lock-enabled: AWS S3 and MinIO return this header when the
+	// bucket was created with Object Lock enabled. Veeam uses it to determine if the
+	// bucket supports immutability before proceeding with Object Lock configuration.
+	if bkt.ObjectLock != nil && bkt.ObjectLock.ObjectLockEnabled {
+		w.Header().Set("x-amz-bucket-object-lock-enabled", "true")
+	}
+
+	// Log all response headers AFTER they are fully set (for Veeam debugging)
+	userAgent := r.Header.Get("User-Agent")
+	if isVeeamClient(userAgent) {
+		logrus.WithFields(logrus.Fields{
+			"bucket":           bucketName,
+			"user_agent":       userAgent,
+			"method":           r.Method,
+			"uri":              r.RequestURI,
+			"response_headers": w.Header(),
+		}).Warn("VEEAM HeadBucket - RESPONSE HEADERS - MaxIOFS S3-compatible")
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -1748,19 +1750,13 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Validate that a Rule with DefaultRetention is present; calling code may send a
-	// bare <ObjectLockConfiguration> without a Rule when just checking capabilities.
+	// Validate that a Rule with DefaultRetention is present.
 	if newConfig.Rule == nil || newConfig.Rule.DefaultRetention == nil {
 		h.writeError(w, "MalformedXML",
 			"Object Lock configuration must include a Rule element with DefaultRetention", bucketName, r)
 		return
 	}
 
-	// AWS S3 allows changing the bucket-level default retention mode (e.g. GOVERNANCE → COMPLIANCE)
-	// and allows decreasing the default retention period.
-	// The only truly immutable property is ObjectLockEnabled, which is already enforced above
-	// by the ObjectLockConfigurationNotFoundError check.
-	// Individual object retention under COMPLIANCE mode remains immutable per the S3 spec.
 	newMode := newConfig.Rule.DefaultRetention.Mode
 	newDays := calculateRetentionDays(newConfig.Rule.DefaultRetention.Years, newConfig.Rule.DefaultRetention.Days)
 
