@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"net/http"
 	"strings"
@@ -51,9 +52,9 @@ func generateRequestID() string {
 	return strings.ToUpper(hex.EncodeToString(b))
 }
 
-// generateHostID generates a 64 character hex host ID
+// generateHostID generates a base64-encoded host ID (like AWS S3 and MinIO)
 func generateHostID() string {
-	b := make([]byte, 32)
+	b := make([]byte, 48) // 48 bytes → 64-char base64
 	rand.Read(b)
-	return hex.EncodeToString(b)
+	return base64.StdEncoding.EncodeToString(b)
 }

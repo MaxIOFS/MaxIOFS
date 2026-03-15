@@ -61,12 +61,11 @@ func generateRequestID() string {
 	return strings.ToUpper(hex.EncodeToString(b))
 }
 
-// generateAmzId2 generates a LONG hash for x-amz-id-2 (like MaxIOFS does)
-// MaxIOFS uses 64 character hex strings
+// generateAmzId2 generates a host ID for x-amz-id-2 (base64-encoded like AWS S3 and MinIO)
 func generateAmzId2() string {
-	b := make([]byte, 32) // 32 bytes = 64 hex chars
+	b := make([]byte, 48) // 48 bytes → 64-char base64
 	rand.Read(b)
-	return hex.EncodeToString(b)
+	return base64.StdEncoding.EncodeToString(b)
 }
 
 // addS3CompatHeaders adds S3-compatible headers to all responses
@@ -1786,24 +1785,28 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 
 // Utility methods
 func (h *Handler) writeXMLResponse(w http.ResponseWriter, statusCode int, data interface{}) {
-	w.Header().Set("Content-Type", "application/xml")
-	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
-	w.WriteHeader(statusCode)
+	var buf bytes.Buffer
 
 	if str, ok := data.(string); ok {
 		// Prepend XML declaration only if the string doesn't already carry one.
 		if !strings.HasPrefix(strings.TrimSpace(str), "<?xml") {
-			w.Write([]byte(xml.Header))
+			buf.WriteString(xml.Header)
 		}
-		w.Write([]byte(str))
-		return
+		buf.WriteString(str)
+	} else {
+		// Write XML declaration before the encoded struct (AWS S3 always includes it).
+		buf.WriteString(xml.Header)
+		if err := xml.NewEncoder(&buf).Encode(data); err != nil {
+			logrus.WithError(err).Error("Failed to encode XML response")
+		}
 	}
 
-	// Write XML declaration before the encoded struct (AWS S3 always includes it).
-	w.Write([]byte(xml.Header))
-	if err := xml.NewEncoder(w).Encode(data); err != nil {
-		logrus.WithError(err).Error("Failed to encode XML response")
-	}
+	body := buf.Bytes()
+	w.Header().Set("Content-Type", "application/xml")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
+	w.WriteHeader(statusCode)
+	w.Write(body)
 }
 
 // getTenantIDFromRequest extracts the tenant ID from the authenticated user in the request context

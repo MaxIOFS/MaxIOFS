@@ -18,7 +18,7 @@ import (
 
 // Object Lock XML structures
 type ObjectLockConfiguration struct {
-	XMLName           xml.Name        `xml:"ObjectLockConfiguration"`
+	XMLName           xml.Name        `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ObjectLockConfiguration"`
 	ObjectLockEnabled string          `xml:"ObjectLockEnabled"`
 	Rule              *ObjectLockRule `xml:"Rule,omitempty"`
 }
