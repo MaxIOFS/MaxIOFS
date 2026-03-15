@@ -1280,22 +1280,15 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Validar que tenga modo de retención
-		if req.ObjectLock.Mode == "" {
-			s.writeError(w, "Object Lock mode (GOVERNANCE or COMPLIANCE) is required", http.StatusBadRequest)
+		// If mode is specified, days or years must also be provided (and vice-versa).
+		// Both are optional — a bucket can have Object Lock enabled with no default
+		// retention rule. Clients like Veeam B&R manage retention per-object themselves.
+		if req.ObjectLock.Mode != "" && req.ObjectLock.Days == 0 && req.ObjectLock.Years == 0 {
+			s.writeError(w, "Object Lock retention period (days or years) is required when a mode is specified", http.StatusBadRequest)
 			return
 		}
-
-		// Apply default retention days from settings if not specified by client
-		if req.ObjectLock.Days == 0 && req.ObjectLock.Years == 0 {
-			if defDays, err := s.settingsManager.GetInt("storage.default_object_lock_days"); err == nil && defDays > 0 {
-				req.ObjectLock.Days = defDays
-			}
-		}
-
-		// Validar que tenga al menos días o años
-		if req.ObjectLock.Days == 0 && req.ObjectLock.Years == 0 {
-			s.writeError(w, "Object Lock requires at least days or years to be specified", http.StatusBadRequest)
+		if (req.ObjectLock.Days > 0 || req.ObjectLock.Years > 0) && req.ObjectLock.Mode == "" {
+			s.writeError(w, "Object Lock mode (GOVERNANCE or COMPLIANCE) is required when a retention period is specified", http.StatusBadRequest)
 			return
 		}
 	}
@@ -1351,25 +1344,28 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 
 	// Aplicar Object Lock
 	if req.ObjectLock != nil && req.ObjectLock.Enabled {
-		retention := &bucket.DefaultRetention{
-			Mode: req.ObjectLock.Mode,
-		}
-
-		// Only set Days or Years, not both (as per S3 specification)
-		if req.ObjectLock.Days > 0 {
-			days := req.ObjectLock.Days
-			retention.Days = &days
-		} else if req.ObjectLock.Years > 0 {
-			years := req.ObjectLock.Years
-			retention.Years = &years
-		}
-
-		bucketInfo.ObjectLock = &bucket.ObjectLockConfig{
+		objLock := &bucket.ObjectLockConfig{
 			ObjectLockEnabled: true,
-			Rule: &bucket.ObjectLockRule{
-				DefaultRetention: retention,
-			},
 		}
+
+		// Default retention rule is optional. Only set it when mode + period are provided.
+		if req.ObjectLock.Mode != "" {
+			retention := &bucket.DefaultRetention{
+				Mode: req.ObjectLock.Mode,
+			}
+			if req.ObjectLock.Days > 0 {
+				days := req.ObjectLock.Days
+				retention.Days = &days
+			} else if req.ObjectLock.Years > 0 {
+				years := req.ObjectLock.Years
+				retention.Years = &years
+			}
+			objLock.Rule = &bucket.ObjectLockRule{
+				DefaultRetention: retention,
+			}
+		}
+
+		bucketInfo.ObjectLock = objLock
 	}
 
 	// Aplicar encriptación

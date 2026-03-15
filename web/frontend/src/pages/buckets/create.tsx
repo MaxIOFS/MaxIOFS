@@ -176,13 +176,13 @@ export default function CreateBucketPage() {
       return;
     }
 
-    if (config.objectLockEnabled && !config.retentionMode) {
-      ModalManager.toast('error', t('validationRetentionModeRequired'));
+    // Retention mode and period are optional. If one is provided, both must be set.
+    if (config.objectLockEnabled && config.retentionMode && config.retentionDays === 0 && config.retentionYears === 0) {
+      ModalManager.toast('error', t('validationRetentionPeriodRequired'));
       return;
     }
-
-    if (config.objectLockEnabled && config.retentionDays === 0 && config.retentionYears === 0) {
-      ModalManager.toast('error', t('validationRetentionPeriodRequired'));
+    if (config.objectLockEnabled && !config.retentionMode && (config.retentionDays > 0 || config.retentionYears > 0)) {
+      ModalManager.toast('error', t('validationRetentionModeRequired'));
       return;
     }
 
@@ -487,7 +487,7 @@ export default function CreateBucketPage() {
                   <>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {t('retentionMode')} <span className="text-red-500">*</span>
+                        {t('retentionMode')}
                       </label>
                       <div className="space-y-3">
                         <label className="flex items-start space-x-3 p-3 border border-gray-200 dark:border-gray-700 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">

@@ -1501,13 +1501,28 @@ func (h *Handler) GetBucketVersioning(w http.ResponseWriter, r *http.Request) {
 	// - Unversioned (never enabled): No <Status> element or empty
 	// - Enabled: <Status>Enabled</Status>
 	// - Suspended: <Status>Suspended</Status>
+	//
+	// Object Lock buckets require versioning to be Enabled. If Object Lock is enabled
+	// but versioning is Suspended or unset, return Enabled (versioning is permanently
+	// enabled when Object Lock is active, per AWS S3 spec).
+	versioningStatus := ""
+	if bkt.Versioning != nil {
+		versioningStatus = bkt.Versioning.Status
+	}
+	if (versioningStatus == "" || versioningStatus == "Suspended") && bkt.ObjectLock != nil && bkt.ObjectLock.ObjectLockEnabled {
+		versioningStatus = "Enabled"
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
+		"status": versioningStatus,
+	}).Info("GetBucketVersioning - returning status")
+
 	var statusXML string
-	if bkt.Versioning == nil || bkt.Versioning.Status == "" {
-		// Versioning never enabled - return empty configuration
+	if versioningStatus == "" {
 		statusXML = `<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></VersioningConfiguration>`
 	} else {
-		// Versioning was enabled or suspended
-		statusXML = fmt.Sprintf(`<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>%s</Status></VersioningConfiguration>`, bkt.Versioning.Status)
+		statusXML = fmt.Sprintf(`<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>%s</Status></VersioningConfiguration>`, versioningStatus)
 	}
 
 	h.writeXMLResponse(w, http.StatusOK, statusXML)
@@ -1539,6 +1554,17 @@ func (h *Handler) PutBucketVersioning(w http.ResponseWriter, r *http.Request) {
 	if versioningConfig.Status != "Enabled" && versioningConfig.Status != "Suspended" {
 		h.writeError(w, "IllegalVersioningConfigurationException", "Invalid versioning status", bucketName, r)
 		return
+	}
+
+	// Object Lock buckets require versioning to be permanently Enabled.
+	// AWS S3 does not allow suspending versioning on an Object Lock bucket.
+	if versioningConfig.Status == "Suspended" {
+		bkt, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+		if err == nil && bkt.ObjectLock != nil && bkt.ObjectLock.ObjectLockEnabled {
+			h.writeError(w, "InvalidBucketState",
+				"Object Lock is enabled on this bucket. Versioning cannot be suspended on a bucket with Object Lock enabled.", bucketName, r)
+			return
+		}
 	}
 
 	// Set versioning configuration
