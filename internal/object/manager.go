@@ -39,7 +39,7 @@ type Manager interface {
 
 	// Object Lock operations
 	GetObjectRetention(ctx context.Context, bucket, key string) (*RetentionConfig, error)
-	SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig) error
+	SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig, versionID ...string) error
 	GetObjectLegalHold(ctx context.Context, bucket, key string) (*LegalHoldConfig, error)
 	SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig) error
 
@@ -1292,12 +1292,23 @@ func (om *objectManager) GetObjectRetention(ctx context.Context, bucket, key str
 	return obj.Retention, nil
 }
 
-func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig) error {
-	// Get object metadata
-	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig, versionID ...string) error {
+	// Get object metadata — use specific version if provided
+	var metaObj *metadata.ObjectMetadata
+	var err error
+	if len(versionID) > 0 && versionID[0] != "" {
+		metaObj, err = om.metadataStore.GetObject(ctx, bucket, key, versionID[0])
+	} else {
+		metaObj, err = om.metadataStore.GetObject(ctx, bucket, key)
+	}
 	if err != nil {
+		if err == metadata.ErrObjectNotFound {
+			return ErrObjectNotFound
+		}
 		return err
 	}
+
+	obj := fromMetadataObject(metaObj)
 
 	// Check if object is locked and retention is being shortened
 	if obj.Retention != nil {
@@ -1314,9 +1325,9 @@ func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key str
 	// Update retention
 	obj.Retention = config
 
-	// Save updated metadata to BadgerDB
-	metaObj := toMetadataObject(obj)
-	return om.metadataStore.PutObject(ctx, metaObj)
+	// Save updated metadata
+	updatedMeta := toMetadataObject(obj)
+	return om.metadataStore.PutObject(ctx, updatedMeta)
 }
 
 func (om *objectManager) GetObjectLegalHold(ctx context.Context, bucket, key string) (*LegalHoldConfig, error) {

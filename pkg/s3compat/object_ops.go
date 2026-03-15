@@ -121,8 +121,9 @@ func (h *Handler) PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
-	// Set the retention
-	if err := h.objectManager.SetObjectRetention(r.Context(), bucketPath, objectKey, retention); err != nil {
+	versionID := r.URL.Query().Get("versionId")
+	// Set the retention, targeting a specific version if versionId is provided
+	if err := h.objectManager.SetObjectRetention(r.Context(), bucketPath, objectKey, retention, versionID); err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return

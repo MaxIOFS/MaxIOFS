@@ -265,7 +265,7 @@ func (m *MockObjectManager) GetObjectRetention(ctx context.Context, bucket, key 
 	return args.Get(0).(*object.RetentionConfig), args.Error(1)
 }
 
-func (m *MockObjectManager) SetObjectRetention(ctx context.Context, bucket, key string, config *object.RetentionConfig) error {
+func (m *MockObjectManager) SetObjectRetention(ctx context.Context, bucket, key string, config *object.RetentionConfig, versionID ...string) error {
 	args := m.Called(ctx, bucket, key, config)
 	return args.Error(0)
 }

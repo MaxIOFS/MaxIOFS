@@ -536,7 +536,7 @@ func (m *mockManager) GetObjectRetention(ctx context.Context, bucket, key string
 	return m.retention, nil
 }
 
-func (m *mockManager) SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig) error {
+func (m *mockManager) SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig, versionID ...string) error {
 	m.retention = config
 	return nil
 }
