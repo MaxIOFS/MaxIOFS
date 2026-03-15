@@ -95,7 +95,10 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	s3Router.Use(h.s3ClientMiddleware)
 
 	// Service operations - root handler
-	s3Router.HandleFunc("/", h.handleRoot).Methods("GET")
+	// HEAD / is required: Veeam makes HEAD to the root before GET to detect whether
+	// the endpoint is a valid S3 service. A 404 on HEAD / causes Veeam to treat the
+	// storage as generic S3-compatible and activate multi-bucket mode.
+	s3Router.HandleFunc("/", h.handleRoot).Methods("GET", "HEAD")
 
 	// Bucket operations (support both with and without trailing slash)
 	bucketRouter := s3Router.PathPrefix("/{bucket}").Subrouter()
@@ -316,7 +319,14 @@ func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status": "ready", "service": "maxiofs"}`))
 }
 
-// handleRoot handles GET / (ListBuckets). Non-S3 clients are redirected by s3ClientMiddleware.
+// handleRoot handles GET / and HEAD /. Non-S3 clients are redirected by s3ClientMiddleware.
+// HEAD / must return 200 with S3 headers: Veeam uses it to detect a valid S3 endpoint
+// before making GET /. A 404 on HEAD / causes Veeam to enable multi-bucket mode.
 func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	h.s3Handler.ListBuckets(w, r)
 }
