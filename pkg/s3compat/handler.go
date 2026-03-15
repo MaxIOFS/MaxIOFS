@@ -231,18 +231,24 @@ type Buckets struct {
 type BucketInfo struct {
 	Name         string    `xml:"Name"`
 	CreationDate time.Time `xml:"CreationDate"`
+	// BucketRegion: AWS includes this in ListBuckets; some clients (e.g. VEEAM) may use it
+	// to detect region-aware backends and adjust behavior (e.g. multi-bucket option).
+	BucketRegion string `xml:"BucketRegion,omitempty"`
 }
 
-// MarshalXML serializes CreationDate in UTC with Z suffix, matching AWS S3 and MinIO format.
+// MarshalXML serializes CreationDate in UTC with Z suffix and optional BucketRegion, matching AWS S3 format.
 func (b BucketInfo) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	type bucketInfoAlias struct {
 		Name         string `xml:"Name"`
 		CreationDate string `xml:"CreationDate"`
+		BucketRegion string `xml:"BucketRegion,omitempty"`
 	}
-	return e.EncodeElement(bucketInfoAlias{
+	out := bucketInfoAlias{
 		Name:         b.Name,
 		CreationDate: b.CreationDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-	}, start)
+		BucketRegion: b.BucketRegion,
+	}
+	return e.EncodeElement(out, start)
 }
 
 type ListBucketResult struct {
@@ -310,23 +316,18 @@ type Error struct {
 
 // Service operations
 func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
+	// Log every ListBuckets request at Info so the "first" probe (e.g. VEEAM wizard screen 2) is visible.
+	// If this never appears when adding the repo, the request is not reaching the S3 API (check URL/port).
+	logrus.WithFields(logrus.Fields{
+		"method": r.Method,
+		"path":   r.URL.Path,
+		"host":   r.Host,
+		"remote": r.RemoteAddr,
+		"ua":     r.Header.Get("User-Agent"),
+	}).Info("S3 API: ListBuckets request")
+
 	// Add S3-compatible headers FIRST
 	addS3CompatHeaders(w)
-
-	// Detect Veeam and log extensively
-	userAgent := r.Header.Get("User-Agent")
-	if isVeeamClient(userAgent) {
-		// Log ALL response headers that we're sending
-		logrus.WithFields(logrus.Fields{
-			"user_agent":       userAgent,
-			"method":           r.Method,
-			"uri":              r.RequestURI,
-			"request_headers":  r.Header,
-			"response_headers": w.Header(),
-		}).Warn("VEEAM ListBuckets - RESPONSE HEADERS - MaxIOFS S3-compatible")
-	}
-
-	logrus.Debug("S3 API: ListBuckets")
 
 	// Get tenant ID from authenticated user
 	// Empty string for global admins (who can see all tenants)
@@ -430,6 +431,7 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 		result.Buckets.Bucket[i] = BucketInfo{
 			Name:         bucket.Name,
 			CreationDate: bucket.CreatedAt,
+			BucketRegion: "us-east-1",
 		}
 	}
 
@@ -1443,7 +1445,19 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Try to get object metadata - may return NoSuchKey if doesn't exist
-	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
+	// If versionId is specified, use GetObject which supports version lookup
+	versionID := r.URL.Query().Get("versionId")
+	var obj *object.Object
+	var err error
+	if versionID != "" {
+		var reader io.ReadCloser
+		obj, reader, err = h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
+		if reader != nil {
+			reader.Close()
+		}
+	} else {
+		obj, err = h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
+	}
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			// Object doesn't exist - return 404 (VEEAM uses this to detect missing files)

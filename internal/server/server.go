@@ -963,7 +963,9 @@ func (s *Server) setupRoutes() error {
 	)
 
 	// Apply middleware only to S3 subrouter (not to /metrics)
-	// S3 HEADERS MUST BE FIRST - ensures headers are present on ALL responses including auth errors
+	// Log every S3 request at Info (logrus) first so "first probe" (e.g. VEEAM capabilities) is visible
+	s3Router.Use(middleware.S3RequestLog)
+	// S3 HEADERS MUST BE SECOND - ensures headers are present on ALL responses including auth errors
 	s3Router.Use(middleware.S3Headers())
 	// VERBOSE LOGGING - logs EVERY request with full details
 	s3Router.Use(middleware.VerboseLogging())
@@ -1007,14 +1009,15 @@ func (s *Server) setupRoutes() error {
 
 	// Setup CORS and other middleware.
 	// Middleware chain (outermost first):
-	//   RecoveryHandler → websiteServingMiddleware → virtualHostedStyleMiddleware → apiRouter
+	//   logS3APIRequests → RecoveryHandler → websiteServingMiddleware → virtualHostedStyleMiddleware → apiRouter
+	// logS3APIRequests: every request that hits this server (S3 API port) is logged so "capabilities" probe is visible.
 	// The website middleware intercepts requests for "{bucket}.{website_hostname}" before
 	// virtual-hosted-style rewriting or S3 auth, serving them as plain HTML.
-	s.httpServer.Handler = handlers.RecoveryHandler()(
+	s.httpServer.Handler = logS3APIRequests(handlers.RecoveryHandler()(
 		websiteServingMiddleware(s,
 			virtualHostedStyleMiddleware(apiRouter, s.config.PublicAPIURL),
 		),
-	)
+	))
 
 	// Setup console routes (Web UI)
 	consoleRouter := mux.NewRouter()
@@ -1087,6 +1090,21 @@ func extractBasePathFromURL(urlStr string) string {
 	}
 
 	return basePath
+}
+
+// logS3APIRequests logs every HTTP request that hits the S3 API server (this process/port) at Info level.
+// Use this to see the "capabilities" probe or any other request from clients (e.g. VEEAM) that might not reach the S3 router.
+func logS3APIRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logrus.WithFields(logrus.Fields{
+			"method": r.Method,
+			"path":   r.URL.Path,
+			"host":   r.Host,
+			"remote": r.RemoteAddr,
+			"ua":     r.Header.Get("User-Agent"),
+		}).Info("S3 API server request")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // virtualHostedStyleMiddleware rewrites virtual-hosted-style S3 requests to path-style
