@@ -1776,18 +1776,29 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Validate that a Rule with DefaultRetention is present.
-	if newConfig.Rule == nil || newConfig.Rule.DefaultRetention == nil {
+	// Rule is optional per AWS S3 spec. Omitting Rule clears the bucket-level default
+	// retention (existing per-object locks are unaffected). Clients such as Veeam B&R
+	// send PUT without Rule to remove a pre-existing default retention before they
+	// manage retention at the per-object level themselves.
+	if newConfig.Rule != nil && newConfig.Rule.DefaultRetention == nil {
 		h.writeError(w, "MalformedXML",
-			"Object Lock configuration must include a Rule element with DefaultRetention", bucketName, r)
+			"Object Lock Rule element must include DefaultRetention", bucketName, r)
 		return
 	}
 
-	newMode := newConfig.Rule.DefaultRetention.Mode
-	newDays := calculateRetentionDays(newConfig.Rule.DefaultRetention.Years, newConfig.Rule.DefaultRetention.Days)
-
-	// Actualizar configuración de Object Lock en el bucket
-	updateBucketRetentionConfig(bucketInfo, newConfig)
+	if newConfig.Rule == nil {
+		bucketInfo.ObjectLock.Rule = nil
+		logrus.WithField("bucket", bucketName).Info("PutObjectLockConfiguration - Cleared default retention rule")
+	} else {
+		newMode := newConfig.Rule.DefaultRetention.Mode
+		newDays := calculateRetentionDays(newConfig.Rule.DefaultRetention.Years, newConfig.Rule.DefaultRetention.Days)
+		updateBucketRetentionConfig(bucketInfo, newConfig)
+		logrus.WithFields(logrus.Fields{
+			"bucket":  bucketName,
+			"newDays": newDays,
+			"mode":    newMode,
+		}).Info("PutObjectLockConfiguration - Updated default retention rule")
+	}
 
 	// Guardar cambios en el bucket
 	if err := h.bucketManager.UpdateBucket(r.Context(), tenantID, bucketName, bucketInfo); err != nil {
@@ -1796,11 +1807,7 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"bucket":  bucketName,
-		"newDays": newDays,
-		"mode":    newMode,
-	}).Info("PutObjectLockConfiguration - Configuration updated successfully")
+	logrus.WithField("bucket", bucketName).Info("PutObjectLockConfiguration - Configuration saved successfully")
 
 	w.WriteHeader(http.StatusOK)
 }
