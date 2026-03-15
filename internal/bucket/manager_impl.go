@@ -586,7 +586,9 @@ func (bm *badgerBucketManager) GetObjectLockConfig(ctx context.Context, tenantID
 	return fromMetadataObjectLock(metaBucket.ObjectLock), nil
 }
 
-// SetObjectLockConfig sets the bucket object lock configuration
+// SetObjectLockConfig sets the bucket object lock configuration.
+// AWS S3 requires versioning to be permanently Enabled on any bucket with Object Lock;
+// enabling Object Lock automatically enables versioning (it can never be suspended after).
 func (bm *badgerBucketManager) SetObjectLockConfig(ctx context.Context, tenantID, name string, config *ObjectLockConfig) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
@@ -597,6 +599,11 @@ func (bm *badgerBucketManager) SetObjectLockConfig(ctx context.Context, tenantID
 	}
 
 	metaBucket.ObjectLock = toMetadataObjectLock(config)
+
+	// Object Lock requires versioning to always be Enabled.
+	if config != nil && config.ObjectLockEnabled {
+		metaBucket.Versioning = toMetadataVersioning(&VersioningConfig{Status: "Enabled"})
+	}
 
 	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
 }
