@@ -707,6 +707,12 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// x-amz-bucket-region: MinIO and AWS S3 always return this header in HeadBucket.
+	// Veeam uses it to determine the bucket region and decide whether multi-bucket mode
+	// is needed. Without this header, Veeam cannot confirm same-region access and may
+	// fall back to enabling multi-bucket mode as a safe default.
+	w.Header().Set("x-amz-bucket-region", "us-east-1")
+
 	// x-amz-bucket-object-lock-enabled: AWS S3 and MinIO return this header when the
 	// bucket was created with Object Lock enabled. Veeam uses it to determine if the
 	// bucket supports immutability before proceeding with Object Lock configuration.
@@ -1468,10 +1474,11 @@ func (h *Handler) GetBucketLocation(w http.ResponseWriter, r *http.Request) {
 		}).Warn("VEEAM GetBucketLocation - DETECTION PHASE - May determine auto-provisioning")
 	}
 
-	// AWS S3 spec: buckets in the default region (us-east-1) must return an empty
-	// LocationConstraint, not the string "us-east-1".  Clients such as MinIO follow
-	// this rule and returning the explicit region name causes Veeam (and others) to
-	// treat the storage as a named-region deployment and enable multi-bucket mode.
+	// x-amz-bucket-region: Veeam reads this header from both HeadBucket and
+	// GetBucketLocation to determine the bucket region and decide multi-bucket mode.
+	w.Header().Set("x-amz-bucket-region", "us-east-1")
+
+	// AWS S3 spec: buckets in the default region return an empty LocationConstraint.
 	h.writeXMLResponse(w, http.StatusOK, LocationConstraintResponse{Location: ""})
 }
 
