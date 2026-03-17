@@ -147,6 +147,14 @@ func (m *MockBucketManager) DeleteWebsite(ctx context.Context, tenantID, name st
 	return args.Error(0)
 }
 
+func (m *MockBucketManager) GetNotification(ctx context.Context, tenantID, name string) (*bucket.NotificationConfig, error) {
+	return &bucket.NotificationConfig{}, nil
+}
+
+func (m *MockBucketManager) SetNotification(ctx context.Context, tenantID, name string, config *bucket.NotificationConfig) error {
+	return nil
+}
+
 func (m *MockBucketManager) SetBucketTags(ctx context.Context, tenantID, name string, tags map[string]string) error {
 	args := m.Called(ctx, tenantID, name, tags)
 	return args.Error(0)

@@ -742,4 +742,8 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeXMLResponse(w, http.StatusOK, result)
+
+	// Fire s3:ObjectCreated:Copy notification asynchronously.
+	destTenantID := h.getTenantIDFromRequest(r)
+	h.fireNotifications(r.Context(), destBucket, destTenantID, destKey, "s3:ObjectCreated:Copy", destObj.ETag, destObj.Size)
 }

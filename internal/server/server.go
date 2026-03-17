@@ -1102,7 +1102,7 @@ func logS3APIRequests(next http.Handler) http.Handler {
 			"host":   r.Host,
 			"remote": r.RemoteAddr,
 			"ua":     r.Header.Get("User-Agent"),
-		}).Info("S3 API server request")
+		}).Debug("S3 API server request")
 		next.ServeHTTP(w, r)
 	})
 }

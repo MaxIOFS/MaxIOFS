@@ -153,51 +153,28 @@ type Tag struct {
 	Value string `json:"Value"`
 }
 
-// NotificationConfig represents bucket notification configuration
+// NotificationConfig represents bucket notification configuration.
+// TopicConfigurations, QueueConfigurations, and LambdaConfigurations map to the three
+// S3 target types. In MaxIOFS, the Endpoint field holds the webhook URL that receives
+// the S3-compatible event payload (SNS/SQS/Lambda ARNs are treated as HTTP endpoints).
 type NotificationConfig struct {
-	TopicConfigurations  []TopicConfiguration  `json:"TopicConfigurations,omitempty"`
-	QueueConfigurations  []QueueConfiguration  `json:"QueueConfigurations,omitempty"`
-	LambdaConfigurations []LambdaConfiguration `json:"LambdaConfigurations,omitempty"`
+	TopicConfigurations  []NotificationTarget `json:"TopicConfigurations,omitempty"`
+	QueueConfigurations  []NotificationTarget `json:"QueueConfigurations,omitempty"`
+	LambdaConfigurations []NotificationTarget `json:"LambdaConfigurations,omitempty"`
 }
 
-// TopicConfiguration represents SNS topic notification configuration
-type TopicConfiguration struct {
-	ID       string   `json:"Id,omitempty"`
-	TopicArn string   `json:"Topic"`
-	Events   []string `json:"Events"`
-	Filter   *Filter  `json:"Filter,omitempty"`
+// NotificationTarget is a unified notification target (topic, queue, or lambda).
+type NotificationTarget struct {
+	ID       string              `json:"Id,omitempty"`
+	Endpoint string              `json:"Endpoint"` // webhook URL (ARN treated as URL)
+	Events   []string            `json:"Events"`
+	Filter   *NotificationFilter `json:"Filter,omitempty"`
 }
 
-// QueueConfiguration represents SQS queue notification configuration
-type QueueConfiguration struct {
-	ID       string   `json:"Id,omitempty"`
-	QueueArn string   `json:"Queue"`
-	Events   []string `json:"Events"`
-	Filter   *Filter  `json:"Filter,omitempty"`
-}
-
-// LambdaConfiguration represents Lambda function notification configuration
-type LambdaConfiguration struct {
-	ID                string   `json:"Id,omitempty"`
-	LambdaFunctionArn string   `json:"CloudWatchConfiguration"`
-	Events            []string `json:"Events"`
-	Filter            *Filter  `json:"Filter,omitempty"`
-}
-
-// Filter represents notification filter
-type Filter struct {
-	Key *KeyFilter `json:"S3Key,omitempty"`
-}
-
-// KeyFilter represents key-based filter
-type KeyFilter struct {
-	FilterRules []FilterRule `json:"FilterRules,omitempty"`
-}
-
-// FilterRule represents a single filter rule
-type FilterRule struct {
-	Name  string `json:"Name"` // prefix, suffix
-	Value string `json:"Value"`
+// NotificationFilter holds simple prefix/suffix key filters for notifications.
+type NotificationFilter struct {
+	Prefix string `json:"Prefix,omitempty"`
+	Suffix string `json:"Suffix,omitempty"`
 }
 
 // EncryptionConfig represents bucket encryption configuration

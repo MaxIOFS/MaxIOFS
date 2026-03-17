@@ -169,6 +169,12 @@ func (m *MockBucketManagerForLocation) SetWebsite(ctx context.Context, tenantID,
 func (m *MockBucketManagerForLocation) DeleteWebsite(ctx context.Context, tenantID, name string) error {
 	return nil
 }
+func (m *MockBucketManagerForLocation) GetNotification(ctx context.Context, tenantID, name string) (*bucket.NotificationConfig, error) {
+	return &bucket.NotificationConfig{}, nil
+}
+func (m *MockBucketManagerForLocation) SetNotification(ctx context.Context, tenantID, name string, config *bucket.NotificationConfig) error {
+	return nil
+}
 func (m *MockBucketManagerForLocation) GetObjectLockConfig(ctx context.Context, tenantID, name string) (*bucket.ObjectLockConfig, error) {
 	return nil, nil
 }

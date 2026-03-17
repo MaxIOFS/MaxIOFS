@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"sort"
@@ -449,6 +452,306 @@ func hmacSHA256(key, data []byte) []byte {
 func sha256Hash(data string) string {
 	hash := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(hash[:])
+}
+
+// postPolicy represents the JSON policy document for POST presigned uploads.
+type postPolicy struct {
+	Expiration string            `json:"expiration"`
+	Conditions []json.RawMessage `json:"conditions"`
+}
+
+// HandlePresignedPost handles browser-based HTML form uploads to a bucket.
+// It validates the POST policy signature and stores the uploaded object.
+// Compatible with both AWS Signature V4 (x-amz-*) and V2 (AWSAccessKeyId) forms.
+func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	// Parse multipart form — 32 MB in memory, rest on disk.
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		h.writeError(w, "MalformedPOSTRequest", "Unable to parse multipart form: "+err.Error(), bucketName, r)
+		return
+	}
+
+	form := r.MultipartForm
+	field := func(name string) string {
+		if vs := form.Value[name]; len(vs) > 0 {
+			return vs[0]
+		}
+		return ""
+	}
+
+	// Determine signature version and extract fields.
+	isV4 := field("x-amz-algorithm") == "AWS4-HMAC-SHA256"
+	isV2 := !isV4 && field("AWSAccessKeyId") != ""
+	if !isV4 && !isV2 {
+		h.writeError(w, "InvalidRequest", "Missing signature fields (x-amz-algorithm or AWSAccessKeyId)", bucketName, r)
+		return
+	}
+
+	policyB64 := field("policy")
+	if policyB64 == "" {
+		h.writeError(w, "InvalidPolicyDocument", "Missing policy field", bucketName, r)
+		return
+	}
+
+	// Decode and parse policy.
+	policyJSON, err := base64.StdEncoding.DecodeString(policyB64)
+	if err != nil {
+		h.writeError(w, "InvalidPolicyDocument", "policy is not valid base64", bucketName, r)
+		return
+	}
+	var policy postPolicy
+	if err := json.Unmarshal(policyJSON, &policy); err != nil {
+		h.writeError(w, "InvalidPolicyDocument", "policy is not valid JSON: "+err.Error(), bucketName, r)
+		return
+	}
+
+	// Check policy expiration.
+	expiry, err := time.Parse(time.RFC3339, policy.Expiration)
+	if err != nil {
+		expiry, err = time.Parse("2006-01-02T15:04:05.000Z", policy.Expiration)
+	}
+	if err != nil || time.Now().UTC().After(expiry) {
+		h.writeError(w, "AccessDenied", "Policy has expired", bucketName, r)
+		return
+	}
+
+	// Verify signature.
+	var accessKey, secretKey string
+	if isV4 {
+		credential := field("x-amz-credential")
+		if credential == "" {
+			h.writeError(w, "InvalidRequest", "Missing x-amz-credential", bucketName, r)
+			return
+		}
+		parts := strings.Split(credential, "/")
+		if len(parts) < 5 {
+			h.writeError(w, "InvalidRequest", "Malformed x-amz-credential", bucketName, r)
+			return
+		}
+		accessKey = parts[0]
+		dateStamp := parts[1]
+		region := parts[2]
+		service := parts[3]
+
+		secretKey, err = h.getSecretKeyForAccessKey(r.Context(), accessKey)
+		if err != nil {
+			h.writeError(w, "InvalidAccessKeyId", "The access key does not exist", bucketName, r)
+			return
+		}
+
+		expectedSig := h.calculateSignatureV4(policyB64, secretKey, dateStamp, region, service)
+		if !hmac.Equal([]byte(expectedSig), []byte(field("x-amz-signature"))) {
+			h.writeError(w, "SignatureDoesNotMatch", "The request signature does not match", bucketName, r)
+			return
+		}
+	} else {
+		// V2: HMAC-SHA256(secret, base64(policy))
+		accessKey = field("AWSAccessKeyId")
+		secretKey, err = h.getSecretKeyForAccessKey(r.Context(), accessKey)
+		if err != nil {
+			h.writeError(w, "InvalidAccessKeyId", "The access key does not exist", bucketName, r)
+			return
+		}
+		expectedSig := h.calculateSignatureV2(policyB64, secretKey)
+		if !hmac.Equal([]byte(expectedSig), []byte(field("signature"))) {
+			h.writeError(w, "SignatureDoesNotMatch", "The request signature does not match", bucketName, r)
+			return
+		}
+	}
+
+	// Resolve the user from the access key and inject into context for permission checks.
+	if h.authManager != nil {
+		if ak, err := h.authManager.GetAccessKey(r.Context(), accessKey); err == nil {
+			if user, err := h.authManager.GetUser(r.Context(), ak.UserID); err == nil {
+				r = r.WithContext(context.WithValue(r.Context(), "user", user))
+			}
+		}
+	}
+
+	// Validate policy conditions against the form fields.
+	objectKey := field("key")
+	contentType := field("Content-Type")
+	var minLen, maxLen int64 = 0, 1<<63 - 1
+
+	for _, raw := range policy.Conditions {
+		// Try object form first: {"field": "value"}
+		var objCond map[string]interface{}
+		if json.Unmarshal(raw, &objCond) == nil {
+			for k, v := range objCond {
+				val, _ := v.(string)
+				switch strings.ToLower(k) {
+				case "bucket":
+					if val != bucketName {
+						h.writeError(w, "AccessDenied", "Bucket condition does not match", bucketName, r)
+						return
+					}
+				case "key":
+					if val != objectKey {
+						h.writeError(w, "AccessDenied", "Key condition does not match", bucketName, r)
+						return
+					}
+				case "content-type":
+					if val != contentType {
+						h.writeError(w, "AccessDenied", "Content-Type condition does not match", bucketName, r)
+						return
+					}
+				// x-amz-* fields are informational — already validated via signature.
+				}
+			}
+			continue
+		}
+
+		// Try array form: ["starts-with", "$field", "prefix"] or ["content-length-range", min, max]
+		var arrCond []interface{}
+		if json.Unmarshal(raw, &arrCond) != nil || len(arrCond) == 0 {
+			continue
+		}
+		op, _ := arrCond[0].(string)
+		switch strings.ToLower(op) {
+		case "starts-with":
+			if len(arrCond) < 3 {
+				continue
+			}
+			fname, _ := arrCond[1].(string)
+			prefix, _ := arrCond[2].(string)
+			fname = strings.TrimPrefix(fname, "$")
+			var formVal string
+			switch strings.ToLower(fname) {
+			case "key":
+				formVal = objectKey
+			case "content-type":
+				formVal = contentType
+			default:
+				formVal = field(fname)
+			}
+			// Empty prefix means any value is allowed.
+			if prefix != "" && !strings.HasPrefix(formVal, prefix) {
+				h.writeError(w, "AccessDenied", fmt.Sprintf("Field %s does not start with required prefix", fname), bucketName, r)
+				return
+			}
+		case "content-length-range":
+			if len(arrCond) < 3 {
+				continue
+			}
+			minLen = int64(toFloat64(arrCond[1]))
+			maxLen = int64(toFloat64(arrCond[2]))
+		}
+	}
+
+	// Get the uploaded file — the file field must be named "file" or "content".
+	var fileHeader *multipart.FileHeader
+	for _, name := range []string{"file", "content"} {
+		if fhs := form.File[name]; len(fhs) > 0 {
+			fileHeader = fhs[0]
+			break
+		}
+	}
+	if fileHeader == nil {
+		h.writeError(w, "MalformedPOSTRequest", "Missing file field in multipart form", bucketName, r)
+		return
+	}
+
+	// Validate content length range.
+	fileSize := fileHeader.Size
+	if fileSize < minLen || fileSize > maxLen {
+		h.writeError(w, "EntityTooSmall", fmt.Sprintf("File size %d is outside the allowed range [%d, %d]", fileSize, minLen, maxLen), bucketName, r)
+		return
+	}
+
+	src, err := fileHeader.Open()
+	if err != nil {
+		h.writeError(w, "InternalError", "Failed to open uploaded file: "+err.Error(), bucketName, r)
+		return
+	}
+	defer src.Close()
+
+	// Build synthetic headers for PutObject (mirrors what an actual PUT request would carry).
+	syntheticHeaders := http.Header{}
+	if contentType != "" {
+		syntheticHeaders.Set("Content-Type", contentType)
+	}
+	syntheticHeaders.Set("Content-Length", strconv.FormatInt(fileSize, 10))
+	// Forward any x-amz-meta-* fields from the form.
+	for k, vs := range form.Value {
+		if strings.HasPrefix(strings.ToLower(k), "x-amz-meta-") && len(vs) > 0 {
+			syntheticHeaders.Set(k, vs[0])
+		}
+	}
+
+	// Determine bucket path including tenant.
+	bucketPath := h.getBucketPath(r, bucketName)
+
+	result, err := h.objectManager.PutObject(r.Context(), bucketPath, objectKey, src, syntheticHeaders)
+	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketName, "key": objectKey}).Error("POST presigned: PutObject failed")
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	// Check for success_action_redirect.
+	if redirect := field("success_action_redirect"); redirect != "" {
+		if !strings.HasPrefix(redirect, "http://") && !strings.HasPrefix(redirect, "https://") {
+			h.writeError(w, "InvalidArgument", "success_action_redirect must be an http or https URL", bucketName, r)
+			return
+		}
+		sep := "?"
+		if strings.Contains(redirect, "?") {
+			sep = "&"
+		}
+		http.Redirect(w, r, fmt.Sprintf("%s%sbucket=%s&key=%s&etag=%s",
+			redirect, sep, url.QueryEscape(bucketName), url.QueryEscape(objectKey), url.QueryEscape(result.ETag)), http.StatusSeeOther)
+		return
+	}
+
+	// success_action_status controls the response code (200, 201, or default 204).
+	statusCode := http.StatusNoContent
+	if sas := field("success_action_status"); sas != "" {
+		switch sas {
+		case "200":
+			statusCode = http.StatusOK
+		case "201":
+			statusCode = http.StatusCreated
+		}
+	}
+
+	if statusCode == http.StatusCreated {
+		// Return XML body per S3 spec for 201.
+		type postResponse struct {
+			Location string `xml:"Location"`
+			Bucket   string `xml:"Bucket"`
+			Key      string `xml:"Key"`
+			ETag     string `xml:"ETag"`
+		}
+		w.Header().Set("ETag", result.ETag)
+		h.writeXMLResponse(w, http.StatusCreated, postResponse{
+			Location: fmt.Sprintf("%s/%s/%s", h.publicAPIURL, bucketName, objectKey),
+			Bucket:   bucketName,
+			Key:      objectKey,
+			ETag:     result.ETag,
+		})
+		return
+	}
+
+	w.Header().Set("ETag", result.ETag)
+	w.WriteHeader(statusCode)
+}
+
+// toFloat64 converts json.Number / float64 / int values to float64.
+func toFloat64(v interface{}) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case json.Number:
+		f, _ := n.Float64()
+		return f
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	}
+	return 0
 }
 
 // buildCanonicalQueryString builds canonical query string for signing

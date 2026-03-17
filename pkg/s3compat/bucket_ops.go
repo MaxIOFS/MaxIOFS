@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -764,17 +765,171 @@ func (h *Handler) PutBucketACL(w http.ResponseWriter, r *http.Request) {
 // like aws-cli, Terraform, and SDK probes do not fall through to ListObjects.
 // ---------------------------------------------------------------------------
 
-// GetBucketNotification returns an empty NotificationConfiguration (no notifications configured).
-func (h *Handler) GetBucketNotification(w http.ResponseWriter, r *http.Request) {
-	io.Copy(io.Discard, r.Body) //nolint:errcheck
-	w.Header().Set("Content-Type", "application/xml")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><NotificationConfiguration/>`)) //nolint:errcheck
+// notifXMLTarget is the XML representation of a single notification target.
+type notifXMLTarget struct {
+	ID       string         `xml:"Id,omitempty"`
+	Endpoint string         `xml:",omitempty"` // TopicArn / Queue / CloudFunction depending on parent element
+	Events   []string       `xml:"Event"`
+	Filter   *notifXMLFilter `xml:"Filter,omitempty"`
+}
+type notifXMLFilter struct {
+	Rules []notifXMLFilterRule `xml:"S3Key>FilterRule"`
+}
+type notifXMLFilterRule struct {
+	Name  string `xml:"Name"`
+	Value string `xml:"Value"`
+}
+type notificationConfigurationXML struct {
+	XMLName              xml.Name         `xml:"NotificationConfiguration"`
+	TopicConfigurations  []notifXMLTopic  `xml:"TopicConfiguration"`
+	QueueConfigurations  []notifXMLQueue  `xml:"QueueConfiguration"`
+	LambdaConfigurations []notifXMLLambda `xml:"CloudFunctionConfiguration"`
+}
+type notifXMLTopic struct {
+	ID     string          `xml:"Id,omitempty"`
+	Topic  string          `xml:"Topic"`
+	Events []string        `xml:"Event"`
+	Filter *notifXMLFilter `xml:"Filter,omitempty"`
+}
+type notifXMLQueue struct {
+	ID     string          `xml:"Id,omitempty"`
+	Queue  string          `xml:"Queue"`
+	Events []string        `xml:"Event"`
+	Filter *notifXMLFilter `xml:"Filter,omitempty"`
+}
+type notifXMLLambda struct {
+	ID            string          `xml:"Id,omitempty"`
+	CloudFunction string          `xml:"CloudFunction"`
+	Events        []string        `xml:"Event"`
+	Filter        *notifXMLFilter `xml:"Filter,omitempty"`
 }
 
-// PutBucketNotification accepts a notification configuration (no-op).
-func (h *Handler) PutBucketNotification(w http.ResponseWriter, r *http.Request) {
+// notifFilterFromXML converts the XML filter to prefix/suffix strings.
+func notifFilterFromXML(f *notifXMLFilter) *bucket.NotificationFilter {
+	if f == nil {
+		return nil
+	}
+	nf := &bucket.NotificationFilter{}
+	for _, rule := range f.Rules {
+		switch strings.ToLower(rule.Name) {
+		case "prefix":
+			nf.Prefix = rule.Value
+		case "suffix":
+			nf.Suffix = rule.Value
+		}
+	}
+	return nf
+}
+
+// notifFilterToXML converts prefix/suffix to the XML filter structure.
+func notifFilterToXML(f *bucket.NotificationFilter) *notifXMLFilter {
+	if f == nil || (f.Prefix == "" && f.Suffix == "") {
+		return nil
+	}
+	var rules []notifXMLFilterRule
+	if f.Prefix != "" {
+		rules = append(rules, notifXMLFilterRule{Name: "prefix", Value: f.Prefix})
+	}
+	if f.Suffix != "" {
+		rules = append(rules, notifXMLFilterRule{Name: "suffix", Value: f.Suffix})
+	}
+	return &notifXMLFilter{Rules: rules}
+}
+
+// GetBucketNotification returns the stored notification configuration for a bucket.
+func (h *Handler) GetBucketNotification(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
+
+	tenantID := h.getTenantIDFromRequest(r)
+	cfg, err := h.bucketManager.GetNotification(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	out := notificationConfigurationXML{}
+	if cfg != nil {
+		for _, t := range cfg.TopicConfigurations {
+			out.TopicConfigurations = append(out.TopicConfigurations, notifXMLTopic{
+				ID: t.ID, Topic: t.Endpoint, Events: t.Events, Filter: notifFilterToXML(t.Filter),
+			})
+		}
+		for _, t := range cfg.QueueConfigurations {
+			out.QueueConfigurations = append(out.QueueConfigurations, notifXMLQueue{
+				ID: t.ID, Queue: t.Endpoint, Events: t.Events, Filter: notifFilterToXML(t.Filter),
+			})
+		}
+		for _, t := range cfg.LambdaConfigurations {
+			out.LambdaConfigurations = append(out.LambdaConfigurations, notifXMLLambda{
+				ID: t.ID, CloudFunction: t.Endpoint, Events: t.Events, Filter: notifFilterToXML(t.Filter),
+			})
+		}
+	}
+	h.writeXMLResponse(w, http.StatusOK, out)
+}
+
+// PutBucketNotification stores the notification configuration for a bucket.
+func (h *Handler) PutBucketNotification(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		h.writeError(w, "MalformedXML", "Failed to read request body", bucketName, r)
+		return
+	}
+
+	var xmlCfg notificationConfigurationXML
+	if err := xml.Unmarshal(body, &xmlCfg); err != nil {
+		h.writeError(w, "MalformedXML", "Invalid notification configuration XML", bucketName, r)
+		return
+	}
+
+	cfg := &bucket.NotificationConfig{}
+	for _, t := range xmlCfg.TopicConfigurations {
+		if err := validateNotificationEndpoint(t.Topic); err != nil {
+			h.writeError(w, "InvalidArgument", "TopicConfiguration: "+err.Error(), bucketName, r)
+			return
+		}
+		cfg.TopicConfigurations = append(cfg.TopicConfigurations, bucket.NotificationTarget{
+			ID: t.ID, Endpoint: t.Topic, Events: t.Events, Filter: notifFilterFromXML(t.Filter),
+		})
+	}
+	for _, t := range xmlCfg.QueueConfigurations {
+		if err := validateNotificationEndpoint(t.Queue); err != nil {
+			h.writeError(w, "InvalidArgument", "QueueConfiguration: "+err.Error(), bucketName, r)
+			return
+		}
+		cfg.QueueConfigurations = append(cfg.QueueConfigurations, bucket.NotificationTarget{
+			ID: t.ID, Endpoint: t.Queue, Events: t.Events, Filter: notifFilterFromXML(t.Filter),
+		})
+	}
+	for _, t := range xmlCfg.LambdaConfigurations {
+		if err := validateNotificationEndpoint(t.CloudFunction); err != nil {
+			h.writeError(w, "InvalidArgument", "LambdaConfiguration: "+err.Error(), bucketName, r)
+			return
+		}
+		cfg.LambdaConfigurations = append(cfg.LambdaConfigurations, bucket.NotificationTarget{
+			ID: t.ID, Endpoint: t.CloudFunction, Events: t.Events, Filter: notifFilterFromXML(t.Filter),
+		})
+	}
+
+	tenantID := h.getTenantIDFromRequest(r)
+	if err := h.bucketManager.SetNotification(r.Context(), tenantID, bucketName, cfg); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 

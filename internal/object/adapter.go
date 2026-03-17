@@ -11,16 +11,18 @@ func toMetadataObject(o *Object) *metadata.ObjectMetadata {
 	}
 
 	metaObj := &metadata.ObjectMetadata{
-		Key:          o.Key,
-		Bucket:       o.Bucket,
-		Size:         o.Size,
-		LastModified: o.LastModified,
-		ETag:         o.ETag,
-		ContentType:  o.ContentType,
-		Metadata:     o.Metadata,
-		StorageClass: o.StorageClass,
-		VersionID:    o.VersionID,
-		IsLatest:     o.IsLatest,
+		Key:               o.Key,
+		Bucket:            o.Bucket,
+		Size:              o.Size,
+		LastModified:      o.LastModified,
+		ETag:              o.ETag,
+		ContentType:       o.ContentType,
+		Metadata:          o.Metadata,
+		StorageClass:      o.StorageClass,
+		VersionID:         o.VersionID,
+		IsLatest:          o.IsLatest,
+		ChecksumAlgorithm: o.ChecksumAlgorithm,
+		ChecksumValue:     o.ChecksumValue,
 	}
 
 	// Object Lock - Retention
@@ -60,16 +62,18 @@ func fromMetadataObject(mo *metadata.ObjectMetadata) *Object {
 	}
 
 	obj := &Object{
-		Key:          mo.Key,
-		Bucket:       mo.Bucket,
-		Size:         mo.Size,
-		LastModified: mo.LastModified,
-		ETag:         mo.ETag,
-		ContentType:  mo.ContentType,
-		Metadata:     mo.Metadata,
-		StorageClass: mo.StorageClass,
-		VersionID:    mo.VersionID,
-		IsLatest:     mo.IsLatest,
+		Key:               mo.Key,
+		Bucket:            mo.Bucket,
+		Size:              mo.Size,
+		LastModified:      mo.LastModified,
+		ETag:              mo.ETag,
+		ContentType:       mo.ContentType,
+		Metadata:          mo.Metadata,
+		StorageClass:      mo.StorageClass,
+		VersionID:         mo.VersionID,
+		IsLatest:          mo.IsLatest,
+		ChecksumAlgorithm: mo.ChecksumAlgorithm,
+		ChecksumValue:     mo.ChecksumValue,
 	}
 
 	// Object Lock - Retention

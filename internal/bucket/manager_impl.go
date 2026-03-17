@@ -554,6 +554,31 @@ func (bm *badgerBucketManager) DeleteWebsite(ctx context.Context, tenantID, name
 	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
 }
 
+// GetNotification retrieves the bucket notification configuration.
+func (bm *badgerBucketManager) GetNotification(ctx context.Context, tenantID, name string) (*NotificationConfig, error) {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return nil, ErrBucketNotFound
+		}
+		return nil, err
+	}
+	return fromMetadataNotification(metaBucket.Notification), nil
+}
+
+// SetNotification stores the bucket notification configuration.
+func (bm *badgerBucketManager) SetNotification(ctx context.Context, tenantID, name string, config *NotificationConfig) error {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+	metaBucket.Notification = toMetadataNotification(config)
+	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
+}
+
 // SetBucketTags sets the bucket tags
 func (bm *badgerBucketManager) SetBucketTags(ctx context.Context, tenantID, name string, tags map[string]string) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)

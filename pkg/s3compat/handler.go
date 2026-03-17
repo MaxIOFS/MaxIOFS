@@ -116,8 +116,9 @@ type Handler struct {
 	bucketAggregator interface {
 		ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
 	}
-	publicAPIURL string
-	dataDir      string // For calculating disk capacity in SOSAPI
+	publicAPIURL    string
+	dataDir         string // For calculating disk capacity in SOSAPI
+	notifHTTPClient *http.Client // HTTP client for notification webhooks; defaults to SSRF-blocking client
 }
 
 // NewHandler creates a new S3 compatibility handler
@@ -1310,6 +1311,10 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
 		}
+		if strings.HasPrefix(err.Error(), "BadDigest:") {
+			h.writeError(w, "BadDigest", err.Error(), objectKey, r)
+			return
+		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
@@ -1336,6 +1341,9 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 
 	h.setPutObjectResponseHeaders(w, obj)
 	w.WriteHeader(http.StatusOK)
+
+	// Fire s3:ObjectCreated:Put notification asynchronously.
+	h.fireNotifications(r.Context(), bucketName, tenantID, objectKey, "s3:ObjectCreated:Put", obj.ETag, obj.Size)
 }
 
 func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
@@ -1395,6 +1403,14 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	// Set response headers
 	h.setDeleteResponseHeaders(w, deleteMarkerVersionID, versionID)
 	w.WriteHeader(http.StatusNoContent)
+
+	// Fire notification: permanent version delete → ObjectRemoved:Delete,
+	// delete marker creation → ObjectRemoved:DeleteMarkerCreated.
+	eventName := "s3:ObjectRemoved:Delete"
+	if deleteMarkerVersionID != "" && versionID == "" {
+		eventName = "s3:ObjectRemoved:DeleteMarkerCreated"
+	}
+	h.fireNotifications(r.Context(), bucketName, tenantID, objectKey, eventName, "", 0)
 }
 
 func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
@@ -1911,7 +1927,7 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	statusCode := http.StatusInternalServerError
 	switch code {
 	// 400 Bad Request (AWS S3 standard)
-	case "InvalidArgument", "InvalidBucketName", "InvalidRequest", "MalformedXML", "MalformedPolicy", "InvalidTag", "InvalidPart", "IllegalVersioningConfigurationException":
+	case "InvalidArgument", "InvalidBucketName", "InvalidRequest", "MalformedXML", "MalformedPolicy", "InvalidTag", "InvalidPart", "IllegalVersioningConfigurationException", "BadDigest", "EntityTooSmall", "EntityTooLarge", "InvalidDigest":
 		statusCode = http.StatusBadRequest
 	// 401 Unauthorized
 	case "Unauthorized", "InvalidAccessKeyId", "SignatureDoesNotMatch":
@@ -2868,6 +2884,11 @@ func (h *Handler) setGetObjectResponseHeaders(w http.ResponseWriter, obj *object
 	if obj.LegalHold != nil && obj.LegalHold.Status == "ON" {
 		w.Header().Set("x-amz-object-lock-legal-hold", "ON")
 	}
+
+	if obj.ChecksumAlgorithm != "" && obj.ChecksumValue != "" {
+		w.Header().Set("x-amz-checksum-algorithm", obj.ChecksumAlgorithm)
+		w.Header().Set("x-amz-checksum-"+strings.ToLower(obj.ChecksumAlgorithm), obj.ChecksumValue)
+	}
 }
 
 // ============================================================================
@@ -3212,6 +3233,11 @@ func (h *Handler) setPutObjectResponseHeaders(w http.ResponseWriter, obj *object
 	if obj.VersionID != "" {
 		w.Header().Set("x-amz-version-id", obj.VersionID)
 	}
+
+	if obj.ChecksumAlgorithm != "" && obj.ChecksumValue != "" {
+		w.Header().Set("x-amz-checksum-algorithm", obj.ChecksumAlgorithm)
+		w.Header().Set("x-amz-checksum-"+strings.ToLower(obj.ChecksumAlgorithm), obj.ChecksumValue)
+	}
 }
 
 // ============================================================================
@@ -3289,6 +3315,11 @@ func (h *Handler) setHeadObjectResponseHeaders(w http.ResponseWriter, obj *objec
 
 	if obj.LegalHold != nil && obj.LegalHold.Status == "ON" {
 		w.Header().Set("x-amz-object-lock-legal-hold", "ON")
+	}
+
+	if obj.ChecksumAlgorithm != "" && obj.ChecksumValue != "" {
+		w.Header().Set("x-amz-checksum-algorithm", obj.ChecksumAlgorithm)
+		w.Header().Set("x-amz-checksum-"+strings.ToLower(obj.ChecksumAlgorithm), obj.ChecksumValue)
 	}
 }
 

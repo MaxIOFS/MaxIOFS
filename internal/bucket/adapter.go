@@ -506,3 +506,63 @@ func fromMetadataWebsite(w *metadata.WebsiteMetadata) *WebsiteConfig {
 		RoutingRules:  rules,
 	}
 }
+
+// toMetadataNotification converts bucket.NotificationConfig to metadata.NotificationMetadata.
+func toMetadataNotification(c *NotificationConfig) *metadata.NotificationMetadata {
+	if c == nil {
+		return nil
+	}
+	conv := func(targets []NotificationTarget) []metadata.NotificationTargetMetadata {
+		out := make([]metadata.NotificationTargetMetadata, len(targets))
+		for i, t := range targets {
+			m := metadata.NotificationTargetMetadata{
+				ID:       t.ID,
+				Endpoint: t.Endpoint,
+				Events:   t.Events,
+			}
+			if t.Filter != nil {
+				m.Filter = &metadata.NotificationFilterMetadata{
+					Prefix: t.Filter.Prefix,
+					Suffix: t.Filter.Suffix,
+				}
+			}
+			out[i] = m
+		}
+		return out
+	}
+	return &metadata.NotificationMetadata{
+		TopicConfigurations:  conv(c.TopicConfigurations),
+		QueueConfigurations:  conv(c.QueueConfigurations),
+		LambdaConfigurations: conv(c.LambdaConfigurations),
+	}
+}
+
+// fromMetadataNotification converts metadata.NotificationMetadata to bucket.NotificationConfig.
+func fromMetadataNotification(m *metadata.NotificationMetadata) *NotificationConfig {
+	if m == nil {
+		return &NotificationConfig{}
+	}
+	conv := func(targets []metadata.NotificationTargetMetadata) []NotificationTarget {
+		out := make([]NotificationTarget, len(targets))
+		for i, t := range targets {
+			nt := NotificationTarget{
+				ID:       t.ID,
+				Endpoint: t.Endpoint,
+				Events:   t.Events,
+			}
+			if t.Filter != nil {
+				nt.Filter = &NotificationFilter{
+					Prefix: t.Filter.Prefix,
+					Suffix: t.Filter.Suffix,
+				}
+			}
+			out[i] = nt
+		}
+		return out
+	}
+	return &NotificationConfig{
+		TopicConfigurations:  conv(m.TopicConfigurations),
+		QueueConfigurations:  conv(m.QueueConfigurations),
+		LambdaConfigurations: conv(m.LambdaConfigurations),
+	}
+}

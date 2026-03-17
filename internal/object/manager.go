@@ -4,8 +4,13 @@ import (
 	"context"
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha1"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"hash"
+	"hash/crc32"
 	"io"
 	"net/http"
 	"os"
@@ -79,9 +84,11 @@ type Object struct {
 	Size         int64             `json:"size"`
 	LastModified time.Time         `json:"last_modified"`
 	ETag         string            `json:"etag"`
-	ContentType  string            `json:"content_type"`
-	Metadata     map[string]string `json:"metadata"`
-	StorageClass string            `json:"storage_class"`
+	ContentType       string            `json:"content_type"`
+	Metadata          map[string]string `json:"metadata"`
+	StorageClass      string            `json:"storage_class"`
+	ChecksumAlgorithm string            `json:"checksum_algorithm,omitempty"`
+	ChecksumValue     string            `json:"checksum_value,omitempty"`
 	VersionID    string            `json:"version_id,omitempty"`
 	IsLatest     bool              `json:"is_latest,omitempty"`
 
@@ -413,9 +420,28 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	defer os.Remove(tempPath) // Clean up temp file when done
 	defer tempFile.Close()    // Ensure handle is closed on panic
 
-	// Write to temp file while calculating MD5 hash
+	// Extract checksum algorithm requested by client (AWS SDK v3 sends x-amz-checksum-algorithm)
+	checksumAlgo := strings.ToUpper(headers.Get("x-amz-checksum-algorithm"))
+	var checksumHasher hash.Hash
+	switch checksumAlgo {
+	case "CRC32":
+		checksumHasher = crc32.NewIEEE()
+	case "CRC32C":
+		checksumHasher = crc32.New(crc32.MakeTable(crc32.Castagnoli))
+	case "SHA1":
+		checksumHasher = sha1.New()
+	case "SHA256":
+		checksumHasher = sha256.New()
+	}
+
+	// Write to temp file while calculating MD5 hash (and optional additional checksum)
 	hasher := md5.New()
-	multiWriter := io.MultiWriter(tempFile, hasher)
+	var multiWriter io.Writer
+	if checksumHasher != nil {
+		multiWriter = io.MultiWriter(tempFile, hasher, checksumHasher)
+	} else {
+		multiWriter = io.MultiWriter(tempFile, hasher)
+	}
 	originalSize, err := io.Copy(multiWriter, data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write to temp file: %w", err)
@@ -424,6 +450,17 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 
 	// Calculate original ETag (MD5 hash)
 	originalETag := hex.EncodeToString(hasher.Sum(nil))
+
+	// Compute additional checksum if requested
+	var checksumValue string
+	if checksumHasher != nil {
+		checksumValue = base64.StdEncoding.EncodeToString(checksumHasher.Sum(nil))
+		// Validate against client-provided value if present
+		clientChecksumHeader := "x-amz-checksum-" + strings.ToLower(checksumAlgo)
+		if clientValue := headers.Get(clientChecksumHeader); clientValue != "" && clientValue != checksumValue {
+			return nil, fmt.Errorf("BadDigest: checksum mismatch for %s: expected %s got %s", checksumAlgo, clientValue, checksumValue)
+		}
+	}
 
 	logrus.WithFields(logrus.Fields{
 		"bucket":       bucket,
@@ -479,15 +516,17 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	}
 
 	object := &Object{
-		Key:          key,
-		Bucket:       bucket,
-		Size:         size, // Original size (unencrypted)
-		LastModified: time.Unix(lastModified, 0),
-		ETag:         originalETag, // Original ETag (MD5 of unencrypted data)
-		ContentType:  finalStorageMetadata["content-type"],
-		Metadata:     userMetadata, // User metadata from x-amz-meta-* headers
-		StorageClass: storageClassOrDefault(storageMetadata["storage-class"]),
-		VersionID:    versionID, // Set versionID (empty string if versioning disabled)
+		Key:               key,
+		Bucket:            bucket,
+		Size:              size, // Original size (unencrypted)
+		LastModified:      time.Unix(lastModified, 0),
+		ETag:              originalETag, // Original ETag (MD5 of unencrypted data)
+		ContentType:       finalStorageMetadata["content-type"],
+		Metadata:          userMetadata, // User metadata from x-amz-meta-* headers
+		StorageClass:      storageClassOrDefault(storageMetadata["storage-class"]),
+		VersionID:         versionID, // Set versionID (empty string if versioning disabled)
+		ChecksumAlgorithm: checksumAlgo,
+		ChecksumValue:     checksumValue,
 	}
 
 	// Apply default Object Lock retention if bucket has it configured
@@ -1759,6 +1798,13 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		return nil, err
 	}
 
+	// Compute the S3-spec multipart ETag: MD5 of the concatenated binary MD5 digests
+	// of each part, formatted as "<hex>-<partCount>".
+	multipartETag, err := om.computeMultipartETag(ctx, uploadID, parts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute multipart ETag: %w", err)
+	}
+
 	// Combine parts into final object.
 	// storage.Put inside combineMultipartParts already computes etag+size and writes them
 	// to the .metadata sidecar — no need to re-read the data file for MD5.
@@ -1801,10 +1847,11 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 			finalMeta[k] = v
 		}
 		// Multipart upload metadata (content-type, user headers) overrides the combine-time defaults.
-		// etag and size from storageMetadata are preserved (they are correct).
 		for k, v := range multipart.Metadata {
 			finalMeta[k] = v
 		}
+		// Overwrite the storage-computed ETag with the S3-spec multipart ETag.
+		finalMeta["etag"] = multipartETag
 		if err := om.storage.SetMetadata(ctx, objectPath, finalMeta); err != nil {
 			return nil, fmt.Errorf("failed to update object metadata: %w", err)
 		}
@@ -1815,7 +1862,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		Bucket:       multipart.Bucket,
 		Size:         originalSize,
 		LastModified: time.Unix(lastModified, 0),
-		ETag:         originalETag,
+		ETag:         multipartETag,
 		ContentType:  multipart.Metadata["content-type"],
 		Metadata:     multipart.Metadata,
 		StorageClass: multipart.StorageClass,
@@ -2470,6 +2517,30 @@ func (om *objectManager) validateAndCalculatePartsSize(ctx context.Context, uplo
 	}
 
 	return totalSize, nil
+}
+
+// computeMultipartETag computes the S3-spec ETag for a completed multipart upload.
+// Format: hex(MD5(MD5(part1) || MD5(part2) || ... || MD5(partN)))-N
+// where each MD5(partX) is the raw 16-byte binary digest of the part data.
+func (om *objectManager) computeMultipartETag(ctx context.Context, uploadID string, parts []Part) (string, error) {
+	var combined []byte
+	for _, part := range parts {
+		partMeta, err := om.metadataStore.GetPart(ctx, uploadID, part.PartNumber)
+		if err != nil {
+			return "", fmt.Errorf("failed to get part %d metadata for ETag: %w", part.PartNumber, err)
+		}
+		etag := strings.Trim(partMeta.ETag, "\"")
+		raw, err := hex.DecodeString(etag)
+		if err != nil {
+			// If the part ETag is not a plain hex MD5 (e.g. already multipart-formatted),
+			// fall back to hashing the string bytes so the ETag is still deterministic.
+			h := md5.Sum([]byte(etag))
+			raw = h[:]
+		}
+		combined = append(combined, raw...)
+	}
+	digest := md5.Sum(combined)
+	return fmt.Sprintf("%s-%d", hex.EncodeToString(digest[:]), len(parts)), nil
 }
 
 // checkMultipartQuotaBeforeComplete validates tenant quota before combining parts

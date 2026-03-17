@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -92,6 +93,10 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 
 	// S3 API endpoints
 	s3Router := router.PathPrefix("/").Subrouter()
+	// bucketCORSMiddleware must run before s3ClientMiddleware so that OPTIONS
+	// preflight requests (which carry no auth headers) are handled before the
+	// redirect-to-console check fires.
+	s3Router.Use(h.bucketCORSMiddleware)
 	s3Router.Use(h.s3ClientMiddleware)
 
 	// Service operations - root handler
@@ -185,6 +190,10 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	// Batch operations
 	bucketRouter.HandleFunc("", h.s3Handler.DeleteObjects).Methods("POST").Queries("delete", "")
 	bucketRouter.HandleFunc("/", h.s3Handler.DeleteObjects).Methods("POST").Queries("delete", "")
+
+	// POST presigned form upload (must be after query-param routes so ?delete is matched first)
+	bucketRouter.HandleFunc("", h.s3Handler.HandlePresignedPost).Methods("POST")
+	bucketRouter.HandleFunc("/", h.s3Handler.HandlePresignedPost).Methods("POST")
 
 	// Multipart uploads
 	bucketRouter.HandleFunc("", h.s3Handler.ListMultipartUploads).Methods("GET").Queries("uploads", "")
@@ -297,6 +306,111 @@ func isObjectPath(path string) bool {
 	}
 	parts := strings.Split(trimmed, "/")
 	return len(parts) >= 2
+}
+
+// bucketCORSMiddleware applies per-bucket CORS rules to S3 requests.
+// It must be registered before s3ClientMiddleware so that browser preflight
+// OPTIONS requests (which have no auth headers) can be answered without being
+// redirected to the web console.
+func (h *Handler) bucketCORSMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Extract bucket name from path: /{bucket} or /{bucket}/{object...}
+		trimmed := strings.TrimPrefix(r.URL.Path, "/")
+		bucketName := strings.SplitN(trimmed, "/", 2)[0]
+		if bucketName == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Determine tenant — auth middleware may have already set the user in context.
+		tenantID := ""
+		if user, ok := auth.GetUserFromContext(r.Context()); ok {
+			tenantID = user.TenantID
+		}
+
+		corsConfig, err := h.bucketManager.GetCORS(r.Context(), tenantID, bucketName)
+		if err != nil || corsConfig == nil || len(corsConfig.CORSRules) == 0 {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// The method to check for rule matching.  For OPTIONS preflight use
+		// Access-Control-Request-Method; otherwise use the actual method.
+		requestMethod := r.Header.Get("Access-Control-Request-Method")
+		if requestMethod == "" {
+			requestMethod = r.Method
+		}
+
+		var matched *bucket.CORSRule
+		for i := range corsConfig.CORSRules {
+			rule := &corsConfig.CORSRules[i]
+			if corsOriginMatches(origin, rule.AllowedOrigins) && corsMethodAllowed(requestMethod, rule.AllowedMethods) {
+				matched = rule
+				break
+			}
+		}
+
+		if matched == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Apply matched rule headers.
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Add("Vary", "Origin")
+		w.Header().Set("Access-Control-Allow-Methods", strings.Join(matched.AllowedMethods, ", "))
+		if len(matched.AllowedHeaders) > 0 {
+			w.Header().Set("Access-Control-Allow-Headers", strings.Join(matched.AllowedHeaders, ", "))
+		}
+		if len(matched.ExposeHeaders) > 0 {
+			w.Header().Set("Access-Control-Expose-Headers", strings.Join(matched.ExposeHeaders, ", "))
+		}
+		if matched.MaxAgeSeconds != nil {
+			w.Header().Set("Access-Control-Max-Age", strconv.Itoa(*matched.MaxAgeSeconds))
+		}
+
+		// Respond to preflight immediately — don't pass to s3ClientMiddleware.
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// corsOriginMatches reports whether origin matches any entry in the allowed list.
+// Entries may be exact origins or wildcard patterns like "*.example.com".
+func corsOriginMatches(origin string, allowed []string) bool {
+	for _, a := range allowed {
+		if a == "*" || a == origin {
+			return true
+		}
+		if strings.HasPrefix(a, "*.") {
+			domain := strings.TrimPrefix(a, "*.")
+			if strings.HasSuffix(origin, "."+domain) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// corsMethodAllowed reports whether method is in the allowed list.
+func corsMethodAllowed(method string, allowed []string) bool {
+	method = strings.ToUpper(method)
+	for _, a := range allowed {
+		if strings.ToUpper(a) == method {
+			return true
+		}
+	}
+	return false
 }
 
 // Health check handlers

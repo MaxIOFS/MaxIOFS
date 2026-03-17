@@ -28,6 +28,10 @@ type ObjectMetadata struct {
 	// ACL
 	ACL *ACLMetadata `json:"acl,omitempty"`
 
+	// Checksum (S3 additional integrity algorithms)
+	ChecksumAlgorithm string `json:"checksum_algorithm,omitempty"` // CRC32, CRC32C, SHA1, SHA256
+	ChecksumValue     string `json:"checksum_value,omitempty"`     // base64-encoded checksum
+
 	// Encryption
 	SSEAlgorithm string `json:"sse_algorithm,omitempty"`
 	SSEKeyID     string `json:"sse_key_id,omitempty"`
@@ -62,6 +66,7 @@ type BucketMetadata struct {
 	Encryption        *EncryptionMetadata        `json:"encryption,omitempty"`
 	PublicAccessBlock *PublicAccessBlockMetadata `json:"public_access_block,omitempty"`
 	Website           *WebsiteMetadata           `json:"website,omitempty"`
+	Notification      *NotificationMetadata      `json:"notification,omitempty"`
 
 	// Tags and custom metadata
 	Tags     map[string]string `json:"tags,omitempty"`
@@ -100,6 +105,29 @@ type WebsiteRoutingRedirectMetadata struct {
 	Protocol             string `json:"protocol,omitempty"`
 	ReplaceKeyPrefixWith string `json:"replace_key_prefix_with,omitempty"`
 	ReplaceKeyWith       string `json:"replace_key_with,omitempty"`
+}
+
+// NotificationMetadata persists bucket notification configuration.
+// Each entry in the slices maps to an S3 notification target.
+// The Endpoint field holds the webhook URL (MaxIOFS treats ARN values as HTTP endpoints).
+type NotificationMetadata struct {
+	TopicConfigurations  []NotificationTargetMetadata `json:"topic_configurations,omitempty"`
+	QueueConfigurations  []NotificationTargetMetadata `json:"queue_configurations,omitempty"`
+	LambdaConfigurations []NotificationTargetMetadata `json:"lambda_configurations,omitempty"`
+}
+
+// NotificationTargetMetadata represents a single notification target with its event filters.
+type NotificationTargetMetadata struct {
+	ID       string                        `json:"id,omitempty"`
+	Endpoint string                        `json:"endpoint"` // webhook URL (from Topic/Queue/Lambda ARN)
+	Events   []string                      `json:"events"`
+	Filter   *NotificationFilterMetadata   `json:"filter,omitempty"`
+}
+
+// NotificationFilterMetadata holds key-based filter rules.
+type NotificationFilterMetadata struct {
+	Prefix string `json:"prefix,omitempty"`
+	Suffix string `json:"suffix,omitempty"`
 }
 
 // VersioningMetadata represents bucket versioning configuration

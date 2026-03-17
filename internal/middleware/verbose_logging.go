@@ -10,10 +10,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// S3RequestLog logs every request that hits the S3 API at Info level (logrus).
-// Use as the first middleware on the S3 router so "first probe" requests (e.g. VEEAM
-// "reading capabilities") are visible. If this never logs when the client connects,
-// the request is not reaching the S3 API (e.g. wrong URL/port or going to console).
+// S3RequestLog logs every request that hits the S3 API at Debug level (logrus).
+// Enable debug logging to see individual S3 API requests.
 func S3RequestLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logrus.WithFields(logrus.Fields{
@@ -22,7 +20,7 @@ func S3RequestLog(next http.Handler) http.Handler {
 			"host":   r.Host,
 			"remote": r.RemoteAddr,
 			"ua":     r.Header.Get("User-Agent"),
-		}).Info("S3 API request")
+		}).Debug("S3 API request")
 		next.ServeHTTP(w, r)
 	})
 }

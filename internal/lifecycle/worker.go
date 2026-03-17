@@ -120,6 +120,16 @@ func (w *Worker) processLifecycleRule(ctx context.Context, tenantID, bucketName 
 	if rule.Expiration != nil && rule.Expiration.ExpiredObjectDeleteMarker != nil && *rule.Expiration.ExpiredObjectDeleteMarker {
 		w.processExpiredDeleteMarkers(ctx, bucketPath, rule)
 	}
+
+	// Process object expiration by age (Days) or fixed date
+	if rule.Expiration != nil && (rule.Expiration.Days != nil || rule.Expiration.Date != nil) {
+		w.processObjectExpiration(ctx, bucketPath, rule)
+	}
+
+	// Process abort of incomplete multipart uploads
+	if rule.AbortIncompleteMultipartUpload != nil && rule.AbortIncompleteMultipartUpload.DaysAfterInitiation > 0 {
+		w.processAbortIncompleteMultipartUploads(ctx, bucketPath, rule)
+	}
 }
 
 // processNoncurrentVersionExpiration deletes noncurrent versions older than specified days
@@ -245,5 +255,92 @@ func (w *Worker) processExpiredDeleteMarkers(ctx context.Context, bucketPath str
 			"rule":         rule.ID,
 			"deletedCount": deletedCount,
 		}).Info("Lifecycle policy deleted expired delete markers")
+	}
+}
+
+// processObjectExpiration deletes objects that have exceeded their expiration age or date.
+// On versioned buckets, DeleteObject without a versionId creates a delete marker (correct S3 behavior).
+func (w *Worker) processObjectExpiration(ctx context.Context, bucketPath string, rule bucket.LifecycleRule) {
+	var cutoff time.Time
+	if rule.Expiration.Days != nil {
+		cutoff = time.Now().UTC().AddDate(0, 0, -*rule.Expiration.Days)
+	} else {
+		cutoff = rule.Expiration.Date.UTC()
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"bucket":  bucketPath,
+		"rule":    rule.ID,
+		"cutoff":  cutoff,
+	}).Debug("Processing object expiration")
+
+	prefix := rule.Filter.Prefix
+
+	result, err := w.objectManager.ListObjects(ctx, bucketPath, prefix, "", "", 10000)
+	if err != nil {
+		logrus.WithError(err).WithField("bucket", bucketPath).Error("Failed to list objects for expiration")
+		return
+	}
+
+	deletedCount := 0
+	for _, obj := range result.Objects {
+		if obj.LastModified.UTC().Before(cutoff) {
+			if _, err := w.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"bucket": bucketPath,
+					"key":    obj.Key,
+				}).Warn("Failed to expire object")
+			} else {
+				deletedCount++
+			}
+		}
+	}
+
+	if deletedCount > 0 {
+		logrus.WithFields(logrus.Fields{
+			"bucket":       bucketPath,
+			"rule":         rule.ID,
+			"deletedCount": deletedCount,
+		}).Info("Lifecycle policy expired objects")
+	}
+}
+
+// processAbortIncompleteMultipartUploads aborts multipart uploads that have been
+// in progress longer than the configured DaysAfterInitiation.
+func (w *Worker) processAbortIncompleteMultipartUploads(ctx context.Context, bucketPath string, rule bucket.LifecycleRule) {
+	cutoff := time.Now().UTC().AddDate(0, 0, -rule.AbortIncompleteMultipartUpload.DaysAfterInitiation)
+
+	logrus.WithFields(logrus.Fields{
+		"bucket": bucketPath,
+		"rule":   rule.ID,
+		"cutoff": cutoff,
+	}).Debug("Processing abort incomplete multipart uploads")
+
+	uploads, err := w.objectManager.ListMultipartUploads(ctx, bucketPath)
+	if err != nil {
+		logrus.WithError(err).WithField("bucket", bucketPath).Error("Failed to list multipart uploads for lifecycle")
+		return
+	}
+
+	abortedCount := 0
+	for _, upload := range uploads {
+		if upload.Initiated.UTC().Before(cutoff) {
+			if err := w.objectManager.AbortMultipartUpload(ctx, upload.UploadID); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"bucket":   bucketPath,
+					"uploadID": upload.UploadID,
+				}).Warn("Failed to abort stale multipart upload")
+			} else {
+				abortedCount++
+			}
+		}
+	}
+
+	if abortedCount > 0 {
+		logrus.WithFields(logrus.Fields{
+			"bucket":       bucketPath,
+			"rule":         rule.ID,
+			"abortedCount": abortedCount,
+		}).Info("Lifecycle policy aborted stale multipart uploads")
 	}
 }

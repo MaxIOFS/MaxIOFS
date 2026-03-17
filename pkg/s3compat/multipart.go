@@ -577,6 +577,10 @@ done:
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
+
+	// Fire s3:ObjectCreated:CompleteMultipartUpload notification asynchronously.
+	tenantID := h.getTenantIDFromRequest(r)
+	h.fireNotifications(bgCtx, bucketName, tenantID, objectKey, "s3:ObjectCreated:CompleteMultipartUpload", res.obj.ETag, res.obj.Size)
 }
 
 // AbortMultipartUpload aborts a multipart upload

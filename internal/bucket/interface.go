@@ -21,10 +21,11 @@ type Bucket struct {
 	ObjectLock        *ObjectLockConfig  `json:"object_lock,omitempty"`
 	Policy            *Policy            `json:"policy,omitempty"`
 	Lifecycle         *LifecycleConfig   `json:"lifecycle,omitempty"`
-	CORS              *CORSConfig        `json:"cors,omitempty"`
-	Encryption        *EncryptionConfig  `json:"encryption,omitempty"`
-	PublicAccessBlock *PublicAccessBlock `json:"public_access_block,omitempty"`
-	Website           *WebsiteConfig     `json:"website,omitempty"`
+	CORS              *CORSConfig         `json:"cors,omitempty"`
+	Encryption        *EncryptionConfig   `json:"encryption,omitempty"`
+	PublicAccessBlock *PublicAccessBlock  `json:"public_access_block,omitempty"`
+	Website           *WebsiteConfig      `json:"website,omitempty"`
+	Notification      *NotificationConfig `json:"notification,omitempty"`
 	Tags              map[string]string  `json:"tags,omitempty"`
 	Metadata          map[string]string  `json:"metadata,omitempty"`
 
@@ -67,6 +68,10 @@ type Manager interface {
 	GetWebsite(ctx context.Context, tenantID, name string) (*WebsiteConfig, error)
 	SetWebsite(ctx context.Context, tenantID, name string, config *WebsiteConfig) error
 	DeleteWebsite(ctx context.Context, tenantID, name string) error
+
+	// Bucket notifications
+	GetNotification(ctx context.Context, tenantID, name string) (*NotificationConfig, error)
+	SetNotification(ctx context.Context, tenantID, name string, config *NotificationConfig) error
 
 	// Bucket Tagging
 	SetBucketTags(ctx context.Context, tenantID, name string, tags map[string]string) error
