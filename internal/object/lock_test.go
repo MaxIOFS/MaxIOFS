@@ -546,7 +546,7 @@ func (m *mockManager) GetObjectLegalHold(ctx context.Context, bucket, key string
 	return m.legalHold, nil
 }
 
-func (m *mockManager) SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig) error {
+func (m *mockManager) SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig, versionID ...string) error {
 	m.legalHold = config
 	return nil
 }

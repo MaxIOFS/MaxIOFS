@@ -1905,8 +1905,8 @@ func TestGetBucketLocation(t *testing.T) {
 	ctx := context.Background()
 	bucketName := "test-bucket-location"
 
-	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "")
+	// Create bucket with region
+	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "us-east-1")
 	require.NoError(t, err)
 
 	// Get bucket location
@@ -1915,12 +1915,14 @@ func TestGetBucketLocation(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code, "Should get bucket location successfully")
 
-	// Verify response contains LocationConstraint with S3 namespace and XML declaration
+	// Verify response contains LocationConstraint with S3 namespace and XML declaration.
+	// Per AWS S3 spec, buckets in the default region return an empty LocationConstraint body;
+	// the region is conveyed via the x-amz-bucket-region response header instead.
 	body := w.Body.String()
 	assert.Contains(t, body, "LocationConstraint", "Response should contain LocationConstraint")
 	assert.Contains(t, body, `xmlns="http://s3.amazonaws.com/doc/2006-03-01/"`, "LocationConstraint must include S3 namespace")
 	assert.Contains(t, body, "<?xml", "Response must include XML declaration")
-	assert.Contains(t, body, "us-east-1", "Response should contain the region")
+	assert.Equal(t, "us-east-1", w.Header().Get("x-amz-bucket-region"), "Region must be in x-amz-bucket-region header")
 }
 
 // TestObjectLockConfiguration tests object lock configuration (Get/Put)
@@ -1939,7 +1941,7 @@ func TestObjectLockConfiguration(t *testing.T) {
 
 	t.Run("PutObjectLockConfiguration", func(t *testing.T) {
 		configXML := []byte(`<?xml version="1.0" encoding="UTF-8"?>
-<ObjectLockConfiguration>
+<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
   <ObjectLockEnabled>Enabled</ObjectLockEnabled>
   <Rule>
     <DefaultRetention>
@@ -2740,7 +2742,7 @@ func TestS3CreateBucketObjectLockEnabled(t *testing.T) {
 
 		// Now set a default retention rule via the API.
 		body := `<?xml version="1.0" encoding="UTF-8"?>
-<ObjectLockConfiguration>
+<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
   <ObjectLockEnabled>Enabled</ObjectLockEnabled>
   <Rule>
     <DefaultRetention>
@@ -3106,7 +3108,7 @@ func TestObjectLockModeAndPeriodMutability(t *testing.T) {
 	putLock := func(t *testing.T, mode string, days int) *httptest.ResponseRecorder {
 		t.Helper()
 		body := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
-<ObjectLockConfiguration>
+<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
   <ObjectLockEnabled>Enabled</ObjectLockEnabled>
   <Rule>
     <DefaultRetention>

@@ -8,6 +8,7 @@ type ObjectMetadata struct {
 	Bucket       string    `json:"bucket"`
 	Key          string    `json:"key"`
 	VersionID    string    `json:"version_id,omitempty"`
+	IsLatest     bool      `json:"is_latest,omitempty"`
 	Size         int64     `json:"size"`
 	LastModified time.Time `json:"last_modified"`
 	ETag         string    `json:"etag"`

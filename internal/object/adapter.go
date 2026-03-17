@@ -20,6 +20,7 @@ func toMetadataObject(o *Object) *metadata.ObjectMetadata {
 		Metadata:     o.Metadata,
 		StorageClass: o.StorageClass,
 		VersionID:    o.VersionID,
+		IsLatest:     o.IsLatest,
 	}
 
 	// Object Lock - Retention
@@ -68,6 +69,7 @@ func fromMetadataObject(mo *metadata.ObjectMetadata) *Object {
 		Metadata:     mo.Metadata,
 		StorageClass: mo.StorageClass,
 		VersionID:    mo.VersionID,
+		IsLatest:     mo.IsLatest,
 	}
 
 	// Object Lock - Retention

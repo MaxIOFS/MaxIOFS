@@ -38,9 +38,22 @@ func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) error 
 	batch := s.db.NewBatch()
 	defer batch.Close() //nolint:errcheck
 
-	key := objectKey(obj.Bucket, obj.Key)
-	if err := batch.Set(key, data, nil); err != nil {
-		return fmt.Errorf("failed to set object in batch: %w", err)
+	// When the object has a VersionID, write to the versioned key so that
+	// SetObjectRetention / SetObjectLegalHold updates the per-version entry that
+	// deleteSpecificVersion reads.  Also write to the plain objectKey when this
+	// is (or will be) the latest version (IsLatest=true) or when there is no
+	// version at all.
+	if obj.VersionID != "" {
+		vKey := objectVersionKey(obj.Bucket, obj.Key, obj.VersionID)
+		if err := batch.Set(vKey, data, nil); err != nil {
+			return fmt.Errorf("failed to set versioned object in batch: %w", err)
+		}
+	}
+	if obj.VersionID == "" || obj.IsLatest {
+		key := objectKey(obj.Bucket, obj.Key)
+		if err := batch.Set(key, data, nil); err != nil {
+			return fmt.Errorf("failed to set object in batch: %w", err)
+		}
 	}
 
 	for tagKey, tagValue := range obj.Tags {
@@ -263,7 +276,9 @@ func (s *PebbleStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata,
 		var updates []versionUpdate
 
 		for iter.First(); iter.Valid(); iter.Next() {
-			var existing ObjectVersion
+			// Version entries are stored as ObjectMetadata (may be legacy ObjectVersion
+			// for older data — both formats share is_latest so unmarshal works for both).
+			var existing ObjectMetadata
 			if err := json.Unmarshal(iter.Value(), &existing); err != nil {
 				continue
 			}
@@ -291,9 +306,13 @@ func (s *PebbleStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata,
 		}
 	}
 
-	// Store the new version
+	// Store the new version as full ObjectMetadata (not ObjectVersion) so that
+	// retention / legal-hold fields are preserved at the per-version key and
+	// can be read back by deleteSpecificVersion / SetObjectRetention / SetObjectLegalHold.
+	obj.VersionID = version.VersionID
+	obj.IsLatest = version.IsLatest
 	versionKey := objectVersionKey(obj.Bucket, obj.Key, version.VersionID)
-	versionData, err := json.Marshal(version)
+	versionData, err := json.Marshal(obj)
 	if err != nil {
 		return fmt.Errorf("failed to marshal version: %w", err)
 	}
@@ -304,11 +323,7 @@ func (s *PebbleStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata,
 	// Update main object entry if this is the latest version
 	if version.IsLatest {
 		objKey := objectKey(obj.Bucket, obj.Key)
-		objData, err := json.Marshal(obj)
-		if err != nil {
-			return fmt.Errorf("failed to marshal object: %w", err)
-		}
-		if err := batch.Set(objKey, objData, nil); err != nil {
+		if err := batch.Set(objKey, versionData, nil); err != nil {
 			return fmt.Errorf("failed to set object in batch: %w", err)
 		}
 	}
@@ -331,12 +346,23 @@ func (s *PebbleStore) GetObjectVersions(ctx context.Context, bucket, key string)
 		valCopy := make([]byte, len(val))
 		copy(valCopy, val)
 
-		var version ObjectVersion
-		if err := json.Unmarshal(valCopy, &version); err != nil {
+		// Version entries are stored as ObjectMetadata (with a subset of fields
+		// matching ObjectVersion).  Older entries may be plain ObjectVersion JSON
+		// — both formats share the same JSON field names for these fields.
+		var obj ObjectMetadata
+		if err := json.Unmarshal(valCopy, &obj); err != nil {
 			s.logger.WithError(err).Warn("Failed to unmarshal version metadata")
 			continue
 		}
-		versions = append(versions, &version)
+		versions = append(versions, &ObjectVersion{
+			VersionID:    obj.VersionID,
+			IsLatest:     obj.IsLatest,
+			Key:          obj.Key,
+			Size:         obj.Size,
+			ETag:         obj.ETag,
+			LastModified: obj.LastModified,
+			StorageClass: obj.StorageClass,
+		})
 	}
 	if err := iter.Error(); err != nil {
 		return nil, fmt.Errorf("failed during version list: %w", err)
@@ -364,16 +390,26 @@ func (s *PebbleStore) ListAllObjectVersions(ctx context.Context, bucket, prefix 
 		valCopy := make([]byte, len(val))
 		copy(valCopy, val)
 
-		var version ObjectVersion
-		if err := json.Unmarshal(valCopy, &version); err != nil {
+		// Version entries stored as ObjectMetadata; older entries may be plain
+		// ObjectVersion JSON — both share the same JSON field names here.
+		var obj ObjectMetadata
+		if err := json.Unmarshal(valCopy, &obj); err != nil {
 			s.logger.WithError(err).Warn("Failed to unmarshal version")
 			continue
 		}
-		if prefix != "" && !strings.HasPrefix(version.Key, prefix) {
+		if prefix != "" && !strings.HasPrefix(obj.Key, prefix) {
 			continue
 		}
-		allVersions = append(allVersions, &version)
-		keysWithVersions[version.Key] = true
+		allVersions = append(allVersions, &ObjectVersion{
+			VersionID:    obj.VersionID,
+			IsLatest:     obj.IsLatest,
+			Key:          obj.Key,
+			Size:         obj.Size,
+			ETag:         obj.ETag,
+			LastModified: obj.LastModified,
+			StorageClass: obj.StorageClass,
+		})
+		keysWithVersions[obj.Key] = true
 		if maxKeys > 0 && len(allVersions) >= maxKeys {
 			break
 		}

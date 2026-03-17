@@ -23,6 +23,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/share"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -1736,11 +1737,10 @@ func TestGenerateSystemXML_Structure(t *testing.T) {
 type mockShareManagerFull struct{}
 
 func (m *mockShareManagerFull) GetShareByObject(ctx context.Context, bucketName, objectKey, tenantID string) (interface{}, error) {
-	// Return valid share for testing
-	return map[string]interface{}{
-		"bucket":   bucketName,
-		"object":   objectKey,
-		"tenantID": tenantID,
+	return &share.Share{
+		BucketName: bucketName,
+		ObjectKey:  objectKey,
+		TenantID:   tenantID,
 	}, nil
 }
 

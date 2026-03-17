@@ -278,7 +278,7 @@ func (m *MockObjectManager) GetObjectLegalHold(ctx context.Context, bucket, key 
 	return args.Get(0).(*object.LegalHoldConfig), args.Error(1)
 }
 
-func (m *MockObjectManager) SetObjectLegalHold(ctx context.Context, bucket, key string, config *object.LegalHoldConfig) error {
+func (m *MockObjectManager) SetObjectLegalHold(ctx context.Context, bucket, key string, config *object.LegalHoldConfig, versionID ...string) error {
 	args := m.Called(ctx, bucket, key, config)
 	return args.Error(0)
 }
@@ -1013,7 +1013,10 @@ func TestS3Operation_MissingAuthentication(t *testing.T) {
 			}
 
 			// Create request WITHOUT authentication (no user in context)
+			// Add x-amz-content-sha256 so isS3Client() recognises it as an S3 request
+			// and doesn't redirect to the console URL before the auth check runs.
 			req := httptest.NewRequest(tc.method, tc.path, nil)
+			req.Header.Set("x-amz-content-sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 			rr := httptest.NewRecorder()
 
 			router.ServeHTTP(rr, req)

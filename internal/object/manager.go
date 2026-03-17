@@ -41,7 +41,7 @@ type Manager interface {
 	GetObjectRetention(ctx context.Context, bucket, key string) (*RetentionConfig, error)
 	SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig, versionID ...string) error
 	GetObjectLegalHold(ctx context.Context, bucket, key string) (*LegalHoldConfig, error)
-	SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig) error
+	SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig, versionID ...string) error
 
 	// Versioning operations
 	GetObjectVersions(ctx context.Context, bucket, key string) ([]ObjectVersion, error)
@@ -83,6 +83,7 @@ type Object struct {
 	Metadata     map[string]string `json:"metadata"`
 	StorageClass string            `json:"storage_class"`
 	VersionID    string            `json:"version_id,omitempty"`
+	IsLatest     bool              `json:"is_latest,omitempty"`
 
 	// Object Lock
 	Retention *RetentionConfig `json:"retention,omitempty"`
@@ -1192,19 +1193,28 @@ func (om *objectManager) GetObjectMetadata(ctx context.Context, bucket, key stri
 
 	objectPath := om.getObjectPath(bucket, key)
 
-	// Check if object exists in storage
+	// Try to load metadata from store first — covers versioned objects where
+	// the physical file is at the versioned path, not the plain path.
+	metaObj, metaErr := om.metadataStore.GetObject(ctx, bucket, key)
+	if metaErr == nil && metaObj != nil {
+		// Verify the physical file exists at the correct path (versioned or plain)
+		checkPath := objectPath
+		if metaObj.VersionID != "" {
+			checkPath = om.getVersionedObjectPath(bucket, key, metaObj.VersionID)
+		}
+		exists, err := om.storage.Exists(ctx, checkPath)
+		if err == nil && exists {
+			return fromMetadataObject(metaObj), nil
+		}
+	}
+
+	// Check if non-versioned file exists in storage (legacy / non-versioned objects)
 	exists, err := om.storage.Exists(ctx, objectPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check object existence: %w", err)
 	}
 	if !exists {
 		return nil, ErrObjectNotFound
-	}
-
-	// Try to load metadata from BadgerDB
-	metaObj, err := om.metadataStore.GetObject(ctx, bucket, key)
-	if err == nil && metaObj != nil {
-		return fromMetadataObject(metaObj), nil
 	}
 
 	// Fallback: create basic object info from storage metadata
@@ -1293,22 +1303,26 @@ func (om *objectManager) GetObjectRetention(ctx context.Context, bucket, key str
 }
 
 func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig, versionID ...string) error {
-	// Get object metadata — use specific version if provided
-	var metaObj *metadata.ObjectMetadata
-	var err error
-	if len(versionID) > 0 && versionID[0] != "" {
-		metaObj, err = om.metadataStore.GetObject(ctx, bucket, key, versionID[0])
-	} else {
-		metaObj, err = om.metadataStore.GetObject(ctx, bucket, key)
-	}
-	if err != nil {
-		if err == metadata.ErrObjectNotFound {
-			return ErrObjectNotFound
-		}
-		return err
-	}
+	var obj *Object
 
-	obj := fromMetadataObject(metaObj)
+	if len(versionID) > 0 && versionID[0] != "" {
+		// Specific version requested — fetch directly from metadata store
+		metaObj, err := om.metadataStore.GetObject(ctx, bucket, key, versionID[0])
+		if err != nil {
+			if err == metadata.ErrObjectNotFound {
+				return ErrObjectNotFound
+			}
+			return err
+		}
+		obj = fromMetadataObject(metaObj)
+	} else {
+		// No version — use GetObjectMetadata which includes storage existence check and fallback
+		var err error
+		obj, err = om.GetObjectMetadata(ctx, bucket, key)
+		if err != nil {
+			return err
+		}
+	}
 
 	// Check if object is locked and retention is being shortened
 	if obj.Retention != nil {
@@ -1325,9 +1339,9 @@ func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key str
 	// Update retention
 	obj.Retention = config
 
-	// Save updated metadata
-	updatedMeta := toMetadataObject(obj)
-	return om.metadataStore.PutObject(ctx, updatedMeta)
+	// Save updated metadata to BadgerDB
+	metaObj := toMetadataObject(obj)
+	return om.metadataStore.PutObject(ctx, metaObj)
 }
 
 func (om *objectManager) GetObjectLegalHold(ctx context.Context, bucket, key string) (*LegalHoldConfig, error) {
@@ -1345,11 +1359,24 @@ func (om *objectManager) GetObjectLegalHold(ctx context.Context, bucket, key str
 	return obj.LegalHold, nil
 }
 
-func (om *objectManager) SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig) error {
-	// Get object metadata
-	obj, err := om.GetObjectMetadata(ctx, bucket, key)
-	if err != nil {
-		return err
+func (om *objectManager) SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig, versionID ...string) error {
+	var obj *Object
+
+	if len(versionID) > 0 && versionID[0] != "" {
+		metaObj, err := om.metadataStore.GetObject(ctx, bucket, key, versionID[0])
+		if err != nil {
+			if err == metadata.ErrObjectNotFound {
+				return ErrObjectNotFound
+			}
+			return err
+		}
+		obj = fromMetadataObject(metaObj)
+	} else {
+		var err error
+		obj, err = om.GetObjectMetadata(ctx, bucket, key)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Update legal hold

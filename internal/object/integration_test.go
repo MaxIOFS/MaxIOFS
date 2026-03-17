@@ -418,20 +418,40 @@ func TestObjectManagerObjectLock(t *testing.T) {
 	})
 
 	t.Run("DeleteObjectWithLegalHold", func(t *testing.T) {
-		// Try to delete object with legal hold - should fail
-		_, err := om.DeleteObject(ctx, bucketName, objectKey, false)
+		// Object Lock requires versioning; DeleteObject without versionId creates a
+		// delete marker (allowed by S3 spec — legal hold protects specific versions
+		// from permanent deletion, not from delete marker creation). To test legal
+		// hold protection, we must attempt to permanently delete the specific version.
+		versions, err := om.GetObjectVersions(ctx, bucketName, objectKey)
+		if err != nil || len(versions) == 0 {
+			t.Fatalf("Failed to get object versions: %v", err)
+		}
+		// Find the real content version (not a delete marker, size > 0)
+		var lockedVersionID string
+		for _, v := range versions {
+			if v.Size > 0 {
+				lockedVersionID = v.VersionID
+				break
+			}
+		}
+		if lockedVersionID == "" {
+			t.Fatal("Could not find a non-delete-marker version to test legal hold")
+		}
+
+		// Try to permanently delete the specific version with legal hold - should fail
+		_, err = om.DeleteObject(ctx, bucketName, objectKey, false, lockedVersionID)
 		if err == nil {
-			t.Error("Expected error when deleting object with legal hold")
+			t.Error("Expected error when deleting versioned object with legal hold")
 		}
 		if err != ErrObjectUnderLegalHold {
 			t.Errorf("Expected ErrObjectUnderLegalHold, got %v", err)
 		}
 
-		// Remove legal hold
+		// Remove legal hold on that specific version
 		legalHold := &LegalHoldConfig{
 			Status: LegalHoldStatusOff,
 		}
-		err = om.SetObjectLegalHold(ctx, bucketName, objectKey, legalHold)
+		err = om.SetObjectLegalHold(ctx, bucketName, objectKey, legalHold, lockedVersionID)
 		if err != nil {
 			t.Fatalf("Failed to remove legal hold: %v", err)
 		}
