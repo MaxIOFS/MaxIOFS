@@ -110,10 +110,10 @@ export function BucketIntegrityModal({
               <ShieldCheck className="h-8 w-8 text-brand-600 dark:text-brand-400" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              <h3 className="text-lg font-semibold text-foreground">
                 {canRunScan ? t('readyToScan') : t('noScanResultsYet')}
               </h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {canRunScan
                   ? <>
                       {t('integrityMd5Desc')}
@@ -156,11 +156,11 @@ export function BucketIntegrityModal({
             {/* Progress bar */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                <span className="font-medium text-foreground flex items-center gap-2">
                   <Clock className="h-4 w-4 text-amber-500 animate-pulse" />
                   {t('scanningInProgress')}
                 </span>
-                <span className="text-gray-500 dark:text-gray-400">
+                <span className="text-muted-foreground">
                   {objectCount > 0
                     ? t('scanObjectsProgress', { checked: scanState.checked.toLocaleString(), total: objectCount.toLocaleString() })
                     : t('scanObjectsProgressUnknown', { checked: scanState.checked.toLocaleString() })
@@ -177,7 +177,7 @@ export function BucketIntegrityModal({
                   <div className="h-full w-1/3 bg-gradient-to-r from-amber-400 to-brand-500 rounded-full animate-[scan_1.5s_ease-in-out_infinite]" />
                 )}
               </div>
-              <div className="flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>{t('scanStarted', { time: scanState.startedAt.toLocaleTimeString() })}</span>
                 {progressPct !== null && <span>{t('percentComplete', { pct: progressPct })}</span>}
               </div>
@@ -188,7 +188,7 @@ export function BucketIntegrityModal({
             {scanState.issues.length > 0 && <IssueTable issues={scanState.issues} />}
 
             <div className="flex items-center justify-between pt-1 border-t border-gray-100 dark:border-gray-800">
-              <p className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <EyeOff className="h-3.5 w-3.5" />
                 <span dangerouslySetInnerHTML={{ __html: t('closingDoesNotStop') }} />
               </p>
@@ -215,7 +215,7 @@ export function BucketIntegrityModal({
           <div className="space-y-5">
             {/* Source label for background scrubber results */}
             {scanState.source === 'scrubber' && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5" />
                 {t('backgroundScrubber', { time: scanState.finishedAt?.toLocaleString() ?? t('recently') })}
               </p>
@@ -383,7 +383,7 @@ function CounterCard({ label, value, icon, color }: {
     brand:   'bg-brand-50 dark:bg-brand-900/20 text-brand-600 dark:text-brand-400 border-brand-200 dark:border-brand-800',
     success: 'bg-success-50 dark:bg-success-900/20 text-success-600 dark:text-success-400 border-success-200 dark:border-success-800',
     error:   'bg-error-50 dark:bg-error-900/20 text-error-600 dark:text-error-400 border-error-200 dark:border-error-800',
-    gray:    'bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700',
+    gray:    'bg-gray-50 dark:bg-gray-800 text-muted-foreground border-border',
   };
   return (
     <div className={`flex items-center gap-3 p-3 rounded-lg border ${colorMap[color]}`}>
@@ -413,24 +413,24 @@ function IssueTable({ issues }: { issues: IntegrityResult[] }) {
 
   return (
     <div>
-      <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+      <h4 className="text-sm font-semibold text-foreground mb-2">
         {t('issuesFoundTitle', { count: issues.length })}
       </h4>
-      <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+      <div className="border border-border rounded-lg overflow-hidden">
         <div className="max-h-56 overflow-y-auto">
           <table className="w-full text-xs">
             <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
               <tr>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400">{t('issueColumnKey')}</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">{t('issueColumnStatus')}</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">{t('issueColumnStoredETag')}</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">{t('issueColumnActualETag')}</th>
+                <th className="text-left px-3 py-2 font-medium text-muted-foreground">{t('issueColumnKey')}</th>
+                <th className="text-left px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">{t('issueColumnStatus')}</th>
+                <th className="text-left px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">{t('issueColumnStoredETag')}</th>
+                <th className="text-left px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">{t('issueColumnActualETag')}</th>
               </tr>
             </thead>
             <tbody>
               {issues.map((issue, idx) => (
-                <tr key={idx} className="border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                  <td className="px-3 py-2 font-mono text-gray-800 dark:text-gray-200 max-w-xs truncate" title={issue.key}>
+                <tr key={idx} className="border-t border-gray-100 dark:border-gray-800 hover:bg-secondary/50">
+                  <td className="px-3 py-2 font-mono text-foreground max-w-xs truncate" title={issue.key}>
                     {issue.key}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
@@ -439,10 +439,10 @@ function IssueTable({ issues }: { issues: IntegrityResult[] }) {
                       {statusLabel[issue.status] ?? issue.status}
                     </span>
                   </td>
-                  <td className="px-3 py-2 font-mono text-gray-500 dark:text-gray-400 max-w-[120px] truncate" title={issue.storedETag}>
+                  <td className="px-3 py-2 font-mono text-muted-foreground max-w-[120px] truncate" title={issue.storedETag}>
                     {issue.storedETag || '—'}
                   </td>
-                  <td className="px-3 py-2 font-mono text-gray-500 dark:text-gray-400 max-w-[120px] truncate" title={issue.computedETag}>
+                  <td className="px-3 py-2 font-mono text-muted-foreground max-w-[120px] truncate" title={issue.computedETag}>
                     {issue.computedETag || (issue.status === 'missing' ? t('statusMissingValue') : '—')}
                   </td>
                 </tr>
@@ -460,10 +460,10 @@ function ScanHistory({ history }: { history: LastIntegrityScan[] }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+    <div className="border border-border rounded-lg overflow-hidden">
       <button
         onClick={() => setExpanded(e => !e)}
-        className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-gray-800/60 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-medium text-gray-600 dark:text-gray-400 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-gray-800/60 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-medium text-muted-foreground transition-colors"
       >
         <span className="flex items-center gap-2">
           <Clock className="h-3.5 w-3.5" />
@@ -482,18 +482,18 @@ function ScanHistory({ history }: { history: LastIntegrityScan[] }) {
                 ) : (
                   <ShieldAlert className="h-3.5 w-3.5 text-error-500 shrink-0" />
                 )}
-                <span className="text-gray-600 dark:text-gray-400">
+                <span className="text-muted-foreground">
                   {new Date(entry.scannedAt).toLocaleString()}
                 </span>
                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                   entry.source === 'scrubber'
                     ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                    : 'bg-gray-100 dark:bg-gray-800 text-muted-foreground'
                 }`}>
                   {entry.source === 'scrubber' ? t('scanSourceAuto') : t('scanSourceManual')}
                 </span>
               </div>
-              <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
+              <div className="flex items-center gap-3 text-muted-foreground">
                 <span>{t('scanObjects', { count: entry.checked })}</span>
                 {entry.corrupted > 0
                   ? <span className="text-error-600 dark:text-error-400 font-medium">{t('issueCount', { count: entry.corrupted })}</span>

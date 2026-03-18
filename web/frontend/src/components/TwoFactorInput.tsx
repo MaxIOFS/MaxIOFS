@@ -78,10 +78,10 @@ export function TwoFactorInput({ onSubmit, onCancel, loading, error }: TwoFactor
         <div className="mx-auto w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-4">
           <KeyRound className="w-8 h-8 text-blue-600 dark:text-blue-400" />
         </div>
-        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">
+        <h2 className="text-2xl font-semibold text-foreground mb-2">
           Two-Factor Authentication
         </h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
+        <p className="text-sm text-muted-foreground">
           Enter the 6-digit code from your authenticator app
         </p>
       </div>
@@ -107,14 +107,14 @@ export function TwoFactorInput({ onSubmit, onCancel, loading, error }: TwoFactor
             onKeyDown={(e) => handleKeyDown(index, e)}
             onPaste={handlePaste}
             disabled={loading}
-            className="w-12 h-14 3xl:w-14 3xl:h-16 4xl:w-16 4xl:h-20 text-center text-2xl 3xl:text-3xl 4xl:text-4xl font-bold border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:border-blue-600 dark:focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            className="w-12 h-14 3xl:w-14 3xl:h-16 4xl:w-16 4xl:h-20 text-center text-2xl 3xl:text-3xl 4xl:text-4xl font-bold border-2 border-border rounded-lg focus:border-blue-600 dark:focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-card text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           />
         ))}
       </div>
 
       {/* Info text */}
       <div className="text-center">
-        <p className="text-xs text-gray-500 dark:text-gray-400">
+        <p className="text-xs text-muted-foreground">
           You can also use a backup code if you don't have access to your authenticator app
         </p>
       </div>
@@ -125,7 +125,7 @@ export function TwoFactorInput({ onSubmit, onCancel, loading, error }: TwoFactor
           type="button"
           onClick={onCancel}
           disabled={loading}
-          className="flex-1 py-3 px-6 rounded-full text-base font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300"
+          className="flex-1 py-3 px-6 rounded-full text-base font-medium text-foreground bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300"
         >
           Cancel
         </button>

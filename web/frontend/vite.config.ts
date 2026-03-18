@@ -14,9 +14,9 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: false,
-    minify: 'oxc',
+    minify: 'esbuild',
     chunkSizeWarningLimit: 1024,
-    rolldownOptions: {
+    rollupOptions: {
       output: {
         manualChunks: (id) => {
           if (id.includes('react-router-dom')) return 'router';

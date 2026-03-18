@@ -98,7 +98,7 @@ export function Setup2FAModal({ isOpen, onClose, onSuccess }: Setup2FAModalProps
         {step === 'loading' && (
           <div className="flex flex-col items-center justify-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400 mb-4"></div>
-            <p className="text-gray-600 dark:text-gray-400">Setting up 2FA...</p>
+            <p className="text-muted-foreground">Setting up 2FA...</p>
           </div>
         )}
 
@@ -110,18 +110,18 @@ export function Setup2FAModal({ isOpen, onClose, onSuccess }: Setup2FAModalProps
                 <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-bold mr-3">
                   1
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                <h3 className="text-lg font-semibold text-foreground">
                   Scan QR Code
                 </h3>
               </div>
 
               <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-6 space-y-4">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
+                <p className="text-sm text-muted-foreground">
                   Scan this QR code with your authenticator app (Google Authenticator, Microsoft Authenticator, Authy, etc.)
                 </p>
 
                 {qrCode && (
-                  <div className="flex justify-center p-4 bg-white dark:bg-gray-800 rounded-lg">
+                  <div className="flex justify-center p-4 bg-card rounded-lg">
                     <img
                       src={`data:image/png;base64,${qrCode}`}
                       alt="2FA QR Code"
@@ -131,11 +131,11 @@ export function Setup2FAModal({ isOpen, onClose, onSuccess }: Setup2FAModalProps
                 )}
 
                 <div className="pt-2">
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  <p className="text-xs text-muted-foreground mb-2">
                     Can't scan? Enter this code manually:
                   </p>
                   <div className="flex items-center gap-2">
-                    <code className="flex-1 px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded text-sm font-mono text-gray-900 dark:text-white break-all">
+                    <code className="flex-1 px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-border rounded text-sm font-mono text-foreground break-all">
                       {secret}
                     </code>
                     <Button
@@ -161,13 +161,13 @@ export function Setup2FAModal({ isOpen, onClose, onSuccess }: Setup2FAModalProps
                 <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-bold mr-3">
                   2
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                <h3 className="text-lg font-semibold text-foreground">
                   Verify Code
                 </h3>
               </div>
 
               <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-6 space-y-4">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
+                <p className="text-sm text-muted-foreground">
                   Enter the 6-digit code from your authenticator app to verify the setup
                 </p>
 
@@ -195,7 +195,7 @@ export function Setup2FAModal({ isOpen, onClose, onSuccess }: Setup2FAModalProps
                     }}
                     placeholder="000000"
                     disabled={loading}
-                    className="w-full px-4 py-3 text-center text-2xl font-mono tracking-widest border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:border-blue-600 dark:focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full px-4 py-3 text-center text-2xl font-mono tracking-widest border-2 border-border rounded-lg focus:border-blue-600 dark:focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-card text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                 </div>
 
@@ -300,7 +300,7 @@ export function BackupCodesModal({ isOpen, onClose, backupCodes }: BackupCodesMo
             {backupCodes.map((code, index) => (
               <div
                 key={index}
-                className="px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded font-mono text-sm text-center text-gray-900 dark:text-white"
+                className="px-3 py-2 bg-card border border-border rounded font-mono text-sm text-center text-foreground"
               >
                 {code}
               </div>

@@ -847,7 +847,7 @@ export default function BucketDetailsPage() {
             variant="outline"
             size="default"
             onClick={() => navigate('/buckets')}
-            className="gap-2 bg-white dark:bg-gray-800 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 border-gray-200 dark:border-gray-700 transition-all duration-200"
+            className="gap-2 bg-card hover:bg-secondary border-border transition-all duration-200"
           >
             <ArrowLeftIcon className="h-4 w-4" />
             {t('backToBuckets')}
@@ -857,7 +857,7 @@ export default function BucketDetailsPage() {
               variant="outline"
               size="default"
               onClick={navigateUp}
-              className="gap-2 bg-white dark:bg-gray-800 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 border-gray-200 dark:border-gray-700 transition-all duration-200"
+              className="gap-2 bg-card hover:bg-secondary border-border transition-all duration-200"
             >
               <ArrowLeftIcon className="h-4 w-4" />
               {t('upToParentFolder')}
@@ -866,11 +866,11 @@ export default function BucketDetailsPage() {
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">
+            <h1 className="text-2xl font-bold text-foreground">
               {bucketName}
             </h1>
             {currentPrefix && (
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 {t('currentPath', { prefix: currentPrefix })}
               </p>
             )}
@@ -882,7 +882,7 @@ export default function BucketDetailsPage() {
               onClick={handleRefresh}
               disabled={isRefreshing}
               title={t('refreshObjects')}
-              className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700"
+              className="bg-card hover:bg-secondary border-border"
             >
               <RefreshCwIcon className="h-4 w-4" />
             </Button>
@@ -917,7 +917,7 @@ export default function BucketDetailsPage() {
             <Button
               variant="outline"
               onClick={() => navigate(`${bucketPath}/settings`)}
-              className="gap-2 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 transition-all duration-200"
+              className="gap-2 hover:bg-secondary transition-all duration-200"
             >
               <SettingsIcon className="h-4 w-4" />
               {t('settings')}
@@ -1005,17 +1005,17 @@ export default function BucketDetailsPage() {
       )}
 
       {/* Enhanced Search Bar */}
-      <div className="bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-4">
+      <div className="bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-800/50 rounded-xl border border-border shadow-sm p-4">
         <div className="flex items-center gap-3">
           <div className="relative max-w-md flex-1">
             <div className="absolute left-4 top-1/2 transform -translate-y-1/2">
-              <SearchIcon className="text-gray-400 dark:text-gray-500 h-5 w-5" />
+              <SearchIcon className="text-muted-foreground h-5 w-5" />
             </div>
             <Input
               placeholder={t('searchObjects')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-12 bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 rounded-lg shadow-sm"
+              className="pl-12 bg-card border-border text-foreground focus:ring-2 focus:ring-brand-500 focus:border-brand-500 rounded-lg shadow-sm"
             />
           </div>
           <Button
@@ -1045,17 +1045,17 @@ export default function BucketDetailsPage() {
       )}
 
       {/* Objects Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
+      <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden">
+        <div className="px-6 py-5 border-b border-border">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
               <FileIcon className="h-5 w-5 text-brand-600 dark:text-brand-400" />
               {t('objectsLabel')} ({filteredItems.length})
               {currentPrefix && ` ${t('inPath', { path: currentPrefix })}`}
             </h3>
             {selectedObjects.size > 0 && !isGlobalAdminInTenantBucket && (
               <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-500 dark:text-gray-400">
+                <span className="text-sm text-muted-foreground">
                   {t('selectedCount', { count: selectedObjects.size })}
                 </span>
                 <Button
@@ -1079,10 +1079,10 @@ export default function BucketDetailsPage() {
           ) : filteredItems.length === 0 ? (
             <div className="text-center py-12 px-4">
               <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-gray-100 dark:bg-gray-700 mb-4">
-                <FileIcon className="h-8 w-8 text-gray-400 dark:text-gray-500" />
+                <FileIcon className="h-8 w-8 text-muted-foreground" />
               </div>
-              <h3 className="text-base font-medium text-gray-900 dark:text-white mb-1">{t('noObjectsFound')}</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              <h3 className="text-base font-medium text-foreground mb-1">{t('noObjectsFound')}</h3>
+              <p className="text-sm text-muted-foreground mb-4">
                 {searchTerm ? t('tryAdjustingSearch') : t('emptyBucketHint')}
               </p>
               {!searchTerm && !isGlobalAdminInTenantBucket && (
@@ -1105,7 +1105,7 @@ export default function BucketDetailsPage() {
                 </div>
               )}
               {!searchTerm && isGlobalAdminInTenantBucket && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                <p className="text-xs text-muted-foreground mt-2">
                   {t('globalAdminReadOnlyHint')}
                 </p>
               )}
@@ -1140,7 +1140,7 @@ export default function BucketDetailsPage() {
               </TableHeader>
               <TableBody>
                 {filteredItems.map((item) => (
-                  <TableRow key={item.key} className="hover:bg-gradient-to-r hover:from-brand-50/30 hover:to-blue-50/30 dark:hover:from-brand-900/10 dark:hover:to-blue-900/10 transition-all duration-200 border-l-2 border-transparent hover:border-brand-500">
+                  <TableRow key={item.key}>
                     {!isGlobalAdminInTenantBucket && (
                       <TableCell>
                         <input
@@ -1166,7 +1166,7 @@ export default function BucketDetailsPage() {
                           </>
                         ) : (
                           <>
-                            <FileIcon className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+                            <FileIcon className="h-4 w-4 text-muted-foreground" />
                             <span>{getDisplayName(item)}</span>
                             {sharesMap[item.key] && (
                               <span title="This object is shared">
@@ -1392,7 +1392,7 @@ export default function BucketDetailsPage() {
           </div>
 
           <div>
-            <label htmlFor="folderName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label htmlFor="folderName" className="block text-sm font-medium text-foreground mb-2">
               {t('folderNameLabel')} *
             </label>
             <Input
@@ -1403,26 +1403,26 @@ export default function BucketDetailsPage() {
               required
               pattern="^[a-zA-Z0-9][a-zA-Z0-9\-_]{0,254}$"
               title={t('folderNameValidation')}
-              className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white"
+              className="bg-card border-border text-foreground"
             />
             {currentPrefix ? (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+              <p className="text-xs text-muted-foreground mt-2">
                 {t('fullPathWithPrefix', { prefix: currentPrefix, name: newFolderName })}
               </p>
             ) : (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+              <p className="text-xs text-muted-foreground mt-2">
                 {t('fullPath', { name: newFolderName })}
               </p>
             )}
           </div>
 
-          <div className="flex justify-end space-x-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex justify-end space-x-2 pt-4 border-t border-border">
             <Button
               type="button"
               variant="outline"
               onClick={() => setIsCreateFolderModalOpen(false)}
               disabled={createFolderMutation.isPending}
-              className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white"
+              className="bg-card hover:bg-secondary border-border text-foreground"
             >
               {t('cancel')}
             </Button>

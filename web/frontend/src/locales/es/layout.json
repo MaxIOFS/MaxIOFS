@@ -33,5 +33,7 @@
   "spanish": "Español",
   "openMenu": "Abrir menú de navegación",
   "closeNavigation": "Cerrar navegación",
-  "openNotifications": "Abrir notificaciones"
+  "openNotifications": "Abrir notificaciones",
+  "collapseSidebar": "Contraer",
+  "expandSidebar": "Expandir"
 }

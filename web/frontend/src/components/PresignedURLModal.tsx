@@ -109,13 +109,13 @@ export function PresignedURLModal({
               <select
                 value={method}
                 onChange={(e) => setMethod(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                className="w-full px-3 py-2 border border-border rounded-md bg-card text-foreground"
               >
                 <option value="GET">GET (Download)</option>
                 <option value="PUT">PUT (Upload)</option>
                 <option value="HEAD">HEAD (Metadata)</option>
               </select>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Select the HTTP method the presigned URL will allow
               </p>
             </div>
@@ -125,7 +125,7 @@ export function PresignedURLModal({
               <select
                 value={expiresIn}
                 onChange={(e) => setExpiresIn(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                className="w-full px-3 py-2 border border-border rounded-md bg-card text-foreground"
               >
                 <option value="300">5 minutes</option>
                 <option value="900">15 minutes</option>
@@ -137,7 +137,7 @@ export function PresignedURLModal({
                 <option value="86400">24 hours</option>
                 <option value="604800">7 days (maximum)</option>
               </select>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 The URL will expire in {formatExpirationTime()}
               </p>
             </div>
@@ -166,8 +166,8 @@ export function PresignedURLModal({
           <>
             <div>
               <label className="block text-sm font-medium mb-2">Generated Presigned URL</label>
-              <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded border border-gray-200 dark:border-gray-700">
-                <code className="text-xs break-all text-gray-900 dark:text-white">{generatedURL}</code>
+              <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded border border-border">
+                <code className="text-xs break-all text-foreground">{generatedURL}</code>
               </div>
             </div>
 

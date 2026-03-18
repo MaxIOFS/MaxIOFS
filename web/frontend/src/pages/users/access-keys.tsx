@@ -134,27 +134,27 @@ export default function AccessKeysPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('accessKeysTitle')}</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <h1 className="text-2xl font-bold text-foreground">{t('accessKeysTitle')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             {t('manageAccessKeys')}
           </p>
         </div>
       </div>
 
       {/* Access Keys Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t('accessKeysCount', { count: filteredKeys.length })}</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('allAccessKeysDesc')}</p>
+      <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden">
+        <div className="px-6 py-5 border-b border-border">
+          <h3 className="text-lg font-semibold text-foreground">{t('accessKeysCount', { count: filteredKeys.length })}</h3>
+          <p className="text-sm text-muted-foreground mt-1">{t('allAccessKeysDesc')}</p>
 
           {/* Search */}
           <div className="mt-4 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 h-5 w-5" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-5 w-5" />
             <Input
               placeholder={t('searchByKeyOrUser')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              className="pl-10 bg-card text-foreground border-border"
             />
           </div>
         </div>
@@ -181,31 +181,31 @@ export default function AccessKeysPage() {
                   <TableRow key={key.id}>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Key className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+                        <Key className="h-4 w-4 text-muted-foreground" />
                         <code className="text-sm bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">{key.id}</code>
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <User className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+                        <User className="h-4 w-4 text-muted-foreground" />
                         <span>{getUserName(key.userId)}</span>
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Calendar className="h-3 w-3" />
                         {formatDate(key.createdAt)}
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         {key.lastUsed ? (
                           <>
                             <Calendar className="h-3 w-3" />
                             {formatDate(key.lastUsed)}
                           </>
                         ) : (
-                          <span className="text-gray-400 dark:text-gray-500">{t('never')}</span>
+                          <span className="text-muted-foreground">{t('never')}</span>
                         )}
                       </div>
                     </TableCell>

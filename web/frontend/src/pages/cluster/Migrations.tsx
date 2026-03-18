@@ -66,33 +66,30 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+    <div className="bg-card rounded-lg shadow">
       {/* Header with actions */}
-      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 space-y-4">
+      <div className="px-6 py-4 border-b border-border space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t('bucketMigrationsTitle')}</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">{t('moveBucketsDesc')}</p>
+            <h3 className="text-lg font-semibold text-foreground">{t('bucketMigrationsTitle')}</h3>
+            <p className="text-sm text-muted-foreground">{t('moveBucketsDesc')}</p>
           </div>
-          <button
-            onClick={() => setShowMigrateDialog(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
-          >
+          <Button variant="default" onClick={() => setShowMigrateDialog(true)}>
             <ArrowRightLeft className="w-4 h-4" />
             {t('migrateBucket')}
-          </button>
+          </Button>
         </div>
 
         {/* Filter buttons */}
         <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+          <Filter className="w-4 h-4 text-muted-foreground" />
           <div className="flex gap-2">
             <button
               onClick={() => setFilter('all')}
               className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                 filter === 'all'
                   ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  : 'bg-gray-100 dark:bg-gray-700 text-foreground hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               {t('allMigrations', { count: migrations.length })}
@@ -102,7 +99,7 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
               className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                 filter === 'active'
                   ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  : 'bg-gray-100 dark:bg-gray-700 text-foreground hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               {t('activeMigrations', { count: migrations.filter(m => m.status === 'pending' || m.status === 'in_progress').length })}
@@ -112,7 +109,7 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
               className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                 filter === 'completed'
                   ? 'bg-green-600 text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  : 'bg-gray-100 dark:bg-gray-700 text-foreground hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               {t('completedMigrations', { count: migrations.filter(m => m.status === 'completed').length })}
@@ -122,7 +119,7 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
               className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                 filter === 'failed'
                   ? 'bg-red-600 text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  : 'bg-gray-100 dark:bg-gray-700 text-foreground hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               {t('failedMigrations', { count: migrations.filter(m => m.status === 'failed' || m.status === 'cancelled').length })}
@@ -134,16 +131,16 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
       {/* Migrations Table */}
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+          <thead className="bg-gray-50 dark:bg-gray-900 border-b border-border">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colId')}</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colBucket')}</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colSourceTarget')}</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colStatus')}</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colProgress')}</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colDataSize')}</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colStarted')}</th>
-              <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t('colActions')}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase tracking-wider">{t('colId')}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase tracking-wider">{t('colBucket')}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase tracking-wider">{t('colSourceTarget')}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase tracking-wider">{t('colStatus')}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase tracking-wider">{t('colProgress')}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase tracking-wider">{t('colDataSize')}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase tracking-wider">{t('colStarted')}</th>
+              <th className="px-6 py-3 text-right text-xs font-semibold text-foreground uppercase tracking-wider">{t('colActions')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -153,10 +150,10 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
                   <div className="flex flex-col items-center gap-3">
                     <ArrowRightLeft className="w-12 h-12 text-gray-400" />
                     <div>
-                      <p className="text-gray-900 dark:text-white font-medium">
+                      <p className="text-foreground font-medium">
                         {migrations.length === 0 ? t('noMigrationsYet') : t('noFilterMigrations', { filter })}
                       </p>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                      <p className="text-sm text-muted-foreground">
                         {migrations.length === 0 ? t('startMigratingBuckets') : t('tryDifferentFilter')}
                       </p>
                     </div>
@@ -167,18 +164,18 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
               filteredMigrations.map((migration) => {
                 const progress = getProgressPercentage(migration.objects_migrated, migration.objects_total);
                 return (
-                  <tr key={migration.id} className="hover:bg-gradient-to-r hover:from-brand-50/30 hover:to-blue-50/30 dark:hover:from-brand-900/10 dark:hover:to-blue-900/10 transition-all duration-200">
+                  <tr key={migration.id} className="hover:bg-secondary transition-colors duration-150">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-mono text-gray-900 dark:text-gray-300">#{migration.id}</span>
+                      <span className="text-sm font-mono text-foreground">#{migration.id}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <Box className="w-4 h-4 text-brand-600 dark:text-brand-400" />
-                        <span className="text-sm font-medium text-gray-900 dark:text-gray-300">{migration.bucket_name}</span>
+                        <span className="text-sm font-medium text-foreground">{migration.bucket_name}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-300">
+                      <div className="flex items-center gap-2 text-sm text-foreground">
                         <span className="font-mono">{migration.source_node_id}</span>
                         <ArrowRightLeft className="w-3 h-3 text-gray-400" />
                         <span className="font-mono">{migration.target_node_id}</span>
@@ -200,20 +197,20 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
                               style={{ width: `${progress}%` }}
                             />
                           </div>
-                          <span className="text-xs font-medium text-gray-900 dark:text-gray-300 w-12 text-right">{progress}%</span>
+                          <span className="text-xs font-medium text-foreground w-12 text-right">{progress}%</span>
                         </div>
-                        <div className="text-xs text-gray-600 dark:text-gray-400">
+                        <div className="text-xs text-muted-foreground">
                           {t('objectsProgress', { migrated: migration.objects_migrated.toLocaleString(), total: migration.objects_total.toLocaleString() })}
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900 dark:text-gray-300">
+                      <div className="text-sm text-foreground">
                         {formatBytes(migration.bytes_migrated)} / {formatBytes(migration.bytes_total)}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400">
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
                         <Clock className="w-3 h-3" />
                         {migration.started_at ? new Date(migration.started_at).toLocaleString() : '-'}
                       </div>
@@ -303,15 +300,15 @@ function MigrateBucketDialog({
 
   return (
     <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{t('migrateBucketTitle')}</h2>
+      <div className="bg-card rounded-lg shadow-xl w-full max-w-md p-6">
+        <h2 className="text-xl font-bold text-foreground mb-4">{t('migrateBucketTitle')}</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('bucketLabel')}</label>
+            <label className="block text-sm font-medium text-foreground mb-1">{t('bucketLabel')}</label>
             <select
               value={bucket}
               onChange={(e) => setBucket(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground"
               required
               disabled={!!selectedBucket}
             >
@@ -325,11 +322,11 @@ function MigrateBucketDialog({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('targetNodeLabel')}</label>
+            <label className="block text-sm font-medium text-foreground mb-1">{t('targetNodeLabel')}</label>
             <select
               value={targetNodeId}
               onChange={(e) => setTargetNodeId(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground"
               required
             >
               <option value="">{t('selectTargetNodeOption')}</option>
@@ -345,7 +342,7 @@ function MigrateBucketDialog({
                   </option>
                 ))}
             </select>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               {sourceNodeId
                 ? t('onlyHealthyNodesExcluding', { id: sourceNodeId })
                 : t('onlyHealthyNodes')}
@@ -358,9 +355,9 @@ function MigrateBucketDialog({
                 type="checkbox"
                 checked={verifyData}
                 onChange={(e) => setVerifyData(e.target.checked)}
-                className="rounded border-gray-300 dark:border-gray-600"
+                className="rounded border-border"
               />
-              <span className="text-sm text-gray-700 dark:text-gray-300">{t('verifyDataIntegrity')}</span>
+              <span className="text-sm text-foreground">{t('verifyDataIntegrity')}</span>
             </label>
 
             <label className="flex items-center gap-2">
@@ -368,9 +365,9 @@ function MigrateBucketDialog({
                 type="checkbox"
                 checked={deleteSource}
                 onChange={(e) => setDeleteSource(e.target.checked)}
-                className="rounded border-gray-300 dark:border-gray-600"
+                className="rounded border-border"
               />
-              <span className="text-sm text-gray-700 dark:text-gray-300">{t('deleteSourceData')}</span>
+              <span className="text-sm text-foreground">{t('deleteSourceData')}</span>
             </label>
           </div>
 
@@ -381,19 +378,12 @@ function MigrateBucketDialog({
           </div>
 
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
+            <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
               {t('cancel')}
-            </button>
-            <button
-              type="submit"
-              className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-            >
+            </Button>
+            <Button type="submit" className="flex-1">
               {t('startMigration')}
-            </button>
+            </Button>
           </div>
         </form>
       </div>
@@ -470,8 +460,8 @@ export default function ClusterMigrations() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('bucketMigrationsTitle')}</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <h1 className="text-2xl font-bold text-foreground">{t('bucketMigrationsTitle')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             {t('bucketMigrationsDesc')}
           </p>
         </div>

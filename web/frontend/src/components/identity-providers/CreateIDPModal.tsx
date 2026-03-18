@@ -112,13 +112,13 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
         {/* Basic Info */}
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('name')}</label>
+            <label className="block text-sm font-medium text-foreground mb-1">{t('name')}</label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('namePlaceholder')} />
           </div>
 
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('type')}</label>
+              <label className="block text-sm font-medium text-foreground mb-2">{t('type')}</label>
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
@@ -126,12 +126,12 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
                   className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all ${
                     type === 'ldap'
                       ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                      : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                      : 'border-border hover:border-gray-300'
                   }`}
                 >
                   <Globe className={`h-6 w-6 ${type === 'ldap' ? 'text-blue-600' : 'text-gray-400'}`} />
                   <div className="text-left">
-                    <p className="font-medium text-gray-900 dark:text-white text-sm">{t('ldapTitle')}</p>
+                    <p className="font-medium text-foreground text-sm">{t('ldapTitle')}</p>
                     <p className="text-xs text-gray-500">{t('ldapDesc')}</p>
                   </div>
                 </button>
@@ -141,12 +141,12 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
                   className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all ${
                     type === 'oauth2'
                       ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
-                      : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                      : 'border-border hover:border-gray-300'
                   }`}
                 >
                   <Shield className={`h-6 w-6 ${type === 'oauth2' ? 'text-purple-600' : 'text-gray-400'}`} />
                   <div className="text-left">
-                    <p className="font-medium text-gray-900 dark:text-white text-sm">{t('oauthTitle')}</p>
+                    <p className="font-medium text-foreground text-sm">{t('oauthTitle')}</p>
                     <p className="text-xs text-gray-500">{t('oauthDesc')}</p>
                   </div>
                 </button>
@@ -155,11 +155,11 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('status')}</label>
+            <label className="block text-sm font-medium text-foreground mb-1">{t('status')}</label>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value as any)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white"
+              className="w-full px-3 py-2 border border-border rounded-lg bg-card text-sm text-foreground"
             >
               <option value="testing">{t('statusTesting')}</option>
               <option value="active">{t('statusActive')}</option>
@@ -169,11 +169,11 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
 
           {isGlobalAdmin && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('tenant')}</label>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('tenant')}</label>
               <select
                 value={tenantId}
                 onChange={(e) => setTenantId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white"
+                className="w-full px-3 py-2 border border-border rounded-lg bg-card text-sm text-foreground"
               >
                 <option value="">{t('globalAllTenants')}</option>
                 {(tenants || []).map((t: Tenant) => (
@@ -192,7 +192,7 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
         )}
       </div>
 
-      <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+      <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-border">
         <Button variant="secondary" onClick={onClose}>{t('cancel')}</Button>
         <Button onClick={handleSubmit} disabled={createMutation.isPending || !name}>
           {createMutation.isPending ? t('saving') : isEdit ? t('update') : t('create')}
@@ -208,20 +208,20 @@ function LDAPFields({ config, onChange }: { config: LDAPConfig; onChange: (c: LD
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">{t('connection')}</h3>
+      <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2">{t('connection')}</h3>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('host')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('host')}</label>
           <Input value={config.host} onChange={(e) => update('host', e.target.value)} placeholder="ldap.company.com" />
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('port')}</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">{t('port')}</label>
             <Input type="number" value={config.port} onChange={(e) => update('port', parseInt(e.target.value) || 389)} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('security')}</label>
-            <select value={config.security} onChange={(e) => update('security', e.target.value)} className="w-full px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
+            <label className="block text-xs font-medium text-muted-foreground mb-1">{t('security')}</label>
+            <select value={config.security} onChange={(e) => update('security', e.target.value)} className="w-full px-2 py-2 border border-border rounded-lg bg-card text-sm text-foreground">
               <option value="none">{t('securityNone')}</option>
               <option value="tls">{t('securityTLS')}</option>
               <option value="starttls">{t('securityStartTLS')}</option>
@@ -231,57 +231,57 @@ function LDAPFields({ config, onChange }: { config: LDAPConfig; onChange: (c: LD
       </div>
       <div className="grid grid-cols-1 gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('bindDn')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('bindDn')}</label>
           <Input value={config.bind_dn} onChange={(e) => update('bind_dn', e.target.value)} placeholder="cn=readonly,dc=company,dc=com" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('bindPassword')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('bindPassword')}</label>
           <Input type="password" value={config.bind_password} onChange={(e) => update('bind_password', e.target.value)} placeholder="********" />
         </div>
       </div>
 
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2 pt-2">{t('ldapSearch')}</h3>
+      <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2 pt-2">{t('ldapSearch')}</h3>
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('baseDn')}</label>
+        <label className="block text-xs font-medium text-muted-foreground mb-1">{t('baseDn')}</label>
         <Input value={config.base_dn} onChange={(e) => update('base_dn', e.target.value)} placeholder="dc=company,dc=com" />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('userSearchBase')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('userSearchBase')}</label>
           <Input value={config.user_search_base} onChange={(e) => update('user_search_base', e.target.value)} placeholder="ou=Users" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('userFilter')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('userFilter')}</label>
           <Input value={config.user_filter} onChange={(e) => update('user_filter', e.target.value)} placeholder="(objectClass=person)" />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('groupSearchBase')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('groupSearchBase')}</label>
           <Input value={config.group_search_base} onChange={(e) => update('group_search_base', e.target.value)} placeholder="ou=Groups" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('groupFilter')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('groupFilter')}</label>
           <Input value={config.group_filter} onChange={(e) => update('group_filter', e.target.value)} placeholder="(objectClass=group)" />
         </div>
       </div>
 
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2 pt-2">{t('attributeMapping')}</h3>
+      <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2 pt-2">{t('attributeMapping')}</h3>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('usernameAttribute')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('usernameAttribute')}</label>
           <Input value={config.attr_username} onChange={(e) => update('attr_username', e.target.value)} placeholder="sAMAccountName" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('emailAttribute')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('emailAttribute')}</label>
           <Input value={config.attr_email} onChange={(e) => update('attr_email', e.target.value)} placeholder="mail" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('displayNameAttribute')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('displayNameAttribute')}</label>
           <Input value={config.attr_display_name} onChange={(e) => update('attr_display_name', e.target.value)} placeholder="displayName" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('memberOfAttribute')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('memberOfAttribute')}</label>
           <Input value={config.attr_member_of} onChange={(e) => update('attr_member_of', e.target.value)} placeholder="memberOf" />
         </div>
       </div>
@@ -297,11 +297,11 @@ function OAuthFields({ config, onChange, onPresetChange }: { config: OAuth2Confi
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('preset')}</label>
+        <label className="block text-sm font-medium text-foreground mb-1">{t('preset')}</label>
         <select
           value={config.preset}
           onChange={(e) => onPresetChange(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white"
+          className="w-full px-3 py-2 border border-border rounded-lg bg-card text-sm text-foreground"
         >
           <option value="custom">{t('presetCustom')}</option>
           <option value="google">{t('presetGoogle')}</option>
@@ -311,55 +311,55 @@ function OAuthFields({ config, onChange, onPresetChange }: { config: OAuth2Confi
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('clientId')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('clientId')}</label>
           <Input value={config.client_id} onChange={(e) => update('client_id', e.target.value)} placeholder="your-client-id" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('clientSecret')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('clientSecret')}</label>
           <Input type="password" value={config.client_secret} onChange={(e) => update('client_secret', e.target.value)} placeholder="your-client-secret" />
         </div>
       </div>
 
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2 pt-2">{t('endpoints')}</h3>
+      <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2 pt-2">{t('endpoints')}</h3>
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('authorizationUrl')}</label>
+        <label className="block text-xs font-medium text-muted-foreground mb-1">{t('authorizationUrl')}</label>
         <Input value={config.auth_url} onChange={(e) => update('auth_url', e.target.value)} placeholder="https://provider.com/authorize" />
       </div>
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('tokenUrl')}</label>
+        <label className="block text-xs font-medium text-muted-foreground mb-1">{t('tokenUrl')}</label>
         <Input value={config.token_url} onChange={(e) => update('token_url', e.target.value)} placeholder="https://provider.com/token" />
       </div>
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('userInfoUrl')}</label>
+        <label className="block text-xs font-medium text-muted-foreground mb-1">{t('userInfoUrl')}</label>
         <Input value={config.userinfo_url} onChange={(e) => update('userinfo_url', e.target.value)} placeholder="https://provider.com/userinfo" />
       </div>
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('redirectUri')}</label>
+        <label className="block text-xs font-medium text-muted-foreground mb-1">{t('redirectUri')}</label>
         <Input value={config.redirect_uri} onChange={(e) => update('redirect_uri', e.target.value)} placeholder={callbackUrl} />
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+        <p className="text-xs text-muted-foreground mt-1">
           {t('redirectUriHelp')} <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded text-xs select-all cursor-pointer" title="Click to select">{callbackUrl}</code>
           <br />{t('redirectUriConfigure')}
         </p>
       </div>
 
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2 pt-2">{t('claimMapping')}</h3>
+      <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2 pt-2">{t('claimMapping')}</h3>
       <div className="grid grid-cols-3 gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('emailClaim')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('emailClaim')}</label>
           <Input value={config.claim_email} onChange={(e) => update('claim_email', e.target.value)} placeholder="email" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('nameClaim')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('nameClaim')}</label>
           <Input value={config.claim_name} onChange={(e) => update('claim_name', e.target.value)} placeholder="name" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('groupsClaim')}</label>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('groupsClaim')}</label>
           <Input value={config.claim_groups} onChange={(e) => update('claim_groups', e.target.value)} placeholder="groups (optional)" />
         </div>
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('scopes')}</label>
+        <label className="block text-xs font-medium text-muted-foreground mb-1">{t('scopes')}</label>
         <Input value={(config.scopes || []).join(', ')} onChange={(e) => update('scopes', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))} placeholder="openid, profile, email" />
       </div>
     </div>

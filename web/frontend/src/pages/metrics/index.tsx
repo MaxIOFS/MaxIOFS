@@ -258,14 +258,14 @@ export default function MetricsPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('metricsDashboard')}</h1>
-          <p className="text-gray-500 dark:text-gray-400">
+          <h1 className="text-2xl font-bold text-foreground">{t('metricsDashboard')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             {t('realTimeMonitoring')}
           </p>
         </div>
         <div className="flex items-center space-x-4">
           <TimeRangeSelector selected={timeRange} onChange={setTimeRange} />
-          <div className="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
+          <div className="flex items-center space-x-2 text-sm text-muted-foreground">
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
             <span>{t('live')}</span>
           </div>
@@ -273,7 +273,7 @@ export default function MetricsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+      <div className="bg-card rounded-lg border border-border shadow-sm">
         <div className="p-6">
           {/* Tabs Navigation */}
           <div className="flex space-x-1 bg-gray-100 dark:bg-gray-900 rounded-lg p-1 mb-6">
@@ -285,8 +285,8 @@ export default function MetricsPage() {
                   onClick={() => setActiveTab(tab.id as any)}
                   className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 font-medium text-sm rounded-md transition-all duration-200 ${
                     activeTab === tab.id
-                      ? 'bg-white dark:bg-gray-800 text-brand-600 dark:text-brand-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                      ? 'bg-card text-brand-600 dark:text-brand-400 shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   <Icon className="h-4 w-4" />
@@ -364,7 +364,7 @@ export default function MetricsPage() {
                   />
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+                <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                   <AlertCircle className="h-12 w-12 mb-4" />
                   <p className="text-lg font-medium">{t('noHistoricalData')}</p>
                   <p className="text-sm">{t('metricsWillAppear')}</p>
@@ -476,7 +476,7 @@ export default function MetricsPage() {
                   />
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+                <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                   <AlertCircle className="h-12 w-12 mb-4" />
                   <p className="text-lg font-medium">{t('noHistoricalData')}</p>
                   <p className="text-sm">{t('metricsWillAppear')}</p>
@@ -551,7 +551,7 @@ export default function MetricsPage() {
                   />
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+                <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                   <AlertCircle className="h-12 w-12 mb-4" />
                   <p className="text-lg font-medium">{t('noStorageHistory')}</p>
                   <p className="text-sm">{t('historicalStorageMetrics')}</p>
@@ -665,7 +665,7 @@ export default function MetricsPage() {
                   />
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+                <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                   <AlertCircle className="h-12 w-12 mb-4" />
                   <p className="text-lg font-medium">{t('noApiHistory')}</p>
                   <p className="text-sm">{t('requestMetricsWillAppear')}</p>
@@ -685,7 +685,7 @@ export default function MetricsPage() {
                 <>
                   {/* Section 1: General Overview */}
                   <div>
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">
+                    <h3 className="text-sm font-semibold text-foreground mb-3 uppercase tracking-wide">
                       {t('tabOverview')}
                     </h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -726,7 +726,7 @@ export default function MetricsPage() {
 
                   {/* Section 2: Real-time Throughput */}
                   <div>
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">
+                    <h3 className="text-sm font-semibold text-foreground mb-3 uppercase tracking-wide">
                       {t('realtimeThroughput')}
                     </h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -768,7 +768,7 @@ export default function MetricsPage() {
 
                   {/* Section 3: Operation Latencies */}
                   <div>
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">
+                    <h3 className="text-sm font-semibold text-foreground mb-3 uppercase tracking-wide">
                       {t('operationLatencies')}
                     </h3>
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -790,10 +790,10 @@ export default function MetricsPage() {
                         return (
                           <div
                             key={operation}
-                            className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+                            className="bg-card rounded-lg border border-border p-4"
                           >
                             <div className="flex items-center justify-between mb-4">
-                              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                              <h3 className="text-lg font-semibold text-foreground">
                                 {operation}
                               </h3>
                               {stats.count > 0 ? (
@@ -809,51 +809,51 @@ export default function MetricsPage() {
                                   {stats.success_rate.toFixed(2)}% {t('requestSuccess')}
                                 </span>
                               ) : (
-                                <span className="px-2 py-1 text-xs font-medium rounded bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">
+                                <span className="px-2 py-1 text-xs font-medium rounded bg-secondary text-muted-foreground">
                                   {t('noData')}
                                 </span>
                               )}
                             </div>
 
                             <div className="space-y-2">
-                              <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">{t('count')}</span>
-                                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              <div className="flex justify-between items-center py-1 border-b border-border/50">
+                                <span className="text-sm text-muted-foreground">{t('count')}</span>
+                                <span className="text-sm font-medium text-foreground">
                                   {formatNumber(stats.count)}
                                 </span>
                               </div>
-                              <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">p50</span>
-                                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              <div className="flex justify-between items-center py-1 border-b border-border/50">
+                                <span className="text-sm text-muted-foreground">p50</span>
+                                <span className="text-sm font-medium text-foreground">
                                   {stats.p50_ms.toFixed(2)} ms
                                 </span>
                               </div>
-                              <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">p95</span>
+                              <div className="flex justify-between items-center py-1 border-b border-border/50">
+                                <span className="text-sm text-muted-foreground">p95</span>
                                 <span className="text-sm font-bold text-brand-600 dark:text-brand-400">
                                   {stats.p95_ms.toFixed(2)} ms
                                 </span>
                               </div>
-                              <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">p99</span>
+                              <div className="flex justify-between items-center py-1 border-b border-border/50">
+                                <span className="text-sm text-muted-foreground">p99</span>
                                 <span className="text-sm font-medium text-orange-600 dark:text-orange-400">
                                   {stats.p99_ms.toFixed(2)} ms
                                 </span>
                               </div>
-                              <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">{t('mean')}</span>
-                                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              <div className="flex justify-between items-center py-1 border-b border-border/50">
+                                <span className="text-sm text-muted-foreground">{t('mean')}</span>
+                                <span className="text-sm font-medium text-foreground">
                                   {stats.mean_ms.toFixed(2)} ms
                                 </span>
                               </div>
-                              <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">{t('minMax')}</span>
-                                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              <div className="flex justify-between items-center py-1 border-b border-border/50">
+                                <span className="text-sm text-muted-foreground">{t('minMax')}</span>
+                                <span className="text-sm font-medium text-foreground">
                                   {stats.min_ms.toFixed(2)} / {stats.max_ms.toFixed(2)} ms
                                 </span>
                               </div>
                               {stats.error_count > 0 && (
-                                <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-700">
+                                <div className="flex justify-between items-center py-1 border-b border-border/50">
                                   <span className="text-sm text-red-600 dark:text-red-400">{t('errors')}</span>
                                   <span className="text-sm font-medium text-red-600 dark:text-red-400">
                                     {formatNumber(stats.error_count)}
@@ -874,7 +874,7 @@ export default function MetricsPage() {
                     </div>
                   ) : chartData.length > 0 ? (
                     <div>
-                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">
+                      <h3 className="text-sm font-semibold text-foreground mb-3 uppercase tracking-wide">
                         {t('historicalTrends')}
                       </h3>
                       <div className="grid gap-6 md:grid-cols-2">
@@ -905,7 +905,7 @@ export default function MetricsPage() {
                   ) : null}
 
                   {Object.keys(performanceLatencies.latencies).length === 0 && (
-                    <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+                    <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                       <AlertCircle className="h-12 w-12 mb-4" />
                       <p className="text-lg font-medium">{t('noPerformanceData')}</p>
                       <p className="text-sm">{t('s3MetricsWillAppear')}</p>
@@ -913,7 +913,7 @@ export default function MetricsPage() {
                   )}
                 </>
               ) : (
-                <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+                <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                   <AlertCircle className="h-12 w-12 mb-4" />
                   <p className="text-lg font-medium">{t('performanceCollectorNA')}</p>
                   <p className="text-sm">{t('performanceMetricsEnabled')}</p>

@@ -290,12 +290,12 @@ export default function UsersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('title')}</h1>
-          <p className="text-gray-500 dark:text-gray-400">
+          <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             {t('manageUsers')}
           </p>
         </div>
-        <Button onClick={() => setIsCreateModalOpen(true)} className="bg-brand-600 hover:bg-brand-700 text-white inline-flex items-center gap-2" variant="outline">
+        <Button onClick={() => setIsCreateModalOpen(true)} variant="default">
           <Plus className="h-4 w-4" />
           {t('createUser')}
         </Button>
@@ -337,19 +337,19 @@ export default function UsersPage() {
       </div>
 
       {/* Users Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t('allUsers', { count: filteredUsers.length })}</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('manageUserPermissions')}</p>
+      <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden">
+        <div className="px-6 py-5 border-b border-border">
+          <h3 className="text-lg font-semibold text-foreground">{t('allUsers', { count: filteredUsers.length })}</h3>
+          <p className="text-sm text-muted-foreground mt-1">{t('manageUserPermissions')}</p>
 
           {/* Search */}
           <div className="mt-4 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 h-5 w-5" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-5 w-5" />
             <Input
               placeholder={t('searchUsers')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              className="pl-10 bg-card text-foreground border-border"
             />
           </div>
         </div>
@@ -441,7 +441,7 @@ export default function UsersPage() {
                           {t('enabled')}
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border bg-gray-100 text-gray-600 border-gray-300 dark:bg-gray-500/20 dark:text-gray-400 dark:border-gray-500/30">
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border bg-gray-100 text-gray-600 border-gray-300 dark:bg-secondary text-muted-foreground border-border">
                           <KeyRound className="h-3 w-3" />
                           {t('disabled')}
                         </span>
@@ -456,7 +456,7 @@ export default function UsersPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Calendar className="h-3 w-3" />
                         {formatDate(user.createdAt)}
                       </div>
@@ -521,7 +521,7 @@ export default function UsersPage() {
       >
         <form onSubmit={handleCreateUser} className="space-y-4">
           <div>
-            <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label htmlFor="username" className="block text-sm font-medium text-foreground mb-2">
               {isExternalUser ? t('emailOptional') : t('username')}
             </label>
             <Input
@@ -530,13 +530,13 @@ export default function UsersPage() {
               value={newUser.username || ''}
               onChange={(e) => updateNewUser('username', e.target.value)}
               placeholder={isExternalUser ? 'user@example.com' : 'john.doe'}
-              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              className="bg-card text-foreground border-border"
               required
             />
           </div>
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label htmlFor="email" className="block text-sm font-medium text-foreground mb-2">
               {t('emailOptional')}
             </label>
             <Input
@@ -545,14 +545,14 @@ export default function UsersPage() {
               value={newUser.email || ''}
               onChange={(e) => updateNewUser('email', e.target.value)}
               placeholder="john.doe@example.com"
-              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              className="bg-card text-foreground border-border"
             />
           </div>
 
           {/* Auth Provider selector */}
           {oauthProviders.length > 0 && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 {t('authentication')}
               </label>
               <select
@@ -565,7 +565,7 @@ export default function UsersPage() {
                     setNewUser(prev => ({ ...prev, authProvider: value, password: '' }));
                   }
                 }}
-                className="w-full border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                className="w-full border border-border rounded-md px-3 py-2 bg-card text-foreground"
               >
                 <option value="local">{t('localPassword')}</option>
                 {oauthProviders.map((provider) => (
@@ -574,7 +574,7 @@ export default function UsersPage() {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 {isExternalUser ? t('ssoAuthDesc') : t('localAuthDesc')}
               </p>
             </div>
@@ -583,7 +583,7 @@ export default function UsersPage() {
           {/* Password - only for local users */}
           {!isExternalUser && (
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label htmlFor="password" className="block text-sm font-medium text-foreground mb-2">
                 {t('password')}
               </label>
               <Input
@@ -592,7 +592,7 @@ export default function UsersPage() {
                 value={newUser.password || ''}
                 onChange={(e) => updateNewUser('password', e.target.value)}
                 placeholder={t('enterPassword')}
-                className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                className="bg-card text-foreground border-border"
                 required
               />
             </div>
@@ -601,13 +601,13 @@ export default function UsersPage() {
           {/* Tenant selector - only for global admins */}
           {isGlobalAdmin ? (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 {t('tenantOptional')}
               </label>
               <select
                 value={newUser.tenantId || ''}
                 onChange={(e) => updateNewUser('tenantId', e.target.value)}
-                className="w-full border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                className="w-full border border-border rounded-md px-3 py-2 bg-card text-foreground"
               >
                 <option value="">{t('noTenantGlobal')}</option>
                 {tenants?.map((tenant) => (
@@ -616,53 +616,53 @@ export default function UsersPage() {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 {t('globalUsersInfo')}
               </p>
             </div>
           ) : currentUser?.tenantId && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 {t('tenant')}
               </label>
-              <div className="w-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-md px-3 py-2 text-gray-700 dark:text-gray-300">
+              <div className="w-full border border-border bg-gray-50 dark:bg-gray-800 rounded-md px-3 py-2 text-foreground">
                 {tenants?.find(ten => ten.id === currentUser.tenantId)?.displayName || t('yourTenant')}
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 {t('tenantAdminsInfo')}
               </p>
             </div>
           )}
 
           <div>
-            <label htmlFor="role" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label htmlFor="role" className="block text-sm font-medium text-foreground mb-2">
               {t('role')}
             </label>
             <select
               id="role"
               value={newUser.roles?.[0] || 'user'}
               onChange={(e) => updateNewUser('roles', [e.target.value])}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               <option value="admin">{t('adminRole')}</option>
               <option value="user">{t('userRole')}</option>
               <option value="readonly">{t('readonlyRole')}</option>
               <option value="guest">{t('guestRole')}</option>
             </select>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               {t('selectRole')}
             </p>
           </div>
 
           <div>
-            <label htmlFor="status" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label htmlFor="status" className="block text-sm font-medium text-foreground mb-2">
               {t('status')}
             </label>
             <select
               id="status"
               value={newUser.status || 'active'}
               onChange={(e) => updateNewUser('status', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               <option value="active">{t('active')}</option>
               <option value="inactive">{t('inactive')}</option>

@@ -190,16 +190,16 @@ export default function TenantsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+          <h1 className="text-2xl font-bold text-foreground">
             {isTenantAdmin ? 'Tenant Information' : t('title')}
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             {isTenantAdmin ? 'View your tenant quotas and usage' : t('manageTenantsQuotas')}
           </p>
         </div>
         {isGlobalAdmin && (
-          <Button onClick={() => setIsCreateModalOpen(true)} className="bg-brand-600 hover:bg-brand-700 text-white inline-flex items-center gap-2" variant="outline">
-            <Plus className="w-4 h-4 mr-2" />
+          <Button onClick={() => setIsCreateModalOpen(true)} variant="default">
+            <Plus className="w-4 h-4" />
             {t('createTenant')}
           </Button>
         )}
@@ -242,26 +242,26 @@ export default function TenantsPage() {
 
       {/* Search - Only show for global admins with multiple tenants */}
       {isGlobalAdmin && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md p-6">
+        <div className="bg-card rounded-xl border border-border shadow-md p-6">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-5 h-5" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-5 h-5" />
             <Input
               placeholder={t('searchPlaceholder')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              className="pl-10 bg-card text-foreground border-border"
             />
           </div>
         </div>
       )}
 
       {/* Tenants Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+      <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden">
+        <div className="px-6 py-5 border-b border-border">
+          <h3 className="text-lg font-semibold text-foreground">
             {isTenantAdmin ? 'Your Tenant Details' : t('allTenantsCount', { count: filteredTenants.length })}
           </h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             {isTenantAdmin ? 'View your quotas and current usage' : t('manageTenantQuotas')}
           </p>
         </div>
@@ -297,10 +297,10 @@ export default function TenantsPage() {
                 <TableRow key={tenant.id}>
                   <TableCell>
                     <div>
-                      <div className="font-medium text-gray-900 dark:text-white">{tenant.displayName}</div>
-                      <div className="text-sm text-gray-500 dark:text-gray-400">{tenant.name}</div>
+                      <div className="font-medium text-foreground">{tenant.displayName}</div>
+                      <div className="text-sm text-muted-foreground">{tenant.name}</div>
                       {tenant.description && (
-                        <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">{tenant.description}</div>
+                        <div className="text-xs text-muted-foreground mt-1">{tenant.description}</div>
                       )}
                     </div>
                   </TableCell>
@@ -321,10 +321,10 @@ export default function TenantsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="space-y-1">
-                      <div className="text-sm text-gray-900 dark:text-white">
+                      <div className="text-sm text-foreground">
                         {formatBytes(tenant.currentStorageBytes || 0)} / {formatBytes(tenant.maxStorageBytes)}
                       </div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                      <div className="text-xs text-muted-foreground">
                         {(() => {
                           const remaining = tenant.maxStorageBytes - (tenant.currentStorageBytes || 0);
                           if (remaining < 0) {
@@ -363,26 +363,26 @@ export default function TenantsPage() {
                   </TableCell>
                   <TableCell>
                     <div>
-                      <div className="text-sm font-medium text-gray-900 dark:text-white">
+                      <div className="text-sm font-medium text-foreground">
                         {tenant.currentBuckets || 0} / {tenant.maxBuckets}
                       </div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                      <div className="text-xs text-muted-foreground">
                         {t('available', { count: tenant.maxBuckets - (tenant.currentBuckets || 0) })}
                       </div>
                     </div>
                   </TableCell>
                   <TableCell>
                     <div>
-                      <div className="text-sm font-medium text-gray-900 dark:text-white">
+                      <div className="text-sm font-medium text-foreground">
                         {tenant.currentAccessKeys || 0} / {tenant.maxAccessKeys}
                       </div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                      <div className="text-xs text-muted-foreground">
                         {t('available', { count: tenant.maxAccessKeys - (tenant.currentAccessKeys || 0) })}
                       </div>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                    <div className="text-sm text-muted-foreground">
                       {new Date(tenant.createdAt * 1000).toLocaleDateString()}
                     </div>
                   </TableCell>
@@ -425,70 +425,70 @@ export default function TenantsPage() {
       >
         <form onSubmit={handleCreateTenant} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('tenantNameId')}</label>
+            <label className="block text-sm font-medium text-foreground mb-1">{t('tenantNameId')}</label>
             <Input
               value={newTenant.name || ''}
               onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })}
               placeholder={t('tenantNamePlaceholder')}
-              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              className="bg-card text-foreground border-border"
               required
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('tenantNameHelp')}</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('tenantNameHelp')}</p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('displayName')}</label>
+            <label className="block text-sm font-medium text-foreground mb-1">{t('displayName')}</label>
             <Input
               value={newTenant.displayName || ''}
               onChange={(e) => setNewTenant({ ...newTenant, displayName: e.target.value })}
               placeholder={t('displayNamePlaceholder')}
-              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              className="bg-card text-foreground border-border"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('description')}</label>
+            <label className="block text-sm font-medium text-foreground mb-1">{t('description')}</label>
             <Input
               value={newTenant.description || ''}
               onChange={(e) => setNewTenant({ ...newTenant, description: e.target.value })}
               placeholder={t('descriptionPlaceholder')}
-              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              className="bg-card text-foreground border-border"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maxAccessKeys')}</label>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('maxAccessKeys')}</label>
               <Input
                 type="number"
                 value={newTenant.maxAccessKeys || 10}
                 onChange={(e) => setNewTenant({ ...newTenant, maxAccessKeys: parseInt(e.target.value) })}
                 min="1"
-                className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                className="bg-card text-foreground border-border"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maxBuckets')}</label>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('maxBuckets')}</label>
               <Input
                 type="number"
                 value={newTenant.maxBuckets || 100}
                 onChange={(e) => setNewTenant({ ...newTenant, maxBuckets: parseInt(e.target.value) })}
                 min="1"
-                className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                className="bg-card text-foreground border-border"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maxStorageGb')}</label>
+            <label className="block text-sm font-medium text-foreground mb-1">{t('maxStorageGb')}</label>
             <Input
               type="number"
               value={Math.round((newTenant.maxStorageBytes || 107374182400) / (1024 * 1024 * 1024))}
               onChange={(e) => setNewTenant({ ...newTenant, maxStorageBytes: parseInt(e.target.value) * 1024 * 1024 * 1024 })}
               min="1"
-              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              className="bg-card text-foreground border-border"
             />
           </div>
 
@@ -515,30 +515,30 @@ export default function TenantsPage() {
         >
           <form onSubmit={handleUpdateTenant} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('displayName')}</label>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('displayName')}</label>
               <Input
                 value={selectedTenant.displayName || ''}
                 onChange={(e) => setSelectedTenant({ ...selectedTenant, displayName: e.target.value })}
-                className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                className="bg-card text-foreground border-border"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('description')}</label>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('description')}</label>
               <Input
                 value={selectedTenant.description || ''}
                 onChange={(e) => setSelectedTenant({ ...selectedTenant, description: e.target.value })}
-                className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                className="bg-card text-foreground border-border"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('status')}</label>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('status')}</label>
               <select
                 value={selectedTenant.status}
                 onChange={(e) => setSelectedTenant({ ...selectedTenant, status: e.target.value as 'active' | 'inactive' })}
-                className="w-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md px-3 py-2"
+                className="w-full border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md px-3 py-2"
               >
                 <option value="active">{t('active')}</option>
                 <option value="inactive">{t('inactive')}</option>
@@ -547,36 +547,36 @@ export default function TenantsPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maxAccessKeys')}</label>
+                <label className="block text-sm font-medium text-foreground mb-1">{t('maxAccessKeys')}</label>
                 <Input
                   type="number"
                   value={selectedTenant.maxAccessKeys}
                   onChange={(e) => setSelectedTenant({ ...selectedTenant, maxAccessKeys: parseInt(e.target.value) })}
                   min="1"
-                  className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                  className="bg-card text-foreground border-border"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maxBuckets')}</label>
+                <label className="block text-sm font-medium text-foreground mb-1">{t('maxBuckets')}</label>
                 <Input
                   type="number"
                   value={selectedTenant.maxBuckets}
                   onChange={(e) => setSelectedTenant({ ...selectedTenant, maxBuckets: parseInt(e.target.value) })}
                   min="1"
-                  className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                  className="bg-card text-foreground border-border"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maxStorageGb')}</label>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('maxStorageGb')}</label>
               <Input
                 type="number"
                 value={Math.round(selectedTenant.maxStorageBytes / (1024 * 1024 * 1024))}
                 onChange={(e) => setSelectedTenant({ ...selectedTenant, maxStorageBytes: parseInt(e.target.value) * 1024 * 1024 * 1024 })}
                 min="1"
-                className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                className="bg-card text-foreground border-border"
               />
             </div>
 

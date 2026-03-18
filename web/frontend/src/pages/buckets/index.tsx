@@ -417,7 +417,7 @@ export default function BucketsPage() {
     if (!state) {
       return {
         icon: <ShieldCheck className="h-4 w-4" />,
-        className: 'p-2 text-gray-500 dark:text-gray-400 hover:text-success-600 dark:hover:text-success-400 hover:bg-success-50 dark:hover:bg-success-900/20 rounded-lg transition-all duration-200',
+        className: 'p-2 text-muted-foreground hover:text-success-600 dark:hover:text-success-400 hover:bg-success-50 dark:hover:bg-success-900/20 rounded-lg transition-all duration-200',
         title: t('verifyIntegrity'),
         badge: null,
       };
@@ -450,7 +450,7 @@ export default function BucketsPage() {
     }
     // error
     return {
-      icon: <ShieldOff className="h-4 w-4 text-gray-400 dark:text-gray-500" />,
+      icon: <ShieldOff className="h-4 w-4 text-muted-foreground" />,
       className: 'p-2 rounded-lg transition-all duration-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700',
       title: t('lastScanFailed'),
       badge: null,
@@ -477,8 +477,8 @@ export default function BucketsPage() {
         {/* ── Header ── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('title')}</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
+            <p className="text-sm text-muted-foreground mt-1">
               {t('manageBuckets')}
             </p>
           </div>
@@ -487,13 +487,13 @@ export default function BucketsPage() {
               variant="outline"
               onClick={handleRefresh}
               title={tc('refresh')}
-              className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 shadow-sm"
+              className="bg-card hover:bg-secondary border-border text-foreground shadow-sm"
             >
               <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
             </Button>
             <Button
+              variant="default"
               onClick={() => navigate('/buckets/create')}
-              className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md hover:shadow-lg transition-all duration-200 inline-flex items-center gap-2"
             >
               <Plus className="h-4 w-4" />
               {t('createBucket')}
@@ -535,24 +535,24 @@ export default function BucketsPage() {
         </div>
 
         {/* ── Search ── */}
-        <div className="bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-4">
+        <div className="bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-800/50 rounded-xl border border-border shadow-sm p-4">
           <div className="relative max-w-md">
             <div className="absolute left-4 top-1/2 transform -translate-y-1/2">
-              <Search className="text-gray-400 dark:text-gray-500 h-5 w-5" />
+              <Search className="text-muted-foreground h-5 w-5" />
             </div>
             <Input
               placeholder={t('searchBuckets')}
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              className="pl-12 bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 rounded-lg shadow-sm"
+              className="pl-12 bg-card border-border text-foreground focus:ring-2 focus:ring-brand-500 focus:border-brand-500 rounded-lg shadow-sm"
             />
           </div>
         </div>
 
         {/* ── Table ── */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+        <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden">
+          <div className="px-6 py-5 border-b border-border">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
               <Box className="h-5 w-5 text-brand-600 dark:text-brand-400" />
               {t('allBuckets', { count: sortedBuckets.length })}
             </h3>
@@ -575,7 +575,7 @@ export default function BucketsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>
-                      <button onClick={() => handleSort('name')} className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
+                      <button onClick={() => handleSort('name')} className="flex items-center gap-2 text-xs font-semibold text-foreground uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
                         {t('name')} {sortIcon('name')}
                       </button>
                     </TableHead>
@@ -583,17 +583,17 @@ export default function BucketsPage() {
                     <TableHead>{t('nodeColumn')}</TableHead>
                     <TableHead>{t('owner')}</TableHead>
                     <TableHead>
-                      <button onClick={() => handleSort('objectCount')} className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
+                      <button onClick={() => handleSort('objectCount')} className="flex items-center gap-2 text-xs font-semibold text-foreground uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
                         {t('objects')} {sortIcon('objectCount')}
                       </button>
                     </TableHead>
                     <TableHead>
-                      <button onClick={() => handleSort('size')} className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
+                      <button onClick={() => handleSort('size')} className="flex items-center gap-2 text-xs font-semibold text-foreground uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
                         {t('size')} {sortIcon('size')}
                       </button>
                     </TableHead>
                     <TableHead>
-                      <button onClick={() => handleSort('creationDate')} className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
+                      <button onClick={() => handleSort('creationDate')} className="flex items-center gap-2 text-xs font-semibold text-foreground uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
                         {t('created')} {sortIcon('creationDate')}
                       </button>
                     </TableHead>
@@ -614,44 +614,37 @@ export default function BucketsPage() {
 
                         {/* Name */}
                         <TableCell className="whitespace-nowrap">
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br from-brand-50 to-blue-50 dark:from-brand-900/30 dark:to-blue-900/30 shadow-sm">
-                              <Box className="h-4 w-4 text-brand-600 dark:text-brand-400" />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <Link
-                                  to={bucketPath}
-                                  className="text-sm font-semibold text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 transition-colors"
-                                >
-                                  {bucket.name}
-                                </Link>
-                                {/* Scanning badge inline with name */}
-                                {scanState?.phase === 'running' && (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">
-                                    <Clock className="h-2.5 w-2.5 animate-spin" />
-                                    {(() => {
-                                      const cnt = bucket.object_count ?? bucket.objectCount ?? 0;
-                                      return cnt > 0
-                                        ? `${Math.min(100, Math.round(((scanState.checked) / cnt) * 100))}%`
-                                        : t('scanning');
-                                    })()}
-                                  </span>
-                                )}
-                                {scanState?.phase === 'done' && scanState.corrupted > 0 && (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-400">
-                                    <AlertTriangle className="h-2.5 w-2.5" />
-                                    {t('issueCount', { count: scanState.corrupted })}
-                                  </span>
-                                )}
-                              </div>
-                              {bucket.objectLock?.objectLockEnabled && (
-                                <span className="inline-flex items-center gap-1 bg-gradient-to-r from-blue-100 to-cyan-100 dark:from-blue-900/40 dark:to-cyan-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-md text-xs font-medium shadow-sm mt-1">
-                                  <Lock className="h-3 w-3" />
-                                  WORM
-                                </span>
-                              )}
-                            </div>
+                          <div className="flex items-center gap-2">
+                            <Box className="h-4 w-4 text-brand-600 dark:text-brand-400 flex-shrink-0" />
+                            <Link
+                              to={bucketPath}
+                              className="text-sm font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 transition-colors"
+                            >
+                              {bucket.name}
+                            </Link>
+                            {bucket.objectLock?.objectLockEnabled && (
+                              <span className="inline-flex items-center gap-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-xs font-medium">
+                                <Lock className="h-3 w-3" />
+                                WORM
+                              </span>
+                            )}
+                            {scanState?.phase === 'running' && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">
+                                <Clock className="h-2.5 w-2.5 animate-spin" />
+                                {(() => {
+                                  const cnt = bucket.object_count ?? bucket.objectCount ?? 0;
+                                  return cnt > 0
+                                    ? `${Math.min(100, Math.round(((scanState.checked) / cnt) * 100))}%`
+                                    : t('scanning');
+                                })()}
+                              </span>
+                            )}
+                            {scanState?.phase === 'done' && scanState.corrupted > 0 && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-400">
+                                <AlertTriangle className="h-2.5 w-2.5" />
+                                {t('issueCount', { count: scanState.corrupted })}
+                              </span>
+                            )}
                           </div>
                         </TableCell>
 
@@ -666,14 +659,14 @@ export default function BucketsPage() {
                               <span className="text-sm">{bucket.node_name || bucket.nodeName}</span>
                             </div>
                           ) : (
-                            <span className="text-xs text-gray-400 dark:text-gray-500 italic">{t('local')}</span>
+                            <span className="text-xs text-muted-foreground italic">{t('local')}</span>
                           )}
                         </TableCell>
 
                         <TableCell className="whitespace-nowrap">
                           <div className="flex items-center gap-2">
-                            <OwnerIcon className="h-4 w-4 text-gray-400 dark:text-gray-500" />
-                            <span className={owner.type === 'global' ? 'text-sm text-gray-500 dark:text-gray-400 italic' : 'text-sm'}>
+                            <OwnerIcon className="h-4 w-4 text-muted-foreground" />
+                            <span className={owner.type === 'global' ? 'text-sm text-muted-foreground italic' : 'text-sm'}>
                               {owner.name}
                             </span>
                           </div>
@@ -690,7 +683,7 @@ export default function BucketsPage() {
                         </TableCell>
 
                         <TableCell className="whitespace-nowrap">
-                          <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
                             <Calendar className="h-3 w-3" />
                             {formatDate(bucket.creation_date || bucket.creationDate || '')}
                           </div>
@@ -713,7 +706,7 @@ export default function BucketsPage() {
 
                             <button
                               onClick={() => navigate(`${bucketPath}/settings`)}
-                              className="p-2 text-gray-600 dark:text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg transition-all duration-200"
+                              className="p-2 text-muted-foreground hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg transition-all duration-200"
                               title={t('settings')}
                             >
                               <Settings className="h-4 w-4" />
@@ -722,7 +715,7 @@ export default function BucketsPage() {
                             <button
                               onClick={() => handleDeleteBucket(bucket.name)}
                               disabled={deleteBucketMutation.isPending}
-                              className="p-2 text-gray-600 dark:text-gray-400 hover:text-error-600 dark:hover:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/20 rounded-lg transition-all duration-200 disabled:opacity-50"
+                              className="p-2 text-muted-foreground hover:text-error-600 dark:hover:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/20 rounded-lg transition-all duration-200 disabled:opacity-50"
                               title={t('delete')}
                             >
                               <Trash2 className="h-4 w-4" />
@@ -740,8 +733,8 @@ export default function BucketsPage() {
 
           {/* Pagination */}
           {sortedBuckets.length > 0 && (
-            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-white dark:from-gray-900 dark:to-gray-800 flex items-center justify-between">
-              <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <div className="px-6 py-4 border-t border-border bg-gradient-to-r from-gray-50 to-white dark:from-gray-900 dark:to-gray-800 flex items-center justify-between">
+              <div className="text-sm font-medium text-foreground">
                 {t('showing', {
                   start: startIndex + 1,
                   end: Math.min(startIndex + itemsPerPage, sortedBuckets.length),
@@ -753,7 +746,7 @@ export default function BucketsPage() {
                   variant="outline"
                   onClick={() => setCurrentPage(p => p - 1)}
                   disabled={currentPage === 1}
-                  className="inline-flex items-center gap-1 bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 shadow-sm"
+                  className="inline-flex items-center gap-1 bg-card border-border shadow-sm"
                 >
                   <ChevronLeft className="h-4 w-4" />
                   {t('previous')}
@@ -765,14 +758,14 @@ export default function BucketsPage() {
                     .map((page, idx, arr) => (
                       <React.Fragment key={page}>
                         {idx > 0 && page - arr[idx - 1] > 1 && (
-                          <span className="px-2 text-gray-500 dark:text-gray-400">…</span>
+                          <span className="px-2 text-muted-foreground">…</span>
                         )}
                         <button
                           onClick={() => setCurrentPage(page)}
                           className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
                             currentPage === page
-                              ? 'bg-gradient-to-r from-brand-600 to-brand-700 text-white shadow-md'
-                              : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 shadow-sm hover:bg-brand-50 dark:hover:bg-brand-900/20'
+                              ? 'bg-brand-600 text-white'
+                              : 'bg-card text-foreground border border-border shadow-sm hover:bg-brand-50 dark:hover:bg-brand-900/20'
                           }`}
                         >
                           {page}
@@ -785,7 +778,7 @@ export default function BucketsPage() {
                   variant="outline"
                   onClick={() => setCurrentPage(p => p + 1)}
                   disabled={currentPage === totalPages}
-                  className="inline-flex items-center gap-1 bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 shadow-sm"
+                  className="inline-flex items-center gap-1 bg-card border-border shadow-sm"
                 >
                   {t('next')}
                   <ChevronRight className="h-4 w-4" />

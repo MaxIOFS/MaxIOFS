@@ -201,7 +201,7 @@ export function BucketPermissionsModal({
                 {isGlobalBucket ? <Users className="h-3 w-3" /> : <Building2 className="h-3 w-3" />}
                 {isGlobalBucket ? t('globalBucket') : t('tenantBucket')}
               </span>
-              <span className="text-sm text-gray-500 dark:text-gray-400">
+              <span className="text-sm text-muted-foreground">
                 {readOnly ? t('viewAccessPermissions') : t('manageAccessPermissions')}
               </span>
             </div>
@@ -281,17 +281,17 @@ export function BucketPermissionsModal({
                       </span>
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm text-gray-600 dark:text-gray-400">{getUserName(permission.grantedBy)}</span>
+                      <span className="text-sm text-muted-foreground">{getUserName(permission.grantedBy)}</span>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400">
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Calendar className="h-3 w-3" />
                         {formatDate(permission.grantedAt)}
                       </div>
                     </TableCell>
                     <TableCell>
                       {permission.expiresAt ? (
-                        <div className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400">
+                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
                           <AlertCircle className="h-3 w-3 text-yellow-500" />
                           {formatDate(permission.expiresAt)}
                         </div>

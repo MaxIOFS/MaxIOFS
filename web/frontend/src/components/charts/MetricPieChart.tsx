@@ -63,12 +63,12 @@ const CustomTooltip: React.FC<
     const percentage = ((entry.value / totalValue) * 100).toFixed(1);
 
     return (
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3">
-        <p className="text-sm font-medium text-gray-900 dark:text-white">{entry.name}</p>
+      <div className="bg-card border border-border rounded-lg shadow-lg p-3">
+        <p className="text-sm font-medium text-foreground">{entry.name}</p>
         <p className="text-sm" style={{ color: entry.payload.fill }}>
           Value: {formatTooltip ? formatTooltip(entry.value) : entry.value.toFixed(2)}
         </p>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
+        <p className="text-sm text-muted-foreground">
           {percentage}%
         </p>
       </div>
@@ -116,7 +116,7 @@ export const MetricPieChart: React.FC<MetricPieChartProps> = ({
   return (
     <Card>
       <div className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{title}</h3>
+        <h3 className="text-lg font-semibold text-foreground mb-4">{title}</h3>
         <ResponsiveContainer width="100%" height={height}>
           <PieChart>
             <Pie

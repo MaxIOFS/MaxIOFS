@@ -376,11 +376,11 @@ export default function UserDetailsPage() {
       case 'active':
         return 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 border border-green-200 dark:border-green-800';
       case 'inactive':
-        return 'bg-gray-100 dark:bg-gray-900/30 text-gray-800 dark:text-gray-400 border border-gray-200 dark:border-gray-700';
+        return 'bg-gray-100 dark:bg-gray-900/30 text-gray-800 dark:text-gray-400 border border-border';
       case 'suspended':
         return 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400 border border-red-200 dark:border-red-800';
       default:
-        return 'bg-gray-100 dark:bg-gray-900/30 text-gray-800 dark:text-gray-400 border border-gray-200 dark:border-gray-700';
+        return 'bg-gray-100 dark:bg-gray-900/30 text-gray-800 dark:text-gray-400 border border-border';
     }
   };
 
@@ -417,7 +417,7 @@ export default function UserDetailsPage() {
     return (
       <div className="text-center py-8">
         <h3 className="text-lg font-semibold">{t('userNotFound')}</h3>
-        <p className="text-muted-foreground">{t('userNotFoundDesc')}</p>
+        <p className="text-sm text-muted-foreground mt-1">{t('userNotFoundDesc')}</p>
       </div>
     );
   }
@@ -431,7 +431,7 @@ export default function UserDetailsPage() {
             variant="outline"
             size="default"
             onClick={() => navigate('/users')}
-            className="gap-2 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700"
+            className="gap-2 bg-card hover:bg-secondary border-border"
           >
             <ArrowLeft className="h-4 w-4" />
             {t('backToUsers')}
@@ -439,8 +439,8 @@ export default function UserDetailsPage() {
         </div>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{userData.username}</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            <h1 className="text-2xl font-bold text-foreground">{userData.username}</h1>
+            <p className="text-sm text-muted-foreground mt-1">
               {t('userDetailsConfig')}
             </p>
           </div>
@@ -476,10 +476,10 @@ export default function UserDetailsPage() {
       {/* User Info Cards */}
       <div className="grid gap-4 md:grid-cols-3">
         {/* Status Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+        <div className="bg-card rounded-lg border border-border shadow-sm p-6 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{t('status')}</p>
+              <p className="text-sm font-medium text-muted-foreground mb-1">{t('status')}</p>
               <div className="mt-2">
                 <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-sm font-medium ${getStatusColor(userData.status)}`}>
                   {userData.status === 'active' ? <CheckCircle className="h-4 w-4 mr-1" /> : <XCircle className="h-4 w-4 mr-1" />}
@@ -494,40 +494,40 @@ export default function UserDetailsPage() {
         </div>
 
         {/* Email Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+        <div className="bg-card rounded-lg border border-border shadow-sm p-6 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{t('email')}</p>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white break-all">{userData.email || t('notProvided')}</h3>
+              <p className="text-sm font-medium text-muted-foreground mb-1">{t('email')}</p>
+              <h3 className="text-lg font-bold text-foreground break-all">{userData.email || t('notProvided')}</h3>
             </div>
             <div className="flex items-center justify-center w-14 h-14 rounded-full bg-gray-100 dark:bg-gray-700/50">
-              <Mail className="h-7 w-7 text-gray-600 dark:text-gray-400" />
+              <Mail className="h-7 w-7 text-muted-foreground" />
             </div>
           </div>
         </div>
 
         {/* Roles Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition-shadow">
+        <div className="bg-card rounded-lg border border-border shadow-sm p-6 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{t('roles')}</p>
+              <p className="text-sm font-medium text-muted-foreground mb-1">{t('roles')}</p>
               <div className="flex flex-wrap gap-1 mt-2">
                 {userData.roles && userData.roles.length > 0 ? (
                   userData.roles.map((role: string) => (
                     <span
                       key={role}
-                      className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-700/50 text-gray-800 dark:text-gray-300 border border-gray-300 dark:border-gray-600"
+                      className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-700/50 text-gray-800 dark:text-gray-300 border border-border"
                     >
                       {role}
                     </span>
                   ))
                 ) : (
-                  <span className="text-xs text-gray-500 dark:text-gray-400">{t('noRolesAssigned')}</span>
+                  <span className="text-xs text-muted-foreground">{t('noRolesAssigned')}</span>
                 )}
               </div>
             </div>
             <div className="flex items-center justify-center w-14 h-14 rounded-full bg-gray-100 dark:bg-gray-700/50">
-              <Shield className="h-7 w-7 text-gray-600 dark:text-gray-400" />
+              <Shield className="h-7 w-7 text-muted-foreground" />
             </div>
           </div>
         </div>
@@ -536,16 +536,16 @@ export default function UserDetailsPage() {
       {/* Security & Preferences Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Two-Factor Authentication Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
+        <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden">
+        <div className="px-6 py-5 border-b border-border">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <KeyRound className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+              <KeyRound className="h-5 w-5 text-muted-foreground" />
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                <h3 className="text-lg font-semibold text-foreground">
                   {t('twoFactorTitle')}
                 </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                <p className="text-sm text-muted-foreground mt-1">
                   {t('twoFactorSubtitle')}
                 </p>
               </div>
@@ -563,7 +563,7 @@ export default function UserDetailsPage() {
               <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('twoFactorStatusLabel')}</span>
+                    <span className="text-sm font-medium text-foreground">{t('twoFactorStatusLabel')}</span>
                     {twoFactorStatus?.enabled ? (
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
                         <CheckCircle className="h-3 w-3 mr-1" />
@@ -576,7 +576,7 @@ export default function UserDetailsPage() {
                     )}
                   </div>
                   {twoFactorStatus?.enabled && twoFactorStatus?.setup_at && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       {t('enabledOn', { date: new Date(twoFactorStatus.setup_at * 1000).toLocaleDateString() })}
                     </p>
                   )}
@@ -611,7 +611,7 @@ export default function UserDetailsPage() {
                           size="sm"
                           onClick={() => setShowSetup2FAModal(true)}
                         >
-                          <KeyRound className="h-4 w-4 mr-2" />
+                          <KeyRound className="h-4 w-4" />
                           {t('enable2FA')}
                         </Button>
                       )}
@@ -657,10 +657,10 @@ export default function UserDetailsPage() {
         </div>
 
         {/* User Preferences */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <Settings className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+        <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden">
+          <div className="px-6 py-4 border-b border-border">
+            <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+              <Settings className="h-4 w-4 text-muted-foreground" />
               {t('preferences')}
             </h3>
           </div>
@@ -684,13 +684,13 @@ export default function UserDetailsPage() {
           {/* Only show current password field when user is changing their own password */}
           {isEditingSelf && (
             <div>
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">{t('currentPassword')}</label>
+              <label className="text-sm font-medium text-foreground mb-2 block">{t('currentPassword')}</label>
               <Input
                 type="password"
                 placeholder={t('enterCurrentPassword')}
                 value={passwordForm.currentPassword}
                 onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
-                className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                className="bg-card text-foreground border-border"
               />
             </div>
           )}
@@ -702,23 +702,23 @@ export default function UserDetailsPage() {
             </div>
           )}
           <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">{t('newPassword')}</label>
+            <label className="text-sm font-medium text-foreground mb-2 block">{t('newPassword')}</label>
             <Input
               type="password"
               placeholder={t('enterNewPassword')}
               value={passwordForm.newPassword}
               onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              className="bg-card text-foreground border-border"
             />
           </div>
           <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">{t('confirmNewPassword')}</label>
+            <label className="text-sm font-medium text-foreground mb-2 block">{t('confirmNewPassword')}</label>
             <Input
               type="password"
               placeholder={t('confirmNewPasswordPlaceholder')}
               value={passwordForm.confirmPassword}
               onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
-              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              className="bg-card text-foreground border-border"
             />
           </div>
           <div className="flex gap-2 justify-end mt-6">
@@ -743,13 +743,13 @@ export default function UserDetailsPage() {
       </Modal>
 
       {/* Access Keys */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-            <Key className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+      <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden">
+        <div className="px-6 py-5 border-b border-border">
+          <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <Key className="h-5 w-5 text-muted-foreground" />
             {t('accessKeysCount', { count: accessKeys?.length || 0 })}
           </h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('manageS3Creds')}</p>
+          <p className="text-sm text-muted-foreground mt-1">{t('manageS3Creds')}</p>
         </div>
         <div className="overflow-x-auto">
           {keysLoading ? (
@@ -782,7 +782,7 @@ export default function UserDetailsPage() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Key className="h-4 w-4 text-muted-foreground" />
-                        <code className="text-sm bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white px-2 py-1 rounded">{key.id}</code>
+                        <code className="text-sm bg-gray-100 dark:bg-gray-800 text-foreground px-2 py-1 rounded">{key.id}</code>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -797,7 +797,7 @@ export default function UserDetailsPage() {
                       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${
                         key.status === 'active'
                           ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 border-green-200 dark:border-green-800'
-                          : 'bg-gray-100 dark:bg-gray-900/30 text-gray-800 dark:text-gray-400 border-gray-200 dark:border-gray-700'
+                          : 'bg-gray-100 dark:bg-gray-900/30 text-gray-800 dark:text-gray-400 border-border'
                       }`}>
                         {key.status}
                       </span>
@@ -844,7 +844,7 @@ export default function UserDetailsPage() {
       >
         <form onSubmit={handleEditUser} className="space-y-4">
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label htmlFor="email" className="block text-sm font-medium text-foreground mb-2">
               {t('email')}
             </label>
             <Input
@@ -853,19 +853,19 @@ export default function UserDetailsPage() {
               value={editForm.email}
               onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
               placeholder="user@example.com"
-              className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              className="bg-card text-foreground border-border"
             />
           </div>
 
           <div>
-            <label htmlFor="tenant" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label htmlFor="tenant" className="block text-sm font-medium text-foreground mb-2">
               {t('tenantOptional')}
             </label>
             <select
               id="tenant"
               value={editForm.tenantId || ''}
               onChange={(e) => setEditForm(prev => ({ ...prev, tenantId: e.target.value || undefined }))}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               <option value="">{t('noTenantGlobal')}</option>
               {tenants?.map((tenant) => (
@@ -874,20 +874,20 @@ export default function UserDetailsPage() {
                 </option>
               ))}
             </select>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               {t('globalUsersInfo')}
             </p>
           </div>
 
           <div>
-            <label htmlFor="status" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label htmlFor="status" className="block text-sm font-medium text-foreground mb-2">
               {t('status')}
             </label>
             <select
               id="status"
               value={editForm.status}
               onChange={(e) => setEditForm(prev => ({ ...prev, status: e.target.value as any }))}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               <option value="active">{t('active')}</option>
               <option value="inactive">{t('inactive')}</option>
@@ -896,7 +896,7 @@ export default function UserDetailsPage() {
           </div>
 
           <div>
-            <label htmlFor="roles" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label htmlFor="roles" className="block text-sm font-medium text-foreground mb-2">
               {t('role')}
             </label>
             <select
@@ -907,7 +907,7 @@ export default function UserDetailsPage() {
                 roles: [e.target.value]
               }))}
               disabled={!isCurrentUserAdmin || (isCurrentUserAdmin && isEditingSelf)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="admin">{t('adminRole')}</option>
               <option value="user">{t('userRole')}</option>
@@ -915,7 +915,7 @@ export default function UserDetailsPage() {
               <option value="guest">{t('guestRole')}</option>
             </select>
             {!isCurrentUserAdmin && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 {t('onlyAdminsChangeRoles')}
               </p>
             )}
@@ -925,7 +925,7 @@ export default function UserDetailsPage() {
               </p>
             )}
             {isCurrentUserAdmin && !isEditingSelf && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 {t('selectRole')}
               </p>
             )}
@@ -1004,9 +1004,9 @@ export default function UserDetailsPage() {
 
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('accessKeyIdLabel')}</label>
+                <label className="block text-sm font-medium text-foreground mb-1">{t('accessKeyIdLabel')}</label>
                 <div className="flex items-center gap-2">
-                  <code className="bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 rounded text-sm flex-1">
+                  <code className="bg-gray-100 dark:bg-gray-800 text-foreground px-3 py-2 rounded text-sm flex-1">
                     {createdKey.accessKey}
                   </code>
                   <Button
@@ -1022,9 +1022,9 @@ export default function UserDetailsPage() {
 
               {createdKey.secretKey && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('secretAccessKeyLabel')}</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('secretAccessKeyLabel')}</label>
                   <div className="flex items-center gap-2">
-                    <code className="bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 rounded text-sm flex-1">
+                    <code className="bg-gray-100 dark:bg-gray-800 text-foreground px-3 py-2 rounded text-sm flex-1">
                       {createdKey.secretKey}
                     </code>
                     <Button

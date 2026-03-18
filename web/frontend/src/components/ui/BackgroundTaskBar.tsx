@@ -12,7 +12,7 @@ function TaskCard({ task, onRemove }: { task: BgTask; onRemove: () => void }) {
   const isDone = task.status === 'done';
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 min-w-[280px]">
+    <div className="bg-card rounded-xl shadow-lg border border-border p-4 min-w-[280px]">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -25,14 +25,14 @@ function TaskCard({ task, onRemove }: { task: BgTask; onRemove: () => void }) {
           {(isError || (isDone && task.fail > 0)) && (
             <AlertCircle className={cn('h-4 w-4 flex-shrink-0', isError ? 'text-error-600 dark:text-error-400' : 'text-warning-500 dark:text-warning-400')} />
           )}
-          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+          <p className="text-sm font-medium text-foreground truncate">
             {task.label}
           </p>
         </div>
         {!isRunning && (
           <button
             onClick={onRemove}
-            className="flex-shrink-0 p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+            className="flex-shrink-0 p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
             aria-label="Dismiss"
           >
             <X className="h-4 w-4" />
@@ -52,7 +52,7 @@ function TaskCard({ task, onRemove }: { task: BgTask; onRemove: () => void }) {
       </div>
 
       {/* Stats */}
-      <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>
           {task.done.toLocaleString()} / {task.total.toLocaleString()}
         </span>

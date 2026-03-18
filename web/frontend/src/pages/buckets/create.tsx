@@ -254,16 +254,16 @@ export default function CreateBucketPage() {
             variant="ghost"
             size="sm"
             onClick={() => navigate('/buckets')}
-            className="gap-2 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 transition-all duration-200"
+            className="gap-2 hover:bg-secondary transition-all duration-200"
           >
             <ArrowLeft className="h-4 w-4" />
             {t('back')}
           </Button>
           <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">
+            <h1 className="text-2xl font-bold text-foreground">
               {t('title')}
             </h1>
-            <p className="text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-sm text-muted-foreground mt-1">
               {t('subtitle')}
             </p>
           </div>
@@ -272,7 +272,7 @@ export default function CreateBucketPage() {
 
       <form onSubmit={handleSubmit}>
         {/* Tabs */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="bg-card rounded-lg border border-border shadow-sm">
           <div className="p-6">
             {/* Tabs Navigation */}
             <div className="flex space-x-1 bg-gray-100 dark:bg-gray-900 rounded-lg p-1 mb-6">
@@ -285,8 +285,8 @@ export default function CreateBucketPage() {
                     onClick={() => setActiveTab(tab.id as any)}
                     className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 font-medium text-sm rounded-md transition-all duration-200 ${
                       activeTab === tab.id
-                        ? 'bg-white dark:bg-gray-800 text-brand-600 dark:text-brand-400 shadow-sm'
-                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                        ? 'bg-card text-brand-600 dark:text-brand-400 shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
                     <Icon className="h-4 w-4" />
@@ -302,27 +302,27 @@ export default function CreateBucketPage() {
           {activeTab === 'general' && (
             <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <label className="block text-sm font-medium text-foreground mb-2">
                     {t('bucketName')} <span className="text-red-500">*</span>
                   </label>
                   <Input
                     value={config.name}
                     onChange={(e) => updateConfig('name', e.target.value.toLowerCase())}
                     placeholder={t('bucketNamePlaceholder')}
-                    className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                    className="bg-card text-foreground border-border"
                     required
                   />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     {t('bucketNameHelp')}
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('region')}</label>
+                  <label className="block text-sm font-medium text-foreground mb-2">{t('region')}</label>
                   <select
                     value={config.region}
                     onChange={(e) => updateConfig('region', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+                    className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-md"
                   >
                     <option value="us-east-1">{t('regionUsEast')}</option>
                     <option value="us-west-2">{t('regionUsWest')}</option>
@@ -333,22 +333,22 @@ export default function CreateBucketPage() {
 
                 {/* Ownership Section - Only visible to global admins */}
                 {isGlobalAdmin && (
-                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
-                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                  <div className="border-t border-border pt-4 mt-4">
+                    <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                       <Shield className="h-4 w-4" />
                       {t('ownershipTitle')}
                     </h3>
 
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('ownerType')}</label>
+                        <label className="block text-sm font-medium text-foreground mb-2">{t('ownerType')}</label>
                         <select
                           value={config.ownerType}
                           onChange={(e) => {
                             updateConfig('ownerType', e.target.value);
                             updateConfig('ownerId', '');
                           }}
-                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+                          className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-md"
                         >
                           <option value="">{t('noOwner')}</option>
                           <option value="tenant">{t('ownerTenant')}</option>
@@ -357,11 +357,11 @@ export default function CreateBucketPage() {
 
                       {config.ownerType === 'tenant' && (
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('ownerTenantLabel')}</label>
+                          <label className="block text-sm font-medium text-foreground mb-2">{t('ownerTenantLabel')}</label>
                           <select
                             value={config.ownerId}
                             onChange={(e) => updateConfig('ownerId', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+                            className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-md"
                           >
                             <option value="">{t('selectTenant')}</option>
                             {tenants?.map((tenant) => (
@@ -379,13 +379,13 @@ export default function CreateBucketPage() {
                           id="isPublic"
                           checked={config.isPublic}
                           onChange={(e) => updateConfig('isPublic', e.target.checked)}
-                          className="rounded border-gray-300 dark:border-gray-600"
+                          className="rounded border-border"
                         />
-                        <label htmlFor="isPublic" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        <label htmlFor="isPublic" className="text-sm font-medium text-foreground">
                           {t('makePublic')}
                         </label>
                       </div>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 ml-6">
+                      <p className="text-xs text-muted-foreground ml-6">
                         {t('makePublicHelp')}
                       </p>
                     </div>
@@ -398,18 +398,18 @@ export default function CreateBucketPage() {
                     id="versioning"
                     checked={config.versioningEnabled}
                     onChange={(e) => updateConfig('versioningEnabled', e.target.checked)}
-                    className="rounded border-gray-300 dark:border-gray-600"
+                    className="rounded border-border"
                   />
-                  <label htmlFor="versioning" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <label htmlFor="versioning" className="text-sm font-medium text-foreground">
                     {t('enableVersioning')}
                   </label>
                 </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 ml-6">
+                <p className="text-xs text-muted-foreground ml-6">
                   {t('versioningHelp')}
                 </p>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('tags')}</label>
+                  <label className="block text-sm font-medium text-foreground mb-2">{t('tags')}</label>
                   <div className="space-y-2">
                     {config.tags.map((tag, index) => (
                       <div key={index} className="flex gap-2">
@@ -476,9 +476,9 @@ export default function CreateBucketPage() {
                         updateConfig('versioningEnabled', true);
                       }
                     }}
-                    className="rounded border-gray-300 dark:border-gray-600"
+                    className="rounded border-border"
                   />
-                  <label htmlFor="objectLock" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <label htmlFor="objectLock" className="text-sm font-medium text-foreground">
                     {t('enableObjectLock')}
                   </label>
                 </div>
@@ -486,11 +486,11 @@ export default function CreateBucketPage() {
                 {config.objectLockEnabled && (
                   <>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-foreground mb-2">
                         {t('retentionMode')}
                       </label>
                       <div className="space-y-3">
-                        <label className="flex items-start space-x-3 p-3 border border-gray-200 dark:border-gray-700 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <label className="flex items-start space-x-3 p-3 border border-border rounded-md cursor-pointer hover:bg-secondary">
                           <input
                             type="radio"
                             name="retentionMode"
@@ -500,15 +500,15 @@ export default function CreateBucketPage() {
                             className="mt-1"
                           />
                           <div>
-                            <div className="font-medium text-sm text-gray-900 dark:text-white">{t('complianceMode')}</div>
+                            <div className="font-medium text-sm text-foreground">{t('complianceMode')}</div>
                             <div
-                              className="text-xs text-gray-500 dark:text-gray-400 mt-1"
+                              className="text-xs text-muted-foreground mt-1"
                               dangerouslySetInnerHTML={{ __html: t('complianceModeDesc') }}
                             />
                           </div>
                         </label>
 
-                        <label className="flex items-start space-x-3 p-3 border border-gray-200 dark:border-gray-700 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <label className="flex items-start space-x-3 p-3 border border-border rounded-md cursor-pointer hover:bg-secondary">
                           <input
                             type="radio"
                             name="retentionMode"
@@ -518,9 +518,9 @@ export default function CreateBucketPage() {
                             className="mt-1"
                           />
                           <div>
-                            <div className="font-medium text-sm text-gray-900 dark:text-white">{t('governanceMode')}</div>
+                            <div className="font-medium text-sm text-foreground">{t('governanceMode')}</div>
                             <div
-                              className="text-xs text-gray-500 dark:text-gray-400 mt-1"
+                              className="text-xs text-muted-foreground mt-1"
                               dangerouslySetInnerHTML={{ __html: t('governanceModeDesc') }}
                             />
                           </div>
@@ -530,29 +530,29 @@ export default function CreateBucketPage() {
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('retentionDays')}</label>
+                        <label className="block text-sm font-medium text-foreground mb-2">{t('retentionDays')}</label>
                         <Input
                           type="number"
                           min="0"
                           value={config.retentionDays}
                           onChange={(e) => updateConfig('retentionDays', parseInt(e.target.value) || 0)}
                           placeholder="0"
-                          className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                          className="bg-card text-foreground border-border"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('retentionYears')}</label>
+                        <label className="block text-sm font-medium text-foreground mb-2">{t('retentionYears')}</label>
                         <Input
                           type="number"
                           min="0"
                           value={config.retentionYears}
                           onChange={(e) => updateConfig('retentionYears', parseInt(e.target.value) || 0)}
                           placeholder="0"
-                          className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                          className="bg-card text-foreground border-border"
                         />
                       </div>
                     </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                    <p className="text-xs text-muted-foreground">
                       {t('retentionHelp')}
                     </p>
 
@@ -575,16 +575,16 @@ export default function CreateBucketPage() {
                     id="lifecycle"
                     checked={config.lifecycleEnabled}
                     onChange={(e) => updateConfig('lifecycleEnabled', e.target.checked)}
-                    className="rounded border-gray-300 dark:border-gray-600"
+                    className="rounded border-border"
                   />
-                  <label htmlFor="lifecycle" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <label htmlFor="lifecycle" className="text-sm font-medium text-foreground">
                     {t('enableLifecycle')}
                   </label>
                 </div>
 
                 {config.lifecycleEnabled && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label className="block text-sm font-medium text-foreground mb-2">
                       {t('expirationDays')}
                     </label>
                     <Input
@@ -593,9 +593,9 @@ export default function CreateBucketPage() {
                       value={config.expirationDays}
                       onChange={(e) => updateConfig('expirationDays', parseInt(e.target.value) || 0)}
                       placeholder="365"
-                      className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                      className="bg-card text-foreground border-border"
                     />
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       {t('expirationHelp')}
                     </p>
                   </div>
@@ -631,11 +631,11 @@ export default function CreateBucketPage() {
                     checked={serverEncryptionEnabled && config.encryptionEnabled}
                     onChange={(e) => updateConfig('encryptionEnabled', e.target.checked)}
                     disabled={!serverEncryptionEnabled}
-                    className={`rounded border-gray-300 dark:border-gray-600 ${!serverEncryptionEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`rounded border-border ${!serverEncryptionEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                   />
                   <label
                     htmlFor="encryption"
-                    className={`text-sm font-medium ${!serverEncryptionEnabled ? 'text-gray-400 dark:text-gray-500 cursor-not-allowed' : 'text-gray-700 dark:text-gray-300'}`}
+                    className={`text-sm font-medium ${!serverEncryptionEnabled ? 'text-muted-foreground cursor-not-allowed' : 'text-foreground'}`}
                   >
                     {t('enableEncryption')}
                   </label>
@@ -651,9 +651,9 @@ export default function CreateBucketPage() {
                 )}
 
                 {serverEncryptionEnabled && !config.encryptionEnabled && (
-                  <div className="bg-gray-50 dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-md p-3">
+                  <div className="bg-gray-50 dark:bg-gray-800/30 border border-border rounded-md p-3">
                     <p
-                      className="text-sm text-gray-600 dark:text-gray-400"
+                      className="text-sm text-muted-foreground"
                       dangerouslySetInnerHTML={{ __html: t('noEncryptionInfo') }}
                     />
                   </div>
@@ -675,9 +675,9 @@ export default function CreateBucketPage() {
                       type="checkbox"
                       checked={config.blockPublicAcls}
                       onChange={(e) => updateConfig('blockPublicAcls', e.target.checked)}
-                      className="rounded border-gray-300 dark:border-gray-600"
+                      className="rounded border-border"
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">{t('blockPublicAcls')}</span>
+                    <span className="text-sm text-foreground">{t('blockPublicAcls')}</span>
                   </label>
 
                   <label className="flex items-center space-x-2">
@@ -685,9 +685,9 @@ export default function CreateBucketPage() {
                       type="checkbox"
                       checked={config.ignorePublicAcls}
                       onChange={(e) => updateConfig('ignorePublicAcls', e.target.checked)}
-                      className="rounded border-gray-300 dark:border-gray-600"
+                      className="rounded border-border"
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">{t('ignorePublicAcls')}</span>
+                    <span className="text-sm text-foreground">{t('ignorePublicAcls')}</span>
                   </label>
 
                   <label className="flex items-center space-x-2">
@@ -695,9 +695,9 @@ export default function CreateBucketPage() {
                       type="checkbox"
                       checked={config.blockPublicPolicy}
                       onChange={(e) => updateConfig('blockPublicPolicy', e.target.checked)}
-                      className="rounded border-gray-300 dark:border-gray-600"
+                      className="rounded border-border"
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">{t('blockPublicPolicy')}</span>
+                    <span className="text-sm text-foreground">{t('blockPublicPolicy')}</span>
                   </label>
 
                   <label className="flex items-center space-x-2">
@@ -705,9 +705,9 @@ export default function CreateBucketPage() {
                       type="checkbox"
                       checked={config.restrictPublicBuckets}
                       onChange={(e) => updateConfig('restrictPublicBuckets', e.target.checked)}
-                      className="rounded border-gray-300 dark:border-gray-600"
+                      className="rounded border-border"
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">{t('restrictPublicBuckets')}</span>
+                    <span className="text-sm text-foreground">{t('restrictPublicBuckets')}</span>
                   </label>
                 </div>
             </div>
@@ -717,19 +717,19 @@ export default function CreateBucketPage() {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center justify-end gap-4 mt-8 pt-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4">
+        <div className="flex items-center justify-end gap-4 mt-8 pt-6 border-t border-border bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4">
           <Button
             type="button"
             variant="outline"
             onClick={() => navigate('/buckets')}
-            className="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gradient-to-r hover:from-gray-50 hover:to-gray-100 dark:hover:from-gray-700 dark:hover:to-gray-700/50 transition-all duration-200"
+            className="border-border text-foreground hover:bg-gradient-to-r hover:from-gray-50 hover:to-gray-100 dark:hover:from-gray-700 dark:hover:to-gray-700/50 transition-all duration-200"
           >
             {t('cancel')}
           </Button>
           <Button
             type="submit"
             disabled={createBucketMutation.isPending}
-            className="gap-2 bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md hover:shadow-lg transition-all duration-200"
+            className="bg-brand-600 hover:bg-brand-700 text-white"
           >
             {createBucketMutation.isPending ? (
               <>

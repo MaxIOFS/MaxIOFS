@@ -110,7 +110,7 @@ export function Modal({
 
         {/* Header */}
         {(title || showCloseButton) && (
-          <div className="relative flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-800 rounded-t-2xl">
+          <div className="relative flex items-center justify-between p-6 border-b border-border bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-800 rounded-t-2xl">
             <div>
               {title && (
                 <h2 className="text-xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">
@@ -118,7 +118,7 @@ export function Modal({
                 </h2>
               )}
               {description && (
-                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                <p className="mt-1 text-sm text-muted-foreground">
                   {description}
                 </p>
               )}
@@ -128,7 +128,7 @@ export function Modal({
                 variant="ghost"
                 size="icon"
                 onClick={onClose}
-                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+                className="text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg"
               >
                 <X className="h-5 w-5" />
               </Button>
@@ -143,7 +143,7 @@ export function Modal({
 
         {/* Footer */}
         {footer && (
-          <div className="relative border-t border-gray-200 dark:border-gray-700 p-6 bg-gradient-to-r from-gray-50 to-white dark:from-gray-900 dark:to-gray-800 rounded-b-2xl">
+          <div className="relative border-t border-border p-6 bg-gradient-to-r from-gray-50 to-white dark:from-gray-900 dark:to-gray-800 rounded-b-2xl">
             {footer}
           </div>
         )}
@@ -226,12 +226,12 @@ export function ConfirmModal({
         </div>
 
         {/* Title */}
-        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+        <h3 className="text-lg font-bold text-foreground mb-2">
           {title}
         </h3>
 
         {/* Message */}
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+        <p className="text-sm text-muted-foreground mb-6">
           {message}
         </p>
 
@@ -241,7 +241,7 @@ export function ConfirmModal({
             variant="outline"
             onClick={onClose}
             disabled={loading}
-            className="flex-1 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+            className="flex-1 bg-card hover:bg-secondary"
           >
             {cancelText}
           </Button>
@@ -289,12 +289,12 @@ export function SuccessModal({
         </div>
 
         {/* Title */}
-        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+        <h3 className="text-lg font-bold text-foreground mb-2">
           {title}
         </h3>
 
         {/* Message */}
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+        <p className="text-sm text-muted-foreground mb-6">
           {message}
         </p>
 
@@ -340,12 +340,12 @@ export function AlertModal({
         </div>
 
         {/* Title */}
-        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+        <h3 className="text-lg font-bold text-foreground mb-2">
           {title}
         </h3>
 
         {/* Message */}
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 whitespace-pre-line">
+        <p className="text-sm text-muted-foreground mb-6 whitespace-pre-line">
           {message}
         </p>
 

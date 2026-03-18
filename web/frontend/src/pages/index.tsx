@@ -163,10 +163,10 @@ export default function Dashboard() {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">
+          <h1 className="text-2xl font-bold text-foreground">
             {t('title')}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             {isGlobalAdmin ? t('systemWideOverview') : t('yourStorageOverview')}
           </p>
         </div>
@@ -175,23 +175,21 @@ export default function Dashboard() {
             variant="outline"
             onClick={handleRefresh}
             title={tc('refresh')}
-            className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white shadow-sm"
           >
             <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
           </Button>
           <Button
             variant="outline"
             onClick={() => navigate('/buckets')}
-            className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white shadow-sm"
           >
-            <Box className="h-4 w-4 mr-2" />
+            <Box className="h-4 w-4" />
             {t('viewBuckets')}
           </Button>
           <Button
+            variant="default"
             onClick={() => navigate('/buckets/create')}
-            className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md hover:shadow-lg transition-all duration-200"
           >
-            <FolderOpen className="h-4 w-4 mr-2" />
+            <FolderOpen className="h-4 w-4" />
             {t('createBucket')}
           </Button>
         </div>
@@ -259,7 +257,7 @@ export default function Dashboard() {
               </div>
               {t('storageDistribution')}
             </CardTitle>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{t('top5BucketsBySize')}</p>
+            <p className="text-sm text-muted-foreground">{t('top5BucketsBySize')}</p>
           </CardHeader>
           <CardContent className="flex-1 flex flex-col justify-center">
             {storageDistribution.length > 0 ? (
@@ -306,17 +304,17 @@ export default function Dashboard() {
                 </div>
                 <div className="w-full md:w-1/2 space-y-1.5">
                   {storageDistribution.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between p-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                    <div key={index} className="flex items-center justify-between p-1.5 rounded-button hover:bg-secondary transition-colors">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
                         <div
                           className="w-3 h-3 rounded-full flex-shrink-0"
                           style={{ backgroundColor: COLORS[index % COLORS.length] }}
                         />
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">{item.name}</span>
+                        <span className="text-sm font-medium text-foreground truncate">{item.name}</span>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-semibold text-gray-900 dark:text-white">{formatBytes(item.value)}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{item.percentage}%</p>
+                        <p className="text-sm font-semibold text-foreground">{formatBytes(item.value)}</p>
+                        <p className="text-xs text-muted-foreground">{item.percentage}%</p>
                       </div>
                     </div>
                   ))}
@@ -324,11 +322,11 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="text-center py-12">
-                <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 mb-4 shadow-inner">
-                  <BarChart3 className="h-10 w-10 text-gray-400 dark:text-gray-500" />
+                <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-2xl bg-secondary mb-4 shadow-inner">
+                  <BarChart3 className="h-10 w-10 text-muted-foreground" />
                 </div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">{t('noStorageDataYet')}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{t('uploadFilesToSeeDist')}</p>
+                <p className="text-sm font-semibold text-foreground mb-1">{t('noStorageDataYet')}</p>
+                <p className="text-xs text-muted-foreground">{t('uploadFilesToSeeDist')}</p>
               </div>
             )}
           </CardContent>
@@ -343,7 +341,7 @@ export default function Dashboard() {
               </div>
               {t('topBuckets')}
             </CardTitle>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{t('largestBucketsByStorage')}</p>
+            <p className="text-sm text-muted-foreground">{t('largestBucketsByStorage')}</p>
           </CardHeader>
           <CardContent className="flex-1">
             {topBuckets.length > 0 ? (
@@ -419,11 +417,11 @@ export default function Dashboard() {
               </ResponsiveContainer>
             ) : (
               <div className="text-center py-12">
-                <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 mb-4 shadow-inner">
-                  <Box className="h-10 w-10 text-gray-400 dark:text-gray-500" />
+                <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-2xl bg-secondary mb-4 shadow-inner">
+                  <Box className="h-10 w-10 text-muted-foreground" />
                 </div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">{t('noBucketsYet')}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{t('createFirstBucket')}</p>
+                <p className="text-sm font-semibold text-foreground mb-1">{t('noBucketsYet')}</p>
+                <p className="text-xs text-muted-foreground">{t('createFirstBucket')}</p>
               </div>
             )}
           </CardContent>
@@ -432,16 +430,16 @@ export default function Dashboard() {
 
       {/* Quick Actions and Recent Buckets */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Quick Actions Card - Enhanced */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-800">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <div className="p-2 bg-brand-100 dark:bg-brand-900/30 rounded-lg">
+        {/* Quick Actions Card */}
+        <Card className="overflow-hidden">
+          <div className="px-6 py-5 border-b border-border/50">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <div className="p-2 bg-brand-100 dark:bg-brand-900/30 rounded-button">
                 <Activity className="h-5 w-5 text-brand-600 dark:text-brand-400" />
               </div>
               {t('quickActions')}
             </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('commonTasksShortcuts')}</p>
+            <p className="text-sm text-muted-foreground mt-1">{t('commonTasksShortcuts')}</p>
           </div>
           <div className="p-6">
             <div className="space-y-3">
@@ -454,11 +452,11 @@ export default function Dashboard() {
                     <Box className="h-6 w-6 text-white" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{t('createNewBucket')}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{t('setupNewStorageContainer')}</p>
+                    <p className="text-sm font-semibold text-foreground">{t('createNewBucket')}</p>
+                    <p className="text-xs text-muted-foreground">{t('setupNewStorageContainer')}</p>
                   </div>
                 </div>
-                <ArrowUpRight className="h-5 w-5 text-gray-400 dark:text-gray-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-200" />
+                <ArrowUpRight className="h-5 w-5 text-muted-foreground group-hover:text-blue-600 dark:group-hover:text-blue-400 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-200" />
               </button>
 
               <button
@@ -470,11 +468,11 @@ export default function Dashboard() {
                     <Users className="h-6 w-6 text-white" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{t('manageUsers')}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{t('addEditUserAccounts')}</p>
+                    <p className="text-sm font-semibold text-foreground">{t('manageUsers')}</p>
+                    <p className="text-xs text-muted-foreground">{t('addEditUserAccounts')}</p>
                   </div>
                 </div>
-                <ArrowUpRight className="h-5 w-5 text-gray-400 dark:text-gray-500 group-hover:text-green-600 dark:group-hover:text-green-400 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-200" />
+                <ArrowUpRight className="h-5 w-5 text-muted-foreground group-hover:text-green-600 dark:group-hover:text-green-400 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-200" />
               </button>
 
               {isGlobalAdmin && (
@@ -487,42 +485,41 @@ export default function Dashboard() {
                       <Activity className="h-6 w-6 text-white" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">{t('viewMetrics')}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{t('checkSystemStatistics')}</p>
+                      <p className="text-sm font-semibold text-foreground">{t('viewMetrics')}</p>
+                      <p className="text-xs text-muted-foreground">{t('checkSystemStatistics')}</p>
                     </div>
                   </div>
-                  <ArrowUpRight className="h-5 w-5 text-gray-400 dark:text-gray-500 group-hover:text-amber-600 dark:group-hover:text-amber-400 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-200" />
+                  <ArrowUpRight className="h-5 w-5 text-muted-foreground group-hover:text-amber-600 dark:group-hover:text-amber-400 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-200" />
                 </button>
               )}
             </div>
           </div>
-        </div>
+        </Card>
 
-        {/* Recent Buckets Card - Enhanced */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-800">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-lg">
+        {/* Recent Buckets Card */}
+        <Card className="overflow-hidden">
+          <div className="px-6 py-5 border-b border-border/50">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-button">
                 <Box className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
               </div>
               {t('recentBuckets')}
             </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('latestStorageContainers')}</p>
+            <p className="text-sm text-muted-foreground mt-1">{t('latestStorageContainers')}</p>
           </div>
           <div className="p-6">
             {buckets.length === 0 ? (
               <div className="text-center py-8">
-                <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 mb-4 shadow-inner">
-                  <Box className="h-10 w-10 text-gray-400 dark:text-gray-500" />
+                <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-card bg-secondary mb-4 shadow-inner">
+                  <Box className="h-10 w-10 text-muted-foreground" />
                 </div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">{t('noBucketsYet')}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-5">{t('createFirstBucket')}</p>
+                <p className="text-sm font-semibold text-foreground mb-1">{t('noBucketsYet')}</p>
+                <p className="text-xs text-muted-foreground mb-5">{t('createFirstBucket')}</p>
                 <Button
-                  size="sm"
+                  variant="default"
                   onClick={() => navigate('/buckets')}
-                  className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white shadow-md"
                 >
-                  <FolderOpen className="h-4 w-4 mr-2" />
+                  <FolderOpen className="h-4 w-4" />
                   {t('createBucket')}
                 </Button>
               </div>
@@ -540,34 +537,34 @@ export default function Dashboard() {
                     return (
                       <div
                         key={bucket.name}
-                        className="flex items-center justify-between p-4 hover:bg-gradient-to-r hover:from-gray-50 hover:to-blue-50 dark:hover:from-gray-700 dark:hover:to-blue-950/30 rounded-xl cursor-pointer transition-all duration-200 group border border-transparent hover:border-blue-100 dark:hover:border-blue-900/50 hover:shadow-sm"
+                        className="flex items-center justify-between p-4 hover:bg-secondary rounded-button cursor-pointer transition-all duration-200 group"
                         onClick={() => navigate(bucketPath)}
                       >
                         <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-md group-hover:shadow-lg transition-shadow duration-200 flex-shrink-0">
-                            <Box className="h-6 w-6 text-white" />
+                          <div className="flex items-center justify-center w-10 h-10 rounded-button bg-gradient-to-br from-blue-500 to-indigo-600 shadow-md flex-shrink-0">
+                            <Box className="h-5 w-5 text-white" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{bucket.name}</p>
-                            <div className="flex items-center gap-3 mt-1">
-                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                            <p className="text-sm font-semibold text-foreground truncate">{bucket.name}</p>
+                            <div className="flex items-center gap-3 mt-0.5">
+                              <span className="text-xs text-muted-foreground">
                                 {bucket.object_count || 0} {t('objects')}
                               </span>
-                              <span className="text-xs text-gray-400 dark:text-gray-500">•</span>
-                              <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                              <span className="text-xs text-muted-foreground">•</span>
+                              <span className="text-xs font-medium text-brand-600 dark:text-brand-400">
                                 {formatBytes(bucket.size || 0)}
                               </span>
                             </div>
                           </div>
                         </div>
-                        <ArrowUpRight className="h-5 w-5 text-gray-400 dark:text-gray-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-200 flex-shrink-0" />
+                        <ArrowUpRight className="h-4 w-4 text-muted-foreground group-hover:text-brand-600 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all duration-200 flex-shrink-0" />
                       </div>
                     );
                   })}
                 {buckets.length > 3 && (
                   <button
                     onClick={() => navigate('/buckets')}
-                    className="w-full mt-4 text-center text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-semibold py-3 rounded-lg hover:bg-brand-50 dark:hover:bg-brand-950/30 transition-all duration-200"
+                    className="w-full mt-2 text-center text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-semibold py-2.5 rounded-button hover:bg-secondary transition-all duration-200"
                   >
                     {t('viewAllBuckets', { count: buckets.length })}
                   </button>
@@ -575,7 +572,7 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-        </div>
+        </Card>
       </div>
     </div>
   );

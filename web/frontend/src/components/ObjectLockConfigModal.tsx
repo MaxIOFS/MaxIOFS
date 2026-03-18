@@ -149,14 +149,14 @@ export function ObjectLockConfigModal({
             <select
               value={retentionUnit}
               onChange={(e) => setRetentionUnit(e.target.value as 'days' | 'years')}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+              className="px-4 py-2 border border-border rounded-lg bg-card text-foreground"
             >
               <option value="days">Days</option>
               <option value="years">Years</option>
             </select>
           </div>
           {retentionValue && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+            <p className="text-xs text-muted-foreground mt-2">
               <Info className="inline h-3 w-3 mr-1" />
               New total: {getNewTotalDays()} days
               {canIncrease() ? (
@@ -164,7 +164,7 @@ export function ObjectLockConfigModal({
                   ✓ Increase of {getNewTotalDays() - currentTotalDays} days
                 </span>
               ) : getNewTotalDays() === currentTotalDays ? (
-                <span className="text-gray-600 dark:text-gray-400 ml-2">⚠️ No change</span>
+                <span className="text-muted-foreground ml-2">⚠️ No change</span>
               ) : (
                 <span className="text-red-600 dark:text-red-400 ml-2">✗ Cannot decrease retention</span>
               )}
@@ -173,7 +173,7 @@ export function ObjectLockConfigModal({
         </div>
 
         {/* Actions */}
-        <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex justify-end gap-3 pt-4 border-t border-border">
           <Button variant="outline" onClick={handleClose} disabled={updateMutation.isPending}>
             Cancel
           </Button>

@@ -139,7 +139,7 @@ export default function ClusterNodes() {
       case 'healthy':     return <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />;
       case 'degraded':    return <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />;
       case 'unavailable': return <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />;
-      default:            return <HelpCircle className="w-5 h-5 text-gray-600 dark:text-gray-400" />;
+      default:            return <HelpCircle className="w-5 h-5 text-muted-foreground" />;
     }
   };
 
@@ -158,7 +158,7 @@ export default function ClusterNodes() {
       healthy:     'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200',
       degraded:    'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200',
       unavailable: 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200',
-      unknown:     'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200',
+      unknown:     'bg-gray-100 dark:bg-gray-700 text-foreground',
     };
     return (
       <span className={`px-2 py-1 text-xs font-medium rounded-full ${colors[status]}`}>
@@ -188,32 +188,32 @@ export default function ClusterNodes() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <Button variant="outline" size="sm" onClick={() => navigate('/cluster')} className="bg-white dark:bg-gray-800">
+            <Button variant="outline" size="sm" onClick={() => navigate('/cluster')} className="bg-card">
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('clusterNodesTitle')}</h1>
+            <h1 className="text-2xl font-bold text-foreground">{t('clusterNodesTitle')}</h1>
           </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{t('manageNodesDesc')}</p>
+          <p className="text-sm text-muted-foreground">{t('manageNodesDesc')}</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" onClick={loadNodes} className="bg-white dark:bg-gray-800">
-            <RefreshCw className="h-4 w-4 mr-2" />
+          <Button variant="outline" onClick={loadNodes} className="bg-card">
+            <RefreshCw className="h-4 w-4" />
             {t('refresh')}
           </Button>
-          <Button variant="outline" onClick={() => setShowNodeReplicationDialog(true)} className="bg-white dark:bg-gray-800">
-            <Copy className="h-4 w-4 mr-2" />
+          <Button variant="outline" onClick={() => setShowNodeReplicationDialog(true)} className="bg-card">
+            <Copy className="h-4 w-4" />
             {t('configureNodeReplication')}
           </Button>
-          <Button onClick={() => setShowAddNodeDialog(true)} className="bg-brand-600 hover:bg-brand-700 text-white">
-            <Plus className="h-4 w-4 mr-2" />
+          <Button onClick={() => setShowAddNodeDialog(true)} variant="default">
+            <Plus className="h-4 w-4" />
             {t('addNode')}
           </Button>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+      <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden">
+        <div className="px-6 py-5 border-b border-border">
+          <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
             <Server className="h-5 w-5 text-brand-600 dark:text-brand-400" />
             {t('clusterNodesCount', { count: nodes.length })}
           </h3>
@@ -234,7 +234,7 @@ export default function ClusterNodes() {
             <TableBody>
               {nodes.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     {t('noNodesYet')}
                   </TableCell>
                 </TableRow>
@@ -250,7 +250,7 @@ export default function ClusterNodes() {
                           <div className="font-semibold text-brand-600 dark:text-brand-400">
                             {node.name}
                             {node.id === localNodeId && (
-                              <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">{t('thisNode')}</span>
+                              <span className="ml-2 text-xs font-normal text-muted-foreground">{t('thisNode')}</span>
                             )}
                           </div>
                           {getHealthIcon(node.health_status)}
@@ -264,14 +264,14 @@ export default function ClusterNodes() {
                     <TableCell className="whitespace-nowrap"><span className="text-sm">{node.priority}</span></TableCell>
                     <TableCell className="whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => handleCheckHealth(node.id)} className="p-2 text-gray-600 dark:text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-gradient-to-br hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 rounded-lg transition-all duration-200 shadow-sm hover:shadow" title={t('checkHealth')}>
+                        <button onClick={() => handleCheckHealth(node.id)} className="p-2 text-muted-foreground hover:text-brand-600 dark:hover:text-brand-400 hover:bg-gradient-to-br hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 rounded-lg transition-all duration-200 shadow-sm hover:shadow" title={t('checkHealth')}>
                           <Activity className="h-4 w-4" />
                         </button>
-                        <button onClick={() => setEditingNode(node)} className="p-2 text-gray-600 dark:text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-gradient-to-br hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 rounded-lg transition-all duration-200 shadow-sm hover:shadow" title={t('editNode')}>
+                        <button onClick={() => setEditingNode(node)} className="p-2 text-muted-foreground hover:text-brand-600 dark:hover:text-brand-400 hover:bg-gradient-to-br hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 rounded-lg transition-all duration-200 shadow-sm hover:shadow" title={t('editNode')}>
                           <Edit className="h-4 w-4" />
                         </button>
                         {node.id !== localNodeId && (
-                          <button onClick={() => handleRemoveNode(node.id)} className="p-2 text-gray-600 dark:text-gray-400 hover:text-error-600 dark:hover:text-error-400 hover:bg-gradient-to-br hover:from-error-50 hover:to-red-50 dark:hover:from-error-900/30 dark:hover:to-red-900/30 rounded-lg transition-all duration-200 shadow-sm hover:shadow" title={t('removeNode')}>
+                          <button onClick={() => handleRemoveNode(node.id)} className="p-2 text-muted-foreground hover:text-error-600 dark:hover:text-error-400 hover:bg-gradient-to-br hover:from-error-50 hover:to-red-50 dark:hover:from-error-900/30 dark:hover:to-red-900/30 rounded-lg transition-all duration-200 shadow-sm hover:shadow" title={t('removeNode')}>
                             <Trash2 className="h-4 w-4" />
                           </button>
                         )}
@@ -290,10 +290,10 @@ export default function ClusterNodes() {
         <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">{t('addNodeTitle')}</h2>
-              <button onClick={() => setShowAddNodeDialog(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><X className="h-5 w-5" /></button>
+              <h2 className="text-xl font-bold text-foreground">{t('addNodeTitle')}</h2>
+              <button onClick={() => setShowAddNodeDialog(false)} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
             </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{t('addNodeDesc')}</p>
+            <p className="text-sm text-muted-foreground mb-4">{t('addNodeDesc')}</p>
             <form onSubmit={(e) => {
               e.preventDefault();
               const formData = new FormData(e.currentTarget);
@@ -301,17 +301,17 @@ export default function ClusterNodes() {
             }}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('consoleUrl')}</label>
-                  <input name="endpoint" type="url" required placeholder="https://node2.example.com:8081" className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500" />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('consoleUrlHint')}</p>
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('consoleUrl')}</label>
+                  <input name="endpoint" type="url" required placeholder="https://node2.example.com:8081" className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500" />
+                  <p className="text-xs text-muted-foreground mt-1">{t('consoleUrlHint')}</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('adminUsername')}</label>
-                  <input name="username" type="text" required placeholder="admin" className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500" />
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('adminUsername')}</label>
+                  <input name="username" type="text" required placeholder="admin" className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('adminPassword')}</label>
-                  <input name="password" type="password" required placeholder="********" className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500" />
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('adminPassword')}</label>
+                  <input name="password" type="password" required placeholder="********" className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500" />
                 </div>
               </div>
               <div className="flex gap-2 mt-6">
@@ -328,8 +328,8 @@ export default function ClusterNodes() {
         <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">{t('editNodeTitle')}</h2>
-              <button onClick={() => setEditingNode(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><X className="h-5 w-5" /></button>
+              <h2 className="text-xl font-bold text-foreground">{t('editNodeTitle')}</h2>
+              <button onClick={() => setEditingNode(null)} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
             </div>
             <form onSubmit={(e) => {
               e.preventDefault();
@@ -343,45 +343,45 @@ export default function ClusterNodes() {
             }}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('nodeNameFieldLabel')}</label>
-                  <input name="name" type="text" defaultValue={editingNode.name} placeholder="node-us-west-1" className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500" />
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('nodeNameFieldLabel')}</label>
+                  <input name="name" type="text" defaultValue={editingNode.name} placeholder="node-us-west-1" className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('endpointUrl')}</label>
-                  <input type="text" value={editingNode.endpoint} disabled className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400" />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('endpointCannotChange')}</p>
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('endpointUrl')}</label>
+                  <input type="text" value={editingNode.endpoint} disabled className="w-full border border-border rounded-lg px-3 py-2 bg-gray-100 dark:bg-gray-800 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground mt-1">{t('endpointCannotChange')}</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('nodeId')}</label>
-                  <input type="text" value={editingNode.id} disabled className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-mono text-sm" />
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('nodeId')}</label>
+                  <input type="text" value={editingNode.id} disabled className="w-full border border-border rounded-lg px-3 py-2 bg-gray-100 dark:bg-gray-800 text-muted-foreground font-mono text-sm" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('region')}</label>
-                  <input name="region" type="text" defaultValue={editingNode.region || ''} placeholder="us-west-1" className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500" />
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('region')}</label>
+                  <input name="region" type="text" defaultValue={editingNode.region || ''} placeholder="us-west-1" className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('priority')}</label>
-                  <input name="priority" type="number" defaultValue={editingNode.priority} min={1} max={1000} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500" />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('priorityHint')}</p>
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('priority')}</label>
+                  <input name="priority" type="number" defaultValue={editingNode.priority} min={1} max={1000} className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500" />
+                  <p className="text-xs text-muted-foreground mt-1">{t('priorityHint')}</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('metadataJson')}</label>
-                  <textarea name="metadata" rows={3} defaultValue={editingNode.metadata || ''} placeholder='{"location": "datacenter-1", "environment": "production"}' className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 font-mono text-sm" />
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('metadataJson')}</label>
+                  <textarea name="metadata" rows={3} defaultValue={editingNode.metadata || ''} placeholder='{"location": "datacenter-1", "environment": "production"}' className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500 font-mono text-sm" />
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-600 dark:text-gray-400">{t('healthStatus')}</span>
+                    <span className="text-muted-foreground">{t('healthStatus')}</span>
                     <span className={`font-medium ${editingNode.health_status === 'healthy' ? 'text-green-600' : editingNode.health_status === 'degraded' ? 'text-yellow-600' : 'text-red-600'}`}>
                       {getHealthLabel(editingNode.health_status as HealthStatus)}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-600 dark:text-gray-400">{t('latency')}</span>
-                    <span className="font-medium text-gray-900 dark:text-white">{editingNode.latency_ms}ms</span>
+                    <span className="text-muted-foreground">{t('latency')}</span>
+                    <span className="font-medium text-foreground">{editingNode.latency_ms}ms</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-600 dark:text-gray-400">{t('bucketCount')}</span>
-                    <span className="font-medium text-gray-900 dark:text-white">{editingNode.bucket_count}</span>
+                    <span className="text-muted-foreground">{t('bucketCount')}</span>
+                    <span className="font-medium text-foreground">{editingNode.bucket_count}</span>
                   </div>
                 </div>
               </div>
@@ -399,8 +399,8 @@ export default function ClusterNodes() {
         <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-lg p-6">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">{t('configureNodeReplicationTitle')}</h2>
-              <button onClick={() => setShowNodeReplicationDialog(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-5 h-5" /></button>
+              <h2 className="text-xl font-bold text-foreground">{t('configureNodeReplicationTitle')}</h2>
+              <button onClick={() => setShowNodeReplicationDialog(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
             </div>
             <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
               <p className="text-sm text-blue-800 dark:text-blue-200" dangerouslySetInnerHTML={{ __html: t('bulkReplicationDesc') }} />
@@ -412,19 +412,19 @@ export default function ClusterNodes() {
             }}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('targetNode')}</label>
-                  <select name="targetNode" required className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500">
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('targetNode')}</label>
+                  <select name="targetNode" required className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500">
                     <option value="">{t('selectTargetNode')}</option>
                     {availableNodes.map(node => (
                       <option key={node.id} value={node.id}>{node.name} ({node.endpoint}) - {getHealthLabel(node.health_status as HealthStatus)}</option>
                     ))}
                   </select>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('allBucketsReplicatedHint')}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{t('allBucketsReplicatedHint')}</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('syncInterval')}</label>
-                  <input name="syncInterval" type="number" min="10" defaultValue="60" required className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500" placeholder="60" />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('syncIntervalHint')}</p>
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('syncInterval')}</label>
+                  <input name="syncInterval" type="number" min="10" defaultValue="60" required className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500" placeholder="60" />
+                  <p className="text-xs text-muted-foreground mt-1">{t('syncIntervalHint')}</p>
                 </div>
               </div>
               <div className="flex gap-3 mt-6">

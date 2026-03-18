@@ -304,10 +304,10 @@ export default function LoginPage() {
                 <>
                   {/* Header */}
                   <div className="text-center">
-                    <h1 className="text-4xl font-light text-gray-900 dark:text-white mb-2 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-blue-100 dark:to-white bg-clip-text text-transparent">
+                    <h1 className="text-4xl font-light text-foreground mb-2 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-blue-100 dark:to-white bg-clip-text text-transparent">
                       {t('webConsole')}
                     </h1>
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                    <p className="text-sm text-muted-foreground">
                       {t('signInMessage')}
                     </p>
                   </div>
@@ -339,7 +339,7 @@ export default function LoginPage() {
                           name="username"
                           type="text"
                           required
-                          className="peer w-full pl-8 pr-4 py-3 pt-6 pb-2 border-b-2 border-gray-300 dark:border-gray-500 bg-transparent text-gray-900 dark:text-white placeholder-transparent focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 transition-colors duration-200"
+                          className="peer w-full pl-8 pr-4 py-3 pt-6 pb-2 border-b-2 border-gray-300 dark:border-gray-500 bg-transparent text-foreground placeholder-transparent focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 transition-colors duration-200"
                           placeholder={t('username')}
                           value={formData.username}
                           onChange={handleChange}
@@ -380,7 +380,7 @@ export default function LoginPage() {
                           name="password"
                           type="password"
                           required
-                          className="peer w-full pl-8 pr-4 py-3 pt-6 pb-2 border-b-2 border-gray-300 dark:border-gray-500 bg-transparent text-gray-900 dark:text-white placeholder-transparent focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 transition-colors duration-200"
+                          className="peer w-full pl-8 pr-4 py-3 pt-6 pb-2 border-b-2 border-gray-300 dark:border-gray-500 bg-transparent text-foreground placeholder-transparent focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 transition-colors duration-200"
                           placeholder={t('password')}
                           value={formData.password}
                           onChange={handleChange}
@@ -429,7 +429,7 @@ export default function LoginPage() {
                     <div className={`mt-6 transition-all duration-300 ${ssoHighlight ? 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-gray-900 rounded-2xl p-4 bg-blue-50/50 dark:bg-blue-500/10' : ''}`}>
                       <div className="flex items-center gap-3">
                         <div className="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
-                        <span className="text-sm text-gray-500 dark:text-gray-400 shrink-0">
+                        <span className="text-sm text-muted-foreground shrink-0">
                           {t('orContinueWith')}
                         </span>
                         <div className="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
@@ -459,7 +459,7 @@ export default function LoginPage() {
                             form.submit();
                           }}
                         >
-                          <p className="text-sm text-gray-600 dark:text-gray-300 text-center mb-2">
+                          <p className="text-sm text-muted-foreground text-center mb-2">
                             {t('enterEmailToSignIn')}{' '}
                             <span className="font-medium capitalize">{ssoPreset}</span>
                           </p>
@@ -469,14 +469,14 @@ export default function LoginPage() {
                             placeholder={t('emailPlaceholder')}
                             value={ssoEmail}
                             onChange={(e) => setSsoEmail(e.target.value)}
-                            className="w-full px-4 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-full bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-blue-500 dark:focus:border-blue-400"
+                            className="w-full px-4 py-3 border-2 border-border rounded-full bg-card text-foreground text-sm focus:outline-none focus:border-blue-500 dark:focus:border-blue-400"
                             autoFocus
                           />
                           <div className="flex gap-2">
                             <button
                               type="button"
                               onClick={() => { setSsoPreset(null); setSsoEmail(''); }}
-                              className="flex-1 py-2.5 px-4 rounded-full border-2 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                              className="flex-1 py-2.5 px-4 rounded-full border-2 border-border text-muted-foreground text-sm font-medium hover:bg-secondary transition-colors"
                             >
                               {t('cancel')}
                             </button>
@@ -496,7 +496,7 @@ export default function LoginPage() {
                               key={provider.preset}
                               type="button"
                               onClick={() => { setSsoPreset(provider.preset); setSsoEmail(''); setError(null); }}
-                              className={`w-full flex items-center justify-center gap-3 px-4 py-3 rounded-full border-2 ${ssoHighlight ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/30 animate-pulse' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'} text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-200 text-sm font-medium shadow-sm hover:shadow-md`}
+                              className={`w-full flex items-center justify-center gap-3 px-4 py-3 rounded-full border-2 ${ssoHighlight ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/30 animate-pulse' : 'border-border bg-card'} text-foreground hover:bg-secondary transition-all duration-200 text-sm font-medium shadow-sm hover:shadow-md`}
                             >
                               {provider.preset === 'google' && (
                                 <svg className="h-5 w-5" viewBox="0 0 24 24">
@@ -525,10 +525,10 @@ export default function LoginPage() {
                   {/* Footer */}
                   <div className="mt-8 pt-6 border-t border-gray-200 dark:border-white/10">
                     <div className="text-center">
-                      <p className="text-xs text-gray-500 dark:text-gray-300">
+                      <p className="text-xs text-muted-foreground">
                         © {new Date().getFullYear()} MaxIOFS. {t('allRightsReserved')}
                       </p>
-                      <p className="text-xs text-gray-400 dark:text-gray-400 mt-1">
+                      <p className="text-xs text-muted-foreground mt-1">
                         {t('highPerformanceStorageSolution')}
                       </p>
                     </div>

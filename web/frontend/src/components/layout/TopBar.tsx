@@ -71,33 +71,33 @@ export function TopBar({
     : isGlobalAdmin ? t('globalAdmin') : t('globalUser');
 
   return (
-    <header className="sticky top-0 z-30 flex w-full h-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-soft-md backdrop-blur-sm bg-white/95 dark:bg-gray-900/95">
-      <div className="flex flex-grow items-center justify-between px-6">
+    <header className="flex w-full h-16 flex-shrink-0 bg-transparent">
+      <div className="flex flex-grow items-center justify-between px-4">
         {/* Mobile menu button */}
-        <div className="flex items-center gap-2 sm:gap-4 lg:hidden">
+        <div className="flex items-center gap-2 lg:hidden">
           <button
             onClick={onMenuOpen}
             aria-label={t('openMenu')}
-            className="z-50 block rounded-button border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1.5 shadow-soft hover:shadow-soft-md hover:bg-gray-50 dark:hover:bg-gray-700 lg:hidden transition-all duration-200"
+            className="rounded-button border border-border bg-card p-1.5 hover:bg-secondary transition-all duration-200"
           >
-            <Menu className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+            <Menu className="h-5 w-5 text-muted-foreground" />
           </button>
         </div>
 
         <div className="flex-1" />
 
         {/* Right side actions */}
-        <div className="flex items-center gap-3 2xl:gap-7">
+        <div className="flex items-center gap-2">
           {/* Dark Mode Toggle */}
           <button
             onClick={onToggleDarkMode}
             aria-label={effectiveTheme === 'dark' ? t('switchToLightMode') : t('switchToDarkMode')}
-            className="flex h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 shadow-soft hover:shadow-soft-md"
+            className="flex h-9 w-9 3xl:h-10 3xl:w-10 items-center justify-center rounded-button border border-border bg-card hover:bg-secondary transition-all duration-200"
           >
             {effectiveTheme === 'dark' ? (
-              <Sun className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-yellow-500" />
+              <Sun className="h-4 w-4 text-yellow-500" />
             ) : (
-              <Moon className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-gray-600" />
+              <Moon className="h-4 w-4 text-muted-foreground" />
             )}
           </button>
 
@@ -107,18 +107,18 @@ export function TopBar({
               onClick={() => setShowLanguageMenu(!showLanguageMenu)}
               aria-label={t('changeLanguage')}
               aria-expanded={showLanguageMenu}
-              className="flex h-10 3xl:h-12 4xl:h-14 items-center gap-1.5 px-3 rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 shadow-soft hover:shadow-soft-md"
+              className="flex h-9 items-center gap-1.5 px-2.5 rounded-button border border-border bg-card hover:bg-secondary transition-all duration-200"
             >
               <span className="text-base leading-none">{currentLang.flag}</span>
-              <span className="text-xs font-semibold text-gray-600 dark:text-gray-400">{currentLang.label}</span>
+              <span className="text-xs font-semibold text-muted-foreground">{currentLang.label}</span>
             </button>
 
             {showLanguageMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowLanguageMenu(false)} />
-                <div className="absolute right-0 mt-2.5 w-40 rounded-card border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-soft-xl z-50 overflow-hidden">
-                  <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700">
-                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{t('changeLanguage')}</p>
+                <div className="absolute right-0 mt-2 w-40 rounded-card border border-border bg-card shadow-float z-50 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-border/50">
+                    <p className="text-xs font-medium text-muted-foreground">{t('changeLanguage')}</p>
                   </div>
                   {LANGUAGES.map((lang) => (
                     <button
@@ -127,8 +127,8 @@ export function TopBar({
                       className={cn(
                         'flex w-full items-center gap-3 px-3 py-2.5 text-sm transition-colors',
                         language === lang.code
-                          ? 'bg-brand-50 dark:bg-brand-900/30 text-brand-700 dark:text-brand-300 font-semibold'
-                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                          ? 'bg-brand-600/10 text-brand-600 dark:text-brand-400 font-semibold'
+                          : 'text-foreground hover:bg-secondary'
                       )}
                     >
                       <span className="text-base">{lang.flag}</span>
@@ -146,9 +146,9 @@ export function TopBar({
               onClick={() => setShowNotifications(!showNotifications)}
               aria-label={t('openNotifications')}
               aria-expanded={showNotifications}
-              className="relative flex h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 shadow-soft hover:shadow-soft-md"
+              className="relative flex h-9 w-9 3xl:h-10 3xl:w-10 items-center justify-center rounded-button border border-border bg-card hover:bg-secondary transition-all duration-200"
             >
-              <Bell className="h-5 w-5 3xl:h-6 3xl:w-6 4xl:h-7 4xl:w-7 text-gray-600 dark:text-gray-400" />
+              <Bell className="h-4 w-4 text-muted-foreground" />
               {totalUnread > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 z-1 h-5 w-5 rounded-full bg-error-600 flex items-center justify-center">
                   <span className="text-[10px] font-medium text-white">{totalUnread}</span>
@@ -159,9 +159,9 @@ export function TopBar({
             {showNotifications && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
-                <div className="absolute -right-16 sm:right-0 mt-2.5 w-80 sm:w-96 bg-white dark:bg-gray-800 rounded-card shadow-soft-xl border border-gray-200 dark:border-gray-700 z-50">
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h5 className="text-sm font-semibold text-gray-900 dark:text-white">{t('notifications')}</h5>
+                <div className="absolute -right-16 sm:right-0 mt-2 w-80 sm:w-96 bg-card rounded-card shadow-float border border-border z-50">
+                  <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
+                    <h5 className="text-sm font-semibold text-foreground">{t('notifications')}</h5>
                     <div className="flex gap-2">
                       {unreadCount > 0 && (
                         <span className="rounded-full bg-brand-600 px-2.5 py-0.5 text-xs font-medium text-white">
@@ -185,17 +185,17 @@ export function TopBar({
                       <Link
                         to={`/users/${user?.id || 'admin'}`}
                         onClick={() => setShowNotifications(false)}
-                        className="flex gap-4 border-b border-gray-200 dark:border-gray-700 px-5 py-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors bg-amber-50/50 dark:bg-amber-900/10"
+                        className="flex gap-4 border-b border-border/50 px-5 py-4 hover:bg-secondary transition-colors bg-amber-500/5"
                       >
-                        <div className="h-12 w-12 rounded-full bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+                        <div className="h-12 w-12 rounded-full bg-amber-500/10 flex items-center justify-center flex-shrink-0">
                           <ShieldAlert className="h-6 w-6 text-amber-600 dark:text-amber-400" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2 mb-1">
-                            <h6 className="text-sm text-gray-900 dark:text-white font-semibold">{t('securityWarning')}</h6>
+                            <h6 className="text-sm text-foreground font-semibold">{t('securityWarning')}</h6>
                             <span className="h-2 w-2 rounded-full bg-amber-500 flex-shrink-0 mt-1.5" />
                           </div>
-                          <p className="text-xs text-gray-600 dark:text-gray-400">
+                          <p className="text-xs text-muted-foreground">
                             {t('defaultPasswordWarning')}
                           </p>
                         </div>
@@ -204,8 +204,8 @@ export function TopBar({
 
                     {notifications.length === 0 && !hasDefaultPassword ? (
                       <div className="px-5 py-8 text-center">
-                        <Bell className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{t('noNotifications')}</p>
+                        <Bell className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
+                        <p className="text-sm text-muted-foreground">{t('noNotifications')}</p>
                       </div>
                     ) : (
                       <div>
@@ -224,24 +224,24 @@ export function TopBar({
                               to="/users"
                               onClick={() => { onMarkAsRead(notification.id); setShowNotifications(false); }}
                               className={cn(
-                                'flex gap-4 border-b border-gray-200 dark:border-gray-700 px-5 py-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors',
-                                !notification.read && 'bg-brand-50/50 dark:bg-brand-900/10'
+                                'flex gap-4 border-b border-border/50 px-5 py-4 hover:bg-secondary transition-colors',
+                                !notification.read && 'bg-brand-600/5'
                               )}
                             >
-                              <div className="h-12 w-12 rounded-full bg-error-50 dark:bg-error-900/30 flex items-center justify-center flex-shrink-0">
+                              <div className="h-12 w-12 rounded-full bg-error-500/10 flex items-center justify-center flex-shrink-0">
                                 <Lock className="h-6 w-6 text-error-600" />
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-start justify-between gap-2 mb-1">
-                                  <h6 className={cn('text-sm text-gray-900 dark:text-white', !notification.read && 'font-semibold')}>
+                                  <h6 className={cn('text-sm text-foreground', !notification.read && 'font-semibold')}>
                                     {notification.type === 'user_locked' ? t('accountLocked') : notification.type}
                                   </h6>
                                   {!notification.read && (
                                     <span className="h-2 w-2 rounded-full bg-brand-600 flex-shrink-0 mt-1.5" />
                                   )}
                                 </div>
-                                <p className="text-xs text-gray-600 dark:text-gray-400 break-words">{notification.message}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">{timeAgo}</p>
+                                <p className="text-xs text-muted-foreground break-words">{notification.message}</p>
+                                <p className="text-xs text-muted-foreground/70 mt-1">{timeAgo}</p>
                               </div>
                             </Link>
                           );
@@ -258,48 +258,48 @@ export function TopBar({
           <div className="relative">
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
-              className="flex items-center gap-3 rounded-button hover:bg-gray-50 dark:hover:bg-gray-800 px-2 py-2 transition-all duration-200 hover:shadow-soft"
+              className="flex items-center gap-2 rounded-button hover:bg-secondary px-2 py-1.5 transition-all duration-200"
             >
               <span className="hidden text-right lg:block">
-                <span className="block text-sm font-medium text-gray-900 dark:text-white">
+                <span className="block text-sm font-medium text-foreground">
                   {user?.username || 'Unknown'}
                 </span>
-                <span className="block text-xs text-gray-500 dark:text-gray-400">{userLabel}</span>
+                <span className="block text-xs text-muted-foreground">{userLabel}</span>
               </span>
-              <span className="h-10 w-10 3xl:h-12 3xl:w-12 4xl:h-14 4xl:w-14 rounded-full bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center">
-                <span className="text-sm 3xl:text-base 4xl:text-lg font-semibold text-white">
+              <span className="h-9 w-9 3xl:h-10 3xl:w-10 rounded-full bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center flex-shrink-0">
+                <span className="text-sm font-semibold text-white">
                   {user?.username?.charAt(0).toUpperCase() || 'U'}
                 </span>
               </span>
-              <ChevronDown className="hidden sm:block h-4 w-4 text-gray-400" />
+              <ChevronDown className="hidden sm:block h-4 w-4 text-muted-foreground" />
             </button>
 
             {showUserMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-                <div className="absolute right-0 mt-2.5 w-56 rounded-card border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-soft-xl z-50">
-                  <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 px-4 py-4">
-                    <span className="h-12 w-12 rounded-full bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center flex-shrink-0">
-                      <span className="text-base font-semibold text-white">
+                <div className="absolute right-0 mt-2 w-56 rounded-card border border-border bg-card shadow-float z-50">
+                  <div className="flex items-center gap-3 border-b border-border/50 px-4 py-4">
+                    <span className="h-10 w-10 rounded-full bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center flex-shrink-0">
+                      <span className="text-sm font-semibold text-white">
                         {user?.username?.charAt(0).toUpperCase() || 'U'}
                       </span>
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{user?.username || 'Unknown'}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user?.email || t('noEmail')}</p>
+                      <p className="text-sm font-medium text-foreground truncate">{user?.username || 'Unknown'}</p>
+                      <p className="text-xs text-muted-foreground truncate">{user?.email || t('noEmail')}</p>
                     </div>
                   </div>
                   <div className="p-2">
                     <button
                       onClick={() => { setShowUserMenu(false); navigate(`/users/${user?.id}`); }}
-                      className="flex w-full items-center gap-3 rounded-button px-3 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-200"
+                      className="flex w-full items-center gap-3 rounded-button px-3 py-2.5 text-sm font-medium text-foreground hover:bg-secondary transition-all duration-200"
                     >
                       <User className="h-4 w-4" />
                       {t('myProfile')}
                     </button>
                     <button
                       onClick={() => { setShowUserMenu(false); onLogout(); }}
-                      className="flex w-full items-center gap-3 rounded-button px-3 py-2.5 text-sm font-medium text-error-600 hover:bg-error-50 dark:hover:bg-error-900/30 transition-all duration-200"
+                      className="flex w-full items-center gap-3 rounded-button px-3 py-2.5 text-sm font-medium text-error-600 hover:bg-error-500/10 transition-all duration-200"
                     >
                       <LogOut className="h-4 w-4" />
                       {t('logOut')}

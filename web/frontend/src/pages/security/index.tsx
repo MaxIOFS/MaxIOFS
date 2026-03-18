@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
 import { Loading } from '@/components/ui/Loading';
+import { Button } from '@/components/ui/Button';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import {
@@ -117,23 +118,20 @@ export default function SecurityPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('securityOverview')}</h1>
-          <p className="text-gray-500 dark:text-gray-400">
+          <h1 className="text-2xl font-bold text-foreground">{t('securityOverview')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             {t('monitorAuthAccess')}
           </p>
         </div>
-        <Link
-          to="/settings"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-medium transition-colors"
-        >
+        <Button variant="default" onClick={() => navigate('/settings')}>
           <Settings className="h-4 w-4" />
           {t('configureSettings')}
-        </Link>
+        </Button>
       </div>
 
       {/* Security Status */}
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">{t('securityStatus')}</h2>
+        <h2 className="text-xl font-semibold text-foreground mb-4">{t('securityStatus')}</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <MetricCard
             title={t('activeUsers')}
@@ -179,36 +177,36 @@ export default function SecurityPage() {
 
       {/* User Statistics */}
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">{t('userStatistics')}</h2>
+        <h2 className="text-xl font-semibold text-foreground mb-4">{t('userStatistics')}</h2>
         <div className="grid gap-4 md:grid-cols-2">
           {/* User Status Card */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-            <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                <Users className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+          <div className="bg-card rounded-lg border border-border shadow-sm overflow-hidden">
+            <div className="px-6 py-5 border-b border-border">
+              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <Users className="h-5 w-5 text-muted-foreground" />
                 {t('userStatus')}
               </h3>
             </div>
             <div className="p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('totalUsersLabel')}</span>
-                <span className="text-sm font-bold text-gray-900 dark:text-white">{totalUsers}</span>
+                <span className="text-sm font-medium text-foreground">{t('totalUsersLabel')}</span>
+                <span className="text-sm font-bold text-foreground">{totalUsers}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('activeUsers')}</span>
+                <span className="text-sm font-medium text-foreground">{t('activeUsers')}</span>
                 <span className="flex items-center gap-2 text-green-600 dark:text-green-400 font-medium">
                   <CheckCircle className="h-4 w-4" />
                   {activeUsers}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('inactiveUsers')}</span>
-                <span className="flex items-center gap-2 text-gray-600 dark:text-gray-400 font-medium">
+                <span className="text-sm font-medium text-foreground">{t('inactiveUsers')}</span>
+                <span className="flex items-center gap-2 text-muted-foreground font-medium">
                   <UserX className="h-4 w-4" />
                   {inactiveUsers}
                 </span>
               </div>
-              <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+              <div className="pt-2 border-t border-border">
                 <Link
                   to="/users"
                   className="text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium"
@@ -220,30 +218,30 @@ export default function SecurityPage() {
           </div>
 
           {/* Account Security Card */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-            <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                <Lock className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+          <div className="bg-card rounded-lg border border-border shadow-sm overflow-hidden">
+            <div className="px-6 py-5 border-b border-border">
+              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <Lock className="h-5 w-5 text-muted-foreground" />
                 {t('accountSecurity')}
               </h3>
             </div>
             <div className="p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('lockedAccounts')}</span>
+                <span className="text-sm font-medium text-foreground">{t('lockedAccounts')}</span>
                 <span className={`text-sm font-bold ${lockedUsers.length > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'}`}>
                   {lockedUsers.length}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('lockoutDuration')}</span>
-                <span className="text-sm text-gray-600 dark:text-gray-400">{formatDuration(getSetting('security.lockout_duration', '900'))}</span>
+                <span className="text-sm font-medium text-foreground">{t('lockoutDuration')}</span>
+                <span className="text-sm text-muted-foreground">{formatDuration(getSetting('security.lockout_duration', '900'))}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('maxFailedAttempts')}</span>
-                <span className="text-sm text-gray-600 dark:text-gray-400">{t('attemptsCount', { count: parseInt(getSetting('security.max_failed_attempts', '5'), 10) })}</span>
+                <span className="text-sm font-medium text-foreground">{t('maxFailedAttempts')}</span>
+                <span className="text-sm text-muted-foreground">{t('attemptsCount', { count: parseInt(getSetting('security.max_failed_attempts', '5'), 10) })}</span>
               </div>
               {lockedUsers.length > 0 && (
-                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                <div className="pt-2 border-t border-border">
                   <Link
                     to="/users"
                     className="text-sm text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 font-medium"
@@ -259,217 +257,217 @@ export default function SecurityPage() {
 
       {/* Active Security Features */}
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">{t('activeSecurityFeatures')}</h2>
+        <h2 className="text-xl font-semibold text-foreground mb-4">{t('activeSecurityFeatures')}</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {/* Authentication Features */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <Shield className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+          <div className="bg-card rounded-lg border border-border shadow-sm p-6">
+            <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+              <Shield className="h-5 w-5 text-muted-foreground" />
               {t('authenticationAccess')}
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('twoFactorAuth')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('twoFactorAuthDesc')}</p>
+                  <p className="font-medium text-foreground">{t('twoFactorAuth')}</p>
+                  <p className="text-sm text-muted-foreground">{t('twoFactorAuthDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">JWT & S3 Signature Authentication</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Token-based (JWT) for Console, AWS Signature v2/v4 for S3 API</p>
+                  <p className="font-medium text-foreground">JWT & S3 Signature Authentication</p>
+                  <p className="text-sm text-muted-foreground">Token-based (JWT) for Console, AWS Signature v2/v4 for S3 API</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Identity Providers (LDAP & OAuth2/OIDC)</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Enterprise SSO via LDAP/Active Directory and OAuth2/OIDC (Google, Okta, Keycloak, etc.)</p>
+                  <p className="font-medium text-foreground">Identity Providers (LDAP & OAuth2/OIDC)</p>
+                  <p className="text-sm text-muted-foreground">Enterprise SSO via LDAP/Active Directory and OAuth2/OIDC (Google, Okta, Keycloak, etc.)</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">TLS Cluster Communication</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Encrypted inter-node communication with mutual TLS between cluster members</p>
+                  <p className="font-medium text-foreground">TLS Cluster Communication</p>
+                  <p className="text-sm text-muted-foreground">Encrypted inter-node communication with mutual TLS between cluster members</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('bcryptPassword')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Industry-standard password hashing with per-user salt</p>
+                  <p className="font-medium text-foreground">{t('bcryptPassword')}</p>
+                  <p className="text-sm text-muted-foreground">Industry-standard password hashing with per-user salt</p>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Security Controls */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <Lock className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+          <div className="bg-card rounded-lg border border-border shadow-sm p-6">
+            <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+              <Lock className="h-5 w-5 text-muted-foreground" />
               {t('securityControls')}
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Rate Limiting</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('rateLimitingDesc', { count: parseInt(getSetting('security.ratelimit_login_per_minute', '5'), 10) })}</p>
+                  <p className="font-medium text-foreground">Rate Limiting</p>
+                  <p className="text-sm text-muted-foreground">{t('rateLimitingDesc', { count: parseInt(getSetting('security.ratelimit_login_per_minute', '5'), 10) })}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Account Lockout</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('accountLockoutDesc', { duration: formatDuration(getSetting('security.lockout_duration', '900')), attempts: getSetting('security.max_failed_attempts', '5') })}</p>
+                  <p className="font-medium text-foreground">Account Lockout</p>
+                  <p className="text-sm text-muted-foreground">{t('accountLockoutDesc', { duration: formatDuration(getSetting('security.lockout_duration', '900')), attempts: getSetting('security.max_failed_attempts', '5') })}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('sessionManagement')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('sessionManagementDesc', { duration: formatDuration(getSetting('security.session_timeout', '86400')) })}</p>
+                  <p className="font-medium text-foreground">{t('sessionManagement')}</p>
+                  <p className="text-sm text-muted-foreground">{t('sessionManagementDesc', { duration: formatDuration(getSetting('security.session_timeout', '86400')) })}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('rbac')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">4 roles: Admin, User, Read-Only, Guest with granular bucket permissions</p>
+                  <p className="font-medium text-foreground">{t('rbac')}</p>
+                  <p className="text-sm text-muted-foreground">4 roles: Admin, User, Read-Only, Guest with granular bucket permissions</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Maintenance Mode</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Read-only lock for all S3 write operations during maintenance windows</p>
+                  <p className="font-medium text-foreground">Maintenance Mode</p>
+                  <p className="text-sm text-muted-foreground">Read-only lock for all S3 write operations during maintenance windows</p>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Data Protection & Replication */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <HardDrive className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+          <div className="bg-card rounded-lg border border-border shadow-sm p-6">
+            <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+              <HardDrive className="h-5 w-5 text-muted-foreground" />
               Data Protection & Replication
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('serverSideEncryption')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('serverSideEncryptionDesc')}</p>
+                  <p className="font-medium text-foreground">{t('serverSideEncryption')}</p>
+                  <p className="text-sm text-muted-foreground">{t('serverSideEncryptionDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">TLS-Encrypted Cluster Replication</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Mutual TLS between cluster nodes; SSE objects are re-encrypted per destination key</p>
+                  <p className="font-medium text-foreground">TLS-Encrypted Cluster Replication</p>
+                  <p className="text-sm text-muted-foreground">Mutual TLS between cluster nodes; SSE objects are re-encrypted per destination key</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Cross-Region Replication</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Secure bucket replication to AWS S3, MinIO with credential encryption</p>
+                  <p className="font-medium text-foreground">Cross-Region Replication</p>
+                  <p className="text-sm text-muted-foreground">Secure bucket replication to AWS S3, MinIO with credential encryption</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Object Lock & Versioning</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">WORM compliance, versioning with delete markers, lifecycle policies</p>
+                  <p className="font-medium text-foreground">Object Lock & Versioning</p>
+                  <p className="text-sm text-muted-foreground">WORM compliance, versioning with delete markers, lifecycle policies</p>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Infrastructure Security */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <Users className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+          <div className="bg-card rounded-lg border border-border shadow-sm p-6">
+            <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+              <Users className="h-5 w-5 text-muted-foreground" />
               {t('multiTenancyIsolation')}
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('tenantIsolation')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('tenantIsolationDesc')}</p>
+                  <p className="font-medium text-foreground">{t('tenantIsolation')}</p>
+                  <p className="text-sm text-muted-foreground">{t('tenantIsolationDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('resourceQuotas')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Per-tenant storage, bucket, and access key limits with usage tracking</p>
+                  <p className="font-medium text-foreground">{t('resourceQuotas')}</p>
+                  <p className="text-sm text-muted-foreground">Per-tenant storage, bucket, and access key limits with usage tracking</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Self-Replication Prevention</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatic validation to prevent circular replication loops</p>
+                  <p className="font-medium text-foreground">Self-Replication Prevention</p>
+                  <p className="text-sm text-muted-foreground">Automatic validation to prevent circular replication loops</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('bucketPermissions')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Fine-grained per-bucket access control with canned ACLs</p>
+                  <p className="font-medium text-foreground">{t('bucketPermissions')}</p>
+                  <p className="text-sm text-muted-foreground">Fine-grained per-bucket access control with canned ACLs</p>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Event Monitoring & Logging */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <Bell className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+          <div className="bg-card rounded-lg border border-border shadow-sm p-6">
+            <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+              <Bell className="h-5 w-5 text-muted-foreground" />
               {t('eventMonitoringLogging')}
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('advancedLoggingSystem')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('advancedLoggingSystemDesc')}</p>
+                  <p className="font-medium text-foreground">{t('advancedLoggingSystem')}</p>
+                  <p className="text-sm text-muted-foreground">{t('advancedLoggingSystemDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('comprehensiveAuditLogging')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('comprehensiveAuditLoggingDesc', { days: getSetting('audit.retention_days', '90') })}</p>
+                  <p className="font-medium text-foreground">{t('comprehensiveAuditLogging')}</p>
+                  <p className="text-sm text-muted-foreground">{t('comprehensiveAuditLoggingDesc', { days: getSetting('audit.retention_days', '90') })}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('bucketNotifications')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('bucketNotificationsDesc')}</p>
+                  <p className="font-medium text-foreground">{t('bucketNotifications')}</p>
+                  <p className="text-sm text-muted-foreground">{t('bucketNotificationsDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('prometheusMetrics')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('prometheusMetricsDesc')}</p>
+                  <p className="font-medium text-foreground">{t('prometheusMetrics')}</p>
+                  <p className="text-sm text-muted-foreground">{t('prometheusMetricsDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('emailAlerts')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('emailAlertsDesc')}</p>
+                  <p className="font-medium text-foreground">{t('emailAlerts')}</p>
+                  <p className="text-sm text-muted-foreground">{t('emailAlertsDesc')}</p>
                 </div>
               </div>
-              <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+              <div className="pt-2 border-t border-border">
                 <Link
                   to="/audit-logs"
                   className="text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium"
@@ -481,38 +479,38 @@ export default function SecurityPage() {
           </div>
 
           {/* Compliance */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <FileText className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+          <div className="bg-card rounded-lg border border-border shadow-sm p-6">
+            <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+              <FileText className="h-5 w-5 text-muted-foreground" />
               {t('complianceStandards')}
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('complianceReady')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('complianceReadyDesc')}</p>
+                  <p className="font-medium text-foreground">{t('complianceReady')}</p>
+                  <p className="text-sm text-muted-foreground">{t('complianceReadyDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('auditTrailAccess')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('auditTrailAccessDesc')}</p>
+                  <p className="font-medium text-foreground">{t('auditTrailAccess')}</p>
+                  <p className="text-sm text-muted-foreground">{t('auditTrailAccessDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('readOnlyAuditMode')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('readOnlyAuditModeDesc')}</p>
+                  <p className="font-medium text-foreground">{t('readOnlyAuditMode')}</p>
+                  <p className="text-sm text-muted-foreground">{t('readOnlyAuditModeDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t('csvExport')}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('csvExportDesc')}</p>
+                  <p className="font-medium text-foreground">{t('csvExport')}</p>
+                  <p className="text-sm text-muted-foreground">{t('csvExportDesc')}</p>
                 </div>
               </div>
             </div>

@@ -144,8 +144,8 @@ export default function BucketReplication() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('clusterBucketReplication')}</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <h1 className="text-2xl font-bold text-foreground">{t('clusterBucketReplication')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             {t('clusterBucketReplicationDesc')}
           </p>
         </div>
@@ -153,9 +153,9 @@ export default function BucketReplication() {
           variant="outline"
           size="sm"
           onClick={loadBuckets}
-          className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+          className="bg-card hover:bg-secondary"
         >
-          <RefreshCw className="h-4 w-4 mr-2" />
+          <RefreshCw className="h-4 w-4" />
           {t('refresh')}
         </Button>
       </div>
@@ -201,7 +201,7 @@ export default function BucketReplication() {
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Package className="h-5 w-5 text-brand-600 dark:text-brand-400" />
-                <span className="font-semibold text-gray-900 dark:text-white">{bucket.name}</span>
+                <span className="font-semibold text-foreground">{bucket.name}</span>
               </div>
               {bucket.has_replication ? (
                 <CheckCircle className="h-5 w-5 text-green-500" />
@@ -210,7 +210,7 @@ export default function BucketReplication() {
               )}
             </div>
 
-            <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400 mb-4">
+            <div className="space-y-2 text-sm text-muted-foreground mb-4">
               <div>{t('objectsCount', { count: bucket.object_count })}</div>
               <div>{t('sizeLabel', { size: formatBytes(bucket.total_size) })}</div>
               <div>{bucket.has_replication ? t('statusReplicated') : t('statusLocalOnly')}</div>
@@ -222,7 +222,7 @@ export default function BucketReplication() {
               onClick={() => handleOpenConfig(bucket.name)}
               className={bucket.has_replication ? '' : 'bg-brand-600 hover:bg-brand-700 text-white w-full'}
             >
-              <Settings className="h-4 w-4 mr-2" />
+              <Settings className="h-4 w-4" />
               {bucket.has_replication ? t('manageReplicationBtn') : t('configureReplicationBtn')}
             </Button>
           </Card>
@@ -232,7 +232,7 @@ export default function BucketReplication() {
       {filteredBuckets.length === 0 && (
         <Card className="p-8 text-center">
           <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-600 dark:text-gray-400">{t('noBucketsMatchingFilter')}</p>
+          <p className="text-sm text-muted-foreground mt-1">{t('noBucketsMatchingFilter')}</p>
         </Card>
       )}
 
@@ -241,12 +241,12 @@ export default function BucketReplication() {
         <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+              <h2 className="text-xl font-bold text-foreground">
                 {t('configureClusterReplicationTitle')}
               </h2>
               <button
                 onClick={() => setSelectedBucket(null)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                className="text-muted-foreground hover:text-foreground"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -280,20 +280,20 @@ export default function BucketReplication() {
               <div className="space-y-4">
                 {/* Source Bucket */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1">
                     {t('sourceBucket')}
                   </label>
                   <input
                     type="text"
                     value={selectedBucket}
                     disabled
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white"
+                    className="w-full border border-border rounded-lg px-3 py-2 bg-gray-100 dark:bg-gray-700 text-foreground"
                   />
                 </div>
 
                 {/* Destination Node */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1">
                     {t('destinationNode')}
                   </label>
                   {loadingNodes ? (
@@ -305,7 +305,7 @@ export default function BucketReplication() {
                       <select
                         name="targetNode"
                         required
-                        className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                        className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500"
                       >
                         <option value="">{t('selectDestinationNode')}</option>
                         {nodes.map((node) => (
@@ -314,7 +314,7 @@ export default function BucketReplication() {
                           </option>
                         ))}
                       </select>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      <p className="text-xs text-muted-foreground mt-1">
                         {t('localNodeNotShownHint')}
                       </p>
                     </>
@@ -328,7 +328,7 @@ export default function BucketReplication() {
 
                 {/* Sync Interval */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1">
                     {t('syncInterval')}
                   </label>
                   <input
@@ -337,26 +337,26 @@ export default function BucketReplication() {
                     min="10"
                     defaultValue="60"
                     required
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                    className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500"
                     placeholder="60"
                   />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     {t('syncIntervalHintLong')}
                   </p>
                 </div>
 
                 {/* Prefix Filter */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1">
                     {t('prefixFilter')}
                   </label>
                   <input
                     name="prefix"
                     type="text"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                    className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500"
                     placeholder="folder/"
                   />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     {t('prefixFilterHint')}
                   </p>
                 </div>
@@ -368,9 +368,9 @@ export default function BucketReplication() {
                       name="replicateDeletes"
                       type="checkbox"
                       defaultChecked
-                      className="rounded border-gray-300 dark:border-gray-600 text-brand-600 focus:ring-brand-500"
+                      className="rounded border-border text-brand-600 focus:ring-brand-500"
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">{t('replicateDeletions')}</span>
+                    <span className="text-sm text-foreground">{t('replicateDeletions')}</span>
                   </label>
 
                   <label className="flex items-center gap-2">
@@ -378,9 +378,9 @@ export default function BucketReplication() {
                       name="replicateMetadata"
                       type="checkbox"
                       defaultChecked
-                      className="rounded border-gray-300 dark:border-gray-600 text-brand-600 focus:ring-brand-500"
+                      className="rounded border-border text-brand-600 focus:ring-brand-500"
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">{t('replicateMetadata')}</span>
+                    <span className="text-sm text-foreground">{t('replicateMetadata')}</span>
                   </label>
                 </div>
               </div>

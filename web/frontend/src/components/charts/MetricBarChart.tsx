@@ -44,8 +44,8 @@ const CustomTooltip: React.FC<
   };
   if (active && payload && payload.length) {
     return (
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3">
-        <p className="text-sm font-medium text-gray-900 dark:text-white mb-2">{label}</p>
+      <div className="bg-card border border-border rounded-lg shadow-lg p-3">
+        <p className="text-sm font-medium text-foreground mb-2">{label}</p>
         {payload.map((entry: TooltipPayload, index: number) => (
           <p key={index} className="text-sm" style={{ color: entry.color }}>
             {entry.name}:{' '}
@@ -71,17 +71,17 @@ export const MetricBarChart: React.FC<MetricBarChartProps> = ({
   return (
     <Card>
       <div className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{title}</h3>
+        <h3 className="text-lg font-semibold text-foreground mb-4">{title}</h3>
         <ResponsiveContainer width="100%" height={height}>
           <BarChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
             <XAxis
               dataKey={xAxisKey}
-              className="text-xs text-gray-600 dark:text-gray-400"
+              className="text-xs text-muted-foreground"
             />
             <YAxis
               tickFormatter={formatYAxis}
-              className="text-xs text-gray-600 dark:text-gray-400"
+              className="text-xs text-muted-foreground"
             />
             <Tooltip content={<CustomTooltip formatTooltip={formatTooltip} />} />
             <Legend wrapperStyle={{ fontSize: '12px' }} />

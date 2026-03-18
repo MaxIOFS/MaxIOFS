@@ -39,7 +39,7 @@ import ModalManager from '@/lib/modals';
 // Event type badges color mapping - gray for all events
 const getEventTypeColor = (eventType: string | undefined): string => {
   // All events use gray color for professional appearance
-  return 'bg-gray-100 text-gray-700 dark:bg-gray-700/50 dark:text-gray-300';
+  return 'bg-secondary text-foreground';
 };
 
 // Format event type for display
@@ -296,8 +296,8 @@ export default function AuditLogsPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
         <AlertCircle className="w-16 h-16 text-red-500 mb-4" />
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">{t('accessDenied')}</h2>
-        <p className="text-gray-600 dark:text-gray-400">
+        <h2 className="text-2xl font-bold text-foreground mb-2">{t('accessDenied')}</h2>
+        <p className="text-sm text-muted-foreground mt-1">
           {t('noPermissionMessage')}
         </p>
       </div>
@@ -312,8 +312,8 @@ export default function AuditLogsPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
         <XCircle className="w-16 h-16 text-red-500 mb-4" />
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">{t('errorLoadingLogs')}</h2>
-        <p className="text-gray-600 dark:text-gray-400">
+        <h2 className="text-2xl font-bold text-foreground mb-2">{t('errorLoadingLogs')}</h2>
+        <p className="text-sm text-muted-foreground mt-1">
           {error instanceof Error ? error.message : t('errorOccurred')}
         </p>
       </div>
@@ -325,28 +325,28 @@ export default function AuditLogsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <FileText className="w-8 h-8" />
             {t('title')}
           </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             {isGlobalAdmin
               ? t('viewAllSystemLogs')
               : t('viewTenantLogs')}
           </p>
         </div>
         <Button onClick={exportToCSV} variant="outline" disabled={isExporting}>
-          <Download className={cn('w-4 h-4 mr-2', isExporting && 'animate-spin')} />
+          <Download className={cn('w-4 h-4', isExporting && 'animate-spin')} />
           {isExporting ? t('exporting', 'Exporting…') : t('exportCsv')}
         </Button>
       </div>
 
       {/* Search and Filters */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 space-y-4">
+      <div className="bg-card rounded-lg shadow p-4 space-y-4">
         {/* Quick Date Filters */}
-        <div className="flex items-center gap-3 pb-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-3 pb-4 border-b border-border">
           <Clock className="w-5 h-5 text-gray-400" />
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('timeRange')}</span>
+          <span className="text-sm font-medium text-foreground">{t('timeRange')}</span>
           <div className="flex gap-2">
             <Button
               variant={activeTimeFilter === 'all' ? 'default' : 'outline'}
@@ -377,7 +377,7 @@ export default function AuditLogsPage() {
               {t('last30Days')}
             </Button>
           </div>
-          <div className="ml-auto flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+          <div className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
             <Calendar className="w-4 h-4" />
             <span>{getDateRangeDescription()}</span>
           </div>
@@ -400,7 +400,7 @@ export default function AuditLogsPage() {
             variant="outline"
             onClick={() => setShowFilters(!showFilters)}
           >
-            <Filter className="w-4 h-4 mr-2" />
+            <Filter className="w-4 h-4" />
             {t('filters')}
             {showFilters ? (
               <ChevronUp className="w-4 h-4 ml-2" />
@@ -412,15 +412,15 @@ export default function AuditLogsPage() {
 
         {/* Advanced Filters */}
         {showFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-border">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-foreground mb-1">
                 {t('eventType')}
               </label>
               <select
                 value={filters.eventType || ''}
                 onChange={(e) => handleFilterChange('eventType', e.target.value || undefined)}
-                className="w-full px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 text-sm rounded-md border border-border bg-white dark:bg-gray-700 text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="">{t('allEvents')}</option>
                 <option value="login_success">{t('loginSuccess')}</option>
@@ -443,13 +443,13 @@ export default function AuditLogsPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-foreground mb-1">
                 {t('status')}
               </label>
               <select
                 value={filters.status || ''}
                 onChange={(e) => handleFilterChange('status', e.target.value || undefined)}
-                className="w-full px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 text-sm rounded-md border border-border bg-white dark:bg-gray-700 text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="">{t('allStatus')}</option>
                 <option value="success">{t('success')}</option>
@@ -458,13 +458,13 @@ export default function AuditLogsPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-foreground mb-1">
                 {t('resourceType')}
               </label>
               <select
                 value={filters.resourceType || ''}
                 onChange={(e) => handleFilterChange('resourceType', e.target.value || undefined)}
-                className="w-full px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 text-sm rounded-md border border-border bg-white dark:bg-gray-700 text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="">{t('allResources')}</option>
                 <option value="user">{t('user')}</option>
@@ -476,7 +476,7 @@ export default function AuditLogsPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-foreground mb-1">
                 {t('startDate')}
               </label>
               <Input
@@ -496,7 +496,7 @@ export default function AuditLogsPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-foreground mb-1">
                 {t('endDate')}
               </label>
               <Input
@@ -567,16 +567,16 @@ export default function AuditLogsPage() {
       </div>
 
       {/* Audit Logs Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden relative">
+      <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden relative">
         {/* Loading overlay */}
         {isFetching && !isLoading && (
           <div className="absolute inset-0 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
-            <div className="flex items-center gap-2 bg-white dark:bg-gray-800 px-4 py-2 rounded-lg shadow-lg">
+            <div className="flex items-center gap-2 bg-card px-4 py-2 rounded-lg shadow-lg">
               <svg className="animate-spin h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              <span className="text-sm text-gray-600 dark:text-gray-400">{t('updating')}</span>
+              <span className="text-sm text-muted-foreground">{t('updating')}</span>
             </div>
           </div>
         )}
@@ -612,15 +612,15 @@ export default function AuditLogsPage() {
                 return (
                 <React.Fragment key={log.id}>
                   <TableRow className={cn(
-                    "hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors",
+                    "hover:bg-secondary transition-colors",
                     isCritical && "bg-red-50/50 dark:bg-red-900/10 border-l-4 border-red-500"
                   )}>
                     <TableCell>
                       <div className="flex flex-col">
-                        <span className="text-sm font-medium text-gray-900 dark:text-white">
+                        <span className="text-sm font-medium text-foreground">
                           {formatTimestamp(log.timestamp)}
                         </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                        <span className="text-xs text-muted-foreground">
                           {formatDistanceToNow(new Date(log.timestamp * 1000), { addSuffix: true })}
                         </span>
                       </div>
@@ -628,7 +628,7 @@ export default function AuditLogsPage() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <User className="w-4 h-4 text-gray-400" />
-                        <span className="text-sm font-medium text-gray-900 dark:text-white">
+                        <span className="text-sm font-medium text-foreground">
                           {log.username}
                         </span>
                       </div>
@@ -650,11 +650,11 @@ export default function AuditLogsPage() {
                     <TableCell>
                       {log.resource_name || log.resource_id ? (
                         <div className="flex flex-col">
-                          <span className="text-sm text-gray-900 dark:text-white">
+                          <span className="text-sm text-foreground">
                             {log.resource_name || log.resource_id}
                           </span>
                           {log.resource_type && (
-                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                            <span className="text-xs text-muted-foreground">
                               {log.resource_type}
                             </span>
                           )}
@@ -664,7 +664,7 @@ export default function AuditLogsPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm text-gray-900 dark:text-white capitalize">
+                      <span className="text-sm text-foreground capitalize">
                         {log.action}
                       </span>
                     </TableCell>
@@ -682,7 +682,7 @@ export default function AuditLogsPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm text-gray-600 dark:text-gray-400">
+                      <span className="text-sm text-muted-foreground">
                         {log.ip_address || '-'}
                       </span>
                     </TableCell>
@@ -706,35 +706,35 @@ export default function AuditLogsPage() {
                     <TableRow>
                       <TableCell colSpan={8} className="bg-gray-50 dark:bg-gray-900">
                         <div className="p-4 space-y-2">
-                          <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                          <h4 className="text-sm font-semibold text-foreground mb-2">
                             {t('eventDetails')}
                           </h4>
                           <div className="grid grid-cols-2 gap-4 text-sm">
                             <div>
-                              <span className="text-gray-600 dark:text-gray-400">{t('userId')}</span>
-                              <span className="ml-2 text-gray-900 dark:text-white font-mono">
+                              <span className="text-muted-foreground">{t('userId')}</span>
+                              <span className="ml-2 text-foreground font-mono">
                                 {log.user_id}
                               </span>
                             </div>
                             {log.tenant_id && (
                               <div>
-                                <span className="text-gray-600 dark:text-gray-400">{t('tenantId')}</span>
-                                <span className="ml-2 text-gray-900 dark:text-white font-mono">
+                                <span className="text-muted-foreground">{t('tenantId')}</span>
+                                <span className="ml-2 text-foreground font-mono">
                                   {log.tenant_id}
                                 </span>
                               </div>
                             )}
                             {log.user_agent && (
                               <div className="col-span-2">
-                                <span className="text-gray-600 dark:text-gray-400">{t('userAgent')}</span>
-                                <span className="ml-2 text-gray-900 dark:text-white">
+                                <span className="text-muted-foreground">{t('userAgent')}</span>
+                                <span className="ml-2 text-foreground">
                                   {log.user_agent}
                                 </span>
                               </div>
                             )}
                             {log.details && (
                               <div className="col-span-2">
-                                <span className="text-gray-600 dark:text-gray-400">{t('additionalDetails')}</span>
+                                <span className="text-muted-foreground">{t('additionalDetails')}</span>
                                 <pre className="mt-2 p-3 bg-gray-100 dark:bg-gray-800 rounded-md overflow-x-auto text-xs">
                                   {typeof log.details === 'string'
                                     ? JSON.stringify(JSON.parse(log.details), null, 2)
@@ -755,10 +755,10 @@ export default function AuditLogsPage() {
       </div>
 
       {/* Pagination */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+      <div className="bg-card rounded-lg shadow p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600 dark:text-gray-400">
+            <span className="text-sm text-muted-foreground">
               {t('showingLogs', {
                 from: (currentPage - 1) * pageSize + 1,
                 to: Math.min(currentPage * pageSize, totalLogs),
@@ -768,7 +768,7 @@ export default function AuditLogsPage() {
             <select
               value={pageSize}
               onChange={(e) => handlePageSizeChange(Number(e.target.value))}
-              className="px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="px-3 py-2 text-sm rounded-md border border-border bg-white dark:bg-gray-700 text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value={10}>{t('perPage_10')}</option>
               <option value={25}>{t('perPage_25')}</option>
@@ -786,7 +786,7 @@ export default function AuditLogsPage() {
             >
               {t('previous')}
             </Button>
-            <span className="text-sm text-gray-600 dark:text-gray-400">
+            <span className="text-sm text-muted-foreground">
               {t('pageNumber', { current: currentPage, total: totalPages })}
             </span>
             <Button

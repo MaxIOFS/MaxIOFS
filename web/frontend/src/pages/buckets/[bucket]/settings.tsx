@@ -1257,22 +1257,22 @@ export default function BucketSettingsPage() {
             variant="ghost"
             size="icon"
             onClick={() => navigate(bucketPath)}
-            className="hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 transition-all duration-200"
+            className="hover:bg-secondary transition-all duration-200"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">{bucketName}</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('pageSubtitle')}</p>
+            <h1 className="text-2xl font-bold text-foreground">{bucketName}</h1>
+            <p className="text-sm text-muted-foreground mt-1">{t('pageSubtitle')}</p>
           </div>
         </div>
       </div>
 
       {/* Tabs Container */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md">
+      <div className="bg-card rounded-xl border border-border shadow-md">
         <div className="p-6">
           {/* Tabs Navigation */}
-          <div className="bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-1 mb-6">
+          <div className="bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-800/50 rounded-xl border border-border shadow-sm p-1 mb-6">
             <div className="flex space-x-2">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
@@ -1282,8 +1282,8 @@ export default function BucketSettingsPage() {
                     onClick={() => setActiveTab(tab.id)}
                     className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 font-medium text-sm rounded-lg transition-all duration-200 ${
                       activeTab === tab.id
-                        ? 'bg-gradient-to-r from-brand-600 to-brand-700 text-white shadow-md'
-                        : 'text-gray-600 dark:text-gray-400 hover:bg-gradient-to-r hover:from-brand-50 hover:to-blue-50 dark:hover:from-brand-900/30 dark:hover:to-blue-900/30 hover:text-brand-700 dark:hover:text-brand-300'
+                        ? 'bg-brand-600 text-white'
+                        : 'text-muted-foreground hover:bg-secondary hover:text-brand-700 dark:hover:text-brand-300'
                     }`}
                   >
                     <Icon className="h-4 w-4" />
@@ -1295,11 +1295,11 @@ export default function BucketSettingsPage() {
           </div>
 
           {/* Tab Description */}
-          <div className="mb-6 pb-6 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+          <div className="mb-6 pb-6 border-b border-border">
+            <h3 className="text-lg font-semibold text-foreground mb-1">
               {currentTab.label}
             </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-muted-foreground">
               {currentTab.description}
             </p>
           </div>
@@ -1310,10 +1310,10 @@ export default function BucketSettingsPage() {
             {activeTab === 'general' && (
               <>
                 {/* Versioning */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <Clock className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+        <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-border">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <Clock className="h-5 w-5 text-muted-foreground" />
               {t('versioning.title')}
             </h3>
           </div>
@@ -1344,7 +1344,7 @@ export default function BucketSettingsPage() {
         {/* Object Lock */}
         <div className="bg-gradient-to-br from-yellow-50 to-amber-50/30 dark:from-yellow-950/20 dark:to-amber-950/10 rounded-lg border border-yellow-200 dark:border-yellow-800/50 shadow-sm hover:shadow-md transition-shadow">
           <div className="px-6 py-4 border-b border-yellow-200 dark:border-yellow-800/50">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
               <Lock className="h-5 w-5 text-yellow-600 dark:text-yellow-500" />
               {t('objectLock.title')}
             </h3>
@@ -1401,10 +1401,10 @@ export default function BucketSettingsPage() {
             {activeTab === 'security' && (
               <>
         {/* Bucket Policy */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <Shield className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+        <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-border">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <Shield className="h-5 w-5 text-muted-foreground" />
               {t('policy.title')}
             </h3>
           </div>
@@ -1423,12 +1423,12 @@ export default function BucketSettingsPage() {
                         <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
                           {t('policy.policyActive')}
                         </span>
-                        <span className="text-xs text-gray-600 dark:text-gray-400">
+                        <span className="text-xs text-muted-foreground">
                           {t('policy.statements', { count: policyStatementCount })}
                         </span>
                       </div>
                     ) : (
-                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-secondary text-muted-foreground">
                         {t('policy.noPolicySet')}
                       </span>
                     )}
@@ -1462,10 +1462,10 @@ export default function BucketSettingsPage() {
         </div>
 
         {/* Bucket ACL */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <Users className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+        <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-border">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <Users className="h-5 w-5 text-muted-foreground" />
               {t('acl.title')}
             </h3>
           </div>
@@ -1479,7 +1479,7 @@ export default function BucketSettingsPage() {
                     {t('acl.description')}
                   </p>
                   <div className="mt-2">
-                    <span className="text-xs font-medium text-gray-600 dark:text-gray-400">{t('acl.currentAcl')}</span>
+                    <span className="text-xs font-medium text-muted-foreground">{t('acl.currentAcl')}</span>
                     <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
                       currentACL === 'private' ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' :
                       currentACL === 'public-read' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
@@ -1511,10 +1511,10 @@ export default function BucketSettingsPage() {
         </div>
 
         {/* Tags */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <Tag className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+        <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-border">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <Tag className="h-5 w-5 text-muted-foreground" />
               {t('tags.title')}
             </h3>
           </div>
@@ -1558,10 +1558,10 @@ export default function BucketSettingsPage() {
         </div>
 
         {/* CORS */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <Globe className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+        <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-border">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <Globe className="h-5 w-5 text-muted-foreground" />
               {t('cors.title')}
             </h3>
           </div>
@@ -1608,10 +1608,10 @@ export default function BucketSettingsPage() {
             {activeTab === 'lifecycle' && (
               <>
         {/* Lifecycle */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <FileText className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+        <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-border">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <FileText className="h-5 w-5 text-muted-foreground" />
               {t('lifecycle.title')}
             </h3>
           </div>
@@ -1657,10 +1657,10 @@ export default function BucketSettingsPage() {
             {/* NOTIFICATIONS TAB */}
             {activeTab === 'notifications' && (
               <>
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
-                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                      <Bell className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
+                  <div className="px-6 py-4 border-b border-border">
+                    <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                      <Bell className="h-5 w-5 text-muted-foreground" />
                       {t('notifications.title')}
                     </h3>
                   </div>
@@ -1670,7 +1670,7 @@ export default function BucketSettingsPage() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="font-medium">{t('notifications.sectionTitle')}</p>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                          <p className="text-sm text-muted-foreground">
                             {notificationData?.rules?.length > 0
                               ? t('notifications.rulesCount', { count: notificationData.rules.length })
                               : t('notifications.noRulesConfigured')}
@@ -1686,7 +1686,7 @@ export default function BucketSettingsPage() {
                                 : undefined
                             }
                           >
-                            <Plus className="h-4 w-4 mr-2" />
+                            <Plus className="h-4 w-4" />
                             {t('notifications.addRule')}
                           </Button>
                           {notificationData?.rules?.length > 0 && (
@@ -1713,7 +1713,7 @@ export default function BucketSettingsPage() {
                           {notificationData.rules.map((rule: NotificationRule) => (
                             <div
                               key={rule.id}
-                              className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800"
+                              className="p-4 border border-border rounded-lg bg-gray-50 dark:bg-gray-800"
                             >
                               <div className="flex items-start justify-between">
                                 <div className="flex-1">
@@ -1723,7 +1723,7 @@ export default function BucketSettingsPage() {
                                     ) : (
                                       <XCircle className="h-5 w-5 text-gray-400" />
                                     )}
-                                    <span className="font-medium text-gray-900 dark:text-white">
+                                    <span className="font-medium text-foreground">
                                       {rule.id}
                                     </span>
                                     <span
@@ -1739,30 +1739,30 @@ export default function BucketSettingsPage() {
 
                                   <div className="space-y-1 text-sm">
                                     <div>
-                                      <span className="text-gray-500 dark:text-gray-400">{t('notifications.webhook')}</span>
-                                      <span className="text-gray-900 dark:text-white font-mono text-xs">
+                                      <span className="text-muted-foreground">{t('notifications.webhook')}</span>
+                                      <span className="text-foreground font-mono text-xs">
                                         {rule.webhookUrl}
                                       </span>
                                     </div>
                                     <div>
-                                      <span className="text-gray-500 dark:text-gray-400">{t('notifications.eventsLabel')}</span>
-                                      <span className="text-gray-900 dark:text-white">
+                                      <span className="text-muted-foreground">{t('notifications.eventsLabel')}</span>
+                                      <span className="text-foreground">
                                         {rule.events.join(', ')}
                                       </span>
                                     </div>
                                     {(rule.filterPrefix || rule.filterSuffix) && (
                                       <div>
-                                        <span className="text-gray-500 dark:text-gray-400">{t('notifications.filters')}</span>
+                                        <span className="text-muted-foreground">{t('notifications.filters')}</span>
                                         {rule.filterPrefix && (
-                                          <span className="text-gray-900 dark:text-white">
+                                          <span className="text-foreground">
                                             {t('notifications.prefix', { value: rule.filterPrefix })}
                                           </span>
                                         )}
                                         {rule.filterPrefix && rule.filterSuffix && (
-                                          <span className="text-gray-500 dark:text-gray-400"> | </span>
+                                          <span className="text-muted-foreground"> | </span>
                                         )}
                                         {rule.filterSuffix && (
-                                          <span className="text-gray-900 dark:text-white">
+                                          <span className="text-foreground">
                                             {t('notifications.suffix', { value: rule.filterSuffix })}
                                           </span>
                                         )}
@@ -1803,19 +1803,19 @@ export default function BucketSettingsPage() {
                           ))}
                         </div>
                       ) : (
-                        <div className="text-center py-12 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
+                        <div className="text-center py-12 border-2 border-dashed border-border rounded-lg">
                           <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                          <h3 className="text-lg font-semibold text-foreground mb-2">
                             {t('notifications.noRulesTitle')}
                           </h3>
-                          <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto mb-4">
+                          <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
                             {t('notifications.noRulesDesc')}
                           </p>
                           <Button
                             onClick={handleAddNotificationRule}
                             disabled={isGlobalAdminInTenantBucket}
                           >
-                            <Plus className="h-4 w-4 mr-2" />
+                            <Plus className="h-4 w-4" />
                             {t('notifications.addFirstRule')}
                           </Button>
                         </div>
@@ -1844,10 +1844,10 @@ export default function BucketSettingsPage() {
             {/* REPLICATION TAB */}
             {activeTab === 'replication' && (
               <>
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
-                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                      <RefreshCw className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
+                  <div className="px-6 py-4 border-b border-border">
+                    <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                      <RefreshCw className="h-5 w-5 text-muted-foreground" />
                       {t('replication.title')}
                     </h3>
                   </div>
@@ -1857,7 +1857,7 @@ export default function BucketSettingsPage() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="font-medium">{t('replication.sectionTitle')}</p>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                          <p className="text-sm text-muted-foreground">
                             {replicationRules && replicationRules.length > 0
                               ? t('replication.rulesCount', { count: replicationRules.length })
                               : t('replication.noRulesConfigured')}
@@ -1873,7 +1873,7 @@ export default function BucketSettingsPage() {
                                 : undefined
                             }
                           >
-                            <Plus className="h-4 w-4 mr-2" />
+                            <Plus className="h-4 w-4" />
                             {t('replication.addRule')}
                           </Button>
                         </div>
@@ -1885,7 +1885,7 @@ export default function BucketSettingsPage() {
                           {replicationRules.map((rule: ReplicationRule) => (
                             <div
                               key={rule.id}
-                              className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800"
+                              className="p-4 border border-border rounded-lg bg-gray-50 dark:bg-gray-800"
                             >
                               <div className="flex items-start justify-between">
                                 <div className="flex-1">
@@ -1895,7 +1895,7 @@ export default function BucketSettingsPage() {
                                     ) : (
                                       <XCircle className="h-5 w-5 text-gray-400" />
                                     )}
-                                    <span className="font-medium text-gray-900 dark:text-white">
+                                    <span className="font-medium text-foreground">
                                       {t('replication.ruleLabel', { id: rule.id })}
                                     </span>
                                     <span
@@ -1917,43 +1917,43 @@ export default function BucketSettingsPage() {
 
                                   <div className="space-y-1 text-sm">
                                     <div>
-                                      <span className="text-gray-500 dark:text-gray-400">{t('replication.source')}</span>
-                                      <span className="text-gray-900 dark:text-white font-mono text-xs">
+                                      <span className="text-muted-foreground">{t('replication.source')}</span>
+                                      <span className="text-foreground font-mono text-xs">
                                         {rule.source_bucket}
                                       </span>
                                     </div>
                                     <div>
-                                      <span className="text-gray-500 dark:text-gray-400">{t('replication.destinationEndpoint')}</span>
-                                      <span className="text-gray-900 dark:text-white font-mono text-xs">
+                                      <span className="text-muted-foreground">{t('replication.destinationEndpoint')}</span>
+                                      <span className="text-foreground font-mono text-xs">
                                         {rule.destination_endpoint}
                                       </span>
                                     </div>
                                     <div>
-                                      <span className="text-gray-500 dark:text-gray-400">{t('replication.destinationBucket')}</span>
-                                      <span className="text-gray-900 dark:text-white font-mono text-xs">
+                                      <span className="text-muted-foreground">{t('replication.destinationBucket')}</span>
+                                      <span className="text-foreground font-mono text-xs">
                                         {rule.destination_bucket}
                                         {rule.destination_region && ` [${rule.destination_region}]`}
                                       </span>
                                     </div>
                                     {rule.schedule_interval && rule.mode === 'scheduled' && (
                                       <div>
-                                        <span className="text-gray-500 dark:text-gray-400">{t('replication.schedule')}</span>
-                                        <span className="text-gray-900 dark:text-white">
+                                        <span className="text-muted-foreground">{t('replication.schedule')}</span>
+                                        <span className="text-foreground">
                                           {t('replication.everyMinutes', { minutes: rule.schedule_interval })}
                                         </span>
                                       </div>
                                     )}
                                     {rule.prefix && (
                                       <div>
-                                        <span className="text-gray-500 dark:text-gray-400">{t('replication.prefixFilter')}</span>
-                                        <span className="text-gray-900 dark:text-white font-mono text-xs">
+                                        <span className="text-muted-foreground">{t('replication.prefixFilter')}</span>
+                                        <span className="text-foreground font-mono text-xs">
                                           {rule.prefix}
                                         </span>
                                       </div>
                                     )}
                                     <div>
-                                      <span className="text-gray-500 dark:text-gray-400">{t('replication.conflictResolution')}</span>
-                                      <span className="text-gray-900 dark:text-white">
+                                      <span className="text-muted-foreground">{t('replication.conflictResolution')}</span>
+                                      <span className="text-foreground">
                                         {rule.conflict_resolution}
                                       </span>
                                     </div>
@@ -2010,19 +2010,19 @@ export default function BucketSettingsPage() {
                           ))}
                         </div>
                       ) : (
-                        <div className="text-center py-12 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
+                        <div className="text-center py-12 border-2 border-dashed border-border rounded-lg">
                           <RefreshCw className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                          <h3 className="text-lg font-semibold text-foreground mb-2">
                             {t('replication.noRulesTitle')}
                           </h3>
-                          <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto mb-4">
+                          <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
                             {t('replication.noRulesDesc')}
                           </p>
                           <Button
                             onClick={handleAddReplicationRule}
                             disabled={isGlobalAdminInTenantBucket}
                           >
-                            <Plus className="h-4 w-4 mr-2" />
+                            <Plus className="h-4 w-4" />
                             {t('replication.addFirstRule')}
                           </Button>
                         </div>
@@ -2052,10 +2052,10 @@ export default function BucketSettingsPage() {
             {/* INVENTORY TAB */}
             {activeTab === 'inventory' && (
               <>
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
-                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                      <Package className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
+                  <div className="px-6 py-4 border-b border-border">
+                    <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                      <Package className="h-5 w-5 text-muted-foreground" />
                       {t('inventory.title')}
                     </h3>
                   </div>
@@ -2069,10 +2069,10 @@ export default function BucketSettingsPage() {
                               type="checkbox"
                               checked={inventoryForm.enabled}
                               onChange={(e) => setInventoryForm({ ...inventoryForm, enabled: e.target.checked })}
-                              className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                              className="rounded border-border text-blue-600 focus:ring-blue-500"
                               disabled={isGlobalAdminInTenantBucket}
                             />
-                            <span className="font-medium text-gray-900 dark:text-white">
+                            <span className="font-medium text-foreground">
                               {t('inventory.enableLabel')}
                             </span>
                           </label>
@@ -2082,13 +2082,13 @@ export default function BucketSettingsPage() {
                           <>
                             <div className="grid grid-cols-2 gap-4">
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                <label className="block text-sm font-medium text-foreground mb-1">
                                   {t('inventory.frequencyLabel')}
                                 </label>
                                 <select
                                   value={inventoryForm.frequency}
                                   onChange={(e) => setInventoryForm({ ...inventoryForm, frequency: e.target.value })}
-                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                  className="w-full px-3 py-2 border border-border rounded-lg bg-white dark:bg-gray-700 text-foreground"
                                   disabled={isGlobalAdminInTenantBucket}
                                 >
                                   <option value="daily">{t('inventory.frequencyDaily')}</option>
@@ -2097,13 +2097,13 @@ export default function BucketSettingsPage() {
                               </div>
 
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                <label className="block text-sm font-medium text-foreground mb-1">
                                   {t('inventory.formatLabel')}
                                 </label>
                                 <select
                                   value={inventoryForm.format}
                                   onChange={(e) => setInventoryForm({ ...inventoryForm, format: e.target.value })}
-                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                  className="w-full px-3 py-2 border border-border rounded-lg bg-white dark:bg-gray-700 text-foreground"
                                   disabled={isGlobalAdminInTenantBucket}
                                 >
                                   <option value="csv">CSV</option>
@@ -2113,7 +2113,7 @@ export default function BucketSettingsPage() {
                             </div>
 
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              <label className="block text-sm font-medium text-foreground mb-1">
                                 {t('inventory.destBucketLabel')}
                               </label>
                               <input
@@ -2121,16 +2121,16 @@ export default function BucketSettingsPage() {
                                 value={inventoryForm.destination_bucket}
                                 onChange={(e) => setInventoryForm({ ...inventoryForm, destination_bucket: e.target.value })}
                                 placeholder={t('inventory.destBucketPlaceholder')}
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                className="w-full px-3 py-2 border border-border rounded-lg bg-white dark:bg-gray-700 text-foreground"
                                 disabled={isGlobalAdminInTenantBucket}
                               />
-                              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                              <p className="mt-1 text-xs text-muted-foreground">
                                 {t('inventory.destBucketHint')}
                               </p>
                             </div>
 
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              <label className="block text-sm font-medium text-foreground mb-1">
                                 {t('inventory.destPrefixLabel')}
                               </label>
                               <input
@@ -2138,31 +2138,31 @@ export default function BucketSettingsPage() {
                                 value={inventoryForm.destination_prefix}
                                 onChange={(e) => setInventoryForm({ ...inventoryForm, destination_prefix: e.target.value })}
                                 placeholder={t('inventory.destPrefixPlaceholder')}
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                className="w-full px-3 py-2 border border-border rounded-lg bg-white dark:bg-gray-700 text-foreground"
                                 disabled={isGlobalAdminInTenantBucket}
                               />
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                <label className="block text-sm font-medium text-foreground mb-1">
                                   {t('inventory.scheduleTimeLabel')}
                                 </label>
                                 <input
                                   type="time"
                                   value={inventoryForm.schedule_time}
                                   onChange={(e) => setInventoryForm({ ...inventoryForm, schedule_time: e.target.value })}
-                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                  className="w-full px-3 py-2 border border-border rounded-lg bg-white dark:bg-gray-700 text-foreground"
                                   disabled={isGlobalAdminInTenantBucket}
                                 />
-                                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                <p className="mt-1 text-xs text-muted-foreground">
                                   {t('inventory.scheduleTimeHint')}
                                 </p>
                               </div>
                             </div>
 
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                              <label className="block text-sm font-medium text-foreground mb-2">
                                 {t('inventory.includedFieldsLabel')}
                               </label>
                               <div className="grid grid-cols-2 gap-2">
@@ -2197,10 +2197,10 @@ export default function BucketSettingsPage() {
                                           });
                                         }
                                       }}
-                                      className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                                      className="rounded border-border text-blue-600 focus:ring-blue-500"
                                       disabled={isGlobalAdminInTenantBucket}
                                     />
-                                    <span className="text-gray-700 dark:text-gray-300">{field.label}</span>
+                                    <span className="text-foreground">{field.label}</span>
                                   </label>
                                 ))}
                               </div>
@@ -2235,18 +2235,18 @@ export default function BucketSettingsPage() {
 
                       {/* Inventory Reports */}
                       {inventoryReports && inventoryReports.reports && inventoryReports.reports.length > 0 && (
-                        <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-                          <h4 className="font-semibold text-gray-900 dark:text-white mb-4">{t('inventory.recentReports')}</h4>
+                        <div className="border-t border-border pt-6">
+                          <h4 className="font-semibold text-foreground mb-4">{t('inventory.recentReports')}</h4>
                           <div className="space-y-2">
                             {inventoryReports.reports.map((report: any) => (
                               <div
                                 key={report.id}
-                                className="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800"
+                                className="flex items-center justify-between p-3 border border-border rounded-lg bg-gray-50 dark:bg-gray-800"
                               >
                                 <div className="flex-1">
                                   <div className="flex items-center gap-2">
                                     <FileText className="h-4 w-4 text-gray-500" />
-                                    <span className="font-mono text-sm text-gray-900 dark:text-white">
+                                    <span className="font-mono text-sm text-foreground">
                                       {report.report_path}
                                     </span>
                                     <span
@@ -2261,7 +2261,7 @@ export default function BucketSettingsPage() {
                                       {report.status}
                                     </span>
                                   </div>
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  <div className="text-xs text-muted-foreground mt-1">
                                     {t('inventory.reportObjects', { count: report.object_count })} • {t('inventory.reportSize', { size: (report.total_size / 1024 / 1024).toFixed(2) })}
                                     {report.completed_at && ` • ${new Date(report.completed_at * 1000).toLocaleString()}`}
                                   </div>
@@ -2295,10 +2295,10 @@ export default function BucketSettingsPage() {
             {/* WEBSITE TAB */}
             {activeTab === 'website' && (
               <>
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
-                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                      <Globe className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
+                  <div className="px-6 py-4 border-b border-border">
+                    <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                      <Globe className="h-5 w-5 text-muted-foreground" />
                       {t('website.title')}
                     </h3>
                   </div>
@@ -2329,10 +2329,10 @@ export default function BucketSettingsPage() {
                         : 'border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/20'
                     }`}>
                       <div className="flex-1 pr-4">
-                        <p className="font-medium text-gray-900 dark:text-white">
+                        <p className="font-medium text-foreground">
                           {t('website.toggleLabel')}
                         </p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                        <p className="text-sm text-muted-foreground mt-0.5">
                           {websiteEnabled ? t('website.toggleActiveDesc') : t('website.toggleInactiveDesc')}
                         </p>
                       </div>
@@ -2359,7 +2359,7 @@ export default function BucketSettingsPage() {
                     {websiteEnabled && (
                       <div className="space-y-4 pt-2">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          <label className="block text-sm font-medium text-foreground mb-1">
                             {t('website.indexDocLabel')} <span className="text-red-500">*</span>
                           </label>
                           <input
@@ -2367,16 +2367,16 @@ export default function BucketSettingsPage() {
                             value={websiteIndexDoc}
                             onChange={(e) => setWebsiteIndexDoc(e.target.value)}
                             placeholder={t('website.indexDocPlaceholder')}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-border rounded-lg bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             disabled={isGlobalAdminInTenantBucket}
                           />
-                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <p className="mt-1 text-xs text-muted-foreground">
                             {t('website.indexDocHint')}
                           </p>
                         </div>
 
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          <label className="block text-sm font-medium text-foreground mb-1">
                             {t('website.errorDocLabel')}
                           </label>
                           <input
@@ -2384,23 +2384,23 @@ export default function BucketSettingsPage() {
                             value={websiteErrorDoc}
                             onChange={(e) => setWebsiteErrorDoc(e.target.value)}
                             placeholder={t('website.errorDocPlaceholder')}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-border rounded-lg bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             disabled={isGlobalAdminInTenantBucket}
                           />
-                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <p className="mt-1 text-xs text-muted-foreground">
                             {t('website.errorDocHint')}
                           </p>
                         </div>
 
                         {/* Endpoint URL */}
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          <label className="block text-sm font-medium text-foreground mb-1">
                             {t('website.websiteUrlLabel')}
                           </label>
-                          <div className="flex items-center px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg font-mono text-sm text-gray-700 dark:text-gray-300 select-all">
+                          <div className="flex items-center px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-border rounded-lg font-mono text-sm text-foreground select-all">
                             {websiteHostname ? `${bucketName}.${websiteHostname}` : t('website.notConfiguredYet')}
                           </div>
-                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <p className="mt-1 text-xs text-muted-foreground">
                             {t('website.websiteUrlHint')}
                           </p>
                         </div>
@@ -2408,7 +2408,7 @@ export default function BucketSettingsPage() {
                     )}
 
                     {/* Botón guardar configuración */}
-                    <div className="flex items-center gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center gap-3 pt-2 border-t border-border">
                       <Button
                         onClick={() => {
                           if (websiteEnabled) {
@@ -2471,14 +2471,14 @@ export default function BucketSettingsPage() {
       >
         <div className="space-y-4">
           {/* Tabs */}
-          <div className="border-b border-gray-200 dark:border-gray-700">
+          <div className="border-b border-border">
             <nav className="-mb-px flex space-x-8">
               <button
                 onClick={() => setPolicyTab('editor')}
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${
                   policyTab === 'editor'
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                    : 'border-transparent text-gray-500 hover:text-foreground hover:border-border'
                 }`}
               >
                 {t('policy.editorTab')}
@@ -2488,7 +2488,7 @@ export default function BucketSettingsPage() {
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${
                   policyTab === 'templates'
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                    : 'border-transparent text-gray-500 hover:text-foreground hover:border-border'
                 }`}
               >
                 {t('policy.templatesTab')}
@@ -2505,17 +2505,17 @@ export default function BucketSettingsPage() {
                 </p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   {t('policy.policyJsonLabel')}
                 </label>
                 <textarea
                   value={policyText}
                   onChange={(e) => setPolicyText(e.target.value)}
                   rows={18}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md font-mono text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md font-mono text-sm"
                   placeholder={t('policy.policyJsonPlaceholder')}
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   {t('policy.policyJsonHint')}
                 </p>
               </div>
@@ -2534,14 +2534,14 @@ export default function BucketSettingsPage() {
                 {Object.entries(policyTemplates).map(([key, template]) => (
                   <div
                     key={key}
-                    className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    className="border border-border rounded-lg p-4 hover:bg-secondary transition-colors"
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
+                        <h4 className="text-sm font-semibold text-foreground">
                           {template.name}
                         </h4>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                           {template.description}
                         </p>
                       </div>
@@ -2560,7 +2560,7 @@ export default function BucketSettingsPage() {
           )}
 
           {/* Actions */}
-          <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex justify-end gap-2 pt-4 border-t border-border">
             <Button variant="outline" onClick={() => setIsPolicyModalOpen(false)}>
               {t('policy.cancel')}
             </Button>
@@ -2586,7 +2586,7 @@ export default function BucketSettingsPage() {
       >
         <div className="space-y-4">
           {/* View Mode Toggle */}
-          <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex gap-2 border-b border-border">
             <button
               onClick={() => setCorsViewMode('visual')}
               className={`px-4 py-2 font-medium text-sm ${
@@ -2613,7 +2613,7 @@ export default function BucketSettingsPage() {
           {corsViewMode === 'visual' && !editingCorsRule && (
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                <h3 className="text-sm font-medium text-foreground">
                   {t('cors.rulesCount', { count: corsRules.length })}
                 </h3>
                 <Button variant="default" size="sm" onClick={handleAddCorsRule}>
@@ -2622,7 +2622,7 @@ export default function BucketSettingsPage() {
               </div>
 
               {corsRules.length === 0 ? (
-                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                <div className="text-center py-8 text-muted-foreground">
                   {t('cors.noRules')}
                 </div>
               ) : (
@@ -2630,10 +2630,10 @@ export default function BucketSettingsPage() {
                   {corsRules.map((rule, index) => (
                     <div
                       key={rule.id}
-                      className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-800"
+                      className="border border-border rounded-lg p-4 bg-gray-50 dark:bg-gray-800"
                     >
                       <div className="flex justify-between items-start mb-2">
-                        <div className="font-medium text-sm text-gray-900 dark:text-white">
+                        <div className="font-medium text-sm text-foreground">
                           {t('cors.ruleNumber', { number: index + 1, id: rule.id })}
                         </div>
                         <div className="flex gap-2">
@@ -2653,28 +2653,28 @@ export default function BucketSettingsPage() {
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div>
-                          <span className="font-medium text-gray-600 dark:text-gray-400">{t('cors.origins')}</span>{' '}
+                          <span className="font-medium text-muted-foreground">{t('cors.origins')}</span>{' '}
                           {rule.allowedOrigins.join(', ')}
                         </div>
                         <div>
-                          <span className="font-medium text-gray-600 dark:text-gray-400">{t('cors.methods')}</span>{' '}
+                          <span className="font-medium text-muted-foreground">{t('cors.methods')}</span>{' '}
                           {rule.allowedMethods.join(', ')}
                         </div>
                         {rule.allowedHeaders.length > 0 && (
                           <div>
-                            <span className="font-medium text-gray-600 dark:text-gray-400">{t('cors.allowedHeaders')}</span>{' '}
+                            <span className="font-medium text-muted-foreground">{t('cors.allowedHeaders')}</span>{' '}
                             {rule.allowedHeaders.join(', ')}
                           </div>
                         )}
                         {rule.exposeHeaders.length > 0 && (
                           <div>
-                            <span className="font-medium text-gray-600 dark:text-gray-400">{t('cors.exposeHeaders')}</span>{' '}
+                            <span className="font-medium text-muted-foreground">{t('cors.exposeHeaders')}</span>{' '}
                             {rule.exposeHeaders.join(', ')}
                           </div>
                         )}
                         {rule.maxAgeSeconds > 0 && (
                           <div>
-                            <span className="font-medium text-gray-600 dark:text-gray-400">{t('cors.maxAge')}</span>{' '}
+                            <span className="font-medium text-muted-foreground">{t('cors.maxAge')}</span>{' '}
                             {t('cors.maxAgeSeconds', { seconds: rule.maxAgeSeconds })}
                           </div>
                         )}
@@ -2684,7 +2684,7 @@ export default function BucketSettingsPage() {
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex justify-end gap-2 pt-4 border-t border-border">
                 <Button variant="outline" onClick={() => setIsCORSModalOpen(false)}>
                   {t('cors.cancel')}
                 </Button>
@@ -2709,21 +2709,21 @@ export default function BucketSettingsPage() {
 
               {/* Rule ID */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   {t('cors.ruleId')}
                 </label>
                 <input
                   type="text"
                   value={editingCorsRule.id}
                   onChange={(e) => setEditingCorsRule({ ...editingCorsRule, id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md"
                   placeholder={t('cors.ruleIdPlaceholder')}
                 />
               </div>
 
               {/* Allowed Origins */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   {t('cors.allowedOriginsLabel')} <span className="text-red-500">*</span>
                 </label>
                 <div className="flex gap-2 mb-2">
@@ -2732,7 +2732,7 @@ export default function BucketSettingsPage() {
                     value={newOrigin}
                     onChange={(e) => setNewOrigin(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && addOriginToRule()}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md"
                     placeholder={t('cors.allowedOriginPlaceholder')}
                   />
                   <Button onClick={addOriginToRule} disabled={!newOrigin.trim()}>
@@ -2756,7 +2756,7 @@ export default function BucketSettingsPage() {
 
               {/* Allowed Methods */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   {t('cors.allowedMethodsLabel')} <span className="text-red-500">*</span>
                 </label>
                 <div className="flex flex-wrap gap-2">
@@ -2768,7 +2768,7 @@ export default function BucketSettingsPage() {
                         onChange={() => toggleCorsMethod(method)}
                         className="mr-2"
                       />
-                      <span className="text-sm text-gray-700 dark:text-gray-300">{method}</span>
+                      <span className="text-sm text-foreground">{method}</span>
                     </label>
                   ))}
                 </div>
@@ -2776,7 +2776,7 @@ export default function BucketSettingsPage() {
 
               {/* Allowed Headers */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   {t('cors.allowedHeadersLabel')}
                 </label>
                 <div className="flex gap-2 mb-2">
@@ -2785,7 +2785,7 @@ export default function BucketSettingsPage() {
                     value={newAllowedHeader}
                     onChange={(e) => setNewAllowedHeader(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && addAllowedHeaderToRule()}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md"
                     placeholder={t('cors.allowedHeaderPlaceholder')}
                   />
                   <Button onClick={addAllowedHeaderToRule} disabled={!newAllowedHeader.trim()}>
@@ -2809,7 +2809,7 @@ export default function BucketSettingsPage() {
 
               {/* Expose Headers */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   {t('cors.exposeHeadersLabel')}
                 </label>
                 <div className="flex gap-2 mb-2">
@@ -2818,7 +2818,7 @@ export default function BucketSettingsPage() {
                     value={newExposeHeader}
                     onChange={(e) => setNewExposeHeader(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && addExposeHeaderToRule()}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md"
                     placeholder={t('cors.exposeHeaderPlaceholder')}
                   />
                   <Button onClick={addExposeHeaderToRule} disabled={!newExposeHeader.trim()}>
@@ -2842,23 +2842,23 @@ export default function BucketSettingsPage() {
 
               {/* Max Age Seconds */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   {t('cors.maxAgeLabel')}
                 </label>
                 <input
                   type="number"
                   value={editingCorsRule.maxAgeSeconds}
                   onChange={(e) => setEditingCorsRule({ ...editingCorsRule, maxAgeSeconds: parseInt(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md"
                   placeholder={t('cors.maxAgePlaceholder')}
                   min="0"
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   {t('cors.maxAgeHint')}
                 </p>
               </div>
 
-              <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex justify-end gap-2 pt-4 border-t border-border">
                 <Button variant="outline" onClick={() => setEditingCorsRule(null)}>
                   {t('cors.cancel')}
                 </Button>
@@ -2873,17 +2873,17 @@ export default function BucketSettingsPage() {
           {corsViewMode === 'xml' && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   {t('cors.corsXmlLabel')}
                 </label>
                 <textarea
                   value={corsText}
                   onChange={(e) => setCorsText(e.target.value)}
                   rows={15}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md font-mono text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md font-mono text-sm"
                   placeholder={t('cors.corsXmlPlaceholder')}
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   {t('cors.corsXmlHint')}
                 </p>
               </div>
@@ -2918,7 +2918,7 @@ export default function BucketSettingsPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-foreground mb-2">
               {t('lifecycle.noncurrentDaysLabel')}
             </label>
             <input
@@ -2927,9 +2927,9 @@ export default function BucketSettingsPage() {
               max="3650"
               value={noncurrentDays}
               onChange={(e) => setNoncurrentDays(parseInt(e.target.value) || 30)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md"
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               {t('lifecycle.noncurrentDaysHint')}
             </p>
           </div>
@@ -2943,10 +2943,10 @@ export default function BucketSettingsPage() {
               className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
             <div>
-              <label htmlFor="delete-markers" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="delete-markers" className="block text-sm font-medium text-foreground">
                 {t('lifecycle.deleteMarkersLabel')}
               </label>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 {t('lifecycle.deleteMarkersHint')}
               </p>
             </div>
@@ -2996,7 +2996,7 @@ export default function BucketSettingsPage() {
           {/* Existing Tags */}
           {Object.keys(tags).length > 0 && (
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium text-foreground">
                 {t('tags.currentTags')}
               </label>
               <div className="space-y-2">
@@ -3006,11 +3006,11 @@ export default function BucketSettingsPage() {
                     className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-md"
                   >
                     <div>
-                      <span className="font-medium text-sm text-gray-900 dark:text-white">
+                      <span className="font-medium text-sm text-foreground">
                         {key}
                       </span>
-                      <span className="text-gray-500 dark:text-gray-400 mx-2">:</span>
-                      <span className="text-sm text-gray-700 dark:text-gray-300">
+                      <span className="text-muted-foreground mx-2">:</span>
+                      <span className="text-sm text-foreground">
                         {value}
                       </span>
                     </div>
@@ -3029,7 +3029,7 @@ export default function BucketSettingsPage() {
 
           {/* Add New Tag */}
           <div className="space-y-3">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="block text-sm font-medium text-foreground">
               {t('tags.addNewTag')}
             </label>
             <div className="flex gap-2">
@@ -3038,14 +3038,14 @@ export default function BucketSettingsPage() {
                 placeholder={t('tags.keyPlaceholder')}
                 value={newTagKey}
                 onChange={(e) => setNewTagKey(e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm"
               />
               <input
                 type="text"
                 placeholder={t('tags.valuePlaceholder')}
                 value={newTagValue}
                 onChange={(e) => setNewTagValue(e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm"
               />
               <Button onClick={handleAddTag} disabled={!newTagKey || !newTagValue}>
                 {t('tags.add')}
@@ -3054,7 +3054,7 @@ export default function BucketSettingsPage() {
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex justify-end gap-2 pt-4 border-t border-border">
             <Button variant="outline" onClick={() => setIsTagsModalOpen(false)}>
               {t('tags.cancel')}
             </Button>
@@ -3084,13 +3084,13 @@ export default function BucketSettingsPage() {
 
           {/* Canned ACL Selection */}
           <div className="space-y-3">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="block text-sm font-medium text-foreground">
               {t('acl.selectLevel')}
             </label>
 
             <div className="space-y-2">
               {/* Private */}
-              <label className="flex items-start gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+              <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:bg-secondary transition-colors">
                 <input
                   type="radio"
                   name="acl"
@@ -3100,15 +3100,15 @@ export default function BucketSettingsPage() {
                   className="mt-1"
                 />
                 <div className="flex-1">
-                  <div className="font-medium text-sm text-gray-900 dark:text-white">{t('acl.privateLabel')}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  <div className="font-medium text-sm text-foreground">{t('acl.privateLabel')}</div>
+                  <div className="text-xs text-muted-foreground mt-1">
                     {t('acl.privateDesc')}
                   </div>
                 </div>
               </label>
 
               {/* Public Read */}
-              <label className="flex items-start gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+              <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:bg-secondary transition-colors">
                 <input
                   type="radio"
                   name="acl"
@@ -3118,15 +3118,15 @@ export default function BucketSettingsPage() {
                   className="mt-1"
                 />
                 <div className="flex-1">
-                  <div className="font-medium text-sm text-gray-900 dark:text-white">{t('acl.publicReadLabel')}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  <div className="font-medium text-sm text-foreground">{t('acl.publicReadLabel')}</div>
+                  <div className="text-xs text-muted-foreground mt-1">
                     {t('acl.publicReadDesc')}
                   </div>
                 </div>
               </label>
 
               {/* Public Read Write */}
-              <label className="flex items-start gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+              <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:bg-secondary transition-colors">
                 <input
                   type="radio"
                   name="acl"
@@ -3136,15 +3136,15 @@ export default function BucketSettingsPage() {
                   className="mt-1"
                 />
                 <div className="flex-1">
-                  <div className="font-medium text-sm text-gray-900 dark:text-white">{t('acl.publicReadWriteLabel')}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  <div className="font-medium text-sm text-foreground">{t('acl.publicReadWriteLabel')}</div>
+                  <div className="text-xs text-muted-foreground mt-1">
                     {t('acl.publicReadWriteDesc')} <strong className="text-yellow-600">{t('acl.publicReadWriteCaution')}</strong>
                   </div>
                 </div>
               </label>
 
               {/* Authenticated Read */}
-              <label className="flex items-start gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+              <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:bg-secondary transition-colors">
                 <input
                   type="radio"
                   name="acl"
@@ -3154,8 +3154,8 @@ export default function BucketSettingsPage() {
                   className="mt-1"
                 />
                 <div className="flex-1">
-                  <div className="font-medium text-sm text-gray-900 dark:text-white">{t('acl.authenticatedReadLabel')}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  <div className="font-medium text-sm text-foreground">{t('acl.authenticatedReadLabel')}</div>
+                  <div className="text-xs text-muted-foreground mt-1">
                     {t('acl.authenticatedReadDesc')}
                   </div>
                 </div>
@@ -3173,7 +3173,7 @@ export default function BucketSettingsPage() {
           )}
 
           {/* Actions */}
-          <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex justify-end gap-2 pt-4 border-t border-border">
             <Button variant="outline" onClick={() => setIsACLModalOpen(false)}>
               {t('acl.cancel')}
             </Button>
@@ -3197,7 +3197,7 @@ export default function BucketSettingsPage() {
         <div className="space-y-4">
           {/* Rule ID */}
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="block text-sm font-medium text-foreground">
               {t('notifications.ruleIdLabel')}
             </label>
             <input
@@ -3207,17 +3207,17 @@ export default function BucketSettingsPage() {
                 setNotificationRuleForm({ ...notificationRuleForm, id: e.target.value })
               }
               placeholder={t('notifications.ruleIdPlaceholder')}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm"
               disabled={!!editingNotificationRule}
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-muted-foreground">
               {t('notifications.ruleIdHint')}
             </p>
           </div>
 
           {/* Webhook URL */}
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="block text-sm font-medium text-foreground">
               {t('notifications.webhookUrlLabel')} <span className="text-red-500">*</span>
             </label>
             <input
@@ -3227,16 +3227,16 @@ export default function BucketSettingsPage() {
                 setNotificationRuleForm({ ...notificationRuleForm, webhookUrl: e.target.value })
               }
               placeholder={t('notifications.webhookUrlPlaceholder')}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm font-mono"
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-muted-foreground">
               {t('notifications.webhookUrlHint')}
             </p>
           </div>
 
           {/* Event Types */}
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="block text-sm font-medium text-foreground">
               {t('notifications.eventTypesLabel')} <span className="text-red-500">*</span>
             </label>
             <div className="grid grid-cols-2 gap-2">
@@ -3252,7 +3252,7 @@ export default function BucketSettingsPage() {
               ].map((eventType) => (
                 <label
                   key={eventType.value}
-                  className="flex items-start gap-2 p-2 border border-gray-200 dark:border-gray-700 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
+                  className="flex items-start gap-2 p-2 border border-border rounded cursor-pointer hover:bg-secondary"
                 >
                   <input
                     type="checkbox"
@@ -3261,10 +3261,10 @@ export default function BucketSettingsPage() {
                     className="mt-1"
                   />
                   <div className="text-sm">
-                    <div className="font-medium text-gray-900 dark:text-white">
+                    <div className="font-medium text-foreground">
                       {eventType.label}
                     </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                    <div className="text-xs text-muted-foreground font-mono">
                       {eventType.value}
                     </div>
                   </div>
@@ -3276,7 +3276,7 @@ export default function BucketSettingsPage() {
           {/* Filters */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium text-foreground">
                 {t('notifications.prefixFilterLabel')}
               </label>
               <input
@@ -3286,15 +3286,15 @@ export default function BucketSettingsPage() {
                   setNotificationRuleForm({ ...notificationRuleForm, filterPrefix: e.target.value })
                 }
                 placeholder={t('notifications.prefixFilterPlaceholder')}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm"
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 {t('notifications.prefixFilterHint')}
               </p>
             </div>
 
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium text-foreground">
                 {t('notifications.suffixFilterLabel')}
               </label>
               <input
@@ -3304,9 +3304,9 @@ export default function BucketSettingsPage() {
                   setNotificationRuleForm({ ...notificationRuleForm, filterSuffix: e.target.value })
                 }
                 placeholder={t('notifications.suffixFilterPlaceholder')}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm"
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 {t('notifications.suffixFilterHint')}
               </p>
             </div>
@@ -3323,7 +3323,7 @@ export default function BucketSettingsPage() {
               }
               className="h-4 w-4"
             />
-            <label htmlFor="notificationEnabled" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor="notificationEnabled" className="text-sm font-medium text-foreground">
               {t('notifications.enableRuleLabel')}
             </label>
           </div>
@@ -3343,7 +3343,7 @@ export default function BucketSettingsPage() {
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex justify-end gap-2 pt-4 border-t border-border">
             <Button variant="outline" onClick={() => setIsNotificationModalOpen(false)}>
               {t('notifications.cancel')}
             </Button>
@@ -3377,7 +3377,7 @@ export default function BucketSettingsPage() {
         <div className="space-y-4">
           {/* Destination S3 Endpoint */}
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="block text-sm font-medium text-foreground">
               {t('replication.endpointLabel')} <span className="text-red-500">*</span>
             </label>
             <input
@@ -3387,16 +3387,16 @@ export default function BucketSettingsPage() {
                 setReplicationRuleForm({ ...replicationRuleForm, destination_endpoint: e.target.value })
               }
               placeholder={t('replication.endpointPlaceholder')}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm font-mono"
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-muted-foreground">
               {t('replication.endpointHint')}
             </p>
           </div>
 
           {/* Destination Bucket */}
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="block text-sm font-medium text-foreground">
               {t('replication.destBucketLabel')} <span className="text-red-500">*</span>
             </label>
             <input
@@ -3406,9 +3406,9 @@ export default function BucketSettingsPage() {
                 setReplicationRuleForm({ ...replicationRuleForm, destination_bucket: e.target.value })
               }
               placeholder={t('replication.destBucketPlaceholder')}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm font-mono"
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-muted-foreground">
               {t('replication.destBucketHint')}
             </p>
           </div>
@@ -3416,7 +3416,7 @@ export default function BucketSettingsPage() {
           {/* Access Credentials */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium text-foreground">
                 {t('replication.accessKeyLabel')} <span className="text-red-500">*</span>
               </label>
               <input
@@ -3426,15 +3426,15 @@ export default function BucketSettingsPage() {
                   setReplicationRuleForm({ ...replicationRuleForm, destination_access_key: e.target.value })
                 }
                 placeholder={t('replication.accessKeyPlaceholder')}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm font-mono"
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 {t('replication.accessKeyHint')}
               </p>
             </div>
 
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium text-foreground">
                 {t('replication.secretKeyLabel')} <span className="text-red-500">*</span>
               </label>
               <input
@@ -3444,9 +3444,9 @@ export default function BucketSettingsPage() {
                   setReplicationRuleForm({ ...replicationRuleForm, destination_secret_key: e.target.value })
                 }
                 placeholder={t('replication.secretKeyPlaceholder')}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm font-mono"
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 {t('replication.secretKeyHint')}
               </p>
             </div>
@@ -3455,7 +3455,7 @@ export default function BucketSettingsPage() {
           {/* Region and Prefix */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium text-foreground">
                 {t('replication.regionLabel')}
               </label>
               <input
@@ -3465,15 +3465,15 @@ export default function BucketSettingsPage() {
                   setReplicationRuleForm({ ...replicationRuleForm, destination_region: e.target.value })
                 }
                 placeholder={t('replication.regionPlaceholder')}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm"
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 {t('replication.regionHint')}
               </p>
             </div>
 
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium text-foreground">
                 {t('replication.prefixLabel')}
               </label>
               <input
@@ -3483,9 +3483,9 @@ export default function BucketSettingsPage() {
                   setReplicationRuleForm({ ...replicationRuleForm, prefix: e.target.value })
                 }
                 placeholder={t('replication.prefixPlaceholder')}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm font-mono"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm font-mono"
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 {t('replication.prefixHint')}
               </p>
             </div>
@@ -3494,7 +3494,7 @@ export default function BucketSettingsPage() {
           {/* Mode, Schedule and Priority */}
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium text-foreground">
                 {t('replication.modeLabel')} <span className="text-red-500">*</span>
               </label>
               <select
@@ -3502,20 +3502,20 @@ export default function BucketSettingsPage() {
                 onChange={(e) =>
                   setReplicationRuleForm({ ...replicationRuleForm, mode: e.target.value as 'realtime' | 'scheduled' | 'batch' })
                 }
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm"
               >
                 <option value="realtime">{t('replication.modeRealtime')}</option>
                 <option value="scheduled">{t('replication.modeScheduled')}</option>
                 <option value="batch">{t('replication.modeBatch')}</option>
               </select>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 {t('replication.modeHint')}
               </p>
             </div>
 
             {replicationRuleForm.mode === 'scheduled' && (
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label className="block text-sm font-medium text-foreground">
                   {t('replication.intervalLabel')} <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -3525,16 +3525,16 @@ export default function BucketSettingsPage() {
                   onChange={(e) =>
                     setReplicationRuleForm({ ...replicationRuleForm, schedule_interval: parseInt(e.target.value) || 60 })
                   }
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm"
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-muted-foreground">
                   {t('replication.intervalHint')}
                 </p>
               </div>
             )}
 
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium text-foreground">
                 {t('replication.priorityLabel')}
               </label>
               <input
@@ -3545,9 +3545,9 @@ export default function BucketSettingsPage() {
                 onChange={(e) =>
                   setReplicationRuleForm({ ...replicationRuleForm, priority: parseInt(e.target.value) || 1 })
                 }
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm"
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 {t('replication.priorityHint')}
               </p>
             </div>
@@ -3555,7 +3555,7 @@ export default function BucketSettingsPage() {
 
           {/* Conflict Resolution */}
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="block text-sm font-medium text-foreground">
               {t('replication.conflictLabel')} <span className="text-red-500">*</span>
             </label>
             <select
@@ -3563,20 +3563,20 @@ export default function BucketSettingsPage() {
               onChange={(e) =>
                 setReplicationRuleForm({ ...replicationRuleForm, conflict_resolution: e.target.value as 'last_write_wins' | 'version_based' | 'primary_wins' })
               }
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md text-sm"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm"
             >
               <option value="last_write_wins">{t('replication.conflictLastWrite')}</option>
               <option value="version_based">{t('replication.conflictVersionBased')}</option>
               <option value="primary_wins">{t('replication.conflictPrimaryWins')}</option>
             </select>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-muted-foreground">
               {t('replication.conflictHint')}
             </p>
           </div>
 
           {/* Options */}
           <div className="space-y-3">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="block text-sm font-medium text-foreground">
               {t('replication.optionsLabel')}
             </label>
             <div className="space-y-2">
@@ -3590,7 +3590,7 @@ export default function BucketSettingsPage() {
                   }
                   className="h-4 w-4"
                 />
-                <label htmlFor="replicateDeletes" className="text-sm text-gray-700 dark:text-gray-300">
+                <label htmlFor="replicateDeletes" className="text-sm text-foreground">
                   {t('replication.replicateDeletesLabel')}
                 </label>
               </div>
@@ -3604,7 +3604,7 @@ export default function BucketSettingsPage() {
                   }
                   className="h-4 w-4"
                 />
-                <label htmlFor="replicateMetadata" className="text-sm text-gray-700 dark:text-gray-300">
+                <label htmlFor="replicateMetadata" className="text-sm text-foreground">
                   {t('replication.replicateMetadataLabel')}
                 </label>
               </div>
@@ -3618,7 +3618,7 @@ export default function BucketSettingsPage() {
                   }
                   className="h-4 w-4"
                 />
-                <label htmlFor="enabled" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label htmlFor="enabled" className="text-sm font-medium text-foreground">
                   {t('replication.enableRuleLabel')}
                 </label>
               </div>
@@ -3640,7 +3640,7 @@ export default function BucketSettingsPage() {
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex justify-end gap-2 pt-4 border-t border-border">
             <Button variant="outline" onClick={() => setIsReplicationModalOpen(false)}>
               {t('replication.cancel')}
             </Button>

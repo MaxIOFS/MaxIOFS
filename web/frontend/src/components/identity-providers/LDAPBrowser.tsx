@@ -81,8 +81,8 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
           <ArrowLeft className="h-5 w-5 text-gray-500" />
         </button>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('browseUsers')}</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{provider.name} - {t('searchAndImport')}</p>
+          <h1 className="text-2xl font-bold text-foreground">{t('browseUsers')}</h1>
+          <p className="text-sm text-muted-foreground">{provider.name} - {t('searchAndImport')}</p>
         </div>
       </div>
 
@@ -96,7 +96,7 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && searchMutation.mutate()}
             placeholder={t('searchPlaceholder')}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full pl-10 pr-4 py-2 border border-border rounded-lg bg-card text-sm text-foreground focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
         <Button onClick={() => searchMutation.mutate()} disabled={searchMutation.isPending || !query}>
@@ -113,7 +113,7 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
           <select
             value={importRole}
             onChange={(e) => setImportRole(e.target.value)}
-            className="px-2 py-1 border border-blue-300 dark:border-blue-700 rounded bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white"
+            className="px-2 py-1 border border-blue-300 dark:border-blue-700 rounded bg-card text-sm text-foreground"
           >
             <option value="user">{t('roleUser')}</option>
             <option value="admin">{t('roleAdmin')}</option>
@@ -128,7 +128,7 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
 
       {/* Results */}
       {results.length > 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -157,10 +157,10 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
                       className="rounded border-gray-300"
                     />
                   </TableCell>
-                  <TableCell className="font-medium text-gray-900 dark:text-white">{user.username}</TableCell>
-                  <TableCell className="text-sm text-gray-500 dark:text-gray-400">{user.email}</TableCell>
-                  <TableCell className="text-sm text-gray-500 dark:text-gray-400">{user.display_name}</TableCell>
-                  <TableCell className="text-sm text-gray-500 dark:text-gray-400">
+                  <TableCell className="font-medium text-foreground">{user.username}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{user.email}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{user.display_name}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
                     {(user.groups || []).length > 0 ? (
                       <span className="inline-flex items-center gap-1 text-xs">
                         <Users className="h-3 w-3" /> {user.groups.length}
@@ -173,12 +173,12 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
           </Table>
         </div>
       ) : hasSearched ? (
-        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+        <div className="text-center py-12 text-muted-foreground">
           <Users className="h-12 w-12 mx-auto mb-3 opacity-50" />
           <p className="text-sm">{t('noUsersFound')}</p>
         </div>
       ) : (
-        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+        <div className="text-center py-12 text-muted-foreground">
           <Search className="h-12 w-12 mx-auto mb-3 opacity-50" />
           <p className="text-sm">{t('enterSearchQuery')}</p>
         </div>

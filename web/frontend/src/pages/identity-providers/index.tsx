@@ -102,7 +102,7 @@ export default function IdentityProvidersPage() {
   if (!isAnyAdmin) {
     return (
       <div className="p-6">
-        <p className="text-gray-500 dark:text-gray-400">{t('noPermission')}</p>
+        <p className="text-sm text-muted-foreground mt-1">{t('noPermission')}</p>
       </div>
     );
   }
@@ -131,8 +131,8 @@ export default function IdentityProvidersPage() {
     <div>
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('pageTitle')}</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+        <h1 className="text-2xl font-bold text-foreground">{t('pageTitle')}</h1>
+        <p className="text-sm text-muted-foreground mt-1">
           {t('pageSubtitle')}
         </p>
       </div>
@@ -146,11 +146,11 @@ export default function IdentityProvidersPage() {
             placeholder={t('searchProviders')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full pl-10 pr-4 py-2 border border-border rounded-lg bg-card text-sm text-foreground focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
         <Button onClick={() => setIsCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
+          <Plus className="h-4 w-4" />
           {t('addProvider')}
         </Button>
       </div>
@@ -168,7 +168,7 @@ export default function IdentityProvidersPage() {
           showAction
         />
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -182,7 +182,7 @@ export default function IdentityProvidersPage() {
             <TableBody>
               {filtered.map((idp) => (
                 <TableRow key={idp.id}>
-                  <TableCell className="font-medium text-gray-900 dark:text-white">
+                  <TableCell className="font-medium text-foreground">
                     {idp.name}
                   </TableCell>
                   <TableCell>
@@ -204,12 +204,12 @@ export default function IdentityProvidersPage() {
                         ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
                         : idp.status === 'testing'
                         ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
-                        : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                        : 'bg-secondary text-muted-foreground'
                     }`}>
                       {idp.status === 'active' ? t('statusActive') : idp.status === 'testing' ? t('statusTesting') : t('statusInactive')}
                     </span>
                   </TableCell>
-                  <TableCell className="text-sm text-gray-500 dark:text-gray-400">
+                  <TableCell className="text-sm text-muted-foreground">
                     {getTenantName(idp.tenantId)}
                   </TableCell>
                   <TableCell className="text-right">
@@ -217,7 +217,7 @@ export default function IdentityProvidersPage() {
                       <button
                         onClick={() => testMutation.mutate(idp.id)}
                         disabled={testMutation.isPending}
-                        className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+                        className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground"
                         title={t('testConnection')}
                       >
                         <Plug className="h-4 w-4" />
@@ -225,7 +225,7 @@ export default function IdentityProvidersPage() {
                       {idp.type === 'ldap' && (
                         <button
                           onClick={() => setBrowsingIDP(idp)}
-                          className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+                          className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground"
                           title={t('browseUsers')}
                         >
                           <UsersIcon className="h-4 w-4" />
@@ -233,21 +233,21 @@ export default function IdentityProvidersPage() {
                       )}
                       <button
                         onClick={() => setMappingIDP(idp)}
-                        className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+                        className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground"
                         title={t('groupMappings')}
                       >
                         <FolderTree className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => setEditingIDP(idp)}
-                        className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+                        className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground"
                         title={t('edit')}
                       >
                         <Settings className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => handleDelete(idp)}
-                        className="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-500 dark:text-gray-400 hover:text-red-600"
+                        className="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600"
                         title={t('delete')}
                       >
                         <Trash2 className="h-4 w-4" />

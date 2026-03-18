@@ -14,7 +14,7 @@
     --color-brand-700: 42 49 216;
     --color-brand-800: 37 45 174;
     --color-brand-900: 38 46 137;
-    
+
     /* Success Colors */
     --color-success-50: 236 253 243;
     --color-success-100: 209 250 223;
@@ -50,7 +50,7 @@
     --color-warning-700: 181 71 8;
     --color-warning-800: 147 55 13;
     --color-warning-900: 122 44 10;
-    
+
     /* Blue Light Colors */
     --color-blue-light-50: 240 249 255;
     --color-blue-light-100: 224 242 254;
@@ -72,26 +72,33 @@
     --color-orange-500: 251 101 20;
     --color-orange-600: 236 74 10;
 
-    /* UI Component Variables */
-    --background: 249 250 251; /* gray-50 */
-    --foreground: 17 24 39; /* gray-900 */
-    --card: 255 255 255; /* white */
-    --card-foreground: 17 24 39; /* gray-900 */
-    --popover: 255 255 255; /* white */
-    --popover-foreground: 17 24 39; /* gray-900 */
-    --primary: 54 65 245; /* brand-600 */
-    --primary-foreground: 255 255 255; /* white */
-    --secondary: 243 244 246; /* gray-100 */
-    --secondary-foreground: 17 24 39; /* gray-900 */
-    --muted: 243 244 246; /* gray-100 */
-    --muted-foreground: 107 114 128; /* gray-500 */
-    --accent: 243 244 246; /* gray-100 */
-    --accent-foreground: 17 24 39; /* gray-900 */
-    --destructive: 240 68 56; /* error-500 */
-    --destructive-foreground: 255 255 255; /* white */
-    --border: 229 231 235; /* gray-200 */
-    --input: 229 231 235; /* gray-200 */
-    --ring: 54 65 245; /* brand-600 */
+    /* Sidebar - light mode */
+    --color-sidebar-bg: 255 255 255;
+    --color-sidebar-hover: 241 245 249;
+    --color-sidebar-text: 15 23 42;
+    --color-sidebar-text-muted: 71 85 105;
+    --color-sidebar-border: 203 213 225;
+
+    /* UI Component Variables - Light Mode */
+    --background: 226 232 240;        /* slate-200 — page background */
+    --foreground: 15 23 42;           /* slate-900 */
+    --card: 255 255 255;              /* white — card surface */
+    --card-foreground: 15 23 42;
+    --popover: 255 255 255;
+    --popover-foreground: 15 23 42;
+    --primary: 54 65 245;
+    --primary-foreground: 255 255 255;
+    --secondary: 241 245 249;         /* slate-100 */
+    --secondary-foreground: 15 23 42;
+    --muted: 241 245 249;
+    --muted-foreground: 71 85 105;    /* slate-600 */
+    --accent: 241 245 249;
+    --accent-foreground: 15 23 42;
+    --destructive: 240 68 56;
+    --destructive-foreground: 255 255 255;
+    --border: 203 213 225;            /* slate-300 */
+    --input: 241 245 249;
+    --ring: 54 65 245;
     --radius: 0.5rem;
   }
 
@@ -103,75 +110,81 @@
     --color-sidebar-text-muted: 138 153 175;
     --color-sidebar-border: 46 58 71;
 
-    /* UI Component Variables - Dark Mode */
-    --background: 17 24 39; /* gray-900 */
-    --foreground: 249 250 251; /* gray-50 */
-    --card: 31 41 55; /* gray-800 */
-    --card-foreground: 249 250 251; /* gray-50 */
-    --popover: 31 41 55; /* gray-800 */
-    --popover-foreground: 249 250 251; /* gray-50 */
-    --primary: 70 95 255; /* brand-500 */
-    --primary-foreground: 255 255 255; /* white */
-    --secondary: 55 65 81; /* gray-700 */
-    --secondary-foreground: 249 250 251; /* gray-50 */
-    --muted: 55 65 81; /* gray-700 */
-    --muted-foreground: 156 163 175; /* gray-400 */
-    --accent: 55 65 81; /* gray-700 */
-    --accent-foreground: 249 250 251; /* gray-50 */
-    --destructive: 240 68 56; /* error-500 */
-    --destructive-foreground: 255 255 255; /* white */
-    --border: 55 65 81; /* gray-700 */
-    --input: 55 65 81; /* gray-700 */
-    --ring: 70 95 255; /* brand-500 */
+    --background: 15 23 42;           /* slate-900 */
+    --foreground: 249 250 251;
+    --card: 30 41 59;                 /* slate-800 */
+    --card-foreground: 249 250 251;
+    --popover: 30 41 59;
+    --popover-foreground: 249 250 251;
+    --primary: 70 95 255;
+    --primary-foreground: 255 255 255;
+    --secondary: 51 65 85;
+    --secondary-foreground: 249 250 251;
+    --muted: 51 65 85;
+    --muted-foreground: 156 163 175;
+    --accent: 51 65 85;
+    --accent-foreground: 249 250 251;
+    --destructive: 240 68 56;
+    --destructive-foreground: 255 255 255;
+    --border: 51 65 85;
+    --input: 51 65 85;
+    --ring: 70 95 255;
   }
 }
 
 @layer base {
   * {
-    @apply border-gray-200 dark:border-gray-700;
+    @apply border-border;
   }
-  
+
   body {
-    @apply bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 antialiased;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   }
-  
+
   /* Scrollbar Styling */
   ::-webkit-scrollbar {
-    @apply w-2;
+    @apply w-1.5;
   }
-  
+
   ::-webkit-scrollbar-track {
-    @apply bg-gray-100 dark:bg-gray-800;
+    background: transparent;
   }
-  
+
   ::-webkit-scrollbar-thumb {
-    @apply bg-gray-300 dark:bg-gray-600 rounded-full;
+    @apply bg-gray-400/50 dark:bg-gray-600/50 rounded-full;
   }
-  
+
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-gray-400 dark:bg-gray-500;
   }
 }
 
 @layer components {
-  /* Card Styles */
+  /* Card — floating 3D effect */
   .card {
-    @apply bg-white dark:bg-gray-800 rounded-card border border-gray-200 dark:border-gray-700 shadow-card hover:shadow-card-hover transition-all duration-300;
+    @apply bg-card rounded-card border-0 transition-all duration-300;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.08);
   }
 
-  /* Glass Card Styles */
+  .card:hover {
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.10);
+  }
+
+  /* Glass Card */
   .glass-card {
-    @apply bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-card border border-gray-200/50 dark:border-gray-700/50 shadow-soft-lg hover:shadow-soft-xl transition-all duration-300;
+    @apply bg-card/80 backdrop-blur-sm rounded-card border-0 transition-all duration-300;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.08);
   }
 
   /* Button Styles */
   .btn-primary {
-    @apply bg-brand-600 hover:bg-brand-700 text-white font-medium px-4 py-2 rounded-button transition-all duration-200 shadow-soft hover:shadow-soft-md active:shadow-soft;
+    @apply bg-brand-600 hover:bg-brand-700 text-white font-medium px-4 py-2 rounded-button transition-all duration-200;
+    box-shadow: 0 2px 8px rgba(54,65,245,0.25);
   }
 
   .btn-secondary {
-    @apply bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 font-medium px-4 py-2 rounded-button transition-all duration-200 shadow-soft hover:shadow-soft-md;
+    @apply bg-secondary hover:bg-muted text-foreground font-medium px-4 py-2 rounded-button transition-all duration-200;
   }
 
   /* Gradient Backgrounds */
@@ -224,11 +237,7 @@
   }
 
   @keyframes wave-flow {
-    0%, 100% {
-      background-position: 0% 0%;
-    }
-    50% {
-      background-position: 100% 100%;
-    }
+    0%, 100% { background-position: 0% 0%; }
+    50%       { background-position: 100% 100%; }
   }
 }

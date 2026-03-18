@@ -102,9 +102,9 @@ export function ObjectFilterPanel({ filters, onFiltersChange, onClear }: ObjectF
   ].filter(Boolean).length;
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-4 space-y-4">
+    <div className="bg-card rounded-xl border border-border shadow-sm p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+        <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
           <FilterIcon className="h-4 w-4" />
           Advanced Filters
           {activeFilterCount > 0 && (
@@ -122,7 +122,7 @@ export function ObjectFilterPanel({ filters, onFiltersChange, onClear }: ObjectF
 
       {/* Content Type */}
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Content Type</label>
+        <label className="block text-xs font-medium text-muted-foreground mb-2">Content Type</label>
         <div className="flex flex-wrap gap-2">
           {CONTENT_TYPE_PRESETS.map(({ label, prefix }) => (
             <button
@@ -131,7 +131,7 @@ export function ObjectFilterPanel({ filters, onFiltersChange, onClear }: ObjectF
               className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
                 (filters.contentTypes || []).includes(prefix)
                   ? 'bg-brand-100 dark:bg-brand-900 border-brand-300 dark:border-brand-700 text-brand-700 dark:text-brand-300'
-                  : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-600'
+                  : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-muted-foreground hover:bg-gray-100 dark:hover:bg-gray-600'
               }`}
             >
               {label}
@@ -142,7 +142,7 @@ export function ObjectFilterPanel({ filters, onFiltersChange, onClear }: ObjectF
 
       {/* Size Range */}
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Size Range</label>
+        <label className="block text-xs font-medium text-muted-foreground mb-2">Size Range</label>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1">
             <Input
@@ -156,7 +156,7 @@ export function ObjectFilterPanel({ filters, onFiltersChange, onClear }: ObjectF
             <select
               value={minSizeUnit}
               onChange={(e) => setMinSizeUnit(e.target.value as SizeUnit)}
-              className="text-xs border border-gray-300 dark:border-gray-600 rounded-md px-2 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+              className="text-xs border border-border rounded-md px-2 py-2 bg-white dark:bg-gray-700 text-foreground"
             >
               <option value="B">B</option>
               <option value="KB">KB</option>
@@ -177,7 +177,7 @@ export function ObjectFilterPanel({ filters, onFiltersChange, onClear }: ObjectF
             <select
               value={maxSizeUnit}
               onChange={(e) => setMaxSizeUnit(e.target.value as SizeUnit)}
-              className="text-xs border border-gray-300 dark:border-gray-600 rounded-md px-2 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+              className="text-xs border border-border rounded-md px-2 py-2 bg-white dark:bg-gray-700 text-foreground"
             >
               <option value="B">B</option>
               <option value="KB">KB</option>
@@ -190,7 +190,7 @@ export function ObjectFilterPanel({ filters, onFiltersChange, onClear }: ObjectF
 
       {/* Date Range */}
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Date Range</label>
+        <label className="block text-xs font-medium text-muted-foreground mb-2">Date Range</label>
         <div className="flex items-center gap-2">
           <Input
             type="date"
@@ -222,13 +222,13 @@ export function ObjectFilterPanel({ filters, onFiltersChange, onClear }: ObjectF
 
       {/* Tags */}
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Tags</label>
+        <label className="block text-xs font-medium text-muted-foreground mb-2">Tags</label>
         {filters.tags && Object.keys(filters.tags).length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2">
             {Object.entries(filters.tags).map(([key, value]) => (
               <span
                 key={key}
-                className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md"
+                className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-foreground rounded-md"
               >
                 {key}={value}
                 <button onClick={() => removeTag(key)} className="text-gray-400 hover:text-gray-600">

@@ -19,6 +19,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Loading } from '@/components/ui/Loading';
+import { Button } from '@/components/ui/Button';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import LoggingTargets from './LoggingTargets';
 import type { Setting, SettingCategory } from '@/types';
@@ -243,7 +244,7 @@ export default function SettingsPage() {
   if (!settings) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-gray-500 dark:text-gray-400">{t('noSettingsAvailable')}</p>
+        <p className="text-sm text-muted-foreground mt-1">{t('noSettingsAvailable')}</p>
       </div>
     );
   }
@@ -260,8 +261,8 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('systemSettings')}</h1>
-          <p className="text-gray-500 dark:text-gray-400">
+          <h1 className="text-2xl font-bold text-foreground">{t('systemSettings')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             {t('configureRuntimeSettings')}
           </p>
         </div>
@@ -269,22 +270,21 @@ export default function SettingsPage() {
         {/* Save/Reset Buttons */}
         {hasChanges && (
           <div className="flex gap-2">
-            <button
+            <Button
+              variant="outline"
               onClick={handleReset}
               disabled={updateMutation.isPending}
-              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors flex items-center gap-2"
             >
               <RotateCcw className="h-4 w-4" />
               {t('reset')}
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={handleSave}
               disabled={updateMutation.isPending}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 transition-colors"
             >
               <Save className="h-4 w-4" />
               {updateMutation.isPending ? t('saving') : t('saveChanges', { count: Object.keys(editedValues).length })}
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -328,7 +328,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Tabs and Content */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+      <div className="bg-card rounded-lg border border-border shadow-sm">
         <div className="p-6">
           {/* Tabs Navigation - Same style as Metrics */}
           <div className="flex space-x-1 bg-gray-100 dark:bg-gray-900 rounded-lg p-1 mb-6">
@@ -343,8 +343,8 @@ export default function SettingsPage() {
                   onClick={() => setActiveCategory(tab.id as SettingCategory)}
                   className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 font-medium text-sm rounded-md transition-all duration-200 relative ${
                     activeCategory === tab.id
-                      ? 'bg-white dark:bg-gray-800 text-brand-600 dark:text-brand-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                      ? 'bg-card text-brand-600 dark:text-brand-400 shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   <Icon className="h-4 w-4" />
@@ -358,34 +358,33 @@ export default function SettingsPage() {
           </div>
 
           {/* Category Description */}
-          <div className="mb-6 pb-6 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+          <div className="mb-6 pb-6 border-b border-border">
+            <h3 className="text-lg font-semibold text-foreground mb-1">
               {t('categorySettings', { category: categoryInfo[activeCategory].title })}
             </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-muted-foreground">
               {categoryInfo[activeCategory].description}
             </p>
           </div>
 
           {/* Test Email button — shown only in email category */}
           {activeCategory === 'email' && (
-            <div className="mb-6 pb-6 border-b border-gray-200 dark:border-gray-700">
+            <div className="mb-6 pb-6 border-b border-border">
               <div className="flex items-center justify-between flex-wrap gap-4">
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t('testSmtpConnection')}</h4>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  <h4 className="text-sm font-semibold text-foreground">{t('testSmtpConnection')}</h4>
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     {emailEnabled ? t('testEmailEnabled') : t('testEmailDisabled')}
                   </p>
                 </div>
-                <button
+                <Button
                   onClick={handleTestEmail}
                   disabled={testEmailStatus === 'sending' || !emailEnabled}
                   title={!emailEnabled ? t('enableEmailFirst') : undefined}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   <SendHorizonal className="h-4 w-4" />
                   {testEmailStatus === 'sending' ? t('sending') : t('sendTestEmail')}
-                </button>
+                </Button>
               </div>
               {testEmailStatus === 'success' && (
                 <div className="mt-3 flex items-center gap-2 text-sm text-green-700 dark:text-green-400">
@@ -406,7 +405,7 @@ export default function SettingsPage() {
           {currentSettings.length === 0 ? (
             <div className="text-center py-12">
               <Server className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-              <p className="text-gray-500 dark:text-gray-400">{t('noSettingsInCategory')}</p>
+              <p className="text-sm text-muted-foreground mt-1">{t('noSettingsInCategory')}</p>
             </div>
           ) : activeCategory === 'logging' ? (
             // Special rendering for logging settings with clear grouping
@@ -419,7 +418,7 @@ export default function SettingsPage() {
                 if (backendSettings.length === 0) return null;
                 return (
                   <div className="border-l-4 border-blue-500 pl-4">
-                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">{t('backendLogs')}</h4>
+                    <h4 className="text-sm font-semibold text-foreground mb-3">{t('backendLogs')}</h4>
                     <div className="space-y-4">
                       {backendSettings.map((setting) => renderSetting(setting))}
                     </div>
@@ -439,8 +438,8 @@ export default function SettingsPage() {
                 const enabled = editedValues['logging.frontend_enabled'] ?? frontendSettings.find(s => s.key === 'logging.frontend_enabled')?.value === 'true';
                 return (
                   <div className={`border-l-4 ${enabled ? 'border-orange-500' : 'border-gray-300'} pl-4`}>
-                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{t('frontendLogs')}</h4>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{t('frontendLogsDesc')}</p>
+                    <h4 className="text-sm font-semibold text-foreground mb-1">{t('frontendLogs')}</h4>
+                    <p className="text-xs text-muted-foreground mb-3">{t('frontendLogsDesc')}</p>
                     <div className="space-y-4">
                       {frontendSettings.map((setting) => renderSetting(setting))}
                     </div>
@@ -457,7 +456,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Footer Info */}
-      <div className="text-sm text-gray-500 dark:text-gray-400 text-center space-y-1">
+      <div className="text-sm text-muted-foreground text-center space-y-1">
         <p>{t('settingsStoredInDatabase')}</p>
         <p className="text-xs">{t('totalEditableReadonly', { total: settings.length, editable: settings.filter(s => s.editable).length, readonly: settings.filter(s => !s.editable).length })}</p>
       </div>
@@ -471,7 +470,7 @@ export default function SettingsPage() {
     return (
       <div
         key={setting.key}
-        className={`pb-6 border-b border-gray-100 dark:border-gray-700 last:border-0 last:pb-0 transition-all ${
+        className={`pb-6 border-b border-border/50 last:border-0 last:pb-0 transition-all ${
           isEdited ? 'bg-yellow-50 dark:bg-yellow-900/10 -mx-6 px-6 py-4 rounded-lg' : ''
         }`}
       >
@@ -479,7 +478,7 @@ export default function SettingsPage() {
                     <div className="flex items-start justify-between gap-4 mb-3">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          <label className="text-sm font-semibold text-gray-900 dark:text-white">
+                          <label className="text-sm font-semibold text-foreground">
                             {formatLabel(setting.key)}
                           </label>
                           {getStatusBadge(currentValue, setting.type)}
@@ -489,7 +488,7 @@ export default function SettingsPage() {
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                        <p className="text-xs text-muted-foreground leading-relaxed">
                           {setting.description}
                         </p>
                       </div>
@@ -498,12 +497,12 @@ export default function SettingsPage() {
                         <span className={`px-2 py-1 text-xs font-medium rounded ${
                           setting.editable
                             ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                            : 'bg-gray-100 dark:bg-gray-700 text-muted-foreground'
                         }`}>
                           {setting.type}
                         </span>
                         {!setting.editable && (
-                          <span className="text-xs text-gray-400 dark:text-gray-500">
+                          <span className="text-xs text-muted-foreground">
                             {t('readOnly')}
                           </span>
                         )}
@@ -520,7 +519,7 @@ export default function SettingsPage() {
                               className={`px-6 py-2.5 text-sm font-medium rounded-lg transition-all ${
                                 currentValue === 'true'
                                   ? 'bg-green-600 text-white shadow-sm'
-                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                  : 'bg-gray-100 dark:bg-gray-700 text-foreground hover:bg-gray-200 dark:hover:bg-gray-600'
                               }`}
                             >
                               <CheckCircle className="h-4 w-4 inline-block mr-2" />
@@ -531,7 +530,7 @@ export default function SettingsPage() {
                               className={`px-6 py-2.5 text-sm font-medium rounded-lg transition-all ${
                                 currentValue === 'false'
                                   ? 'bg-gray-600 text-white shadow-sm'
-                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                  : 'bg-gray-100 dark:bg-gray-700 text-foreground hover:bg-gray-200 dark:hover:bg-gray-600'
                               }`}
                             >
                               <span className="h-4 w-4 inline-block mr-2">○</span>
@@ -542,7 +541,7 @@ export default function SettingsPage() {
                           <select
                             value={currentValue}
                             onChange={(e) => handleValueChange(setting.key, e.target.value, setting.value)}
-                            className="w-full max-w-xs px-4 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                            className="w-full max-w-xs px-4 py-2.5 text-sm border border-border rounded-lg bg-card text-foreground focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                           >
                             {getSelectOptions(setting.key)!.map(option => (
                               <option key={option} value={option}>
@@ -556,9 +555,9 @@ export default function SettingsPage() {
                               type="number"
                               value={currentValue}
                               onChange={(e) => handleValueChange(setting.key, e.target.value, setting.value)}
-                              className="w-full max-w-xs px-4 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                              className="w-full max-w-xs px-4 py-2.5 text-sm border border-border rounded-lg bg-card text-foreground focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                             />
-                            <span className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                            <span className="text-sm text-muted-foreground whitespace-nowrap">
                               {t('current', { value: formatValueDisplay(setting) })}
                             </span>
                           </div>
@@ -567,21 +566,21 @@ export default function SettingsPage() {
                             type={setting.key === 'email.smtp_password' ? 'password' : 'text'}
                             value={currentValue}
                             onChange={(e) => handleValueChange(setting.key, e.target.value, setting.value)}
-                            className="w-full max-w-md px-4 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                            className="w-full max-w-md px-4 py-2.5 text-sm border border-border rounded-lg bg-card text-foreground focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                           />
                         )}
                       </div>
                     ) : (
                       <div className="mt-3">
-                        <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-700 dark:text-gray-300 max-w-md font-medium">
+                        <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-900 border border-border rounded-lg text-sm text-foreground max-w-md font-medium">
                           {formatValueDisplay(setting)}
                         </div>
                       </div>
                     )}
 
         {/* Setting Metadata */}
-        <div className="mt-3 flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
-          <span>{t('key')} <code className="text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{setting.key}</code></span>
+        <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
+          <span>{t('key')} <code className="text-muted-foreground bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{setting.key}</code></span>
           {isEdited && (
             <span className="text-yellow-600 dark:text-yellow-400">
               {t('original', { value: formatValueDisplay({ ...setting, value: setting.value } as Setting) })}
