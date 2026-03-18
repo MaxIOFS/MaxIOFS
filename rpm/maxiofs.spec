@@ -9,7 +9,7 @@
 
 %define name maxiofs
 %{!?version: %define version 1.0.0}
-%define release 1
+%{!?release: %define release 1}
 %define debug_package %{nil}
 
 Name:           %{name}

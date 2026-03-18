@@ -1,4 +1,4 @@
-maxiofs (1.0.0) stable; urgency=medium
+maxiofs (1:1.0.0) stable; urgency=medium
 
   * Release v1.0.0 - First stable release
   * [UI] Complete frontend redesign: floating layout with sidebar/content inset from browser edge,

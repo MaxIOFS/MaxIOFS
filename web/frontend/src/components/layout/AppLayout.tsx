@@ -87,12 +87,39 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   });
 
   const isNewerVersion = (latest: string, current: string): boolean => {
-    const parse = (v: string) => v.replace(/^v/, '').replace(/-.*$/, '').split('.').map(Number);
-    const [lMaj, lMin = 0, lPat = 0] = parse(latest);
-    const [cMaj, cMin = 0, cPat = 0] = parse(current);
+    const parse = (v: string) => {
+      const clean = v.replace(/^v/, '');
+      const dashIdx = clean.indexOf('-');
+      const main = dashIdx === -1 ? clean : clean.slice(0, dashIdx);
+      const pre  = dashIdx === -1 ? '' : clean.slice(dashIdx + 1); // e.g. 'beta', 'rc1'
+      const nums = main.split('.').map(Number);
+      return { nums, pre };
+    };
+    // Stable release has higher precedence than any pre-release of the same version.
+    // Ranking: stable(3) > rc(2) > beta(1) > alpha(0) > other(1)
+    const preRank = (pre: string): number => {
+      if (!pre) return 3;
+      if (/^rc/.test(pre)) return 2;
+      if (/^beta/.test(pre)) return 1;
+      if (/^alpha/.test(pre)) return 0;
+      return 1;
+    };
+    const preNum = (pre: string): number => parseInt(pre.replace(/^\D+/, '') || '0', 10);
+
+    const l = parse(latest);
+    const c = parse(current);
+    const [lMaj = 0, lMin = 0, lPat = 0] = l.nums;
+    const [cMaj = 0, cMin = 0, cPat = 0] = c.nums;
+
     if (lMaj !== cMaj) return lMaj > cMaj;
     if (lMin !== cMin) return lMin > cMin;
-    return lPat > cPat;
+    if (lPat !== cPat) return lPat > cPat;
+    // Same numeric version — compare pre-release (e.g. 1.0.0 > 1.0.0-rc1 > 1.0.0-beta)
+    const lRank = preRank(l.pre);
+    const cRank = preRank(c.pre);
+    if (lRank !== cRank) return lRank > cRank;
+    // Same tier — compare numeric suffix (rc2 > rc1)
+    return preNum(l.pre) > preNum(c.pre);
   };
 
   const currentVersion = serverConfig?.version || '';

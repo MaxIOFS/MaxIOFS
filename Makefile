@@ -43,7 +43,12 @@ else
 	VERSION?=$(DEFAULT_VERSION)
 endif
 # Clean version for RPM (remove v prefix and pre-release suffix: -beta, -alpha, -rc*, -nightly)
-VERSION_CLEAN=$(shell echo $(VERSION) | sed 's/^v//' | sed 's/-beta$$//' | sed 's/-alpha$$//' | sed 's/-rc[0-9]*$$//' | sed 's/-nightly-.*//')
+VERSION_CLEAN=$(shell echo $(VERSION) | sed 's/^v//' | sed 's/-beta[0-9]*$$//' | sed 's/-alpha[0-9]*$$//' | sed 's/-rc[0-9]*$$//' | sed 's/-nightly-.*//')
+# RPM Release field: stable builds get "1"; pre-releases get "0.<suffix>" so they sort before stable.
+# e.g. v1.0.0-rc1 -> 0.rc1, v1.0.0-beta -> 0.beta, v1.0.0 -> 1
+RPM_RELEASE=$(shell \
+	PRE=$$(echo $(VERSION) | sed 's/^v[0-9][0-9.]*//;s/^-//'); \
+	if [ -z "$$PRE" ]; then echo "1"; else echo "0.$$PRE"; fi)
 COMMIT?=$(COMMIT)
 BUILD_DATE?=$(BUILD_DATE)
 LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_DATE)"
@@ -756,7 +761,7 @@ ifneq ($(DETECTED_OS),Windows)
 	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs ./cmd/maxiofs
 	
 	@echo "Creating tarball..."
-	@echo "VERSION=$(VERSION), VERSION_CLEAN=$(VERSION_CLEAN)"
+	@echo "VERSION=$(VERSION), VERSION_CLEAN=$(VERSION_CLEAN), RPM_RELEASE=$(RPM_RELEASE)"
 	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/build
 	@echo "Copying source files to $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/"
 	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/ 2>/dev/null || true
@@ -771,6 +776,7 @@ ifneq ($(DETECTED_OS),Windows)
 	@echo "Building RPM package..."
 	@rpmbuild --define "_topdir $(shell pwd)/$(BUILD_DIR)/rpm-build" \
 		--define "version $(VERSION_CLEAN)" \
+		--define "release $(RPM_RELEASE)" \
 		--define "_builddir $(shell pwd)/$(BUILD_DIR)" \
 		-bb rpm/maxiofs.spec
 	
@@ -827,7 +833,7 @@ ifneq ($(DETECTED_OS),Windows)
 	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-arm64 ./cmd/maxiofs
 
 	@echo "Creating tarball..."
-	@echo "VERSION=$(VERSION), VERSION_CLEAN=$(VERSION_CLEAN)"
+	@echo "VERSION=$(VERSION), VERSION_CLEAN=$(VERSION_CLEAN), RPM_RELEASE=$(RPM_RELEASE)"
 	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/build
 	@echo "Copying source files to $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/"
 	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/ 2>/dev/null || true
