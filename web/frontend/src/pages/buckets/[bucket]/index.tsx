@@ -22,7 +22,7 @@ import { Globe as GlobeIcon } from 'lucide-react';
 import { Settings as SettingsIcon } from 'lucide-react';
 import { Trash2 as Trash2Icon } from 'lucide-react';
 import { File as FileIcon } from 'lucide-react';
-import { Folder as FolderIcon } from 'lucide-react';
+import { Folder as FolderIcon, FolderOpen } from 'lucide-react';
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { HardDrive as HardDriveIcon } from 'lucide-react';
 import { Lock as LockIcon } from 'lucide-react';
@@ -70,7 +70,9 @@ export default function BucketDetailsPage() {
   const [isPresignedURLModalOpen, setIsPresignedURLModalOpen] = useState(false);
   const [selectedObjectKey, setSelectedObjectKey] = useState<string>('');
   const [newFolderName, setNewFolderName] = useState('');
-  const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
+  const [uploadMode, setUploadMode] = useState<'files' | 'folder'>('files');
+  const [uploadFiles, setUploadFiles] = useState<Array<{ file: File; path: string }>>([]);
+  const [isFolderScanning, setIsFolderScanning] = useState(false);
   const [selectedObjects, setSelectedObjects] = useState<Set<string>>(new Set());
   const [objectFilter, setObjectFilter] = useState<ObjectSearchFilter>({});
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
@@ -147,7 +149,8 @@ export default function BucketDetailsPage() {
       // Invalidate buckets list to update counters
       queryClient.invalidateQueries({ queryKey: ['buckets'] });
       setIsUploadModalOpen(false);
-      setSelectedFiles(null);
+      setUploadFiles([]);
+      setUploadMode('files');
 
       // Show success notification
       const fileName = variables.key.split('/').pop() || variables.key;
@@ -340,16 +343,100 @@ export default function BucketDetailsPage() {
     item.key.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Traverse a FileSystemEntry tree (drag & drop API — works in all browsers, no dialogs)
+  const traverseEntry = (entry: any, prefix: string): Promise<Array<{ file: File; path: string }>> => {
+    return new Promise((resolve) => {
+      if (entry.isFile) {
+        entry.getFile((file: File) => {
+          resolve([{ file, path: prefix ? `${prefix}/${entry.name}` : entry.name }]);
+        });
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        const results: Array<{ file: File; path: string }> = [];
+        const dirPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+
+        // readEntries returns max 100 at a time — must loop until empty
+        const readAll = () => {
+          reader.readEntries(async (entries: any[]) => {
+            if (entries.length === 0) {
+              resolve(results);
+              return;
+            }
+            for (const child of entries) {
+              const sub = await traverseEntry(child, dirPath);
+              results.push(...sub);
+            }
+            readAll();
+          });
+        };
+        readAll();
+      } else {
+        resolve([]);
+      }
+    });
+  };
+
+  // Traverse FileSystemDirectoryHandle tree (showDirectoryPicker API — Chrome/Edge/Safari)
+  const traverseHandle = async (
+    handle: any,
+    prefix: string
+  ): Promise<Array<{ file: File; path: string }>> => {
+    const results: Array<{ file: File; path: string }> = [];
+    for await (const entry of handle.values()) {
+      const entryPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.kind === 'file') {
+        results.push({ file: await entry.getFile(), path: entryPath });
+      } else if (entry.kind === 'directory') {
+        results.push(...await traverseHandle(entry, entryPath));
+      }
+    }
+    return results;
+  };
+
+  const handleBrowseFolder = async () => {
+    try {
+      setIsFolderScanning(true);
+      const dirHandle = await (window as any).showDirectoryPicker();
+      const files = await traverseHandle(dirHandle, dirHandle.name);
+      setUploadFiles(files);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') console.warn('[FolderUpload]', err);
+    } finally {
+      setIsFolderScanning(false);
+    }
+  };
+
+  const handleFolderDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsFolderScanning(true);
+    const items = Array.from(e.dataTransfer.items);
+    const results: Array<{ file: File; path: string }> = [];
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry?.();
+      if (entry) {
+        const files = await traverseEntry(entry, '');
+        results.push(...files);
+      }
+    }
+    setUploadFiles(results);
+    setIsFolderScanning(false);
+  };
+
+  const resetUploadModal = () => {
+    setIsUploadModalOpen(false);
+    setUploadFiles([]);
+    setUploadMode('files');
+  };
+
   const handleUpload = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFiles || selectedFiles.length === 0) return;
+    if (uploadFiles.length === 0) return;
 
-    const totalFiles = selectedFiles.length;
-    const files = Array.from(selectedFiles);
+    const totalFiles = uploadFiles.length;
+    const files = [...uploadFiles];
 
     // Close modal immediately so the user can keep working
-    setIsUploadModalOpen(false);
-    setSelectedFiles(null);
+    resetUploadModal();
 
     // Start background task — progress bar appears bottom-right
     const taskId = ModalManager.startBgTask(
@@ -362,10 +449,10 @@ export default function BucketDetailsPage() {
       let successCount = 0;
       let failCount = 0;
 
-      for (const file of files) {
+      for (const { file, path } of files) {
         const key = currentPrefix
-          ? `${currentPrefix.replace(/\/$/, '')}/${file.name}`
-          : file.name;
+          ? `${currentPrefix.replace(/\/$/, '')}/${path}`
+          : path;
 
         try {
           await APIClient.uploadObject({
@@ -1046,30 +1133,23 @@ export default function BucketDetailsPage() {
 
       {/* Objects Table */}
       <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden">
-        <div className="px-6 py-5 border-b border-border">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <FileIcon className="h-5 w-5 text-brand-600 dark:text-brand-400" />
-              {t('objectsLabel')} ({filteredItems.length})
-              {currentPrefix && ` ${t('inPath', { path: currentPrefix })}`}
-            </h3>
-            {selectedObjects.size > 0 && !isGlobalAdminInTenantBucket && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">
-                  {t('selectedCount', { count: selectedObjects.size })}
-                </span>
-                <Button
-                  onClick={handleBulkDelete}
-                  variant="destructive"
-                  size="sm"
-                  className="gap-2"
-                >
-                  <Trash2Icon className="h-4 w-4" />
-                  {t('deleteSelected')}
-                </Button>
-              </div>
-            )}
-          </div>
+        <div className="px-6 border-b border-border flex items-center justify-between h-14 shrink-0">
+          <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <FileIcon className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+            {t('objectsLabel')} ({filteredItems.length})
+            {currentPrefix && ` ${t('inPath', { path: currentPrefix })}`}
+          </h3>
+          {selectedObjects.size > 0 && !isGlobalAdminInTenantBucket && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                {t('selectedCount', { count: selectedObjects.size })}
+              </span>
+              <Button onClick={handleBulkDelete} variant="destructive" size="sm">
+                <Trash2Icon className="h-4 w-4" />
+                {t('deleteSelected')}
+              </Button>
+            </div>
+          )}
         </div>
         <div className="overflow-x-auto">
           {objectsLoading ? (
@@ -1324,36 +1404,179 @@ export default function BucketDetailsPage() {
       {/* Upload Modal */}
       <Modal
         isOpen={isUploadModalOpen}
-        onClose={() => setIsUploadModalOpen(false)}
+        onClose={resetUploadModal}
         title={t('uploadFilesModalTitle')}
       >
         <form onSubmit={handleUpload} className="space-y-4">
-          <div>
-            <label htmlFor="files" className="block text-sm font-medium mb-2">
-              {t('selectFilesLabel')}
-            </label>
-            <input
-              id="files"
-              type="file"
-              multiple
-              onChange={(e) => setSelectedFiles(e.target.files)}
-              className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-            {currentPrefix && (
-              <p className="text-xs text-muted-foreground mt-1">
-                {t('filesUploadedTo', { path: currentPrefix })}
-              </p>
-            )}
+          {/* Mode tabs */}
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <button
+              type="button"
+              onClick={() => { setUploadMode('files'); setUploadFiles([]); }}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${
+                uploadMode === 'files'
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-card text-muted-foreground hover:bg-secondary'
+              }`}
+            >
+              <UploadIcon className="h-4 w-4" />
+              {t('uploadModeFiles')}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setUploadMode('folder'); setUploadFiles([]); }}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-l border-border ${
+                uploadMode === 'folder'
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-card text-muted-foreground hover:bg-secondary'
+              }`}
+            >
+              <FolderOpen className="h-4 w-4" />
+              {t('uploadModeFolder')}
+            </button>
           </div>
 
-          {selectedFiles && selectedFiles.length > 0 && (
+          {/* Picker */}
+          {uploadMode === 'files' ? (
             <div>
-              <h4 className="text-sm font-medium mb-2">{t('selectedFilesLabel')}</h4>
-              <ul className="text-sm space-y-1">
-                {Array.from(selectedFiles).map((file, index) => (
-                  <li key={index} className="flex justify-between">
-                    <span className="truncate max-w-[260px]">{file.name}</span>
-                    <span className="text-muted-foreground ml-2 shrink-0">{formatSize(file.size)}</span>
+              {/* Hidden native input — triggered by the styled button below */}
+              <input
+                id="upload-input"
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const list = e.target.files;
+                  if (!list) return;
+                  setUploadFiles(Array.from(list).map(f => ({ file: f, path: f.name })));
+                }}
+              />
+              {uploadFiles.length > 0 ? (
+                /* Compact bar — replaces the drop zone once files are chosen */
+                <div className="flex items-center justify-between px-3 py-2 border border-border rounded-lg bg-secondary">
+                  <div className="flex items-center gap-2 text-sm text-foreground">
+                    <UploadIcon className="h-4 w-4 text-brand-600 shrink-0" />
+                    <span className="font-medium">{t('selectedFilesCount', { count: uploadFiles.length })}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('upload-input')?.click()}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-card hover:bg-border text-foreground border border-border transition-colors"
+                  >
+                    <UploadIcon className="h-3 w-3" />
+                    {t('changeFilesLabel')}
+                  </button>
+                </div>
+              ) : (
+                /* Full drop zone — shown when nothing is selected yet */
+                <div
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50', 'dark:bg-brand-950/20');
+                    const list = e.dataTransfer.files;
+                    if (!list || list.length === 0) return;
+                    setUploadFiles(Array.from(list).filter(f => f.size > 0).map(f => ({ file: f, path: f.name })));
+                  }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDragEnter={(e) => e.currentTarget.classList.add('border-brand-500', 'bg-brand-50', 'dark:bg-brand-950/20')}
+                  onDragLeave={(e) => e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50', 'dark:bg-brand-950/20')}
+                  className="w-full flex flex-col items-center justify-center gap-3 px-4 py-10 border-2 border-dashed border-border rounded-lg text-center transition-colors"
+                >
+                  <UploadIcon className="h-8 w-8 text-muted-foreground" />
+                  <p className="text-sm font-medium text-foreground">{t('dropFilesHere')}</p>
+                  <p className="text-xs text-muted-foreground">{t('dropFilesHint')}</p>
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('upload-input')?.click()}
+                    className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-brand-600 hover:bg-brand-700 text-white transition-colors"
+                  >
+                    <UploadIcon className="h-3.5 w-3.5" />
+                    {t('browseFilesLabel')}
+                  </button>
+                </div>
+              )}
+              {currentPrefix && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  {t('filesUploadedTo', { path: currentPrefix })}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div>
+              {uploadFiles.length > 0 && !isFolderScanning ? (
+                /* Compact bar — replaces drop zone once folder is loaded */
+                <div className="flex items-center justify-between px-3 py-2 border border-border rounded-lg bg-secondary">
+                  <div className="flex items-center gap-2 text-sm text-foreground">
+                    <FolderOpen className="h-4 w-4 text-brand-600 shrink-0" />
+                    <span className="font-medium">{t('selectedFolderLabel', { count: uploadFiles.length })}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUploadFiles([])}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-card hover:bg-border text-foreground border border-border transition-colors"
+                  >
+                    {t('changeFolderLabel')}
+                  </button>
+                </div>
+              ) : (
+                /* Full drop zone */
+                <div
+                  onDrop={handleFolderDrop}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDragEnter={(e) => e.currentTarget.classList.add('border-brand-500', 'bg-brand-50', 'dark:bg-brand-950/20')}
+                  onDragLeave={(e) => e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50', 'dark:bg-brand-950/20')}
+                  className="w-full flex flex-col items-center justify-center gap-3 px-4 py-10 border-2 border-dashed border-border rounded-lg text-center transition-colors"
+                >
+                  {isFolderScanning ? (
+                    <>
+                      <svg className="animate-spin h-8 w-8 text-brand-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      <p className="text-sm text-muted-foreground">{t('scanningFolder')}</p>
+                    </>
+                  ) : (
+                    <>
+                      <FolderOpen className="h-8 w-8 text-muted-foreground" />
+                      <p className="text-sm font-medium text-foreground">{t('dropFolderHere')}</p>
+                      <p className="text-xs text-muted-foreground">{t('dropFolderHint')}</p>
+                      {'showDirectoryPicker' in window ? (
+                        <button
+                          type="button"
+                          onClick={handleBrowseFolder}
+                          className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-brand-600 hover:bg-brand-700 text-white transition-colors"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                          {t('browseFolderLabel')}
+                        </button>
+                      ) : (
+                        <p className="mt-1 text-xs text-muted-foreground italic">{t('browseFolderUnsupported')}</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+              {currentPrefix && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  {t('filesUploadedTo', { path: currentPrefix })}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Preview list */}
+          {uploadFiles.length > 0 && (
+            <div>
+              <h4 className="text-sm font-medium mb-2">
+                {uploadMode === 'folder'
+                  ? t('selectedFolderLabel', { count: uploadFiles.length })
+                  : t('selectedFilesCount', { count: uploadFiles.length })}
+              </h4>
+              <ul className="text-sm space-y-1 max-h-48 overflow-y-auto pr-1">
+                {uploadFiles.map(({ file, path }, index) => (
+                  <li key={index} className="flex justify-between gap-2">
+                    <span className="truncate text-foreground">{path}</span>
+                    <span className="text-muted-foreground shrink-0">{formatSize(file.size)}</span>
                   </li>
                 ))}
               </ul>
@@ -1361,18 +1584,11 @@ export default function BucketDetailsPage() {
           )}
 
           <div className="flex justify-end space-x-2 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsUploadModalOpen(false)}
-            >
+            <Button type="button" variant="outline" onClick={resetUploadModal}>
               {t('cancel')}
             </Button>
-            <Button
-              type="submit"
-              disabled={!selectedFiles || selectedFiles.length === 0}
-            >
-              {t('uploadFiles')}
+            <Button type="submit" disabled={uploadFiles.length === 0}>
+              {uploadMode === 'folder' ? t('uploadFolder') : t('uploadFiles')}
             </Button>
           </div>
         </form>

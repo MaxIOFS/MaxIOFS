@@ -1,6 +1,6 @@
 # MaxIOFS Deployment Guide
 
-**Version**: 1.0.0-rc1 | **Last Updated**: February 28, 2026
+**Version**: 1.0.0 | **Last Updated**: March 17, 2026
 
 > **RELEASE CANDIDATE**: Feature-complete and security-audited. Suitable for production use — always backup your data and change default credentials before deploying.
 
@@ -150,7 +150,7 @@ Pre-built packages are available for Debian/Ubuntu and RHEL/Rocky:
 
 ```bash
 # Debian/Ubuntu
-sudo dpkg -i maxiofs_1.0.0-rc1_amd64.deb
+sudo dpkg -i maxiofs_1.0.0_amd64.deb
 sudo systemctl enable --now maxiofs
 
 # RHEL/Rocky

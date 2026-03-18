@@ -1,7 +1,7 @@
 # MaxIOFS - S3-Compatible Object Storage
 
-**Version**: 1.0.0-rc1
-**Status**: Release Candidate - 100% S3 Compatible
+**Version**: 1.0.0
+**Status**: Stable - 100% S3 Compatible
 **License**: MIT
 **Website**: [maxiofs.com](https://maxiofs.com)
 
@@ -171,7 +171,7 @@ aws --profile maxiofs --endpoint-url http://localhost:8080 s3 cp file.txt s3://t
 ## ⚠️ Known Limitations
 
 - Cluster tested with up to 5 nodes
-- No SOC 2 / ISO 27001 certification (comprehensive internal security audit completed for v1.0.0-rc1)
+- No SOC 2 / ISO 27001 certification (comprehensive internal security audit completed for v1.0.0)
 - Single master encryption key — no per-tenant keys, no HSM integration
 - Manual encryption key rotation requires re-encrypting all objects
 - No SAML SSO — OAuth2/OIDC recommended
@@ -199,7 +199,7 @@ make build-all
 **See [CHANGELOG.md](CHANGELOG.md) for complete version history and roadmap**
 
 Recent releases:
-- **v1.0.0-rc1** - Security audit (28 fixes: AES-256-GCM, CSR cluster join, SSRF, HMAC nonce), static website hosting, frontend bundle −45%
+- **v1.0.0** - Security audit (28 fixes: AES-256-GCM, CSR cluster join, SSRF, HMAC nonce), static website hosting, frontend bundle −45%
 - **v1.0.0-beta** - Object integrity verification, maintenance mode, disk/quota alerts, stale node reconciler, Pebble metadata engine
 - **v0.9.1-beta** - IDP tenant isolation fixes, user/access-key/bucket-permission handler auth hardening, cross-tenant data leak fixes
 - **v0.9.0-beta** - Identity providers (LDAP/OAuth SSO), tombstone-based cluster deletion sync, JWT secret persistence & cluster sync, security fixes
@@ -234,4 +234,4 @@ MIT License - See [LICENSE](LICENSE) file for details
 
 ---
 
-**ℹ️ Release Candidate**: Feature-complete and security-audited. Always backup your data and change default credentials before production use.
+**ℹ️ Stable Release**: Feature-complete and security-audited. Always backup your data and change default credentials before production use.

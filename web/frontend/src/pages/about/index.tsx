@@ -102,7 +102,7 @@ export default function AboutPage() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">{t('status')}</p>
-                  <p className="text-sm font-semibold text-green-600 dark:text-green-400">{t('beta')}</p>
+                  <p className="text-sm font-semibold text-green-600 dark:text-green-400">{t('stable')}</p>
                 </div>
               </div>
             </div>
@@ -326,97 +326,184 @@ export default function AboutPage() {
             {t('newFeaturesTitle', { version })}
           </h2>
           <div className="space-y-4">
-            <div className="border-l-4 border-red-600 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                [CRITICAL] AES-256-CTR → AES-256-GCM Authenticated Encryption
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Replaced AES-256-CTR with AES-256-GCM for all object encryption. CTR mode provides no authentication
-                tag — a malicious actor with write access to the data directory could silently corrupt or tamper with
-                ciphertext without detection. GCM adds a 128-bit authentication tag per 64 KB chunk; any tampered chunk
-                is detected and rejected on read. Objects written in the legacy CTR format are decrypted transparently
-                on first access (backward-compatible). New writes always use GCM.
-              </p>
-            </div>
 
-            <div className="border-l-4 border-red-600 pl-4">
+            {/* UI Redesign */}
+            <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                [CRITICAL] Cluster CA Private Key No Longer Transmitted on Node Join
+                Complete Frontend Redesign
               </h3>
               <p className="text-sm text-muted-foreground">
-                Previously, the cluster CA private key was sent in plaintext over the network when a node joined the
-                cluster — anyone intercepting the join request could impersonate any node indefinitely. Fixed with a
-                proper CSR flow: the joining node generates its own key pair locally, sends only a Certificate Signing
-                Request (CSR) to the leader, and receives back a signed certificate. The CA private key never leaves
-                the leader node.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-orange-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                [HIGH] 6 Cluster Admin Handlers Missing Authorization Check
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Six cluster management endpoints (node removal, replication rule CRUD, cluster token retrieval) were
-                missing the <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">isGlobalAdmin</code> check,
-                allowing any authenticated user to perform privileged cluster operations. All six handlers now enforce
-                global admin authorization before processing the request.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-orange-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                [HIGH] SSRF Protection on Webhooks, HTTP Logging & Replication
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Webhook URLs, HTTP log targets, and replication endpoint URLs were forwarded without validation,
-                allowing Server-Side Request Forgery (SSRF) attacks to scan internal networks, reach cloud metadata
-                endpoints (e.g. <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">169.254.169.254</code>),
-                or exfiltrate credentials. All three entry points now enforce an allowlist-based SSRF guard that
-                blocks private, loopback, link-local, and reserved IP ranges.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-orange-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                [HIGH] HMAC Nonce: time.Now().UnixNano() → crypto/rand
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                The HMAC-SHA256 nonce used for inter-node authentication was generated with{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">time.Now().UnixNano()</code>,
-                which is predictable — an attacker observing a few requests could predict future nonces and replay
-                signed messages. Replaced with <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">crypto/rand</code> (128-bit),
-                making nonces cryptographically unpredictable.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-yellow-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                [MEDIUM] Auth Cookies: Secure + SameSite=Strict; OAuth CSRF; CORS Allowlist
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Auth cookies now set <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Secure</code> and{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">SameSite=Strict</code> to prevent session
-                hijacking over HTTP and CSRF via cross-site requests. OAuth2 login now validates the{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">state</code> parameter against a
-                signed cookie to prevent CSRF in the OAuth flow. The CORS configuration was tightened from a wildcard
-                allowlist to explicit trusted origins only.
+                New floating layout with sidebar and content inset from the browser edge. Collapsible sidebar
+                (icon-only or full) persisted to localStorage. New light mode theme: white cards on slate-200
+                background replacing the previous gray-on-gray scheme. All hardcoded Tailwind gray pairs replaced
+                with semantic CSS tokens — every page and component is now fully theme-aware. Compact S3-style
+                table rows, standardized page headers, and transparent logo background in light mode.
               </p>
             </div>
 
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Frontend Bundle −45% via React.lazy Code Splitting
+                Folder Upload in Bucket Browser
               </h3>
               <p className="text-sm text-muted-foreground">
-                The React application was previously bundled as a single monolithic chunk (1003 kB). All page
-                components are now loaded lazily with{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">React.lazy</code> +{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Suspense</code>, reducing the initial
-                bundle to ~550 kB (−45%). Users only download the code for the pages they visit, improving first
-                load time especially on slower connections.
+                The bucket browser now supports uploading entire folder trees, preserving the full relative path
+                as the S3 key prefix — just like AWS S3. Drag and drop a folder (uses{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">webkitGetAsEntry()</code>,
+                works in all browsers, no confirmation dialogs) or use the Browse Folder button via the File
+                System Access API (Chrome/Edge). Upload modal redesigned with Files/Folder tabs, styled drag zone,
+                and collapsible file preview — the modal no longer grows downward after selection.
               </p>
             </div>
+
+            <div className="border-l-4 border-blue-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                S3: POST Presigned URLs (HTML Form Upload)
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Browsers can now upload files directly to a bucket via HTML{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">&lt;form enctype="multipart/form-data"&gt;</code>{' '}
+                using S3-compatible POST policy signatures (V4 and V2). The server validates policy expiration,
+                HMAC signature, bucket/key/content-type conditions, starts-with prefix conditions, and
+                content-length-range constraints. Supports{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">success_action_redirect</code>,{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">success_action_status</code>,
+                and <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-meta-*</code> form fields.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-blue-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                S3: Bucket Notifications Dispatched as Webhooks
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutBucketNotification</code> and{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetBucketNotification</code> were previously
+                no-ops. Notification configs are now persisted and evaluated after every mutating object operation
+                (PutObject, DeleteObject, CopyObject, CompleteMultipartUpload). SNS/SQS/Lambda ARN values are
+                treated as webhook HTTP endpoints (same approach as MinIO). SSRF protection blocks internal network
+                targets.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-blue-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                S3: Lifecycle Expiration and AbortIncompleteMultipartUpload Now Executed
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Lifecycle rules with{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Expiration.Days</code> /
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Expiration.Date</code> and{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">AbortIncompleteMultipartUpload</code>{' '}
+                were parsed and stored but the background worker never evaluated them. Both are now fully executed:
+                expired objects are deleted (or a delete marker created on versioned buckets), and stale multipart
+                uploads past{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">DaysAfterInitiation</code> are aborted.
+                Also, per-bucket CORS rules are now enforced on actual requests (previously stored but ignored).
+              </p>
+            </div>
+
+            <div className="border-l-4 border-blue-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                S3: Multipart ETag Now Spec-Compliant
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">CompleteMultipartUpload</code> previously
+                used only the MD5 of the concatenated part ETag strings. The AWS S3 spec requires{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">hex(MD5(raw_MD5_part1 ‖ … ‖ raw_MD5_partN))-N</code>{' '}
+                using the raw binary digests. Now spec-compliant, enabling clients like{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">aws s3 sync --checksum</code> to correctly
+                verify uploaded multipart objects.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-orange-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Veeam B&R Full Compatibility
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Multiple Veeam-specific fixes: <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">HEAD /</code>{' '}
+                now returns 200 (Veeam verifies the endpoint before any operation);
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-bucket-region</code> header added
+                to HeadBucket and GetBucketLocation; Object Lock default retention made optional (Veeam sets
+                per-object retention and rejects buckets with a pre-set default); HeadObject and PutObjectRetention
+                with <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">?versionId</code> returned 404 — now
+                resolved; SOSAPI <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">capacity.xml</code> reported
+                0 bytes for tenants without quota — now falls back to real disk usage.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-orange-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Object Lock: Critical Correctness Fixes
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Enabling Object Lock on a bucket now automatically enables versioning (AWS S3 requirement).
+                Legal hold and retention metadata is now stored at per-version keys, not only the latest-version
+                key — previously it was possible to delete a locked version because the lock was stored in the
+                wrong place.{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObjectLockConfiguration</code> with no
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">&lt;Rule&gt;</code> element now clears the
+                bucket-level default retention rule (previously returned 400 MalformedXML).
+              </p>
+            </div>
+
+            <div className="border-l-4 border-red-600 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                [CRITICAL / HIGH] Security: SSRF, Open Redirect, Webhook URL Validation
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                BUG-25 (CRITICAL): webhook notification delivery used{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">http.DefaultClient</code> with no
+                restrictions — an attacker with bucket-owner access could reach internal services (e.g.
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">169.254.169.254</code>). Fixed with a
+                custom SSRF-blocking dialer that rejects private, loopback, and link-local ranges. BUG-26 (HIGH):
+                webhook ARN values were never validated as HTTP URLs — now enforced. BUG-27 (MEDIUM): open redirect
+                via <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">success_action_redirect</code> allowed
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">javascript:</code> and{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">data:</code> URLs — now restricted to
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">http(s)://</code> only.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-blue-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Real-Time Throughput Metrics Fixed
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                The dashboard throughput cards (requests/s, bytes/s, objects/s) always showed zero because
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">RecordThroughput()</code> was defined
+                but never called. Fixed by invoking it inside{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">TracingMiddleware</code> after every request,
+                tracking upload bytes, response bytes written, and per-operation object counters.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-blue-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Auth Session Fixes: Refresh Token After 2FA and OAuth Login
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Sessions expired after 15 minutes following a 2FA or OAuth/SSO login because the refresh token
+                returned by the server was silently discarded by the frontend. Both paths now correctly store the
+                refresh token, giving sessions the full expiry lifetime. Also fixed: audit log export now fetches
+                all pages (previously only the visible page), stats cards show accurate totals, and CSV timestamps
+                no longer split across columns due to locale comma formatting.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-blue-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Cluster: Deduplicated Bucket List for Replicated Buckets
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                When a bucket was replicated across cluster nodes, both the S3 API and the web console listed
+                it once per node. Users could mistake replicas for duplicates and delete them.{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">BucketAggregator.ListAllBuckets</code>{' '}
+                now deduplicates by <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">(TenantID, Name)</code>,
+                returning one canonical entry per logical bucket, preferring the local node.
+              </p>
+            </div>
+
           </div>
         </div>
       </Card>

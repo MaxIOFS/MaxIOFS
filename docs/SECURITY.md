@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 1.0.0-rc1 | **Last Updated**: March 7, 2026
+**Version**: 1.0.0 | **Last Updated**: March 17, 2026
 
 > **RELEASE CANDIDATE**: A comprehensive 169-file security audit was completed for this release. All identified vulnerabilities have been fixed and verified with a full test suite (29/29 packages passing).
 
@@ -309,7 +309,7 @@ Custom ACLs with grant-based permissions (READ, WRITE, READ_ACP, WRITE_ACP, FULL
 
 ## Known Limitations
 
-1. **No SOC 2 / ISO 27001 certification** — a comprehensive internal security audit (169 files, 24 vulnerabilities fixed) was completed for v1.0.0-rc1, but no formal third-party certification exists
+1. **No SOC 2 / ISO 27001 certification** — a comprehensive internal security audit (169 files, 24 vulnerabilities fixed) was completed for v1.0.0, but no formal third-party certification exists
 2. **Single master encryption key** — no per-tenant keys, no HSM integration
 3. **No SAML SSO** — OAuth2/OIDC recommended instead
 4. **Basic session management** — no device tracking or geographic restrictions

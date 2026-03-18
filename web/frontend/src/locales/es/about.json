@@ -9,6 +9,7 @@
   "buildDate": "Fecha de Compilación",
   "status": "Estado",
   "beta": "Release Candidate",
+  "stable": "Estable",
   "leadDeveloper": "Desarrollador Principal",
   "mainDeveloper": "Desarrollador Principal",
   "mainDeveloperDescription": "Proyecto desarrollado completamente por Aluisco Ricardo. MaxIOFS nació como una solución para proporcionar almacenamiento de objetos compatible con S3 de nivel empresarial de una manera simple y eficiente, con soporte completo multi-tenant, almacenamiento de metadatos de alto rendimiento y resistente a fallos usando Pebble, y características de seguridad listas para producción.",

@@ -266,6 +266,44 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Mon Mar 17 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.0.0-1
+- Version 1.0.0 - First stable release
+- UI: Complete frontend redesign — floating layout, collapsible sidebar (icon-only/full, localStorage),
+  new light mode theme (white cards on slate-200), semantic CSS tokens replacing all hardcoded gray
+  pairs, compact S3-style table rows, standardized page headers
+- Added: Folder upload in bucket browser via drag-and-drop (DataTransfer.webkitGetAsEntry, all browsers)
+  and showDirectoryPicker browse button (Chrome/Edge); full path tree preserved as S3 key prefix;
+  upload modal has Files/Folder tabs, styled drag zone, collapsible preview after file selection
+- Added: S3 POST presigned URLs (HTML form upload) with V4/V2 signature validation, policy expiration,
+  content-type/prefix/length-range conditions, success_action_redirect/status, x-amz-meta-* fields
+- Added: Bucket notifications now dispatched as webhooks — PutBucketNotification/GetBucketNotification
+  were no-ops; now persisted and evaluated after PutObject/DeleteObject/CopyObject/CompleteMultipart;
+  SNS/SQS/Lambda ARN values treated as HTTP webhook endpoints; SSRF-blocking dialer applied
+- Added: Per-bucket CORS rules now enforced on actual requests (previously stored but ignored);
+  bucketCORSMiddleware handles OPTIONS preflight before auth
+- Added: Lifecycle Expiration.Days/Date rules now executed — expires objects or creates delete markers
+  on versioned buckets; AbortIncompleteMultipartUpload rules now abort stale uploads past DaysAfterInitiation
+- Added: Multipart ETag now spec-compliant: hex(MD5(raw_binary_MD5_part1||...||raw_N))-N
+  (was MD5 of concatenated hex strings); enables aws s3 sync --checksum verification
+- Fixed: Veeam B&R: HEAD / returned 404 — now 200 with S3-compatible headers
+- Fixed: Veeam B&R: x-amz-bucket-region header missing from HeadBucket and GetBucketLocation
+- Fixed: Veeam B&R: Object Lock default retention now optional; HeadObject/PutObjectRetention
+  with ?versionId returned 404 — now resolved; SOSAPI capacity.xml reported 0 for tenants without quota
+- Fixed: Object Lock: enabling Object Lock now auto-enables versioning; legal hold/retention now
+  stored at per-version key (previously only at latest-version key, allowing locked-version deletion);
+  PutObjectLockConfiguration with no <Rule> now clears default retention (was 400 MalformedXML)
+- Fixed: Security BUG-25 (CRITICAL) SSRF via webhook delivery — now uses ssrfBlockingClient()
+- Fixed: Security BUG-26 (HIGH) no URL validation on notification webhook endpoints
+- Fixed: Security BUG-27 (MEDIUM) open redirect via success_action_redirect (javascript:/data: blocked)
+- Fixed: Metrics throughput cards always showed zero — RecordThroughput never called; fixed in TracingMiddleware
+- Fixed: Refresh token discarded after 2FA and OAuth/SSO login — sessions expired after 15 min
+- Fixed: Audit logs export only fetched visible page; stats showed per-page counts; CSV timestamp split by comma
+- Fixed: Cluster: replicated buckets listed once per node; BucketAggregator now deduplicates by (TenantID, Name)
+- Fixed: Static website error document not persisted; unconfigured endpoints return 403 instead of 404
+- Fixed: Clean URL shares (non-presigned) returning 403 on S3 API
+- Changed: Per-request S3 trace logs moved from Info to Debug level
+- Changed: All action buttons use shared Button component — consistent style across all pages
+
 * Fri Mar 07 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.0.0-0.rc1
 - Version 1.0.0-rc1 - First release candidate: security audit, AES-256-GCM encryption,
   CSR-based cluster TLS, SSRF hardening, frontend code splitting

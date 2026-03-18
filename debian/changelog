@@ -1,3 +1,67 @@
+maxiofs (1.0.0) stable; urgency=medium
+
+  * Release v1.0.0 - First stable release
+  * [UI] Complete frontend redesign: floating layout with sidebar/content inset from browser edge,
+    collapsible sidebar (icon-only or full, persisted to localStorage), new light mode theme
+    (white cards on slate-200 background — replaces broken gray-on-gray scheme). All hardcoded
+    Tailwind gray pairs replaced with semantic CSS variable tokens across every page and component.
+    Compact S3-style table rows (px-4 py-2), standardized page headers, transparent logo in light mode.
+  * [Added] Folder upload in bucket browser: drag-and-drop via DataTransfer.webkitGetAsEntry()
+    (works in all browsers, no confirmation dialogs) or showDirectoryPicker() browse button
+    (Chrome/Edge). Full relative path tree preserved as S3 key prefix, matching AWS S3 behavior.
+    Upload modal has Files/Folder tabs with styled drag zone; collapses after selection so the modal
+    no longer grows downward.
+  * [Added] S3: POST presigned URLs (HTML form upload). Validates policy expiration, HMAC-SHA256
+    (V4/V2) signature, bucket/key/content-type conditions, starts-with prefix, content-length-range.
+    Supports success_action_redirect, success_action_status, and x-amz-meta-* form fields.
+  * [Added] S3: bucket notifications now dispatched as webhooks. PutBucketNotification/
+    GetBucketNotification were previously no-ops. Config now persisted and evaluated after every
+    mutating operation (PutObject, DeleteObject, CopyObject, CompleteMultipartUpload). SNS/SQS/Lambda
+    ARN values treated as webhook HTTP endpoints (same approach as MinIO). SSRF-blocking dialer applied.
+  * [Added] S3: per-bucket CORS rules now enforced on actual requests (previously stored but ignored).
+    bucketCORSMiddleware runs before auth so browser OPTIONS preflight requests are answered correctly.
+  * [Added] S3: lifecycle Expiration.Days/Date rules now executed — background worker now deletes
+    expired objects (or creates delete markers on versioned buckets). AbortIncompleteMultipartUpload
+    lifecycle rules also now executed — stale uploads past DaysAfterInitiation are aborted.
+  * [Added] S3: multipart ETag now spec-compliant: hex(MD5(raw_binary_MD5_part1 || ... || raw_N))-N.
+    Previously used MD5 of concatenated hex strings. Enables aws s3 sync --checksum verification.
+  * [Fixed] Veeam B&R: HEAD / returned 404, causing Veeam to enable multi-bucket mode. Now 200.
+  * [Fixed] Veeam B&R: x-amz-bucket-region header missing from HeadBucket and GetBucketLocation.
+  * [Fixed] Veeam B&R: Object Lock default retention now optional — Veeam rejects buckets with a
+    pre-configured default retention (it sets per-object retention). Both bucket creation API and
+    frontend now allow Object Lock with no default retention rule.
+  * [Fixed] Veeam B&R: HeadObject and PutObjectRetention with ?versionId returned 404.
+  * [Fixed] Veeam SOSAPI: capacity.xml reported 0 bytes for tenants without storage quota.
+    Now falls back to actual disk usage (same as global users).
+  * [Fixed] Object Lock: enabling Object Lock on a bucket now automatically enables versioning.
+  * [Fixed] Object Lock: legal hold and retention stored at per-version metadata key — previously
+    stored only at the non-versioned key, allowing deletion of locked specific versions.
+  * [Fixed] Object Lock: PutObjectLockConfiguration with no <Rule> element now clears the bucket-level
+    default retention (previously returned 400 MalformedXML, preventing admins from clearing it).
+  * [Fixed] Security BUG-25 (CRITICAL): SSRF via webhook notification delivery — deliverNotification
+    used http.DefaultClient with no restrictions. Fixed with ssrfBlockingClient() blocking RFC 1918,
+    loopback, and link-local ranges.
+  * [Fixed] Security BUG-26 (HIGH): no URL validation on notification webhook ARN values.
+    Only http:// and https:// endpoints now accepted.
+  * [Fixed] Security BUG-27 (MEDIUM): open redirect via success_action_redirect — javascript: and
+    data: scheme URLs now rejected with HTTP 400 InvalidArgument.
+  * [Fixed] Metrics: real-time throughput cards (requests/s, bytes/s, objects/s) always showed zero.
+    RecordThroughput() was defined but never called. Now invoked in TracingMiddleware after every request.
+  * [Fixed] Auth: refresh token discarded after 2FA login and after OAuth/SSO login — sessions
+    expired after 15 minutes. Both paths now correctly persist the refresh token.
+  * [Fixed] Audit logs: export only fetched visible page; stats cards showed per-page counts.
+    Export now paginates through all results; stats use API total field.
+  * [Fixed] Audit logs CSV: timestamp column split by locale comma. Now uses YYYY-MM-DD HH:MM:SS.
+  * [Fixed] Cluster: replicated buckets listed once per node (appeared as duplicates). BucketAggregator
+    now deduplicates by (TenantID, Name), preferring local node entry.
+  * [Fixed] Static website: error document not persisted; 404 replaced with 403 for unconfigured endpoints.
+  * [Fixed] Clean URL shares (non-presigned) returning 403 on S3 API.
+  * [Changed] Log levels: high-frequency per-request S3 trace logs moved from Info to Debug.
+  * [Changed] All action buttons use shared Button component — consistent font, padding, border-radius,
+    and icon spacing across Settings, Logging Targets, Migrations, Security, Dashboard, Buckets pages.
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Mon, 17 Mar 2026 12:00:00 +0000
+
 maxiofs (1.0.0-rc1) unstable; urgency=high
 
   * Release v1.0.0-rc1 - First release candidate: comprehensive security audit, AES-256-GCM

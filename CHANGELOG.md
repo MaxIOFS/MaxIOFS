@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [1.0.0] - 2026-03-17
+
+### Added
+- **Folder upload in bucket browser** — the bucket browser now supports uploading entire folder trees via drag-and-drop (using `DataTransfer.webkitGetAsEntry()`, works in all browsers without any confirmation dialog) or via "Browse folder" button backed by the File System Access API `showDirectoryPicker()` (Chrome/Edge/Safari 15.2+; Firefox shows an unsupported message). The full relative path is preserved as the S3 key prefix, matching AWS S3 behavior. The upload modal has Files / Folder tabs. (`web/frontend/src/pages/buckets/[bucket]/index.tsx`, `web/frontend/src/locales/en/buckets.json`, `web/frontend/src/locales/es/buckets.json`)
+
+### Changed
+- **Button consistency across all pages** — all action buttons now use the shared `Button` component (consistent font, padding, border-radius, icon spacing via `gap-2`). Previously Settings, Logging Targets, Migrations, Security, Dashboard, and Buckets pages mixed raw `<button>` elements and manually-styled `<Link>` tags with the `Button` component, causing visual inconsistencies. Also removed `mr-2` from icon children inside Button elements (redundant with the `gap-2` base class that was causing double spacing). (`web/frontend/src/pages/settings/index.tsx`, `LoggingTargets.tsx`, `web/frontend/src/pages/security/index.tsx`, `web/frontend/src/pages/cluster/Migrations.tsx`, `web/frontend/src/pages/index.tsx`, `web/frontend/src/pages/buckets/index.tsx`)
+- **Upload modal UX** — the upload modal now shows a styled drag-and-drop zone with a branded "Browse files" button; after selecting files the drop zone collapses to a compact bar so the modal no longer grows downward. The selected file list is capped at a scrollable `max-h-48` preview area. (`web/frontend/src/pages/buckets/[bucket]/index.tsx`)
+
+### Fixed
+- **Object table header height jumps on row selection** — when checking items in the bucket browser, the "Delete selected" button appeared conditionally inside the table header, pushing the layout downward. The header container now has a fixed height (`h-14 shrink-0`); the button is rendered conditionally inside the fixed container so the layout remains stable. (`web/frontend/src/pages/buckets/[bucket]/index.tsx`)
+
+---
+
 ### Security
 - **BUG-27 (MEDIUM): Open redirect via `success_action_redirect` in POST presigned uploads** — `HandlePostObject` redirected to any URL supplied in the `success_action_redirect` form field, including `javascript:` and `data:` schemes. Added a scheme whitelist check: only URLs starting with `http://` or `https://` are accepted; all other values return HTTP 400 `InvalidArgument`. (`pkg/s3compat/presigned.go`)
 - **BUG-25 (CRITICAL): SSRF via webhook notification delivery** — `deliverNotification` used `http.DefaultClient` with no network restrictions, allowing an attacker with bucket-owner privileges to configure a notification webhook pointing to internal services (e.g. `http://169.254.169.254/`, `http://localhost:8081/`). Replaced with a custom `notifSSRFBlockingClient()` that dials through a `net.Dialer` which rejects loopback, link-local, and RFC-1918 private addresses before any HTTP bytes are sent. The client is injectable via `Handler.notifHTTPClient` so tests can bypass the SSRF check using a plain client. (`pkg/s3compat/notifications.go`, `pkg/s3compat/handler.go`)
