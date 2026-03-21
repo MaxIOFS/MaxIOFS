@@ -190,6 +190,28 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 | POST | `/api/v1/access-keys` | Create access key |
 | DELETE | `/api/v1/access-keys/{id}` | Delete access key |
 
+### Groups
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/groups` | List groups (global admin: all; tenant admin: own tenant) |
+| POST | `/api/v1/groups` | Create group |
+| GET | `/api/v1/groups/{id}` | Get group details |
+| PUT | `/api/v1/groups/{id}` | Update group (displayName, description) |
+| DELETE | `/api/v1/groups/{id}` | Delete group |
+| GET | `/api/v1/groups/{id}/members` | List group members |
+| POST | `/api/v1/groups/{id}/members` | Add member to group |
+| DELETE | `/api/v1/groups/{id}/members/{userId}` | Remove member from group |
+| GET | `/api/v1/users/{userId}/groups` | List groups a user belongs to |
+
+**Query parameters for `GET /api/v1/groups`:**
+- `?tenantId={id}` — filter by tenant (global admin only)
+- `?scope=global` — return only global (no-tenant) groups
+
+**Bucket permission grants now support groupId** in addition to userId/tenantId:
+- `POST /api/v1/buckets/{name}/permissions` — body may include `groupId`
+- `DELETE /api/v1/buckets/{name}/permissions/revoke?groupId={id}` — revoke group permission
+
 ### Tenants
 
 | Method | Path | Description |

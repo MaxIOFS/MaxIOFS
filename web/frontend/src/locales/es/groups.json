@@ -44,5 +44,6 @@
   "colAdded": "Agregado",
   "addMemberModalTitle": "Agregar Miembro",
   "selectUserLabel": "Seleccionar Usuario",
-  "selectUserPlaceholder": "— Selecciona un usuario —"
+  "selectUserPlaceholder": "— Selecciona un usuario —",
+  "noEligibleUsers": "No se encontraron usuarios elegibles para el alcance de este grupo."
 }

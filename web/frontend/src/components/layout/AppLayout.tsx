@@ -145,7 +145,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       return {
         ...item,
         children: item.children.filter(child => {
-          if ((child.name === 'Tenants' || child.name === 'Identity Providers') && !isAnyAdmin) return false;
+          if ((child.name === 'Tenants' || child.name === 'Identity Providers' || child.name === 'Groups') && !isAnyAdmin) return false;
           return true;
         }),
       };

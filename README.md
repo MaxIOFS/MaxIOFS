@@ -40,7 +40,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 | **Deployment** | Single binary, zero dependencies | Single binary, zero dependencies |
 | **Web console** | Embedded, full-featured | Embedded (since AGPL rewrite) |
 | **Native multi-tenancy** | ✅ Built-in — isolated tenants with quotas, per-tenant users and access keys, cross-tenant admin visibility | ❌ No native multi-tenancy — requires separate deployments per tenant or commercial AIStor |
-| **User management** | ✅ Built-in users, roles, 2FA, lockout policies, rate limiting | ✅ Built-in (IAM-style) |
+| **User management** | ✅ Built-in users, roles, groups, 2FA, lockout policies, rate limiting | ✅ Built-in (IAM-style) |
 | **SSO / Identity Providers** | ✅ LDAP/AD + OAuth2/OIDC (Google, Microsoft) with auto-provisioning and group mappings | ✅ LDAP + OIDC (config-file based) |
 | **Audit logging** | ✅ 20+ event types, filterable viewer, full CSV export, external syslog targets | ✅ Available (webhook-based) |
 | **Object integrity** | ✅ Background scrubber — MD5 recomputed per object, per-bucket and cluster-wide | ✅ `mc admin heal` (distributed setups) |
@@ -103,7 +103,8 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 - Storage quotas per tenant with real-time enforcement
 - Global admin cross-tenant visibility without impersonation
 - Per-tenant identity provider routing (by email domain)
-- Tenant-scoped bucket permissions with user and tenant-level grants
+- Tenant-scoped bucket permissions with user, group, and tenant-level grants
+- User groups — create groups, add members, grant bucket access to an entire group at once
 - Cascading deletes with validation
 
 </details>
@@ -112,6 +113,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 <summary><strong>Identity & Access</strong></summary>
 
 - Local users with roles (global admin, tenant admin, user)
+- User groups with scoped membership (global or tenant) and bucket permission grants
 - LDAP/AD integration — bind, search filter, group-to-role mappings
 - OAuth2/OIDC — Google and Microsoft presets, auto-provisioning via group mappings
 - Two-Factor Authentication (TOTP) with QR code enrollment

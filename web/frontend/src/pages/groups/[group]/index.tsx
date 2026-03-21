@@ -271,7 +271,7 @@ export default function GroupDetailPage() {
             </select>
             {availableUsers.length === 0 && (
               <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                {t('noMembersYet')}
+                {t('noEligibleUsers')}
               </p>
             )}
           </div>

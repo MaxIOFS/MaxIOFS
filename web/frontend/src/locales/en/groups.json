@@ -44,5 +44,6 @@
   "colAdded": "Added",
   "addMemberModalTitle": "Add Member",
   "selectUserLabel": "Select User",
-  "selectUserPlaceholder": "— Select a user —"
+  "selectUserPlaceholder": "— Select a user —",
+  "noEligibleUsers": "No eligible users found for this group's scope."
 }
