@@ -67,6 +67,7 @@ type BucketMetadata struct {
 	PublicAccessBlock *PublicAccessBlockMetadata `json:"public_access_block,omitempty"`
 	Website           *WebsiteMetadata           `json:"website,omitempty"`
 	Notification      *NotificationMetadata      `json:"notification,omitempty"`
+	Logging           *LoggingMetadata           `json:"logging,omitempty"`
 
 	// Tags and custom metadata
 	Tags     map[string]string `json:"tags,omitempty"`
@@ -128,6 +129,12 @@ type NotificationTargetMetadata struct {
 type NotificationFilterMetadata struct {
 	Prefix string `json:"prefix,omitempty"`
 	Suffix string `json:"suffix,omitempty"`
+}
+
+// LoggingMetadata represents S3 server access logging configuration for a bucket.
+type LoggingMetadata struct {
+	TargetBucket string `json:"target_bucket"` // Bucket where access logs are delivered
+	TargetPrefix string `json:"target_prefix"` // Key prefix for log objects (e.g. "logs/")
 }
 
 // VersioningMetadata represents bucket versioning configuration

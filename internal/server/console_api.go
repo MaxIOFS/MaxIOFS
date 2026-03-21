@@ -1193,6 +1193,7 @@ func bucketWithLocationToBucket(bwl cluster.BucketWithLocation) bucket.Bucket {
 		Versioning:  parseVersioningFromString(bwl.Versioning),
 		ObjectCount: bwl.ObjectCount,
 		TotalSize:   bwl.SizeBytes,
+		ObjectLock:  bwl.ObjectLock,
 		Metadata:    bwl.Metadata,
 		Tags:        bwl.Tags,
 	}

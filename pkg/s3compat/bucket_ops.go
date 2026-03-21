@@ -1134,24 +1134,107 @@ func (h *Handler) PutBucketRequestPayment(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 }
 
-// GetBucketEncryption returns ServerSideEncryptionConfigurationNotFoundError
-// (per-bucket SSE config is not stored separately; encryption is managed globally).
+// sseConfiguration is the AWS XML envelope for GetBucketEncryption / PutBucketEncryption.
+type sseConfiguration struct {
+	XMLName xml.Name `xml:"ServerSideEncryptionConfiguration"`
+	Rule    sseRule  `xml:"Rule"`
+}
+
+type sseRule struct {
+	ApplyServerSideEncryptionByDefault sseDefault `xml:"ApplyServerSideEncryptionByDefault"`
+	BucketKeyEnabled                   bool       `xml:"BucketKeyEnabled,omitempty"`
+}
+
+type sseDefault struct {
+	SSEAlgorithm   string `xml:"SSEAlgorithm"`
+	KMSMasterKeyID string `xml:"KMSMasterKeyID,omitempty"`
+}
+
+// GetBucketEncryption returns the server-side encryption configuration for the bucket.
 func (h *Handler) GetBucketEncryption(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
-	h.writeError(w, "ServerSideEncryptionConfigurationNotFoundError",
-		"The server side encryption configuration was not found", vars["bucket"], r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	encCfg, err := h.bucketManager.GetEncryption(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		if err == bucket.ErrEncryptionNotFound {
+			h.writeError(w, "ServerSideEncryptionConfigurationNotFoundError",
+				"The server side encryption configuration was not found", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	resp := sseConfiguration{
+		Rule: sseRule{
+			ApplyServerSideEncryptionByDefault: sseDefault{
+				SSEAlgorithm:   encCfg.Type,
+				KMSMasterKeyID: encCfg.KMSKeyID,
+			},
+		},
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	xml.NewEncoder(w).Encode(resp) //nolint:errcheck
 }
 
-// PutBucketEncryption accepts a server-side encryption configuration (no-op).
+// PutBucketEncryption stores a server-side encryption configuration for the bucket.
 func (h *Handler) PutBucketEncryption(w http.ResponseWriter, r *http.Request) {
-	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	var xmlCfg sseConfiguration
+	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {
+		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed or did not validate against the published schema", bucketName, r)
+		return
+	}
+
+	algo := xmlCfg.Rule.ApplyServerSideEncryptionByDefault.SSEAlgorithm
+	if algo != "AES256" && algo != "aws:kms" {
+		h.writeError(w, "InvalidArgument", "Unknown SSEAlgorithm: "+algo, bucketName, r)
+		return
+	}
+
+	encCfg := &bucket.EncryptionConfig{
+		Type:     algo,
+		KMSKeyID: xmlCfg.Rule.ApplyServerSideEncryptionByDefault.KMSMasterKeyID,
+	}
+	if err := h.bucketManager.SetEncryption(r.Context(), tenantID, bucketName, encCfg); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
-// DeleteBucketEncryption removes a server-side encryption configuration (no-op).
+// DeleteBucketEncryption removes the server-side encryption configuration from the bucket.
 func (h *Handler) DeleteBucketEncryption(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	if err := h.bucketManager.DeleteEncryption(r.Context(), tenantID, bucketName); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1178,16 +1261,176 @@ func (h *Handler) DeleteBucketReplication(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// GetBucketLogging returns an empty BucketLoggingStatus (access logging not supported via S3 API).
-func (h *Handler) GetBucketLogging(w http.ResponseWriter, r *http.Request) {
-	io.Copy(io.Discard, r.Body) //nolint:errcheck
-	w.Header().Set("Content-Type", "application/xml")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><BucketLoggingStatus/>`)) //nolint:errcheck
+// bucketLoggingStatus is the AWS XML envelope for GetBucketLogging / PutBucketLogging.
+type bucketLoggingStatus struct {
+	XMLName        xml.Name            `xml:"BucketLoggingStatus"`
+	LoggingEnabled *loggingEnabledXML  `xml:"LoggingEnabled,omitempty"`
 }
 
-// PutBucketLogging accepts a logging configuration (no-op).
-func (h *Handler) PutBucketLogging(w http.ResponseWriter, r *http.Request) {
+type loggingEnabledXML struct {
+	TargetBucket string `xml:"TargetBucket"`
+	TargetPrefix string `xml:"TargetPrefix"`
+}
+
+// GetBucketLogging returns the server access logging configuration for the bucket.
+func (h *Handler) GetBucketLogging(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	cfg, err := h.bucketManager.GetLogging(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		// No logging configured → return empty status (AWS behaviour)
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><BucketLoggingStatus/>`)) //nolint:errcheck
+		return
+	}
+
+	resp := bucketLoggingStatus{
+		LoggingEnabled: &loggingEnabledXML{
+			TargetBucket: cfg.TargetBucket,
+			TargetPrefix: cfg.TargetPrefix,
+		},
+	}
+	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
+	xml.NewEncoder(w).Encode(resp) //nolint:errcheck
+}
+
+// PutBucketLogging stores a server access logging configuration for the bucket.
+// An empty <BucketLoggingStatus/> (no <LoggingEnabled> element) disables logging.
+func (h *Handler) PutBucketLogging(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	var xmlCfg bucketLoggingStatus
+	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {
+		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
+		return
+	}
+
+	if xmlCfg.LoggingEnabled == nil || xmlCfg.LoggingEnabled.TargetBucket == "" {
+		// Disable logging
+		if err := h.bucketManager.DeleteLogging(r.Context(), tenantID, bucketName); err != nil && err != bucket.ErrLoggingNotFound {
+			if err == bucket.ErrBucketNotFound {
+				h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+				return
+			}
+			h.writeError(w, "InternalError", err.Error(), bucketName, r)
+			return
+		}
+	} else {
+		cfg := &bucket.LoggingConfig{
+			TargetBucket: xmlCfg.LoggingEnabled.TargetBucket,
+			TargetPrefix: xmlCfg.LoggingEnabled.TargetPrefix,
+		}
+		if err := h.bucketManager.SetLogging(r.Context(), tenantID, bucketName, cfg); err != nil {
+			if err == bucket.ErrBucketNotFound {
+				h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+				return
+			}
+			h.writeError(w, "InternalError", err.Error(), bucketName, r)
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// publicAccessBlockXML is the AWS XML envelope for GetPublicAccessBlock / PutPublicAccessBlock.
+type publicAccessBlockXML struct {
+	XMLName               xml.Name `xml:"PublicAccessBlockConfiguration"`
+	BlockPublicAcls       bool     `xml:"BlockPublicAcls"`
+	IgnorePublicAcls      bool     `xml:"IgnorePublicAcls"`
+	BlockPublicPolicy     bool     `xml:"BlockPublicPolicy"`
+	RestrictPublicBuckets bool     `xml:"RestrictPublicBuckets"`
+}
+
+// GetPublicAccessBlock returns the public access block configuration for the bucket.
+func (h *Handler) GetPublicAccessBlock(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	cfg, err := h.bucketManager.GetPublicAccessBlock(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		if err == bucket.ErrPublicAccessBlockNotFound {
+			h.writeError(w, "NoSuchPublicAccessBlockConfiguration",
+				"The public access block configuration was not found", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	resp := publicAccessBlockXML{
+		BlockPublicAcls:       cfg.BlockPublicAcls,
+		IgnorePublicAcls:      cfg.IgnorePublicAcls,
+		BlockPublicPolicy:     cfg.BlockPublicPolicy,
+		RestrictPublicBuckets: cfg.RestrictPublicBuckets,
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	xml.NewEncoder(w).Encode(resp) //nolint:errcheck
+}
+
+// PutPublicAccessBlock stores a public access block configuration for the bucket.
+func (h *Handler) PutPublicAccessBlock(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	var xmlCfg publicAccessBlockXML
+	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {
+		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
+		return
+	}
+
+	cfg := &bucket.PublicAccessBlock{
+		BlockPublicAcls:       xmlCfg.BlockPublicAcls,
+		IgnorePublicAcls:      xmlCfg.IgnorePublicAcls,
+		BlockPublicPolicy:     xmlCfg.BlockPublicPolicy,
+		RestrictPublicBuckets: xmlCfg.RestrictPublicBuckets,
+	}
+	if err := h.bucketManager.SetPublicAccessBlock(r.Context(), tenantID, bucketName, cfg); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// DeletePublicAccessBlock removes the public access block configuration from the bucket.
+func (h *Handler) DeletePublicAccessBlock(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	if err := h.bucketManager.DeletePublicAccessBlock(r.Context(), tenantID, bucketName); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

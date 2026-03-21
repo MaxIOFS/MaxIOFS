@@ -59,7 +59,32 @@
     "retention": "Retention:",
     "notSet": "Not Set",
     "days": "{{days}} days",
-    "years": "{{years}} years"
+    "years": "{{years}} years",
+    "configModal": {
+      "title": "Configure Object Lock Retention",
+      "warningTitle": "⚠️ Security Restrictions:",
+      "warningIncrease": "Retention period can only be <strong>increased</strong>, never decreased",
+      "warningModeImmutable": "Mode is <strong>immutable</strong> (current: <mono>{{mode}}</mono>)",
+      "warningPermanent": "Changes are permanent and cannot be reverted",
+      "currentConfig": "Current Configuration:",
+      "currentMode": "Mode:",
+      "currentRetention": "Retention:",
+      "totalDays": "({{days}} total days)",
+      "newRetentionLabel": "New Retention Period",
+      "minimumPlaceholder": "Minimum {{min}}",
+      "newTotal": "New total: {{days}} days",
+      "increaseOf": "Increase of {{days}} days",
+      "noChange": "⚠️ No change",
+      "cannotDecrease": "✗ Cannot decrease retention",
+      "days": "Days",
+      "years": "Years",
+      "cancel": "Cancel",
+      "updating": "Updating...",
+      "updateRetention": "Update Retention",
+      "successMsg": "Object Lock configuration updated successfully",
+      "errorDecrease": "Retention period can only be increased (current: {{current}} days, requested: {{requested}} days)",
+      "errorPositive": "Retention period must be greater than 0"
+    }
   },
 
   "policy": {

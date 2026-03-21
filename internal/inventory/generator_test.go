@@ -213,6 +213,34 @@ func (m *MockBucketManager) IsReady() bool {
 	return args.Bool(0)
 }
 
+func (m *MockBucketManager) GetEncryption(ctx context.Context, tenantID, name string) (*bucket.EncryptionConfig, error) {
+	return nil, bucket.ErrEncryptionNotFound
+}
+func (m *MockBucketManager) SetEncryption(ctx context.Context, tenantID, name string, config *bucket.EncryptionConfig) error {
+	return nil
+}
+func (m *MockBucketManager) DeleteEncryption(ctx context.Context, tenantID, name string) error {
+	return nil
+}
+func (m *MockBucketManager) GetPublicAccessBlock(ctx context.Context, tenantID, name string) (*bucket.PublicAccessBlock, error) {
+	return nil, bucket.ErrPublicAccessBlockNotFound
+}
+func (m *MockBucketManager) SetPublicAccessBlock(ctx context.Context, tenantID, name string, config *bucket.PublicAccessBlock) error {
+	return nil
+}
+func (m *MockBucketManager) DeletePublicAccessBlock(ctx context.Context, tenantID, name string) error {
+	return nil
+}
+func (m *MockBucketManager) GetLogging(ctx context.Context, tenantID, name string) (*bucket.LoggingConfig, error) {
+	return nil, bucket.ErrLoggingNotFound
+}
+func (m *MockBucketManager) SetLogging(ctx context.Context, tenantID, name string, config *bucket.LoggingConfig) error {
+	return nil
+}
+func (m *MockBucketManager) DeleteLogging(ctx context.Context, tenantID, name string) error {
+	return nil
+}
+
 // Mock MetadataStore - implementing only the methods used by generator
 type MockMetadataStore struct {
 	mock.Mock

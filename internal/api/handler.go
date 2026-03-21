@@ -180,6 +180,11 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketLogging).Methods("GET").Queries("logging", "")
 		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketLogging).Methods("PUT").Queries("logging", "")
 
+		// Public access block
+		bucketRouter.HandleFunc(path, h.s3Handler.GetPublicAccessBlock).Methods("GET").Queries("publicAccessBlock", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutPublicAccessBlock).Methods("PUT").Queries("publicAccessBlock", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.DeletePublicAccessBlock).Methods("DELETE").Queries("publicAccessBlock", "")
+
 		// Generic bucket operations (without query parameters - registered last)
 		bucketRouter.HandleFunc(path, h.s3Handler.HeadBucket).Methods("HEAD")
 		bucketRouter.HandleFunc(path, h.s3Handler.CreateBucket).Methods("PUT")
@@ -222,6 +227,9 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	objectRouter.HandleFunc("", h.s3Handler.GetObjectLegalHold).Methods("GET").Queries("legal-hold", "")
 	objectRouter.HandleFunc("", h.s3Handler.PutObjectLegalHold).Methods("PUT").Queries("legal-hold", "")
 
+	// Object attributes (must be before generic GET)
+	objectRouter.HandleFunc("", h.s3Handler.GetObjectAttributes).Methods("GET").Queries("attributes", "")
+
 	// Object metadata operations (with query parameters)
 	objectRouter.HandleFunc("", h.s3Handler.GetObjectACL).Methods("GET").Queries("acl", "")
 	objectRouter.HandleFunc("", h.s3Handler.PutObjectACL).Methods("PUT").Queries("acl", "")
@@ -243,6 +251,14 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	objectRouter.HandleFunc("", h.s3Handler.GetObject).Methods("GET")
 	objectRouter.HandleFunc("", h.s3Handler.PutObject).Methods("PUT")
 	objectRouter.HandleFunc("", h.s3Handler.DeleteObject).Methods("DELETE")
+
+	// OPTIONS for CORS preflight — bucketCORSMiddleware handles the response;
+	// these routes exist so gorilla/mux does not return 405 before middleware runs.
+	noop := func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }
+	for _, path := range []string{"", "/"} {
+		bucketRouter.HandleFunc(path, noop).Methods("OPTIONS")
+	}
+	objectRouter.HandleFunc("", noop).Methods("OPTIONS")
 }
 
 // s3ClientMiddleware redirects non-S3 client requests to the web console.

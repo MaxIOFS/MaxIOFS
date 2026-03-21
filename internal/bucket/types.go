@@ -14,7 +14,10 @@ var (
 	ErrPolicyNotFound      = errors.New("policy not found")
 	ErrLifecycleNotFound   = errors.New("lifecycle configuration not found")
 	ErrCORSNotFound        = errors.New("CORS configuration not found")
-	ErrWebsiteNotFound     = errors.New("website configuration not found")
+	ErrWebsiteNotFound            = errors.New("website configuration not found")
+	ErrEncryptionNotFound         = errors.New("server-side encryption configuration not found")
+	ErrPublicAccessBlockNotFound  = errors.New("public access block configuration not found")
+	ErrLoggingNotFound            = errors.New("logging configuration not found")
 )
 
 // WebsiteConfig represents static website hosting configuration for a bucket.
@@ -189,4 +192,10 @@ type PublicAccessBlock struct {
 	IgnorePublicAcls      bool `json:"ignorePublicAcls"`
 	BlockPublicPolicy     bool `json:"blockPublicPolicy"`
 	RestrictPublicBuckets bool `json:"restrictPublicBuckets"`
+}
+
+// LoggingConfig represents S3 server access logging configuration for a bucket.
+type LoggingConfig struct {
+	TargetBucket string `json:"targetBucket"` // Bucket where access logs are delivered
+	TargetPrefix string `json:"targetPrefix"` // Key prefix for log objects (e.g. "logs/")
 }

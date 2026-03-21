@@ -132,6 +132,10 @@ func (h *Handler) PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "AccessDenied", "The retention period is locked and cannot be modified", objectKey, r)
 			return
 		}
+		if err == object.ErrCannotShortenCompliance {
+			h.writeError(w, "AccessDenied", "Cannot shorten retention period for COMPLIANCE mode Object Lock", objectKey, r)
+			return
+		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
@@ -230,6 +234,123 @@ type TagSet struct {
 type Tag struct {
 	Key   string `xml:"Key"`
 	Value string `xml:"Value"`
+}
+
+// getObjectAttributesResponse is the AWS XML response for GetObjectAttributes.
+type getObjectAttributesResponse struct {
+	XMLName      xml.Name             `xml:"GetObjectAttributesResponse"`
+	ETag         string               `xml:"ETag,omitempty"`
+	StorageClass string               `xml:"StorageClass,omitempty"`
+	ObjectSize   *int64               `xml:"ObjectSize,omitempty"`
+	Checksum     *objectAttributesCksum  `xml:"Checksum,omitempty"`
+	ObjectParts  *objectAttributesParts  `xml:"ObjectParts,omitempty"`
+}
+
+type objectAttributesCksum struct {
+	ChecksumCRC32  string `xml:"ChecksumCRC32,omitempty"`
+	ChecksumCRC32C string `xml:"ChecksumCRC32C,omitempty"`
+	ChecksumSHA1   string `xml:"ChecksumSHA1,omitempty"`
+	ChecksumSHA256 string `xml:"ChecksumSHA256,omitempty"`
+}
+
+type objectAttributesParts struct {
+	TotalPartsCount int `xml:"TotalPartsCount"`
+}
+
+// GetObjectAttributes returns object metadata without downloading the object body.
+// The caller specifies which attributes are needed via x-amz-object-attributes header.
+func (h *Handler) GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey := getObjectKey(r)
+	tenantID := h.getTenantIDFromRequest(r)
+	bucketPath := h.getBucketPath(r, bucketName)
+
+	user, userExists := auth.GetUserFromContext(r.Context())
+	if !h.validateHeadBucketReadPermission(w, r, user, userExists, tenantID, bucketName, objectKey) {
+		return
+	}
+
+	// Optional versionId
+	versionID := r.URL.Query().Get("versionId")
+
+	var obj *object.Object
+	var err error
+	if versionID != "" {
+		obj, err = h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
+	} else {
+		obj, err = h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
+	}
+	if err != nil {
+		if err == object.ErrObjectNotFound {
+			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), objectKey, r)
+		return
+	}
+
+	// Parse requested attributes (comma-separated)
+	requested := make(map[string]bool)
+	for _, attr := range strings.Split(r.Header.Get("x-amz-object-attributes"), ",") {
+		requested[strings.TrimSpace(attr)] = true
+	}
+
+	resp := getObjectAttributesResponse{}
+
+	if requested["ETag"] {
+		resp.ETag = obj.ETag
+	}
+	if requested["StorageClass"] {
+		resp.StorageClass = obj.StorageClass
+	}
+	if requested["ObjectSize"] {
+		size := obj.Size
+		resp.ObjectSize = &size
+	}
+	if requested["Checksum"] && obj.ChecksumAlgorithm != "" && obj.ChecksumValue != "" {
+		ck := &objectAttributesCksum{}
+		switch strings.ToUpper(obj.ChecksumAlgorithm) {
+		case "CRC32":
+			ck.ChecksumCRC32 = obj.ChecksumValue
+		case "CRC32C":
+			ck.ChecksumCRC32C = obj.ChecksumValue
+		case "SHA1":
+			ck.ChecksumSHA1 = obj.ChecksumValue
+		case "SHA256":
+			ck.ChecksumSHA256 = obj.ChecksumValue
+		}
+		resp.Checksum = ck
+	}
+	if requested["ObjectParts"] {
+		// Infer part count from multipart ETag format: <md5>-<N>
+		if idx := strings.LastIndex(obj.ETag, "-"); idx >= 0 {
+			partStr := obj.ETag[idx+1:]
+			partCount := 0
+			for _, ch := range partStr {
+				if ch < '0' || ch > '9' {
+					partCount = 0
+					break
+				}
+				partCount = partCount*10 + int(ch-'0')
+			}
+			if partCount > 0 {
+				resp.ObjectParts = &objectAttributesParts{TotalPartsCount: partCount}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/xml")
+	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
+	if obj.VersionID != "" {
+		w.Header().Set("x-amz-version-id", obj.VersionID)
+	}
+	if obj.SSEAlgorithm != "" {
+		w.Header().Set("x-amz-server-side-encryption", obj.SSEAlgorithm)
+	}
+	w.WriteHeader(http.StatusOK)
+	xml.NewEncoder(w).Encode(resp) //nolint:errcheck
 }
 
 // GetObjectTagging retrieves the object tags

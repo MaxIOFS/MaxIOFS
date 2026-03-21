@@ -554,6 +554,132 @@ func (bm *badgerBucketManager) DeleteWebsite(ctx context.Context, tenantID, name
 	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
 }
 
+// GetPublicAccessBlock retrieves the public access block configuration for a bucket.
+func (bm *badgerBucketManager) GetPublicAccessBlock(ctx context.Context, tenantID, name string) (*PublicAccessBlock, error) {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return nil, ErrBucketNotFound
+		}
+		return nil, err
+	}
+	cfg := fromMetadataPublicAccessBlock(metaBucket.PublicAccessBlock)
+	if cfg == nil {
+		return nil, ErrPublicAccessBlockNotFound
+	}
+	return cfg, nil
+}
+
+// SetPublicAccessBlock stores the public access block configuration for a bucket.
+func (bm *badgerBucketManager) SetPublicAccessBlock(ctx context.Context, tenantID, name string, config *PublicAccessBlock) error {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+	metaBucket.PublicAccessBlock = toMetadataPublicAccessBlock(config)
+	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
+}
+
+// DeletePublicAccessBlock removes the public access block configuration from a bucket.
+func (bm *badgerBucketManager) DeletePublicAccessBlock(ctx context.Context, tenantID, name string) error {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+	metaBucket.PublicAccessBlock = nil
+	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
+}
+
+// GetLogging retrieves the server access logging configuration for a bucket.
+func (bm *badgerBucketManager) GetLogging(ctx context.Context, tenantID, name string) (*LoggingConfig, error) {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return nil, ErrBucketNotFound
+		}
+		return nil, err
+	}
+	cfg := fromMetadataLogging(metaBucket.Logging)
+	if cfg == nil {
+		return nil, ErrLoggingNotFound
+	}
+	return cfg, nil
+}
+
+// SetLogging stores the server access logging configuration for a bucket.
+func (bm *badgerBucketManager) SetLogging(ctx context.Context, tenantID, name string, config *LoggingConfig) error {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+	metaBucket.Logging = toMetadataLogging(config)
+	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
+}
+
+// DeleteLogging removes the server access logging configuration from a bucket.
+func (bm *badgerBucketManager) DeleteLogging(ctx context.Context, tenantID, name string) error {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+	metaBucket.Logging = nil
+	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
+}
+
+// GetEncryption retrieves the server-side encryption configuration for a bucket.
+func (bm *badgerBucketManager) GetEncryption(ctx context.Context, tenantID, name string) (*EncryptionConfig, error) {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return nil, ErrBucketNotFound
+		}
+		return nil, err
+	}
+	cfg := fromMetadataEncryption(metaBucket.Encryption)
+	if cfg == nil {
+		return nil, ErrEncryptionNotFound
+	}
+	return cfg, nil
+}
+
+// SetEncryption stores server-side encryption configuration for a bucket.
+func (bm *badgerBucketManager) SetEncryption(ctx context.Context, tenantID, name string, config *EncryptionConfig) error {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+	metaBucket.Encryption = toMetadataEncryption(config)
+	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
+}
+
+// DeleteEncryption removes the server-side encryption configuration from a bucket.
+func (bm *badgerBucketManager) DeleteEncryption(ctx context.Context, tenantID, name string) error {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+	metaBucket.Encryption = nil
+	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
+}
+
 // GetNotification retrieves the bucket notification configuration.
 func (bm *badgerBucketManager) GetNotification(ctx context.Context, tenantID, name string) (*NotificationConfig, error) {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
@@ -679,7 +805,51 @@ func (bm *badgerBucketManager) isBucketEmpty(ctx context.Context, tenantID, name
 			continue
 		}
 
-		// Extract object key from path
+		// Versioned objects are stored at prefix/.versions/key/versionID.
+		// These paths do NOT match plain metadata keys (obj:{bucket}:{key}), so we
+		// must extract the real key + versionID and look them up correctly instead of
+		// treating them as orphaned physical files and deleting them (which would bypass
+		// Object Lock retention on non-current versions).
+		if vIdx := strings.Index(obj.Path, "/.versions/"); vIdx >= 0 {
+			remainder := obj.Path[vIdx+len("/.versions/"):]
+			// remainder is "key/versionID" — last path segment is the versionID
+			lastSlash := strings.LastIndex(remainder, "/")
+			if lastSlash < 0 {
+				continue // unexpected path format; skip
+			}
+			key := remainder[:lastSlash]
+			versionID := remainder[lastSlash+1:]
+
+			objMeta, err := bm.metadataStore.GetObject(ctx, bucketPath, key, versionID)
+			if err != nil {
+				if err == metadata.ErrObjectNotFound {
+					// Truly orphaned versioned file (no matching metadata) — clean up
+					logrus.WithFields(logrus.Fields{
+						"bucket":    bucketPath,
+						"key":       key,
+						"versionID": versionID,
+						"path":      obj.Path,
+					}).Warn("Found orphaned versioned physical file without metadata - deleting")
+					if delErr := bm.storage.Delete(ctx, obj.Path); delErr != nil && delErr != storage.ErrObjectNotFound {
+						logrus.WithError(delErr).Error("Failed to delete orphaned versioned file")
+					}
+					continue
+				}
+				// Other error - assume file is valid to be safe
+				return false, err
+			}
+
+			// A delete marker has no content (ETag="" and Size=0); skip it.
+			if objMeta.ETag == "" && objMeta.Size == 0 {
+				continue
+			}
+
+			// A real (data-bearing) versioned object exists — bucket is not empty.
+			hasValidObjects = true
+			continue
+		}
+
+		// Extract object key from path (non-versioned)
 		objectKey := strings.TrimPrefix(obj.Path, prefix)
 		if objectKey == "" {
 			continue

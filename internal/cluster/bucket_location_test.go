@@ -206,6 +206,34 @@ func (m *MockBucketManagerForLocation) IsReady() bool {
 	return true
 }
 
+func (m *MockBucketManagerForLocation) GetEncryption(ctx context.Context, tenantID, name string) (*bucket.EncryptionConfig, error) {
+	return nil, bucket.ErrEncryptionNotFound
+}
+func (m *MockBucketManagerForLocation) SetEncryption(ctx context.Context, tenantID, name string, config *bucket.EncryptionConfig) error {
+	return nil
+}
+func (m *MockBucketManagerForLocation) DeleteEncryption(ctx context.Context, tenantID, name string) error {
+	return nil
+}
+func (m *MockBucketManagerForLocation) GetPublicAccessBlock(ctx context.Context, tenantID, name string) (*bucket.PublicAccessBlock, error) {
+	return nil, bucket.ErrPublicAccessBlockNotFound
+}
+func (m *MockBucketManagerForLocation) SetPublicAccessBlock(ctx context.Context, tenantID, name string, config *bucket.PublicAccessBlock) error {
+	return nil
+}
+func (m *MockBucketManagerForLocation) DeletePublicAccessBlock(ctx context.Context, tenantID, name string) error {
+	return nil
+}
+func (m *MockBucketManagerForLocation) GetLogging(ctx context.Context, tenantID, name string) (*bucket.LoggingConfig, error) {
+	return nil, bucket.ErrLoggingNotFound
+}
+func (m *MockBucketManagerForLocation) SetLogging(ctx context.Context, tenantID, name string, config *bucket.LoggingConfig) error {
+	return nil
+}
+func (m *MockBucketManagerForLocation) DeleteLogging(ctx context.Context, tenantID, name string) error {
+	return nil
+}
+
 // Test helper to create a BucketLocationManager
 func createTestBucketLocationManager(bucketMgr *MockBucketManagerForLocation, localNodeID string) *BucketLocationManager {
 	cache := NewBucketLocationCache(5 * time.Minute)

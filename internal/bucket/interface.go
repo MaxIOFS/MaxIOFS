@@ -26,6 +26,7 @@ type Bucket struct {
 	PublicAccessBlock *PublicAccessBlock  `json:"public_access_block,omitempty"`
 	Website           *WebsiteConfig      `json:"website,omitempty"`
 	Notification      *NotificationConfig `json:"notification,omitempty"`
+	Logging           *LoggingConfig      `json:"logging,omitempty"`
 	Tags              map[string]string  `json:"tags,omitempty"`
 	Metadata          map[string]string  `json:"metadata,omitempty"`
 
@@ -68,6 +69,21 @@ type Manager interface {
 	GetWebsite(ctx context.Context, tenantID, name string) (*WebsiteConfig, error)
 	SetWebsite(ctx context.Context, tenantID, name string, config *WebsiteConfig) error
 	DeleteWebsite(ctx context.Context, tenantID, name string) error
+
+	// Server-side encryption
+	GetEncryption(ctx context.Context, tenantID, name string) (*EncryptionConfig, error)
+	SetEncryption(ctx context.Context, tenantID, name string, config *EncryptionConfig) error
+	DeleteEncryption(ctx context.Context, tenantID, name string) error
+
+	// Public access block
+	GetPublicAccessBlock(ctx context.Context, tenantID, name string) (*PublicAccessBlock, error)
+	SetPublicAccessBlock(ctx context.Context, tenantID, name string, config *PublicAccessBlock) error
+	DeletePublicAccessBlock(ctx context.Context, tenantID, name string) error
+
+	// Server access logging
+	GetLogging(ctx context.Context, tenantID, name string) (*LoggingConfig, error)
+	SetLogging(ctx context.Context, tenantID, name string, config *LoggingConfig) error
+	DeleteLogging(ctx context.Context, tenantID, name string) error
 
 	// Bucket notifications
 	GetNotification(ctx context.Context, tenantID, name string) (*NotificationConfig, error)

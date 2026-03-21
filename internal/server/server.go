@@ -1022,7 +1022,7 @@ func (s *Server) setupRoutes() error {
 	// Setup console routes (Web UI)
 	consoleRouter := mux.NewRouter()
 	s.setupConsoleRoutes(consoleRouter)
-	s.consoleServer.Handler = handlers.RecoveryHandler()(consoleRouter)
+	s.consoleServer.Handler = handlers.RecoveryHandler()(middleware.ConsoleHeaders()(consoleRouter))
 
 	return nil
 }

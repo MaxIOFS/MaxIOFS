@@ -59,7 +59,32 @@
     "retention": "Retención:",
     "notSet": "No Establecido",
     "days": "{{days}} días",
-    "years": "{{years}} años"
+    "years": "{{years}} años",
+    "configModal": {
+      "title": "Configurar Retención de Object Lock",
+      "warningTitle": "⚠️ Restricciones de Seguridad:",
+      "warningIncrease": "El período de retención solo puede <strong>aumentarse</strong>, nunca disminuirse",
+      "warningModeImmutable": "El modo es <strong>inmutable</strong> (actual: <mono>{{mode}}</mono>)",
+      "warningPermanent": "Los cambios son permanentes y no pueden revertirse",
+      "currentConfig": "Configuración Actual:",
+      "currentMode": "Modo:",
+      "currentRetention": "Retención:",
+      "totalDays": "({{days}} días en total)",
+      "newRetentionLabel": "Nuevo Período de Retención",
+      "minimumPlaceholder": "Mínimo {{min}}",
+      "newTotal": "Nuevo total: {{days}} días",
+      "increaseOf": "Aumento de {{days}} días",
+      "noChange": "⚠️ Sin cambios",
+      "cannotDecrease": "✗ No se puede reducir la retención",
+      "days": "Días",
+      "years": "Años",
+      "cancel": "Cancelar",
+      "updating": "Actualizando...",
+      "updateRetention": "Actualizar Retención",
+      "successMsg": "Configuración de Object Lock actualizada correctamente",
+      "errorDecrease": "El período de retención solo puede aumentarse (actual: {{current}} días, solicitado: {{requested}} días)",
+      "errorPositive": "El período de retención debe ser mayor que 0"
+    }
   },
 
   "policy": {

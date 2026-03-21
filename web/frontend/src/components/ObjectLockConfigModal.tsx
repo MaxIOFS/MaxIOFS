@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -24,6 +25,8 @@ export function ObjectLockConfigModal({
   currentDays,
   currentYears,
 }: ObjectLockConfigModalProps) {
+  const { t } = useTranslation('bucketSettings');
+
   // Calcular valores iniciales desde las props (se ejecuta una sola vez por montaje)
   const initialValue = currentYears ? currentYears.toString() : (currentDays?.toString() || '');
   const initialUnit: 'days' | 'years' = currentYears ? 'years' : 'days';
@@ -42,7 +45,7 @@ export function ObjectLockConfigModal({
         [retentionUnit]: parseInt(retentionValue),
       }),
     onSuccess: () => {
-      ModalManager.toast('success', 'Object Lock configuration updated successfully');
+      ModalManager.toast('success', t('objectLock.configModal.successMsg'));
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
       onClose();
     },
@@ -55,18 +58,16 @@ export function ObjectLockConfigModal({
     const newValue = parseInt(retentionValue);
     const newTotalDays = retentionUnit === 'years' ? newValue * 365 : newValue;
 
-    // Validar que solo se aumente
     if (newTotalDays < currentTotalDays) {
       ModalManager.toast(
         'error',
-        `Retention period can only be increased (current: ${currentTotalDays} days, requested: ${newTotalDays} days)`
+        t('objectLock.configModal.errorDecrease', { current: currentTotalDays, requested: newTotalDays })
       );
       return;
     }
 
-    // Validar valor positivo
     if (newValue <= 0) {
-      ModalManager.toast('error', 'Retention period must be greater than 0');
+      ModalManager.toast('error', t('objectLock.configModal.errorPositive'));
       return;
     }
 
@@ -74,7 +75,6 @@ export function ObjectLockConfigModal({
   };
 
   const handleClose = () => {
-    // Reset form to initial values
     const resetValue = currentYears ? currentYears.toString() : (currentDays?.toString() || '');
     const resetUnit: 'days' | 'years' = currentYears ? 'years' : 'days';
     setRetentionValue(resetValue);
@@ -93,20 +93,18 @@ export function ObjectLockConfigModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Configure Object Lock Retention">
+    <Modal isOpen={isOpen} onClose={handleClose} title={t('objectLock.configModal.title')}>
       <div className="space-y-4">
         {/* Warning Banner */}
         <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
           <div className="flex gap-3">
             <ShieldAlert className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
             <div className="text-sm text-amber-800 dark:text-amber-200">
-              <p className="font-semibold mb-1">⚠️ Security Restrictions:</p>
+              <p className="font-semibold mb-1">{t('objectLock.configModal.warningTitle')}</p>
               <ul className="list-disc list-inside space-y-1">
-                <li>Retention period can only be <strong>increased</strong>, never decreased</li>
-                <li>
-                  Mode is <strong>immutable</strong> (current: <span className="font-mono">{currentMode}</span>)
-                </li>
-                <li>Changes are permanent and cannot be reverted</li>
+                <li dangerouslySetInnerHTML={{ __html: t('objectLock.configModal.warningIncrease') }} />
+                <li dangerouslySetInnerHTML={{ __html: t('objectLock.configModal.warningModeImmutable', { mode: currentMode }) }} />
+                <li>{t('objectLock.configModal.warningPermanent')}</li>
               </ul>
             </div>
           </div>
@@ -117,17 +115,18 @@ export function ObjectLockConfigModal({
           <div className="flex gap-3">
             <Lock className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
             <div className="text-sm">
-              <p className="font-semibold text-blue-900 dark:text-blue-100 mb-2">Current Configuration:</p>
+              <p className="font-semibold text-blue-900 dark:text-blue-100 mb-2">{t('objectLock.configModal.currentConfig')}</p>
               <div className="space-y-1 text-blue-800 dark:text-blue-200">
                 <p>
-                  <strong>Mode:</strong> <span className="font-mono">{currentMode}</span>
+                  <strong>{t('objectLock.configModal.currentMode')}</strong>{' '}
+                  <span className="font-mono">{currentMode}</span>
                 </p>
                 <p>
-                  <strong>Retention:</strong>{' '}
-                  {currentYears ? `${currentYears} year${currentYears > 1 ? 's' : ''}` : ''}
-                  {currentDays ? `${currentDays} day${currentDays > 1 ? 's' : ''}` : ''}
+                  <strong>{t('objectLock.configModal.currentRetention')}</strong>{' '}
+                  {currentYears ? `${currentYears} ${currentYears > 1 ? t('objectLock.years', { years: currentYears }) : t('objectLock.years', { years: currentYears })}` : ''}
+                  {currentDays ? `${currentDays} ${t('objectLock.days', { days: currentDays })}` : ''}
                   {' '}
-                  <span className="text-xs">({currentTotalDays} total days)</span>
+                  <span className="text-xs">{t('objectLock.configModal.totalDays', { days: currentTotalDays })}</span>
                 </p>
               </div>
             </div>
@@ -136,14 +135,16 @@ export function ObjectLockConfigModal({
 
         {/* New Configuration Form */}
         <div>
-          <label className="block text-sm font-medium mb-2">New Retention Period</label>
+          <label className="block text-sm font-medium mb-2">{t('objectLock.configModal.newRetentionLabel')}</label>
           <div className="flex gap-2">
             <Input
               type="number"
               min={retentionUnit === 'years' ? Math.ceil(currentTotalDays / 365) : currentTotalDays}
               value={retentionValue}
               onChange={(e) => setRetentionValue(e.target.value)}
-              placeholder={`Minimum ${retentionUnit === 'years' ? Math.ceil(currentTotalDays / 365) : currentTotalDays}`}
+              placeholder={t('objectLock.configModal.minimumPlaceholder', {
+                min: retentionUnit === 'years' ? Math.ceil(currentTotalDays / 365) : currentTotalDays,
+              })}
               className="flex-1"
             />
             <select
@@ -151,22 +152,22 @@ export function ObjectLockConfigModal({
               onChange={(e) => setRetentionUnit(e.target.value as 'days' | 'years')}
               className="px-4 py-2 border border-border rounded-lg bg-card text-foreground"
             >
-              <option value="days">Days</option>
-              <option value="years">Years</option>
+              <option value="days">{t('objectLock.configModal.days')}</option>
+              <option value="years">{t('objectLock.configModal.years')}</option>
             </select>
           </div>
           {retentionValue && (
             <p className="text-xs text-muted-foreground mt-2">
               <Info className="inline h-3 w-3 mr-1" />
-              New total: {getNewTotalDays()} days
+              {t('objectLock.configModal.newTotal', { days: getNewTotalDays() })}
               {canIncrease() ? (
                 <span className="text-green-600 dark:text-green-400 ml-2">
-                  ✓ Increase of {getNewTotalDays() - currentTotalDays} days
+                  ✓ {t('objectLock.configModal.increaseOf', { days: getNewTotalDays() - currentTotalDays })}
                 </span>
               ) : getNewTotalDays() === currentTotalDays ? (
-                <span className="text-muted-foreground ml-2">⚠️ No change</span>
+                <span className="text-muted-foreground ml-2">{t('objectLock.configModal.noChange')}</span>
               ) : (
-                <span className="text-red-600 dark:text-red-400 ml-2">✗ Cannot decrease retention</span>
+                <span className="text-red-600 dark:text-red-400 ml-2">{t('objectLock.configModal.cannotDecrease')}</span>
               )}
             </p>
           )}
@@ -175,7 +176,7 @@ export function ObjectLockConfigModal({
         {/* Actions */}
         <div className="flex justify-end gap-3 pt-4 border-t border-border">
           <Button variant="outline" onClick={handleClose} disabled={updateMutation.isPending}>
-            Cancel
+            {t('objectLock.configModal.cancel')}
           </Button>
           <Button
             onClick={handleUpdate}
@@ -186,7 +187,9 @@ export function ObjectLockConfigModal({
               parseInt(retentionValue) <= 0
             }
           >
-            {updateMutation.isPending ? 'Updating...' : 'Update Retention'}
+            {updateMutation.isPending
+              ? t('objectLock.configModal.updating')
+              : t('objectLock.configModal.updateRetention')}
           </Button>
         </div>
       </div>

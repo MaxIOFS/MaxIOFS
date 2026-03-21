@@ -23,6 +23,7 @@ func toMetadataObject(o *Object) *metadata.ObjectMetadata {
 		IsLatest:          o.IsLatest,
 		ChecksumAlgorithm: o.ChecksumAlgorithm,
 		ChecksumValue:     o.ChecksumValue,
+		SSEAlgorithm:      o.SSEAlgorithm,
 	}
 
 	// Object Lock - Retention
@@ -74,6 +75,7 @@ func fromMetadataObject(mo *metadata.ObjectMetadata) *Object {
 		IsLatest:          mo.IsLatest,
 		ChecksumAlgorithm: mo.ChecksumAlgorithm,
 		ChecksumValue:     mo.ChecksumValue,
+		SSEAlgorithm:      mo.SSEAlgorithm,
 	}
 
 	// Object Lock - Retention

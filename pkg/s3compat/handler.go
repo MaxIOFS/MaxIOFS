@@ -305,14 +305,24 @@ type LocationConstraintResponse struct {
 }
 
 type Error struct {
-	XMLName    xml.Name `xml:"Error"`
-	Code       string   `xml:"Code"`
-	Message    string   `xml:"Message"`
-	Key        string   `xml:"Key,omitempty"`        // For object errors (NoSuchKey, etc.)
-	BucketName string   `xml:"BucketName,omitempty"` // For bucket errors (NoSuchBucket, etc.)
-	Resource   string   `xml:"Resource,omitempty"`   // For other errors
-	RequestId  string   `xml:"RequestId"`
-	HostId     string   `xml:"HostId"`
+	XMLName xml.Name `xml:"Error"`
+	Code    string   `xml:"Code"`
+	Message string   `xml:"Message"`
+
+	// Resource-specific context fields (only one is set per error)
+	Key        string `xml:"Key,omitempty"`        // object errors: NoSuchKey, etc.
+	BucketName string `xml:"BucketName,omitempty"` // bucket errors: NoSuchBucket, etc.
+	Resource   string `xml:"Resource,omitempty"`   // generic fallback
+
+	// Auth error context — populated by AWS for credential/signature errors
+	AWSAccessKeyId string `xml:"AWSAccessKeyId,omitempty"` // InvalidAccessKeyId, SignatureDoesNotMatch
+
+	// Request-expiry context — populated by AWS for RequestExpired
+	ExpiresDate string `xml:"ExpiresDate,omitempty"` // ISO-8601 expiration time
+	ServerTime  string `xml:"ServerTime,omitempty"`  // ISO-8601 server time at rejection
+
+	RequestId string `xml:"RequestId"`
+	HostId    string `xml:"HostId"`
 }
 
 // Service operations
@@ -1286,6 +1296,14 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 
 	bucketPath := h.getBucketPath(r, bucketName)
 
+	// Conditional write: If-None-Match: * means "write only if the object does not exist"
+	if r.Header.Get("If-None-Match") == "*" {
+		if existing, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey); err == nil && existing != nil {
+			h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", objectKey, r)
+			return
+		}
+	}
+
 	// Leer headers de Object Lock si están presentes (para Veeam)
 	lockMode := r.Header.Get("x-amz-object-lock-mode")
 	retainUntilDateStr := r.Header.Get("x-amz-object-lock-retain-until-date")
@@ -1930,13 +1948,17 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	case "InvalidArgument", "InvalidBucketName", "InvalidRequest", "MalformedXML", "MalformedPolicy", "InvalidTag", "InvalidPart", "IllegalVersioningConfigurationException", "BadDigest", "EntityTooSmall", "EntityTooLarge", "InvalidDigest":
 		statusCode = http.StatusBadRequest
 	// 401 Unauthorized
-	case "Unauthorized", "InvalidAccessKeyId", "SignatureDoesNotMatch":
+	case "Unauthorized":
 		statusCode = http.StatusUnauthorized
-	// 403 Forbidden
-	case "AccessDenied", "AccountProblem", "AllAccessDisabled", "QuotaExceeded":
+	// 403 Forbidden — AWS S3 returns 403 (not 401) for signature/credential errors
+	case "AccessDenied", "AccountProblem", "AllAccessDisabled", "QuotaExceeded",
+		"InvalidAccessKeyId", "SignatureDoesNotMatch", "RequestExpired":
 		statusCode = http.StatusForbidden
 	// 404 Not Found (AWS S3 standard)
-	case "NoSuchBucket", "NoSuchKey", "NoSuchUpload", "ObjectLockConfigurationNotFoundError", "NoSuchBucketPolicy", "NoSuchObjectLockConfiguration", "NoSuchLifecycleConfiguration", "NoSuchCORSConfiguration":
+	case "NoSuchBucket", "NoSuchKey", "NoSuchUpload", "ObjectLockConfigurationNotFoundError",
+		"NoSuchBucketPolicy", "NoSuchObjectLockConfiguration", "NoSuchLifecycleConfiguration",
+		"NoSuchCORSConfiguration", "NoSuchWebsiteConfiguration",
+		"ServerSideEncryptionConfigurationNotFoundError", "NoSuchPublicAccessBlockConfiguration":
 		statusCode = http.StatusNotFound
 	// 405 Method Not Allowed
 	case "MethodNotAllowed":
@@ -1953,6 +1975,13 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	// 500 Internal Server Error (default)
 	case "InternalError":
 		statusCode = http.StatusInternalServerError
+		// Log the real error internally but never expose server internals to clients.
+		// This prevents filesystem paths, hostnames, and other internal details from leaking.
+		logrus.WithFields(logrus.Fields{
+			"resource": resource,
+			"detail":   message,
+		}).Error("InternalError: suppressing detail from S3 response")
+		message = "We encountered an internal error. Please try again."
 	// 501 Not Implemented
 	case "NotImplemented":
 		statusCode = http.StatusNotImplemented
@@ -1993,13 +2022,54 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	// Use correct field based on error type (AWS S3 compatibility)
 	switch code {
 	case "NoSuchKey", "ObjectNotInActiveTierError", "NoSuchObjectLockConfiguration":
-		// Object errors use Key field
 		errorResponse.Key = resource
-	case "NoSuchBucket", "BucketAlreadyExists", "BucketNotEmpty", "NoSuchLifecycleConfiguration", "NoSuchCORSConfiguration", "NoSuchBucketPolicy":
-		// Bucket errors use BucketName field
+	case "NoSuchBucket", "BucketAlreadyExists", "BucketNotEmpty", "NoSuchLifecycleConfiguration",
+		"NoSuchCORSConfiguration", "NoSuchBucketPolicy", "NoSuchWebsiteConfiguration",
+		"ServerSideEncryptionConfigurationNotFoundError", "NoSuchPublicAccessBlockConfiguration":
 		errorResponse.BucketName = resource
+
+	// Auth errors: AWS includes AWSAccessKeyId in the response body.
+	// Extract it from the request so SDK clients can correlate the failed key.
+	case "InvalidAccessKeyId", "SignatureDoesNotMatch":
+		if r != nil {
+			if ak := r.URL.Query().Get("AWSAccessKeyId"); ak != "" {
+				errorResponse.AWSAccessKeyId = ak
+			} else if cred := r.URL.Query().Get("X-Amz-Credential"); cred != "" {
+				if idx := strings.Index(cred, "/"); idx > 0 {
+					errorResponse.AWSAccessKeyId = cred[:idx]
+				}
+			} else if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "AWS ") {
+				if parts := strings.SplitN(auth[4:], ":", 2); len(parts) == 2 {
+					errorResponse.AWSAccessKeyId = parts[0]
+				}
+			}
+		}
+
+	// RequestExpired: AWS includes ExpiresDate and ServerTime so clients can
+	// diagnose clock-skew issues without guessing.
+	case "RequestExpired":
+		now := time.Now().UTC().Format(time.RFC3339)
+		errorResponse.ServerTime = now
+		if r != nil {
+			// V2 presigned: Expires is a Unix timestamp
+			if exp := r.URL.Query().Get("Expires"); exp != "" {
+				if ts, err := strconv.ParseInt(exp, 10, 64); err == nil {
+					errorResponse.ExpiresDate = time.Unix(ts, 0).UTC().Format(time.RFC3339)
+				}
+			}
+			// V4 presigned: expiration = X-Amz-Date + X-Amz-Expires seconds
+			if amzDate := r.URL.Query().Get("X-Amz-Date"); amzDate != "" {
+				if expSecs := r.URL.Query().Get("X-Amz-Expires"); expSecs != "" {
+					if t, err := time.Parse("20060102T150405Z", amzDate); err == nil {
+						if secs, err := strconv.ParseInt(expSecs, 10, 64); err == nil {
+							errorResponse.ExpiresDate = t.Add(time.Duration(secs) * time.Second).UTC().Format(time.RFC3339)
+						}
+					}
+				}
+			}
+		}
+
 	default:
-		// Other errors use Resource field
 		errorResponse.Resource = resource
 	}
 
@@ -2206,6 +2276,14 @@ func (h *Handler) checkObjectACLPermission(ctx context.Context, bucketPath, obje
 
 // checkPublicBucketAccess checks if a bucket allows public access via ACL
 func (h *Handler) checkPublicBucketAccess(ctx context.Context, tenantID, bucketName string, permission acl.Permission) bool {
+	// PublicAccessBlock overrides ACL — if IgnorePublicAcls or RestrictPublicBuckets is set,
+	// deny all public access regardless of ACL grants.
+	if pab, err := h.bucketManager.GetPublicAccessBlock(ctx, tenantID, bucketName); err == nil && pab != nil {
+		if pab.IgnorePublicAcls || pab.RestrictPublicBuckets {
+			return false
+		}
+	}
+
 	// Get bucket ACL
 	bucketACL, err := h.bucketManager.GetBucketACL(ctx, tenantID, bucketName)
 	if err != nil {
@@ -2889,6 +2967,10 @@ func (h *Handler) setGetObjectResponseHeaders(w http.ResponseWriter, obj *object
 		w.Header().Set("x-amz-checksum-algorithm", obj.ChecksumAlgorithm)
 		w.Header().Set("x-amz-checksum-"+strings.ToLower(obj.ChecksumAlgorithm), obj.ChecksumValue)
 	}
+
+	if obj.SSEAlgorithm != "" {
+		w.Header().Set("x-amz-server-side-encryption", obj.SSEAlgorithm)
+	}
 }
 
 // ============================================================================
@@ -3238,6 +3320,10 @@ func (h *Handler) setPutObjectResponseHeaders(w http.ResponseWriter, obj *object
 		w.Header().Set("x-amz-checksum-algorithm", obj.ChecksumAlgorithm)
 		w.Header().Set("x-amz-checksum-"+strings.ToLower(obj.ChecksumAlgorithm), obj.ChecksumValue)
 	}
+
+	if obj.SSEAlgorithm != "" {
+		w.Header().Set("x-amz-server-side-encryption", obj.SSEAlgorithm)
+	}
 }
 
 // ============================================================================
@@ -3320,6 +3406,10 @@ func (h *Handler) setHeadObjectResponseHeaders(w http.ResponseWriter, obj *objec
 	if obj.ChecksumAlgorithm != "" && obj.ChecksumValue != "" {
 		w.Header().Set("x-amz-checksum-algorithm", obj.ChecksumAlgorithm)
 		w.Header().Set("x-amz-checksum-"+strings.ToLower(obj.ChecksumAlgorithm), obj.ChecksumValue)
+	}
+
+	if obj.SSEAlgorithm != "" {
+		w.Header().Set("x-amz-server-side-encryption", obj.SSEAlgorithm)
 	}
 }
 

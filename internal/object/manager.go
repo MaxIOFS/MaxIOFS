@@ -101,6 +101,9 @@ type Object struct {
 
 	// ACL
 	ACL *ACL `json:"acl,omitempty"`
+
+	// Encryption
+	SSEAlgorithm string `json:"sse_algorithm,omitempty"` // "AES256" when server-side encrypted
 }
 
 // completionFuture tracks an in-progress CompleteMultipartUpload so concurrent requests
@@ -331,6 +334,11 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 	// Check if object is encrypted
 	isEncrypted := storageMetadata["encrypted"] == "true"
 
+	// Backfill SSEAlgorithm for objects stored before it was tracked in metadata
+	if isEncrypted && object.SSEAlgorithm == "" {
+		object.SSEAlgorithm = "AES256"
+	}
+
 	if isEncrypted {
 		// Object is encrypted - decrypt stream
 		pipeReader, pipeWriter := io.Pipe()
@@ -527,6 +535,9 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		VersionID:         versionID, // Set versionID (empty string if versioning disabled)
 		ChecksumAlgorithm: checksumAlgo,
 		ChecksumValue:     checksumValue,
+	}
+	if shouldEncrypt {
+		object.SSEAlgorithm = "AES256"
 	}
 
 	// Apply default Object Lock retention if bucket has it configured
@@ -2304,20 +2315,24 @@ func (om *objectManager) shouldEncryptObject(ctx context.Context, tenantID, buck
 		return false
 	}
 
-	// Server encryption is enabled, check bucket preference
+	// Server encryption is enabled — check if the encryption service is actually ready
+	if om.encryptionService == nil {
+		return false
+	}
+
+	// If bucket has an explicit encryption rule, honour it
 	bucketInfo, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
 	if err == nil && bucketInfo != nil && bucketInfo.Encryption != nil {
-		// Check if bucket has encryption rules configured
 		if len(bucketInfo.Encryption.Rules) > 0 && bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault != nil {
 			sseConfig := bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault
 			if sseConfig.SSEAlgorithm != "" {
-				// Bucket has encryption configured
 				return true
 			}
 		}
 	}
 
-	return false
+	// No bucket-level override: fall back to global encryption (key is configured)
+	return true
 }
 
 // storeEncryptedObject encrypts and stores an object

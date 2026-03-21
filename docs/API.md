@@ -1,6 +1,6 @@
 # MaxIOFS API Reference
 
-**Version**: 1.0.0 | **Last Updated**: March 17, 2026
+**Version**: 1.0.0 | **Last Updated**: March 21, 2026
 
 ## Overview
 
@@ -58,6 +58,14 @@ aws --endpoint-url=http://localhost:8080 s3 ls s3://my-bucket/
 | PutBucketNotification | PUT | `/{bucket}?notification` |
 | GetObjectLockConfig | GET | `/{bucket}?object-lock` |
 | PutObjectLockConfig | PUT | `/{bucket}?object-lock` |
+| GetBucketEncryption | GET | `/{bucket}?encryption` |
+| PutBucketEncryption | PUT | `/{bucket}?encryption` |
+| DeleteBucketEncryption | DELETE | `/{bucket}?encryption` |
+| GetBucketLogging | GET | `/{bucket}?logging` |
+| PutBucketLogging | PUT | `/{bucket}?logging` |
+| GetPublicAccessBlock | GET | `/{bucket}?publicAccessBlock` |
+| PutPublicAccessBlock | PUT | `/{bucket}?publicAccessBlock` |
+| DeletePublicAccessBlock | DELETE | `/{bucket}?publicAccessBlock` |
 | ListMultipartUploads | GET | `/{bucket}?uploads` |
 
 ### Object Operations
@@ -69,6 +77,7 @@ aws --endpoint-url=http://localhost:8080 s3 ls s3://my-bucket/
 | DeleteObject | DELETE | `/{bucket}/{key+}` |
 | HeadObject | HEAD | `/{bucket}/{key+}` |
 | CopyObject | PUT | `/{bucket}/{key+}` (header: `x-amz-copy-source`) |
+| GetObjectAttributes | GET | `/{bucket}/{key+}?attributes` (header: `x-amz-object-attributes`) |
 | ListObjects | GET | `/{bucket}` |
 | ListObjectsV2 | GET | `/{bucket}?list-type=2` |
 | DeleteMultipleObjects | POST | `/{bucket}?delete` |
@@ -111,7 +120,11 @@ aws --endpoint-url=http://localhost:8080 s3 ls s3://my-bucket/
 
 - **Presigned URLs** — GET/PUT with configurable expiration (S3-compatible paths)
 - **Range Requests** — Partial object downloads via `Range` header
-- **Conditional Requests** — `If-Match`, `If-None-Match`, `If-Modified-Since`
+- **Conditional Requests** — `If-Match`, `If-None-Match`, `If-Modified-Since`, `If-Unmodified-Since`
+- **Conditional Writes** — `PutObject If-None-Match: *` returns 412 `PreconditionFailed` if the object already exists (atomic create-if-absent)
+- **SSE Response Headers** — `x-amz-server-side-encryption: AES256` returned on GET/PUT/HEAD when the object is encrypted
+- **PublicAccessBlock enforcement** — `IgnorePublicAcls` and `RestrictPublicBuckets` flags deny all public ACL access; configure via `PUT /{bucket}?publicAccessBlock`
+- **Server Access Logging** — async delivery to a target bucket in AWS S3 access log format; configure via `PUT /{bucket}?logging`
 
 ### Health Endpoints (No Auth)
 

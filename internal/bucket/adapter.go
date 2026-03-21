@@ -29,6 +29,7 @@ func toMetadataBucket(b *Bucket) *metadata.BucketMetadata {
 		Encryption:        toMetadataEncryption(b.Encryption),
 		PublicAccessBlock: toMetadataPublicAccessBlock(b.PublicAccessBlock),
 		Website:           toMetadataWebsite(b.Website),
+		Logging:           toMetadataLogging(b.Logging),
 
 		// Tags and metadata
 		Tags:     b.Tags,
@@ -64,6 +65,7 @@ func fromMetadataBucket(mb *metadata.BucketMetadata) *Bucket {
 		Encryption:        fromMetadataEncryption(mb.Encryption),
 		PublicAccessBlock: fromMetadataPublicAccessBlock(mb.PublicAccessBlock),
 		Website:           fromMetadataWebsite(mb.Website),
+		Logging:           fromMetadataLogging(mb.Logging),
 
 		// Tags and metadata
 		Tags:     mb.Tags,
@@ -564,5 +566,26 @@ func fromMetadataNotification(m *metadata.NotificationMetadata) *NotificationCon
 		TopicConfigurations:  conv(m.TopicConfigurations),
 		QueueConfigurations:  conv(m.QueueConfigurations),
 		LambdaConfigurations: conv(m.LambdaConfigurations),
+	}
+}
+
+// Logging conversion
+func toMetadataLogging(l *LoggingConfig) *metadata.LoggingMetadata {
+	if l == nil {
+		return nil
+	}
+	return &metadata.LoggingMetadata{
+		TargetBucket: l.TargetBucket,
+		TargetPrefix: l.TargetPrefix,
+	}
+}
+
+func fromMetadataLogging(l *metadata.LoggingMetadata) *LoggingConfig {
+	if l == nil {
+		return nil
+	}
+	return &LoggingConfig{
+		TargetBucket: l.TargetBucket,
+		TargetPrefix: l.TargetPrefix,
 	}
 }

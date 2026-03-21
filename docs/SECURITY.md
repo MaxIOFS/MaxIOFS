@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 1.0.0 | **Last Updated**: March 17, 2026
+**Version**: 1.0.0 | **Last Updated**: March 21, 2026
 
 > **RELEASE CANDIDATE**: A comprehensive 169-file security audit was completed for this release. All identified vulnerabilities have been fixed and verified with a full test suite (29/29 packages passing).
 
@@ -23,6 +23,7 @@
 | IDP secrets encryption | ✅ | AES-256-GCM for stored OAuth secrets |
 | Object Lock (WORM) | ✅ | COMPLIANCE and GOVERNANCE modes |
 | ACLs | ✅ | S3-compatible canned + custom ACLs |
+| PublicAccessBlock | ✅ | Per-bucket flags enforced on every request |
 | Audit logging | ✅ | 20+ event types, SQLite storage |
 | Real-time notifications | ✅ | SSE push for security events |
 | Multi-tenant isolation | ✅ | Complete data and API isolation |
@@ -290,6 +291,35 @@ Custom ACLs with grant-based permissions (READ, WRITE, READ_ACP, WRITE_ACP, FULL
 
 ---
 
+## PublicAccessBlock
+
+Per-bucket public access controls that override ACLs entirely. Configure via the S3 API or Web Console.
+
+| Flag | Effect |
+|------|--------|
+| `BlockPublicAcls` | Rejects PUT requests that set a public canned ACL |
+| `IgnorePublicAcls` | All existing and future public ACLs are ignored — effectively denies all ACL-based public access |
+| `BlockPublicPolicy` | Rejects bucket policies that grant public access |
+| `RestrictPublicBuckets` | Restricts access to only the bucket owner and AWS services, regardless of policy |
+
+When `IgnorePublicAcls` or `RestrictPublicBuckets` is set, every unauthenticated request to the bucket is denied with `403 AccessDenied`, regardless of any `public-read` or `public-read-write` ACL that may be set on the bucket or object.
+
+```bash
+# Block all public access
+aws s3api put-public-access-block \
+  --endpoint-url http://localhost:8080 \
+  --bucket my-bucket \
+  --public-access-block-configuration \
+    BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+
+# Read current configuration
+aws s3api get-public-access-block \
+  --endpoint-url http://localhost:8080 \
+  --bucket my-bucket
+```
+
+---
+
 ## Security Best Practices
 
 1. **Change default credentials immediately** (admin/admin)
@@ -303,13 +333,14 @@ Custom ACLs with grant-based permissions (READ, WRITE, READ_ACP, WRITE_ACP, FULL
 9. **Enable audit logging** — review logs regularly
 10. **Inter-node TLS is automatic** — cluster nodes encrypt all communication using auto-generated certificates
 11. **Back up encryption keys** — data is irrecoverable without them
-12. **Monitor** — set up Prometheus alerts for security events
+12. **Enable PublicAccessBlock** — use `BlockPublicAcls` + `RestrictPublicBuckets` on any bucket that should never be public
+13. **Monitor** — set up Prometheus alerts for security events
 
 ---
 
 ## Known Limitations
 
-1. **No SOC 2 / ISO 27001 certification** — a comprehensive internal security audit (169 files, 24 vulnerabilities fixed) was completed for v1.0.0, but no formal third-party certification exists
+1. **No SOC 2 / ISO 27001 certification** — a comprehensive internal security audit (169 files, 28 vulnerabilities fixed) was completed for v1.0.0, but no formal third-party certification exists
 2. **Single master encryption key** — no per-tenant keys, no HSM integration
 3. **No SAML SSO** — OAuth2/OIDC recommended instead
 4. **Basic session management** — no device tracking or geographic restrictions

@@ -15,19 +15,20 @@ import (
 
 // BucketWithLocation represents a bucket with its cluster node location
 type BucketWithLocation struct {
-	Name        string            `json:"name"`
-	TenantID    string            `json:"tenant_id"`
-	OwnerID     string            `json:"owner_id"`
-	OwnerType   string            `json:"owner_type"`
-	CreatedAt   time.Time         `json:"created_at"`
-	Versioning  string            `json:"versioning"`
-	ObjectCount int64             `json:"object_count"`
-	SizeBytes   int64             `json:"size_bytes"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
-	Tags        map[string]string `json:"tags,omitempty"`
-	NodeID      string            `json:"node_id"`
-	NodeName    string            `json:"node_name"`
-	NodeStatus  string            `json:"node_status"`
+	Name        string                    `json:"name"`
+	TenantID    string                    `json:"tenant_id"`
+	OwnerID     string                    `json:"owner_id"`
+	OwnerType   string                    `json:"owner_type"`
+	CreatedAt   time.Time                 `json:"created_at"`
+	Versioning  string                    `json:"versioning"`
+	ObjectCount int64                     `json:"object_count"`
+	SizeBytes   int64                     `json:"size_bytes"`
+	ObjectLock  *bucket.ObjectLockConfig  `json:"object_lock,omitempty"`
+	Metadata    map[string]string         `json:"metadata,omitempty"`
+	Tags        map[string]string         `json:"tags,omitempty"`
+	NodeID      string                    `json:"node_id"`
+	NodeName    string                    `json:"node_name"`
+	NodeStatus  string                    `json:"node_status"`
 }
 
 // BucketAggregator aggregates bucket listings from all cluster nodes
@@ -81,6 +82,7 @@ func (ba *BucketAggregator) ListAllBuckets(ctx context.Context, tenantID string)
 			CreatedAt:   b.CreatedAt,
 			ObjectCount: b.ObjectCount,
 			SizeBytes:   b.TotalSize,
+			ObjectLock:  b.ObjectLock,
 			Metadata:    b.Metadata,
 			Tags:        b.Tags,
 			NodeID:      localNodeID,

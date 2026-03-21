@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -1493,13 +1494,12 @@ func (am *authManager) verifyS3SignatureV4(r *http.Request, sig *S3SignatureV4, 
 	return hmac.Equal([]byte(calculatedSig), []byte(sig.Signature))
 }
 
-// verifyS3SignatureV2 verifies AWS Signature Version 2
+// verifyS3SignatureV2 verifies AWS Signature Version 2.
+// AWS SigV2 uses HMAC-SHA1 with standard base64 encoding (RFC 4648).
 func (am *authManager) verifyS3SignatureV2(r *http.Request, sig *S3SignatureV2, secretKey string) bool {
-	// Simplified signature verification for MVP
 	stringToSign := am.createStringToSignV2(r)
 
-	// Calculate signature
-	hash := hmac.New(sha256.New, []byte(secretKey))
+	hash := hmac.New(sha1.New, []byte(secretKey))
 	hash.Write([]byte(stringToSign))
 	calculatedSig := base64.StdEncoding.EncodeToString(hash.Sum(nil))
 
@@ -1681,19 +1681,71 @@ func (am *authManager) createStringToSignV2(r *http.Request) string {
 		canonAmzHeaders.WriteString(k + ":" + strings.Join(trimmed, ",") + "\n")
 	}
 
-	resource := "/"
+	path := "/"
 	if r.URL != nil {
-		resource = r.URL.Path
+		path = r.URL.Path
 		if origPath, ok := OriginalSigV4PathFromContext(r.Context()); ok {
-			resource = origPath
+			path = origPath
 		}
-		if resource == "" {
-			resource = "/"
+		if path == "" {
+			path = "/"
 		}
 	}
 
+	// CanonicalizedResource = path + recognized sub-resource query params (sorted).
+	// Ref: https://docs.aws.amazon.com/AmazonS3/latest/userguide/RESTAuthentication.html
+	resource := canonicalizedResourceV2(path, r.URL.Query())
+
 	return fmt.Sprintf("%s\n%s\n%s\n%s\n%s%s",
 		method, contentMD5, contentType, date, canonAmzHeaders.String(), resource)
+}
+
+// s3v2SubResources is the set of query-string parameters that AWS SigV2 requires
+// to be included in the CanonicalizedResource element of the StringToSign.
+var s3v2SubResources = map[string]bool{
+	"acl":                          true,
+	"delete":                       true,
+	"lifecycle":                    true,
+	"location":                     true,
+	"logging":                      true,
+	"notification":                 true,
+	"partNumber":                   true,
+	"policy":                       true,
+	"requestPayment":               true,
+	"response-cache-control":       true,
+	"response-content-disposition": true,
+	"response-content-encoding":    true,
+	"response-content-language":    true,
+	"response-content-type":        true,
+	"response-expires":             true,
+	"torrent":                      true,
+	"uploadId":                     true,
+	"uploads":                      true,
+	"versionId":                    true,
+	"versioning":                   true,
+	"website":                      true,
+}
+
+// canonicalizedResourceV2 builds the CanonicalizedResource component of the
+// AWS SigV2 StringToSign. Any recognized sub-resource query parameters are
+// appended to the path, sorted lexicographically, as required by the spec.
+func canonicalizedResourceV2(path string, query url.Values) string {
+	var subParts []string
+	for k, vals := range query {
+		if !s3v2SubResources[k] {
+			continue
+		}
+		if len(vals) > 0 && vals[0] != "" {
+			subParts = append(subParts, k+"="+vals[0])
+		} else {
+			subParts = append(subParts, k)
+		}
+	}
+	if len(subParts) == 0 {
+		return path
+	}
+	sort.Strings(subParts)
+	return path + "?" + strings.Join(subParts, "&")
 }
 
 // calculateSignatureV4 calculates AWS SigV4 signature

@@ -3,6 +3,7 @@ package s3compat
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -140,6 +141,65 @@ func (h *Handler) generatePresignedURLV2(config PresignedURLConfig) (string, err
 	return finalURL, nil
 }
 
+// presignedValidationError carries an AWS-compatible error code alongside
+// the human-readable message so that HandlePresignedRequest can return
+// the correct HTTP status code and XML error code to the client.
+type presignedValidationError struct {
+	code    string // AWS S3 error code, e.g. "SignatureDoesNotMatch"
+	message string
+}
+
+func (e *presignedValidationError) Error() string { return e.message }
+
+// s3v2SubResources is the canonical set of query-string parameters that AWS
+// SigV2 requires to be included in the CanonicalizedResource.
+// Ref: https://docs.aws.amazon.com/AmazonS3/latest/userguide/RESTAuthentication.html
+var s3v2SubResources = map[string]bool{
+	"acl":                          true,
+	"delete":                       true,
+	"lifecycle":                    true,
+	"location":                     true,
+	"logging":                      true,
+	"notification":                 true,
+	"partNumber":                   true,
+	"policy":                       true,
+	"requestPayment":               true,
+	"response-cache-control":       true,
+	"response-content-disposition": true,
+	"response-content-encoding":    true,
+	"response-content-language":    true,
+	"response-content-type":        true,
+	"response-expires":             true,
+	"torrent":                      true,
+	"uploadId":                     true,
+	"uploads":                      true,
+	"versionId":                    true,
+	"versioning":                   true,
+	"website":                      true,
+}
+
+// canonicalizedResourceV2 builds the CanonicalizedResource component of the
+// AWS SigV2 StringToSign. It appends any recognized sub-resource query
+// parameters to the path, sorted lexicographically, as required by the spec.
+func canonicalizedResourceV2(path string, query url.Values) string {
+	var subParts []string
+	for k, vals := range query {
+		if !s3v2SubResources[k] {
+			continue
+		}
+		if len(vals) > 0 && vals[0] != "" {
+			subParts = append(subParts, k+"="+vals[0])
+		} else {
+			subParts = append(subParts, k)
+		}
+	}
+	if len(subParts) == 0 {
+		return path
+	}
+	sort.Strings(subParts)
+	return path + "?" + strings.Join(subParts, "&")
+}
+
 // ValidatePresignedURL validates a presigned URL request
 func (h *Handler) ValidatePresignedURL(w http.ResponseWriter, r *http.Request) error {
 	query := r.URL.Query()
@@ -190,7 +250,7 @@ func (h *Handler) validatePresignedURLV4(r *http.Request) error {
 	// Check if URL has expired
 	expirationTime := requestTime.Add(time.Duration(expiresIn) * time.Second)
 	if time.Now().UTC().After(expirationTime) {
-		return fmt.Errorf("presigned URL has expired")
+		return &presignedValidationError{"RequestExpired", "Request has expired."}
 	}
 
 	// Extract access key and credential components
@@ -206,7 +266,7 @@ func (h *Handler) validatePresignedURLV4(r *http.Request) error {
 	// Get the secret key for this access key
 	secretKey, err := h.getSecretKeyForAccessKey(r.Context(), accessKey)
 	if err != nil {
-		return fmt.Errorf("invalid access key: %v", err)
+		return &presignedValidationError{"InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records."}
 	}
 
 	// Reconstruct the canonical request
@@ -253,9 +313,8 @@ func (h *Handler) validatePresignedURLV4(r *http.Request) error {
 
 	// Compare signatures using constant-time comparison
 	if !hmac.Equal([]byte(expectedSignature), []byte(providedSignature)) {
-		logrus.Warnf("Signature validation failed for access key: %s (expected: %s, got: %s)",
-			accessKey, expectedSignature, providedSignature)
-		return fmt.Errorf("signature does not match")
+		logrus.Warnf("Presigned V4 signature mismatch for access key: %s", accessKey)
+		return &presignedValidationError{"SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided."}
 	}
 
 	logrus.Debugf("Presigned URL V4 validation passed for access key: %s", accessKey)
@@ -325,27 +384,32 @@ func (h *Handler) validatePresignedURLV2(r *http.Request) error {
 
 	// Check if URL has expired
 	if time.Now().UTC().Unix() > expiresAt {
-		return fmt.Errorf("presigned URL has expired")
+		return &presignedValidationError{"RequestExpired", "Request has expired."}
 	}
 
 	// Get the secret key for this access key
 	secretKey, err := h.getSecretKeyForAccessKey(r.Context(), accessKey)
 	if err != nil {
-		return fmt.Errorf("invalid access key: %v", err)
+		return &presignedValidationError{"InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records."}
 	}
 
-	// Reconstruct the string to sign for V2
-	// V2 format: METHOD\n\n\nEXPIRES\nPATH
-	stringToSign := fmt.Sprintf("%s\n\n\n%s\n%s", r.Method, expires, r.URL.Path)
+	// Reconstruct the StringToSign for AWS SigV2 presigned URLs:
+	//   METHOD\n
+	//   Content-MD5\n        (empty for presigned URLs — no body at signing time)
+	//   Content-Type\n       (empty for presigned URLs)
+	//   Expires\n
+	//   CanonicalizedAmzHeaders  (empty — presigned V2 URLs carry no x-amz-* headers)
+	//   CanonicalizedResource    (path + recognized sub-resources, sorted)
+	canonResource := canonicalizedResourceV2(r.URL.Path, query)
+	stringToSign := fmt.Sprintf("%s\n\n\n%s\n%s", r.Method, expires, canonResource)
 
 	// Calculate expected signature
 	expectedSignature := h.calculateSignatureV2(stringToSign, secretKey)
 
 	// Compare signatures using constant-time comparison
 	if !hmac.Equal([]byte(expectedSignature), []byte(providedSignature)) {
-		logrus.Warnf("Signature V2 validation failed for access key: %s (expected: %s, got: %s)",
-			accessKey, expectedSignature, providedSignature)
-		return fmt.Errorf("signature does not match")
+		logrus.Warnf("Presigned V2 signature mismatch for access key: %s", accessKey)
+		return &presignedValidationError{"SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided."}
 	}
 
 	logrus.Debugf("Presigned URL V2 validation passed for access key: %s", accessKey)
@@ -355,9 +419,15 @@ func (h *Handler) validatePresignedURLV2(r *http.Request) error {
 
 // HandlePresignedRequest handles presigned URL requests
 func (h *Handler) HandlePresignedRequest(w http.ResponseWriter, r *http.Request) {
-	// Validate the presigned URL
+	// Validate the presigned URL and map structured errors to the correct
+	// AWS S3 error codes (SignatureDoesNotMatch → 403, RequestExpired → 403,
+	// InvalidAccessKeyId → 403, anything else → 400 InvalidRequest).
 	if err := h.ValidatePresignedURL(w, r); err != nil {
-		h.writeError(w, "InvalidRequest", err.Error(), r.URL.Path, r)
+		if pe, ok := err.(*presignedValidationError); ok {
+			h.writeError(w, pe.code, pe.message, r.URL.Path, r)
+		} else {
+			h.writeError(w, "InvalidRequest", err.Error(), r.URL.Path, r)
+		}
 		return
 	}
 
@@ -419,11 +489,12 @@ func (h *Handler) calculateSignatureV4(stringToSign, secretKey, dateStamp, regio
 	return hex.EncodeToString(signature)
 }
 
-// calculateSignatureV2 calculates AWS Signature V2
+// calculateSignatureV2 calculates AWS Signature V2.
+// AWS S3 V2 signatures use HMAC-SHA1 encoded as standard base64 (RFC 4648).
 func (h *Handler) calculateSignatureV2(stringToSign, secretKey string) string {
-	mac := hmac.New(sha256.New, []byte(secretKey))
+	mac := hmac.New(sha1.New, []byte(secretKey))
 	mac.Write([]byte(stringToSign))
-	return hex.EncodeToString(mac.Sum(nil))
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 
 // Helper functions
