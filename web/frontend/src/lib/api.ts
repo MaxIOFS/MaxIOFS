@@ -32,6 +32,10 @@ import type {
   UpdateTenantRequest,
   BucketPermission,
   GrantPermissionRequest,
+  Group,
+  GroupMember,
+  CreateGroupRequest,
+  UpdateGroupRequest,
   AuditLog,
   AuditLogFilters,
   AuditLogsResponse,
@@ -1264,16 +1268,63 @@ export class APIClient {
     await apiClient.post(url, data);
   }
 
-  static async revokeBucketPermission(bucketName: string, userId?: string, permissionTenantId?: string, bucketTenantId?: string): Promise<void> {
+  static async revokeBucketPermission(bucketName: string, userId?: string, permissionTenantId?: string, bucketTenantId?: string, groupId?: string): Promise<void> {
     const params = new URLSearchParams();
     if (userId) params.append('userId', userId);
     if (permissionTenantId) params.append('tenantId', permissionTenantId);
     if (bucketTenantId) params.append('bucketTenantId', bucketTenantId);
+    if (groupId) params.append('groupId', groupId);
     await apiClient.delete(`/buckets/${bucketName}/permissions/revoke?${params.toString()}`);
   }
 
   static async updateBucketOwner(bucketName: string, ownerId: string, ownerType: 'user' | 'tenant'): Promise<void> {
     await apiClient.put(`/buckets/${bucketName}/owner`, { ownerId, ownerType });
+  }
+
+  // Groups
+  static async listGroups(tenantId?: string, scopeGlobal?: boolean): Promise<Group[]> {
+    let url = '/groups';
+    if (tenantId) url += `?tenantId=${tenantId}`;
+    else if (scopeGlobal) url += '?scope=global';
+    const response = await apiClient.get<{ groups: Group[]; total: number }>(url);
+    return response.data.groups || [];
+  }
+
+  static async createGroup(data: CreateGroupRequest): Promise<Group> {
+    const response = await apiClient.post<Group>('/groups', data);
+    return response.data;
+  }
+
+  static async getGroup(groupId: string): Promise<Group> {
+    const response = await apiClient.get<Group>(`/groups/${groupId}`);
+    return response.data;
+  }
+
+  static async updateGroup(groupId: string, data: UpdateGroupRequest): Promise<Group> {
+    const response = await apiClient.put<Group>(`/groups/${groupId}`, data);
+    return response.data;
+  }
+
+  static async deleteGroup(groupId: string): Promise<void> {
+    await apiClient.delete(`/groups/${groupId}`);
+  }
+
+  static async listGroupMembers(groupId: string): Promise<GroupMember[]> {
+    const response = await apiClient.get<{ members: GroupMember[]; total: number }>(`/groups/${groupId}/members`);
+    return response.data.members || [];
+  }
+
+  static async addGroupMember(groupId: string, userId: string): Promise<void> {
+    await apiClient.post(`/groups/${groupId}/members`, { userId });
+  }
+
+  static async removeGroupMember(groupId: string, userId: string): Promise<void> {
+    await apiClient.delete(`/groups/${groupId}/members/${userId}`);
+  }
+
+  static async listUserGroups(userId: string): Promise<Group[]> {
+    const response = await apiClient.get<{ groups: Group[]; total: number }>(`/users/${userId}/groups`);
+    return response.data.groups || [];
   }
 
   // Two-Factor Authentication methods

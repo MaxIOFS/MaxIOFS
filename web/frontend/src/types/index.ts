@@ -130,6 +130,7 @@ export interface BucketPermission {
   bucketName: string;
   userId?: string;
   tenantId?: string;
+  groupId?: string;
   permissionLevel: 'read' | 'write' | 'admin';
   grantedBy: string;
   grantedAt: number;
@@ -139,9 +140,43 @@ export interface BucketPermission {
 export interface GrantPermissionRequest {
   userId?: string;
   tenantId?: string;
+  groupId?: string;
   permissionLevel: 'read' | 'write' | 'admin';
   grantedBy: string;
   expiresAt?: number;
+}
+
+// Group Types
+export interface Group {
+  id: string;
+  name: string;
+  displayName?: string;
+  description?: string;
+  tenantId?: string;
+  memberCount?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface GroupMember {
+  groupId: string;
+  userId: string;
+  username?: string;
+  email?: string;
+  addedAt: number;
+  addedBy?: string;
+}
+
+export interface CreateGroupRequest {
+  name: string;
+  displayName?: string;
+  description?: string;
+  tenantId?: string;
+}
+
+export interface UpdateGroupRequest {
+  displayName?: string;
+  description?: string;
 }
 
 

@@ -20,6 +20,7 @@ import {
   Shield,
   PanelLeftClose,
   PanelLeftOpen,
+  UsersRound,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useBasePath } from '@/hooks/useBasePath';
@@ -41,6 +42,7 @@ export const navigation: NavItem[] = [
     icon: Users,
     children: [
       { name: 'Users',              href: '/users',              icon: Users },
+      { name: 'Groups',             href: '/groups',             icon: UsersRound },
       { name: 'Access Keys',        href: '/users/access-keys',  icon: Lock },
       { name: 'Tenants',            href: '/tenants',            icon: Building2 },
       { name: 'Identity Providers', href: '/identity-providers', icon: Shield },

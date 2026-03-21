@@ -19,6 +19,7 @@ func getAllMigrations() []Migration {
 		migration9_v090_IdentityProviders(),
 		migration10_v091_ClusterDeletionLog(),
 		migration11_v092_LoggingTargets(),
+		migration12_v100_Groups(),
 	}
 }
 
@@ -1026,6 +1027,62 @@ func migration10_v091_ClusterDeletionLog() Migration {
 				return err
 			}
 			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_deletion_log_deleted_at ON cluster_deletion_log(deleted_at)`); err != nil {
+				return err
+			}
+
+			return nil
+		},
+		Down: func(tx *sql.Tx) error {
+			return nil
+		},
+	}
+}
+
+// migration12_v100_Groups creates user groups and group membership tables, and adds group_id to bucket_permissions.
+// Corresponds to MaxIOFS v1.0.0 - User groups for bucket permission management
+func migration12_v100_Groups() Migration {
+	return Migration{
+		Version:     12,
+		Description: "v1.0.0 - Add groups, group_members tables and group_id to bucket_permissions",
+		Up: func(tx *sql.Tx) error {
+			if _, err := tx.Exec(`
+				CREATE TABLE IF NOT EXISTS groups (
+					id         TEXT PRIMARY KEY,
+					name       TEXT NOT NULL,
+					display_name TEXT,
+					description  TEXT,
+					tenant_id  TEXT,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					UNIQUE(name, tenant_id)
+				)
+			`); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_groups_tenant_id ON groups(tenant_id)`); err != nil {
+				return err
+			}
+
+			if _, err := tx.Exec(`
+				CREATE TABLE IF NOT EXISTS group_members (
+					group_id   TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+					user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+					added_at   INTEGER NOT NULL,
+					added_by   TEXT,
+					PRIMARY KEY (group_id, user_id)
+				)
+			`); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_group_members_user_id ON group_members(user_id)`); err != nil {
+				return err
+			}
+
+			// Add group_id column to bucket_permissions (nullable — existing rows keep NULL)
+			if _, err := tx.Exec(`ALTER TABLE bucket_permissions ADD COLUMN group_id TEXT REFERENCES groups(id) ON DELETE CASCADE`); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_bucket_permissions_group_id ON bucket_permissions(group_id)`); err != nil {
 				return err
 			}
 

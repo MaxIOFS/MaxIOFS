@@ -28,6 +28,8 @@ const BucketCreate   = React.lazy(() => import('@/pages/buckets/create'));
 const Users          = React.lazy(() => import('@/pages/users/index'));
 const UserDetail     = React.lazy(() => import('@/pages/users/[user]/index'));
 const AccessKeys     = React.lazy(() => import('@/pages/users/access-keys'));
+const Groups         = React.lazy(() => import('@/pages/groups/index'));
+const GroupDetail    = React.lazy(() => import('@/pages/groups/[group]/index'));
 const Tenants        = React.lazy(() => import('@/pages/tenants/index'));
 const AuditLogs      = React.lazy(() => import('@/pages/audit-logs/index'));
 const Metrics        = React.lazy(() => import('@/pages/metrics/index'));
@@ -333,6 +335,26 @@ function App() {
                 <ProtectedRoute>
                   <AppLayout>
                     <IdentityProviders />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/groups"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <Groups />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/groups/:group"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <GroupDetail />
                   </AppLayout>
                 </ProtectedRoute>
               }

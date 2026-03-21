@@ -10,6 +10,7 @@ import (
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrUserNotFound       = errors.New("user not found")
+	ErrGroupNotFound      = errors.New("group not found")
 	ErrUserInactive       = errors.New("user is not active")
 	ErrAccessDenied       = errors.New("access denied")
 	ErrInvalidToken       = errors.New("invalid token")

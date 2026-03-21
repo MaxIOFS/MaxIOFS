@@ -132,7 +132,13 @@ func (m *mockAuthManager) CheckTenantStorageQuota(ctx context.Context, tenantID 
 func (m *mockAuthManager) GrantBucketAccess(ctx context.Context, bucketName, userID, tenantID, permissionLevel, grantedBy string, expiresAt int64) error {
 	return fmt.Errorf("not implemented")
 }
+func (m *mockAuthManager) GrantGroupBucketAccess(ctx context.Context, bucketName, groupID, permissionLevel, grantedBy string, expiresAt int64) error {
+	return fmt.Errorf("not implemented")
+}
 func (m *mockAuthManager) RevokeBucketAccess(ctx context.Context, bucketName, userID, tenantID string) error {
+	return fmt.Errorf("not implemented")
+}
+func (m *mockAuthManager) RevokeGroupBucketAccess(ctx context.Context, bucketName, groupID string) error {
 	return fmt.Errorf("not implemented")
 }
 func (m *mockAuthManager) CheckBucketAccess(ctx context.Context, bucketName, userID string) (bool, string, error) {
@@ -195,6 +201,31 @@ func (m *mockAuthManager) FindUserByExternalID(ctx context.Context, externalID, 
 }
 func (m *mockAuthManager) SetStorageQuotaAlertCallback(callback func(tenantID string, currentBytes, maxBytes int64)) {
 }
+func (m *mockAuthManager) CreateGroup(ctx context.Context, group *auth.Group) error { return nil }
+func (m *mockAuthManager) GetGroup(ctx context.Context, groupID string) (*auth.Group, error) {
+	return nil, auth.ErrGroupNotFound
+}
+func (m *mockAuthManager) GetGroupByName(ctx context.Context, name, tenantID string) (*auth.Group, error) {
+	return nil, auth.ErrGroupNotFound
+}
+func (m *mockAuthManager) UpdateGroup(ctx context.Context, group *auth.Group) error  { return nil }
+func (m *mockAuthManager) DeleteGroup(ctx context.Context, groupID string) error     { return nil }
+func (m *mockAuthManager) ListGroups(ctx context.Context, tenantID string) ([]*auth.Group, error) {
+	return nil, nil
+}
+func (m *mockAuthManager) AddGroupMember(ctx context.Context, groupID, userID, addedBy string) error {
+	return nil
+}
+func (m *mockAuthManager) RemoveGroupMember(ctx context.Context, groupID, userID string) error {
+	return nil
+}
+func (m *mockAuthManager) ListGroupMembers(ctx context.Context, groupID string) ([]*auth.GroupMember, error) {
+	return nil, nil
+}
+func (m *mockAuthManager) ListUserGroups(ctx context.Context, userID string) ([]*auth.Group, error) {
+	return nil, nil
+}
+func (m *mockAuthManager) ListAllGroups(ctx context.Context) ([]*auth.Group, error) { return nil, nil }
 
 // TestGeneratePresignedURLV4_Success tests successful V4 presigned URL generation
 func TestGeneratePresignedURLV4_Success(t *testing.T) {

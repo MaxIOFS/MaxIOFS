@@ -667,9 +667,17 @@ func (m *MockAuthManager) GrantBucketAccess(ctx context.Context, bucketName, use
 	return args.Error(0)
 }
 
+func (m *MockAuthManager) GrantGroupBucketAccess(ctx context.Context, bucketName, groupID, permissionLevel, grantedBy string, expiresAt int64) error {
+	return nil
+}
+
 func (m *MockAuthManager) RevokeBucketAccess(ctx context.Context, bucketName, userID, tenantID string) error {
 	args := m.Called(ctx, bucketName, userID, tenantID)
 	return args.Error(0)
+}
+
+func (m *MockAuthManager) RevokeGroupBucketAccess(ctx context.Context, bucketName, groupID string) error {
+	return nil
 }
 
 func (m *MockAuthManager) CheckBucketAccess(ctx context.Context, bucketName, userID string) (bool, string, error) {
@@ -791,6 +799,32 @@ func (m *MockAuthManager) FindUserByExternalID(ctx context.Context, externalID, 
 
 func (m *MockAuthManager) SetStorageQuotaAlertCallback(callback func(tenantID string, currentBytes, maxBytes int64)) {
 }
+
+func (m *MockAuthManager) CreateGroup(ctx context.Context, group *auth.Group) error { return nil }
+func (m *MockAuthManager) GetGroup(ctx context.Context, groupID string) (*auth.Group, error) {
+	return nil, auth.ErrGroupNotFound
+}
+func (m *MockAuthManager) GetGroupByName(ctx context.Context, name, tenantID string) (*auth.Group, error) {
+	return nil, auth.ErrGroupNotFound
+}
+func (m *MockAuthManager) UpdateGroup(ctx context.Context, group *auth.Group) error { return nil }
+func (m *MockAuthManager) DeleteGroup(ctx context.Context, groupID string) error    { return nil }
+func (m *MockAuthManager) ListGroups(ctx context.Context, tenantID string) ([]*auth.Group, error) {
+	return nil, nil
+}
+func (m *MockAuthManager) AddGroupMember(ctx context.Context, groupID, userID, addedBy string) error {
+	return nil
+}
+func (m *MockAuthManager) RemoveGroupMember(ctx context.Context, groupID, userID string) error {
+	return nil
+}
+func (m *MockAuthManager) ListGroupMembers(ctx context.Context, groupID string) ([]*auth.GroupMember, error) {
+	return nil, nil
+}
+func (m *MockAuthManager) ListUserGroups(ctx context.Context, userID string) ([]*auth.Group, error) {
+	return nil, nil
+}
+func (m *MockAuthManager) ListAllGroups(ctx context.Context) ([]*auth.Group, error) { return nil, nil }
 
 type MockMetricsManager struct {
 	mock.Mock

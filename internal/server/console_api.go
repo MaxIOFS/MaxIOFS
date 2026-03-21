@@ -411,6 +411,17 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/permissions/{permission}", s.handleRevokeBucketPermission).Methods("DELETE", "OPTIONS") // Legacy endpoint
 	router.HandleFunc("/buckets/{bucket}/owner", s.handleUpdateBucketOwner).Methods("PUT", "OPTIONS")
 
+	// Group endpoints
+	router.HandleFunc("/groups", s.handleListGroups).Methods("GET", "OPTIONS")
+	router.HandleFunc("/groups", s.handleCreateGroup).Methods("POST", "OPTIONS")
+	router.HandleFunc("/groups/{group}", s.handleGetGroup).Methods("GET", "OPTIONS")
+	router.HandleFunc("/groups/{group}", s.handleUpdateGroup).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/groups/{group}", s.handleDeleteGroup).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/groups/{group}/members", s.handleListGroupMembers).Methods("GET", "OPTIONS")
+	router.HandleFunc("/groups/{group}/members", s.handleAddGroupMember).Methods("POST", "OPTIONS")
+	router.HandleFunc("/groups/{group}/members/{user}", s.handleRemoveGroupMember).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/users/{user}/groups", s.handleListUserGroups).Methods("GET", "OPTIONS")
+
 	// Bucket lifecycle endpoints
 	router.HandleFunc("/buckets/{bucket}/lifecycle", s.handleGetBucketLifecycle).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/lifecycle", s.handlePutBucketLifecycle).Methods("PUT", "OPTIONS")
@@ -4297,6 +4308,7 @@ func (s *Server) handleGrantBucketPermission(w http.ResponseWriter, r *http.Requ
 	var req struct {
 		UserID          string `json:"userId,omitempty"`
 		TenantID        string `json:"tenantId,omitempty"`
+		GroupID         string `json:"groupId,omitempty"`
 		PermissionLevel string `json:"permissionLevel"`
 		GrantedBy       string `json:"grantedBy"`
 		ExpiresAt       int64  `json:"expiresAt,omitempty"`
@@ -4307,9 +4319,19 @@ func (s *Server) handleGrantBucketPermission(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Validate input
-	if req.UserID == "" && req.TenantID == "" {
-		s.writeError(w, "Either userId or tenantId must be specified", http.StatusBadRequest)
+	// Validate input — exactly one subject required
+	subjects := 0
+	if req.UserID != "" {
+		subjects++
+	}
+	if req.TenantID != "" {
+		subjects++
+	}
+	if req.GroupID != "" {
+		subjects++
+	}
+	if subjects != 1 {
+		s.writeError(w, "Exactly one of userId, tenantId, or groupId must be specified", http.StatusBadRequest)
 		return
 	}
 
@@ -4319,13 +4341,17 @@ func (s *Server) handleGrantBucketPermission(w http.ResponseWriter, r *http.Requ
 	}
 
 	if req.GrantedBy == "" {
-		s.writeError(w, "GrantedBy is required", http.StatusBadRequest)
-		return
+		req.GrantedBy = currentUser.ID
 	}
 
-	err := s.authManager.GrantBucketAccess(r.Context(), bucketName, req.UserID, req.TenantID, req.PermissionLevel, req.GrantedBy, req.ExpiresAt)
-	if err != nil {
-		s.writeError(w, err.Error(), http.StatusInternalServerError)
+	var grantErr error
+	if req.GroupID != "" {
+		grantErr = s.authManager.GrantGroupBucketAccess(r.Context(), bucketName, req.GroupID, req.PermissionLevel, req.GrantedBy, req.ExpiresAt)
+	} else {
+		grantErr = s.authManager.GrantBucketAccess(r.Context(), bucketName, req.UserID, req.TenantID, req.PermissionLevel, req.GrantedBy, req.ExpiresAt)
+	}
+	if grantErr != nil {
+		s.writeError(w, grantErr.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -4353,27 +4379,36 @@ func (s *Server) handleRevokeBucketPermission(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	// Extract userID or tenantID from query params
+	// Extract userID, tenantID, or groupID from query params
 	userID := r.URL.Query().Get("userId")
 	tenantID := r.URL.Query().Get("tenantId")
+	groupID := r.URL.Query().Get("groupId")
 
-	if userID == "" && tenantID == "" {
-		s.writeError(w, "Either userId or tenantId query parameter is required", http.StatusBadRequest)
+	if userID == "" && tenantID == "" && groupID == "" {
+		s.writeError(w, "Either userId, tenantId, or groupId query parameter is required", http.StatusBadRequest)
 		return
 	}
 
 	// Look up the permission ID before deleting (needed for tombstone)
 	var permissionID string
-	if userID != "" {
-		_ = s.db.QueryRowContext(r.Context(), `SELECT id FROM bucket_permissions WHERE bucket_name = ? AND user_id = ?`, bucketName, userID).Scan(&permissionID)
+	if groupID != "" {
+		_ = s.db.QueryRowContext(r.Context(), `SELECT id FROM bucket_permissions WHERE bucket_name = ? AND group_id = ?`, bucketName, groupID).Scan(&permissionID)
+		err := s.authManager.RevokeGroupBucketAccess(r.Context(), bucketName, groupID)
+		if err != nil {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	} else {
-		_ = s.db.QueryRowContext(r.Context(), `SELECT id FROM bucket_permissions WHERE bucket_name = ? AND tenant_id = ?`, bucketName, tenantID).Scan(&permissionID)
-	}
-
-	err := s.authManager.RevokeBucketAccess(r.Context(), bucketName, userID, tenantID)
-	if err != nil {
-		s.writeError(w, err.Error(), http.StatusInternalServerError)
-		return
+		if userID != "" {
+			_ = s.db.QueryRowContext(r.Context(), `SELECT id FROM bucket_permissions WHERE bucket_name = ? AND user_id = ?`, bucketName, userID).Scan(&permissionID)
+		} else {
+			_ = s.db.QueryRowContext(r.Context(), `SELECT id FROM bucket_permissions WHERE bucket_name = ? AND tenant_id = ?`, bucketName, tenantID).Scan(&permissionID)
+		}
+		err := s.authManager.RevokeBucketAccess(r.Context(), bucketName, userID, tenantID)
+		if err != nil {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	s.touchLocalWriteAt(r.Context())

@@ -84,10 +84,25 @@ type Manager interface {
 
 	// Bucket permission management
 	GrantBucketAccess(ctx context.Context, bucketName, userID, tenantID, permissionLevel, grantedBy string, expiresAt int64) error
+	GrantGroupBucketAccess(ctx context.Context, bucketName, groupID, permissionLevel, grantedBy string, expiresAt int64) error
 	RevokeBucketAccess(ctx context.Context, bucketName, userID, tenantID string) error
+	RevokeGroupBucketAccess(ctx context.Context, bucketName, groupID string) error
 	CheckBucketAccess(ctx context.Context, bucketName, userID string) (bool, string, error)
 	ListBucketPermissions(ctx context.Context, bucketName string) ([]*BucketPermission, error)
 	ListUserBucketPermissions(ctx context.Context, userID string) ([]*BucketPermission, error)
+
+	// Group management
+	CreateGroup(ctx context.Context, group *Group) error
+	GetGroup(ctx context.Context, groupID string) (*Group, error)
+	GetGroupByName(ctx context.Context, name, tenantID string) (*Group, error)
+	UpdateGroup(ctx context.Context, group *Group) error
+	DeleteGroup(ctx context.Context, groupID string) error
+	ListGroups(ctx context.Context, tenantID string) ([]*Group, error)
+	ListAllGroups(ctx context.Context) ([]*Group, error)
+	AddGroupMember(ctx context.Context, groupID, userID, addedBy string) error
+	RemoveGroupMember(ctx context.Context, groupID, userID string) error
+	ListGroupMembers(ctx context.Context, groupID string) ([]*GroupMember, error)
+	ListUserGroups(ctx context.Context, userID string) ([]*Group, error)
 
 	// HTTP Middleware
 	Middleware() func(http.Handler) http.Handler
@@ -177,10 +192,33 @@ type BucketPermission struct {
 	BucketName      string `json:"bucketName"`
 	UserID          string `json:"userId,omitempty"`
 	TenantID        string `json:"tenantId,omitempty"`
+	GroupID         string `json:"groupId,omitempty"`
 	PermissionLevel string `json:"permissionLevel"` // read, write, admin
 	GrantedBy       string `json:"grantedBy"`
 	GrantedAt       int64  `json:"grantedAt"`
 	ExpiresAt       int64  `json:"expiresAt,omitempty"`
+}
+
+// Group represents a named collection of users for permission management
+type Group struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description"`
+	TenantID    string `json:"tenantId,omitempty"`
+	MemberCount int    `json:"memberCount,omitempty"`
+	CreatedAt   int64  `json:"createdAt"`
+	UpdatedAt   int64  `json:"updatedAt"`
+}
+
+// GroupMember represents a user's membership in a group
+type GroupMember struct {
+	GroupID   string `json:"groupId"`
+	UserID    string `json:"userId"`
+	Username  string `json:"username,omitempty"`
+	Email     string `json:"email,omitempty"`
+	AddedAt   int64  `json:"addedAt"`
+	AddedBy   string `json:"addedBy"`
 }
 
 // AccessKey represents an access key pair

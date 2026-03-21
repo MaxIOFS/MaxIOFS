@@ -20,6 +20,7 @@ import {
   Building2,
   Calendar,
   AlertCircle,
+  UsersRound,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -43,6 +44,7 @@ export function BucketPermissionsModal({
 }: BucketPermissionsModalProps) {
   const { t } = useTranslation('buckets');
   const [isAddPermissionOpen, setIsAddPermissionOpen] = useState(false);
+  const [grantType, setGrantType] = useState<'user' | 'group'>('user');
   const [newPermission, setNewPermission] = useState<Partial<GrantPermissionRequest>>({
     permissionLevel: 'read',
     grantedBy: 'admin',
@@ -73,6 +75,13 @@ export function BucketPermissionsModal({
     enabled: isOpen,
   });
 
+  // Fetch groups for display and grant dropdown, scoped to the bucket's namespace
+  const { data: groups } = useQuery({
+    queryKey: ['groups', tenantId, isGlobalBucket],
+    queryFn: () => APIClient.listGroups(tenantId, isGlobalBucket),
+    enabled: isOpen,
+  });
+
   // Strict scope filtering — no cross-scope grants allowed:
   // Global bucket → only non-admin global users (no tenantId)
   // Tenant bucket → only non-admin users belonging to exactly that tenant
@@ -80,6 +89,11 @@ export function BucketPermissionsModal({
   const selectableUsers = users?.filter(u => {
     if (u.roles?.includes('admin')) return false;
     return isGlobalBucket ? !u.tenantId : u.tenantId === tenantId;
+  }) ?? [];
+
+  // Groups scoped to the same bucket scope
+  const selectableGroups = groups?.filter(g => {
+    return isGlobalBucket ? !g.tenantId : g.tenantId === tenantId;
   }) ?? [];
 
   const scopeLabel = isGlobalBucket
@@ -94,6 +108,7 @@ export function BucketPermissionsModal({
       queryClient.invalidateQueries({ queryKey: ['bucketPermissions', bucketName] });
       setIsAddPermissionOpen(false);
       setNewPermission({ permissionLevel: 'read', grantedBy: 'admin' });
+      setGrantType('user');
       ModalManager.toast('success', t('permGrantedSuccess'));
     },
     onError: (error: Error) => {
@@ -103,8 +118,8 @@ export function BucketPermissionsModal({
 
   // Revoke permission mutation
   const revokePermissionMutation = useMutation({
-    mutationFn: ({ userId, permissionTenantId }: { userId?: string; permissionTenantId?: string }) =>
-      APIClient.revokeBucketPermission(bucketName, userId, permissionTenantId, tenantId),
+    mutationFn: ({ userId, permissionTenantId, groupId }: { userId?: string; permissionTenantId?: string; groupId?: string }) =>
+      APIClient.revokeBucketPermission(bucketName, userId, permissionTenantId, tenantId, groupId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bucketPermissions', bucketName] });
       ModalManager.toast('success', t('permRevokedSuccess'));
@@ -117,29 +132,48 @@ export function BucketPermissionsModal({
   const handleGrantPermission = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!newPermission.userId) {
-      ModalManager.toast('error', t('selectUserRequired'));
-      return;
+    if (grantType === 'group') {
+      if (!newPermission.groupId) {
+        ModalManager.toast('error', 'Please select a group.');
+        return;
+      }
+      const permission: GrantPermissionRequest = {
+        groupId: newPermission.groupId,
+        permissionLevel: newPermission.permissionLevel || 'read',
+        grantedBy: newPermission.grantedBy || 'admin',
+        expiresAt: newPermission.expiresAt,
+      };
+      grantPermissionMutation.mutate(permission);
+    } else {
+      if (!newPermission.userId) {
+        ModalManager.toast('error', t('selectUserRequired'));
+        return;
+      }
+      const permission: GrantPermissionRequest = {
+        userId: newPermission.userId,
+        tenantId: undefined,
+        permissionLevel: newPermission.permissionLevel || 'read',
+        grantedBy: newPermission.grantedBy || 'admin',
+        expiresAt: newPermission.expiresAt,
+      };
+      grantPermissionMutation.mutate(permission);
     }
-
-    const permission: GrantPermissionRequest = {
-      userId: newPermission.userId,
-      tenantId: undefined, // never grant by tenant — always by individual user
-      permissionLevel: newPermission.permissionLevel || 'read',
-      grantedBy: newPermission.grantedBy || 'admin',
-      expiresAt: newPermission.expiresAt,
-    };
-
-    grantPermissionMutation.mutate(permission);
   };
 
   const handleRevokePermission = (permission: BucketPermission) => {
-    const targetName = permission.userId
-      ? getUserName(permission.userId)
-      : permission.tenantId
-        ? getTenantName(permission.tenantId)
-        : t('unknown');
-    const targetKind = permission.userId ? t('permTypeUser').toLowerCase() : t('permTypeTenant').toLowerCase();
+    let targetName: string;
+    let targetKind: string;
+
+    if (permission.groupId) {
+      targetName = getGroupName(permission.groupId);
+      targetKind = 'group';
+    } else if (permission.userId) {
+      targetName = getUserName(permission.userId);
+      targetKind = t('permTypeUser').toLowerCase();
+    } else {
+      targetName = permission.tenantId ? getTenantName(permission.tenantId) : t('unknown');
+      targetKind = t('permTypeTenant').toLowerCase();
+    }
 
     ModalManager.confirm(
       t('revokePermissionTitle'),
@@ -147,6 +181,7 @@ export function BucketPermissionsModal({
       () => revokePermissionMutation.mutate({
         userId: permission.userId || undefined,
         permissionTenantId: permission.tenantId || undefined,
+        groupId: permission.groupId || undefined,
       })
     );
   };
@@ -179,6 +214,12 @@ export function BucketPermissionsModal({
   const getTenantName = (tId: string) => {
     const tenant = tenants?.find(t => t.id === tId);
     return tenant ? tenant.displayName : tId;
+  };
+
+  const getGroupName = (groupId: string) => {
+    // Try to find from already-loaded groups
+    const found = groups?.find(g => g.id === groupId);
+    return found ? (found.displayName || found.name) : groupId;
   };
 
   return (
@@ -258,7 +299,13 @@ export function BucketPermissionsModal({
                   <TableRow key={permission.id}>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        {permission.userId ? (
+                        {permission.groupId ? (
+                          <>
+                            <UsersRound className="h-4 w-4 text-gray-500" />
+                            <span className="font-medium">{getGroupName(permission.groupId)}</span>
+                            <span className="text-xs text-gray-500">(Group)</span>
+                          </>
+                        ) : permission.userId ? (
                           <>
                             <Users className="h-4 w-4 text-gray-500" />
                             <span className="font-medium">{getUserName(permission.userId)}</span>
@@ -333,6 +380,7 @@ export function BucketPermissionsModal({
         onClose={() => {
           setIsAddPermissionOpen(false);
           setNewPermission({ permissionLevel: 'read', grantedBy: 'admin' });
+          setGrantType('user');
         }}
         title={t('grantBucketPermission')}
       >
@@ -351,28 +399,87 @@ export function BucketPermissionsModal({
             </span>
           </div>
 
-          {/* User selector */}
-          <div>
-            <label className="block text-sm font-medium mb-2">{t('selectUserLabel')}</label>
-            <select
-              value={newPermission.userId || ''}
-              onChange={(e) => setNewPermission({ ...newPermission, userId: e.target.value })}
-              className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-              required
+          {/* Grant type selector */}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setGrantType('user');
+                setNewPermission(prev => ({ ...prev, userId: undefined, groupId: undefined }));
+              }}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md border text-sm font-medium transition-colors ${
+                grantType === 'user'
+                  ? 'border-brand-600 bg-brand-600 text-white'
+                  : 'border-input bg-background text-foreground hover:bg-secondary'
+              }`}
             >
-              <option value="">{t('selectUserPlaceholder')}</option>
-              {selectableUsers.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.username}{user.email ? ` (${user.email})` : ''}
-                </option>
-              ))}
-            </select>
-            {selectableUsers.length === 0 && (
-              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                {t('noEligibleUsers')}
-              </p>
-            )}
+              <Users className="h-4 w-4" />
+              User
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setGrantType('group');
+                setNewPermission(prev => ({ ...prev, userId: undefined, groupId: undefined }));
+              }}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md border text-sm font-medium transition-colors ${
+                grantType === 'group'
+                  ? 'border-brand-600 bg-brand-600 text-white'
+                  : 'border-input bg-background text-foreground hover:bg-secondary'
+              }`}
+            >
+              <UsersRound className="h-4 w-4" />
+              Group
+            </button>
           </div>
+
+          {/* User or Group selector */}
+          {grantType === 'user' ? (
+            <div>
+              <label className="block text-sm font-medium mb-2">{t('selectUserLabel')}</label>
+              <select
+                value={newPermission.userId || ''}
+                onChange={(e) => setNewPermission({ ...newPermission, userId: e.target.value })}
+                className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                required
+              >
+                <option value="">{t('selectUserPlaceholder')}</option>
+                {selectableUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.username}{user.email ? ` (${user.email})` : ''}
+                  </option>
+                ))}
+              </select>
+              {selectableUsers.length === 0 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  {t('noEligibleUsers')}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium mb-2">Select Group</label>
+              <select
+                value={newPermission.groupId || ''}
+                onChange={(e) => setNewPermission({ ...newPermission, groupId: e.target.value })}
+                className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                required
+              >
+                <option value="">— Select a group —</option>
+                {selectableGroups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.displayName || group.name}
+                    {group.memberCount !== undefined ? ` (${group.memberCount} members)` : ''}
+                  </option>
+                ))}
+              </select>
+              {selectableGroups.length === 0 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  No eligible groups found. Create groups first in the Groups section.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Permission Level */}
           <div>
@@ -419,11 +526,19 @@ export function BucketPermissionsModal({
               onClick={() => {
                 setIsAddPermissionOpen(false);
                 setNewPermission({ permissionLevel: 'read', grantedBy: 'admin' });
+                setGrantType('user');
               }}
             >
               {t('close')}
             </Button>
-            <Button type="submit" disabled={grantPermissionMutation.isPending || selectableUsers.length === 0}>
+            <Button
+              type="submit"
+              disabled={
+                grantPermissionMutation.isPending ||
+                (grantType === 'user' && selectableUsers.length === 0) ||
+                (grantType === 'group' && selectableGroups.length === 0)
+              }
+            >
               {grantPermissionMutation.isPending ? t('granting') : t('grantPermission')}
             </Button>
           </div>
