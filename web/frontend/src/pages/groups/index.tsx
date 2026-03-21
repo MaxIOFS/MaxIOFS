@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -22,8 +23,9 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { formatRelativeTime } from '@/lib/utils';
 
 export default function GroupsPage() {
+  const { t } = useTranslation('groups');
   const navigate = useNavigate();
-  const { isGlobalAdmin, isTenantAdmin, user: currentUser } = useCurrentUser();
+  const { isGlobalAdmin, isTenantAdmin } = useCurrentUser();
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newGroup, setNewGroup] = useState<Partial<CreateGroupRequest>>({});
@@ -80,8 +82,8 @@ export default function GroupsPage() {
     return (
       <EmptyState
         icon={Users}
-        title="Access Denied"
-        description="You do not have permission to manage groups."
+        title={t('accessDenied')}
+        description={t('accessDeniedDesc')}
         showAction={false}
       />
     );
@@ -96,15 +98,15 @@ export default function GroupsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <Users className="w-6 h-6" />
-            Groups
+            {t('title')}
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Manage user groups and bucket permission grants
+            {t('subtitle')}
           </p>
         </div>
         <Button onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2">
           <Plus className="w-4 h-4" />
-          New Group
+          {t('newGroup')}
         </Button>
       </div>
 
@@ -112,7 +114,7 @@ export default function GroupsPage() {
       <div className="relative w-full max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <Input
-          placeholder="Search groups..."
+          placeholder={t('searchPlaceholder')}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="pl-9"
@@ -123,9 +125,9 @@ export default function GroupsPage() {
       {filtered.length === 0 ? (
         <EmptyState
           icon={Users}
-          title="No groups found"
-          description={searchTerm ? 'No groups match your search.' : 'Create your first group to manage bucket permissions.'}
-          actionLabel="New Group"
+          title={t('noGroupsFound')}
+          description={searchTerm ? t('noGroupsSearch') : t('noGroupsEmpty')}
+          actionLabel={t('newGroup')}
           onAction={() => setIsCreateModalOpen(true)}
           showAction={!searchTerm}
         />
@@ -134,12 +136,12 @@ export default function GroupsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Display Name</TableHead>
-                {isGlobalAdmin && <TableHead>Scope</TableHead>}
-                <TableHead>Members</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t('colName')}</TableHead>
+                <TableHead>{t('colDisplayName')}</TableHead>
+                {isGlobalAdmin && <TableHead>{t('colScope')}</TableHead>}
+                <TableHead>{t('colMembers')}</TableHead>
+                <TableHead>{t('colCreated')}</TableHead>
+                <TableHead className="text-right">{t('colActions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -158,7 +160,7 @@ export default function GroupsPage() {
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                          Global
+                          {t('scopeGlobal')}
                         </span>
                       )}
                     </TableCell>
@@ -202,21 +204,21 @@ export default function GroupsPage() {
       <Modal
         isOpen={isCreateModalOpen}
         onClose={() => { setIsCreateModalOpen(false); setNewGroup({}); }}
-        title="Create Group"
+        title={t('createModalTitle')}
       >
         <div className="space-y-4">
           {/* Tenant selector — global admins only */}
           {isGlobalAdmin && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Scope
+                {t('scopeLabel')}
               </label>
               <select
                 className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2 text-sm"
                 value={newGroup.tenantId || ''}
                 onChange={(e) => setNewGroup({ ...newGroup, tenantId: e.target.value || undefined })}
               >
-                <option value="">Global (no tenant)</option>
+                <option value="">{t('scopeGlobalOption')}</option>
                 {tenants.map((tenant) => (
                   <option key={tenant.id} value={tenant.id}>
                     {tenant.displayName || tenant.name}
@@ -224,49 +226,49 @@ export default function GroupsPage() {
                 ))}
               </select>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Global groups can be granted access to any bucket. Tenant groups are scoped to a specific tenant.
+                {t('scopeHint')}
               </p>
             </div>
           )}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Name <span className="text-red-500">*</span>
+              {t('nameLabel')} <span className="text-red-500">*</span>
             </label>
             <Input
-              placeholder="e.g. devops-team"
+              placeholder={t('namePlaceholder')}
               value={newGroup.name || ''}
               onChange={(e) => setNewGroup({ ...newGroup, name: e.target.value })}
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Display Name
+              {t('displayNameLabel')}
             </label>
             <Input
-              placeholder="e.g. DevOps Team"
+              placeholder={t('displayNamePlaceholder')}
               value={newGroup.displayName || ''}
               onChange={(e) => setNewGroup({ ...newGroup, displayName: e.target.value })}
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Description
+              {t('descriptionLabel')}
             </label>
             <Input
-              placeholder="Optional description"
+              placeholder={t('descriptionPlaceholder')}
               value={newGroup.description || ''}
               onChange={(e) => setNewGroup({ ...newGroup, description: e.target.value })}
             />
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="secondary" onClick={() => { setIsCreateModalOpen(false); setNewGroup({}); }}>
-              Cancel
+              {t('cancel')}
             </Button>
             <Button
               onClick={handleCreate}
               disabled={!newGroup.name?.trim() || createMutation.isPending}
             >
-              {createMutation.isPending ? 'Creating...' : 'Create Group'}
+              {createMutation.isPending ? t('creating') : t('createGroup')}
             </Button>
           </div>
         </div>

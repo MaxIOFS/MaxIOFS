@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -12,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/Table';
-import { Users, ArrowLeft, Plus, Trash2, Save, UserMinus } from 'lucide-react';
+import { Users, ArrowLeft, Plus, Save, UserMinus } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { GroupMember, User } from '@/types';
@@ -21,6 +22,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { formatRelativeTime } from '@/lib/utils';
 
 export default function GroupDetailPage() {
+  const { t } = useTranslation('groups');
   const { group: groupId } = useParams<{ group: string }>();
   const navigate = useNavigate();
   const { isGlobalAdmin, isTenantAdmin } = useCurrentUser();
@@ -98,13 +100,19 @@ export default function GroupDetailPage() {
     updateMutation.mutate(editForm);
   };
 
-  // Users not already in the group
-  const availableUsers = allUsers.filter(
-    (u: User) => !members.some((m) => m.userId === u.id)
-  );
+  // Scoping: for a tenant-scoped group, only show users from that tenant.
+  // For a global group (no tenantId), show only global users (no tenantId).
+  // In both cases, exclude users already in the group.
+  const availableUsers = allUsers.filter((u: User) => {
+    if (members.some((m) => m.userId === u.id)) return false;
+    if (group?.tenantId) {
+      return u.tenantId === group.tenantId;
+    }
+    return !u.tenantId;
+  });
 
   if (groupLoading) return <Loading />;
-  if (!group) return <div className="p-6 text-red-500">Group not found.</div>;
+  if (!group) return <div className="p-6 text-red-500">{t('groupNotFound')}</div>;
 
   return (
     <div className="p-6 space-y-6">
@@ -122,7 +130,7 @@ export default function GroupDetailPage() {
         </div>
         {isAnyAdmin && !isEditing && (
           <Button variant="secondary" size="sm" onClick={handleEditStart}>
-            Edit
+            {t('editButton')}
           </Button>
         )}
       </div>
@@ -130,10 +138,10 @@ export default function GroupDetailPage() {
       {/* Edit Form */}
       {isEditing && (
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-4">
-          <h2 className="font-medium text-gray-900 dark:text-white">Edit Group</h2>
+          <h2 className="font-medium text-gray-900 dark:text-white">{t('editGroup')}</h2>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Display Name
+              {t('displayNameLabel')}
             </label>
             <Input
               value={editForm.displayName}
@@ -142,7 +150,7 @@ export default function GroupDetailPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Description
+              {t('descriptionLabel')}
             </label>
             <Input
               value={editForm.description}
@@ -152,10 +160,10 @@ export default function GroupDetailPage() {
           <div className="flex gap-3">
             <Button onClick={handleEditSave} disabled={updateMutation.isPending}>
               <Save className="w-4 h-4 mr-1" />
-              {updateMutation.isPending ? 'Saving...' : 'Save'}
+              {updateMutation.isPending ? t('saving') : t('save')}
             </Button>
             <Button variant="secondary" onClick={() => setIsEditing(false)}>
-              Cancel
+              {t('cancel')}
             </Button>
           </div>
         </div>
@@ -166,12 +174,12 @@ export default function GroupDetailPage() {
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
           <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             <div>
-              <dt className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Members</dt>
+              <dt className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('membersCount')}</dt>
               <dd className="mt-1 font-semibold text-gray-900 dark:text-white">{members.length}</dd>
             </div>
             {group.description && (
               <div className="col-span-2">
-                <dt className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Description</dt>
+                <dt className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('descriptionDt')}</dt>
                 <dd className="mt-1 text-gray-700 dark:text-gray-300">{group.description}</dd>
               </div>
             )}
@@ -182,11 +190,11 @@ export default function GroupDetailPage() {
       {/* Members */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold text-gray-900 dark:text-white">Members</h2>
+          <h2 className="font-semibold text-gray-900 dark:text-white">{t('membersSection')}</h2>
           {isAnyAdmin && (
             <Button size="sm" onClick={() => setIsAddMemberOpen(true)} className="flex items-center gap-2">
               <Plus className="w-4 h-4" />
-              Add Member
+              {t('addMember')}
             </Button>
           )}
         </div>
@@ -195,17 +203,17 @@ export default function GroupDetailPage() {
           <Loading />
         ) : members.length === 0 ? (
           <div className="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">
-            No members yet. Add users to this group to grant them bucket permissions.
+            {t('noMembersYet')}
           </div>
         ) : (
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>User</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Added</TableHead>
-                  {isAnyAdmin && <TableHead className="text-right">Actions</TableHead>}
+                  <TableHead>{t('colUser')}</TableHead>
+                  <TableHead>{t('colEmail')}</TableHead>
+                  <TableHead>{t('colAdded')}</TableHead>
+                  {isAnyAdmin && <TableHead className="text-right">{t('colActions')}</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -242,35 +250,40 @@ export default function GroupDetailPage() {
       <Modal
         isOpen={isAddMemberOpen}
         onClose={() => { setIsAddMemberOpen(false); setSelectedUserId(''); }}
-        title="Add Member"
+        title={t('addMemberModalTitle')}
       >
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Select User
+              {t('selectUserLabel')}
             </label>
             <select
               className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2 text-sm"
               value={selectedUserId}
               onChange={(e) => setSelectedUserId(e.target.value)}
             >
-              <option value="">— Select a user —</option>
+              <option value="">{t('selectUserPlaceholder')}</option>
               {availableUsers.map((u: User) => (
                 <option key={u.id} value={u.id}>
                   {u.username} {u.email ? `(${u.email})` : ''}
                 </option>
               ))}
             </select>
+            {availableUsers.length === 0 && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                {t('noMembersYet')}
+              </p>
+            )}
           </div>
           <div className="flex justify-end gap-3">
             <Button variant="secondary" onClick={() => { setIsAddMemberOpen(false); setSelectedUserId(''); }}>
-              Cancel
+              {t('cancel')}
             </Button>
             <Button
               onClick={() => addMemberMutation.mutate(selectedUserId)}
               disabled={!selectedUserId || addMemberMutation.isPending}
             >
-              {addMemberMutation.isPending ? 'Adding...' : 'Add Member'}
+              {addMemberMutation.isPending ? t('adding') : t('addMember')}
             </Button>
           </div>
         </div>

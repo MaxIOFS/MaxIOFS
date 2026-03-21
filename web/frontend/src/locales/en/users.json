@@ -163,5 +163,14 @@
   "gotIt": "Got it",
   "disable2FATitle": "Disable Two-Factor Authentication",
   "disable2FAConfirmSelf": "Are you sure you want to disable 2FA? This will make your account less secure.",
-  "disable2FAConfirmOther": "Are you sure you want to disable 2FA for this user? This will make their account less secure."
+  "disable2FAConfirmOther": "Are you sure you want to disable 2FA for this user? This will make their account less secure.",
+  "groupsTitle": "Groups",
+  "addToGroup": "Add to Group",
+  "notInAnyGroup": "This user is not a member of any group.",
+  "addToGroupModalTitle": "Add to Group",
+  "selectGroupLabel": "Select Group",
+  "selectGroupPlaceholder": "— Select a group —",
+  "alreadyInAllGroups": "This user is already in all available groups.",
+  "addingToGroup": "Adding...",
+  "groupMembership": "group membership"
 }

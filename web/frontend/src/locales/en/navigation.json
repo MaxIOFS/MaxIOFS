@@ -11,5 +11,6 @@
   "logout": "Logout",
   "accessKeys": "Access Keys",
   "identityProviders": "Identity Providers",
-  "cluster": "Cluster"
+  "cluster": "Cluster",
+  "groups": "Groups"
 }

@@ -134,7 +134,7 @@ export function BucketPermissionsModal({
 
     if (grantType === 'group') {
       if (!newPermission.groupId) {
-        ModalManager.toast('error', 'Please select a group.');
+        ModalManager.toast('error', t('selectGroupRequired'));
         return;
       }
       const permission: GrantPermissionRequest = {
@@ -303,7 +303,7 @@ export function BucketPermissionsModal({
                           <>
                             <UsersRound className="h-4 w-4 text-gray-500" />
                             <span className="font-medium">{getGroupName(permission.groupId)}</span>
-                            <span className="text-xs text-gray-500">(Group)</span>
+                            <span className="text-xs text-gray-500">({t('permTypeGroup')})</span>
                           </>
                         ) : permission.userId ? (
                           <>
@@ -414,7 +414,7 @@ export function BucketPermissionsModal({
               }`}
             >
               <Users className="h-4 w-4" />
-              User
+              {t('grantTypeUser')}
             </button>
             <button
               type="button"
@@ -429,7 +429,7 @@ export function BucketPermissionsModal({
               }`}
             >
               <UsersRound className="h-4 w-4" />
-              Group
+              {t('grantTypeGroup')}
             </button>
           </div>
 
@@ -458,24 +458,24 @@ export function BucketPermissionsModal({
             </div>
           ) : (
             <div>
-              <label className="block text-sm font-medium mb-2">Select Group</label>
+              <label className="block text-sm font-medium mb-2">{t('selectGroupLabel')}</label>
               <select
                 value={newPermission.groupId || ''}
                 onChange={(e) => setNewPermission({ ...newPermission, groupId: e.target.value })}
                 className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
                 required
               >
-                <option value="">— Select a group —</option>
+                <option value="">{t('selectGroupPlaceholder')}</option>
                 {selectableGroups.map((group) => (
                   <option key={group.id} value={group.id}>
                     {group.displayName || group.name}
-                    {group.memberCount !== undefined ? ` (${group.memberCount} members)` : ''}
+                    {group.memberCount !== undefined ? ` (${group.memberCount})` : ''}
                   </option>
                 ))}
               </select>
               {selectableGroups.length === 0 && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                  No eligible groups found. Create groups first in the Groups section.
+                  {t('noEligibleGroups')}
                 </p>
               )}
             </div>

@@ -163,5 +163,14 @@
   "gotIt": "Entendido",
   "disable2FATitle": "Deshabilitar Autenticación de Dos Factores",
   "disable2FAConfirmSelf": "¿Estás seguro de que quieres deshabilitar el 2FA? Esto hará tu cuenta menos segura.",
-  "disable2FAConfirmOther": "¿Estás seguro de que quieres deshabilitar el 2FA para este usuario? Esto hará su cuenta menos segura."
+  "disable2FAConfirmOther": "¿Estás seguro de que quieres deshabilitar el 2FA para este usuario? Esto hará su cuenta menos segura.",
+  "groupsTitle": "Grupos",
+  "addToGroup": "Agregar al Grupo",
+  "notInAnyGroup": "Este usuario no pertenece a ningún grupo.",
+  "addToGroupModalTitle": "Agregar al Grupo",
+  "selectGroupLabel": "Seleccionar Grupo",
+  "selectGroupPlaceholder": "— Selecciona un grupo —",
+  "alreadyInAllGroups": "Este usuario ya pertenece a todos los grupos disponibles.",
+  "addingToGroup": "Agregando...",
+  "groupMembership": "membresía de grupo"
 }

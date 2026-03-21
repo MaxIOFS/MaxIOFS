@@ -279,5 +279,12 @@
   "enableLegalHoldText": "The object will not be deletable until Legal Hold is removed.",
   "disableLegalHoldText": "The object will become deletable again (if not under retention).",
   "enable": "Enable",
-  "disable": "Disable"
+  "disable": "Disable",
+  "permTypeGroup": "Group",
+  "grantTypeUser": "User",
+  "grantTypeGroup": "Group",
+  "selectGroupLabel": "Select Group",
+  "selectGroupPlaceholder": "— Select a group —",
+  "noEligibleGroups": "No eligible groups found. Create groups first in the Groups section.",
+  "selectGroupRequired": "Please select a group."
 }

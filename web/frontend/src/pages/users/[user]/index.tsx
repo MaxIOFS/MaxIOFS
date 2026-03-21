@@ -120,13 +120,13 @@ export default function UserDetailsPage() {
     enabled: !!userId && !!isCurrentUserAdmin,
   });
 
-  // Fetch all groups for the add-to-group dropdown
+  // Fetch all groups for the add-to-group dropdown, scoped to the user's tenant
   const [isAddToGroupOpen, setIsAddToGroupOpen] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const { data: allGroups = [] } = useQuery({
-    queryKey: ['groups'],
-    queryFn: () => APIClient.listGroups(),
-    enabled: isAddToGroupOpen,
+    queryKey: ['groups', userData?.tenantId, !userData?.tenantId],
+    queryFn: () => APIClient.listGroups(userData?.tenantId, !userData?.tenantId),
+    enabled: isAddToGroupOpen && !!userData,
   });
 
   const addToGroupMutation = useMutation({
@@ -151,6 +151,7 @@ export default function UserDetailsPage() {
     },
   });
 
+  // Exclude groups the user already belongs to
   const availableGroups = allGroups.filter(
     (g: Group) => !userGroups.some((ug: Group) => ug.id === g.id)
   );
@@ -720,18 +721,18 @@ export default function UserDetailsPage() {
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
                 <UsersRound className="h-4 w-4 text-muted-foreground" />
-                Groups
+                {t('groupsTitle')}
               </h3>
               <Button size="sm" onClick={() => setIsAddToGroupOpen(true)} className="gap-2">
                 <Plus className="h-4 w-4" />
-                Add to Group
+                {t('addToGroup')}
               </Button>
             </div>
 
             <div className="p-6">
               {userGroups.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">
-                  This user is not a member of any group.
+                  {t('notInAnyGroup')}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -752,7 +753,7 @@ export default function UserDetailsPage() {
                         onClick={() =>
                           ModalManager.confirmDelete(
                             group.displayName || group.name,
-                            'group membership',
+                            t('groupMembership'),
                             async () => { await removeFromGroupMutation.mutateAsync(group.id); }
                           )
                         }
@@ -773,39 +774,39 @@ export default function UserDetailsPage() {
       <Modal
         isOpen={isAddToGroupOpen}
         onClose={() => { setIsAddToGroupOpen(false); setSelectedGroupId(''); }}
-        title="Add to Group"
+        title={t('addToGroupModalTitle')}
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Select Group</label>
+            <label className="block text-sm font-medium text-foreground mb-1">{t('selectGroupLabel')}</label>
             <select
               className="w-full rounded-md border border-input bg-background text-foreground px-3 py-2 text-sm"
               value={selectedGroupId}
               onChange={(e) => setSelectedGroupId(e.target.value)}
             >
-              <option value="">— Select a group —</option>
+              <option value="">{t('selectGroupPlaceholder')}</option>
               {availableGroups.map((g: Group) => (
                 <option key={g.id} value={g.id}>
                   {g.displayName || g.name}
-                  {g.memberCount !== undefined ? ` (${g.memberCount} members)` : ''}
+                  {g.memberCount !== undefined ? ` (${g.memberCount})` : ''}
                 </option>
               ))}
             </select>
             {availableGroups.length === 0 && (
               <p className="text-xs text-muted-foreground mt-1">
-                This user is already in all available groups.
+                {t('alreadyInAllGroups')}
               </p>
             )}
           </div>
           <div className="flex justify-end gap-3">
             <Button variant="secondary" onClick={() => { setIsAddToGroupOpen(false); setSelectedGroupId(''); }}>
-              Cancel
+              {t('cancel')}
             </Button>
             <Button
               onClick={() => addToGroupMutation.mutate(selectedGroupId)}
               disabled={!selectedGroupId || addToGroupMutation.isPending}
             >
-              {addToGroupMutation.isPending ? 'Adding...' : 'Add to Group'}
+              {addToGroupMutation.isPending ? t('addingToGroup') : t('addToGroup')}
             </Button>
           </div>
         </div>

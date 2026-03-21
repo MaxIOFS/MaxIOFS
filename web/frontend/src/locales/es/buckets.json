@@ -279,5 +279,12 @@
   "enableLegalHoldText": "El objeto no podrá eliminarse hasta que se elimine la retención legal.",
   "disableLegalHoldText": "El objeto podrá eliminarse de nuevo (si no está bajo retención).",
   "enable": "Activar",
-  "disable": "Desactivar"
+  "disable": "Desactivar",
+  "permTypeGroup": "Grupo",
+  "grantTypeUser": "Usuario",
+  "grantTypeGroup": "Grupo",
+  "selectGroupLabel": "Seleccionar Grupo",
+  "selectGroupPlaceholder": "— Selecciona un grupo —",
+  "noEligibleGroups": "No se encontraron grupos elegibles. Crea grupos primero en la sección de Grupos.",
+  "selectGroupRequired": "Por favor selecciona un grupo."
 }

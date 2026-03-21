@@ -90,6 +90,7 @@ export function SidebarNav({
     'Dashboard':          tNav('dashboard'),
     'Buckets':            tNav('buckets'),
     'Users':              tNav('users'),
+    'Groups':             tNav('groups'),
     'Access Keys':        tNav('accessKeys'),
     'Tenants':            tNav('tenants'),
     'Identity Providers': tNav('identityProviders'),
