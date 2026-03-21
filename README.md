@@ -13,6 +13,12 @@
 
 [Quick Start](#-quick-start) · [Documentation](docs/) · [Changelog](CHANGELOG.md) · [Website](https://maxiofs.com)
 
+<br/>
+
+<a href="https://www.paypal.com/donate/?hosted_button_id=JN4GCXUFVPT52">
+  <img src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif" alt="Donate with PayPal"/>
+</a>
+
 </div>
 
 ---
