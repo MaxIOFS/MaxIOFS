@@ -446,7 +446,7 @@ func TestUserHasBucketPermission_WithAuthManager(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test permission check
-	hasPermission := env.handler.userHasBucketPermission(ctx, env.tenantID, "permission-bucket", env.userID)
+	hasPermission := env.handler.userHasBucketPermission(nil, env.tenantID, "permission-bucket", env.userID)
 
 	// With auth manager, should check bucket access
 	// Default behavior may vary based on authManager implementation
@@ -467,7 +467,7 @@ func TestUserHasBucketPermission_NilAuthManager(t *testing.T) {
 	env.handler.authManager = nil
 
 	// Test permission check without auth manager
-	hasPermission := env.handler.userHasBucketPermission(ctx, env.tenantID, "nil-auth-bucket", "some-user")
+	hasPermission := env.handler.userHasBucketPermission(nil, env.tenantID, "nil-auth-bucket", "some-user")
 
 	// Should fall back to policy check
 	assert.False(t, hasPermission)
@@ -488,7 +488,7 @@ func TestCheckBucketPolicyPermission_NoPolicy(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check permission - should return false (no policy = no policy-based permission)
-	hasPermission := env.handler.checkBucketPolicyPermission(ctx, env.tenantID, "no-policy-bucket", env.userID, "s3:ListBucket")
+	hasPermission := env.handler.checkBucketPolicyPermission(nil, env.tenantID, "no-policy-bucket", env.userID, "s3:ListBucket")
 	assert.False(t, hasPermission)
 }
 
@@ -519,7 +519,7 @@ func TestCheckBucketPolicyPermission_WithPolicy(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check permission - should return true with wildcard policy
-	hasPermission := env.handler.checkBucketPolicyPermission(ctx, env.tenantID, "policy-bucket", env.userID, "s3:GetObject")
+	hasPermission := env.handler.checkBucketPolicyPermission(nil, env.tenantID, "policy-bucket", env.userID, "s3:GetObject")
 	assert.True(t, hasPermission)
 }
 
@@ -549,7 +549,7 @@ func TestCheckBucketPolicyPermission_ObjectAction(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check object-level action (GetObject contains "Object")
-	hasPermission := env.handler.checkBucketPolicyPermission(ctx, env.tenantID, "object-policy-bucket", env.userID, "s3:GetObject")
+	hasPermission := env.handler.checkBucketPolicyPermission(nil, env.tenantID, "object-policy-bucket", env.userID, "s3:GetObject")
 	assert.True(t, hasPermission)
 }
 
@@ -1206,22 +1206,6 @@ func TestDeleteObjectsRequest_XMLUnmarshal(t *testing.T) {
 	assert.Equal(t, "v123", req.Objects[1].VersionId)
 }
 
-// ============================================
-// Tests for GetObjectVersions (0% coverage - stub)
-// ============================================
-
-func TestGetObjectVersions_NotImplemented(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	req := httptest.NewRequest(http.MethodGet, "/test-bucket?versions", nil)
-	req = mux.SetURLVars(req, map[string]string{"bucket": "test-bucket"})
-
-	w := httptest.NewRecorder()
-	env.handler.GetObjectVersions(w, req)
-
-	assert.Equal(t, http.StatusNotImplemented, w.Code)
-}
 
 // ============================================
 // Tests for DeleteObjectVersion (0% coverage)

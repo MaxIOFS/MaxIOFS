@@ -62,8 +62,10 @@ export default function GroupsPage() {
   });
 
   const handleDelete = (group: Group) => {
-    ModalManager.confirmDelete(group.name, 'group', async () => {
-      await deleteMutation.mutateAsync(group.id);
+    ModalManager.confirmDelete(group.name, 'group').then((result) => {
+      if (result.isConfirmed) {
+        deleteMutation.mutate(group.id);
+      }
     });
   };
 
@@ -172,7 +174,7 @@ export default function GroupsPage() {
                     </span>
                   </TableCell>
                   <TableCell className="text-gray-500 dark:text-gray-400 text-sm">
-                    {formatRelativeTime(group.createdAt * 1000)}
+                    {formatRelativeTime(new Date(group.createdAt * 1000))}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>

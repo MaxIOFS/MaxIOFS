@@ -218,7 +218,6 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	objectRouter.HandleFunc("", h.s3Handler.AbortMultipartUpload).Methods("DELETE").Queries("uploadId", "{uploadId}")
 
 	// Object versioning (with query parameters)
-	objectRouter.HandleFunc("", h.s3Handler.GetObjectVersions).Methods("GET").Queries("versions", "")
 	objectRouter.HandleFunc("", h.s3Handler.DeleteObjectVersion).Methods("DELETE").Queries("versionId", "{versionId}")
 
 	// Object Lock operations (with query parameters)

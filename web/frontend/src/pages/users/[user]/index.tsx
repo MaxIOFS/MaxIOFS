@@ -751,11 +751,11 @@ export default function UserDetailsPage() {
                         size="sm"
                         variant="ghost"
                         onClick={() =>
-                          ModalManager.confirmDelete(
-                            group.displayName || group.name,
-                            t('groupMembership'),
-                            async () => { await removeFromGroupMutation.mutateAsync(group.id); }
-                          )
+                          ModalManager.confirmDelete(group.displayName || group.name, t('groupMembership')).then((result) => {
+                            if (result.isConfirmed) {
+                              removeFromGroupMutation.mutate(group.id);
+                            }
+                          })
                         }
                         className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
                       >

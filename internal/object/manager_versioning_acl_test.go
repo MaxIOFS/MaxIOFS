@@ -159,14 +159,11 @@ func TestDeleteObjectVersion(t *testing.T) {
 
 	bucket := "test-bucket"
 	key := "test-object.txt"
-	versionID := "test-version-123"
 
-	// Attempt to delete a version
-	err := om.DeleteObjectVersion(ctx, bucket, key, versionID)
-
-	// Should return "not yet implemented" error
+	// Non-existent version should return an error (not "not implemented")
+	err := om.DeleteObjectVersion(ctx, bucket, key, "nonexistent-version-id")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not yet implemented", "Should return not implemented error")
+	assert.NotContains(t, err.Error(), "not yet implemented", "Should no longer return stub error")
 }
 
 // TestGetObjectACL tests getting object ACL

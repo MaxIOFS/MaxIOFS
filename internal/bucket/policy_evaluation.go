@@ -3,15 +3,19 @@ package bucket
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 )
 
 // PolicyEvaluationRequest contains the context for policy evaluation
 type PolicyEvaluationRequest struct {
-	Principal string // User ARN or canonical user ID
-	Action    string // S3 action (e.g., "s3:GetObject", "s3:PutObject")
-	Resource  string // Resource ARN (e.g., "arn:aws:s3:::bucket/*")
-	Bucket    string // Bucket name
+	Principal      string            // User ARN or canonical user ID
+	Action         string            // S3 action (e.g., "s3:GetObject", "s3:PutObject")
+	Resource       string            // Resource ARN (e.g., "arn:aws:s3:::bucket/*")
+	Bucket         string            // Bucket name
+	SourceIP       string            // Client IP address (for aws:SourceIp conditions)
+	SecureTransport bool             // Whether the request uses TLS (for aws:SecureTransport conditions)
+	RequestContext  map[string]string // Additional condition context keys (e.g., "s3:prefix")
 }
 
 // PolicyDecision represents the result of policy evaluation
@@ -87,17 +91,21 @@ func statementMatches(statement Statement, request PolicyEvaluationRequest) bool
 		return false
 	}
 
-	// TODO: Implement Condition evaluation in future enhancement
-	// For now, we ignore conditions
+	// Check Condition match — all conditions must pass (AND logic)
+	if !conditionMatches(statement.Condition, request) {
+		return false
+	}
 
 	return true
 }
 
-// principalMatches checks if the principal matches
+// principalMatches checks if the principal matches.
+// A nil principal means the statement is malformed and does NOT match anyone,
+// consistent with AWS S3 behavior (Principal is required in bucket policies).
 func principalMatches(principal interface{}, requestPrincipal string) bool {
 	if principal == nil {
-		// No principal specified = matches all (backward compatibility)
-		return true
+		// Malformed statement — do not grant access
+		return false
 	}
 
 	switch p := principal.(type) {
@@ -312,6 +320,269 @@ func normalizeResourceARN(resource, bucketName string) string {
 
 	// Unknown format - return as-is
 	return resource
+}
+
+// ─── Condition evaluation ─────────────────────────────────────────────────────
+
+// conditionMatches evaluates all condition blocks against the request.
+// All condition operators must match (AND logic across operators).
+// Within each operator, all condition keys must match (AND logic).
+func conditionMatches(condition map[string]interface{}, req PolicyEvaluationRequest) bool {
+	if len(condition) == 0 {
+		return true
+	}
+
+	for operator, conditionValue := range condition {
+		kvMap, ok := conditionValue.(map[string]interface{})
+		if !ok {
+			// Malformed condition block — treat as non-matching
+			return false
+		}
+		for condKey, condExpected := range kvMap {
+			requestValue := resolveConditionKey(condKey, req)
+			if !evaluateOperator(operator, requestValue, condExpected) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// resolveConditionKey maps an AWS condition key to its value from the request context.
+func resolveConditionKey(key string, req PolicyEvaluationRequest) string {
+	switch strings.ToLower(key) {
+	case "aws:sourceip":
+		return req.SourceIP
+	case "aws:securetransport":
+		if req.SecureTransport {
+			return "true"
+		}
+		return "false"
+	default:
+		// Look up in request context map
+		if req.RequestContext != nil {
+			if v, ok := req.RequestContext[key]; ok {
+				return v
+			}
+			// Case-insensitive fallback
+			lk := strings.ToLower(key)
+			for k, v := range req.RequestContext {
+				if strings.ToLower(k) == lk {
+					return v
+				}
+			}
+		}
+		return ""
+	}
+}
+
+// evaluateOperator dispatches to the appropriate condition operator.
+// requestValue is the actual value from the request; expected is the policy value
+// (can be a single string or a list — the condition is satisfied if ANY value matches).
+func evaluateOperator(operator, requestValue string, expected interface{}) bool {
+	// Normalise expected to a []string so all operators work uniformly
+	expectedValues := toStringSlice(expected)
+	if len(expectedValues) == 0 {
+		return false
+	}
+
+	op := strings.ToLower(operator)
+	switch op {
+	// ── String operators ──────────────────────────────────────────────────────
+	case "stringequals":
+		for _, v := range expectedValues {
+			if requestValue == v {
+				return true
+			}
+		}
+		return false
+
+	case "stringnotequals":
+		for _, v := range expectedValues {
+			if requestValue == v {
+				return false
+			}
+		}
+		return true
+
+	case "stringequalsignorecase":
+		for _, v := range expectedValues {
+			if strings.EqualFold(requestValue, v) {
+				return true
+			}
+		}
+		return false
+
+	case "stringnotequalsignorecase":
+		for _, v := range expectedValues {
+			if strings.EqualFold(requestValue, v) {
+				return false
+			}
+		}
+		return true
+
+	case "stringlike":
+		for _, v := range expectedValues {
+			if wildcardMatch(v, requestValue) {
+				return true
+			}
+		}
+		return false
+
+	case "stringnotlike":
+		for _, v := range expectedValues {
+			if wildcardMatch(v, requestValue) {
+				return false
+			}
+		}
+		return true
+
+	// ── Bool operator ─────────────────────────────────────────────────────────
+	case "bool":
+		for _, v := range expectedValues {
+			if strings.EqualFold(requestValue, v) {
+				return true
+			}
+		}
+		return false
+
+	// ── IP address operators ──────────────────────────────────────────────────
+	case "ipaddress":
+		ip := net.ParseIP(requestValue)
+		if ip == nil {
+			return false
+		}
+		for _, v := range expectedValues {
+			if ipMatchesCIDR(ip, v) {
+				return true
+			}
+		}
+		return false
+
+	case "notipaddress":
+		ip := net.ParseIP(requestValue)
+		if ip == nil {
+			// Unknown IP — safe to deny for NotIpAddress
+			return false
+		}
+		for _, v := range expectedValues {
+			if ipMatchesCIDR(ip, v) {
+				return false // IP is in a denied range
+			}
+		}
+		return true
+
+	// ── ARN operators ─────────────────────────────────────────────────────────
+	case "arnequals", "arnlike":
+		for _, v := range expectedValues {
+			if wildcardMatch(v, requestValue) {
+				return true
+			}
+		}
+		return false
+
+	case "arnnotequals", "arnnotlike":
+		for _, v := range expectedValues {
+			if wildcardMatch(v, requestValue) {
+				return false
+			}
+		}
+		return true
+
+	// ── Numeric operators (basic string comparison on numeric strings) ─────────
+	case "numericequals":
+		for _, v := range expectedValues {
+			if requestValue == v {
+				return true
+			}
+		}
+		return false
+
+	case "numericnotequals":
+		for _, v := range expectedValues {
+			if requestValue == v {
+				return false
+			}
+		}
+		return true
+
+	default:
+		// Unknown operator — fail safe (deny)
+		return false
+	}
+}
+
+// wildcardMatch matches pattern against s using AWS wildcard conventions:
+// '*' matches any sequence of characters, '?' matches any single character.
+func wildcardMatch(pattern, s string) bool {
+	// Fast paths
+	if pattern == "*" {
+		return true
+	}
+	if pattern == s {
+		return true
+	}
+
+	// dp-free recursive matching via index walking
+	pi, si := 0, 0
+	starIdx, matchIdx := -1, 0
+
+	for si < len(s) {
+		if pi < len(pattern) && (pattern[pi] == '?' || pattern[pi] == s[si]) {
+			pi++
+			si++
+		} else if pi < len(pattern) && pattern[pi] == '*' {
+			starIdx = pi
+			matchIdx = si
+			pi++
+		} else if starIdx != -1 {
+			pi = starIdx + 1
+			matchIdx++
+			si = matchIdx
+		} else {
+			return false
+		}
+	}
+	for pi < len(pattern) && pattern[pi] == '*' {
+		pi++
+	}
+	return pi == len(pattern)
+}
+
+// ipMatchesCIDR checks whether ip is contained in the CIDR range.
+// Also accepts a bare IP address (treated as /32 or /128).
+func ipMatchesCIDR(ip net.IP, cidr string) bool {
+	// Try CIDR first
+	_, network, err := net.ParseCIDR(cidr)
+	if err == nil {
+		return network.Contains(ip)
+	}
+	// Try bare IP
+	other := net.ParseIP(cidr)
+	if other != nil {
+		return ip.Equal(other)
+	}
+	return false
+}
+
+// toStringSlice normalises a condition value (string or []interface{}) to []string.
+func toStringSlice(v interface{}) []string {
+	switch val := v.(type) {
+	case string:
+		return []string{val}
+	case []interface{}:
+		out := make([]string, 0, len(val))
+		for _, item := range val {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []string:
+		return val
+	default:
+		return nil
+	}
 }
 
 // IsActionAllowed is a convenience function that returns true if action is allowed

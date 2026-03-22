@@ -408,7 +408,7 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Include if user has permissions in bucket policy
-			if h.userHasBucketPermission(r.Context(), tenantID, b.Name, user.ID) {
+			if h.userHasBucketPermission(r, tenantID, b.Name, user.ID) {
 				filteredBuckets = append(filteredBuckets, b)
 			}
 		}
@@ -422,7 +422,7 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Include if user has permissions in bucket policy
-			if h.userHasBucketPermission(r.Context(), tenantID, b.Name, user.ID) {
+			if h.userHasBucketPermission(r, tenantID, b.Name, user.ID) {
 				filteredBuckets = append(filteredBuckets, b)
 			}
 		}
@@ -450,7 +450,11 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 }
 
 // userHasBucketPermission checks if user has explicit permissions (ACLs or Policy)
-func (h *Handler) userHasBucketPermission(ctx context.Context, tenantID, bucketName, userID string) bool {
+func (h *Handler) userHasBucketPermission(r *http.Request, tenantID, bucketName, userID string) bool {
+	ctx := context.Background()
+	if r != nil {
+		ctx = r.Context()
+	}
 	// Check bucket permissions table (frontend ACLs)
 	if h.authManager != nil {
 		hasAccess, _, err := h.authManager.CheckBucketAccess(ctx, bucketName, userID)
@@ -461,13 +465,20 @@ func (h *Handler) userHasBucketPermission(ctx context.Context, tenantID, bucketN
 
 	// Check bucket policy (S3 style)
 	// For ListBuckets, we check if user has any S3 action permission on the bucket
-	return h.checkBucketPolicyPermission(ctx, tenantID, bucketName, userID, "s3:ListBucket")
+	return h.checkBucketPolicyPermission(r, tenantID, bucketName, userID, "s3:ListBucket")
 }
 
-// checkBucketPolicyPermission evaluates bucket policy for a specific action
-func (h *Handler) checkBucketPolicyPermission(ctx context.Context, tenantID, bucketName, userID, action string) bool {
+// checkBucketPolicyPermission evaluates bucket policy for a specific action.
+// r may be nil (e.g. from internal callers); when non-nil, IP and TLS context
+// are extracted so that aws:SourceIp and aws:SecureTransport conditions work.
+func (h *Handler) checkBucketPolicyPermission(r *http.Request, tenantID, bucketName, userID, action string) bool {
 	if h.bucketManager == nil {
 		return false
+	}
+
+	ctx := context.Background()
+	if r != nil {
+		ctx = r.Context()
 	}
 
 	// Get bucket policy
@@ -486,15 +497,20 @@ func (h *Handler) checkBucketPolicyPermission(ctx context.Context, tenantID, buc
 		resource = fmt.Sprintf("arn:aws:s3:::%s/*", bucketName)
 	}
 
-	// Construct principal - use canonical user ID
-	principal := userID
-
-	// Evaluate policy
+	// Build request context with IP and TLS info from the HTTP request
 	request := bucket.PolicyEvaluationRequest{
-		Principal: principal,
+		Principal: userID,
 		Action:    action,
 		Resource:  resource,
 		Bucket:    bucketName,
+	}
+	if r != nil {
+		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+			request.SourceIP = host
+		} else {
+			request.SourceIP = r.RemoteAddr
+		}
+		request.SecureTransport = r.TLS != nil
 	}
 
 	return bucket.IsActionAllowed(ctx, policy, request)
@@ -2405,10 +2421,7 @@ func (h *Handler) convertObjectACLToInternal(objACL *object.ACL) *acl.ACL {
 	return aclData
 }
 
-// Placeholder stubs for future implementation
-func (h *Handler) GetObjectVersions(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
+// DeleteObjectVersion handles DELETE /{bucket}/{key}?versionId={id}
 func (h *Handler) DeleteObjectVersion(w http.ResponseWriter, r *http.Request) {
 	// This handler is called when DELETE has versionId query parameter
 	// Redirect to DeleteObject which now handles versionId

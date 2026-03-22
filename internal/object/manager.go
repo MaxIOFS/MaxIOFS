@@ -1491,8 +1491,7 @@ func (om *objectManager) GetObjectVersions(ctx context.Context, bucket, key stri
 }
 
 func (om *objectManager) DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error {
-	// TODO: Implement versioning in Fase 7.2
-	return fmt.Errorf("versioning not yet implemented")
+	return om.deleteSpecificVersion(ctx, bucket, key, versionID)
 }
 
 // Tagging operations implementations

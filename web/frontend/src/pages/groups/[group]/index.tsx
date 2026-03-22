@@ -49,7 +49,7 @@ export default function GroupDetailPage() {
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => APIClient.listUsers(),
+    queryFn: () => APIClient.getUsers(),
     enabled: isAddMemberOpen,
   });
 
@@ -81,11 +81,11 @@ export default function GroupDetailPage() {
   });
 
   const handleRemoveMember = (member: GroupMember) => {
-    ModalManager.confirmDelete(
-      member.username || member.userId,
-      'member',
-      async () => { await removeMemberMutation.mutateAsync(member.userId); }
-    );
+    ModalManager.confirmDelete(member.username || member.userId, 'member').then((result) => {
+      if (result.isConfirmed) {
+        removeMemberMutation.mutate(member.userId);
+      }
+    });
   };
 
   const handleEditStart = () => {
@@ -224,7 +224,7 @@ export default function GroupDetailPage() {
                       {member.email || '—'}
                     </TableCell>
                     <TableCell className="text-gray-500 dark:text-gray-400 text-sm">
-                      {formatRelativeTime(member.addedAt * 1000)}
+                      {formatRelativeTime(new Date(member.addedAt * 1000))}
                     </TableCell>
                     {isAnyAdmin && (
                       <TableCell className="text-right">
