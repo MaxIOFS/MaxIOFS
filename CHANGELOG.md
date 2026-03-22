@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Data race in `metrics.collector.running`** — `StartBackgroundCollection` and `StopBackgroundCollection` wrote the `running bool` field concurrently without synchronization; detected with `-race`. Replaced `bool` with `sync/atomic.Bool`; `StartBackgroundCollection` uses `CompareAndSwap` to guarantee only one goroutine runs at a time, and `defer Store(false)` as the single write point on exit. (`internal/metrics/collector.go`)
+- **Data race in `handleTrace`** — the handler launched `pprof.Trace(w, r)` in a background goroutine and returned when the timeout fired, leaving the goroutine still writing to the `ResponseRecorder` while the caller was already reading it. Removed the goroutine+select pattern; `pprof.Trace` now receives a `context.WithTimeout` and blocks until completion, ensuring the handler does not return while `w` is still being written. (`internal/server/profiling.go`)
+- **Data race in `TestHandleNotificationStreamExtraCases`** — the test read `rr.Code` after a `time.Sleep` while the SSE handler was still writing to the same `ResponseRecorder`. Replaced the sleep with `context.WithTimeout` and a `done` channel: the test waits for the handler to finish before reading the result. (`internal/server/server_test.go`)
+
 ### Changed
 - **Go dependencies updated to latest** — all direct and indirect Go dependencies updated to their latest available versions. Notable updates: `google.golang.org/grpc` v1.56.3 → v1.79.3, `go.opentelemetry.io/otel/sdk` v1.37.0 → v1.42.0, `modernc.org/sqlite` v1.40.0 → v1.47.0, `golang.org/x/crypto`, `golang.org/x/net`, `golang.org/x/sys`, `golang.org/x/text` updated across 6+ minor versions each. Two previously retracted packages resolved: `github.com/klauspost/compress` v1.18.1 → v1.18.5 and `github.com/microcosm-cc/bluemonday` v1.0.23 → v1.0.27. No vulnerabilities detected via `govulncheck` post-update. (`go.mod`, `go.sum`)
 
