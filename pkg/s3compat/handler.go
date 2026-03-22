@@ -2949,6 +2949,31 @@ func (h *Handler) setGetObjectResponseHeaders(w http.ResponseWriter, obj *object
 	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
+	w.Header().Set("x-amz-storage-class", storageClassOrStandard(obj.StorageClass))
+
+	// S3 system response headers stored at upload time
+	if obj.ContentDisposition != "" {
+		w.Header().Set("Content-Disposition", obj.ContentDisposition)
+	}
+	if obj.ContentEncoding != "" {
+		w.Header().Set("Content-Encoding", obj.ContentEncoding)
+	}
+	if obj.CacheControl != "" {
+		w.Header().Set("Cache-Control", obj.CacheControl)
+	}
+	if obj.ContentLanguage != "" {
+		w.Header().Set("Content-Language", obj.ContentLanguage)
+	}
+
+	// User-defined metadata (x-amz-meta-*)
+	for k, v := range obj.Metadata {
+		w.Header().Set("x-amz-meta-"+k, v)
+	}
+
+	// Tag count — returned when object has tags
+	if obj.Tags != nil && len(obj.Tags.Tags) > 0 {
+		w.Header().Set("x-amz-tag-count", strconv.Itoa(len(obj.Tags.Tags)))
+	}
 
 	if obj.VersionID != "" {
 		w.Header().Set("x-amz-version-id", obj.VersionID)
@@ -3392,6 +3417,31 @@ func (h *Handler) setHeadObjectResponseHeaders(w http.ResponseWriter, obj *objec
 	w.Header().Set("Content-Length", strconv.FormatInt(obj.Size, 10))
 	w.Header().Set("ETag", obj.ETag)
 	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
+	w.Header().Set("x-amz-storage-class", storageClassOrStandard(obj.StorageClass))
+
+	// S3 system response headers stored at upload time
+	if obj.ContentDisposition != "" {
+		w.Header().Set("Content-Disposition", obj.ContentDisposition)
+	}
+	if obj.ContentEncoding != "" {
+		w.Header().Set("Content-Encoding", obj.ContentEncoding)
+	}
+	if obj.CacheControl != "" {
+		w.Header().Set("Cache-Control", obj.CacheControl)
+	}
+	if obj.ContentLanguage != "" {
+		w.Header().Set("Content-Language", obj.ContentLanguage)
+	}
+
+	// User-defined metadata (x-amz-meta-*)
+	for k, v := range obj.Metadata {
+		w.Header().Set("x-amz-meta-"+k, v)
+	}
+
+	// Tag count — returned when object has tags
+	if obj.Tags != nil && len(obj.Tags.Tags) > 0 {
+		w.Header().Set("x-amz-tag-count", strconv.Itoa(len(obj.Tags.Tags)))
+	}
 
 	// Object Lock headers (Veeam compatibility)
 	if obj.Retention != nil {

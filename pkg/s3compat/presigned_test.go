@@ -657,7 +657,7 @@ func TestValidatePresignedURLV2_MissingParameters(t *testing.T) {
 			expires:       strconv.FormatInt(time.Now().Add(1*time.Hour).Unix(), 10),
 			signature:     "sig",
 			shouldError:   true,
-			errorContains: "access key not found",
+			errorContains: "AWS Access Key Id",
 		},
 	}
 
@@ -736,7 +736,7 @@ func TestCalculateSignatureV2_Consistency(t *testing.T) {
 	// Should be identical
 	assert.Equal(t, sig1, sig2, "Signature calculation should be deterministic")
 	assert.NotEmpty(t, sig1, "Signature should not be empty")
-	assert.Len(t, sig1, 64, "V2 signature should be 64 hex characters (SHA256)")
+	assert.Len(t, sig1, 28, "V2 signature should be 28 base64 characters (HMAC-SHA1)")
 }
 
 // TestPresignedURL_DifferentMethods tests presigned URLs for different HTTP methods

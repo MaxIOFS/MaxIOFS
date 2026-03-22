@@ -819,13 +819,34 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		}
 		headers.Set("Content-Type", ct)
 		for k, vals := range r.Header {
-			if strings.HasPrefix(strings.ToLower(k), "x-amz-meta-") {
+			lk := strings.ToLower(k)
+			if strings.HasPrefix(lk, "x-amz-meta-") {
 				headers[k] = vals
+			}
+		}
+		// Preserve S3 system response headers from request if provided
+		for _, h := range []string{"Content-Disposition", "Content-Encoding", "Cache-Control", "Content-Language"} {
+			if v := r.Header.Get(h); v != "" {
+				headers.Set(h, v)
 			}
 		}
 	} else {
 		// COPY — preserve source object metadata.
 		headers.Set("Content-Type", sourceObj.ContentType)
+		// Propagate S3 system response headers
+		if sourceObj.ContentDisposition != "" {
+			headers.Set("Content-Disposition", sourceObj.ContentDisposition)
+		}
+		if sourceObj.ContentEncoding != "" {
+			headers.Set("Content-Encoding", sourceObj.ContentEncoding)
+		}
+		if sourceObj.CacheControl != "" {
+			headers.Set("Cache-Control", sourceObj.CacheControl)
+		}
+		if sourceObj.ContentLanguage != "" {
+			headers.Set("Content-Language", sourceObj.ContentLanguage)
+		}
+		// Propagate user-defined metadata
 		for k, v := range sourceObj.Metadata {
 			headers.Set("X-Amz-Meta-"+k, v)
 		}

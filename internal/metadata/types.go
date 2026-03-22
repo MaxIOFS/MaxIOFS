@@ -12,8 +12,12 @@ type ObjectMetadata struct {
 	Size         int64     `json:"size"`
 	LastModified time.Time `json:"last_modified"`
 	ETag         string    `json:"etag"`
-	ContentType  string    `json:"content_type"`
-	StorageClass string    `json:"storage_class,omitempty"`
+	ContentType        string `json:"content_type"`
+	StorageClass       string `json:"storage_class,omitempty"`
+	ContentDisposition string `json:"content_disposition,omitempty"`
+	ContentEncoding    string `json:"content_encoding,omitempty"`
+	CacheControl       string `json:"cache_control,omitempty"`
+	ContentLanguage    string `json:"content_language,omitempty"`
 
 	// Custom metadata (user-defined headers)
 	Metadata map[string]string `json:"metadata,omitempty"`

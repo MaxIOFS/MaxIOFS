@@ -84,9 +84,13 @@ type Object struct {
 	Size         int64             `json:"size"`
 	LastModified time.Time         `json:"last_modified"`
 	ETag         string            `json:"etag"`
-	ContentType       string            `json:"content_type"`
-	Metadata          map[string]string `json:"metadata"`
-	StorageClass      string            `json:"storage_class"`
+	ContentType        string            `json:"content_type"`
+	ContentDisposition string            `json:"content_disposition,omitempty"`
+	ContentEncoding    string            `json:"content_encoding,omitempty"`
+	CacheControl       string            `json:"cache_control,omitempty"`
+	ContentLanguage    string            `json:"content_language,omitempty"`
+	Metadata           map[string]string `json:"metadata"`
+	StorageClass       string            `json:"storage_class"`
 	ChecksumAlgorithm string            `json:"checksum_algorithm,omitempty"`
 	ChecksumValue     string            `json:"checksum_value,omitempty"`
 	VersionID    string            `json:"version_id,omitempty"`
@@ -320,14 +324,18 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 		lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
 
 		object = &Object{
-			Key:          key,
-			Bucket:       bucket,
-			Size:         size,
-			LastModified: time.Unix(lastModified, 0),
-			ETag:         etag,
-			ContentType:  storageMetadata["content-type"],
-			Metadata:     storageMetadata,
-			StorageClass: StorageClassStandard,
+			Key:                key,
+			Bucket:             bucket,
+			Size:               size,
+			LastModified:       time.Unix(lastModified, 0),
+			ETag:               etag,
+			ContentType:        storageMetadata["content-type"],
+			ContentDisposition: storageMetadata["content-disposition"],
+			ContentEncoding:    storageMetadata["content-encoding"],
+			CacheControl:       storageMetadata["cache-control"],
+			ContentLanguage:    storageMetadata["content-language"],
+			Metadata:           nil, // User metadata not available in sidecar path
+			StorageClass:       StorageClassStandard,
 		}
 	}
 
@@ -524,17 +532,21 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	}
 
 	object := &Object{
-		Key:               key,
-		Bucket:            bucket,
-		Size:              size, // Original size (unencrypted)
-		LastModified:      time.Unix(lastModified, 0),
-		ETag:              originalETag, // Original ETag (MD5 of unencrypted data)
-		ContentType:       finalStorageMetadata["content-type"],
-		Metadata:          userMetadata, // User metadata from x-amz-meta-* headers
-		StorageClass:      storageClassOrDefault(storageMetadata["storage-class"]),
-		VersionID:         versionID, // Set versionID (empty string if versioning disabled)
-		ChecksumAlgorithm: checksumAlgo,
-		ChecksumValue:     checksumValue,
+		Key:                key,
+		Bucket:             bucket,
+		Size:               size, // Original size (unencrypted)
+		LastModified:       time.Unix(lastModified, 0),
+		ETag:               originalETag, // Original ETag (MD5 of unencrypted data)
+		ContentType:        finalStorageMetadata["content-type"],
+		ContentDisposition: storageMetadata["content-disposition"],
+		ContentEncoding:    storageMetadata["content-encoding"],
+		CacheControl:       storageMetadata["cache-control"],
+		ContentLanguage:    storageMetadata["content-language"],
+		Metadata:           userMetadata, // User metadata from x-amz-meta-* headers
+		StorageClass:       storageClassOrDefault(storageMetadata["storage-class"]),
+		VersionID:          versionID, // Set versionID (empty string if versioning disabled)
+		ChecksumAlgorithm:  checksumAlgo,
+		ChecksumValue:      checksumValue,
 	}
 	if shouldEncrypt {
 		object.SSEAlgorithm = "AES256"
@@ -2284,6 +2296,13 @@ func (om *objectManager) extractMetadataFromHeaders(headers http.Header) (storag
 	// Extract x-amz-storage-class header
 	if sc := headers.Get("x-amz-storage-class"); sc != "" {
 		storageMetadata["storage-class"] = sc
+	}
+
+	// Extract S3 system response headers that must be stored and returned verbatim
+	for _, h := range []string{"Content-Disposition", "Content-Encoding", "Cache-Control", "Content-Language"} {
+		if v := headers.Get(h); v != "" {
+			storageMetadata[strings.ToLower(h)] = v
+		}
 	}
 
 	// Extract user-defined metadata (x-amz-meta-* headers)

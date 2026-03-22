@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -913,9 +914,9 @@ func TestVerifyS3SignatureV2(t *testing.T) {
 
 		secretKey := "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 
-		// Calculate expected signature
+		// Calculate expected signature — AWS S3 V2 uses HMAC-SHA1 encoded as base64
 		stringToSign := manager.createStringToSignV2(req)
-		hash := hmac.New(sha256.New, []byte(secretKey))
+		hash := hmac.New(sha1.New, []byte(secretKey))
 		hash.Write([]byte(stringToSign))
 		expectedSig := base64.StdEncoding.EncodeToString(hash.Sum(nil))
 
@@ -955,9 +956,9 @@ func TestVerifyS3SignatureV2(t *testing.T) {
 		correctSecretKey := "correctSecret123"
 		wrongSecretKey := "wrongSecret456"
 
-		// Calculate signature with correct key
+		// Calculate signature with correct key — AWS S3 V2 uses HMAC-SHA1
 		stringToSign := manager.createStringToSignV2(req)
-		hash := hmac.New(sha256.New, []byte(correctSecretKey))
+		hash := hmac.New(sha1.New, []byte(correctSecretKey))
 		hash.Write([]byte(stringToSign))
 		expectedSig := base64.StdEncoding.EncodeToString(hash.Sum(nil))
 
@@ -1244,9 +1245,9 @@ func TestValidateS3SignatureV2_FullFlow(t *testing.T) {
 				req, _ := http.NewRequest("GET", "/bucket/object.txt", nil)
 				req.Header.Set("Date", "Tue, 27 Mar 2007 19:36:42 +0000")
 
-				// Calculate correct signature
+				// Calculate correct signature — AWS S3 V2 uses HMAC-SHA1 encoded as base64
 				stringToSign := manager.createStringToSignV2(req)
-				hash := hmac.New(sha256.New, []byte(secretKey))
+				hash := hmac.New(sha1.New, []byte(secretKey))
 				hash.Write([]byte(stringToSign))
 				signature := base64.StdEncoding.EncodeToString(hash.Sum(nil))
 

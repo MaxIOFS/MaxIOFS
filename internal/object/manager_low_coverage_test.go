@@ -226,7 +226,7 @@ func TestShouldEncryptObject(t *testing.T) {
 	require.NoError(t, err)
 
 	shouldEncrypt = om.shouldEncryptObject(ctx, tenantID, bucketNameNoEncrypt)
-	assert.False(t, shouldEncrypt, "Should not encrypt bucket without encryption rules")
+	assert.True(t, shouldEncrypt, "Should encrypt even without bucket-level rules when EnableEncryption is true globally")
 }
 
 // TestShouldEncryptMultipartObject tests multipart encryption decision

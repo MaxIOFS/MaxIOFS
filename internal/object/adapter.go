@@ -11,19 +11,23 @@ func toMetadataObject(o *Object) *metadata.ObjectMetadata {
 	}
 
 	metaObj := &metadata.ObjectMetadata{
-		Key:               o.Key,
-		Bucket:            o.Bucket,
-		Size:              o.Size,
-		LastModified:      o.LastModified,
-		ETag:              o.ETag,
-		ContentType:       o.ContentType,
-		Metadata:          o.Metadata,
-		StorageClass:      o.StorageClass,
-		VersionID:         o.VersionID,
-		IsLatest:          o.IsLatest,
-		ChecksumAlgorithm: o.ChecksumAlgorithm,
-		ChecksumValue:     o.ChecksumValue,
-		SSEAlgorithm:      o.SSEAlgorithm,
+		Key:                o.Key,
+		Bucket:             o.Bucket,
+		Size:               o.Size,
+		LastModified:       o.LastModified,
+		ETag:               o.ETag,
+		ContentType:        o.ContentType,
+		ContentDisposition: o.ContentDisposition,
+		ContentEncoding:    o.ContentEncoding,
+		CacheControl:       o.CacheControl,
+		ContentLanguage:    o.ContentLanguage,
+		Metadata:           o.Metadata,
+		StorageClass:       o.StorageClass,
+		VersionID:          o.VersionID,
+		IsLatest:           o.IsLatest,
+		ChecksumAlgorithm:  o.ChecksumAlgorithm,
+		ChecksumValue:      o.ChecksumValue,
+		SSEAlgorithm:       o.SSEAlgorithm,
 	}
 
 	// Object Lock - Retention
@@ -63,19 +67,23 @@ func fromMetadataObject(mo *metadata.ObjectMetadata) *Object {
 	}
 
 	obj := &Object{
-		Key:               mo.Key,
-		Bucket:            mo.Bucket,
-		Size:              mo.Size,
-		LastModified:      mo.LastModified,
-		ETag:              mo.ETag,
-		ContentType:       mo.ContentType,
-		Metadata:          mo.Metadata,
-		StorageClass:      mo.StorageClass,
-		VersionID:         mo.VersionID,
-		IsLatest:          mo.IsLatest,
-		ChecksumAlgorithm: mo.ChecksumAlgorithm,
-		ChecksumValue:     mo.ChecksumValue,
-		SSEAlgorithm:      mo.SSEAlgorithm,
+		Key:                mo.Key,
+		Bucket:             mo.Bucket,
+		Size:               mo.Size,
+		LastModified:       mo.LastModified,
+		ETag:               mo.ETag,
+		ContentType:        mo.ContentType,
+		ContentDisposition: mo.ContentDisposition,
+		ContentEncoding:    mo.ContentEncoding,
+		CacheControl:       mo.CacheControl,
+		ContentLanguage:    mo.ContentLanguage,
+		Metadata:           mo.Metadata,
+		StorageClass:       mo.StorageClass,
+		VersionID:          mo.VersionID,
+		IsLatest:           mo.IsLatest,
+		ChecksumAlgorithm:  mo.ChecksumAlgorithm,
+		ChecksumValue:      mo.ChecksumValue,
+		SSEAlgorithm:       mo.SSEAlgorithm,
 	}
 
 	// Object Lock - Retention
