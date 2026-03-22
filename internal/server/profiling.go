@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/pprof"
 	"runtime"
@@ -120,23 +121,15 @@ func (s *Server) handleTrace(w http.ResponseWriter, r *http.Request) {
 		"user":     r.Context().Value("user_id"),
 	}).Info("Execution trace captured")
 
-	// Create a custom handler that limits trace duration
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", "attachment; filename=trace.out")
 
-	// Use a timeout context to limit trace duration
-	done := make(chan bool)
-	go func() {
-		pprof.Trace(w, r)
-		close(done)
-	}()
+	// Pass a timeout context so pprof.Trace stops after duration and the
+	// handler does not return while the trace goroutine is still writing to w.
+	ctx, cancel := context.WithTimeout(r.Context(), duration)
+	defer cancel()
 
-	select {
-	case <-done:
-		// Trace completed
-	case <-time.After(duration):
-		// Trace timeout - this is handled by pprof internally
-	}
+	pprof.Trace(w, r.WithContext(ctx))
 }
 
 // handleHeap handles heap profile requests

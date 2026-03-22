@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -106,7 +107,7 @@ type S3Metrics struct {
 
 // collector implements the Collector interface
 type collector struct {
-	running   bool
+	running   atomic.Bool
 	stopChan  chan struct{}
 	interval  time.Duration
 	lastTime  time.Time
@@ -227,24 +228,23 @@ func (c *collector) CollectS3Metrics(ctx context.Context) (*S3Metrics, error) {
 
 // StartBackgroundCollection starts collecting metrics in the background
 func (c *collector) StartBackgroundCollection(ctx context.Context, manager Manager, interval time.Duration) {
-	if c.running {
-		return
+	if !c.running.CompareAndSwap(false, true) {
+		return // already running
 	}
 
-	c.running = true
 	c.interval = interval
 
 	go func() {
+		defer c.running.Store(false)
+
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ctx.Done():
-				c.running = false
 				return
 			case <-c.stopChan:
-				c.running = false
 				return
 			case <-ticker.C:
 				c.collectAndReport(ctx, manager)
@@ -255,12 +255,11 @@ func (c *collector) StartBackgroundCollection(ctx context.Context, manager Manag
 
 // StopBackgroundCollection stops background collection
 func (c *collector) StopBackgroundCollection() {
-	if !c.running {
+	if !c.running.Load() {
 		return
 	}
 
 	close(c.stopChan)
-	c.running = false
 }
 
 // IsHealthy returns the health status of the collector
