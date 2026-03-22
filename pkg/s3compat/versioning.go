@@ -3,6 +3,7 @@ package s3compat
 import (
 	"encoding/xml"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -95,17 +96,27 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Collect all versions and delete markers
-	var allVersions []VersionEntry
-	var allDeleteMarkers []DeleteMarker
+	// versionItem is a unified type for sorting versions and delete markers together
+	type versionItem struct {
+		key          string
+		versionID    string
+		lastModified time.Time
+		isDeleteMarker bool
+		// fields for VersionEntry
+		isLatest     bool
+		etag         string
+		size         int64
+		storageClass string
+	}
+
+	var unified []versionItem
 
 	for _, ver := range allObjectVersions {
 		// Skip if before key marker
 		if keyMarker != "" && ver.Key < keyMarker {
 			continue
 		}
-
-		// Skip if we're after keyMarker but this specific version is before versionIDMarker
+		// Skip if at keyMarker but before versionIDMarker
 		if keyMarker == ver.Key && versionIDMarker != "" && ver.VersionID < versionIDMarker {
 			continue
 		}
@@ -115,68 +126,67 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 			versionID = "null"
 		}
 
-		// Check if this is a delete marker (Size==0 and ETag=="")
 		isDeleteMarker := ver.Size == 0 && ver.ETag == ""
 
-		if isDeleteMarker {
-			// Add as DeleteMarker
-			allDeleteMarkers = append(allDeleteMarkers, DeleteMarker{
-				Key:          encodeStr(ver.Key),
-				VersionId:    versionID,
-				IsLatest:     ver.IsLatest,
-				LastModified: ver.LastModified,
-				Owner: Owner{
-					ID:          "maxiofs",
-					DisplayName: "MaxIOFS",
-				},
-			})
-		} else {
-			// Add as regular version
-			allVersions = append(allVersions, VersionEntry{
-				Key:          encodeStr(ver.Key),
-				VersionId:    versionID,
-				IsLatest:     ver.IsLatest,
-				LastModified: ver.LastModified,
-				ETag:         ver.ETag,
-				Size:         ver.Size,
-				Owner: Owner{
-					ID:          "maxiofs",
-					DisplayName: "MaxIOFS",
-				},
-				StorageClass: storageClassOrStandard(ver.StorageClass),
-			})
-		}
+		unified = append(unified, versionItem{
+			key:            ver.Key,
+			versionID:      versionID,
+			lastModified:   ver.LastModified,
+			isDeleteMarker: isDeleteMarker,
+			isLatest:       ver.IsLatest,
+			etag:           ver.ETag,
+			size:           ver.Size,
+			storageClass:   ver.StorageClass,
+		})
 	}
 
-	// Truncate to maxKeys (combined versions + delete markers)
-	totalItems := len(allVersions) + len(allDeleteMarkers)
-	isTruncated := totalItems > maxKeys
-	if isTruncated {
-		// Simple truncation - in real S3 we'd need to interleave and sort properly
-		remaining := maxKeys
-		if len(allVersions) > remaining {
-			allVersions = allVersions[:remaining]
-			allDeleteMarkers = nil
-		} else {
-			remaining -= len(allVersions)
-			if len(allDeleteMarkers) > remaining {
-				allDeleteMarkers = allDeleteMarkers[:remaining]
-			}
+	// Sort: by Key ASC, then LastModified DESC (newest first within same key) — matches AWS S3 ordering
+	sort.Slice(unified, func(i, j int) bool {
+		if unified[i].key != unified[j].key {
+			return unified[i].key < unified[j].key
 		}
-	}
+		return unified[i].lastModified.After(unified[j].lastModified)
+	})
 
-	// Determine next markers
+	// Truncate the unified list to maxKeys, then split into versions and delete markers
+	isTruncated := len(unified) > maxKeys
 	nextKeyMarker := ""
 	nextVersionIDMarker := ""
 	if isTruncated {
-		if len(allVersions) > 0 {
-			lastVersion := allVersions[len(allVersions)-1]
-			nextKeyMarker = lastVersion.Key
-			nextVersionIDMarker = lastVersion.VersionId
-		} else if len(allDeleteMarkers) > 0 {
-			lastMarker := allDeleteMarkers[len(allDeleteMarkers)-1]
-			nextKeyMarker = lastMarker.Key
-			nextVersionIDMarker = lastMarker.VersionId
+		nextKeyMarker = encodeStr(unified[maxKeys].key)
+		nextVersionIDMarker = unified[maxKeys].versionID
+		unified = unified[:maxKeys]
+	}
+
+	var allVersions []VersionEntry
+	var allDeleteMarkers []DeleteMarker
+
+	for _, item := range unified {
+		if item.isDeleteMarker {
+			allDeleteMarkers = append(allDeleteMarkers, DeleteMarker{
+				Key:          encodeStr(item.key),
+				VersionId:    item.versionID,
+				IsLatest:     item.isLatest,
+				LastModified: item.lastModified,
+				Owner: Owner{
+					ID:          "maxiofs",
+					DisplayName: "MaxIOFS",
+				},
+			})
+		} else {
+			allVersions = append(allVersions, VersionEntry{
+				Key:          encodeStr(item.key),
+				VersionId:    item.versionID,
+				IsLatest:     item.isLatest,
+				LastModified: item.lastModified,
+				ETag:         item.etag,
+				Size:         item.size,
+				Owner: Owner{
+					ID:          "maxiofs",
+					DisplayName: "MaxIOFS",
+				},
+				StorageClass: storageClassOrStandard(item.storageClass),
+			})
 		}
 	}
 

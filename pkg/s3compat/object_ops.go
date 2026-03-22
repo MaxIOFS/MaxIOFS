@@ -871,6 +871,16 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		h.applyObjectCannedACLHeader(r.Context(), destBucketPath, destKey, cannedACL)
 	}
 
+	// Set version ID response headers before writing XML body
+	// x-amz-version-id: version ID of the newly created destination object
+	if destObj.VersionID != "" {
+		w.Header().Set("x-amz-version-id", destObj.VersionID)
+	}
+	// x-amz-copy-source-version-id: version ID of the source object that was copied
+	if sourceObj.VersionID != "" {
+		w.Header().Set("x-amz-copy-source-version-id", sourceObj.VersionID)
+	}
+
 	// Return copy result
 	type CopyObjectResult struct {
 		XMLName      xml.Name  `xml:"CopyObjectResult"`

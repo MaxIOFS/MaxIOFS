@@ -2094,14 +2094,11 @@ func parseRangeHeader(rangeHeader string, objectSize int64) (int64, int64, error
 	}
 	rangeSpec := strings.TrimPrefix(rangeHeader, "bytes=")
 
-	// Split on comma (we only support single range for now)
+	// Split on comma — multi-range: serve the first valid range only (widely accepted behaviour)
 	ranges := strings.Split(rangeSpec, ",")
-	if len(ranges) > 1 {
-		return 0, 0, fmt.Errorf("multiple ranges not supported")
-	}
 
 	// Parse start-end
-	parts := strings.Split(ranges[0], "-")
+	parts := strings.Split(strings.TrimSpace(ranges[0]), "-")
 	if len(parts) != 2 {
 		return 0, 0, fmt.Errorf("invalid range format")
 	}
