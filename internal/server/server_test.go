@@ -9465,19 +9465,24 @@ func TestHandleNotificationStreamExtraCases(t *testing.T) {
 	server := getSharedServer()
 
 	t.Run("should handle SSE connection", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+
 		req := createAuthenticatedRequest("GET", "/api/v1/notifications/stream", nil, "", "admin-1", true)
+		req = req.WithContext(ctx)
 		req.Header.Set("Accept", "text/event-stream")
 
 		rr := httptest.NewRecorder()
 
-		// Run in goroutine to not block
+		done := make(chan struct{})
 		go func() {
+			defer close(done)
 			server.handleNotificationStream(rr, req)
 		}()
 
-		// Give it a moment then check
-		time.Sleep(50 * time.Millisecond)
-		assert.True(t, rr.Code >= 0)
+		// Wait for the handler to finish (context timeout cancels the SSE stream)
+		<-done
+		assert.GreaterOrEqual(t, rr.Code, 0)
 	})
 }
 
