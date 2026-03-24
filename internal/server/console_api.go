@@ -302,6 +302,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/verify-integrity", s.handleVerifyBucketIntegrity).Methods("POST", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/integrity-status", s.handleGetIntegrityStatus).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/integrity-status", s.handleSaveIntegrityStatus).Methods("POST", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/download-zip", s.handleDownloadZip).Methods("GET", "OPTIONS")
 
 	// Replication endpoints
 	router.HandleFunc("/buckets/{bucket}/replication/rules", s.handleListReplicationRules).Methods("GET", "OPTIONS")

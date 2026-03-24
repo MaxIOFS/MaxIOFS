@@ -22,7 +22,7 @@ import { Globe as GlobeIcon } from 'lucide-react';
 import { Settings as SettingsIcon } from 'lucide-react';
 import { Trash2 as Trash2Icon } from 'lucide-react';
 import { File as FileIcon } from 'lucide-react';
-import { Folder as FolderIcon, FolderOpen } from 'lucide-react';
+import { Folder as FolderIcon, FolderOpen, FolderDown as FolderDownIcon } from 'lucide-react';
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { HardDrive as HardDriveIcon } from 'lucide-react';
 import { Lock as LockIcon } from 'lucide-react';
@@ -548,6 +548,27 @@ export default function BucketDetailsPage() {
     }
   };
 
+  const handleDownloadFolderZip = async (key: string) => {
+    const folderName = key.replace(/\/$/, '').split('/').pop() || key;
+    try {
+      ModalManager.loading(t('downloadingFolder'), t('downloadingFolderKey', { prefix: folderName }));
+      const blob = await APIClient.downloadFolderAsZip(bucketName, key, tenantId);
+      ModalManager.close();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${folderName}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      ModalManager.successDownload(`${folderName}.zip`);
+    } catch (error: unknown) {
+      ModalManager.close();
+      ModalManager.apiError(error);
+    }
+  };
+
   const handleShareObject = async (key: string) => {
     try {
       // Check if object is already shared
@@ -939,28 +960,39 @@ export default function BucketDetailsPage() {
             <ArrowLeftIcon className="h-4 w-4" />
             {t('backToBuckets')}
           </Button>
-          {currentPrefix && (
-            <Button
-              variant="outline"
-              size="default"
-              onClick={navigateUp}
-              className="gap-2 bg-card hover:bg-secondary border-border transition-all duration-200"
-            >
-              <ArrowLeftIcon className="h-4 w-4" />
-              {t('upToParentFolder')}
-            </Button>
-          )}
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-foreground">
               {bucketName}
             </h1>
-            {currentPrefix && (
-              <p className="text-sm text-muted-foreground mt-1">
-                {t('currentPath', { prefix: currentPrefix })}
-              </p>
-            )}
+            <nav className="flex items-center gap-1 text-sm mt-1 flex-wrap">
+              <button
+                onClick={() => { setCurrentPrefix(''); setSelectedObjects(new Set()); }}
+                className="text-blue-600 hover:underline font-medium"
+              >
+                {bucketName}
+              </button>
+              {currentPrefix.split('/').filter(p => p).map((segment, index, parts) => {
+                const prefixUpTo = parts.slice(0, index + 1).join('/') + '/';
+                const isLast = index === parts.length - 1;
+                return (
+                  <React.Fragment key={prefixUpTo}>
+                    <span className="text-muted-foreground">/</span>
+                    {isLast ? (
+                      <span className="text-foreground font-medium">{segment}</span>
+                    ) : (
+                      <button
+                        onClick={() => { setCurrentPrefix(prefixUpTo); setSelectedObjects(new Set()); }}
+                        className="text-blue-600 hover:underline"
+                      >
+                        {segment}
+                      </button>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </nav>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -1219,8 +1251,33 @@ export default function BucketDetailsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {currentPrefix && (
+                  <TableRow
+                    key="../"
+                    className="cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/40 h-[37px] [&>td]:overflow-hidden [&>td]:max-h-[37px]"
+                    onClick={navigateUp}
+                  >
+                    {!isGlobalAdminInTenantBucket && <TableCell />}
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2 h-9">
+                        <FolderIcon className="h-4 w-4 text-blue-500" />
+                        <span className="text-blue-600">.. ({t('parentDirectory')})</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>-</TableCell>
+                    <TableCell>-</TableCell>
+                    <TableCell>-</TableCell>
+                    {bucketData?.objectLock?.objectLockEnabled && (
+                      <>
+                        <TableCell>-</TableCell>
+                        <TableCell>-</TableCell>
+                      </>
+                    )}
+                    <TableCell />
+                  </TableRow>
+                )}
                 {filteredItems.map((item) => (
-                  <TableRow key={item.key}>
+                  <TableRow key={item.key} className="h-[37px] [&>td]:overflow-hidden [&>td]:max-h-[37px]">
                     {!isGlobalAdminInTenantBucket && (
                       <TableCell>
                         <input
@@ -1237,12 +1294,15 @@ export default function BucketDetailsPage() {
                         {isFolder(item) ? (
                           <>
                             <FolderIcon className="h-4 w-4 text-blue-500" />
-                            <button
+                            <span
                               onClick={() => navigateToFolder(item.key)}
-                              className="hover:underline text-blue-600"
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => e.key === 'Enter' && navigateToFolder(item.key)}
+                              className="hover:underline text-blue-600 cursor-pointer"
                             >
                               {getDisplayName(item)}
-                            </button>
+                            </span>
                           </>
                         ) : (
                           <>
@@ -1334,6 +1394,7 @@ export default function BucketDetailsPage() {
                               onClick={() => handleDownloadObject(item.key)}
                               disabled={isGlobalAdminInTenantBucket}
                               title={isGlobalAdminInTenantBucket ? t('globalAdminCannotDownload') : t('download')}
+                              className="hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40"
                             >
                               <DownloadIcon className="h-4 w-4" />
                             </Button>
@@ -1343,7 +1404,7 @@ export default function BucketDetailsPage() {
                               onClick={() => handleShareObject(item.key)}
                               disabled={isGlobalAdminInTenantBucket}
                               title={isGlobalAdminInTenantBucket ? t('globalAdminCannotShare') : (sharesMap[item.key] ? t('viewCopyShareLink') : t('sharePublicLink'))}
-                              className={sharesMap[item.key] ? "text-green-600 hover:text-green-700" : ""}
+                              className={sharesMap[item.key] ? "text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/40" : "hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-950/40"}
                             >
                               <Share2Icon className="h-4 w-4" />
                             </Button>
@@ -1353,7 +1414,7 @@ export default function BucketDetailsPage() {
                                 size="sm"
                                 onClick={() => handleViewVersions(item.key)}
                                 title={t('viewVersions')}
-                                className="text-blue-600 hover:text-blue-700"
+                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40"
                               >
                                 <HistoryIcon className="h-4 w-4" />
                               </Button>
@@ -1364,7 +1425,7 @@ export default function BucketDetailsPage() {
                               onClick={() => handleGeneratePresignedURL(item.key)}
                               disabled={isGlobalAdminInTenantBucket}
                               title={isGlobalAdminInTenantBucket ? t('globalAdminCannotPresign') : t('generatePresignedUrl')}
-                              className="text-purple-600 hover:text-purple-700"
+                              className="text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-950/40"
                             >
                               <LinkIcon className="h-4 w-4" />
                             </Button>
@@ -1375,12 +1436,24 @@ export default function BucketDetailsPage() {
                                 onClick={() => handleToggleLegalHold(item.key, ('legalHold' in item && item.legalHold?.status === 'ON'))}
                                 disabled={isGlobalAdminInTenantBucket || toggleLegalHoldMutation.isPending}
                                 title={isGlobalAdminInTenantBucket ? t('globalAdminCannotModifyLegalHold') : (('legalHold' in item && item.legalHold?.status === 'ON') ? t('disableLegalHold') : t('enableLegalHold'))}
-                                className={('legalHold' in item && item.legalHold?.status === 'ON') ? "text-yellow-600 hover:text-yellow-700" : "text-gray-600 hover:text-gray-700"}
+                                className={('legalHold' in item && item.legalHold?.status === 'ON') ? "text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-950/40" : "hover:text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-950/40"}
                               >
                                 <ShieldIcon className="h-4 w-4" />
                               </Button>
                             )}
                           </>
+                        )}
+                        {isFolder(item) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDownloadFolderZip(item.key)}
+                            disabled={isGlobalAdminInTenantBucket}
+                            title={isGlobalAdminInTenantBucket ? t('globalAdminCannotDownload') : t('downloadFolderZip')}
+                            className="hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+                          >
+                            <FolderDownIcon className="h-4 w-4" />
+                          </Button>
                         )}
                         <Button
                           variant="ghost"
@@ -1388,6 +1461,7 @@ export default function BucketDetailsPage() {
                           onClick={() => handleDeleteObject(item.key, isFolder(item))}
                           disabled={isGlobalAdminInTenantBucket || deleteObjectMutation.isPending}
                           title={isGlobalAdminInTenantBucket ? t('globalAdminCannotDelete') : t('delete')}
+                          className="hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
                         >
                           <Trash2Icon className="h-4 w-4" />
                         </Button>

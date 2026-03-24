@@ -165,6 +165,7 @@
   "backToBuckets": "Back to Buckets",
   "upToParentFolder": "Up to Parent Folder",
   "currentPath": "Current path: /{{prefix}}",
+  "parentDirectory": "parent directory",
   "refreshObjects": "Refresh objects",
   "permissions": "Permissions",
   "newFolder": "New Folder",
@@ -286,5 +287,9 @@
   "selectGroupLabel": "Select Group",
   "selectGroupPlaceholder": "— Select a group —",
   "noEligibleGroups": "No eligible groups found. Create groups first in the Groups section.",
-  "selectGroupRequired": "Please select a group."
+  "selectGroupRequired": "Please select a group.",
+
+  "downloadFolderZip": "Download as ZIP",
+  "downloadingFolder": "Preparing ZIP download...",
+  "downloadingFolderKey": "Compressing \"{{prefix}}\""
 }

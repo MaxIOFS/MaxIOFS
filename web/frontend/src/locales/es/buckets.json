@@ -165,6 +165,7 @@
   "backToBuckets": "Volver a Buckets",
   "upToParentFolder": "Subir a Carpeta Superior",
   "currentPath": "Ruta actual: /{{prefix}}",
+  "parentDirectory": "directorio padre",
   "refreshObjects": "Actualizar objetos",
   "permissions": "Permisos",
   "newFolder": "Nueva Carpeta",
@@ -286,5 +287,9 @@
   "selectGroupLabel": "Seleccionar Grupo",
   "selectGroupPlaceholder": "— Selecciona un grupo —",
   "noEligibleGroups": "No se encontraron grupos elegibles. Crea grupos primero en la sección de Grupos.",
-  "selectGroupRequired": "Por favor selecciona un grupo."
+  "selectGroupRequired": "Por favor selecciona un grupo.",
+
+  "downloadFolderZip": "Descargar como ZIP",
+  "downloadingFolder": "Preparando descarga ZIP...",
+  "downloadingFolderKey": "Comprimiendo \"{{prefix}}\""
 }

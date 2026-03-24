@@ -734,6 +734,20 @@ export class APIClient {
     return response.data;
   }
 
+  static async downloadFolderAsZip(bucket: string, prefix: string, tenantId?: string): Promise<Blob> {
+    const params = new URLSearchParams({ prefix });
+    if (tenantId) params.append('tenantId', tenantId);
+    const response = await apiClient.get<Blob>(
+      `/buckets/${bucket}/download-zip?${params.toString()}`,
+      {
+        responseType: 'blob' as const,
+        timeout: 0, // No timeout — large folders may take a while
+        headers: { 'Accept': 'application/zip' },
+      }
+    );
+    return response.data;
+  }
+
   static async deleteObject(bucket: string, key: string, tenantId?: string, versionId?: string): Promise<void> {
     let url = `/buckets/${bucket}/objects/${key}`;
     const params = new URLSearchParams();
