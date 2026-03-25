@@ -134,21 +134,31 @@ func (s *Server) handleDownloadZip(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		fh := &zip.FileHeader{
-			Name:     entryName,
-			Method:   zip.Store, // No compression — minimises CPU/memory pressure
-			Modified: entry.modified,
-		}
-		fw, err := zw.CreateHeader(fh)
+		// Open the object BEFORE creating the ZIP entry so that a missing/unreadable
+		// object does not leave an empty entry in the archive.
+		_, objReader, err := s.objectManager.GetObject(r.Context(), bucketPath, entry.key)
 		if err != nil {
-			logrus.WithError(err).WithField("key", entry.key).Error("zip: failed to create entry header")
+			logrus.WithError(err).WithField("key", entry.key).Error("zip: failed to open object")
 			zw.Close()
 			return
 		}
 
-		_, objReader, err := s.objectManager.GetObject(r.Context(), bucketPath, entry.key)
+		// Setting UncompressedSize64 / CompressedSize64 causes Go's zip writer to
+		// write the sizes in the local file header instead of a trailing data
+		// descriptor.  Data descriptors are part of the ZIP spec but some tools
+		// (including Windows Explorer with Store-method entries) do not handle them
+		// correctly and show the archive as empty or corrupted.
+		fh := &zip.FileHeader{
+			Name:               entryName,
+			Method:             zip.Store,
+			Modified:           entry.modified,
+			UncompressedSize64: uint64(entry.size),
+			CompressedSize64:   uint64(entry.size),
+		}
+		fw, err := zw.CreateHeader(fh)
 		if err != nil {
-			logrus.WithError(err).WithField("key", entry.key).Error("zip: failed to open object")
+			objReader.Close()
+			logrus.WithError(err).WithField("key", entry.key).Error("zip: failed to create entry header")
 			zw.Close()
 			return
 		}
