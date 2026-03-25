@@ -313,6 +313,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/replication/rules/{ruleId}/metrics", s.handleGetReplicationMetrics).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/replication/rules/{ruleId}/sync", s.handleTriggerReplicationSync).Methods("POST", "OPTIONS")
 
+	// Folder-level endpoints (MUST be before generic object endpoints)
+	router.HandleFunc("/buckets/{bucket}/folder-size", s.handleFolderSize).Methods("GET", "OPTIONS")
+
 	// Share endpoints (MUST be registered BEFORE generic object endpoints to avoid route conflicts)
 	router.HandleFunc("/buckets/{bucket}/shares", s.handleListBucketShares).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/share", s.handleShareObject).Methods("POST", "OPTIONS")
@@ -323,6 +326,11 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 
 	// Object versioning endpoints
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/versions", s.handleListObjectVersions).Methods("GET", "OPTIONS")
+
+	// Object extra endpoints (rename, tags) — MUST be before generic {object:.*} GET/PUT/DELETE
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/rename", s.handleRenameObject).Methods("POST", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/tags", s.handleGetObjectTags).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/tags", s.handleSetObjectTags).Methods("PUT", "OPTIONS")
 
 	// Object search endpoint (advanced filtering)
 	router.HandleFunc("/buckets/{bucket}/objects/search", s.handleSearchObjects).Methods("GET", "OPTIONS")

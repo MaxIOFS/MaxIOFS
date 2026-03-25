@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -14,7 +14,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/Table';
-import { ArrowLeft as ArrowLeftIcon } from 'lucide-react';
 import { Upload as UploadIcon } from 'lucide-react';
 import { Download as DownloadIcon } from 'lucide-react';
 import { Search as SearchIcon } from 'lucide-react';
@@ -33,6 +32,11 @@ import { History as HistoryIcon } from 'lucide-react';
 import { Link as LinkIcon } from 'lucide-react';
 import { Filter as FilterIcon } from 'lucide-react';
 import { RefreshCw as RefreshCwIcon } from 'lucide-react';
+import { ChevronDown as ChevronDownIcon, ChevronRight as ChevronRightIcon } from 'lucide-react';
+import { Copy as CopyIcon } from 'lucide-react';
+import { Pencil as PencilIcon } from 'lucide-react';
+import { Tag as TagIcon } from 'lucide-react';
+import { Sigma as SigmaIcon } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { UploadRequest, ObjectSearchFilter } from '@/types';
@@ -77,7 +81,25 @@ export default function BucketDetailsPage() {
   const [objectFilter, setObjectFilter] = useState<ObjectSearchFilter>({});
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
+  const [renameKey, setRenameKey] = useState('');
+  const [renameNewName, setRenameNewName] = useState('');
+  const [isEditTagsModalOpen, setIsEditTagsModalOpen] = useState(false);
+  const [editTagsKey, setEditTagsKey] = useState('');
+  const [editTags, setEditTags] = useState<Array<{ key: string; value: string }>>([]);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) {
+        setActionsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   // Check if user is global admin (no tenantId) accessing a tenant bucket
   // Global admins should only have read-only access to tenant buckets
@@ -870,6 +892,88 @@ export default function BucketDetailsPage() {
     }
   };
 
+  const handleCopyS3Uri = (key: string) => {
+    navigator.clipboard.writeText(`s3://${bucketName}/${key}`);
+    ModalManager.toast('success', t('copyS3UriSuccess'));
+    setActionsOpen(false);
+  };
+
+  const handleCopyObjectUrl = (key: string) => {
+    const origin = window.location.origin;
+    navigator.clipboard.writeText(`${origin}/api/v1/buckets/${tenantId ? tenantId + '/' : ''}${bucketName}/objects/${key}`);
+    ModalManager.toast('success', t('copyObjectUrlSuccess'));
+    setActionsOpen(false);
+  };
+
+  const handleCalculateFolderSize = async (key: string) => {
+    setActionsOpen(false);
+    try {
+      ModalManager.loading(t('calculatingSize'), key);
+      const result = await APIClient.getFolderSize(bucketName, key, tenantId);
+      ModalManager.close();
+      await ModalManager.fire({
+        icon: 'info',
+        title: t('folderSizeResult'),
+        html: `<p><strong>${t('size')}:</strong> ${formatSize(result.size)}</p><p><strong>${t('objectsLabel')}:</strong> ${result.count.toLocaleString()}</p>`,
+      });
+    } catch (error) {
+      ModalManager.close();
+      ModalManager.apiError(error);
+    }
+  };
+
+  const openRenameModal = (key: string) => {
+    const currentName = key.split('/').pop() || key;
+    setRenameKey(key);
+    setRenameNewName(currentName);
+    setIsRenameModalOpen(true);
+    setActionsOpen(false);
+  };
+
+  const handleRenameConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = renameNewName.trim();
+    if (!trimmed) return;
+    const prefix = renameKey.substring(0, renameKey.lastIndexOf('/') + 1);
+    const newKey = prefix + trimmed;
+    if (newKey === renameKey) { setIsRenameModalOpen(false); return; }
+    try {
+      await APIClient.renameObject(bucketName, renameKey, newKey, tenantId);
+      setIsRenameModalOpen(false);
+      queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
+      setSelectedObjects(new Set());
+      ModalManager.toast('success', t('renameSuccess'));
+    } catch (error) {
+      ModalManager.apiError(error);
+    }
+  };
+
+  const openEditTagsModal = async (key: string) => {
+    setActionsOpen(false);
+    try {
+      ModalManager.loading(t('editTags'), key);
+      const tagData = await APIClient.getObjectTags(bucketName, key, tenantId);
+      ModalManager.close();
+      setEditTagsKey(key);
+      setEditTags(tagData.tags || []);
+      setIsEditTagsModalOpen(true);
+    } catch (error) {
+      ModalManager.close();
+      ModalManager.apiError(error);
+    }
+  };
+
+  const handleEditTagsSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await APIClient.setObjectTags(bucketName, editTagsKey, editTags, tenantId);
+      setIsEditTagsModalOpen(false);
+      ModalManager.toast('success', t('tagsUpdated'));
+    } catch (error) {
+      ModalManager.apiError(error);
+    }
+  };
+
   const formatSize = (bytes: number) => {
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let size = bytes;
@@ -938,6 +1042,13 @@ export default function BucketDetailsPage() {
     return item.key.split('/').pop() || item.key;
   };
 
+  // Actions dropdown helpers
+  const selectedItemsList = filteredItems.filter(item => selectedObjects.has(item.key));
+  const isSingleSelection = selectedItemsList.length === 1;
+  const singleItem = isSingleSelection ? selectedItemsList[0] : null;
+  const singleIsFolder = singleItem ? isFolder(singleItem) : false;
+  const singleIsFile = singleItem ? !isFolder(singleItem) : false;
+
   if (bucketLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -949,36 +1060,35 @@ export default function BucketDetailsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="default"
-            onClick={() => navigate('/buckets')}
-            className="gap-2 bg-card hover:bg-secondary border-border transition-all duration-200"
-          >
-            <ArrowLeftIcon className="h-4 w-4" />
-            {t('backToBuckets')}
-          </Button>
-        </div>
+      <div className="flex flex-col gap-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">
-              {bucketName}
-            </h1>
-            <nav className="flex items-center gap-1 text-sm mt-1 flex-wrap">
+            {/* Breadcrumb */}
+            <nav className="flex items-center gap-1 text-sm flex-wrap mb-1">
+              <HardDriveIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               <button
-                onClick={() => { setCurrentPrefix(''); setSelectedObjects(new Set()); }}
-                className="text-blue-600 hover:underline font-medium"
+                onClick={() => navigate('/buckets')}
+                className="text-blue-600 hover:underline"
               >
-                {bucketName}
+                {t('title')}
               </button>
+              <ChevronRightIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              {currentPrefix ? (
+                <button
+                  onClick={() => { setCurrentPrefix(''); setSelectedObjects(new Set()); }}
+                  className="text-blue-600 hover:underline"
+                >
+                  {bucketName}
+                </button>
+              ) : (
+                <span className="text-foreground font-medium">{bucketName}</span>
+              )}
               {currentPrefix.split('/').filter(p => p).map((segment, index, parts) => {
                 const prefixUpTo = parts.slice(0, index + 1).join('/') + '/';
                 const isLast = index === parts.length - 1;
                 return (
                   <React.Fragment key={prefixUpTo}>
-                    <span className="text-muted-foreground">/</span>
+                    <ChevronRightIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                     {isLast ? (
                       <span className="text-foreground font-medium">{segment}</span>
                     ) : (
@@ -993,6 +1103,12 @@ export default function BucketDetailsPage() {
                 );
               })}
             </nav>
+            {/* Page title — shows current folder or bucket */}
+            <h1 className="text-2xl font-bold text-foreground">
+              {currentPrefix
+                ? currentPrefix.split('/').filter(p => p).pop()
+                : bucketName}
+            </h1>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -1171,15 +1287,138 @@ export default function BucketDetailsPage() {
             {t('objectsLabel')} ({filteredItems.length})
             {currentPrefix && ` ${t('inPath', { path: currentPrefix })}`}
           </h3>
-          {selectedObjects.size > 0 && !isGlobalAdminInTenantBucket && (
+          {selectedObjects.size > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">
                 {t('selectedCount', { count: selectedObjects.size })}
               </span>
-              <Button onClick={handleBulkDelete} variant="destructive" size="sm">
-                <Trash2Icon className="h-4 w-4" />
-                {t('deleteSelected')}
-              </Button>
+              <div className="relative" ref={actionsRef}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1"
+                  onClick={() => setActionsOpen(o => !o)}
+                  disabled={isGlobalAdminInTenantBucket}
+                >
+                  {t('actions')}
+                  <ChevronDownIcon className="h-4 w-4" />
+                </Button>
+                {actionsOpen && (
+                  <div className="absolute right-0 mt-1 w-56 rounded-md shadow-lg bg-card border border-border z-50">
+                    <div className="py-1">
+                      <button
+                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                        disabled={!isSingleSelection}
+                        onClick={() => singleItem && handleCopyS3Uri(singleItem.key)}
+                      >
+                        <CopyIcon className="h-4 w-4" />
+                        {t('copyS3Uri')}
+                      </button>
+                      <button
+                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                        disabled={!singleIsFile}
+                        onClick={() => singleItem && handleCopyObjectUrl(singleItem.key)}
+                      >
+                        <LinkIcon className="h-4 w-4" />
+                        {t('copyObjectUrl')}
+                      </button>
+                      <div className="my-1 border-t border-border" />
+                      <button
+                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                        disabled={!singleIsFile || isGlobalAdminInTenantBucket}
+                        onClick={() => { if (singleItem) handleDownloadObject(singleItem.key); setActionsOpen(false); }}
+                      >
+                        <DownloadIcon className="h-4 w-4" />
+                        {t('download')}
+                      </button>
+                      <button
+                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                        disabled={!singleIsFolder || isGlobalAdminInTenantBucket}
+                        onClick={() => { if (singleItem) { handleDownloadFolderZip(singleItem.key); setActionsOpen(false); } }}
+                      >
+                        <FolderDownIcon className="h-4 w-4" />
+                        {t('downloadFolderZip')}
+                      </button>
+                      <button
+                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                        disabled={!singleIsFolder}
+                        onClick={() => singleItem && handleCalculateFolderSize(singleItem.key)}
+                      >
+                        <SigmaIcon className="h-4 w-4" />
+                        {t('calculateSize')}
+                      </button>
+                      <div className="my-1 border-t border-border" />
+                      <button
+                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                        disabled={!singleIsFile || isGlobalAdminInTenantBucket}
+                        onClick={() => { if (singleItem) { handleShareObject(singleItem.key); setActionsOpen(false); } }}
+                      >
+                        <Share2Icon className="h-4 w-4" />
+                        {t('sharePublicLink')}
+                      </button>
+                      <button
+                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                        disabled={!singleIsFile || isGlobalAdminInTenantBucket}
+                        onClick={() => { if (singleItem) { handleGeneratePresignedURL(singleItem.key); setActionsOpen(false); } }}
+                      >
+                        <LinkIcon className="h-4 w-4" />
+                        {t('generatePresignedUrl')}
+                      </button>
+                      {bucketData?.versioning?.Status === 'Enabled' && (
+                        <button
+                          className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                          disabled={!singleIsFile}
+                          onClick={() => { if (singleItem) { handleViewVersions(singleItem.key); setActionsOpen(false); } }}
+                        >
+                          <HistoryIcon className="h-4 w-4" />
+                          {t('viewVersions')}
+                        </button>
+                      )}
+                      {bucketData?.objectLock?.objectLockEnabled && (
+                        <button
+                          className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                          disabled={!singleIsFile || isGlobalAdminInTenantBucket || toggleLegalHoldMutation.isPending}
+                          onClick={() => {
+                            if (singleItem) {
+                              handleToggleLegalHold(singleItem.key, ('legalHold' in singleItem && (singleItem as any).legalHold?.status === 'ON'));
+                              setActionsOpen(false);
+                            }
+                          }}
+                        >
+                          <ShieldIcon className="h-4 w-4" />
+                          {singleItem && 'legalHold' in singleItem && (singleItem as any).legalHold?.status === 'ON' ? t('disableLegalHold') : t('enableLegalHold')}
+                        </button>
+                      )}
+                      <div className="my-1 border-t border-border" />
+                      <button
+                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                        disabled={!singleIsFile || isGlobalAdminInTenantBucket}
+                        onClick={() => singleItem && openRenameModal(singleItem.key)}
+                      >
+                        <PencilIcon className="h-4 w-4" />
+                        {t('renameObject')}
+                      </button>
+                      <button
+                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                        disabled={!singleIsFile || isGlobalAdminInTenantBucket}
+                        onClick={() => singleItem && openEditTagsModal(singleItem.key)}
+                      >
+                        <TagIcon className="h-4 w-4" />
+                        {t('editTags')}
+                      </button>
+                      <div className="my-1 border-t border-border" />
+                      <button
+                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-40 disabled:cursor-not-allowed"
+                        disabled={isGlobalAdminInTenantBucket || deleteObjectMutation.isPending}
+                        onClick={() => { handleBulkDelete(); setActionsOpen(false); }}
+                      >
+                        <Trash2Icon className="h-4 w-4" />
+                        {t('deleteSelected')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -1247,7 +1486,6 @@ export default function BucketDetailsPage() {
                       <TableHead>{t('tableLegalHold')}</TableHead>
                     </>
                   )}
-                  <TableHead className="text-right">{t('tableActions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1261,7 +1499,7 @@ export default function BucketDetailsPage() {
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2 h-9">
                         <FolderIcon className="h-4 w-4 text-blue-500" />
-                        <span className="text-blue-600">.. ({t('parentDirectory')})</span>
+                        <span className="text-blue-600">../</span>
                       </div>
                     </TableCell>
                     <TableCell>-</TableCell>
@@ -1273,7 +1511,6 @@ export default function BucketDetailsPage() {
                         <TableCell>-</TableCell>
                       </>
                     )}
-                    <TableCell />
                   </TableRow>
                 )}
                 {filteredItems.map((item) => (
@@ -1384,89 +1621,6 @@ export default function BucketDetailsPage() {
                         })()}
                       </TableCell>
                     )}
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {!isFolder(item) && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDownloadObject(item.key)}
-                              disabled={isGlobalAdminInTenantBucket}
-                              title={isGlobalAdminInTenantBucket ? t('globalAdminCannotDownload') : t('download')}
-                              className="hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40"
-                            >
-                              <DownloadIcon className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleShareObject(item.key)}
-                              disabled={isGlobalAdminInTenantBucket}
-                              title={isGlobalAdminInTenantBucket ? t('globalAdminCannotShare') : (sharesMap[item.key] ? t('viewCopyShareLink') : t('sharePublicLink'))}
-                              className={sharesMap[item.key] ? "text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/40" : "hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-950/40"}
-                            >
-                              <Share2Icon className="h-4 w-4" />
-                            </Button>
-                            {bucketData?.versioning?.Status === 'Enabled' && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleViewVersions(item.key)}
-                                title={t('viewVersions')}
-                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40"
-                              >
-                                <HistoryIcon className="h-4 w-4" />
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleGeneratePresignedURL(item.key)}
-                              disabled={isGlobalAdminInTenantBucket}
-                              title={isGlobalAdminInTenantBucket ? t('globalAdminCannotPresign') : t('generatePresignedUrl')}
-                              className="text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-950/40"
-                            >
-                              <LinkIcon className="h-4 w-4" />
-                            </Button>
-                            {bucketData?.objectLock?.objectLockEnabled && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleToggleLegalHold(item.key, ('legalHold' in item && item.legalHold?.status === 'ON'))}
-                                disabled={isGlobalAdminInTenantBucket || toggleLegalHoldMutation.isPending}
-                                title={isGlobalAdminInTenantBucket ? t('globalAdminCannotModifyLegalHold') : (('legalHold' in item && item.legalHold?.status === 'ON') ? t('disableLegalHold') : t('enableLegalHold'))}
-                                className={('legalHold' in item && item.legalHold?.status === 'ON') ? "text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-950/40" : "hover:text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-950/40"}
-                              >
-                                <ShieldIcon className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </>
-                        )}
-                        {isFolder(item) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDownloadFolderZip(item.key)}
-                            disabled={isGlobalAdminInTenantBucket}
-                            title={isGlobalAdminInTenantBucket ? t('globalAdminCannotDownload') : t('downloadFolderZip')}
-                            className="hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40"
-                          >
-                            <FolderDownIcon className="h-4 w-4" />
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteObject(item.key, isFolder(item))}
-                          disabled={isGlobalAdminInTenantBucket || deleteObjectMutation.isPending}
-                          title={isGlobalAdminInTenantBucket ? t('globalAdminCannotDelete') : t('delete')}
-                          className="hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
-                        >
-                          <Trash2Icon className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -1754,6 +1908,99 @@ export default function BucketDetailsPage() {
         objectKey={selectedObjectKey}
         tenantId={tenantId}
       />
+
+      {/* Rename Modal */}
+      <Modal
+        isOpen={isRenameModalOpen}
+        onClose={() => setIsRenameModalOpen(false)}
+        title={t('renameObject')}
+      >
+        <form onSubmit={handleRenameConfirm} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">
+              {t('newName')}
+            </label>
+            <Input
+              value={renameNewName}
+              onChange={(e) => setRenameNewName(e.target.value)}
+              autoFocus
+              className="bg-card border-border text-foreground"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => setIsRenameModalOpen(false)}>
+              {t('cancel')}
+            </Button>
+            <Button type="submit" disabled={!renameNewName.trim()}>
+              {t('rename')}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Tags Modal */}
+      <Modal
+        isOpen={isEditTagsModalOpen}
+        onClose={() => setIsEditTagsModalOpen(false)}
+        title={t('editTags')}
+      >
+        <form onSubmit={handleEditTagsSave} className="space-y-4">
+          {editTags.length === 0 && (
+            <p className="text-sm text-muted-foreground">{t('noTagsSet')}</p>
+          )}
+          <div className="space-y-2">
+            {editTags.map((tag, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <Input
+                  placeholder={t('tagKey')}
+                  value={tag.key}
+                  onChange={(e) => {
+                    const updated = [...editTags];
+                    updated[idx] = { ...updated[idx], key: e.target.value };
+                    setEditTags(updated);
+                  }}
+                  className="bg-card border-border text-foreground flex-1"
+                />
+                <Input
+                  placeholder={t('tagValue')}
+                  value={tag.value}
+                  onChange={(e) => {
+                    const updated = [...editTags];
+                    updated[idx] = { ...updated[idx], value: e.target.value };
+                    setEditTags(updated);
+                  }}
+                  className="bg-card border-border text-foreground flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setEditTags(editTags.filter((_, i) => i !== idx))}
+                  className="hover:text-red-600"
+                >
+                  <Trash2Icon className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setEditTags([...editTags, { key: '', value: '' }])}
+          >
+            {t('addTag')}
+          </Button>
+          <div className="flex justify-end gap-2 pt-2 border-t border-border">
+            <Button type="button" variant="outline" onClick={() => setIsEditTagsModalOpen(false)}>
+              {t('cancel')}
+            </Button>
+            <Button type="submit">
+              {t('save')}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

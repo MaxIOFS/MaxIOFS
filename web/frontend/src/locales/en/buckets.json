@@ -165,7 +165,6 @@
   "backToBuckets": "Back to Buckets",
   "upToParentFolder": "Up to Parent Folder",
   "currentPath": "Current path: /{{prefix}}",
-  "parentDirectory": "parent directory",
   "refreshObjects": "Refresh objects",
   "permissions": "Permissions",
   "newFolder": "New Folder",
@@ -291,5 +290,25 @@
 
   "downloadFolderZip": "Download as ZIP",
   "downloadingFolder": "Preparing ZIP download...",
-  "downloadingFolderKey": "Compressing \"{{prefix}}\""
+  "downloadingFolderKey": "Compressing \"{{prefix}}\"",
+
+  "actions": "Actions",
+  "copyS3Uri": "Copy S3 URI",
+  "copyObjectUrl": "Copy Object URL",
+  "copyS3UriSuccess": "S3 URI copied to clipboard",
+  "copyObjectUrlSuccess": "Object URL copied to clipboard",
+  "calculateSize": "Calculate Folder Size",
+  "calculatingSize": "Calculating folder size...",
+  "folderSizeResult": "Folder Size",
+  "renameObject": "Rename",
+  "newName": "New Name",
+  "rename": "Rename",
+  "renameSuccess": "Object renamed successfully",
+  "editTags": "Edit Tags",
+  "noTagsSet": "No tags set. Click \"Add Tag\" to add one.",
+  "tagKey": "Key",
+  "tagValue": "Value",
+  "addTag": "Add Tag",
+  "tagsUpdated": "Tags updated successfully",
+  "save": "Save"
 }

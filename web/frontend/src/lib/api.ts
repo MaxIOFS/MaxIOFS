@@ -748,6 +748,40 @@ export class APIClient {
     return response.data;
   }
 
+  static async renameObject(bucket: string, key: string, newKey: string, tenantId?: string): Promise<{ newKey: string }> {
+    const params = tenantId ? `?tenantId=${tenantId}` : '';
+    const response = await apiClient.post<{ newKey: string }>(
+      `/buckets/${bucket}/objects/${key}/rename${params}`,
+      { newKey }
+    );
+    return response.data;
+  }
+
+  static async getObjectTags(bucket: string, key: string, tenantId?: string): Promise<{ tags: Array<{ key: string; value: string }> }> {
+    const params = tenantId ? `?tenantId=${tenantId}` : '';
+    const response = await apiClient.get<{ tags: Array<{ key: string; value: string }> }>(
+      `/buckets/${bucket}/objects/${key}/tags${params}`
+    );
+    return response.data;
+  }
+
+  static async setObjectTags(bucket: string, key: string, tags: Array<{ key: string; value: string }>, tenantId?: string): Promise<void> {
+    const params = tenantId ? `?tenantId=${tenantId}` : '';
+    await apiClient.put(
+      `/buckets/${bucket}/objects/${key}/tags${params}`,
+      { tags }
+    );
+  }
+
+  static async getFolderSize(bucket: string, prefix: string, tenantId?: string): Promise<{ size: number; count: number }> {
+    const params = new URLSearchParams({ prefix });
+    if (tenantId) params.append('tenantId', tenantId);
+    const response = await apiClient.get<{ size: number; count: number }>(
+      `/buckets/${bucket}/folder-size?${params.toString()}`
+    );
+    return response.data;
+  }
+
   static async deleteObject(bucket: string, key: string, tenantId?: string, versionId?: string): Promise<void> {
     let url = `/buckets/${bucket}/objects/${key}`;
     const params = new URLSearchParams();

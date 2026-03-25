@@ -165,7 +165,6 @@
   "backToBuckets": "Volver a Buckets",
   "upToParentFolder": "Subir a Carpeta Superior",
   "currentPath": "Ruta actual: /{{prefix}}",
-  "parentDirectory": "directorio padre",
   "refreshObjects": "Actualizar objetos",
   "permissions": "Permisos",
   "newFolder": "Nueva Carpeta",
@@ -291,5 +290,25 @@
 
   "downloadFolderZip": "Descargar como ZIP",
   "downloadingFolder": "Preparando descarga ZIP...",
-  "downloadingFolderKey": "Comprimiendo \"{{prefix}}\""
+  "downloadingFolderKey": "Comprimiendo \"{{prefix}}\"",
+
+  "actions": "Acciones",
+  "copyS3Uri": "Copiar URI S3",
+  "copyObjectUrl": "Copiar URL del objeto",
+  "copyS3UriSuccess": "URI S3 copiada al portapapeles",
+  "copyObjectUrlSuccess": "URL del objeto copiada al portapapeles",
+  "calculateSize": "Calcular tamaño de carpeta",
+  "calculatingSize": "Calculando tamaño de carpeta...",
+  "folderSizeResult": "Tamaño de carpeta",
+  "renameObject": "Renombrar",
+  "newName": "Nuevo nombre",
+  "rename": "Renombrar",
+  "renameSuccess": "Objeto renombrado correctamente",
+  "editTags": "Editar etiquetas",
+  "noTagsSet": "Sin etiquetas. Haz clic en \"Añadir etiqueta\" para añadir una.",
+  "tagKey": "Clave",
+  "tagValue": "Valor",
+  "addTag": "Añadir etiqueta",
+  "tagsUpdated": "Etiquetas actualizadas correctamente",
+  "save": "Guardar"
 }
