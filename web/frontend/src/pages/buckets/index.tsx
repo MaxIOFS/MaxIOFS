@@ -603,7 +603,7 @@ export default function BucketsPage() {
                 <TableBody>
                   {paginatedBuckets.map(bucket => {
                     const tenantId   = bucket.tenant_id || bucket.tenantId;
-                    const bucketPath = tenantId ? `/buckets/${tenantId}/${bucket.name}` : `/buckets/${bucket.name}`;
+                    const bucketPath = `/buckets/${bucket.name}`;
                     const owner      = getOwnerDisplay(bucket);
                     const OwnerIcon  = owner.icon;
                     const ib         = getIntegrityButton(bucket);
@@ -618,6 +618,7 @@ export default function BucketsPage() {
                             <Box className="h-4 w-4 text-brand-600 dark:text-brand-400 flex-shrink-0" />
                             <Link
                               to={bucketPath}
+                              state={{ tenantId }}
                               className="text-sm font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 transition-colors"
                             >
                               {bucket.name}
@@ -705,7 +706,7 @@ export default function BucketsPage() {
                             )}
 
                             <button
-                              onClick={() => navigate(`${bucketPath}/settings`)}
+                              onClick={() => navigate(`${bucketPath}/settings`, { state: { tenantId } })}
                               className="p-2 text-muted-foreground hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg transition-all duration-200"
                               title={t('settings')}
                             >

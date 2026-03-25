@@ -206,6 +206,7 @@
 
   "tableModified": "Modified",
   "tableType": "Type",
+  "tableStorageClass": "Storage Class",
   "tableRetention": "Retention",
   "tableLegalHold": "Legal Hold",
   "tableActions": "Actions",

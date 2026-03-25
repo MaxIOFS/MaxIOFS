@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -45,6 +45,7 @@ import { isHttpStatus, getErrorMessage, escapeHtml } from '@/lib/utils';
 import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 import { ObjectVersionsModal } from '@/components/ObjectVersionsModal';
 import { PresignedURLModal } from '@/components/PresignedURLModal';
+import { ObjectDetailsView, ObjectViewCallbacks } from '@/components/ObjectDetailsView';
 import { ObjectFilterPanel } from '@/components/ObjectFilterPanel';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from 'react-i18next';
@@ -60,11 +61,13 @@ const getResponsiveModalWidth = (baseWidth: number = 650): string => {
 
 export default function BucketDetailsPage() {
   const { t } = useTranslation('buckets');
-  const { bucket, tenantId } = useParams<{ bucket: string; tenantId?: string }>();
+  const { bucket } = useParams<{ bucket: string }>();
+  const location = useLocation();
+  const tenantId = (location.state as any)?.tenantId || undefined;
   const navigate = useNavigate();
   const { user } = useAuth();
   const bucketName = bucket as string;
-  const bucketPath = tenantId ? `/buckets/${tenantId}/${bucketName}` : `/buckets/${bucketName}`;
+  const bucketPath = `/buckets/${bucketName}`;
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPrefix, setCurrentPrefix] = useState('');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -72,6 +75,10 @@ export default function BucketDetailsPage() {
   const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
   const [isVersionsModalOpen, setIsVersionsModalOpen] = useState(false);
   const [isPresignedURLModalOpen, setIsPresignedURLModalOpen] = useState(false);
+  const [detailsObjectKey, setDetailsObjectKey] = useState<string>('');
+  const [detailsObjectData, setDetailsObjectData] = useState<Record<string, any>>({});
+  // ref so mutation callbacks (closures) can check if we're in detail view
+  const detailsObjectKeyRef = useRef<string>('');
   const [selectedObjectKey, setSelectedObjectKey] = useState<string>('');
   const [newFolderName, setNewFolderName] = useState('');
   const [uploadMode, setUploadMode] = useState<'files' | 'folder'>('files');
@@ -101,13 +108,16 @@ export default function BucketDetailsPage() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // Keep ref in sync so mutation callbacks (closures) can read current value
+  useEffect(() => { detailsObjectKeyRef.current = detailsObjectKey; }, [detailsObjectKey]);
+
   // Check if user is global admin (no tenantId) accessing a tenant bucket
   // Global admins should only have read-only access to tenant buckets
   const isGlobalAdminInTenantBucket = user && !user.tenantId && !!tenantId;
 
   const { data: bucketData, isLoading: bucketLoading } = useQuery({
     queryKey: ['bucket', bucketName, tenantId],
-    queryFn: () => APIClient.getBucket(bucketName, tenantId || undefined),
+    queryFn: () => APIClient.getBucket(bucketName, tenantId),
     refetchInterval: 30000,
     refetchOnWindowFocus: false,
   });
@@ -159,28 +169,6 @@ export default function BucketDetailsPage() {
   const { data: sharesMap = {} } = useQuery({
     queryKey: ['shares', bucketName, tenantId],
     queryFn: () => APIClient.getBucketShares(bucketName, tenantId),
-  });
-
-  const uploadMutation = useMutation({
-    mutationFn: (data: UploadRequest) => APIClient.uploadObject(data),
-    onSuccess: (response, variables) => {
-      // Invalidate ALL object queries for this bucket (any prefix)
-      queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
-      // Invalidate bucket metadata with specific tenantId
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
-      // Invalidate buckets list to update counters
-      queryClient.invalidateQueries({ queryKey: ['buckets'] });
-      setIsUploadModalOpen(false);
-      setUploadFiles([]);
-      setUploadMode('files');
-
-      // Show success notification
-      const fileName = variables.key.split('/').pop() || variables.key;
-      ModalManager.successUpload(fileName);
-    },
-    onError: (error: Error) => {
-      ModalManager.apiError(error);
-    },
   });
 
   const createFolderMutation = useMutation({
@@ -292,13 +280,15 @@ export default function BucketDetailsPage() {
     },
     onSuccess: () => {
       ModalManager.close();
-      // Invalidate ALL object queries for this bucket (any prefix)
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
-      // Invalidate bucket metadata with specific tenantId
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
-      // Invalidate buckets list to update counters
       queryClient.invalidateQueries({ queryKey: ['buckets'] });
       ModalManager.toast('success', 'Object deleted successfully');
+      // If we were in the object detail view, go back to the list
+      if (detailsObjectKeyRef.current) {
+        setDetailsObjectKey('');
+        setDetailsObjectData({});
+      }
     },
     onError: (error: Error) => {
       ModalManager.close();
@@ -349,6 +339,16 @@ export default function BucketDetailsPage() {
     return true;
   });
 
+  // Normalize API response fields:
+  // - console API returns snake_case (e.g. last_modified)
+  // - UI uses camelCase (lastModified)
+  // We keep other fields untouched to avoid breaking other UI logic.
+  const normalizedFilteredObjects = filteredObjects.map((obj: any) => ({
+    ...obj,
+    lastModified: obj.lastModified ?? obj.last_modified ?? '',
+    storageClass: obj.storageClass ?? obj.storage_class ?? '',
+  }));
+
   const allItems = [
     ...commonPrefixes.map(prefix => ({
       key: prefix,
@@ -358,7 +358,7 @@ export default function BucketDetailsPage() {
       etag: '',
       storageClass: '',
     })),
-    ...filteredObjects,
+    ...normalizedFilteredObjects,
   ];
 
   const filteredItems = allItems.filter(item =>
@@ -772,6 +772,11 @@ export default function BucketDetailsPage() {
     setIsVersionsModalOpen(true);
   };
 
+  const handleViewObjectDetails = (key: string, data: Record<string, any>) => {
+    setDetailsObjectKey(key);
+    setDetailsObjectData(data);
+  };
+
   const handleGeneratePresignedURL = (key: string) => {
     setSelectedObjectKey(key);
     setIsPresignedURLModalOpen(true);
@@ -899,8 +904,7 @@ export default function BucketDetailsPage() {
   };
 
   const handleCopyObjectUrl = (key: string) => {
-    const origin = window.location.origin;
-    navigator.clipboard.writeText(`${origin}/api/v1/buckets/${tenantId ? tenantId + '/' : ''}${bucketName}/objects/${key}`);
+    navigator.clipboard.writeText(APIClient.getObjectUrl(bucketName, key));
     ModalManager.toast('success', t('copyObjectUrlSuccess'));
     setActionsOpen(false);
   };
@@ -997,6 +1001,14 @@ export default function BucketDetailsPage() {
     });
   };
 
+  // File "Type" column (AWS-style): extension without dot.
+  const getFileExtension = (key: string) => {
+    const fileName = key.split('/').pop() || key;
+    const idx = fileName.lastIndexOf('.');
+    if (idx <= 0 || idx === fileName.length - 1) return '';
+    return fileName.substring(idx + 1);
+  };
+
   const formatRetentionExpiration = (retainUntilDate?: string) => {
     if (!retainUntilDate) return null;
 
@@ -1057,9 +1069,47 @@ export default function BucketDetailsPage() {
     );
   }
 
+  // Helper shared by both the detail view's onBack and any internal close
+  const closeObjectDetails = () => {
+    setDetailsObjectKey('');
+    setDetailsObjectData({});
+  };
+
+  // Callbacks passed to ObjectDetailsView
+  const objectViewCallbacks: ObjectViewCallbacks = {
+    onDownload:         (key) => handleDownloadObject(key),
+    onCopyUrl:          (key) => handleCopyObjectUrl(key),
+    onCopyS3Uri:        (key) => handleCopyS3Uri(key),
+    onShare:            (key) => handleShareObject(key),
+    onPresignedUrl:     (key) => { setSelectedObjectKey(key); setIsPresignedURLModalOpen(true); },
+    onRename:           (key) => openRenameModal(key),
+    onEditTags:         (key) => openEditTagsModal(key),
+    onDelete:           (key) => handleDeleteObject(key, false),
+    onToggleLegalHold:  (key, isOn) => handleToggleLegalHold(key, isOn),
+  };
+
   return (
     <div className="space-y-6">
-      {/* Header */}
+
+      {/* ── Object detail view (AWS-style) — replaces the table ── */}
+      {detailsObjectKey && (
+        <ObjectDetailsView
+          bucketName={bucketName}
+          bucketPath={bucketPath}
+          currentPrefix={currentPrefix}
+          objectKey={detailsObjectKey}
+          objectData={detailsObjectData}
+          bucketData={bucketData}
+          isReadOnly={!!isGlobalAdminInTenantBucket}
+          objectLockEnabled={!!bucketData?.objectLock?.objectLockEnabled}
+          onBack={closeObjectDetails}
+          {...objectViewCallbacks}
+        />
+      )}
+
+      {/* ── Bucket list view — hidden while object detail is open ── */}
+      {!detailsObjectKey && (
+      <>
       <div className="flex flex-col gap-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -1151,7 +1201,7 @@ export default function BucketDetailsPage() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => navigate(`${bucketPath}/settings`)}
+              onClick={() => navigate(`${bucketPath}/settings`, { state: { tenantId } })}
               className="gap-2 hover:bg-secondary transition-all duration-200"
             >
               <SettingsIcon className="h-4 w-4" />
@@ -1280,7 +1330,7 @@ export default function BucketDetailsPage() {
       )}
 
       {/* Objects Table */}
-      <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden">
+      <div className="bg-card rounded-xl border border-border shadow-md">
         <div className="px-6 border-b border-border flex items-center justify-between h-14 shrink-0">
           <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
             <FileIcon className="h-5 w-5 text-brand-600 dark:text-brand-400" />
@@ -1422,7 +1472,7 @@ export default function BucketDetailsPage() {
             </div>
           )}
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-hidden rounded-b-xl">
           {objectsLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loading size="md" />
@@ -1477,9 +1527,10 @@ export default function BucketDetailsPage() {
                     </TableHead>
                   )}
                   <TableHead>{t('name')}</TableHead>
-                  <TableHead>{t('size')}</TableHead>
-                  <TableHead>{t('tableModified')}</TableHead>
                   <TableHead>{t('tableType')}</TableHead>
+                  <TableHead>{t('tableModified')}</TableHead>
+                  <TableHead>{t('size')}</TableHead>
+                  <TableHead>{t('tableStorageClass')}</TableHead>
                   {bucketData?.objectLock?.objectLockEnabled && (
                     <>
                       <TableHead>{t('tableRetention')}</TableHead>
@@ -1497,14 +1548,16 @@ export default function BucketDetailsPage() {
                   >
                     {!isGlobalAdminInTenantBucket && <TableCell />}
                     <TableCell className="font-medium">
-                      <div className="flex items-center gap-2 h-9">
+                      <div className="flex items-center gap-2">
                         <FolderIcon className="h-4 w-4 text-blue-500" />
-                        <span className="text-blue-600">../</span>
+                        <span className="text-blue-600">..</span>
                       </div>
                     </TableCell>
-                    <TableCell>-</TableCell>
-                    <TableCell>-</TableCell>
-                    <TableCell>-</TableCell>
+                    {/* AWS column order: Name, Type, Last Modified, Size, Storage Class */}
+                    <TableCell>-</TableCell> {/* Type */}
+                    <TableCell>-</TableCell> {/* Last modified */}
+                    <TableCell>-</TableCell> {/* Size */}
+                    <TableCell>-</TableCell> {/* Storage class */}
                     {bucketData?.objectLock?.objectLockEnabled && (
                       <>
                         <TableCell>-</TableCell>
@@ -1544,7 +1597,15 @@ export default function BucketDetailsPage() {
                         ) : (
                           <>
                             <FileIcon className="h-4 w-4 text-muted-foreground" />
-                            <span>{getDisplayName(item)}</span>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => e.key === 'Enter' && handleViewObjectDetails(item.key, item)}
+                              onClick={() => handleViewObjectDetails(item.key, item)}
+                              className="hover:underline text-blue-600 cursor-pointer"
+                            >
+                              {getDisplayName(item)}
+                            </span>
                             {sharesMap[item.key] && (
                               <span title="This object is shared">
                                 <Share2Icon className="h-4 w-4 text-green-600" />
@@ -1555,7 +1616,7 @@ export default function BucketDetailsPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {isFolder(item) ? '-' : formatSize(item.size)}
+                      {isFolder(item) ? t('folderType') : (getFileExtension(item.key) || '-')}
                     </TableCell>
                     <TableCell>
                       {item.lastModified ? (
@@ -1568,11 +1629,10 @@ export default function BucketDetailsPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {isFolder(item) ? (
-                        <span className="text-blue-600">{t('folderType')}</span>
-                      ) : (
-                        item.storageClass || 'STANDARD'
-                      )}
+                      {isFolder(item) ? '-' : formatSize(item.size)}
+                    </TableCell>
+                    <TableCell>
+                      {isFolder(item) ? '-' : (item.storageClass || 'STANDARD')}
                     </TableCell>
                     {bucketData?.objectLock?.objectLockEnabled && (
                       <TableCell>
@@ -1628,6 +1688,8 @@ export default function BucketDetailsPage() {
           )}
         </div>
       </div>
+      </>
+      )} {/* end !detailsObjectKey */}
 
       {/* Upload Modal */}
       <Modal
@@ -1896,7 +1958,6 @@ export default function BucketDetailsPage() {
         onClose={() => setIsVersionsModalOpen(false)}
         bucketName={bucketName}
         objectKey={selectedObjectKey}
-        tenantId={tenantId}
       />
 
       {/* Presigned URL Modal */}
@@ -1906,7 +1967,6 @@ export default function BucketDetailsPage() {
         onClose={() => setIsPresignedURLModalOpen(false)}
         bucketName={bucketName}
         objectKey={selectedObjectKey}
-        tenantId={tenantId}
       />
 
       {/* Rename Modal */}

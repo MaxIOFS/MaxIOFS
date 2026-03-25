@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Loading } from '@/components/ui/Loading';
@@ -45,7 +45,9 @@ interface TabInfo {
 
 export default function BucketSettingsPage() {
   const { t } = useTranslation('bucketSettings');
-  const { bucket, tenantId } = useParams<{ bucket: string; tenantId?: string }>();
+  const { bucket } = useParams<{ bucket: string }>();
+  const location = useLocation();
+  const tenantId = (location.state as any)?.tenantId || undefined;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -95,7 +97,7 @@ export default function BucketSettingsPage() {
     },
   ];
   const bucketName = bucket as string;
-  const bucketPath = tenantId ? `/buckets/${tenantId}/${bucketName}` : `/buckets/${bucketName}`;
+  const bucketPath = `/buckets/${bucketName}`;
 
   // Active tab state
   const [activeTab, setActiveTab] = useState<TabId>('general');
@@ -191,7 +193,7 @@ export default function BucketSettingsPage() {
 
   const { data: bucketData, isLoading } = useQuery({
     queryKey: ['bucket', bucketName, tenantId],
-    queryFn: () => APIClient.getBucket(bucketName, tenantId || undefined),
+    queryFn: () => APIClient.getBucket(bucketName, tenantId),
   });
 
   // Versioning mutation

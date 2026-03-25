@@ -531,7 +531,7 @@ export default function Dashboard() {
                   .map((bucket: any) => {
                     const tenantId = bucket.tenant_id || bucket.tenantId;
                     const bucketPath = tenantId
-                      ? `/buckets/${tenantId}/${bucket.name}`
+                      ? `/buckets/${bucket.name}?tenantId=${tenantId}`
                       : `/buckets/${bucket.name}`;
 
                     return (

@@ -127,6 +127,7 @@ export function Modal({
               <Button
                 variant="ghost"
                 size="icon"
+                type="button"
                 onClick={onClose}
                 className="text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg"
               >

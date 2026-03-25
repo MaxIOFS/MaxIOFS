@@ -28,7 +28,7 @@ export function MetricCard({
     brand: {
       icon: 'text-brand-600 bg-brand-50 dark:bg-brand-900/20',
       gradient: 'from-brand-500/10 to-brand-600/5',
-      glow: 'shadow-glow-sm hover:shadow-glow',
+      glow: 'shadow-soft-md hover:shadow-soft-lg',
     },
     success: {
       icon: 'text-success-600 bg-success-50 dark:bg-success-900/20',
