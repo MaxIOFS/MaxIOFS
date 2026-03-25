@@ -5,7 +5,7 @@
 **Self-hosted S3-compatible object storage — single binary, batteries included**
 
 [![Build](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml/badge.svg)](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.0.0)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.1.0)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.25+-00ADD8?logo=go)](https://go.dev)
 [![S3 Compatible](https://img.shields.io/badge/S3-100%25%20compatible-orange)](docs/API.md)
@@ -193,7 +193,6 @@ git clone https://github.com/MaxioFS/MaxioFS.git
 cd MaxioFS
 make docker-up          # Single node
 make docker-monitoring  # + Prometheus & Grafana
-make docker-cluster     # 3-node cluster
 ```
 
 ### Binary
@@ -222,13 +221,13 @@ aws --profile maxiofs --endpoint-url http://localhost:8080 s3 ls s3://my-bucket/
 
 **Debian / Ubuntu**
 ```bash
-sudo dpkg -i maxiofs_1.0.0_amd64.deb
+sudo dpkg -i maxiofs_1.1.0_amd64.deb
 sudo systemctl enable --now maxiofs
 ```
 
 **RHEL / Rocky / Alma / Fedora**
 ```bash
-sudo rpm -i maxiofs-1.0.0-1.x86_64.rpm
+sudo rpm -i maxiofs-1.1.0-1.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 
@@ -302,7 +301,8 @@ cd web/frontend && npm run test        # 64 frontend tests
 
 | Version | Highlights |
 |---------|-----------|
-| **v1.0.0** *(stable)* | Complete UI redesign, folder upload, POST presigned URLs, bucket notifications, lifecycle execution, full Veeam B&R compatibility, Object Lock per-version enforcement, 3 security fixes |
+| **v1.1.0** *(stable)* | AWS S3-style Actions toolbar, object detail view, object rename & tags, folder ZIP download, SigV2 fix, bucket policy Condition enforcement, PublicAccessBlock enforcement, DeleteBucket Object Lock bypass fix, encryption applied globally, 3 data races fixed |
+| **v1.0.0** | Complete UI redesign, folder upload, POST presigned URLs, bucket notifications, lifecycle execution, full Veeam B&R compatibility, Object Lock per-version enforcement, 3 security fixes |
 | **v1.0.0-rc1** | 28-vulnerability security audit: AES-256-GCM, CSR cluster join, SSRF hardening, static website hosting, frontend bundle −45% |
 | **v1.0.0-beta** | Pebble metadata engine, object integrity scrubber, maintenance mode, disk/quota email alerts |
 | **v0.9.1** | Tenant isolation hardening (12 fixes), external syslog targets, cluster join UI |

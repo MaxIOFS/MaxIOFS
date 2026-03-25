@@ -429,16 +429,17 @@ audit:
 #   interval: 10
 
 # --- Example 2: Behind Nginx Reverse Proxy (RECOMMENDED) ---
-# In this setup, MaxIOFS listens on localhost only and nginx handles TLS
+# In this setup MaxIOFS listens on localhost only; nginx handles TLS and routing.
+# The /ui/ path is forwarded to the console (8081), everything else to the S3 API (8080).
 #
-# listen: "localhost:8080"              # Only accessible from localhost
-# console_listen: "localhost:8081"      # Only accessible from localhost
+# listen: "localhost:8080"
+# console_listen: "localhost:8081"
 # data_dir: "/var/lib/maxiofs"
 # log_level: "info"
 #
-# # Public URLs must match your nginx configuration
-# public_api_url: "https://s3.midominio.com"
-# public_console_url: "https://s3.midominio.com/ui"
+# # Public URLs must match your nginx server_name / domain
+# public_api_url: "https://s3.example.com"
+# public_console_url: "https://s3.example.com/ui"
 #
 # enable_tls: false  # nginx handles TLS
 #
@@ -450,30 +451,104 @@ audit:
 # auth:
 #   enable_auth: true
 #
-# # Nginx configuration example:
+# # --------------------------------------------------------------------------
+# # Nginx configuration (/etc/nginx/sites-available/maxiofs)
+# # --------------------------------------------------------------------------
+# #
+# # -- HTTP (port 80) --
+# #
+# # upstream api {
+# #     least_conn;
+# #     server localhost:8080;
+# # }
+# #
+# # upstream console {
+# #     least_conn;
+# #     server localhost:8081;
+# # }
+# #
 # # server {
-# #     listen 443 ssl http2;
-# #     server_name s3.midominio.com;
+# #     listen 80;
+# #     server_name s3.example.com *.s3-website.example.com;
 # #
-# #     ssl_certificate /etc/letsencrypt/live/s3.midominio.com/fullchain.pem;
-# #     ssl_certificate_key /etc/letsencrypt/live/s3.midominio.com/privkey.pem;
+# #     # Required for S3: allow special characters in headers
+# #     ignore_invalid_headers off;
+# #     # Allow unlimited upload size (set to e.g. 1000m to cap it)
+# #     client_max_body_size 0;
+# #     # Disable buffering — required for streaming uploads and downloads
+# #     proxy_buffering off;
+# #     proxy_request_buffering off;
 # #
-# #     # S3 API
-# #     location / {
-# #         proxy_pass http://localhost:8080;
-# #         proxy_set_header Host $host;
-# #         proxy_set_header X-Real-IP $remote_addr;
-# #         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-# #         proxy_set_header X-Forwarded-Proto $scheme;
+# #     # Web Console — matched before the catch-all /
+# #     location /ui/ {
+# #         proxy_pass            http://console;
+# #         proxy_set_header      Host              $host;
+# #         proxy_set_header      X-Real-IP         $remote_addr;
+# #         proxy_set_header      X-Forwarded-For   $proxy_add_x_forwarded_for;
+# #         proxy_set_header      X-Forwarded-Proto $scheme;
+# #         proxy_http_version    1.1;
+# #         proxy_set_header      Connection        "";
+# #         proxy_connect_timeout 300;
+# #         proxy_pass_header     Server;
 # #     }
 # #
-# #     # Web Console
-# #     location /ui {
-# #         proxy_pass http://localhost:8081;
-# #         proxy_set_header Host $host;
-# #         proxy_set_header X-Real-IP $remote_addr;
-# #         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-# #         proxy_set_header X-Forwarded-Proto $scheme;
+# #     # S3 API — catch-all
+# #     location / {
+# #         proxy_pass            http://api;
+# #         proxy_set_header      Host              $host;
+# #         proxy_set_header      X-Real-IP         $remote_addr;
+# #         proxy_set_header      X-Forwarded-For   $proxy_add_x_forwarded_for;
+# #         proxy_set_header      X-Forwarded-Proto $scheme;
+# #         proxy_http_version    1.1;
+# #         proxy_set_header      Connection        "";
+# #         proxy_connect_timeout 300;
+# #         proxy_pass_header     Server;
+# #     }
+# # }
+# #
+# # -- HTTPS (port 443) — add after obtaining a TLS certificate --
+# # The upstream blocks above are reused; add them only once per nginx config.
+# #
+# # server {
+# #     listen 80;
+# #     server_name s3.example.com *.s3-website.example.com;
+# #     return 301 https://$host$request_uri;
+# # }
+# #
+# # server {
+# #     listen 443 ssl http2;
+# #     server_name s3.example.com *.s3-website.example.com;
+# #
+# #     ssl_certificate     /etc/letsencrypt/live/s3.example.com/fullchain.pem;
+# #     ssl_certificate_key /etc/letsencrypt/live/s3.example.com/privkey.pem;
+# #
+# #     ignore_invalid_headers off;
+# #     client_max_body_size 0;
+# #     proxy_buffering off;
+# #     proxy_request_buffering off;
+# #
+# #     location /ui/ {
+# #         proxy_pass            http://console;
+# #         proxy_set_header      Host              $host;
+# #         proxy_set_header      X-Real-IP         $remote_addr;
+# #         proxy_set_header      X-Forwarded-For   $proxy_add_x_forwarded_for;
+# #         proxy_set_header      X-Forwarded-Proto $scheme;
+# #         proxy_http_version    1.1;
+# #         proxy_set_header      Connection        "";
+# #         proxy_connect_timeout 300;
+# #         proxy_pass_header     Server;
+# #     }
+# #
+# #     location / {
+# #         proxy_pass            http://api;
+# #         proxy_set_header      Host              $host;
+# #         proxy_set_header      X-Real-IP         $remote_addr;
+# #         proxy_set_header      X-Forwarded-For   $proxy_add_x_forwarded_for;
+# #         proxy_set_header      X-Forwarded-Proto $scheme;
+# #         proxy_http_version    1.1;
+# #         proxy_set_header      Connection        "";
+# #         proxy_connect_timeout 300;
+# #         proxy_pass_header     Server;
 # #     }
 # # }
 
@@ -541,7 +616,6 @@ audit:
 # =============================================================================
 # Example docker-compose.yml:
 #
-# version: '3.8'
 # services:
 #   maxiofs:
 #     image: maxiofs:latest

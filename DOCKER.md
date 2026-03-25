@@ -16,12 +16,6 @@ make docker-up
 # Start with monitoring (Prometheus + Grafana)
 make docker-monitoring
 
-# Start 3-node cluster
-make docker-cluster
-
-# Start cluster + monitoring (full stack)
-make docker-cluster-monitoring
-
 # View logs
 make docker-logs
 
@@ -40,12 +34,6 @@ docker compose up -d
 
 # With monitoring (Prometheus + Grafana)
 docker compose --profile monitoring up -d
-
-# 3-node cluster for HA testing
-docker compose --profile cluster up -d
-
-# Cluster + monitoring (full stack)
-docker compose --profile monitoring --profile cluster up -d
 
 # Stop services
 docker compose down
@@ -88,39 +76,6 @@ make docker-monitoring
 - Real-time metrics with 5-second auto-refresh
 - Performance alerts (14 rules) for latency, throughput, and errors
 - SLO violation monitoring
-
-### 3. 3-Node Cluster
-
-Multi-node cluster deployment for high availability testing.
-
-```bash
-make docker-build
-make docker-cluster
-```
-
-**Access:**
-- Node 1 Console: http://localhost:8081 (admin/admin)
-- Node 2 Console: http://localhost:8083 (admin/admin)
-- Node 3 Console: http://localhost:8085 (admin/admin)
-
-**Features:**
-- Independent data directories for each node
-- Cluster management via web console
-- Health monitoring and failover testing
-
-### 4. Full Stack (Cluster + Monitoring)
-
-Complete deployment with cluster and monitoring stack.
-
-```bash
-make docker-build
-make docker-cluster-monitoring
-```
-
-**Access:**
-- All node consoles: :8081, :8083, :8085
-- Prometheus: http://localhost:9091
-- Grafana: http://localhost:3000
 
 ## Services
 
@@ -199,7 +154,7 @@ volumes:
 ### Build with Specific Version
 
 ```bash
-VERSION=1.0.0 make docker-build
+VERSION=1.1.0 make docker-build
 ```
 
 ### Build Without Cache
@@ -211,18 +166,16 @@ docker compose build --no-cache
 ### Multi-platform Build
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t maxiofs:1.0.0 .
+docker buildx build --platform linux/amd64,linux/arm64 -t maxiofs:1.1.0 .
 ```
 
 ## Volumes
 
 The following Docker volumes are created automatically:
 
-- **maxiofs-data**: Main node data (buckets, objects, metadata)
-- **maxiofs-node2-data**: Node 2 data (cluster profile)
-- **maxiofs-node3-data**: Node 3 data (cluster profile)
-- **prometheus-data**: Prometheus metrics database
-- **grafana-data**: Grafana dashboards and settings
+- **maxiofs-data**: MaxIOFS data (buckets, objects, metadata)
+- **prometheus-data**: Prometheus metrics database (monitoring profile)
+- **grafana-data**: Grafana dashboards and settings (monitoring profile)
 
 ### Backup Volumes
 
@@ -390,16 +343,6 @@ curl -X POST http://localhost:9091/-/reload
 3. Check datasource: http://localhost:3000/datasources
 4. Verify provisioning: `docker compose logs grafana | grep provisioning`
 
-### Cluster Nodes Can't Communicate
-
-1. Check network: `docker network inspect maxiofs-network`
-2. Verify all containers are on same network: `docker compose ps`
-3. Test connectivity:
-   ```bash
-   docker exec maxiofs curl http://maxiofs-node2:8080/health
-   ```
-4. Check firewall rules (if using external nodes)
-
 ### Performance Issues
 
 1. Check resource usage: `docker stats`
@@ -476,7 +419,7 @@ make docker-clean
 
 ## Version Information
 
-- **MaxIOFS**: 1.0.0
+- **MaxIOFS**: 1.1.0
 - **Prometheus**: 3.0.1
 - **Grafana**: 11.5.0
 - **Docker Compose**: v2.x required

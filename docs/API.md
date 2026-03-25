@@ -1,6 +1,6 @@
 # MaxIOFS API Reference
 
-**Version**: 1.0.0 | **Last Updated**: March 21, 2026
+**Version**: 1.1.0 | **Last Updated**: March 25, 2026
 
 ## Overview
 
@@ -293,6 +293,11 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 | GET | `/api/v1/buckets/{bucket}/objects/{key+}/legal-hold` | Get legal hold |
 | PUT | `/api/v1/buckets/{bucket}/objects/{key+}/legal-hold` | Set legal hold |
 | GET | `/api/v1/buckets/{bucket}/objects/{key+}/versions` | List object versions |
+| POST | `/api/v1/buckets/{bucket}/objects/{key+}/rename` | Rename object — body `{"newKey":"..."}`. Blocked for COMPLIANCE retention or active Legal Hold. |
+| GET | `/api/v1/buckets/{bucket}/objects/{key+}/tags` | Get object tags |
+| PUT | `/api/v1/buckets/{bucket}/objects/{key+}/tags` | Set object tags — body `{"tags":[{"key":"...","value":"..."}]}` |
+| GET | `/api/v1/buckets/{bucket}/folder-size?prefix={prefix}` | Total size (bytes) and object count under prefix |
+| GET | `/api/v1/buckets/{bucket}/download-zip?prefix={prefix}` | Stream objects under prefix as ZIP archive (max 10,000 objects / 10 GB) |
 
 ### Shares & Presigned URLs
 

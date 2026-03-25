@@ -276,29 +276,29 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-foreground">JWT & S3 Signature Authentication</p>
-                  <p className="text-sm text-muted-foreground">Token-based (JWT) for Console, AWS Signature v2/v4 for S3 API</p>
+                  <p className="font-medium text-foreground">{t('jwtS3Auth')}</p>
+                  <p className="text-sm text-muted-foreground">{t('jwtS3AuthDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-foreground">Identity Providers (LDAP & OAuth2/OIDC)</p>
-                  <p className="text-sm text-muted-foreground">Enterprise SSO via LDAP/Active Directory and OAuth2/OIDC (Google, Okta, Keycloak, etc.)</p>
+                  <p className="font-medium text-foreground">{t('identityProviders')}</p>
+                  <p className="text-sm text-muted-foreground">{t('identityProvidersDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-foreground">TLS Cluster Communication</p>
-                  <p className="text-sm text-muted-foreground">Encrypted inter-node communication with mutual TLS between cluster members</p>
+                  <p className="font-medium text-foreground">{t('tlsClusterComm')}</p>
+                  <p className="text-sm text-muted-foreground">{t('tlsClusterCommDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-foreground">{t('bcryptPassword')}</p>
-                  <p className="text-sm text-muted-foreground">Industry-standard password hashing with per-user salt</p>
+                  <p className="text-sm text-muted-foreground">{t('bcryptPasswordDesc')}</p>
                 </div>
               </div>
             </div>
@@ -314,14 +314,14 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-foreground">Rate Limiting</p>
+                  <p className="font-medium text-foreground">{t('rateLimiting')}</p>
                   <p className="text-sm text-muted-foreground">{t('rateLimitingDesc', { count: parseInt(getSetting('security.ratelimit_login_per_minute', '5'), 10) })}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-foreground">Account Lockout</p>
+                  <p className="font-medium text-foreground">{t('accountLockout')}</p>
                   <p className="text-sm text-muted-foreground">{t('accountLockoutDesc', { duration: formatDuration(getSetting('security.lockout_duration', '900')), attempts: getSetting('security.max_failed_attempts', '5') })}</p>
                 </div>
               </div>
@@ -336,14 +336,35 @@ export default function SecurityPage() {
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-foreground">{t('rbac')}</p>
-                  <p className="text-sm text-muted-foreground">4 roles: Admin, User, Read-Only, Guest with granular bucket permissions</p>
+                  <p className="text-sm text-muted-foreground">{t('rbacDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-foreground">Maintenance Mode</p>
-                  <p className="text-sm text-muted-foreground">Read-only lock for all S3 write operations during maintenance windows</p>
+                  <p className="font-medium text-foreground">{t('maintenanceMode')}</p>
+                  <p className="text-sm text-muted-foreground">{t('maintenanceModeDesc')}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-foreground">{t('bucketPolicyConditions')}</p>
+                  <p className="text-sm text-muted-foreground">{t('bucketPolicyConditionsDesc')}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-foreground">{t('publicAccessBlockEnforcement')}</p>
+                  <p className="text-sm text-muted-foreground">{t('publicAccessBlockEnforcementDesc')}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-foreground">{t('consoleSecurityHeaders')}</p>
+                  <p className="text-sm text-muted-foreground">{t('consoleSecurityHeadersDesc')}</p>
                 </div>
               </div>
             </div>
@@ -353,7 +374,7 @@ export default function SecurityPage() {
           <div className="bg-card rounded-lg border border-border shadow-sm p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
               <HardDrive className="h-5 w-5 text-muted-foreground" />
-              Data Protection & Replication
+              {t('dataProtectionReplication')}
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
@@ -366,22 +387,22 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-foreground">TLS-Encrypted Cluster Replication</p>
-                  <p className="text-sm text-muted-foreground">Mutual TLS between cluster nodes; SSE objects are re-encrypted per destination key</p>
+                  <p className="font-medium text-foreground">{t('tlsClusterReplication')}</p>
+                  <p className="text-sm text-muted-foreground">{t('tlsClusterReplicationDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-foreground">Cross-Region Replication</p>
-                  <p className="text-sm text-muted-foreground">Secure bucket replication to AWS S3, MinIO with credential encryption</p>
+                  <p className="font-medium text-foreground">{t('crossRegionReplication')}</p>
+                  <p className="text-sm text-muted-foreground">{t('crossRegionReplicationDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-foreground">Object Lock & Versioning</p>
-                  <p className="text-sm text-muted-foreground">WORM compliance, versioning with delete markers, lifecycle policies</p>
+                  <p className="font-medium text-foreground">{t('objectLockVersioning')}</p>
+                  <p className="text-sm text-muted-foreground">{t('objectLockVersioningDesc')}</p>
                 </div>
               </div>
             </div>
@@ -405,21 +426,21 @@ export default function SecurityPage() {
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-foreground">{t('resourceQuotas')}</p>
-                  <p className="text-sm text-muted-foreground">Per-tenant storage, bucket, and access key limits with usage tracking</p>
+                  <p className="text-sm text-muted-foreground">{t('resourceQuotasDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-foreground">Self-Replication Prevention</p>
-                  <p className="text-sm text-muted-foreground">Automatic validation to prevent circular replication loops</p>
+                  <p className="font-medium text-foreground">{t('selfReplicationPrevention')}</p>
+                  <p className="text-sm text-muted-foreground">{t('selfReplicationPreventionDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-foreground">{t('bucketPermissions')}</p>
-                  <p className="text-sm text-muted-foreground">Fine-grained per-bucket access control with canned ACLs</p>
+                  <p className="text-sm text-muted-foreground">{t('bucketPermissionsDesc')}</p>
                 </div>
               </div>
             </div>

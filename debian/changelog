@@ -1,3 +1,50 @@
+maxiofs (1:1.1.0) stable; urgency=medium
+
+  * Release v1.1.0 - AWS S3 UI overhaul, S3 compatibility improvements, and security fixes
+  * [UI] Actions toolbar in bucket browser: replaced per-row action buttons with a single AWS S3-style
+    Actions dropdown operating on checkbox-selected items. Supports Copy S3 URI, Copy URL, Download,
+    Download as ZIP, Calculate Folder Size, Share, Presigned URL, View Versions, Legal Hold, Rename,
+    Edit Tags, and Delete. Actions disabled automatically based on selection type and count.
+  * [UI] Object detail view: clicking a file now opens a full-page detail view (Properties, Permissions,
+    Versions tabs) with copy-to-clipboard buttons, lazy-loaded ACL and version history, and a breadcrumb
+    with clickable segments.
+  * [UI] Bucket browser breadcrumb: replaced "Back to Buckets" button with inline breadcrumb
+    (Buckets > bucket > folder) and dynamic page title showing current folder name.
+  * [UI] Object rename via Actions menu: copies data+metadata+tags to new key, deletes original.
+    Blocked for objects under COMPLIANCE retention or active Legal Hold.
+  * [UI] Object tags editor via Actions menu: view and edit S3 object tags inline.
+  * [UI] Folder download as ZIP: streams up to 10,000 objects / 10 GB as a ZIP archive without
+    buffering server-side; limits enforced before streaming begins.
+  * [UI] Folder size calculator via Actions menu: totals size and object count under a prefix.
+  * [S3] GetObjectAttributes: returns ETag, StorageClass, ObjectSize, and part count without body.
+    Required by AWS CLI v2, SDK v3, and Mountpoint S3.
+  * [S3] PublicAccessBlock enforcement: IgnorePublicAcls/RestrictPublicBuckets flags now consulted
+    before ACL evaluation (previously stored but never checked).
+  * [S3] Real GetBucketLogging/PutBucketLogging: access log entries buffered and delivered
+    asynchronously to the target bucket in AWS S3 access log format.
+  * [S3] PutObject conditional write (If-None-Match: *): returns 412 PreconditionFailed if object
+    exists. Required by Terraform state backends and distributed lock managers.
+  * [S3] Real GetBucketEncryption/PutBucketEncryption/DeleteBucketEncryption: persistent SSE
+    configuration per bucket; previously always returned 404.
+  * [Fixed] Global encryption not applied when bucket had no explicit SSE rule set.
+  * [Fixed] x-amz-server-side-encryption response header missing on GetObject/HeadObject/PutObject.
+  * [Fixed] SigV2 HMAC used SHA256+hex instead of SHA1+base64; all V2 presigned URLs rejected.
+  * [Fixed] SigV2 CanonicalizedResource omitted sub-resource query params (versionId, acl, etc.).
+  * [Fixed] Bucket policy Condition blocks silently skipped; implemented full condition evaluator
+    (StringEquals, StringLike, IpAddress/CIDR, Bool, Numeric, Arn operators).
+  * [Fixed] Bucket policy Principal null granted access to all users.
+  * [Fixed] DeleteBucket bypassed Object Lock on versioned buckets via /.versions/ path detection.
+  * [Fixed] Console port (8081) missing all security headers (CSP, X-Frame-Options, nosniff).
+  * [Fixed] InternalError responses leaked internal filesystem paths.
+  * [Fixed] 3 data races: metrics collector running flag, handleTrace goroutine, SSE test recorder.
+  * [Fixed] Object detail view: delete triggered back-navigation before confirmation modal resolved.
+  * [Fixed] tenantId not forwarded to ACL, versions, versions modal, presigned URL modal.
+  * [Fixed] Object detail view breadcrumb segments all navigated to bucket root instead of prefix.
+  * [Fixed] Object detail view tab/field labels hardcoded in Spanish; full i18n applied.
+  * [Changed] Go and npm dependencies updated to latest versions.
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Wed, 25 Mar 2026 12:00:00 +0000
+
 maxiofs (1:1.0.0) stable; urgency=medium
 
   * Release v1.0.0 - First stable release

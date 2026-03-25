@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.0.0}
+%{!?version: %define version 1.1.0}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -266,6 +266,49 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Wed Mar 25 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.1.0-1
+- Version 1.1.0 - AWS S3 UI overhaul, S3 compatibility improvements, and security fixes
+- UI: Actions toolbar in bucket browser — replaced per-row action buttons with a single AWS S3-style
+  Actions dropdown operating on checkbox-selected items; supports Copy S3 URI, Copy URL, Download,
+  Download as ZIP, Calculate Folder Size, Share, Presigned URL, View Versions, Legal Hold, Rename,
+  Edit Tags, Delete; actions disabled automatically based on selection count/type
+- UI: Object detail view — clicking a file opens a full-page detail page with Properties (S3 URI,
+  ARN, URL, Key, size, ETag, content type, storage class, metadata — copy buttons on all fields),
+  Permissions (ACL owner and grants, lazy-loaded), and Versions (history with delete markers, lazy-loaded)
+- UI: Bucket browser breadcrumb — inline breadcrumb (Buckets > bucket > folder) replaces the
+  "Back to Buckets" button; page title dynamically shows current folder name
+- UI: Object rename via Actions menu — copies data+metadata+tags to new key, deletes original;
+  blocked for COMPLIANCE retention or active Legal Hold
+- UI: Object tags editor via Actions menu — view and edit S3 object tags inline
+- UI: Folder download as ZIP — streams up to 10,000 objects / 10 GB without server buffering
+- UI: Folder size calculator via Actions menu — totals size and count under a prefix
+- Added: GetObjectAttributes (GET /{bucket}/{key}?attributes) — ETag, StorageClass, ObjectSize,
+  ObjectParts; required by AWS CLI v2, SDK v3, Mountpoint S3
+- Added: PutObject conditional write (If-None-Match: *) — returns 412 PreconditionFailed if object
+  exists; required by Terraform state backends and distributed lock managers
+- Added: Real GetBucketLogging/PutBucketLogging — entries buffered and delivered asynchronously to
+  target bucket in AWS S3 access log format (5-min flush, 100-entry trigger)
+- Added: Real GetBucketEncryption/PutBucketEncryption/DeleteBucketEncryption — persistent SSE config
+  per bucket; previously always returned 404
+- Added: PublicAccessBlock enforcement — IgnorePublicAcls/RestrictPublicBuckets now consulted before
+  ACL evaluation (previously stored but never checked)
+- Fixed: Global encryption not applied when bucket had no explicit PutBucketEncryption call
+- Fixed: x-amz-server-side-encryption header missing on GetObject, HeadObject, PutObject
+- Fixed: SigV2 used SHA256+hex instead of required SHA1+base64 — all V2 presigned URLs rejected
+- Fixed: SigV2 CanonicalizedResource omitted sub-resource query params (versionId, acl, etc.)
+- Fixed: Bucket policy Condition blocks silently skipped — full evaluator implemented
+  (StringEquals/Like, IpAddress/CIDR, Bool, Arn, Numeric operators)
+- Fixed: Bucket policy Principal null granted access to all users
+- Fixed: DeleteBucket bypassed Object Lock on versioned buckets via /.versions/ path classification
+- Fixed: Console port (8081) missing all security headers (CSP, X-Frame-Options, nosniff)
+- Fixed: InternalError responses leaked internal filesystem paths to S3 clients
+- Fixed: 3 data races: metrics collector bool flag, handleTrace goroutine, SSE test ResponseRecorder
+- Fixed: Object detail view delete triggered back-navigation before confirmation resolved
+- Fixed: tenantId not forwarded to ACL/versions API calls and modal components
+- Fixed: Object detail view breadcrumb segments all navigated to bucket root
+- Fixed: Object detail view tab/field labels hardcoded in Spanish; full i18n applied
+- Changed: Go and npm dependencies updated to latest versions
+
 * Mon Mar 17 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.0.0-1
 - Version 1.0.0 - First stable release
 - UI: Complete frontend redesign — floating layout, collapsible sidebar (icon-only/full, localStorage),

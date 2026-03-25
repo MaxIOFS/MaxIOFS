@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-25
+
 ### Added
 - **Folder download as ZIP** — new endpoint `GET /buckets/{bucket}/download-zip?prefix=folder/` streams all objects under a prefix as a ZIP archive directly to the client without buffering on the server. Objects are stored without compression (`zip.Store`) to minimise CPU usage. Limits enforced before streaming begins: maximum 10 000 objects and 10 GB total size; requests exceeding either limit receive a `400 Bad Request` JSON error. Client disconnections are detected via request context so the stream is aborted early. The download is recorded in the audit log with object count, total size, and ZIP filename. (`internal/server/download_zip_handler.go`, `internal/server/console_api.go`)
 - **Object rename** — new endpoint `POST /buckets/{bucket}/objects/{key}/rename` with body `{ "newKey": "..." }` renames an object by copying data + metadata + tags to the new key then deleting the original. Blocked for objects under active COMPLIANCE retention or Legal Hold. (`internal/server/object_extra_handlers.go`, `internal/server/console_api.go`)

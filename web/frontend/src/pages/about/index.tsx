@@ -327,180 +327,118 @@ export default function AboutPage() {
           </h2>
           <div className="space-y-4">
 
-            {/* UI Redesign */}
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Complete Frontend Redesign
+                AWS S3-Style Actions Toolbar in Bucket Browser
               </h3>
               <p className="text-sm text-muted-foreground">
-                New floating layout with sidebar and content inset from the browser edge. Collapsible sidebar
-                (icon-only or full) persisted to localStorage. New light mode theme: white cards on slate-200
-                background replacing the previous gray-on-gray scheme. All hardcoded Tailwind gray pairs replaced
-                with semantic CSS tokens — every page and component is now fully theme-aware. Compact S3-style
-                table rows, standardized page headers, and transparent logo background in light mode.
+                Per-row action buttons replaced with a single <strong>Actions</strong> dropdown operating on
+                checkbox-selected items — the same pattern used by AWS S3 console. Supports Copy S3 URI,
+                Copy Object URL, Download, Download as ZIP (folders), Calculate Folder Size, Share,
+                Presigned URL, View Versions, Legal Hold toggle, Rename, Edit Tags, and Delete.
+                Actions are automatically disabled when the selection count or type does not match the operation.
               </p>
             </div>
 
-            <div className="border-l-4 border-blue-500 pl-4">
+            <div className="border-l-4 border-indigo-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Folder Upload in Bucket Browser
+                Object Detail View
               </h3>
               <p className="text-sm text-muted-foreground">
-                The bucket browser now supports uploading entire folder trees, preserving the full relative path
-                as the S3 key prefix — just like AWS S3. Drag and drop a folder (uses{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">webkitGetAsEntry()</code>,
-                works in all browsers, no confirmation dialogs) or use the Browse Folder button via the File
-                System Access API (Chrome/Edge). Upload modal redesigned with Files/Folder tabs, styled drag zone,
-                and collapsible file preview — the modal no longer grows downward after selection.
+                Clicking a file name now opens a full-page detail view with three tabs:{' '}
+                <strong>Properties</strong> (S3 URI, ARN, URL, Key, size, ETag, content type, storage class,
+                region, custom metadata — all with copy buttons), <strong>Permissions</strong> (ACL owner and
+                grants, lazy-loaded), and <strong>Versions</strong> (version history with delete markers,
+                lazy-loaded). The breadcrumb tracks the full path and each segment is a clickable navigation link.
               </p>
             </div>
 
-            <div className="border-l-4 border-blue-500 pl-4">
+            <div className="border-l-4 border-cyan-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                S3: POST Presigned URLs (HTML Form Upload)
+                Object Rename and Tags Editor
               </h3>
               <p className="text-sm text-muted-foreground">
-                Browsers can now upload files directly to a bucket via HTML{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">&lt;form enctype="multipart/form-data"&gt;</code>{' '}
-                using S3-compatible POST policy signatures (V4 and V2). The server validates policy expiration,
-                HMAC signature, bucket/key/content-type conditions, starts-with prefix conditions, and
-                content-length-range constraints. Supports{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">success_action_redirect</code>,{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">success_action_status</code>,
-                and <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-meta-*</code> form fields.
+                Objects can now be renamed directly from the bucket browser via the Actions menu. The server
+                copies data, metadata, and tags to the new key, then deletes the original — blocked for objects
+                under active COMPLIANCE retention or Legal Hold. S3 object tags can also be viewed and edited
+                inline without leaving the bucket browser.
               </p>
             </div>
 
-            <div className="border-l-4 border-blue-500 pl-4">
+            <div className="border-l-4 border-teal-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                S3: Bucket Notifications Dispatched as Webhooks
+                Folder Download as ZIP and Folder Size Calculator
               </h3>
               <p className="text-sm text-muted-foreground">
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutBucketNotification</code> and{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetBucketNotification</code> were previously
-                no-ops. Notification configs are now persisted and evaluated after every mutating object operation
-                (PutObject, DeleteObject, CopyObject, CompleteMultipartUpload). SNS/SQS/Lambda ARN values are
-                treated as webhook HTTP endpoints (same approach as MinIO). SSRF protection blocks internal network
-                targets.
+                Entire folder trees can be downloaded as a ZIP archive directly from the Actions menu. Objects
+                are stored without compression (ZIP Store mode) to minimize server CPU. Limits: 10,000 objects
+                and 10 GB maximum; requests exceeding either receive a 400 error before streaming begins.
+                The folder size calculator totals all object sizes and counts under a prefix without downloading.
               </p>
             </div>
 
-            <div className="border-l-4 border-blue-500 pl-4">
+            <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                S3: Lifecycle Expiration and AbortIncompleteMultipartUpload Now Executed
+                S3: GetObjectAttributes, Conditional PutObject, and Real Bucket Logging
               </h3>
               <p className="text-sm text-muted-foreground">
-                Lifecycle rules with{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Expiration.Days</code> /
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Expiration.Date</code> and{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">AbortIncompleteMultipartUpload</code>{' '}
-                were parsed and stored but the background worker never evaluated them. Both are now fully executed:
-                expired objects are deleted (or a delete marker created on versioned buckets), and stale multipart
-                uploads past{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">DaysAfterInitiation</code> are aborted.
-                Also, per-bucket CORS rules are now enforced on actual requests (previously stored but ignored).
-              </p>
-            </div>
-
-            <div className="border-l-4 border-blue-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                S3: Multipart ETag Now Spec-Compliant
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">CompleteMultipartUpload</code> previously
-                used only the MD5 of the concatenated part ETag strings. The AWS S3 spec requires{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">hex(MD5(raw_MD5_part1 ‖ … ‖ raw_MD5_partN))-N</code>{' '}
-                using the raw binary digests. Now spec-compliant, enabling clients like{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">aws s3 sync --checksum</code> to correctly
-                verify uploaded multipart objects.
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetObjectAttributes</code> returns ETag,
+                StorageClass, ObjectSize, and part count without downloading the body — required by AWS CLI v2,
+                SDK v3, and Mountpoint S3.{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObject</code> now supports{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">If-None-Match: *</code>{' '}
+                for atomic "write only if not exists" semantics (Terraform state backends, distributed locks).
+                Bucket access logging now delivers log entries asynchronously to the target bucket in standard AWS
+                S3 access log format.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Veeam B&R Full Compatibility
+                S3: Encryption Correctly Applied and SSE Headers Returned
               </h3>
               <p className="text-sm text-muted-foreground">
-                Multiple Veeam-specific fixes: <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">HEAD /</code>{' '}
-                now returns 200 (Veeam verifies the endpoint before any operation);
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-bucket-region</code> header added
-                to HeadBucket and GetBucketLocation; Object Lock default retention made optional (Veeam sets
-                per-object retention and rejects buckets with a pre-set default); HeadObject and PutObjectRetention
-                with <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">?versionId</code> returned 404 — now
-                resolved; SOSAPI <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">capacity.xml</code> reported
-                0 bytes for tenants without quota — now falls back to real disk usage.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-orange-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Object Lock: Critical Correctness Fixes
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Enabling Object Lock on a bucket now automatically enables versioning (AWS S3 requirement).
-                Legal hold and retention metadata is now stored at per-version keys, not only the latest-version
-                key — previously it was possible to delete a locked version because the lock was stored in the
-                wrong place.{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObjectLockConfiguration</code> with no
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">&lt;Rule&gt;</code> element now clears the
-                bucket-level default retention rule (previously returned 400 MalformedXML).
+                Server-side encryption was silently skipped for buckets that had no explicit{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutBucketEncryption</code> call, even
+                when the global encryption key was configured. Fixed: encryption now applies to all buckets by
+                default. The <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-server-side-encryption</code>{' '}
+                response header is now returned on{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetObject</code>,{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">HeadObject</code>, and{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObject</code>{' '}
+                for encrypted objects.{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetBucketEncryption</code> /{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutBucketEncryption</code>{' '}
+                now persist real configuration (previously always returned 404).
               </p>
             </div>
 
             <div className="border-l-4 border-red-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                [CRITICAL / HIGH] Security: SSRF, Open Redirect, Webhook URL Validation
+                Security: SigV2 Fix, Bucket Policy Conditions, and PublicAccessBlock Enforcement
               </h3>
               <p className="text-sm text-muted-foreground">
-                BUG-25 (CRITICAL): webhook notification delivery used{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">http.DefaultClient</code> with no
-                restrictions — an attacker with bucket-owner access could reach internal services (e.g.
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">169.254.169.254</code>). Fixed with a
-                custom SSRF-blocking dialer that rejects private, loopback, and link-local ranges. BUG-26 (HIGH):
-                webhook ARN values were never validated as HTTP URLs — now enforced. BUG-27 (MEDIUM): open redirect
-                via <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">success_action_redirect</code> allowed
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">javascript:</code> and{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">data:</code> URLs — now restricted to
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">http(s)://</code> only.
+                AWS Signature Version 2 used SHA256+hex instead of the required SHA1+base64 — all V2 presigned
+                URLs and Authorization-header requests were rejected. Fixed in both code paths. Bucket policy{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Condition</code> blocks
+                were silently skipped; full evaluator implemented (StringEquals/Like, IpAddress/CIDR, Bool, Arn,
+                Numeric operators). A <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Principal: null</code>{' '}
+                policy statement no longer grants access to everyone.{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PublicAccessBlock</code> flags
+                (IgnorePublicAcls, RestrictPublicBuckets) are now consulted before ACL evaluation.
+                The console port (8081) now sets security headers (CSP, X-Frame-Options, nosniff).
               </p>
             </div>
 
-            <div className="border-l-4 border-blue-500 pl-4">
+            <div className="border-l-4 border-yellow-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Real-Time Throughput Metrics Fixed
+                Security: DeleteBucket No Longer Bypasses Object Lock
               </h3>
               <p className="text-sm text-muted-foreground">
-                The dashboard throughput cards (requests/s, bytes/s, objects/s) always showed zero because
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">RecordThroughput()</code> was defined
-                but never called. Fixed by invoking it inside{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">TracingMiddleware</code> after every request,
-                tracking upload bytes, response bytes written, and per-operation object counters.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-blue-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Auth Session Fixes: Refresh Token After 2FA and OAuth Login
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Sessions expired after 15 minutes following a 2FA or OAuth/SSO login because the refresh token
-                returned by the server was silently discarded by the frontend. Both paths now correctly store the
-                refresh token, giving sessions the full expiry lifetime. Also fixed: audit log export now fetches
-                all pages (previously only the visible page), stats cards show accurate totals, and CSV timestamps
-                no longer split across columns due to locale comma formatting.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-blue-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Cluster: Deduplicated Bucket List for Replicated Buckets
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                When a bucket was replicated across cluster nodes, both the S3 API and the web console listed
-                it once per node. Users could mistake replicas for duplicates and delete them.{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">BucketAggregator.ListAllBuckets</code>{' '}
-                now deduplicates by <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">(TenantID, Name)</code>,
-                returning one canonical entry per logical bucket, preferring the local node.
+                Deleting a versioned bucket silently deleted all version files (stored under{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">/.versions/</code>) before checking
+                emptiness, bypassing COMPLIANCE-mode Object Lock retention on every non-current version.
+                Fixed by resolving versioned paths to real object metadata before classifying them as empty.
               </p>
             </div>
 
