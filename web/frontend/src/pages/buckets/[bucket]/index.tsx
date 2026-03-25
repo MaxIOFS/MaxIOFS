@@ -1077,15 +1077,16 @@ export default function BucketDetailsPage() {
 
   // Callbacks passed to ObjectDetailsView
   const objectViewCallbacks: ObjectViewCallbacks = {
-    onDownload:         (key) => handleDownloadObject(key),
-    onCopyUrl:          (key) => handleCopyObjectUrl(key),
-    onCopyS3Uri:        (key) => handleCopyS3Uri(key),
-    onShare:            (key) => handleShareObject(key),
-    onPresignedUrl:     (key) => { setSelectedObjectKey(key); setIsPresignedURLModalOpen(true); },
-    onRename:           (key) => openRenameModal(key),
-    onEditTags:         (key) => openEditTagsModal(key),
-    onDelete:           (key) => handleDeleteObject(key, false),
-    onToggleLegalHold:  (key, isOn) => handleToggleLegalHold(key, isOn),
+    onDownload:           (key) => handleDownloadObject(key),
+    onCopyUrl:            (key) => handleCopyObjectUrl(key),
+    onCopyS3Uri:          (key) => handleCopyS3Uri(key),
+    onShare:              (key) => handleShareObject(key),
+    onPresignedUrl:       (key) => { setSelectedObjectKey(key); setIsPresignedURLModalOpen(true); },
+    onRename:             (key) => openRenameModal(key),
+    onEditTags:           (key) => openEditTagsModal(key),
+    onDelete:             (key) => handleDeleteObject(key, false),
+    onToggleLegalHold:    (key, isOn) => handleToggleLegalHold(key, isOn),
+    onNavigateToPrefix:   (prefix) => { setCurrentPrefix(prefix); setSelectedObjects(new Set()); },
   };
 
   return (
@@ -1102,6 +1103,7 @@ export default function BucketDetailsPage() {
           bucketData={bucketData}
           isReadOnly={!!isGlobalAdminInTenantBucket}
           objectLockEnabled={!!bucketData?.objectLock?.objectLockEnabled}
+          tenantId={tenantId}
           onBack={closeObjectDetails}
           {...objectViewCallbacks}
         />
@@ -1958,6 +1960,7 @@ export default function BucketDetailsPage() {
         onClose={() => setIsVersionsModalOpen(false)}
         bucketName={bucketName}
         objectKey={selectedObjectKey}
+        tenantId={tenantId}
       />
 
       {/* Presigned URL Modal */}
@@ -1967,6 +1970,7 @@ export default function BucketDetailsPage() {
         onClose={() => setIsPresignedURLModalOpen(false)}
         bucketName={bucketName}
         objectKey={selectedObjectKey}
+        tenantId={tenantId}
       />
 
       {/* Rename Modal */}

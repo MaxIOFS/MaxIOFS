@@ -28,15 +28,16 @@ import { useTranslation } from 'react-i18next';
 type Tab = 'properties' | 'permissions' | 'versions';
 
 export type ObjectViewCallbacks = {
-  onDownload:         (key: string) => void;
-  onCopyUrl:          (key: string) => void;
-  onCopyS3Uri:        (key: string) => void;
-  onShare:            (key: string) => void;
-  onPresignedUrl:     (key: string) => void;
-  onRename:           (key: string) => void;
-  onEditTags:         (key: string) => void;
-  onDelete:           (key: string) => void;
-  onToggleLegalHold?: (key: string, currentIsOn: boolean) => void;
+  onDownload:            (key: string) => void;
+  onCopyUrl:             (key: string) => void;
+  onCopyS3Uri:           (key: string) => void;
+  onShare:               (key: string) => void;
+  onPresignedUrl:        (key: string) => void;
+  onRename:              (key: string) => void;
+  onEditTags:            (key: string) => void;
+  onDelete:              (key: string) => void;
+  onToggleLegalHold?:    (key: string, currentIsOn: boolean) => void;
+  onNavigateToPrefix?:   (prefix: string) => void;
 };
 
 type Props = ObjectViewCallbacks & {
@@ -48,6 +49,7 @@ type Props = ObjectViewCallbacks & {
   bucketData?:       Record<string, any> | null;
   isReadOnly?:       boolean;
   objectLockEnabled?: boolean;
+  tenantId?:         string;
   onBack:            () => void;
 };
 
@@ -80,6 +82,7 @@ function fileExtension(key: string): string {
 // ─── Copy button ─────────────────────────────────────────────────────────────
 
 function CopyButton({ text }: { text: string }) {
+  const { t } = useTranslation('buckets');
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -90,7 +93,7 @@ function CopyButton({ text }: { text: string }) {
           setTimeout(() => setCopied(false), 2000);
         });
       }}
-      title="Copiar"
+      title={t('copy')}
       className="mr-1.5 inline-flex items-center shrink-0 text-muted-foreground hover:text-foreground transition-colors"
     >
       {copied
@@ -127,18 +130,17 @@ function CopyRow({ label, value, mono = false }: { label: string; value: string;
 // ─── Actions dropdown ────────────────────────────────────────────────────────
 
 type ActionsMenuProps = ObjectViewCallbacks & {
-  objectKey:         string;
-  isReadOnly?:       boolean;
+  objectKey:          string;
+  isReadOnly?:        boolean;
   objectLockEnabled?: boolean;
-  legalHoldOn?:      boolean;
-  onBack:            () => void;
+  legalHoldOn?:       boolean;
+  onBack:             () => void;
 };
 
 function ActionsMenu({
   objectKey, isReadOnly, objectLockEnabled, legalHoldOn,
   onCopyUrl, onCopyS3Uri, onShare, onPresignedUrl,
   onRename, onEditTags, onDelete, onToggleLegalHold,
-  onBack,
 }: ActionsMenuProps) {
   const { t } = useTranslation('buckets');
   const [open, setOpen] = useState(false);
@@ -212,10 +214,12 @@ function ActionsMenu({
             {item(<PencilIcon className="h-4 w-4" />, t('renameObject'), () => onRename(objectKey),   isReadOnly)}
             {item(<TagIcon className="h-4 w-4" />,    t('editTags'),     () => onEditTags(objectKey), isReadOnly)}
             {sep}
+            {/* Note: onBack is NOT called here — deleteObjectMutation.onSuccess handles
+                closing the detail view via detailsObjectKeyRef once the delete is confirmed */}
             {item(
               <Trash2Icon className="h-4 w-4" />,
-              'Eliminar objeto',
-              () => { onDelete(objectKey); onBack(); },
+              t('deleteObject'),
+              () => onDelete(objectKey),
               isReadOnly,
               true,
             )}
@@ -230,9 +234,9 @@ function ActionsMenu({
 
 export function ObjectDetailsView({
   bucketName, bucketPath, currentPrefix, objectKey,
-  objectData, bucketData, isReadOnly, objectLockEnabled, onBack,
+  objectData, bucketData, isReadOnly, objectLockEnabled, tenantId, onBack,
   onDownload, onCopyUrl, onCopyS3Uri, onShare, onPresignedUrl,
-  onRename, onEditTags, onDelete, onToggleLegalHold,
+  onRename, onEditTags, onDelete, onToggleLegalHold, onNavigateToPrefix,
 }: Props) {
   const { t } = useTranslation('buckets');
   const navigate = useNavigate();
@@ -261,20 +265,20 @@ export function ObjectDetailsView({
 
   // ACL — lazy
   const aclQuery = useQuery({
-    queryKey: ['objectACL', bucketName, objectKey],
+    queryKey: ['objectACL', bucketName, objectKey, tenantId],
     enabled: activeTab === 'permissions',
     retry: false,
     refetchOnWindowFocus: false,
-    queryFn: () => APIClient.getObjectACL(bucketName, objectKey),
+    queryFn: () => APIClient.getObjectACL(bucketName, objectKey, tenantId),
   });
 
   // Versions — lazy
   const versionsQuery = useQuery({
-    queryKey: ['objectVersionsView', bucketName, objectKey],
+    queryKey: ['objectVersionsView', bucketName, objectKey, tenantId],
     enabled: activeTab === 'versions',
     retry: false,
     refetchOnWindowFocus: false,
-    queryFn: () => APIClient.listObjectVersions(bucketName, objectKey),
+    queryFn: () => APIClient.listObjectVersions(bucketName, objectKey, tenantId),
   });
 
   const aclData   = aclQuery.data as any;
@@ -290,9 +294,9 @@ export function ObjectDetailsView({
   );
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'properties',  label: 'Propiedades' },
-    { id: 'permissions', label: 'Permisos' },
-    { id: 'versions',    label: 'Versiones' },
+    { id: 'properties',  label: t('tabProperties') },
+    { id: 'permissions', label: t('tabPermissions') },
+    { id: 'versions',    label: t('tabVersions') },
   ];
 
   return (
@@ -308,17 +312,33 @@ export function ObjectDetailsView({
               {t('title')}
             </button>
             <ChevronRightIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <button onClick={onBack} className="text-blue-600 hover:underline">
+            {/* Bucket name — clicking goes back to bucket root */}
+            <button
+              onClick={() => {
+                if (onNavigateToPrefix) onNavigateToPrefix('');
+                onBack();
+              }}
+              className="text-blue-600 hover:underline"
+            >
               {bucketName}
             </button>
-            {prefixSegments.map((segment, i) => (
-              <React.Fragment key={i}>
-                <ChevronRightIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <button onClick={onBack} className="text-blue-600 hover:underline">
-                  {segment}
-                </button>
-              </React.Fragment>
-            ))}
+            {prefixSegments.map((segment, i) => {
+              const prefixUpTo = prefixSegments.slice(0, i + 1).join('/') + '/';
+              return (
+                <React.Fragment key={i}>
+                  <ChevronRightIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <button
+                    onClick={() => {
+                      if (onNavigateToPrefix) onNavigateToPrefix(prefixUpTo);
+                      onBack();
+                    }}
+                    className="text-blue-600 hover:underline"
+                  >
+                    {segment}
+                  </button>
+                </React.Fragment>
+              );
+            })}
             <ChevronRightIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <span className="text-foreground font-medium">{objectName}</span>
           </nav>
@@ -328,7 +348,7 @@ export function ObjectDetailsView({
             <button
               type="button"
               onClick={onBack}
-              title="Volver"
+              title={t('back')}
               className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
             >
               <ArrowLeftIcon className="h-5 w-5" />
@@ -392,36 +412,39 @@ export function ObjectDetailsView({
 
         <div className="p-6">
 
-          {/* ── Propiedades ── */}
+          {/* ── Properties ── */}
           {activeTab === 'properties' && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-5">
-                <InfoRow label="Última modificación" value={formatDate(obj.lastModified)} />
-                <InfoRow label="Tamaño"              value={formatSize(obj.size)} />
-                <InfoRow label="Tipo"                value={fileExtension(obj.key)} />
-                <InfoRow label="Content type"        value={obj.contentType} />
-                <InfoRow label="Storage class"       value={obj.storageClass} />
-                <InfoRow label="Región"              value={region} />
-                <InfoRow label="ETag"                value={obj.etag} mono />
+                <InfoRow label={t('objLastModified')} value={formatDate(obj.lastModified)} />
+                <InfoRow label={t('size')}            value={formatSize(obj.size)} />
+                <InfoRow label={t('tableType')}       value={fileExtension(obj.key)} />
+                <InfoRow label={t('objContentType')}  value={obj.contentType} />
+                <InfoRow label={t('tableStorageClass')} value={obj.storageClass} />
+                <InfoRow label={t('region')}          value={region} />
+                <InfoRow label="ETag"                 value={obj.etag} mono />
               </div>
 
               <hr className="border-border" />
 
               <div className="grid grid-cols-1 gap-4">
-                <CopyRow label="Key"            value={obj.key}   mono />
+                <CopyRow label={t('objKey')}    value={obj.key}   mono />
                 <CopyRow label="S3 URI"         value={s3Uri}     mono />
                 <CopyRow label="ARN"            value={arn}       mono />
-                <CopyRow label="URL del objeto" value={objectUrl} mono />
+                <CopyRow label={t('objUrl')}    value={objectUrl} mono />
               </div>
 
               {Object.keys(obj.metadata).length > 0 && (
                 <>
                   <hr className="border-border" />
                   <div>
-                    <p className="text-sm font-semibold mb-3">Metadata</p>
+                    <p className="text-sm font-semibold mb-3">{t('objMetadata')}</p>
                     <Table>
                       <TableHeader>
-                        <TableRow><TableHead>Clave</TableHead><TableHead>Valor</TableHead></TableRow>
+                        <TableRow>
+                          <TableHead>{t('objMetaKey')}</TableHead>
+                          <TableHead>{t('objMetaValue')}</TableHead>
+                        </TableRow>
                       </TableHeader>
                       <TableBody>
                         {Object.entries(obj.metadata).map(([k, v]) => (
@@ -441,12 +464,12 @@ export function ObjectDetailsView({
                   <hr className="border-border" />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
                     {obj.legalHold && (
-                      <InfoRow label="Legal hold" value={String(obj.legalHold?.status ?? obj.legalHold?.Status ?? '-')} />
+                      <InfoRow label={t('tableLegalHold')} value={String(obj.legalHold?.status ?? obj.legalHold?.Status ?? '-')} />
                     )}
                     {obj.retention && (
                       <>
-                        <InfoRow label="Retention mode" value={String(obj.retention?.mode ?? obj.retention?.Mode ?? '-')} />
-                        <InfoRow label="Retain until"   value={formatDate(String(obj.retention?.retainUntilDate ?? obj.retention?.RetainUntilDate ?? ''))} />
+                        <InfoRow label={t('objRetentionMode')}  value={String(obj.retention?.mode ?? obj.retention?.Mode ?? '-')} />
+                        <InfoRow label={t('objRetainUntil')}    value={formatDate(String(obj.retention?.retainUntilDate ?? obj.retention?.RetainUntilDate ?? ''))} />
                       </>
                     )}
                   </div>
@@ -455,28 +478,33 @@ export function ObjectDetailsView({
             </div>
           )}
 
-          {/* ── Permisos ── */}
+          {/* ── Permissions ── */}
           {activeTab === 'permissions' && (
             <div className="space-y-4">
               {aclQuery.isLoading && <div className="flex justify-center py-8"><Loading size="md" /></div>}
               {aclQuery.isError && (
                 <p className="text-sm text-muted-foreground text-center py-6">
-                  No se pudieron cargar los permisos de este objeto.
+                  {t('objAclLoadError')}
                 </p>
               )}
               {aclQuery.isSuccess && (
                 <>
-                  <InfoRow label="Owner" value={ownerName} />
+                  <InfoRow label={t('objOwner')} value={ownerName} />
                   <div>
-                    <p className="text-sm font-semibold mb-2">Grants</p>
+                    <p className="text-sm font-semibold mb-2">{t('objGrants')}</p>
                     <Table>
                       <TableHeader>
-                        <TableRow><TableHead>Beneficiario</TableHead><TableHead>Permiso</TableHead></TableRow>
+                        <TableRow>
+                          <TableHead>{t('objGrantee')}</TableHead>
+                          <TableHead>{t('objPermission')}</TableHead>
+                        </TableRow>
                       </TableHeader>
                       <TableBody>
                         {grants.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={2} className="text-center text-sm text-muted-foreground">Sin grants</TableCell>
+                            <TableCell colSpan={2} className="text-center text-sm text-muted-foreground">
+                              {t('objNoGrants')}
+                            </TableCell>
                           </TableRow>
                         ) : grants.map((g: any, i: number) => {
                           const grantee = g?.grantee ?? g?.Grantee ?? {};
@@ -500,28 +528,28 @@ export function ObjectDetailsView({
             </div>
           )}
 
-          {/* ── Versiones ── */}
+          {/* ── Versions ── */}
           {activeTab === 'versions' && (
             <div className="space-y-4">
               {versionsQuery.isLoading && <div className="flex justify-center py-8"><Loading size="md" /></div>}
               {versionsQuery.isError && (
                 <p className="text-sm text-muted-foreground text-center py-6">
-                  No se pudieron cargar las versiones.
+                  {t('objVersionsLoadError')}
                 </p>
               )}
               {versionsQuery.isSuccess && allVersions.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-6">
-                  Este objeto no tiene versiones habilitadas.
+                  {t('objNoVersions')}
                 </p>
               )}
               {versionsQuery.isSuccess && allVersions.length > 0 && (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Version ID</TableHead>
-                      <TableHead>Modificado</TableHead>
-                      <TableHead>Tamaño</TableHead>
-                      <TableHead>Estado</TableHead>
+                      <TableHead>{t('objVersionId')}</TableHead>
+                      <TableHead>{t('tableModified')}</TableHead>
+                      <TableHead>{t('size')}</TableHead>
+                      <TableHead>{t('objVersionStatus')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

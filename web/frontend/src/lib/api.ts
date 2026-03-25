@@ -1070,8 +1070,9 @@ export class APIClient {
   }
 
   // Object ACL
-  static async getObjectACL(bucketName: string, objectKey: string): Promise<any> {
-    const response = await apiClient.get(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/acl`);
+  static async getObjectACL(bucketName: string, objectKey: string, tenantId?: string): Promise<any> {
+    const params = tenantId ? `?tenantId=${tenantId}` : '';
+    const response = await apiClient.get(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/acl${params}`);
     return response.data;
   }
 
