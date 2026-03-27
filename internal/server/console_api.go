@@ -313,6 +313,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/replication/rules/{ruleId}/metrics", s.handleGetReplicationMetrics).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/replication/rules/{ruleId}/sync", s.handleTriggerReplicationSync).Methods("POST", "OPTIONS")
 
+	// Bucket-level versions endpoint (MUST be before object endpoints)
+	router.HandleFunc("/buckets/{bucket}/versions", s.handleListBucketVersions).Methods("GET", "OPTIONS")
+
 	// Folder-level endpoints (MUST be before generic object endpoints)
 	router.HandleFunc("/buckets/{bucket}/folder-size", s.handleFolderSize).Methods("GET", "OPTIONS")
 
@@ -327,8 +330,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Object versioning endpoints
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/versions", s.handleListObjectVersions).Methods("GET", "OPTIONS")
 
-	// Object extra endpoints (rename, tags) — MUST be before generic {object:.*} GET/PUT/DELETE
+	// Object extra endpoints (rename, tags, restore) — MUST be before generic {object:.*} GET/PUT/DELETE
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/rename", s.handleRenameObject).Methods("POST", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/restore", s.handleRestoreObjectVersion).Methods("POST", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/tags", s.handleGetObjectTags).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/tags", s.handleSetObjectTags).Methods("PUT", "OPTIONS")
 

@@ -4,6 +4,7 @@ interface UseIdleTimerOptions {
   timeout: number; // Timeout in milliseconds
   onIdle: () => void; // Callback when user becomes idle
   events?: string[]; // Events to track for activity
+  isBlocked?: () => boolean; // If returns true, postpone logout instead of firing onIdle
 }
 
 /**
@@ -14,9 +15,17 @@ export function useIdleTimer({
   timeout,
   onIdle,
   events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'],
+  isBlocked,
 }: UseIdleTimerOptions) {
   const timeoutId = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastActivity = useRef<number | null>(null);
+  // Keep latest callbacks in refs so the setTimeout closure never goes stale
+  const onIdleRef = useRef(onIdle);
+  const isBlockedRef = useRef(isBlocked);
+  const resetTimerRef = useRef<() => void>(() => {});
+
+  useEffect(() => { onIdleRef.current = onIdle; }, [onIdle]);
+  useEffect(() => { isBlockedRef.current = isBlocked; }, [isBlocked]);
 
   useEffect(() => {
     lastActivity.current = Date.now();
@@ -31,11 +40,19 @@ export function useIdleTimer({
     // Update last activity time
     lastActivity.current = Date.now();
 
-    // Set new timeout
+    // Set new timeout — always reads latest callbacks via refs
     timeoutId.current = setTimeout(() => {
-      onIdle();
+      // If blocked (e.g. active upload in progress), postpone instead of firing
+      if (isBlockedRef.current?.()) {
+        resetTimerRef.current();
+        return;
+      }
+      onIdleRef.current();
     }, timeout);
-  }, [timeout, onIdle]);
+  }, [timeout]); // timeout is the only real dep; callbacks are accessed via refs
+
+  // Keep resetTimerRef in sync
+  useEffect(() => { resetTimerRef.current = resetTimer; }, [resetTimer]);
 
   useEffect(() => {
     // Start the timer initially

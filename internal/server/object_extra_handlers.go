@@ -275,6 +275,189 @@ func (s *Server) handleFolderSize(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ── Bucket Versions ──────────────────────────────────────────────────────────
+
+// handleListBucketVersions implements GET /buckets/{bucket}/versions?prefix=&maxKeys=
+// Returns all object versions and delete markers for the bucket (or a prefix within it).
+func (s *Server) handleListBucketVersions(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+
+	_, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	tenantID := s.resolveTenantID(r)
+	bucketPath := buildBucketPath(tenantID, bucketName)
+
+	prefix := r.URL.Query().Get("prefix")
+	maxKeys := 5000
+	if v := r.URL.Query().Get("maxKeys"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxKeys = n
+		}
+	}
+
+	metaVersions, err := s.metadataStore.ListAllObjectVersions(r.Context(), bucketPath, prefix, maxKeys)
+	if err != nil {
+		s.writeError(w, fmt.Sprintf("Failed to list versions: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	type versionItem struct {
+		Key            string `json:"key"`
+		VersionID      string `json:"versionId"`
+		IsLatest       bool   `json:"isLatest"`
+		IsDeleteMarker bool   `json:"isDeleteMarker"`
+		Size           int64  `json:"size"`
+		ETag           string `json:"etag"`
+		LastModified   string `json:"lastModified"`
+		StorageClass   string `json:"storageClass,omitempty"`
+	}
+
+	items := make([]versionItem, 0, len(metaVersions))
+	for _, v := range metaVersions {
+		items = append(items, versionItem{
+			Key:            v.Key,
+			VersionID:      v.VersionID,
+			IsLatest:       v.IsLatest,
+			IsDeleteMarker: v.Size == 0 && v.ETag == "",
+			Size:           v.Size,
+			ETag:           v.ETag,
+			LastModified:   v.LastModified.Format(time.RFC3339),
+			StorageClass:   v.StorageClass,
+		})
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"versions":    items,
+		"isTruncated": len(items) == maxKeys,
+	})
+}
+
+// handleRestoreObjectVersion implements POST /buckets/{bucket}/objects/{object:.*}/restore
+// Body: { "versionId": "...", "isDeleteMarker": false }
+//
+// For delete markers: removes the marker so the previous real version becomes current.
+// For content versions: copies the specified version to a new PUT, making it the latest.
+func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey := vars["object"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		VersionID      string `json:"versionId"`
+		IsDeleteMarker bool   `json:"isDeleteMarker"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.VersionID) == "" {
+		s.writeError(w, "Invalid request: versionId is required", http.StatusBadRequest)
+		return
+	}
+
+	tenantID := user.TenantID
+	if q := r.URL.Query().Get("tenantId"); q != "" && auth.IsAdminUser(r.Context()) && user.TenantID == "" {
+		tenantID = q
+	}
+	bucketPath := buildBucketPath(tenantID, bucketName)
+
+	if req.IsDeleteMarker {
+		// Removing a delete marker exposes the previous real version as the latest
+		if err := s.objectManager.DeleteObjectVersion(r.Context(), bucketPath, objectKey, req.VersionID); err != nil {
+			s.writeError(w, fmt.Sprintf("Failed to remove delete marker: %v", err), http.StatusInternalServerError)
+			return
+		}
+		s.logAuditEvent(r.Context(), &audit.AuditEvent{
+			TenantID:     tenantID,
+			UserID:       user.ID,
+			Username:     user.Username,
+			EventType:    audit.EventTypeObjectDeleted,
+			ResourceType: audit.ResourceTypeObject,
+			ResourceID:   objectKey,
+			ResourceName: objectKey,
+			Action:       audit.ActionDelete,
+			Status:       audit.StatusSuccess,
+			IPAddress:    getClientIP(r, s.config.TrustedProxies),
+			UserAgent:    r.Header.Get("User-Agent"),
+			Details: map[string]interface{}{
+				"bucket":            bucketName,
+				"key":               objectKey,
+				"removed_marker":    req.VersionID,
+			},
+		})
+		s.writeJSON(w, map[string]string{"status": "delete marker removed"})
+		return
+	}
+
+	// Copy the specified version to a new PUT → it becomes the new latest version
+	srcObj, reader, err := s.objectManager.GetObject(r.Context(), bucketPath, objectKey, req.VersionID)
+	if err != nil {
+		if err == object.ErrObjectNotFound {
+			s.writeError(w, "Version not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	defer reader.Close()
+
+	headers := make(http.Header)
+	ct := srcObj.ContentType
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	headers.Set("Content-Type", ct)
+	headers.Set("Content-Length", strconv.FormatInt(srcObj.Size, 10))
+	if srcObj.ContentDisposition != "" {
+		headers.Set("Content-Disposition", srcObj.ContentDisposition)
+	}
+	if srcObj.ContentEncoding != "" {
+		headers.Set("Content-Encoding", srcObj.ContentEncoding)
+	}
+	if srcObj.CacheControl != "" {
+		headers.Set("Cache-Control", srcObj.CacheControl)
+	}
+	if srcObj.ContentLanguage != "" {
+		headers.Set("Content-Language", srcObj.ContentLanguage)
+	}
+	for k, v := range srcObj.Metadata {
+		headers.Set("X-Amz-Meta-"+k, v)
+	}
+
+	if _, err = s.objectManager.PutObject(r.Context(), bucketPath, objectKey, reader, headers); err != nil {
+		s.writeError(w, fmt.Sprintf("Failed to restore version: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		TenantID:     tenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    audit.EventTypeObjectUploaded,
+		ResourceType: audit.ResourceTypeObject,
+		ResourceID:   objectKey,
+		ResourceName: objectKey,
+		Action:       audit.ActionUpdate,
+		Status:       audit.StatusSuccess,
+		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		UserAgent:    r.Header.Get("User-Agent"),
+		Details: map[string]interface{}{
+			"bucket":           bucketName,
+			"key":              objectKey,
+			"restored_version": req.VersionID,
+		},
+	})
+
+	s.writeJSON(w, map[string]string{"status": "restored"})
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 // resolveTenantID returns the effective tenant ID for the request.

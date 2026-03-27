@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import APIClient from '@/lib/api';
+import APIClient, { getActiveUploadCount } from '@/lib/api';
 import { getBasePath } from '@/lib/basePath';
 import type { User, LoginRequest, APIError } from '@/types';
 import { useIdleTimer } from './useIdleTimer';
@@ -181,10 +181,13 @@ export function useAuthProvider(): AuthContextType {
     }
   }, [isAuthenticated]);
 
-  // Only activate idle timer when user is authenticated
+  // Only activate idle timer when user is authenticated.
+  // isBlocked suppresses logout when a file upload is in progress — the user
+  // isn't interacting with the UI but the session is actively being used.
   useIdleTimer({
     timeout: 30 * 60 * 1000, // 30 minutes in milliseconds
     onIdle: handleIdle,
+    isBlocked: () => getActiveUploadCount() > 0,
   });
 
   return {

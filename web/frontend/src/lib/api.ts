@@ -11,6 +11,7 @@ import type {
   ListObjectsResponse,
   ListObjectsRequest,
   ListObjectVersionsResponse,
+  BucketVersionsResponse,
   GeneratePresignedURLRequest,
   GeneratePresignedURLResponse,
   UploadRequest,
@@ -193,8 +194,10 @@ class TokenManager {
   }
 
   // Proactively refresh the access token 2 min before it expires so the user
-  // never hits a 401 mid-session.
-  private scheduleProactiveRefresh(token: string): void {
+  // never hits a 401 mid-session. If the refresh fails (transient network
+  // error, server hiccup), retry every 30 s until the token actually expires —
+  // at that point the 401 interceptor takes over as a last resort.
+  private scheduleProactiveRefresh(token: string, retryAttempt = 0): void {
     if (this.proactiveRefreshTimer !== null) {
       clearTimeout(this.proactiveRefreshTimer);
       this.proactiveRefreshTimer = null;
@@ -209,8 +212,15 @@ class TokenManager {
 
       const nowSecs = Math.floor(Date.now() / 1000);
       const ttl = exp - nowSecs;
-      // Refresh 2 min before expiry; wait at least 5 s to avoid tight loops
-      const refreshInMs = Math.max((ttl - 120) * 1000, 5000);
+
+      // Token already expired — nothing to schedule; interceptor handles it.
+      if (ttl <= 0) return;
+
+      // On first attempt: refresh 2 min before expiry (min 5 s).
+      // On retry: refresh again in 30 s (but never past token expiry).
+      const refreshInMs = retryAttempt === 0
+        ? Math.max((ttl - 120) * 1000, 5000)
+        : Math.min(30_000, Math.max((ttl - 5) * 1000, 1000));
 
       this.proactiveRefreshTimer = setTimeout(async () => {
         const rt = this.refreshToken;
@@ -223,10 +233,18 @@ class TokenManager {
           );
           const { access_token, refresh_token } = resp.data;
           if (access_token) {
+            // Success: setTokens reschedules with retryAttempt = 0 on the new token.
             this.setTokens(access_token, refresh_token);
           }
-        } catch {
-          // Silent — the response interceptor will handle the eventual 401
+        } catch (err: unknown) {
+          // Transient failure (network, 5xx): retry in 30 s while token still lives.
+          // Auth rejection (401/403): the refresh token is gone — don't retry,
+          // let the next API call's 401 interceptor do the final logout.
+          const status = (err as any)?.response?.status;
+          const isAuthRejection = status === 401 || status === 403;
+          if (!isAuthRejection) {
+            this.scheduleProactiveRefresh(token, retryAttempt + 1);
+          }
         }
       }, refreshInMs);
     } catch {
@@ -267,8 +285,39 @@ s3Client.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// Sliding-window session: timestamp of the last background refresh triggered
+// by user activity. Used to debounce — we refresh at most once per minute.
+let lastActivityRefreshAt = 0;
+
 // Response interceptors
+// After every successful API response, fire a background token refresh (at
+// most once per minute). This turns the session into a true sliding window:
+// any action in the UI resets the 15-minute expiry from that moment.
 const handleResponse = (response: AxiosResponse): AxiosResponse => {
+  const rt = tokenManager.getRefreshToken();
+  const now = Date.now();
+  // Debounce: skip if we already refreshed within the last 60 seconds,
+  // or if a refresh is already in flight, or if there is no refresh token.
+  if (rt && !isRefreshing && now - lastActivityRefreshAt > 60_000) {
+    lastActivityRefreshAt = now;
+    isRefreshing = true;
+    axios.post(
+      `${API_CONFIG.baseURL}/auth/refresh`,
+      { refresh_token: rt },
+      { headers: { 'Content-Type': 'application/json' } }
+    ).then((resp) => {
+      const { access_token, refresh_token } = resp.data;
+      if (access_token) {
+        tokenManager.setTokens(access_token, refresh_token);
+        pendingRefreshCallbacks.forEach(cb => cb(access_token));
+        pendingRefreshCallbacks = [];
+      }
+    }).catch(() => {
+      // Transient failure — the proactive timer handles the retry
+    }).finally(() => {
+      isRefreshing = false;
+    });
+  }
   return response;
 };
 
@@ -394,6 +443,10 @@ const handleError = async (error: AxiosError): Promise<unknown> => {
 
 apiClient.interceptors.response.use(handleResponse, handleError);
 s3Client.interceptors.response.use(handleResponse, handleError);
+
+// Active upload counter — used by the idle timer to suppress logout during uploads
+let activeUploadCount = 0;
+export function getActiveUploadCount(): number { return activeUploadCount; }
 
 // API Client Class
 export class APIClient {
@@ -698,12 +751,17 @@ export class APIClient {
       });
     }
 
-    const response = await apiClient.put<APIResponse<S3Object>>(
-      uploadUrl,
-      request.file, // Stream the File directly — no memory copy
-      config
-    );
-    return response.data.data!;
+    activeUploadCount++;
+    try {
+      const response = await apiClient.put<APIResponse<S3Object>>(
+        uploadUrl,
+        request.file, // Stream the File directly — no memory copy
+        config
+      );
+      return response.data.data!;
+    } finally {
+      activeUploadCount--;
+    }
   }
 
   static async downloadObject(request: DownloadRequest): Promise<Blob> {
@@ -834,6 +892,35 @@ export class APIClient {
 
     const response = await apiClient.get<APIResponse<ListObjectVersionsResponse>>(url);
     return response.data.data!;
+  }
+
+  static async listBucketVersions(bucket: string, prefix?: string, tenantId?: string): Promise<BucketVersionsResponse> {
+    const params = new URLSearchParams();
+    if (prefix) params.set('prefix', prefix);
+    if (tenantId) params.set('tenantId', tenantId);
+    const qs = params.toString();
+    const url = `/buckets/${bucket}/versions${qs ? `?${qs}` : ''}`;
+    const response = await apiClient.get<APIResponse<BucketVersionsResponse>>(url);
+    return response.data.data!;
+  }
+
+  static async restoreObjectVersion(
+    bucket: string,
+    key: string,
+    versionId: string,
+    isDeleteMarker: boolean,
+    tenantId?: string
+  ): Promise<void> {
+    const url = tenantId
+      ? `/buckets/${bucket}/objects/${encodeURIComponent(key)}/restore?tenantId=${tenantId}`
+      : `/buckets/${bucket}/objects/${encodeURIComponent(key)}/restore`;
+    await apiClient.post(url, { versionId, isDeleteMarker });
+  }
+
+  static async deleteObjectVersion(bucket: string, key: string, versionId: string, tenantId?: string): Promise<void> {
+    const params = new URLSearchParams({ versionId });
+    if (tenantId) params.set('tenantId', tenantId);
+    await apiClient.delete(`/buckets/${bucket}/objects/${encodeURIComponent(key)}?${params.toString()}`);
   }
 
   // Presigned URLs

@@ -56,6 +56,8 @@
   "expirationDays": "Expiración de Objetos (días)",
   "expirationHelp": "Los objetos se eliminan permanentemente después de N días (0 = sin expiración)",
   "encryptionTitle": "Cifrado",
+  "serverEncryptionActive": "Cifrado Global del Servidor Activo",
+  "serverEncryptionActiveHelp": "El servidor tiene cifrado AES-256-GCM habilitado globalmente. Todos los objetos almacenados en este bucket serán cifrados en reposo independientemente de esta configuración.",
   "serverEncryptionDisabled": "Cifrado del Servidor Deshabilitado",
   "serverEncryptionHelp": "El cifrado no está habilitado en el servidor. Para habilitar el cifrado, configure <code class=\"bg-amber-100 dark:bg-amber-900/50 px-1 rounded\">encryption_key</code> en <code class=\"bg-amber-100 dark:bg-amber-900/50 px-1 rounded\">config.yaml</code> y reinicie el servidor.",
   "enableEncryption": "Habilitar Cifrado para este Bucket",

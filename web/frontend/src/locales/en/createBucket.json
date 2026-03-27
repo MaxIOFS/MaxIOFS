@@ -56,6 +56,8 @@
   "expirationDays": "Object Expiration (days)",
   "expirationHelp": "Objects are permanently deleted after N days (0 = no expiration)",
   "encryptionTitle": "Encryption",
+  "serverEncryptionActive": "Server-Wide Encryption Active",
+  "serverEncryptionActiveHelp": "The server has AES-256-GCM encryption enabled globally. All objects stored in this bucket will be encrypted at rest regardless of this setting.",
   "serverEncryptionDisabled": "Server Encryption Disabled",
   "serverEncryptionHelp": "Encryption is not enabled on the server. To enable encryption, configure <code class=\"bg-amber-100 dark:bg-amber-900/50 px-1 rounded\">encryption_key</code> in <code class=\"bg-amber-100 dark:bg-amber-900/50 px-1 rounded\">config.yaml</code> and restart the server.",
   "enableEncryption": "Enable Encryption for this Bucket",

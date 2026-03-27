@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
@@ -97,6 +97,13 @@ export default function CreateBucketPage() {
 
   // Check if server has encryption enabled
   const serverEncryptionEnabled = serverConfig?.storage?.enableEncryption ?? false;
+
+  // When server config loads and encryption is globally active, auto-enable it for the new bucket
+  useEffect(() => {
+    if (serverEncryptionEnabled) {
+      setConfig(prev => ({ ...prev, encryptionEnabled: true }));
+    }
+  }, [serverEncryptionEnabled]);
 
   // Fetch tenants for ownership selection
   const { data: tenants } = useQuery({
@@ -606,9 +613,27 @@ export default function CreateBucketPage() {
           {/* Encryption Tab */}
           {activeTab === 'encryption' && (
             <div className="space-y-4">
-                {/* Server encryption status warning */}
+                {/* Server encryption globally enabled — informational banner */}
+                {serverEncryptionEnabled && (
+                  <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md p-3">
+                    <div className="flex items-start gap-2">
+                      <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-green-800 dark:text-green-300">
+                          {t('serverEncryptionActive')}
+                        </p>
+                        <p
+                          className="text-xs text-green-700 dark:text-green-400 mt-1"
+                          dangerouslySetInnerHTML={{ __html: t('serverEncryptionActiveHelp') }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Server encryption disabled — warning */}
                 {!serverEncryptionEnabled && (
-                  <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-md p-3 mb-4">
+                  <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-md p-3">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
                       <div>
@@ -628,7 +653,7 @@ export default function CreateBucketPage() {
                   <input
                     type="checkbox"
                     id="encryption"
-                    checked={serverEncryptionEnabled && config.encryptionEnabled}
+                    checked={config.encryptionEnabled}
                     onChange={(e) => updateConfig('encryptionEnabled', e.target.checked)}
                     disabled={!serverEncryptionEnabled}
                     className={`rounded border-border ${!serverEncryptionEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}

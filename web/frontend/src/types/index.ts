@@ -415,6 +415,22 @@ export interface ListObjectVersionsResponse {
   isTruncated: boolean;
 }
 
+export interface BucketVersionItem {
+  key: string;
+  versionId: string;
+  isLatest: boolean;
+  isDeleteMarker: boolean;
+  size: number;
+  etag: string;
+  lastModified: string;
+  storageClass?: string;
+}
+
+export interface BucketVersionsResponse {
+  versions: BucketVersionItem[];
+  isTruncated: boolean;
+}
+
 export interface GeneratePresignedURLRequest {
   bucket: string;
   key: string;

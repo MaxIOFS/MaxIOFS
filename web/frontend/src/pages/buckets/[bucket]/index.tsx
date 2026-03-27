@@ -96,6 +96,7 @@ export default function BucketDetailsPage() {
   const [isEditTagsModalOpen, setIsEditTagsModalOpen] = useState(false);
   const [editTagsKey, setEditTagsKey] = useState('');
   const [editTags, setEditTags] = useState<Array<{ key: string; value: string }>>([]);
+  const [showVersions, setShowVersions] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -169,6 +170,12 @@ export default function BucketDetailsPage() {
   const { data: sharesMap = {} } = useQuery({
     queryKey: ['shares', bucketName, tenantId],
     queryFn: () => APIClient.getBucketShares(bucketName, tenantId),
+  });
+
+  const { data: versionsData, isLoading: versionsLoading } = useQuery({
+    queryKey: ['bucket-versions', bucketName, currentPrefix, tenantId],
+    queryFn: () => APIClient.listBucketVersions(bucketName, currentPrefix || undefined, tenantId),
+    enabled: showVersions,
   });
 
   const createFolderMutation = useMutation({
@@ -514,6 +521,18 @@ export default function BucketDetailsPage() {
   const handleDeleteObject = async (key: string, isFolder: boolean) => {
     const itemType = isFolder ? 'folder' : 'file';
 
+    // Block deletion if the object is under active retention or legal hold
+    if (!isFolder) {
+      const item = filteredItems.find(i => i.key === key);
+      if (item && isObjectLocked(item)) {
+        const hasLegalHold = 'legalHold' in item && (item as any).legalHold?.status === 'ON';
+        ModalManager.toast('error', hasLegalHold
+          ? t('deleteBlockedLegalHold')
+          : t('deleteBlockedRetention'));
+        return;
+      }
+    }
+
     try {
       const result = await ModalManager.fire({
         icon: 'warning',
@@ -841,13 +860,28 @@ export default function BucketDetailsPage() {
   const handleBulkDelete = async () => {
     if (selectedObjects.size === 0) return;
 
-    const total = selectedObjects.size;
+    // Separate locked from deletable items
+    const allSelected = filteredItems.filter(item => selectedObjects.has(item.key));
+    const lockedItems = allSelected.filter(isObjectLocked);
+    const deletableItems = allSelected.filter(item => !isObjectLocked(item));
+
+    if (lockedItems.length === allSelected.length) {
+      // Everything is locked — nothing to delete
+      ModalManager.toast('error', t('deleteBlockedAllLocked'));
+      return;
+    }
+
+    const total = deletableItems.length;
+    const lockedNote = lockedItems.length > 0
+      ? `<p class="text-yellow-600 mt-2">${lockedItems.length} item${lockedItems.length !== 1 ? 's are' : ' is'} protected by Object Lock and will be skipped.</p>`
+      : '';
+
     const result = await ModalManager.fire({
       icon: 'warning',
       title: `Delete ${total} item${total !== 1 ? 's' : ''}?`,
       html: `<p>You are about to delete <strong>${total}</strong> item${total !== 1 ? 's' : ''}</p>
              <p class="text-red-600 mt-2">This action cannot be undone</p>
-             <p class="text-sm text-gray-600 mt-2">Some objects may be protected by Object Lock</p>`,
+             ${lockedNote}`,
       showCancelButton: true,
       confirmButtonText: 'Yes, delete',
       cancelButtonText: 'Cancel',
@@ -856,8 +890,8 @@ export default function BucketDetailsPage() {
 
     if (!result.isConfirmed) return;
 
-    // Snapshot selection and clear it immediately so the user can keep working
-    const selectedArray = Array.from(selectedObjects);
+    // Only delete non-locked items; clear full selection
+    const selectedArray = deletableItems.map(item => item.key);
     setSelectedObjects(new Set());
 
     // Start background task — dialog is now closed, bar appears bottom-right
@@ -978,6 +1012,54 @@ export default function BucketDetailsPage() {
     }
   };
 
+  const handleRestoreVersion = async (key: string, versionId: string, isDeleteMarker: boolean) => {
+    const titleKey = isDeleteMarker ? 'restoreDeleteMarkerTitle' : 'restoreVersionTitle';
+    const msgKey = isDeleteMarker ? 'restoreDeleteMarkerMsg' : 'restoreVersionMsg';
+    const result = await ModalManager.fire({
+      icon: 'question',
+      title: t(titleKey),
+      text: t(msgKey, { key: key.split('/').pop() || key, versionId: versionId.substring(0, 8) + '…' }),
+      showCancelButton: true,
+      confirmButtonText: t('restoreVersion'),
+      cancelButtonText: t('cancel'),
+    });
+    if (!result.isConfirmed) return;
+    try {
+      ModalManager.loading(t('restoring'), key);
+      await APIClient.restoreObjectVersion(bucketName, key, versionId, isDeleteMarker, tenantId);
+      ModalManager.close();
+      ModalManager.toast('success', isDeleteMarker ? t('deleteMarkerRemoved') : t('versionRestored'));
+      queryClient.invalidateQueries({ queryKey: ['bucket-versions', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
+    } catch (error) {
+      ModalManager.close();
+      ModalManager.apiError(error);
+    }
+  };
+
+  const handleDeleteVersion = async (key: string, versionId: string) => {
+    const result = await ModalManager.fire({
+      icon: 'warning',
+      title: t('deleteVersionTitle'),
+      text: t('deleteVersionMsg', { key: key.split('/').pop() || key, versionId: versionId.substring(0, 8) + '…' }),
+      showCancelButton: true,
+      confirmButtonText: t('deleteVersion'),
+      cancelButtonText: t('cancel'),
+      confirmButtonColor: '#dc2626',
+    });
+    if (!result.isConfirmed) return;
+    try {
+      await APIClient.deleteObjectVersion(bucketName, key, versionId, tenantId);
+      ModalManager.toast('success', t('versionDeleted'));
+      queryClient.invalidateQueries({ queryKey: ['bucket-versions', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
+    } catch (error) {
+      ModalManager.apiError(error);
+    }
+  };
+
   const formatSize = (bytes: number) => {
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let size = bytes;
@@ -1045,6 +1127,18 @@ export default function BucketDetailsPage() {
     return item.isFolder || item.key.endsWith('/');
   };
 
+  // Returns true if the item has an active (non-expired) retention period or an ON legal hold.
+  // Used to block deletion from the console — the S3 API also enforces this server-side.
+  const isObjectLocked = (item: any): boolean => {
+    if (isFolder(item)) return false;
+    if ('legalHold' in item && item.legalHold?.status === 'ON') return true;
+    if ('retention' in item && item.retention?.retainUntilDate) {
+      const info = formatRetentionExpiration(item.retention.retainUntilDate);
+      if (info && !info.expired) return true;
+    }
+    return false;
+  };
+
   const getDisplayName = (item: any) => {
     if (isFolder(item)) {
       // Remove trailing slash and get last part
@@ -1060,6 +1154,8 @@ export default function BucketDetailsPage() {
   const singleItem = isSingleSelection ? selectedItemsList[0] : null;
   const singleIsFolder = singleItem ? isFolder(singleItem) : false;
   const singleIsFile = singleItem ? !isFolder(singleItem) : false;
+  // True when any selected file has active retention or legal hold — blocks delete
+  const hasLockedItems = selectedItemsList.some(isObjectLocked);
 
   if (bucketLoading) {
     return (
@@ -1335,10 +1431,33 @@ export default function BucketDetailsPage() {
       <div className="bg-card rounded-xl border border-border shadow-md">
         <div className="px-6 border-b border-border flex items-center justify-between h-14 shrink-0">
           <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <FileIcon className="h-5 w-5 text-brand-600 dark:text-brand-400" />
-            {t('objectsLabel')} ({filteredItems.length})
-            {currentPrefix && ` ${t('inPath', { path: currentPrefix })}`}
+            {showVersions ? (
+              <>
+                <HistoryIcon className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+                {t('versionsView')}
+                {currentPrefix && ` ${t('inPath', { path: currentPrefix })}`}
+              </>
+            ) : (
+              <>
+                <FileIcon className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+                {t('objectsLabel')} ({filteredItems.length})
+                {currentPrefix && ` ${t('inPath', { path: currentPrefix })}`}
+              </>
+            )}
           </h3>
+          <div className="flex items-center gap-2">
+            {bucketData?.versioning?.Status === 'Enabled' && (
+              <Button
+                variant={showVersions ? 'default' : 'outline'}
+                size="sm"
+                className="gap-2"
+                onClick={() => setShowVersions(v => !v)}
+              >
+                <HistoryIcon className="h-4 w-4" />
+                {showVersions ? t('hideVersions') : t('showVersions')}
+              </Button>
+            )}
+          </div>
           {selectedObjects.size > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">
@@ -1461,7 +1580,7 @@ export default function BucketDetailsPage() {
                       <div className="my-1 border-t border-border" />
                       <button
                         className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-40 disabled:cursor-not-allowed"
-                        disabled={isGlobalAdminInTenantBucket || deleteObjectMutation.isPending}
+                        disabled={isGlobalAdminInTenantBucket || deleteObjectMutation.isPending || hasLockedItems}
                         onClick={() => { handleBulkDelete(); setActionsOpen(false); }}
                       >
                         <Trash2Icon className="h-4 w-4" />
@@ -1475,7 +1594,112 @@ export default function BucketDetailsPage() {
           )}
         </div>
         <div className="overflow-x-auto overflow-hidden rounded-b-xl">
-          {objectsLoading ? (
+          {showVersions ? (
+            versionsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loading size="md" />
+                <span className="ml-3 text-sm text-muted-foreground">{t('loadingVersions')}</span>
+              </div>
+            ) : !versionsData?.versions?.length ? (
+              <div className="text-center py-12 px-4">
+                <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-gray-100 dark:bg-gray-700 mb-4">
+                  <HistoryIcon className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <h3 className="text-base font-medium text-foreground mb-1">{t('noVersionsFound')}</h3>
+                <p className="text-sm text-muted-foreground">{t('noVersionsDesc')}</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('name')}</TableHead>
+                    <TableHead>{t('versionType')}</TableHead>
+                    <TableHead>{t('tableModified')}</TableHead>
+                    <TableHead>{t('size')}</TableHead>
+                    <TableHead>{t('versionId')}</TableHead>
+                    <TableHead>{t('tableActions')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {versionsData.versions.map((v) => {
+                    const displayName = v.key.split('/').pop() || v.key;
+                    const isLatest = v.isLatest;
+                    const isDM = v.isDeleteMarker;
+                    return (
+                      <TableRow key={`${v.key}-${v.versionId}`} className={`h-[37px] [&>td]:overflow-hidden [&>td]:max-h-[37px] ${isDM ? 'opacity-60' : ''}`}>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            {isDM
+                              ? <Trash2Icon className="h-4 w-4 text-red-400 shrink-0" />
+                              : <FileIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                            }
+                            <span className="truncate">{displayName}</span>
+                            {v.key.includes('/') && (
+                              <span className="text-xs text-muted-foreground truncate hidden sm:inline">({v.key})</span>
+                            )}
+                            {isLatest && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 shrink-0">
+                                {t('versionIsLatest')}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {isDM
+                            ? <span className="inline-flex items-center gap-1 text-xs text-red-600"><Trash2Icon className="h-3 w-3" />{t('versionTypeDeleteMarker')}</span>
+                            : <span className="text-xs text-muted-foreground">{t('versionTypeVersion')}</span>
+                          }
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <CalendarIcon className="h-3 w-3 shrink-0" />
+                            {formatDate(v.lastModified)}
+                          </div>
+                        </TableCell>
+                        <TableCell>{isDM ? '-' : formatSize(v.size)}</TableCell>
+                        <TableCell>
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {v.versionId ? v.versionId.substring(0, 12) + '…' : '-'}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            {!isDM && !isLatest && (
+                              <button
+                                title={t('restoreVersion')}
+                                className="p-1 rounded hover:bg-secondary text-blue-600 hover:text-blue-700"
+                                onClick={() => handleRestoreVersion(v.key, v.versionId, false)}
+                              >
+                                <HistoryIcon className="h-4 w-4" />
+                              </button>
+                            )}
+                            {isDM && (
+                              <button
+                                title={t('restoreVersion')}
+                                className="p-1 rounded hover:bg-secondary text-blue-600 hover:text-blue-700"
+                                onClick={() => handleRestoreVersion(v.key, v.versionId, true)}
+                              >
+                                <HistoryIcon className="h-4 w-4" />
+                              </button>
+                            )}
+                            {!isDM && !isLatest && !isGlobalAdminInTenantBucket && (
+                              <button
+                                title={t('deleteVersion')}
+                                className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/30 text-red-500 hover:text-red-700"
+                                onClick={() => handleDeleteVersion(v.key, v.versionId)}
+                              >
+                                <Trash2Icon className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )
+          ) : objectsLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loading size="md" />
             </div>
