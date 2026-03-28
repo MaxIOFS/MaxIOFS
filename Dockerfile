@@ -3,44 +3,29 @@
 # Stage 1: Build frontend
 FROM node:24-alpine AS web-builder
 
-# Install build dependencies for native modules
 RUN apk add --no-cache python3 make g++
 
 WORKDIR /app/web/frontend
 
-# Copy package files
 COPY web/frontend/package*.json ./
-
-# Install dependencies
 RUN npm ci
 
-# Copy frontend source
 COPY web/frontend/ ./
-
-# Build frontend
 RUN npm run build
 
 # Stage 2: Build Go application
 FROM golang:1.25.8-alpine AS go-builder
 
-# Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
 
 WORKDIR /app
 
-# Copy go mod files
 COPY go.mod go.sum ./
-
-# Download dependencies
 RUN go mod download
 
-# Copy source code
 COPY . .
-
-# Copy built web assets from previous stage
 COPY --from=web-builder /app/web/frontend/dist ./web/frontend/dist
 
-# Build the application
 ARG VERSION=docker
 ARG COMMIT=unknown
 ARG BUILD_DATE
@@ -51,41 +36,40 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Stage 3: Final runtime image
 FROM alpine:latest
 
-# Install runtime dependencies
-RUN apk --no-cache add ca-certificates tzdata curl
+# su-exec: lightweight privilege-drop utility (replaces gosu, avoids setuid binary)
+RUN apk --no-cache add ca-certificates tzdata curl su-exec
 
-# Create non-root user
+# Create non-root user that will own the process after privilege drop
 RUN addgroup -g 1001 -S maxiofs && \
     adduser -u 1001 -S maxiofs -G maxiofs
 
 WORKDIR /app
 
-# Copy binary from builder stage
+# Copy binary and entrypoint
 COPY --from=go-builder /app/maxiofs .
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
-# Create data directory
-RUN mkdir -p /data && \
-    chown -R maxiofs:maxiofs /data /app
+# Pre-create data directory with correct ownership.
+# For named volumes Docker will use this directory; for bind mounts the
+# entrypoint will fix ownership at runtime (runs as root by default).
+RUN mkdir -p /data && chown -R maxiofs:maxiofs /data /app
 
-# Switch to non-root user
-USER maxiofs
-
-# Create volume for data
+# Declare the default data volume.
+# Users can override with a named volume or a bind mount — both work.
 VOLUME ["/data"]
 
-# Expose ports
 EXPOSE 8080 8081
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8081/api/v1/health || exit 1
 
-# Default configuration
 ENV MAXIOFS_LISTEN=":8080"
 ENV MAXIOFS_CONSOLE_LISTEN=":8081"
 ENV MAXIOFS_DATA_DIR="/data"
 ENV MAXIOFS_LOG_LEVEL="info"
 
-# Default command
-ENTRYPOINT ["./maxiofs"]
+# Run as root so the entrypoint can fix bind-mount permissions, then drops
+# to the maxiofs user via su-exec before starting the server.
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["--data-dir", "/data"]

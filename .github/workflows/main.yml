@@ -39,8 +39,10 @@ jobs:
           BASE_VERSION="1.2.0"
           COMMIT_SHORT=$(git rev-parse --short HEAD)
           NIGHTLY_VERSION="${BASE_VERSION}-nightly-${COMMIT_SHORT}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           echo "version=${NIGHTLY_VERSION}" >> $GITHUB_OUTPUT
           echo "commit_short=${COMMIT_SHORT}" >> $GITHUB_OUTPUT
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
           echo "Nightly version: ${NIGHTLY_VERSION}"
 
       - name: Download last built commit hash from S3
@@ -218,6 +220,33 @@ jobs:
       - name: Upload to S3
         run: aws s3 sync ./nightly-artifacts s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest --delete
 
+      - name: Set up QEMU (for ARM64 Docker cross-build)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push nightly Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ steps.nightly_version.outputs.version }}
+            COMMIT=${{ steps.nightly_version.outputs.commit_short }}
+            BUILD_DATE=${{ steps.nightly_version.outputs.build_date }}
+          tags: maxiofs/maxiofs:nightly
+          cache-from: type=registry,ref=maxiofs/maxiofs:buildcache
+          cache-to: type=registry,ref=maxiofs/maxiofs:buildcache,mode=max
+
       - name: Build summary
         if: success()
         run: |
@@ -231,6 +260,7 @@ jobs:
           echo "- Debian packages (.deb for amd64 and arm64)" >> $GITHUB_STEP_SUMMARY
           echo "- RPM packages (.rpm for x86_64 and aarch64)" >> $GITHUB_STEP_SUMMARY
           echo "- Performance benchmarks (authentication, storage, encryption)" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker image pushed to \`maxiofs/maxiofs:nightly\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📍 S3 Location: \`s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest/\`" >> $GITHUB_STEP_SUMMARY
 

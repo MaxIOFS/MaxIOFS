@@ -1,0 +1,97 @@
+name: Docker Publish
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to publish (e.g. 1.2.0)'
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker:
+    name: Build & Push to DockerHub
+    runs-on: ubuntu-latest
+    environment: builds
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.tag }}"
+          else
+            # Strip leading 'v' from the git tag (v1.2.0 -> 1.2.0)
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          COMMIT=$(git rev-parse --short HEAD)
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "commit=${COMMIT}" >> $GITHUB_OUTPUT
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}  Commit: ${COMMIT}"
+
+      - name: Set up QEMU (for ARM64 cross-build)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            COMMIT=${{ steps.version.outputs.commit }}
+            BUILD_DATE=${{ steps.version.outputs.build_date }}
+          tags: |
+            maxiofs/maxiofs:latest
+            maxiofs/maxiofs:${{ steps.version.outputs.version }}
+          # Cache layers in DockerHub to speed up subsequent builds
+          cache-from: type=registry,ref=maxiofs/maxiofs:buildcache
+          cache-to: type=registry,ref=maxiofs/maxiofs:buildcache,mode=max
+
+      - name: Update DockerHub description
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: maxiofs/maxiofs
+          short-description: "Self-hosted S3-compatible object storage — single binary, batteries included"
+          readme-filepath: ./DOCKER.md
+
+      - name: Build summary
+        if: success()
+        run: |
+          echo "## ✅ Docker Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ steps.version.outputs.commit }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Tags pushed" >> $GITHUB_STEP_SUMMARY
+          echo "- \`maxiofs/maxiofs:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`maxiofs/maxiofs:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🐳 https://hub.docker.com/r/maxiofs/maxiofs" >> $GITHUB_STEP_SUMMARY

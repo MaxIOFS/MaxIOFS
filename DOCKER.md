@@ -4,7 +4,34 @@ This guide provides instructions for deploying MaxIOFS using Docker and Docker C
 
 ## Quick Start
 
-### Using Make (Recommended)
+### Using the pre-built image from DockerHub
+
+The easiest way to run MaxIOFS — no build step required:
+
+```bash
+# Named volume (Docker manages storage location)
+docker run -d \
+  --name maxiofs \
+  -p 8080:8080 \
+  -p 8081:8081 \
+  -v maxiofs-data:/data \
+  maxiofs/maxiofs:latest
+
+# Bind mount (you choose the storage location)
+docker run -d \
+  --name maxiofs \
+  -p 8080:8080 \
+  -p 8081:8081 \
+  -v /your/host/path:/data \
+  maxiofs/maxiofs:latest
+```
+
+- **Web Console:** http://localhost:8081 — login: `admin` / `admin`
+- **S3 API:** http://localhost:8080
+
+> The container runs as root initially, fixes ownership of the data directory, then drops to the `maxiofs` user. Both named volumes and bind mounts work regardless of host directory permissions.
+
+### Using Make (Recommended for local builds)
 
 ```bash
 # Build the Docker image
@@ -176,6 +203,28 @@ The following Docker volumes are created automatically:
 - **maxiofs-data**: MaxIOFS data (buckets, objects, metadata)
 - **prometheus-data**: Prometheus metrics database (monitoring profile)
 - **grafana-data**: Grafana dashboards and settings (monitoring profile)
+
+### Named volume vs Bind mount
+
+**Named volume** (default) — Docker manages the storage location:
+```bash
+docker run -v maxiofs-data:/data maxiofs/maxiofs:latest
+```
+Docker creates the volume at `/var/lib/docker/volumes/maxiofs-data/_data`. Ownership is handled automatically.
+
+**Bind mount** — you choose the host directory:
+```bash
+docker run -v /srv/maxiofs:/data maxiofs/maxiofs:latest
+```
+The directory `/srv/maxiofs` will be created if it does not exist. The entrypoint script runs as root, sets ownership to the `maxiofs` user, then starts the server. The host directory can be owned by any user.
+
+**Custom data path inside the container:**
+```bash
+docker run \
+  -v /srv/maxiofs:/mydata \
+  -e MAXIOFS_DATA_DIR=/mydata \
+  maxiofs/maxiofs:latest --data-dir /mydata
+```
 
 ### Backup Volumes
 
