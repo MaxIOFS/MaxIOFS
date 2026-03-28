@@ -79,7 +79,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: maxiofs/maxiofs
           short-description: "Self-hosted S3-compatible object storage — single binary, batteries included"
-          readme-filepath: ./DOCKER.md
+          readme-filepath: ./DOCKERHUB.md
 
       - name: Build summary
         if: success()

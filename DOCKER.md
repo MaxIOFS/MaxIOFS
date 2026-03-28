@@ -1,15 +1,114 @@
 # MaxIOFS Docker Deployment Guide
 
-This guide provides instructions for deploying MaxIOFS using Docker and Docker Compose with optional monitoring services.
-
 ## Quick Start
 
-### Using the pre-built image from DockerHub
-
-The easiest way to run MaxIOFS — no build step required:
+### docker run
 
 ```bash
-# Named volume (Docker manages storage location)
+docker run -d \
+  --name maxiofs \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -p 8081:8081 \
+  -v /srv/maxiofs:/data \
+  maxiofs/maxiofs:latest
+```
+
+- **Web Console:** http://localhost:8081 — login: `admin` / `admin`
+- **S3 API:** http://localhost:8080
+- **Config file:** `/srv/maxiofs/config.yaml` (created on first run)
+
+### Docker Compose
+
+```bash
+docker compose up -d       # start
+docker compose down        # stop
+docker compose logs -f     # view logs
+```
+
+The included `docker-compose.yaml` pulls `maxiofs/maxiofs:latest` automatically and mounts `./maxiofs-data` as the data directory. On first start, `./maxiofs-data/config.yaml` is created — edit it and restart to apply changes.
+
+### With Monitoring (Prometheus + Grafana)
+
+Requires cloning the repository (Prometheus and Grafana need local config files):
+
+```bash
+git clone https://github.com/MaxioFS/MaxioFS.git
+cd MaxioFS
+docker compose --profile monitoring up -d
+```
+
+Access:
+- MaxIOFS Console: http://localhost:8081 (admin/admin)
+- Prometheus: http://localhost:9091
+- Grafana: http://localhost:3000 (admin/admin)
+
+### Building Locally from Source
+
+```bash
+git clone https://github.com/MaxioFS/MaxioFS.git
+cd MaxioFS
+make docker-build      # build image
+make docker-up         # start MaxIOFS
+make docker-monitoring # start with Prometheus + Grafana
+make docker-down       # stop all
+make docker-logs       # view logs
+make docker-clean      # remove containers and volumes
+```
+
+## Configuration
+
+### config.yaml
+
+On first run MaxIOFS creates `config.yaml` inside the data directory (`/data/config.yaml`). This file controls all static settings — encryption, SMTP, public URLs, TLS, log level.
+
+Key settings:
+
+```yaml
+# Data directory — must match the volume mount
+data_dir: "/data"
+
+# Encryption at rest (set once — changing this key makes existing objects unreadable)
+encryption:
+  enabled: true
+  master_key: "your-32-byte-random-key-here"
+
+# Public URLs — used in presigned URLs and email links
+public_api_url: "https://s3.yourdomain.com"
+public_console_url: "https://console.yourdomain.com"
+
+# SMTP
+email:
+  enabled: true
+  smtp_host: "smtp.yourdomain.com"
+  smtp_port: 587
+  smtp_user: "user@yourdomain.com"
+  smtp_password: "your-password"
+  from_address: "maxiofs@yourdomain.com"
+  tls_mode: "starttls"   # none | starttls | ssl
+
+log_level: "info"   # debug | info | warn | error
+```
+
+### Accessing config.yaml
+
+**Docker Compose (bind mount — default):**
+
+```bash
+nano ./maxiofs-data/config.yaml
+docker compose restart maxiofs
+```
+
+**docker run with bind mount:**
+
+```bash
+nano /srv/maxiofs/config.yaml
+docker restart maxiofs
+```
+
+**docker run with named volume** (Docker manages the storage location):
+
+```bash
 docker run -d \
   --name maxiofs \
   -p 8080:8080 \
@@ -17,477 +116,116 @@ docker run -d \
   -v maxiofs-data:/data \
   maxiofs/maxiofs:latest
 
-# Bind mount (you choose the storage location)
-docker run -d \
-  --name maxiofs \
-  -p 8080:8080 \
-  -p 8081:8081 \
-  -v /your/host/path:/data \
-  maxiofs/maxiofs:latest
+# Edit config via a helper container:
+docker run --rm -it -v maxiofs-data:/data alpine vi /data/config.yaml
+docker restart maxiofs
 ```
-
-- **Web Console:** http://localhost:8081 — login: `admin` / `admin`
-- **S3 API:** http://localhost:8080
-
-> The container runs as root initially, fixes ownership of the data directory, then drops to the `maxiofs` user. Both named volumes and bind mounts work regardless of host directory permissions.
-
-### Using Make (Recommended for local builds)
-
-```bash
-# Build the Docker image
-make docker-build
-
-# Start basic deployment (MaxIOFS only)
-make docker-up
-
-# Start with monitoring (Prometheus + Grafana)
-make docker-monitoring
-
-# View logs
-make docker-logs
-
-# Stop services
-make docker-down
-
-# Clean volumes and containers
-make docker-clean
-```
-
-### Using Docker Compose Directly
-
-```bash
-# Basic deployment (MaxIOFS only)
-docker compose up -d
-
-# With monitoring (Prometheus + Grafana)
-docker compose --profile monitoring up -d
-
-# Stop services
-docker compose down
-
-# View logs
-docker compose logs -f maxiofs
-```
-
-## Deployment Scenarios
-
-### 1. Basic Deployment (MaxIOFS Only)
-
-Minimal deployment with just the MaxIOFS server.
-
-```bash
-make docker-build
-make docker-up
-```
-
-**Access:**
-- S3 API: http://localhost:8080
-- Web Console: http://localhost:8081 (admin/admin)
-
-### 2. With Monitoring (Prometheus + Grafana)
-
-Includes Prometheus for metrics collection and Grafana for visualization.
-
-```bash
-make docker-build
-make docker-monitoring
-```
-
-**Access:**
-- MaxIOFS Console: http://localhost:8081 (admin/admin)
-- Prometheus: http://localhost:9091
-- Grafana: http://localhost:3000 (admin/admin)
-
-**Features:**
-- Unified Grafana dashboard with 14 panels (loads automatically as HOME)
-- Real-time metrics with 5-second auto-refresh
-- Performance alerts (14 rules) for latency, throughput, and errors
-- SLO violation monitoring
-
-## Services
-
-### MaxIOFS (Main Service)
-
-- **S3 API Port**: 8080
-- **Web Console Port**: 8081
-- **Health Check**: http://localhost:8081/api/v1/health
-- **Data Volume**: `maxiofs-data`
-- **Metrics**: Exposed at `/metrics` on port 8080
-
-### Prometheus (monitoring profile)
-
-- **Port**: 9091 (mapped from internal 9090)
-- **URL**: http://localhost:9091
-- **Configuration**: `docker/prometheus/prometheus.yml`
-- **Alert Rules**: `docker/prometheus/alerts.yml` (14 rules)
-- **Scrape Interval**: 30 seconds
-- **Data Retention**: 30 days
-
-### Grafana (monitoring profile)
-
-- **Port**: 3000
-- **URL**: http://localhost:3000
-- **Default Credentials**: admin/admin (⚠️ change in production)
-- **Dashboards**: Auto-loaded from `docker/grafana/dashboards/`
-- **Default HOME Dashboard**: `maxiofs.json` (unified, 14 panels)
-
-## Configuration
 
 ### Environment Variables
 
-Key environment variables in `docker-compose.yaml`:
+Only two settings can be overridden via environment variables:
 
 ```yaml
-# Server Configuration
-MAXIOFS_LISTEN: ":8080"
-MAXIOFS_CONSOLE_LISTEN: ":8081"
-MAXIOFS_DATA_DIR: "/data"
-MAXIOFS_LOG_LEVEL: "info"
-
-# Public URLs
-MAXIOFS_PUBLIC_API_URL: "http://localhost:8080"
-MAXIOFS_PUBLIC_CONSOLE_URL: "http://localhost:8081"
-
-# Security (⚠️ CHANGE IN PRODUCTION)
-MAXIOFS_AUTH_ENABLE_AUTH: "true"
-MAXIOFS_AUTH_JWT_SECRET: "change-this-secret-key-in-production"
-
-# Metrics
-MAXIOFS_METRICS_ENABLE: "true"
+environment:
+  MAXIOFS_DATA_DIR: "/data"    # must match the volume mount
+  MAXIOFS_LOG_LEVEL: "info"    # overrides log_level in config.yaml
 ```
 
-### Custom Configuration File
-
-To use a custom `config.yaml`:
-
-1. Create your configuration file:
-```bash
-cp config.example.yaml config.yaml
-```
-
-2. Edit `config.yaml` with your settings
-
-3. Uncomment the volume mount in `docker-compose.yaml`:
-```yaml
-volumes:
-  - maxiofs-data:/data
-  - ./config.yaml:/app/config.yaml:ro  # Uncomment this line
-```
-
-**Note for Windows**: Docker Desktop may have issues with individual file mounts. If you encounter "user declined directory sharing" errors, use environment variables instead or mount a directory.
-
-## Build Options
-
-### Build with Specific Version
-
-```bash
-VERSION=1.1.0 make docker-build
-```
-
-### Build Without Cache
-
-```bash
-docker compose build --no-cache
-```
-
-### Multi-platform Build
-
-```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t maxiofs:1.1.0 .
-```
+All other settings (encryption, SMTP, public URLs, TLS) require `config.yaml`.
 
 ## Volumes
 
-The following Docker volumes are created automatically:
+**Default (Docker Compose):** bind mount at `./maxiofs-data` — data and config are visible on the host.
 
-- **maxiofs-data**: MaxIOFS data (buckets, objects, metadata)
-- **prometheus-data**: Prometheus metrics database (monitoring profile)
-- **grafana-data**: Grafana dashboards and settings (monitoring profile)
+**Named volume:** Docker manages the storage at `/var/lib/docker/volumes/<name>/_data`. Use a helper container to access files inside.
 
-### Named volume vs Bind mount
-
-**Named volume** (default) — Docker manages the storage location:
-```bash
-docker run -v maxiofs-data:/data maxiofs/maxiofs:latest
-```
-Docker creates the volume at `/var/lib/docker/volumes/maxiofs-data/_data`. Ownership is handled automatically.
-
-**Bind mount** — you choose the host directory:
-```bash
-docker run -v /srv/maxiofs:/data maxiofs/maxiofs:latest
-```
-The directory `/srv/maxiofs` will be created if it does not exist. The entrypoint script runs as root, sets ownership to the `maxiofs` user, then starts the server. The host directory can be owned by any user.
-
-**Custom data path inside the container:**
-```bash
-docker run \
-  -v /srv/maxiofs:/mydata \
-  -e MAXIOFS_DATA_DIR=/mydata \
-  maxiofs/maxiofs:latest --data-dir /mydata
-```
-
-### Backup Volumes
+### Backup
 
 ```bash
-# Backup MaxIOFS data
-docker run --rm -v maxiofs-data:/data -v $(pwd):/backup alpine tar czf /backup/maxiofs-backup.tar.gz -C /data .
+# Backup
+docker run --rm \
+  -v /srv/maxiofs:/data \
+  -v $(pwd):/backup \
+  alpine tar czf /backup/maxiofs-backup.tar.gz -C /data .
 
-# Restore from backup
-docker run --rm -v maxiofs-data:/data -v $(pwd):/backup alpine tar xzf /backup/maxiofs-backup.tar.gz -C /data
+# Restore
+docker run --rm \
+  -v /srv/maxiofs:/data \
+  -v $(pwd):/backup \
+  alpine tar xzf /backup/maxiofs-backup.tar.gz -C /data
 ```
 
-## Grafana Dashboard
+## Build Options
 
-### Unified Dashboard (maxiofs.json)
-
-The default HOME dashboard provides a comprehensive view with **14 panels** organized in 3 sections:
-
-#### 📊 SISTEMA & RECURSOS (8 panels)
-1. CPU Usage - Real-time CPU utilization
-2. Memory Usage - Memory consumption
-3. Disk Usage - Disk space utilization
-4. Total Buckets - Number of buckets
-5. Total Objects - Total object count
-6. Storage Used - Bytes stored
-7. System Resources Over Time - CPU/Memory/Disk trends
-8. Storage by Bucket - Distribution by bucket (pie chart)
-
-#### ⚡ PERFORMANCE & LATENCIAS (3 panels)
-9. Operation Latencies (p50/p95/p99) - Latency by operation
-10. Success Rate by Operation - Success rate with color-coded gauges
-11. Operation Distribution - Operation mix (pie chart)
-
-#### 📈 THROUGHPUT & REQUESTS (3 panels)
-12. Throughput - Requests/sec
-13. Throughput - Bytes/sec
-14. Throughput - Objects/sec
-
-**Settings:**
-- Auto-refresh: 5 seconds
-- Time range: Last 15 minutes
-- Automatically loads as HOME dashboard
-
-## Production Deployment
-
-### 1. Security
-
-**Change Default Passwords:**
-```yaml
-# Grafana
-GF_SECURITY_ADMIN_PASSWORD: "strong-random-password-here"
-
-# MaxIOFS
-MAXIOFS_AUTH_JWT_SECRET: "use-long-random-secret-at-least-32-chars"
-```
-
-**Enable HTTPS with Reverse Proxy:**
-
-Example with nginx:
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name s3.yourdomain.com;
-
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location / {
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-### 2. Resource Limits
-
-Add to your services in `docker-compose.yaml`:
-
-```yaml
-deploy:
-  resources:
-    limits:
-      cpus: '2'
-      memory: 4G
-    reservations:
-      cpus: '1'
-      memory: 2G
-```
-
-### 3. Persistent Logging
-
-Configure log output to external systems:
-
-```yaml
-logging:
-  driver: "json-file"
-  options:
-    max-size: "10m"
-    max-file: "3"
-```
-
-### 4. Health Checks
-
-The services include health checks for proper orchestration:
-
-```yaml
-healthcheck:
-  test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/health"]
-  interval: 30s
-  timeout: 10s
-  start_period: 15s
-  retries: 3
-```
-
-## Monitoring & Alerts
-
-### Prometheus Alert Rules
-
-The deployment includes 14 alert rules in two groups:
-
-**Performance Alerts (11 rules):**
-- HighP95Latency: >100ms for 5 minutes
-- CriticalP95Latency: >500ms for 2 minutes
-- HighP99Latency: >200ms for 5 minutes
-- CriticalP99Latency: >1000ms for 2 minutes
-- LowSuccessRate: <95% for 3 minutes
-- CriticalSuccessRate: <90% for 1 minute
-- LowThroughput: <1 req/s for 5 minutes
-- ZeroThroughput: 0 req/s for 10 minutes
-- MeanLatencySpike: 2x increase in 5 minutes
-- HighErrorCount: >100 errors in 5 minutes
-- OperationFailureSpike: 5x increase in 1 minute
-
-**SLO Violation Alerts (3 rules):**
-- SLOLatencyViolation: p95 >50ms for 10 minutes
-- SLOAvailabilityViolation: success rate <99.9% for 5 minutes
-- SLOThroughputViolation: <1000 req/s for 10 minutes
-
-### Customizing Alerts
-
-Edit `docker/prometheus/alerts.yml` and reload:
+> Only needed to build locally instead of pulling from DockerHub.
 
 ```bash
-curl -X POST http://localhost:9091/-/reload
+# Standard build
+make docker-build
+
+# Specific version
+VERSION=1.1.0 make docker-build
+
+# Without cache
+docker compose build --no-cache
+
+# Multi-platform
+docker buildx build --platform linux/amd64,linux/arm64 -t maxiofs:1.1.0 .
 ```
 
 ## Troubleshooting
 
-### Prometheus Not Scraping MaxIOFS
+**Container won't start:**
+```bash
+docker compose logs maxiofs
+docker compose config   # validate compose file
+```
 
-1. Check target status: http://localhost:9091/targets
-2. Verify MaxIOFS is running: `docker compose ps`
+**Prometheus not scraping MaxIOFS:**
+1. Check targets: http://localhost:9091/targets
+2. Verify `maxiofs` container is healthy: `docker compose ps`
 3. Check network: `docker network inspect maxiofs-network`
-4. Ensure metrics are enabled: `MAXIOFS_METRICS_ENABLE=true`
 
-### Grafana Dashboards Not Loading
+**Grafana dashboards not loading:**
+```bash
+docker compose logs grafana
+docker exec maxiofs-grafana ls /var/lib/grafana/dashboards
+```
 
-1. Check Grafana logs: `docker compose logs grafana`
-2. Verify dashboard files:
-   ```bash
-   docker exec maxiofs-grafana ls /var/lib/grafana/dashboards
-   ```
-3. Check datasource: http://localhost:3000/datasources
-4. Verify provisioning: `docker compose logs grafana | grep provisioning`
-
-### Performance Issues
-
-1. Check resource usage: `docker stats`
-2. Verify volume performance: `docker volume inspect maxiofs-data`
-3. Review logs: `docker compose logs --tail=100 maxiofs`
-4. Check Grafana dashboard for bottlenecks
-
-### Container Won't Start
-
-1. Check logs: `docker compose logs maxiofs`
-2. Verify ports are available: `netstat -an | grep 8080`
-3. Check volume permissions: `docker volume inspect maxiofs-data`
-4. Validate configuration: `docker compose config`
+**Reload Prometheus config without restart:**
+```bash
+curl -X POST http://localhost:9091/-/reload
+```
 
 ## Useful Commands
 
-### View Service Status
-
 ```bash
-# Show all containers
+# Status
 docker compose ps
-
-# Show resource usage
 docker stats
 
-# Check container health
+# Health
 docker inspect maxiofs --format='{{.State.Health.Status}}'
-```
 
-### Logs and Debugging
-
-```bash
-# View logs in real-time
-docker compose logs -f
-
-# View logs for specific service
+# Logs
 docker compose logs -f maxiofs
+docker compose logs --tail=100 maxiofs
 
-# View last 100 lines
-docker compose logs --tail=100
-
-# Filter for errors
-docker compose logs maxiofs | grep -i error
-```
-
-### Restart Services
-
-```bash
-# Restart specific service
+# Restart
 docker compose restart maxiofs
-
-# Restart all services
-docker compose restart
-
-# Recreate containers
 docker compose up -d --force-recreate
-```
 
-### Clean Up
-
-```bash
-# Stop and remove containers
+# Cleanup
 docker compose down
-
-# Stop and remove containers + volumes (⚠️ DATA LOSS)
-docker compose down -v
-
-# Remove unused images
+docker compose down -v   # ⚠️ also deletes volumes (data loss)
 docker image prune -a
-
-# Complete cleanup
 make docker-clean
 ```
 
 ## Version Information
 
-- **MaxIOFS**: 1.1.0
-- **Prometheus**: 3.0.1
-- **Grafana**: 11.5.0
+- **MaxIOFS**: `maxiofs/maxiofs:latest` — also available as `maxiofs/maxiofs:1.1.0`
+- **Prometheus**: 3.0.1 (monitoring profile)
+- **Grafana**: 11.5.0 (monitoring profile)
 - **Docker Compose**: v2.x required
-
-## Additional Resources
-
-- [Docker Documentation](docker/README.md) - Detailed Docker configuration guide
-- [MaxIOFS Documentation](docs/) - Complete documentation
-- [Deployment Guide](docs/DEPLOYMENT.md) - Production deployment best practices
-- [Performance Analysis](docs/PERFORMANCE.md) - Performance benchmarks and optimization
-- [Cluster Management](docs/CLUSTER.md) - Multi-node cluster setup
-
-## Support
-
-For issues or questions:
-- GitHub Issues: https://github.com/aluisco/maxiofs/issues
-- Documentation: See `/docs` directory
-- Health Check: http://localhost:8081/api/v1/health
-
----
-
-**⚠️ Security Reminder**: Change all default passwords before deploying to production. Use HTTPS with proper TLS certificates. Enable firewall rules to restrict access.
+- **Platforms**: linux/amd64, linux/arm64

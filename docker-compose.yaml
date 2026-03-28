@@ -17,14 +17,16 @@ services:
   # MaxIOFS Main Service
   # =============================================================================
   maxiofs:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        VERSION: ${VERSION:-1.1.0}
-        COMMIT: ${GIT_COMMIT:-dev}
-        BUILD_DATE: ${BUILD_DATE}
-    image: maxiofs:${VERSION:-1.1.0}
+    image: maxiofs/maxiofs:latest
+    # To build locally from source instead of pulling from DockerHub, comment the
+    # line above and uncomment the block below:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    #   args:
+    #     VERSION: ${VERSION:-1.1.0}
+    #     COMMIT: ${GIT_COMMIT:-dev}
+    #     BUILD_DATE: ${BUILD_DATE}
     container_name: maxiofs
     restart: unless-stopped
 
@@ -33,27 +35,19 @@ services:
       - "8081:8081"  # Web Console
 
     volumes:
-      - maxiofs-data:/data
-      # Optional: Mount custom config (create config.yaml first)
-      # - ./config.yaml:/app/config.yaml:ro
+      # Data directory: buckets, objects, metadata, and config.yaml all live here.
+      # Using a bind mount means config.yaml appears directly on your host at
+      # ./maxiofs-data/config.yaml — edit it and restart to apply changes.
+      # All settings (encryption, SMTP, public URLs, TLS, etc.) live in that file.
+      - ./maxiofs-data:/data
+      #
+      # Prefer Docker-managed storage? Replace the line above with:
+      # - maxiofs-data:/data
+      # Then access config.yaml via: docker run --rm -it -v maxiofs-data:/data alpine vi /data/config.yaml
 
     environment:
-      # Server Configuration
-      MAXIOFS_LISTEN: ":8080"
-      MAXIOFS_CONSOLE_LISTEN: ":8081"
+      # Data directory — must match the volume mount above
       MAXIOFS_DATA_DIR: "/data"
-      MAXIOFS_LOG_LEVEL: "info"
-
-      # Public URLs (adjust to your domain/IP)
-      MAXIOFS_PUBLIC_API_URL: "http://localhost:8080"
-      MAXIOFS_PUBLIC_CONSOLE_URL: "http://localhost:8081"
-
-      # Security
-      MAXIOFS_AUTH_ENABLE_AUTH: "true"
-      MAXIOFS_AUTH_JWT_SECRET: "change-this-secret-key-in-production"
-
-      # Metrics
-      MAXIOFS_METRICS_ENABLE: "true"
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/health"]
@@ -153,11 +147,6 @@ services:
 # Volumes
 # =============================================================================
 volumes:
-  maxiofs-data:
-    driver: local
-    labels:
-      - "com.maxiofs.volume=main"
-
   prometheus-data:
     driver: local
     labels:

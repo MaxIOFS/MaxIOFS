@@ -53,6 +53,7 @@ RUN groupadd -g 1001 maxiofs && useradd -u 1001 -g maxiofs -s /sbin/nologin -M m
 WORKDIR /app
 
 COPY --from=go-builder /app/maxiofs .
+COPY config.example.yaml /app/config.example.yaml
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
