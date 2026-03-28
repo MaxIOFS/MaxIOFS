@@ -14,7 +14,7 @@ COPY web/frontend/ ./
 RUN npm run build
 
 # Stage 2: Build Go binary — always runs on the build host (native, cross-compiles for target)
-FROM --platform=$BUILDPLATFORM golang:1.25 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.26 AS go-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 
@@ -39,6 +39,8 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
 
 # Stage 3: Final runtime image — uses the target platform
 FROM debian:trixie-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get upgrade -y \

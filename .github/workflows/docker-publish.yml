@@ -63,6 +63,7 @@ jobs:
           context: .
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
+          no-cache: true
           push: true
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
