@@ -50,7 +50,7 @@ services:
       MAXIOFS_DATA_DIR: "/data"
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/api/v1/health"]
       interval: 30s
       timeout: 10s
       start_period: 15s

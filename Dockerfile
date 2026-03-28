@@ -47,8 +47,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         tzdata \
-        curl \
-        gosu \
+        wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user that will own the process after privilege drop
@@ -68,7 +67,7 @@ VOLUME ["/data"]
 EXPOSE 8080 8081
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8081/api/v1/health || exit 1
+    CMD wget -q --spider http://localhost:8081/api/v1/health || exit 1
 
 ENV MAXIOFS_LISTEN=":8080"
 ENV MAXIOFS_CONSOLE_LISTEN=":8081"

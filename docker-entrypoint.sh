@@ -18,7 +18,7 @@ mkdir -p "$DATA_DIR"
 # If running as root, fix ownership then drop privileges to the maxiofs user
 if [ "$(id -u)" = "0" ]; then
     chown -R maxiofs:maxiofs "$DATA_DIR"
-    exec gosu maxiofs "$0" "$@"
+    exec runuser -u maxiofs -- "$0" "$@"
 fi
 
 # On first run, create config.yaml in the data directory from the bundled example.
