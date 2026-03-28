@@ -14,7 +14,7 @@ COPY web/frontend/ ./
 RUN npm run build
 
 # Stage 2: Build Go binary — always runs on the build host (native, cross-compiles for target)
-FROM --platform=$BUILDPLATFORM golang:1.25.8 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.25 AS go-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 
@@ -38,13 +38,15 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -o maxiofs ./cmd/maxiofs
 
 # Stage 3: Final runtime image — uses the target platform
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    tzdata \
-    curl \
-    gosu \
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        tzdata \
+        curl \
+        gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user that will own the process after privilege drop
