@@ -71,8 +71,6 @@ jobs:
           tags: |
             maxiofs/maxiofs:latest
             maxiofs/maxiofs:${{ steps.version.outputs.version }}
-          cache-from: type=registry,ref=maxiofs/maxiofs:buildcache
-          cache-to: type=registry,ref=maxiofs/maxiofs:buildcache,mode=max
 
       - name: Update DockerHub description
         uses: peter-evans/dockerhub-description@v4

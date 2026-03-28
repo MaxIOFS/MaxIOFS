@@ -234,6 +234,16 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Delete existing nightly tag from DockerHub
+        run: |
+          TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"${{ secrets.DOCKERHUB_USERNAME }}\",\"password\":\"${{ secrets.DOCKERHUB_TOKEN }}\"}" \
+            | jq -r '.token')
+          curl -s -X DELETE \
+            -H "Authorization: Bearer ${TOKEN}" \
+            "https://hub.docker.com/v2/repositories/maxiofs/maxiofs/tags/nightly/" || true
+
       - name: Build and push nightly Docker image
         uses: docker/build-push-action@v6
         with:
@@ -246,8 +256,6 @@ jobs:
             COMMIT=${{ steps.nightly_version.outputs.commit_short }}
             BUILD_DATE=${{ steps.nightly_version.outputs.build_date }}
           tags: maxiofs/maxiofs:nightly
-          cache-from: type=registry,ref=maxiofs/maxiofs:buildcache
-          cache-to: type=registry,ref=maxiofs/maxiofs:buildcache,mode=max
 
       - name: Build summary
         if: success()
