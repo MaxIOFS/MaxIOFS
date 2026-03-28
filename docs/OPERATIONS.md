@@ -493,6 +493,32 @@ MaxIOFS provides mechanisms to verify the integrity of stored objects.
   - Summary metrics for integrity checks.
 - May emit notifications or alerts to admins when issues are found.
 
+### Pebble Metadata Store — WAL Recovery
+
+MaxIOFS uses Pebble (CockroachDB's LSM-tree engine) for object metadata. Pebble writes go to a **Write-Ahead Log (WAL)** first and are flushed to disk on graceful shutdown (`db.Close()`).
+
+**On graceful shutdown** (SIGTERM, service stop, or Console restart):
+- Pebble is closed cleanly via the server shutdown sequence.
+- All pending writes are flushed to disk.
+- On the next start, the store opens cleanly with no recovery needed.
+
+**On unclean shutdown** (SIGKILL, OOM kill, host crash, power loss):
+- The WAL may contain writes that were not fully flushed to SST files.
+- On the next start, Pebble **automatically replays the WAL** — no operator action required.
+- If the WAL is partially written (e.g. power loss mid-write), Pebble discards the incomplete record and recovers to the last consistent state.
+- In practice this means at most a few seconds of metadata changes may be lost.
+
+**Indicators of WAL recovery in logs**:
+
+```
+level=info msg="Opening metadata store" path=/var/lib/maxiofs/metadata
+level=info msg="Metadata store opened"
+```
+
+No error messages during open means WAL replay succeeded. If you see `pebble: corruption` errors, treat them as a data integrity incident and restore from backup.
+
+**Best practice**: always stop MaxIOFS with `systemctl stop maxiofs` rather than SIGKILL to ensure a clean shutdown and avoid any WAL replay on next start.
+
 ### On‑Demand Bucket Integrity Check
 
 - Admins can trigger on‑demand integrity checks for a specific bucket via:
