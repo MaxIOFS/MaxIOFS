@@ -20,7 +20,7 @@ mkdir -p "$DATA_DIR"
 # directory ownership.
 if [ "$(id -u)" = "0" ]; then
     chown -R maxiofs:maxiofs "$DATA_DIR"
-    exec su-exec maxiofs /app/maxiofs "$@"
+    exec gosu maxiofs /app/maxiofs "$@"
 fi
 
 # Already running as a non-root user (e.g. --user flag passed to docker run).

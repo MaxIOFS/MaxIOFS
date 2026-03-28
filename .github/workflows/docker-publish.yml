@@ -71,7 +71,6 @@ jobs:
           tags: |
             maxiofs/maxiofs:latest
             maxiofs/maxiofs:${{ steps.version.outputs.version }}
-          # Cache layers in DockerHub to speed up subsequent builds
           cache-from: type=registry,ref=maxiofs/maxiofs:buildcache
           cache-to: type=registry,ref=maxiofs/maxiofs:buildcache,mode=max
 
