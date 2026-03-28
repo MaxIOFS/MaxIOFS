@@ -89,6 +89,7 @@ export default function BucketDetailsPage() {
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [actionsDropUp, setActionsDropUp] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
   const [renameKey, setRenameKey] = useState('');
@@ -1430,22 +1431,26 @@ export default function BucketDetailsPage() {
       {/* Objects Table */}
       <div className="bg-card rounded-xl border border-border shadow-md">
         <div className="px-6 border-b border-border flex items-center justify-between h-14 shrink-0">
-          <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+          <h3 className="text-lg font-semibold text-foreground flex items-center gap-2 min-w-0 mr-4">
             {showVersions ? (
               <>
-                <HistoryIcon className="h-5 w-5 text-brand-600 dark:text-brand-400" />
-                {t('versionsView')}
-                {currentPrefix && ` ${t('inPath', { path: currentPrefix })}`}
+                <HistoryIcon className="h-5 w-5 text-brand-600 dark:text-brand-400 shrink-0" />
+                <span className="truncate">{t('versionsView')}{currentPrefix && ` ${t('inPath', { path: currentPrefix })}`}</span>
               </>
             ) : (
               <>
-                <FileIcon className="h-5 w-5 text-brand-600 dark:text-brand-400" />
-                {t('objectsLabel')} ({filteredItems.length})
-                {currentPrefix && ` ${t('inPath', { path: currentPrefix })}`}
+                <FileIcon className="h-5 w-5 text-brand-600 dark:text-brand-400 shrink-0" />
+                <span className="truncate">{t('objectsLabel')} ({filteredItems.length}){currentPrefix && ` ${t('inPath', { path: currentPrefix })}`}</span>
               </>
             )}
           </h3>
-          <div className="flex items-center gap-2">
+          {/* Right-side toolbar: always visible */}
+          <div className="flex items-center gap-2 shrink-0">
+            {selectedObjects.size > 0 && (
+              <span className="text-sm text-muted-foreground hidden sm:inline">
+                {t('selectedCount', { count: selectedObjects.size })}
+              </span>
+            )}
             {bucketData?.versioning?.Status === 'Enabled' && (
               <Button
                 variant={showVersions ? 'default' : 'outline'}
@@ -1454,28 +1459,28 @@ export default function BucketDetailsPage() {
                 onClick={() => setShowVersions(v => !v)}
               >
                 <HistoryIcon className="h-4 w-4" />
-                {showVersions ? t('hideVersions') : t('showVersions')}
+                <span className="hidden sm:inline">{showVersions ? t('hideVersions') : t('showVersions')}</span>
               </Button>
             )}
-          </div>
-          {selectedObjects.size > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">
-                {t('selectedCount', { count: selectedObjects.size })}
-              </span>
-              <div className="relative" ref={actionsRef}>
+            <div className="relative" ref={actionsRef}>
                 <Button
                   variant="outline"
                   size="sm"
                   className="gap-1"
-                  onClick={() => setActionsOpen(o => !o)}
-                  disabled={isGlobalAdminInTenantBucket}
+                  onClick={() => {
+                    if (!actionsOpen && actionsRef.current) {
+                      const rect = actionsRef.current.getBoundingClientRect();
+                      setActionsDropUp(window.innerHeight - rect.bottom < 520);
+                    }
+                    setActionsOpen(o => !o);
+                  }}
+                  disabled={isGlobalAdminInTenantBucket || showVersions || selectedObjects.size === 0}
                 >
                   {t('actions')}
                   <ChevronDownIcon className="h-4 w-4" />
                 </Button>
                 {actionsOpen && (
-                  <div className="absolute right-0 mt-1 w-56 rounded-md shadow-lg bg-card border border-border z-50">
+                  <div className={`absolute right-0 w-56 rounded-md shadow-lg bg-card border border-border z-50 ${actionsDropUp ? 'bottom-full mb-1' : 'mt-1'}`}>
                     <div className="py-1">
                       <button
                         className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1590,8 +1595,7 @@ export default function BucketDetailsPage() {
                   </div>
                 )}
               </div>
-            </div>
-          )}
+          </div>
         </div>
         <div className="overflow-x-auto overflow-hidden rounded-b-xl">
           {showVersions ? (
@@ -1626,7 +1630,7 @@ export default function BucketDetailsPage() {
                     const isLatest = v.isLatest;
                     const isDM = v.isDeleteMarker;
                     return (
-                      <TableRow key={`${v.key}-${v.versionId}`} className={`h-[37px] [&>td]:overflow-hidden [&>td]:max-h-[37px] ${isDM ? 'opacity-60' : ''}`}>
+                      <TableRow key={`${v.key}-${v.versionId}`} className={`h-[37px] [&>td]:overflow-hidden [&>td]:max-h-[37px] ${isDM ? 'bg-red-50/30 dark:bg-red-900/10' : ''}`}>
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
                             {isDM
@@ -1664,25 +1668,28 @@ export default function BucketDetailsPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            {!isDM && !isLatest && (
+                            {/* Download: available for all content versions */}
+                            {!isDM && (
+                              <button
+                                title={t('download')}
+                                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+                                onClick={() => handleDownloadObject(v.key)}
+                              >
+                                <DownloadIcon className="h-4 w-4" />
+                              </button>
+                            )}
+                            {/* Restore: for delete markers (removes marker) and non-latest content versions (copies to current) */}
+                            {(isDM || (!isDM && !isLatest)) && (
                               <button
                                 title={t('restoreVersion')}
                                 className="p-1 rounded hover:bg-secondary text-blue-600 hover:text-blue-700"
-                                onClick={() => handleRestoreVersion(v.key, v.versionId, false)}
+                                onClick={() => handleRestoreVersion(v.key, v.versionId, isDM)}
                               >
                                 <HistoryIcon className="h-4 w-4" />
                               </button>
                             )}
-                            {isDM && (
-                              <button
-                                title={t('restoreVersion')}
-                                className="p-1 rounded hover:bg-secondary text-blue-600 hover:text-blue-700"
-                                onClick={() => handleRestoreVersion(v.key, v.versionId, true)}
-                              >
-                                <HistoryIcon className="h-4 w-4" />
-                              </button>
-                            )}
-                            {!isDM && !isLatest && !isGlobalAdminInTenantBucket && (
+                            {/* Delete version: for any version with a versionId, not allowed for global admin in tenant */}
+                            {!isGlobalAdminInTenantBucket && v.versionId && (
                               <button
                                 title={t('deleteVersion')}
                                 className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/30 text-red-500 hover:text-red-700"

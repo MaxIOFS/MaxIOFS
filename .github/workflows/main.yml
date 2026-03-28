@@ -175,10 +175,8 @@ jobs:
             if [ -f "$rpm" ]; then
               # Extract architecture from filename (x86_64 or aarch64)
               ARCH=$(echo "$rpm" | grep -oE '(x86_64|aarch64)')
-              # Extract distro tag (e.g., el9)
-              DIST=$(echo "$rpm" | grep -oE '\.el[0-9]+\.' | tr -d '.')
-              # Create new filename with nightly info
-              NEW_NAME="build/maxiofs-${NIGHTLY_VERSION}-1.${DIST}.${ARCH}.rpm"
+              # Create new filename with nightly info (no dist tag — package is distro-agnostic)
+              NEW_NAME="build/maxiofs-${NIGHTLY_VERSION}-1.${ARCH}.rpm"
               echo "Renaming: $rpm -> $NEW_NAME"
               mv "$rpm" "$NEW_NAME"
             fi

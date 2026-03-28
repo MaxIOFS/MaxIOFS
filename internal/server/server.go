@@ -750,6 +750,14 @@ func (s *Server) shutdown() error {
 		logrus.WithError(err).Error("Failed to close storage backend")
 	}
 
+	// Close metadata store (flushes Pebble memtable + WAL to disk)
+	// This MUST be last — workers above may still write metadata during their shutdown.
+	if err := s.metadataStore.Close(); err != nil {
+		logrus.WithError(err).Error("Failed to close metadata store")
+	} else {
+		logrus.Info("Metadata store closed")
+	}
+
 	return nil
 }
 

@@ -97,6 +97,21 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 </details>
 
 <details>
+<summary><strong>Web Console</strong></summary>
+
+- **Bucket browser** — AWS S3-style interface with breadcrumb navigation, folder tree, and drag-and-drop upload
+- **Object detail view** — full metadata page per object with three tabs: Properties (S3 URI, ARN, ETag, size, content type, custom metadata), Permissions (ACL owner and grants), and Versions (version history with delete markers)
+- **Actions toolbar** — context-aware dropdown matching AWS S3 conventions: Copy S3 URI, Copy Object URL, Download, Download folder as ZIP, Calculate folder size, Share public link, Generate presigned URL, View versions, Legal Hold toggle, Rename, Edit tags, Delete
+- **Version browser** — "Show Versions" toggle replaces the object list with a flat view of every version and delete marker; supports one-click restore (re-promotes an old version or removes a delete marker), and permanent deletion of specific versions
+- **Upload files and folders** — multi-file upload with live progress per file, folder upload preserving directory structure
+- **Object rename and tag editing** — rename objects and manage key/value tag sets directly from the console
+- **Sliding-window sessions** — token window resets on every API call, preventing silent logout during active work; idle logout is suspended during active uploads
+- **Object search & filters** — filter by content-type, size range, date range, and tags
+- Responsive layout — works on 1080p through 4K displays
+
+</details>
+
+<details>
 <summary><strong>Multi-tenancy</strong></summary>
 
 - Full tenant isolation — each tenant has its own users, access keys, buckets, and quotas
@@ -136,6 +151,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 - Replication credentials encrypted at rest
 - Cluster inter-node TLS with auto-generated CA, CSR-based join (CA key never transmitted)
 - Audit logging — 20+ event types (auth, object ops, admin actions), external syslog forwarding
+- Object Lock enforcement in the console UI — locked objects cannot be deleted or bulk-deleted
 
 </details>
 
@@ -163,6 +179,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 - Disk space and tenant quota alerts — SSE notifications + SMTP email on threshold escalation
 - External syslog targets — TCP/UDP/TLS, RFC 5424 structured data
 - Log level configurable at runtime
+- Crash-safe metadata store — Pebble WAL flushed to disk on graceful shutdown, preventing metadata loss
 
 </details>
 
@@ -279,8 +296,8 @@ Tested with MinIO Warp on a single node (commodity hardware):
 ## Testing
 
 ```bash
-go test ./...                          # 1,700+ backend tests
-cd web/frontend && npm run test        # 64 frontend tests
+go test ./...                          # 3,700+ backend tests
+cd web/frontend && npm run test        # 95+ frontend tests
 ```
 
 ---
@@ -301,6 +318,7 @@ cd web/frontend && npm run test        # 64 frontend tests
 
 | Version | Highlights |
 |---------|-----------|
+| **[Unreleased]** | Version browser (restore deleted files, manage delete markers), metadata store persistence fix (silent data loss on shutdown), sliding-window sessions, idle logout suspended during uploads, Object Lock enforcement in console UI |
 | **v1.1.0** *(stable)* | AWS S3-style Actions toolbar, object detail view, object rename & tags, folder ZIP download, SigV2 fix, bucket policy Condition enforcement, PublicAccessBlock enforcement, DeleteBucket Object Lock bypass fix, encryption applied globally, 3 data races fixed |
 | **v1.0.0** | Complete UI redesign, folder upload, POST presigned URLs, bucket notifications, lifecycle execution, full Veeam B&R compatibility, Object Lock per-version enforcement, 3 security fixes |
 | **v1.0.0-rc1** | 28-vulnerability security audit: AES-256-GCM, CSR cluster join, SSRF hardening, static website hosting, frontend bundle −45% |

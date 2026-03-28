@@ -154,7 +154,7 @@ sudo dpkg -i maxiofs_1.0.0_amd64.deb
 sudo systemctl enable --now maxiofs
 
 # RHEL/Rocky
-sudo rpm -i maxiofs-1.0.0-1.el9.x86_64.rpm
+sudo rpm -i maxiofs-1.0.0-1.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 

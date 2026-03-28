@@ -14,7 +14,7 @@
 
 Name:           %{name}
 Version:        %{version}
-Release:        %{release}%{?dist}
+Release:        %{release}
 Summary:        High-Performance S3-Compatible Object Storage
 License:        MIT
 URL:            https://github.com/maxiofs/maxiofs
