@@ -2229,12 +2229,10 @@ func (om *objectManager) cleanupEmptyDirectories(bucket, key string) {
 		return
 	}
 
-	// Get the object path
-	objectPath := om.getObjectPath(bucket, key)
-	dirPath := filepath.Dir(objectPath)
-
-	// Get the root path from filesystem backend
+	// Get the root path and build the full absolute object path
 	rootPath := fsBackend.GetRootPath()
+	objectPath := filepath.Join(rootPath, om.getObjectPath(bucket, key))
+	dirPath := filepath.Dir(objectPath)
 
 	// Walk up the directory tree and remove empty directories
 	for {
