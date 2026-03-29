@@ -17,6 +17,7 @@ var (
 	ErrWebsiteNotFound            = errors.New("website configuration not found")
 	ErrEncryptionNotFound         = errors.New("server-side encryption configuration not found")
 	ErrPublicAccessBlockNotFound  = errors.New("public access block configuration not found")
+	ErrOwnershipControlsNotFound  = errors.New("ownership controls not found")
 	ErrLoggingNotFound            = errors.New("logging configuration not found")
 )
 
@@ -192,6 +193,13 @@ type PublicAccessBlock struct {
 	IgnorePublicAcls      bool `json:"ignorePublicAcls"`
 	BlockPublicPolicy     bool `json:"blockPublicPolicy"`
 	RestrictPublicBuckets bool `json:"restrictPublicBuckets"`
+}
+
+// OwnershipControlsConfig represents S3 bucket ownership controls configuration.
+// ObjectOwnership controls how object ownership is managed for the bucket.
+// Valid values: BucketOwnerEnforced (ACLs disabled), BucketOwnerPreferred, ObjectWriter.
+type OwnershipControlsConfig struct {
+	ObjectOwnership string `json:"objectOwnership"` // BucketOwnerEnforced | BucketOwnerPreferred | ObjectWriter
 }
 
 // LoggingConfig represents S3 server access logging configuration for a bucket.

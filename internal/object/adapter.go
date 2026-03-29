@@ -84,6 +84,8 @@ func fromMetadataObject(mo *metadata.ObjectMetadata) *Object {
 		ChecksumAlgorithm:  mo.ChecksumAlgorithm,
 		ChecksumValue:      mo.ChecksumValue,
 		SSEAlgorithm:       mo.SSEAlgorithm,
+		RestoreStatus:      mo.RestoreStatus,
+		RestoreExpiresAt:   mo.RestoreExpiresAt,
 	}
 
 	// Object Lock - Retention

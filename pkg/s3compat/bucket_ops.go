@@ -1434,3 +1434,107 @@ func (h *Handler) DeletePublicAccessBlock(w http.ResponseWriter, r *http.Request
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// ============================================================================
+// OwnershipControls handlers
+// ============================================================================
+
+// ownershipControlsXML is the AWS XML envelope for GetOwnershipControls / PutOwnershipControls.
+type ownershipControlsXML struct {
+	XMLName xml.Name                  `xml:"OwnershipControls"`
+	Rules   []ownershipControlsRuleXML `xml:"Rule"`
+}
+
+type ownershipControlsRuleXML struct {
+	ObjectOwnership string `xml:"ObjectOwnership"`
+}
+
+// GetOwnershipControls returns the ownership controls for the bucket.
+// If none are configured, returns BucketOwnerEnforced as the default (matches AWS behaviour for new buckets).
+func (h *Handler) GetOwnershipControls(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	cfg, err := h.bucketManager.GetOwnershipControls(r.Context(), tenantID, bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		if err == bucket.ErrOwnershipControlsNotFound {
+			// AWS returns BucketOwnerEnforced as the default when nothing is configured
+			cfg = &bucket.OwnershipControlsConfig{ObjectOwnership: "BucketOwnerEnforced"}
+		} else {
+			h.writeError(w, "InternalError", err.Error(), bucketName, r)
+			return
+		}
+	}
+
+	resp := ownershipControlsXML{
+		Rules: []ownershipControlsRuleXML{{ObjectOwnership: cfg.ObjectOwnership}},
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	xml.NewEncoder(w).Encode(resp) //nolint:errcheck
+}
+
+// PutOwnershipControls stores the ownership controls configuration for the bucket.
+func (h *Handler) PutOwnershipControls(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	var xmlCfg ownershipControlsXML
+	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {
+		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
+		return
+	}
+	if len(xmlCfg.Rules) == 0 {
+		h.writeError(w, "MalformedXML", "OwnershipControls must contain at least one Rule", bucketName, r)
+		return
+	}
+
+	ownership := xmlCfg.Rules[0].ObjectOwnership
+	switch ownership {
+	case "BucketOwnerEnforced", "BucketOwnerPreferred", "ObjectWriter":
+		// valid
+	default:
+		h.writeError(w, "InvalidArgument",
+			"Invalid ObjectOwnership: must be BucketOwnerEnforced, BucketOwnerPreferred, or ObjectWriter",
+			bucketName, r)
+		return
+	}
+
+	cfg := &bucket.OwnershipControlsConfig{ObjectOwnership: ownership}
+	if err := h.bucketManager.SetOwnershipControls(r.Context(), tenantID, bucketName, cfg); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// DeleteOwnershipControls removes the ownership controls configuration from the bucket.
+func (h *Handler) DeleteOwnershipControls(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	if err := h.bucketManager.DeleteOwnershipControls(r.Context(), tenantID, bucketName); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

@@ -48,6 +48,9 @@ type Manager interface {
 	GetObjectLegalHold(ctx context.Context, bucket, key string) (*LegalHoldConfig, error)
 	SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig, versionID ...string) error
 
+	// Restore operations (S3 Glacier restore)
+	SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time) error
+
 	// Versioning operations
 	GetObjectVersions(ctx context.Context, bucket, key string) ([]ObjectVersion, error)
 	DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error
@@ -105,6 +108,10 @@ type Object struct {
 
 	// ACL
 	ACL *ACL `json:"acl,omitempty"`
+
+	// Restore (S3 Glacier restore)
+	RestoreStatus    string     `json:"restore_status,omitempty"`     // "ongoing" | "restored"
+	RestoreExpiresAt *time.Time `json:"restore_expires_at,omitempty"` // when the restored copy expires
 
 	// Encryption
 	SSEAlgorithm string `json:"sse_algorithm,omitempty"` // "AES256" when server-side encrypted
@@ -1446,6 +1453,20 @@ func (om *objectManager) SetObjectLegalHold(ctx context.Context, bucket, key str
 
 	// Save updated metadata to BadgerDB
 	metaObj := toMetadataObject(obj)
+	return om.metadataStore.PutObject(ctx, metaObj)
+}
+
+// SetRestoreStatus updates the restore status and optional expiry for an object.
+// status must be "ongoing" (restore in progress) or "restored" (copy available).
+// expiresAt is the time when the restored copy will expire; pass nil for ongoing restores.
+func (om *objectManager) SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time) error {
+	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+	if err != nil {
+		return err
+	}
+	metaObj := toMetadataObject(obj)
+	metaObj.RestoreStatus = status
+	metaObj.RestoreExpiresAt = expiresAt
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
 

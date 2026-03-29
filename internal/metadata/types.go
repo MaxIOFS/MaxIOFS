@@ -36,6 +36,10 @@ type ObjectMetadata struct {
 	ChecksumAlgorithm string `json:"checksum_algorithm,omitempty"` // CRC32, CRC32C, SHA1, SHA256
 	ChecksumValue     string `json:"checksum_value,omitempty"`     // base64-encoded checksum
 
+	// Restore (S3 Glacier restore status)
+	RestoreStatus    string     `json:"restore_status,omitempty"`     // "ongoing" | "restored"
+	RestoreExpiresAt *time.Time `json:"restore_expires_at,omitempty"` // when the restore copy expires
+
 	// Encryption
 	SSEAlgorithm string `json:"sse_algorithm,omitempty"`
 	SSEKeyID     string `json:"sse_key_id,omitempty"`
@@ -69,6 +73,7 @@ type BucketMetadata struct {
 	CORS              *CORSMetadata              `json:"cors,omitempty"`
 	Encryption        *EncryptionMetadata        `json:"encryption,omitempty"`
 	PublicAccessBlock *PublicAccessBlockMetadata `json:"public_access_block,omitempty"`
+	OwnershipControls string                     `json:"ownership_controls,omitempty"` // BucketOwnerEnforced | BucketOwnerPreferred | ObjectWriter
 	Website           *WebsiteMetadata           `json:"website,omitempty"`
 	Notification      *NotificationMetadata      `json:"notification,omitempty"`
 	Logging           *LoggingMetadata           `json:"logging,omitempty"`

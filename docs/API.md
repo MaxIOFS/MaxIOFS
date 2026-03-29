@@ -1,6 +1,6 @@
 # MaxIOFS API Reference
 
-**Version**: 1.1.0 | **Last Updated**: March 25, 2026
+**Version**: 1.2.0-dev | **Last Updated**: March 29, 2026
 
 ## Overview
 
@@ -66,6 +66,9 @@ aws --endpoint-url=http://localhost:8080 s3 ls s3://my-bucket/
 | GetPublicAccessBlock | GET | `/{bucket}?publicAccessBlock` |
 | PutPublicAccessBlock | PUT | `/{bucket}?publicAccessBlock` |
 | DeletePublicAccessBlock | DELETE | `/{bucket}?publicAccessBlock` |
+| GetBucketOwnershipControls | GET | `/{bucket}?ownershipControls` |
+| PutBucketOwnershipControls | PUT | `/{bucket}?ownershipControls` |
+| DeleteBucketOwnershipControls | DELETE | `/{bucket}?ownershipControls` |
 | ListMultipartUploads | GET | `/{bucket}?uploads` |
 
 ### Object Operations
@@ -78,6 +81,8 @@ aws --endpoint-url=http://localhost:8080 s3 ls s3://my-bucket/
 | HeadObject | HEAD | `/{bucket}/{key+}` |
 | CopyObject | PUT | `/{bucket}/{key+}` (header: `x-amz-copy-source`) |
 | GetObjectAttributes | GET | `/{bucket}/{key+}?attributes` (header: `x-amz-object-attributes`) |
+| RestoreObject | POST | `/{bucket}/{key+}?restore` |
+| SelectObjectContent | POST | `/{bucket}/{key+}?select&select-type=2` |
 | ListObjects | GET | `/{bucket}` |
 | ListObjectsV2 | GET | `/{bucket}?list-type=2` |
 | DeleteMultipleObjects | POST | `/{bucket}?delete` |
@@ -124,7 +129,44 @@ aws --endpoint-url=http://localhost:8080 s3 ls s3://my-bucket/
 - **Conditional Writes** — `PutObject If-None-Match: *` returns 412 `PreconditionFailed` if the object already exists (atomic create-if-absent)
 - **SSE Response Headers** — `x-amz-server-side-encryption: AES256` returned on GET/PUT/HEAD when the object is encrypted
 - **PublicAccessBlock enforcement** — `IgnorePublicAcls` and `RestrictPublicBuckets` flags deny all public ACL access; configure via `PUT /{bucket}?publicAccessBlock`
+- **OwnershipControls** — default `BucketOwnerEnforced`; prevents AWS SDK v2 `OwnershipControlsNotFoundError`; valid values: `BucketOwnerEnforced`, `BucketOwnerPreferred`, `ObjectWriter`
+- **RestoreObject** — accepts `<RestoreRequest><Days>N</Days></RestoreRequest>`; returns 409 if restore already in progress; `HeadObject`/`GetObject` return `x-amz-restore: ongoing-request="false", expiry-date="..."` once restored
+- **SelectObjectContent** — SQL queries on object data streamed via Amazon Event Stream binary protocol (Records/Stats/End events, CRC32-framed); see section below
 - **Server Access Logging** — async delivery to a target bucket in AWS S3 access log format; configure via `PUT /{bucket}?logging`
+
+### S3 Select Reference
+
+`POST /{bucket}/{key}?select&select-type=2`
+
+**Request XML:**
+
+```xml
+<SelectObjectContentRequest>
+  <Expression>SELECT s.name, s.age FROM S3Object s WHERE s.age > 25</Expression>
+  <ExpressionType>SQL</ExpressionType>
+  <InputSerialization>
+    <CompressionType>NONE</CompressionType>
+    <CSV>
+      <FileHeaderInfo>USE</FileHeaderInfo>   <!-- USE | IGNORE | NONE -->
+      <FieldDelimiter>,</FieldDelimiter>
+    </CSV>
+    <!-- or: <JSON><Type>LINES</Type></JSON> -->
+  </InputSerialization>
+  <OutputSerialization>
+    <CSV>
+      <FieldDelimiter>,</FieldDelimiter>
+    </CSV>
+    <!-- or: <JSON></JSON> -->
+  </OutputSerialization>
+</SelectObjectContentRequest>
+```
+
+**Supported input formats:** CSV, JSON Lines
+**Supported output formats:** CSV, JSON (one object per line, column order preserved)
+**SQL engine:** SQLite — supports SELECT, WHERE, GROUP BY, ORDER BY, aggregate functions (COUNT, SUM, AVG, MIN, MAX)
+**Not supported:** compressed input (GZIP/BZIP2), Parquet format
+
+**Response:** `application/vnd.amazon.eventstream` — standard Amazon Event Stream binary format
 
 ### Health Endpoints (No Auth)
 

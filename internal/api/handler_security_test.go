@@ -234,6 +234,15 @@ func (m *MockBucketManager) SetPublicAccessBlock(ctx context.Context, tenantID, 
 func (m *MockBucketManager) DeletePublicAccessBlock(ctx context.Context, tenantID, name string) error {
 	return nil
 }
+func (m *MockBucketManager) GetOwnershipControls(ctx context.Context, tenantID, name string) (*bucket.OwnershipControlsConfig, error) {
+	return nil, bucket.ErrOwnershipControlsNotFound
+}
+func (m *MockBucketManager) SetOwnershipControls(ctx context.Context, tenantID, name string, config *bucket.OwnershipControlsConfig) error {
+	return nil
+}
+func (m *MockBucketManager) DeleteOwnershipControls(ctx context.Context, tenantID, name string) error {
+	return nil
+}
 func (m *MockBucketManager) GetLogging(ctx context.Context, tenantID, name string) (*bucket.LoggingConfig, error) {
 	return nil, bucket.ErrLoggingNotFound
 }
@@ -443,6 +452,10 @@ func (m *MockObjectManager) VerifyBucketIntegrity(ctx context.Context, bucket, p
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*object.BucketIntegrityReport), args.Error(1)
+}
+
+func (m *MockObjectManager) SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time) error {
+	return nil
 }
 
 type MockAuthManager struct {

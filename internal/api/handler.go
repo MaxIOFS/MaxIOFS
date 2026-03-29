@@ -185,6 +185,11 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 		bucketRouter.HandleFunc(path, h.s3Handler.PutPublicAccessBlock).Methods("PUT").Queries("publicAccessBlock", "")
 		bucketRouter.HandleFunc(path, h.s3Handler.DeletePublicAccessBlock).Methods("DELETE").Queries("publicAccessBlock", "")
 
+		// Ownership controls
+		bucketRouter.HandleFunc(path, h.s3Handler.GetOwnershipControls).Methods("GET").Queries("ownershipControls", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutOwnershipControls).Methods("PUT").Queries("ownershipControls", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.DeleteOwnershipControls).Methods("DELETE").Queries("ownershipControls", "")
+
 		// Generic bucket operations (without query parameters - registered last)
 		bucketRouter.HandleFunc(path, h.s3Handler.HeadBucket).Methods("HEAD")
 		bucketRouter.HandleFunc(path, h.s3Handler.CreateBucket).Methods("PUT")
@@ -219,6 +224,12 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 
 	// Object versioning (with query parameters)
 	objectRouter.HandleFunc("", h.s3Handler.DeleteObjectVersion).Methods("DELETE").Queries("versionId", "{versionId}")
+
+	// Restore object
+	objectRouter.HandleFunc("", h.s3Handler.RestoreObject).Methods("POST").Queries("restore", "")
+
+	// S3 Select
+	objectRouter.HandleFunc("", h.s3Handler.SelectObjectContent).Methods("POST").Queries("select", "")
 
 	// Object Lock operations (with query parameters)
 	objectRouter.HandleFunc("", h.s3Handler.GetObjectRetention).Methods("GET").Queries("retention", "")

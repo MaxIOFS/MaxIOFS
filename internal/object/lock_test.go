@@ -551,6 +551,10 @@ func (m *mockManager) SetObjectLegalHold(ctx context.Context, bucket, key string
 	return nil
 }
 
+func (m *mockManager) SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time) error {
+	return nil
+}
+
 // Stub implementations for Manager interface
 func (m *mockManager) GetObject(ctx context.Context, bucket, key string, versionID ...string) (*Object, io.ReadCloser, error) {
 	return nil, nil, nil

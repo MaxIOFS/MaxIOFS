@@ -80,6 +80,11 @@ type Manager interface {
 	SetPublicAccessBlock(ctx context.Context, tenantID, name string, config *PublicAccessBlock) error
 	DeletePublicAccessBlock(ctx context.Context, tenantID, name string) error
 
+	// Ownership controls
+	GetOwnershipControls(ctx context.Context, tenantID, name string) (*OwnershipControlsConfig, error)
+	SetOwnershipControls(ctx context.Context, tenantID, name string, config *OwnershipControlsConfig) error
+	DeleteOwnershipControls(ctx context.Context, tenantID, name string) error
+
 	// Server access logging
 	GetLogging(ctx context.Context, tenantID, name string) (*LoggingConfig, error)
 	SetLogging(ctx context.Context, tenantID, name string, config *LoggingConfig) error

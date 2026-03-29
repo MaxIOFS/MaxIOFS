@@ -7,7 +7,7 @@
 [![Build](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml/badge.svg)](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml)
 [![Version](https://img.shields.io/badge/version-1.1.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.1.0)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Go](https://img.shields.io/badge/go-1.25+-00ADD8?logo=go)](https://go.dev)
+[![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go)](https://go.dev)
 [![S3 Compatible](https://img.shields.io/badge/S3-100%25%20compatible-orange)](docs/API.md)
 [![Security Audited](https://img.shields.io/badge/security-audited-brightgreen)](docs/SECURITY.md)
 
@@ -51,7 +51,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 | **Replication** | ✅ To AWS S3, MinIO, or other MaxIOFS nodes | ✅ Active-active, multi-site |
 | **Erasure coding** | ❌ Not supported | ✅ Core feature (distributed mode) |
 | **Data tiering** | ❌ Not supported | ✅ ILM tiering to cloud |
-| **S3 Select** | ❌ Not supported | ✅ Supported |
+| **S3 Select** | ✅ SQL queries on CSV/JSON objects (SQLite-based, full SELECT/WHERE/GROUP BY) | ✅ Supported |
 | **Encryption** | ✅ AES-256-GCM authenticated (server-side, 64 KB chunks), SSE-S3 headers | ✅ SSE-S3 / SSE-KMS / SSE-C |
 | **PublicAccessBlock** | ✅ Stored and enforced on every request | ✅ Supported |
 | **Server access logging** | ✅ Async delivery to target bucket in AWS S3 format | ✅ Supported |
@@ -79,7 +79,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 - POST presigned URLs — HTML form upload with POST policy validation (expiration, conditions, content-length-range)
 - Bucket versioning with delete markers
 - Object Lock — COMPLIANCE and GOVERNANCE modes, per-version enforcement
-- Bucket policies (S3 JSON policy evaluation engine)
+- Bucket policies (S3 JSON policy evaluation engine with full Condition block evaluation)
 - CORS — stored and enforced on actual requests, OPTIONS preflight handled before auth
 - Lifecycle rules — `Expiration.Days/Date` and `AbortIncompleteMultipartUpload` executed by background worker
 - Object tagging, object ACLs, bucket tagging
@@ -89,6 +89,9 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 - Server-side encryption (SSE-S3 / AES256) — per-bucket configuration via `GetBucketEncryption`/`PutBucketEncryption`, `x-amz-server-side-encryption` response headers on GET/PUT/HEAD
 - Server access logging — async delivery to target bucket in AWS S3 access log format (`GetBucketLogging`/`PutBucketLogging`)
 - `PublicAccessBlock` — stored and enforced; `IgnorePublicAcls`/`RestrictPublicBuckets` deny all public ACL access when set
+- `OwnershipControls` — `GET/PUT/DELETE ?ownershipControls`; default `BucketOwnerEnforced`; prevents AWS SDK v2 `OwnershipControlsNotFoundError`
+- `RestoreObject` — `POST ?restore`; accepts `<RestoreRequest>` XML; returns `x-amz-restore` header on HEAD/GET; tools with Glacier lifecycle rules (Veeam, NetBackup) work without errors
+- `SelectObjectContent` — `POST ?select`; run SQL queries (SELECT, WHERE, GROUP BY, ORDER BY, aggregates) on CSV and JSON Lines objects; streams results using the Amazon Event Stream binary protocol
 - `GetObjectAttributes` — lightweight object metadata (ETag, size, storage class, parts) without downloading the object body
 - Conditional writes — `PutObject If-None-Match: *` returns 412 if the object already exists (atomic create-if-absent)
 - Object search & filters — content-type, size range, date range, tags
@@ -252,7 +255,7 @@ sudo systemctl enable --now maxiofs
 
 ## Build from Source
 
-Go 1.25+ and Node.js 24+ required to build. The resulting binary has no runtime dependencies.
+Go 1.26+ and Node.js 24+ required to build. The resulting binary has no runtime dependencies.
 
 ```bash
 git clone https://github.com/MaxioFS/MaxioFS.git
@@ -296,7 +299,7 @@ Tested with MinIO Warp on a single node (commodity hardware):
 ## Testing
 
 ```bash
-go test ./...                          # 3,700+ backend tests
+go test ./...                          # 3,800+ backend tests
 cd web/frontend && npm run test        # 95+ frontend tests
 ```
 
@@ -305,8 +308,8 @@ cd web/frontend && npm run test        # 95+ frontend tests
 ## Known Limitations
 
 - **No erasure coding** — single-node data redundancy relies on filesystem/RAID; cluster mode replicates full objects
-- **No S3 Select** — object content querying not supported
 - **No cloud tiering** — lifecycle rules expire objects but do not tier to cold storage
+- **S3 Select compression** — GZIP/BZIP2 compressed input not supported; objects must be stored uncompressed
 - **No per-tenant encryption keys** — single master key, no HSM integration
 - **Cluster tested up to 5 nodes**
 - **No SAML** — use OAuth2/OIDC instead
@@ -318,7 +321,7 @@ cd web/frontend && npm run test        # 95+ frontend tests
 
 | Version | Highlights |
 |---------|-----------|
-| **[Unreleased]** | Version browser (restore deleted files, manage delete markers), metadata store persistence fix (silent data loss on shutdown), sliding-window sessions, idle logout suspended during uploads, Object Lock enforcement in console UI |
+| **[Unreleased]** | S3 Select (SQL on CSV/JSON, event-stream), OwnershipControls, RestoreObject + x-amz-restore header, version browser, metadata store persistence fix, sliding-window sessions, Object Lock UI enforcement |
 | **v1.1.0** *(stable)* | AWS S3-style Actions toolbar, object detail view, object rename & tags, folder ZIP download, SigV2 fix, bucket policy Condition enforcement, PublicAccessBlock enforcement, DeleteBucket Object Lock bypass fix, encryption applied globally, 3 data races fixed |
 | **v1.0.0** | Complete UI redesign, folder upload, POST presigned URLs, bucket notifications, lifecycle execution, full Veeam B&R compatibility, Object Lock per-version enforcement, 3 security fixes |
 | **v1.0.0-rc1** | 28-vulnerability security audit: AES-256-GCM, CSR cluster join, SSRF hardening, static website hosting, frontend bundle −45% |

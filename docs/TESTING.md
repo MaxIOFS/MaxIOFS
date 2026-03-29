@@ -1,13 +1,13 @@
 # Testing
 
-**Version**: 1.1.0  
-**Last Updated**: March 25, 2026
+**Version**: 1.2.0-dev
+**Last Updated**: March 29, 2026
 
 ---
 
 ## Overview
 
-MaxIOFS has **112 Go test files**, **5 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **115 Go test files**, **5 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -242,7 +242,7 @@ npx vitest run --coverage
 |------|-------------|
 | `manager_test.go` | SSE notification delivery, client management |
 
-### `internal/object/` — 15 test files
+### `internal/object/` — 16 test files
 
 | File | Description |
 |------|-------------|
@@ -250,9 +250,11 @@ npx vitest run --coverage
 | `integration_test.go` | Full object lifecycle (put → get → delete) |
 | `lock_default_retention_test.go` | Default retention policy application |
 | `lock_test.go` | Object Lock (WORM) compliance/governance modes |
+| `manager_cleanup_test.go` | `cleanupEmptyDirectories` — single/nested dir, non-empty parent, system files |
 | `manager_coverage_test.go` | Manager edge cases for coverage |
 | `manager_critical_functions_test.go` | Critical path testing (copy, multipart complete) |
 | `manager_final_coverage_test.go` | Final coverage gap tests |
+| `manager_integrity_test.go` | `VerifyObjectIntegrity` / `VerifyBucketIntegrity` — folder markers, delete markers, multipart skip, ETag mismatch |
 | `manager_internal_test.go` | Internal manager functions |
 | `manager_low_coverage_test.go` | Low-coverage path tests |
 | `manager_versioning_acl_test.go` | Versioning + ACL interaction |
@@ -268,12 +270,16 @@ npx vitest run --coverage
 |------|-------------|
 | `presigned_test.go` | Pre-signed URL generation and validation |
 
-### `internal/replication/` — 2 test files
+### `internal/replication/` — 6 test files
 
 | File | Description |
 |------|-------------|
+| `adapter_test.go` | `RealObjectAdapter` CopyObject, DeleteObject, GetObjectMetadata |
+| `credentials_test.go` | AES-256-GCM credential encryption round-trip, wrong key, legacy plaintext, `deriveCredentialKey` |
+| `manager_sync_test.go` | `SyncBucket`, `SyncRule` (lock contention), `processScheduledRules`, `cleanup` |
 | `manager_test.go` | Replication rule management |
 | `replication_e2e_test.go` | End-to-end replication with `require.Eventually` |
+| `worker_test.go` | `processItem` (PUT/COPY/DELETE), `handleError`, `completeItem`, `updateReplicationStatus` |
 
 ### `internal/server/` — 6 test files
 
@@ -312,15 +318,19 @@ npx vitest run --coverage
 | `encryption_test.go` | AES-256-GCM encrypt/decrypt roundtrip (legacy CTR backward-compat) |
 | `encryption_bench_test.go` | Encryption throughput benchmarks |
 
-### `pkg/s3compat/` — 5 test files
+### `pkg/s3compat/` — 9 test files
 
 | File | Description |
 |------|-------------|
 | `acl_debug_test.go` | ACL compatibility debugging |
 | `acl_security_test.go` | ACL security edge cases |
+| `checksum_test.go` | `x-amz-checksum-*` header validation (CRC32, CRC32C, SHA1, SHA256) |
 | `handler_coverage_test.go` | S3 handler comprehensive coverage |
-| `presigned_test.go` | S3 pre-signed request handling |
+| `notifications_test.go` | Bucket notification webhook dispatch |
+| `post_presigned_test.go` | POST presigned URL (HTML form upload + policy validation) |
+| `presigned_test.go` | S3 pre-signed request handling (SigV2 + SigV4) |
 | `s3_test.go` | S3 protocol compatibility tests |
+| `select_test.go` | `SelectObjectContent` — event stream encoding, CSV/JSON loaders, SQL queries, batch flushing |
 
 ### `cmd/maxiofs/` — 1 test file
 

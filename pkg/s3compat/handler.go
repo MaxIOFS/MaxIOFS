@@ -3471,6 +3471,14 @@ func (h *Handler) setHeadObjectResponseHeaders(w http.ResponseWriter, obj *objec
 	if obj.SSEAlgorithm != "" {
 		w.Header().Set("x-amz-server-side-encryption", obj.SSEAlgorithm)
 	}
+
+	// Restore status (S3 Glacier restore)
+	if obj.RestoreStatus == "ongoing" {
+		w.Header().Set("x-amz-restore", `ongoing-request="true"`)
+	} else if obj.RestoreStatus == "restored" && obj.RestoreExpiresAt != nil {
+		w.Header().Set("x-amz-restore",
+			fmt.Sprintf(`ongoing-request="false", expiry-date="%s"`, obj.RestoreExpiresAt.UTC().Format(http.TimeFormat)))
+	}
 }
 
 // ============================================================================
@@ -3567,4 +3575,71 @@ func storageClassOrStandard(sc string) string {
 		return "STANDARD"
 	}
 	return sc
+}
+
+// ============================================================================
+// RestoreObject handler
+// ============================================================================
+
+// RestoreObject handles POST /{bucket}/{object}?restore.
+// Since MaxIOFS has no cold-storage tier, objects are always "online".
+// The handler accepts the standard RestoreRequest XML, marks the object as
+// restored for the requested number of Days, and returns 200 OK.
+// Tools that use S3 lifecycle rules targeting Glacier tiers (Veeam, Commvault,
+// NetBackup) call this endpoint before reading objects; without it they fail
+// with a 405 or 501 even when the data is already accessible.
+func (h *Handler) RestoreObject(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey := getObjectKey(r)
+	tenantID := h.getTenantIDFromRequest(r)
+
+	bucketPath := h.resolveBucketPath(r, bucketName, "")
+
+	// Parse the RestoreRequest XML (Days field is what matters)
+	type glacierJobParams struct {
+		Tier string `xml:"Tier"`
+	}
+	type restoreRequestXML struct {
+		Days              int              `xml:"Days"`
+		GlacierJobParams  *glacierJobParams `xml:"GlacierJobParameters"`
+	}
+	var req restoreRequestXML
+	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
+		return
+	}
+
+	days := req.Days
+	if days <= 0 {
+		days = 1 // default to 1 day if not specified
+	}
+
+	// Verify the object exists
+	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
+	if err != nil {
+		if err == object.ErrObjectNotFound {
+			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), objectKey, r)
+		return
+	}
+
+	// If already restored and not expired, return 409 RestoreAlreadyInProgress
+	if obj.RestoreStatus == "ongoing" {
+		h.writeError(w, "RestoreAlreadyInProgress",
+			"Object restore is already in progress", objectKey, r)
+		return
+	}
+
+	// Mark as restored with expiry = now + days
+	expiresAt := time.Now().UTC().AddDate(0, 0, days)
+	if setErr := h.objectManager.SetRestoreStatus(r.Context(), bucketPath, objectKey, "restored", &expiresAt); setErr != nil {
+		h.writeError(w, "InternalError", setErr.Error(), objectKey, r)
+		return
+	}
+
+	_ = tenantID // used for future per-tenant restore quota tracking
+	w.WriteHeader(http.StatusOK)
 }

@@ -231,6 +231,15 @@ func (m *MockBucketManager) SetPublicAccessBlock(ctx context.Context, tenantID, 
 func (m *MockBucketManager) DeletePublicAccessBlock(ctx context.Context, tenantID, name string) error {
 	return nil
 }
+func (m *MockBucketManager) GetOwnershipControls(ctx context.Context, tenantID, name string) (*bucket.OwnershipControlsConfig, error) {
+	return nil, bucket.ErrOwnershipControlsNotFound
+}
+func (m *MockBucketManager) SetOwnershipControls(ctx context.Context, tenantID, name string, config *bucket.OwnershipControlsConfig) error {
+	return nil
+}
+func (m *MockBucketManager) DeleteOwnershipControls(ctx context.Context, tenantID, name string) error {
+	return nil
+}
 func (m *MockBucketManager) GetLogging(ctx context.Context, tenantID, name string) (*bucket.LoggingConfig, error) {
 	return nil, bucket.ErrLoggingNotFound
 }

@@ -596,6 +596,47 @@ func (bm *badgerBucketManager) DeletePublicAccessBlock(ctx context.Context, tena
 	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
 }
 
+// GetOwnershipControls retrieves the ownership controls configuration for a bucket.
+func (bm *badgerBucketManager) GetOwnershipControls(ctx context.Context, tenantID, name string) (*OwnershipControlsConfig, error) {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return nil, ErrBucketNotFound
+		}
+		return nil, err
+	}
+	if metaBucket.OwnershipControls == "" {
+		return nil, ErrOwnershipControlsNotFound
+	}
+	return &OwnershipControlsConfig{ObjectOwnership: metaBucket.OwnershipControls}, nil
+}
+
+// SetOwnershipControls stores the ownership controls configuration for a bucket.
+func (bm *badgerBucketManager) SetOwnershipControls(ctx context.Context, tenantID, name string, config *OwnershipControlsConfig) error {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+	metaBucket.OwnershipControls = config.ObjectOwnership
+	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
+}
+
+// DeleteOwnershipControls removes the ownership controls configuration from a bucket.
+func (bm *badgerBucketManager) DeleteOwnershipControls(ctx context.Context, tenantID, name string) error {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+	metaBucket.OwnershipControls = ""
+	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
+}
+
 // GetLogging retrieves the server access logging configuration for a bucket.
 func (bm *badgerBucketManager) GetLogging(ctx context.Context, tenantID, name string) (*LoggingConfig, error) {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
