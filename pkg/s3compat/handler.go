@@ -21,6 +21,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
+	"github.com/maxiofs/maxiofs/internal/inventory"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/presigned"
@@ -105,6 +106,12 @@ type Handler struct {
 	shareManager  interface {
 		GetShareByObject(ctx context.Context, bucketName, objectKey, tenantID string) (interface{}, error)
 	}
+	inventoryManager interface {
+		GetConfigByID(ctx context.Context, id, tenantID string) (*inventory.InventoryConfig, error)
+		ListConfigsByBucket(ctx context.Context, bucketName, tenantID string) ([]*inventory.InventoryConfig, error)
+		UpsertConfigByID(ctx context.Context, config *inventory.InventoryConfig) error
+		DeleteConfigByID(ctx context.Context, id, tenantID string) error
+	}
 	metadataStore interface {
 		ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error)
 		GetBucketByName(ctx context.Context, name string) (*metadata.BucketMetadata, error)
@@ -150,6 +157,16 @@ func (h *Handler) SetPublicAPIURL(url string) {
 // SetDataDir sets the data directory for disk capacity calculations
 func (h *Handler) SetDataDir(dataDir string) {
 	h.dataDir = dataDir
+}
+
+// SetInventoryManager sets the inventory manager for S3 BucketInventory operations
+func (h *Handler) SetInventoryManager(im interface {
+	GetConfigByID(ctx context.Context, id, tenantID string) (*inventory.InventoryConfig, error)
+	ListConfigsByBucket(ctx context.Context, bucketName, tenantID string) ([]*inventory.InventoryConfig, error)
+	UpsertConfigByID(ctx context.Context, config *inventory.InventoryConfig) error
+	DeleteConfigByID(ctx context.Context, id, tenantID string) error
+}) {
+	h.inventoryManager = im
 }
 
 // buildLocationURL constructs the absolute <Location> URL for CompleteMultipartUpload
@@ -1974,13 +1991,14 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	case "NoSuchBucket", "NoSuchKey", "NoSuchUpload", "ObjectLockConfigurationNotFoundError",
 		"NoSuchBucketPolicy", "NoSuchObjectLockConfiguration", "NoSuchLifecycleConfiguration",
 		"NoSuchCORSConfiguration", "NoSuchWebsiteConfiguration",
-		"ServerSideEncryptionConfigurationNotFoundError", "NoSuchPublicAccessBlockConfiguration":
+		"ServerSideEncryptionConfigurationNotFoundError", "NoSuchPublicAccessBlockConfiguration",
+		"NoSuchConfiguration":
 		statusCode = http.StatusNotFound
 	// 405 Method Not Allowed
 	case "MethodNotAllowed":
 		statusCode = http.StatusMethodNotAllowed
 	// 409 Conflict
-	case "BucketAlreadyExists", "BucketAlreadyOwnedByYou", "BucketNotEmpty", "OperationAborted", "InvalidBucketState":
+	case "BucketAlreadyExists", "BucketAlreadyOwnedByYou", "BucketNotEmpty", "OperationAborted", "InvalidBucketState", "RestoreAlreadyInProgress":
 		statusCode = http.StatusConflict
 	// 412 Precondition Failed
 	case "PreconditionFailed":
@@ -3627,7 +3645,8 @@ func (h *Handler) RestoreObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If already restored and not expired, return 409 RestoreAlreadyInProgress
-	if obj.RestoreStatus == "ongoing" {
+	if obj.RestoreStatus == "ongoing" ||
+		(obj.RestoreStatus == "restored" && obj.RestoreExpiresAt != nil && obj.RestoreExpiresAt.After(time.Now())) {
 		h.writeError(w, "RestoreAlreadyInProgress",
 			"Object restore is already in progress", objectKey, r)
 		return

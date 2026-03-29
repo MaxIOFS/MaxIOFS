@@ -10,6 +10,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
+	"github.com/maxiofs/maxiofs/internal/inventory"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/metrics"
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -189,6 +190,12 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 		bucketRouter.HandleFunc(path, h.s3Handler.GetOwnershipControls).Methods("GET").Queries("ownershipControls", "")
 		bucketRouter.HandleFunc(path, h.s3Handler.PutOwnershipControls).Methods("PUT").Queries("ownershipControls", "")
 		bucketRouter.HandleFunc(path, h.s3Handler.DeleteOwnershipControls).Methods("DELETE").Queries("ownershipControls", "")
+
+		// Inventory configuration (id-specific routes BEFORE list route)
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketInventoryConfiguration).Methods("GET").Queries("inventory", "", "id", "{id}")
+		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketInventoryConfiguration).Methods("PUT").Queries("inventory", "", "id", "{id}")
+		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketInventoryConfiguration).Methods("DELETE").Queries("inventory", "", "id", "{id}")
+		bucketRouter.HandleFunc(path, h.s3Handler.ListBucketInventoryConfigurations).Methods("GET").Queries("inventory", "")
 
 		// Generic bucket operations (without query parameters - registered last)
 		bucketRouter.HandleFunc(path, h.s3Handler.HeadBucket).Methods("HEAD")
@@ -457,6 +464,11 @@ func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status": "ready", "service": "maxiofs"}`))
+}
+
+// SetInventoryManager wires the inventory manager into the S3-compatible handler.
+func (h *Handler) SetInventoryManager(m *inventory.Manager) {
+	h.s3Handler.SetInventoryManager(m)
 }
 
 // handleRoot handles GET / and HEAD /. Non-S3 clients are redirected by s3ClientMiddleware.

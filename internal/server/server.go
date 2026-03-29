@@ -969,6 +969,9 @@ func (s *Server) setupRoutes() error {
 		s.clusterManager,
 		s.bucketAggregator,
 	)
+	if s.inventoryManager != nil {
+		apiHandler.SetInventoryManager(s.inventoryManager)
+	}
 
 	// Apply middleware only to S3 subrouter (not to /metrics)
 	// Log every S3 request at Info (logrus) first so "first probe" (e.g. VEEAM capabilities) is visible

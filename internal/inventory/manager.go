@@ -342,3 +342,151 @@ func nullString(s string) interface{} {
 	}
 	return s
 }
+
+// scanConfig scans a single row into an InventoryConfig.
+// Used by both GetConfig and GetConfigByID to avoid duplication.
+func (m *Manager) scanConfig(row interface {
+	Scan(dest ...interface{}) error
+}) (*InventoryConfig, error) {
+	var config InventoryConfig
+	var fieldsJSON string
+	var tenantIDVal sql.NullString
+
+	err := row.Scan(
+		&config.ID, &config.BucketName, &tenantIDVal, &config.Enabled,
+		&config.Frequency, &config.Format, &config.DestinationBucket, &config.DestinationPrefix,
+		&fieldsJSON, &config.ScheduleTime, &config.LastRunAt, &config.NextRunAt,
+		&config.CreatedAt, &config.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if tenantIDVal.Valid {
+		config.TenantID = tenantIDVal.String
+	}
+	if err := json.Unmarshal([]byte(fieldsJSON), &config.IncludedFields); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal included fields: %w", err)
+	}
+	return &config, nil
+}
+
+const selectConfigCols = `
+	SELECT id, bucket_name, tenant_id, enabled, frequency, format, destination_bucket,
+	       destination_prefix, included_fields, schedule_time, last_run_at, next_run_at,
+	       created_at, updated_at
+	FROM bucket_inventory_configs`
+
+// GetConfigByID retrieves an inventory configuration by its ID.
+func (m *Manager) GetConfigByID(ctx context.Context, id, tenantID string) (*InventoryConfig, error) {
+	query := selectConfigCols + `
+		WHERE id = ? AND (tenant_id = ? OR (tenant_id IS NULL AND ? = ''))`
+	config, err := m.scanConfig(m.db.QueryRowContext(ctx, query, id, tenantID, tenantID))
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("inventory configuration not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get inventory config by ID: %w", err)
+	}
+	return config, nil
+}
+
+// ListConfigsByBucket lists all inventory configurations for a bucket.
+func (m *Manager) ListConfigsByBucket(ctx context.Context, bucketName, tenantID string) ([]*InventoryConfig, error) {
+	query := selectConfigCols + `
+		WHERE bucket_name = ? AND (tenant_id = ? OR (tenant_id IS NULL AND ? = ''))
+		ORDER BY created_at`
+
+	rows, err := m.db.QueryContext(ctx, query, bucketName, tenantID, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list inventory configs: %w", err)
+	}
+	defer rows.Close()
+
+	var configs []*InventoryConfig
+	for rows.Next() {
+		config, err := m.scanConfig(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan config: %w", err)
+		}
+		configs = append(configs, config)
+	}
+	return configs, nil
+}
+
+// UpsertConfigByID creates or updates an inventory configuration by its ID.
+// Used by the S3 API (PUT /{bucket}?inventory&id=xxx) where the caller controls the ID.
+func (m *Manager) UpsertConfigByID(ctx context.Context, config *InventoryConfig) error {
+	now := time.Now().Unix()
+
+	fieldsJSON, err := json.Marshal(config.IncludedFields)
+	if err != nil {
+		return fmt.Errorf("failed to marshal included fields: %w", err)
+	}
+
+	nextRun, err := CalculateNextRunTime(config.Frequency, config.ScheduleTime, config.LastRunAt)
+	if err != nil {
+		return fmt.Errorf("failed to calculate next run time: %w", err)
+	}
+	config.NextRunAt = &nextRun
+
+	// Try update first
+	updateQuery := `
+		UPDATE bucket_inventory_configs
+		SET bucket_name = ?, tenant_id = ?, enabled = ?, frequency = ?, format = ?,
+		    destination_bucket = ?, destination_prefix = ?, included_fields = ?,
+		    schedule_time = ?, next_run_at = ?, updated_at = ?
+		WHERE id = ?`
+
+	result, err := m.db.ExecContext(ctx, updateQuery,
+		config.BucketName, nullString(config.TenantID), config.Enabled,
+		config.Frequency, config.Format, config.DestinationBucket, config.DestinationPrefix,
+		string(fieldsJSON), config.ScheduleTime, config.NextRunAt, now,
+		config.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to upsert inventory config: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows > 0 {
+		config.UpdatedAt = now
+		return nil
+	}
+
+	// Not found — insert
+	config.CreatedAt = now
+	config.UpdatedAt = now
+	insertQuery := `
+		INSERT INTO bucket_inventory_configs
+		(id, bucket_name, tenant_id, enabled, frequency, format, destination_bucket,
+		 destination_prefix, included_fields, schedule_time, last_run_at, next_run_at,
+		 created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+	_, err = m.db.ExecContext(ctx, insertQuery,
+		config.ID, config.BucketName, nullString(config.TenantID), config.Enabled,
+		config.Frequency, config.Format, config.DestinationBucket, config.DestinationPrefix,
+		string(fieldsJSON), config.ScheduleTime, config.LastRunAt, config.NextRunAt,
+		config.CreatedAt, config.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to insert inventory config: %w", err)
+	}
+	return nil
+}
+
+// DeleteConfigByID deletes an inventory configuration by its ID.
+func (m *Manager) DeleteConfigByID(ctx context.Context, id, tenantID string) error {
+	query := `DELETE FROM bucket_inventory_configs
+		WHERE id = ? AND (tenant_id = ? OR (tenant_id IS NULL AND ? = ''))`
+
+	result, err := m.db.ExecContext(ctx, query, id, tenantID, tenantID)
+	if err != nil {
+		return fmt.Errorf("failed to delete inventory config: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("inventory configuration not found")
+	}
+	m.log.WithField("config_id", id).Info("Inventory configuration deleted by ID")
+	return nil
+}

@@ -71,14 +71,14 @@ checksums). Supports CSV and JSON Lines input; CSV and JSON output; custom field
 FileHeaderInfo (USE/NONE/IGNORE). Batch-flushes every 1 000 rows.
 (`pkg/s3compat/select.go`, `internal/api/handler.go`)
 
-#### 5. `BucketInventory` — `GET/PUT/DELETE /{bucket}?inventory&id=`, `GET /{bucket}?inventory`
-Periodic inventory reports (CSV / ORC) listing all objects with their metadata.
-`internal/server/inventory_handlers.go` already exists — check if it's wired to S3-compatible routes
-or only to the console API.
-
-**Files to investigate:**
-- `internal/server/inventory_handlers.go` — determine current state (console-only vs S3 API)
-- `internal/api/handler.go` — check if inventory routes are registered
+#### ~~5. `BucketInventory` — `GET/PUT/DELETE /{bucket}?inventory&id=`, `GET /{bucket}?inventory`~~ ✅ Done
+Implemented. The existing inventory execution engine (`internal/inventory/`) was console-only.
+Added `GetConfigByID`, `ListConfigsByBucket`, `UpsertConfigByID`, `DeleteConfigByID` methods to
+`inventory.Manager`. New `pkg/s3compat/inventory.go` provides all four S3-compatible handlers with
+full XML wire format (InventoryConfiguration, Destination.S3BucketDestination, Schedule, OptionalFields,
+IncludedObjectVersions). Routes registered in `internal/api/handler.go` with id-specific routes before
+the list route to ensure correct gorilla/mux matching.
+(`pkg/s3compat/inventory.go`, `internal/inventory/manager.go`, `internal/api/handler.go`, `pkg/s3compat/handler.go`)
 
 ---
 
@@ -106,6 +106,7 @@ Decide later whether to implement fully or leave as documented stubs:
 - [x] S3 `RestoreObject` — `POST /{bucket}/{object}?restore` with metadata tracking and `x-amz-restore` response header
 - [x] S3 `OwnershipControls` — `GET/PUT/DELETE /{bucket}?ownershipControls` with `BucketOwnerEnforced` default
 - [x] S3 `SelectObjectContent` — `POST /{bucket}/{object}?select` with SQLite in-memory SQL engine, event-stream protocol
+- [x] S3 `BucketInventory` — `GET/PUT/DELETE /{bucket}?inventory&id=` + `GET /{bucket}?inventory`, full S3 XML wire format, multiple configs per bucket
 
 ---
 
