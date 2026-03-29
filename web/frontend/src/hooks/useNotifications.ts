@@ -37,14 +37,23 @@ export function useNotifications(enabled = true) {
   }, []);
 
   useEffect(() => {
-    // Load notifications from localStorage on mount
-    const stored = localStorage.getItem('notifications');
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        setNotifications(parsed);
-      } catch (e) {
-        // Ignore parse errors
+    // Load notifications from localStorage, but only for the current session.
+    // If the token changed (new login), discard stale notifications from a
+    // previous session or installation to avoid showing outdated alerts.
+    const storedToken = localStorage.getItem('notifications_token');
+    if (token && storedToken !== token) {
+      localStorage.removeItem('notifications');
+      localStorage.setItem('notifications_token', token);
+      setNotifications([]);
+    } else {
+      const stored = localStorage.getItem('notifications');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          setNotifications(parsed);
+        } catch (e) {
+          // Ignore parse errors
+        }
       }
     }
 
