@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -42,7 +42,12 @@ import { IDPStatusBadge } from '@/components/identity-providers/IDPStatusBadge';
 export default function UsersPage() {
   const { t } = useTranslation(['users', 'common']);
   const navigate = useNavigate();
-  const { isGlobalAdmin, isTenantAdmin, user: currentUser } = useCurrentUser();
+  const {
+    isGlobalAdmin,
+    isTenantAdmin,
+    user: currentUser,
+    isLoading: currentUserLoading,
+  } = useCurrentUser();
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newUser, setNewUser] = useState<Partial<CreateUserRequest>>({
@@ -53,13 +58,6 @@ export default function UsersPage() {
 
   // Only admins (global or tenant) can access this page
   const isAnyAdmin = isGlobalAdmin || isTenantAdmin;
-  
-  // Redirect non-admins to their profile page
-  useEffect(() => {
-    if (currentUser && !isAnyAdmin) {
-      navigate(`/users/${currentUser.id}`);
-    }
-  }, [currentUser, isAnyAdmin, navigate]);
 
   const { data: users, isLoading, error } = useQuery({
     queryKey: ['users'],
@@ -67,16 +65,18 @@ export default function UsersPage() {
     enabled: isAnyAdmin, // Only fetch if user is admin
   });
 
-  // Fetch access keys for all users
+  // Fetch access keys for all users (admins only — avoid queries before redirect for non-admins)
   const { data: allAccessKeys } = useQuery({
     queryKey: ['accessKeys'],
     queryFn: () => APIClient.getAccessKeys(),
+    enabled: isAnyAdmin,
   });
 
   // Fetch tenants for assignment
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
     queryFn: APIClient.getTenants,
+    enabled: isAnyAdmin,
   });
 
   // Fetch identity providers for SSO user creation
@@ -266,6 +266,17 @@ export default function UsersPage() {
     }
   };
 
+  if (currentUserLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loading size="lg" />
+      </div>
+    );
+  }
+
+  if (currentUser && !isAnyAdmin) {
+    return <Navigate to={`/users/${currentUser.id}`} replace />;
+  }
 
   if (isLoading) {
     return (
