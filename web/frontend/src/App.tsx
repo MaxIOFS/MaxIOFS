@@ -60,6 +60,18 @@ class ErrorBoundary extends React.Component<
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('ErrorBoundary caught:', error, errorInfo);
+    // Stale chunk: app was redeployed while the browser had an old index.html cached.
+    // Old chunk hashes no longer exist → dynamic import fails.
+    // Auto-reload once so the browser picks up the new index.html and fresh chunks.
+    const isChunkError =
+      error.message?.includes('dynamically imported module') ||
+      error.message?.includes('Failed to fetch dynamically imported module') ||
+      error.message?.includes('Loading chunk') ||
+      error.message?.includes('Loading CSS chunk');
+    if (isChunkError && !sessionStorage.getItem('_chunk_reload')) {
+      sessionStorage.setItem('_chunk_reload', '1');
+      window.location.reload();
+    }
   }
 
   render() {

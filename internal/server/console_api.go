@@ -2549,7 +2549,7 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	// Convert to response format
 	userResponse := UserResponse{
 		ID:                  user.ID,
-		Username:            user.ID,
+		Username:            user.Username,
 		DisplayName:         user.DisplayName,
 		Email:               user.Email,
 		Roles:               user.Roles,
@@ -2673,7 +2673,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	// Convert to response format
 	userResponse := UserResponse{
 		ID:                  user.ID,
-		Username:            user.ID,
+		Username:            user.Username,
 		DisplayName:         user.DisplayName,
 		Email:               user.Email,
 		Roles:               user.Roles,

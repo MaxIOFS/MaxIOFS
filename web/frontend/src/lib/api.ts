@@ -312,8 +312,18 @@ const handleResponse = (response: AxiosResponse): AxiosResponse => {
         pendingRefreshCallbacks.forEach(cb => cb(access_token));
         pendingRefreshCallbacks = [];
       }
-    }).catch(() => {
-      // Transient failure — the proactive timer handles the retry
+    }).catch((err: unknown) => {
+      // If requests were queued waiting on this background refresh, release them
+      // so they don't hang forever. Pass empty token so they fail with 401 and
+      // the 401 handler takes over (retry + logout if needed).
+      if (pendingRefreshCallbacks.length > 0) {
+        pendingRefreshCallbacks.forEach(cb => cb(''));
+        pendingRefreshCallbacks = [];
+      }
+      const status = (err as any)?.response?.status;
+      if (status === 401 || status === 403) {
+        doLogout();
+      }
     }).finally(() => {
       isRefreshing = false;
     });
