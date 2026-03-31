@@ -3,10 +3,12 @@ package api
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
@@ -92,22 +94,18 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/health", h.handleHealth).Methods("GET")
 	router.HandleFunc("/ready", h.handleReady).Methods("GET")
 
-	// S3 API endpoints
-	s3Router := router.PathPrefix("/").Subrouter()
-	// bucketCORSMiddleware must run before s3ClientMiddleware so that OPTIONS
-	// preflight requests (which carry no auth headers) are handled before the
-	// redirect-to-console check fires.
-	s3Router.Use(h.bucketCORSMiddleware)
-	s3Router.Use(h.s3ClientMiddleware)
+	// S3 API endpoints (BucketCORSMiddleware + S3ClientMiddleware are applied in
+	// server.setupRoutes BEFORE auth so browsers are redirected to the console before
+	// JWT/Bearer checks reject the request with 401.)
 
 	// Service operations - root handler
 	// HEAD / is required: Veeam makes HEAD to the root before GET to detect whether
 	// the endpoint is a valid S3 service. A 404 on HEAD / causes Veeam to treat the
 	// storage as generic S3-compatible and activate multi-bucket mode.
-	s3Router.HandleFunc("/", h.handleRoot).Methods("GET", "HEAD")
+	router.HandleFunc("/", h.handleRoot).Methods("GET", "HEAD")
 
 	// Bucket operations (support both with and without trailing slash)
-	bucketRouter := s3Router.PathPrefix("/{bucket}").Subrouter()
+	bucketRouter := router.PathPrefix("/{bucket}").Subrouter()
 
 	// Bucket management - register both "" and "/" to handle trailing slash
 	// IMPORTANT: Register routes with query parameters FIRST, before generic routes
@@ -273,7 +271,7 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	objectRouter.HandleFunc("", h.s3Handler.PutObject).Methods("PUT")
 	objectRouter.HandleFunc("", h.s3Handler.DeleteObject).Methods("DELETE")
 
-	// OPTIONS for CORS preflight — bucketCORSMiddleware handles the response;
+	// OPTIONS for CORS preflight — BucketCORSMiddleware handles the response;
 	// these routes exist so gorilla/mux does not return 405 before middleware runs.
 	noop := func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }
 	for _, path := range []string{"", "/"} {
@@ -282,15 +280,70 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	objectRouter.HandleFunc("", noop).Methods("OPTIONS")
 }
 
-// s3ClientMiddleware redirects non-S3 client requests to the web console.
-func (h *Handler) s3ClientMiddleware(next http.Handler) http.Handler {
+// S3ClientMiddleware redirects non-S3 client requests to the web console.
+// Applied in server.setupRoutes before S3 auth so Authorization: Bearer (console JWT)
+// on the same host does not yield 401 before the redirect runs.
+func (h *Handler) S3ClientMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		if p == "/health" || p == "/ready" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if !h.isS3Client(r) {
-			http.Redirect(w, r, h.publicConsoleURL, http.StatusTemporaryRedirect)
+			loc := h.effectiveConsoleRedirectURL(r)
+			if strings.TrimSpace(loc) == "" {
+				logrus.Error("public_console_url is empty and console redirect URL could not be derived")
+				http.Error(w, "console URL not configured", http.StatusServiceUnavailable)
+				return
+			}
+			http.Redirect(w, r, loc, http.StatusTemporaryRedirect)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// effectiveConsoleRedirectURL builds the Location header for browser redirects.
+// When public_api_url and public_console_url share the same host and both point at
+// the API root (/), the SPA is typically mounted at /ui/ — append it if missing.
+func (h *Handler) effectiveConsoleRedirectURL(r *http.Request) string {
+	raw := strings.TrimSpace(h.publicConsoleURL)
+	if raw == "" {
+		return h.fallbackConsoleURLFromRequest(r)
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return raw
+	}
+	apiU, apiErr := url.Parse(strings.TrimSpace(h.publicAPIURL))
+	if apiErr != nil {
+		return raw
+	}
+	if u.Scheme == apiU.Scheme && u.Host == apiU.Host {
+		conPath := strings.TrimSuffix(u.Path, "/")
+		apiPath := strings.TrimSuffix(apiU.Path, "/")
+		if (conPath == "" || conPath == "/") && (apiPath == "" || apiPath == "/") {
+			return strings.TrimRight(raw, "/") + "/ui/"
+		}
+	}
+	return raw
+}
+
+func (h *Handler) fallbackConsoleURLFromRequest(r *http.Request) string {
+	proto := r.Header.Get("X-Forwarded-Proto")
+	if proto == "" {
+		if r.TLS != nil {
+			proto = "https"
+		} else {
+			proto = "http"
+		}
+	}
+	host := r.Host
+	if host == "" {
+		return ""
+	}
+	return proto + "://" + host + "/ui/"
 }
 
 // isS3Client detects whether the request is from an S3 client (CLI, SDK, GUI) vs browser/curl.
@@ -345,11 +398,11 @@ func isObjectPath(path string) bool {
 	return len(parts) >= 2
 }
 
-// bucketCORSMiddleware applies per-bucket CORS rules to S3 requests.
-// It must be registered before s3ClientMiddleware so that browser preflight
+// BucketCORSMiddleware applies per-bucket CORS rules to S3 requests.
+// It must be registered before S3ClientMiddleware so that browser preflight
 // OPTIONS requests (which have no auth headers) can be answered without being
 // redirected to the web console.
-func (h *Handler) bucketCORSMiddleware(next http.Handler) http.Handler {
+func (h *Handler) BucketCORSMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin == "" {
@@ -412,7 +465,7 @@ func (h *Handler) bucketCORSMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Max-Age", strconv.Itoa(*matched.MaxAgeSeconds))
 		}
 
-		// Respond to preflight immediately — don't pass to s3ClientMiddleware.
+		// Respond to preflight immediately — don't pass to S3ClientMiddleware.
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
@@ -475,7 +528,7 @@ func (h *Handler) SetInventoryManager(m *inventory.Manager) {
 	h.s3Handler.SetInventoryManager(m)
 }
 
-// handleRoot handles GET / and HEAD /. Non-S3 clients are redirected by s3ClientMiddleware.
+// handleRoot handles GET / and HEAD /. Non-S3 clients are redirected by S3ClientMiddleware.
 // Both GET and HEAD run ListBuckets so that HEAD / returns the same headers (including
 // Content-Length) as GET / but without the body. Veeam uses HEAD / to detect a valid S3
 // service endpoint and checks Content-Length to confirm the endpoint is functional.

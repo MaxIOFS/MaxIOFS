@@ -9,3 +9,14 @@ export function getBasePath(): string {
   }
   return '';
 }
+
+/** Whether the current location is the login route (works when the console is under a subpath, e.g. /ui). */
+export function isLoginPath(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const path = window.location.pathname.replace(/\/$/, '') || '/';
+  const base = getBasePath();
+  const login = base ? `${base}/login` : '/login';
+  return path === login;
+}

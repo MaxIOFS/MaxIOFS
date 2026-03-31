@@ -188,11 +188,9 @@ export function SidebarNav({
                   <button
                     title={label}
                     onClick={() => {
-                      if (item.children) {
-                        navigate(item.children[0].href);
-                      } else {
-                        navigate(item.href);
-                      }
+                      // Parent href is the canonical section root (e.g. /users), not children[0],
+                      // so we never navigate to the wrong subsection if child order or filters change.
+                      navigate(item.href);
                       onClose();
                     }}
                     className={cn(

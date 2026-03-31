@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import APIClient, { getActiveUploadCount } from '@/lib/api';
-import { getBasePath } from '@/lib/basePath';
+import { getBasePath, isLoginPath } from '@/lib/basePath';
 import type { User, LoginRequest, APIError } from '@/types';
 import { useIdleTimer } from './useIdleTimer';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -63,7 +63,7 @@ export function useAuthProvider(): AuthContextType {
   useEffect(() => {
     const initializeAuth = async () => {
       // Don't try to authenticate on login page
-      if (typeof window !== 'undefined' && window.location.pathname === '/login') {
+      if (typeof window !== 'undefined' && isLoginPath()) {
         setUser(null);
         setIsLoading(false);
         return;
@@ -86,7 +86,7 @@ export function useAuthProvider(): AuthContextType {
           setUser(null);
           setIsLoading(false);
           // Redirect to login if not already on login page
-          if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+          if (typeof window !== 'undefined' && !isLoginPath()) {
             setTimeout(() => {
               window.location.href = `${getBasePath()}/login`;
             }, 0);

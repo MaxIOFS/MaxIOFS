@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -274,9 +274,7 @@ export default function UsersPage() {
     );
   }
 
-  if (currentUser && !isAnyAdmin) {
-    return <Navigate to={`/users/${currentUser.id}`} replace />;
-  }
+  // Non-admins are redirected to /users/:id in App.tsx (UsersRoute) before this lazy page mounts.
 
   if (isLoading) {
     return (

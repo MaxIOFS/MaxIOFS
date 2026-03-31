@@ -992,6 +992,11 @@ func (s *Server) setupRoutes() error {
 	s3Router.Use(middleware.CORS())
 	s3Router.Use(middleware.Logging())
 	s3Router.Use(middleware.TracingMiddleware) // Add tracing for performance metrics
+	// Browser → console redirect must run BEFORE S3 JWT/SigV4 auth: otherwise the same
+	// host may send Authorization: Bearer from the web UI and auth rejects with 401
+	// before the redirect to public_console_url (e.g. /ui/) is ever sent.
+	s3Router.Use(apiHandler.BucketCORSMiddleware)
+	s3Router.Use(apiHandler.S3ClientMiddleware)
 	if s.config.Auth.EnableAuth {
 		s3Router.Use(s.authManager.Middleware())
 	}

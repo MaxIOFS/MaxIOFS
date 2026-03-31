@@ -6,6 +6,7 @@ import { ThemeProvider } from '@/contexts/ThemeContext';
 import { LanguageProvider } from '@/contexts/LanguageContext';
 import { getBasePath } from '@/lib/basePath';
 import { useAuth } from '@/hooks/useAuth';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { AppLayout } from '@/components/layout/AppLayout';
 
 // Extend Window interface to include BASE_PATH
@@ -117,6 +118,32 @@ function ProfileRedirect() {
   return <Navigate to={`/users/${user.id}`} replace />;
 }
 
+/**
+ * /users is the admin user list (heavy lazy chunk + shared Input chunk).
+ * Non-admins who open "Users" from the sidebar hit /users — same destination as
+ * "My profile" (/users/:id) but previously started that lazy load + <Navigate>,
+ * which raced dynamic imports and broke with "error loading dynamically imported module".
+ * Redirect before mounting the list chunk so behavior matches the top bar.
+ */
+function UsersRoute() {
+  const { isGlobalAdmin, isTenantAdmin, user, isLoading } = useCurrentUser();
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <svg className="animate-spin h-8 w-8 text-brand-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+        </svg>
+      </div>
+    );
+  }
+  const isAnyAdmin = isGlobalAdmin || isTenantAdmin;
+  if (user?.id && !isAnyAdmin) {
+    return <Navigate to={`/users/${user.id}`} replace />;
+  }
+  return <Users />;
+}
+
 function App() {
   const basePath = getBasePath();
   const basename = basePath === '' ? undefined : basePath;
@@ -188,17 +215,18 @@ function App() {
               element={
                 <ProtectedRoute>
                   <AppLayout>
-                    <Users />
+                    <UsersRoute />
                   </AppLayout>
                 </ProtectedRoute>
               }
             />
+            {/* Static /users/* paths must be registered before /users/:user so :user never matches "access-keys". */}
             <Route
-              path="/users/:user"
+              path="/users/access-keys"
               element={
                 <ProtectedRoute>
                   <AppLayout>
-                    <UserDetail />
+                    <AccessKeys />
                   </AppLayout>
                 </ProtectedRoute>
               }
@@ -224,11 +252,11 @@ function App() {
               }
             />
             <Route
-              path="/users/access-keys"
+              path="/users/:user"
               element={
                 <ProtectedRoute>
                   <AppLayout>
-                    <AccessKeys />
+                    <UserDetail />
                   </AppLayout>
                 </ProtectedRoute>
               }
