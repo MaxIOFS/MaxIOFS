@@ -175,6 +175,9 @@ func (m *MockBucketManagerForLocation) GetNotification(ctx context.Context, tena
 func (m *MockBucketManagerForLocation) SetNotification(ctx context.Context, tenantID, name string, config *bucket.NotificationConfig) error {
 	return nil
 }
+func (m *MockBucketManagerForLocation) DeleteNotification(ctx context.Context, tenantID, name string) error {
+	return nil
+}
 func (m *MockBucketManagerForLocation) GetObjectLockConfig(ctx context.Context, tenantID, name string) (*bucket.ObjectLockConfig, error) {
 	return nil, nil
 }

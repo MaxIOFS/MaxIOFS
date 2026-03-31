@@ -154,6 +154,9 @@ func (m *MockBucketManager) GetNotification(ctx context.Context, tenantID, name 
 func (m *MockBucketManager) SetNotification(ctx context.Context, tenantID, name string, config *bucket.NotificationConfig) error {
 	return nil
 }
+func (m *MockBucketManager) DeleteNotification(ctx context.Context, tenantID, name string) error {
+	return nil
+}
 
 func (m *MockBucketManager) SetBucketTags(ctx context.Context, tenantID, name string, tags map[string]string) error {
 	args := m.Called(ctx, tenantID, name, tags)

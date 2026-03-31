@@ -84,14 +84,10 @@ the list route to ensure correct gorilla/mux matching.
 
 ### 🟢 Low Priority — Stub Completeness
 
-Decide later whether to implement fully or leave as documented stubs:
-
-- **Bucket Notifications** (`?notification`) — currently stores config but does not deliver events to
-  SQS/SNS/Lambda. Decide: implement real webhook delivery or document as config-only.
-- **Bucket Logging** (`?logging`) — stores config but does not write S3 access logs to a target bucket.
-  Decide: implement real log delivery or document as config-only.
-- **Transfer Acceleration** (`?accelerate`) — stores config, no actual acceleration. Document as no-op.
-- **GetObjectTorrent** (`GET /{bucket}/{object}?torrent`) — BitTorrent manifests. Extremely rare. Stub returning `NotImplemented`.
+- ~~**Bucket Notifications** (`?notification`)~~ ✅ Done — real webhook delivery implemented.
+- ~~**Bucket Logging** (`?logging`)~~ ✅ Done — real log delivery to target bucket implemented.
+- ~~**Transfer Acceleration** (`?accelerate`)~~ ✅ Closed as no-op — GET returns empty `<AccelerateConfiguration/>`, PUT accepts and discards config. Meaningless for self-hosted deployments with no CDN edge nodes. Clients that configure it see no difference in behavior.
+- ~~**GetObjectTorrent** (`GET /{bucket}/{object}?torrent`)~~ ✅ Closed as not implemented — returns `501 NotImplemented`. BitTorrent manifests have no practical use case in self-hosted object storage.
 
 ---
 
@@ -107,6 +103,10 @@ Decide later whether to implement fully or leave as documented stubs:
 - [x] S3 `OwnershipControls` — `GET/PUT/DELETE /{bucket}?ownershipControls` with `BucketOwnerEnforced` default
 - [x] S3 `SelectObjectContent` — `POST /{bucket}/{object}?select` with SQLite in-memory SQL engine, event-stream protocol
 - [x] S3 `BucketInventory` — `GET/PUT/DELETE /{bucket}?inventory&id=` + `GET /{bucket}?inventory`, full S3 XML wire format, multiple configs per bucket
+- [x] S3 `BucketNotifications` — `GET/PUT/DELETE /{bucket}?notification` with real async webhook delivery, event filtering (prefix/suffix), SSRF protection
+- [x] S3 `BucketLogging` — `GET/PUT /{bucket}?logging` with real async log delivery to target bucket in AWS S3 access log format, 100-entry/5-min flush
+- [x] S3 `Transfer Acceleration` — closed as documented no-op (GET/PUT return 200, no actual acceleration)
+- [x] S3 `GetObjectTorrent` — closed as `501 NotImplemented`
 
 ---
 

@@ -81,6 +81,7 @@ type Server struct {
 	lifecycleWorker         *lifecycle.Worker
 	inventoryManager        *inventory.Manager
 	inventoryWorker         *inventory.Worker
+	accessLogger            *BucketAccessLogger
 	idpManager              *idpkg.Manager
 	startTime               time.Time // Server start time for uptime calculation
 	version                 string    // Server version
@@ -724,6 +725,11 @@ func (s *Server) shutdown() error {
 		s.inventoryWorker.Stop()
 	}
 
+	// Flush and stop S3 access logger
+	if s.accessLogger != nil {
+		s.accessLogger.Stop()
+	}
+
 	// Stop replication manager
 	if s.replicationManager != nil {
 		s.replicationManager.Stop()
@@ -973,6 +979,9 @@ func (s *Server) setupRoutes() error {
 		apiHandler.SetInventoryManager(s.inventoryManager)
 	}
 
+	// Start S3 access logger (delivers requests to configured target buckets)
+	s.accessLogger = NewBucketAccessLogger(s.bucketManager, s.objectManager)
+
 	// Apply middleware only to S3 subrouter (not to /metrics)
 	// Log every S3 request at Info (logrus) first so "first probe" (e.g. VEEAM capabilities) is visible
 	s3Router.Use(middleware.S3RequestLog)
@@ -1014,6 +1023,9 @@ func (s *Server) setupRoutes() error {
 		enabled, _ := s.settingsManager.GetBool("system.maintenance_mode")
 		return enabled
 	}))
+
+	// S3 access logging: capture every request after auth so the user is in context.
+	s3Router.Use(s.s3AccessLoggingMiddleware())
 
 	// Register API routes on the authenticated subrouter
 	apiHandler.RegisterRoutes(s3Router)

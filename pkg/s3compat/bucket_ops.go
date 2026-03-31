@@ -933,6 +933,27 @@ func (h *Handler) PutBucketNotification(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusOK)
 }
 
+// DeleteBucketNotification clears all notification configurations from a bucket.
+// AWS S3 does not expose this as a separate API operation (clearing is done via
+// PUT with an empty NotificationConfiguration), but Terraform and some SDKs send
+// DELETE /?notification, so we support it for compatibility.
+func (h *Handler) DeleteBucketNotification(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	tenantID := h.getTenantIDFromRequest(r)
+
+	if err := h.bucketManager.DeleteNotification(r.Context(), tenantID, bucketName); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // websiteXML holds the S3-compatible XML structures for website configuration.
 type websiteIndexDocument struct {
 	Suffix string `xml:"Suffix"`

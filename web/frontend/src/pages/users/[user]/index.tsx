@@ -72,17 +72,26 @@ export default function UserDetailsPage() {
   const [disabling2FA, setDisabling2FA] = useState(false);
   const queryClient = useQueryClient();
 
+  // Fetch current user to check if they're an admin
+  const { data: currentUser } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: APIClient.getCurrentUser,
+  });
+
+  // Check if user is editing their own profile
+  const isEditingSelf = currentUser?.id === userId;
+
   // Fetch user data
   const { data: userData, isLoading: userLoading } = useQuery({
-    queryKey: ['user', userId],
-    queryFn: () => APIClient.getUser(userId),
+    queryKey: ['user', userId, isEditingSelf ? 'self' : 'admin'],
+    queryFn: () => (isEditingSelf ? APIClient.getCurrentUser() : APIClient.getUser(userId)),
     enabled: !!userId, // Only fetch when userId is available
   });
 
   // Fetch access keys
   const { data: accessKeys, isLoading: keysLoading } = useQuery({
-    queryKey: ['accessKeys', userId],
-    queryFn: () => APIClient.getUserAccessKeys(userId),
+    queryKey: ['accessKeys', userId, isEditingSelf ? 'self' : 'admin'],
+    queryFn: () => (isEditingSelf ? APIClient.getAccessKeys() : APIClient.getUserAccessKeys(userId)),
     enabled: !!userId, // Only fetch when userId is available
   });
 
@@ -90,12 +99,6 @@ export default function UserDetailsPage() {
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
     queryFn: APIClient.getTenants,
-  });
-
-  // Fetch current user to check if they're an admin
-  const { data: currentUser } = useQuery({
-    queryKey: ['currentUser'],
-    queryFn: APIClient.getCurrentUser,
   });
 
   // Fetch all users from the same tenant to check if this is the last admin (admins only)
@@ -249,9 +252,6 @@ export default function UserDetailsPage() {
       });
     }
   }, [userData]);
-
-  // Check if user is editing their own profile
-  const isEditingSelf = currentUser?.id === userId;
 
   // Check if this is the last admin in the tenant
   const isLastAdminInTenant = () => {

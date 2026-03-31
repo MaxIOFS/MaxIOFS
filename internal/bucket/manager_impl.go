@@ -733,6 +733,11 @@ func (bm *badgerBucketManager) GetNotification(ctx context.Context, tenantID, na
 	return fromMetadataNotification(metaBucket.Notification), nil
 }
 
+// DeleteNotification clears the bucket notification configuration.
+func (bm *badgerBucketManager) DeleteNotification(ctx context.Context, tenantID, name string) error {
+	return bm.SetNotification(ctx, tenantID, name, &NotificationConfig{})
+}
+
 // SetNotification stores the bucket notification configuration.
 func (bm *badgerBucketManager) SetNotification(ctx context.Context, tenantID, name string, config *NotificationConfig) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)

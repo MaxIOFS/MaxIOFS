@@ -153,6 +153,7 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 		// Bucket notification
 		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketNotification).Methods("GET").Queries("notification", "")
 		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketNotification).Methods("PUT").Queries("notification", "")
+		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketNotification).Methods("DELETE").Queries("notification", "")
 
 		// Bucket website
 		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketWebsite).Methods("GET").Queries("website", "")
@@ -237,6 +238,9 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 
 	// S3 Select
 	objectRouter.HandleFunc("", h.s3Handler.SelectObjectContent).Methods("POST").Queries("select", "")
+
+	// GetObjectTorrent — BitTorrent manifests. Not implemented; returns NotImplemented.
+	objectRouter.HandleFunc("", h.s3Handler.GetObjectTorrent).Methods("GET").Queries("torrent", "")
 
 	// Object Lock operations (with query parameters)
 	objectRouter.HandleFunc("", h.s3Handler.GetObjectRetention).Methods("GET").Queries("retention", "")

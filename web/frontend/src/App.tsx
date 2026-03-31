@@ -111,6 +111,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <ErrorBoundary>{children}</ErrorBoundary>;
 }
 
+function ProfileRedirect() {
+  const { user } = useAuth();
+  if (!user?.id) return <Navigate to="/" replace />;
+  return <Navigate to={`/users/${user.id}`} replace />;
+}
+
 function App() {
   const basePath = getBasePath();
   const basename = basePath === '' ? undefined : basePath;
@@ -203,6 +209,16 @@ function App() {
                 <ProtectedRoute>
                   <AppLayout>
                     <UserDetail />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <ProfileRedirect />
                   </AppLayout>
                 </ProtectedRoute>
               }

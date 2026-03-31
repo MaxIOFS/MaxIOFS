@@ -3662,3 +3662,10 @@ func (h *Handler) RestoreObject(w http.ResponseWriter, r *http.Request) {
 	_ = tenantID // used for future per-tenant restore quota tracking
 	w.WriteHeader(http.StatusOK)
 }
+
+// GetObjectTorrent handles GET /{bucket}/{object}?torrent.
+// BitTorrent manifests are not implemented. Returns 501 NotImplemented.
+func (h *Handler) GetObjectTorrent(w http.ResponseWriter, r *http.Request) {
+	objectKey := getObjectKey(r)
+	h.writeError(w, "NotImplemented", "GetObjectTorrent is not supported", objectKey, r)
+}

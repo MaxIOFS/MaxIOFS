@@ -3,10 +3,13 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
@@ -163,4 +166,163 @@ func (l *BucketAccessLogger) flushEntries(entries []AccessLogEntry) {
 			}).Warn("BucketAccessLogger: failed to write access log object")
 		}
 	}
+}
+
+// ============================================================================
+// S3 Access Logging Middleware
+// ============================================================================
+
+// captureResponseWriter wraps http.ResponseWriter to capture status code and
+// bytes written so the access logger can record them without interfering with
+// the normal response path. It forwards Flush() so streaming handlers work.
+type captureResponseWriter struct {
+	http.ResponseWriter
+	statusCode  int
+	bytes       int64
+	wroteHeader bool
+}
+
+func (c *captureResponseWriter) WriteHeader(code int) {
+	if !c.wroteHeader {
+		c.statusCode = code
+		c.wroteHeader = true
+		c.ResponseWriter.WriteHeader(code)
+	}
+}
+
+func (c *captureResponseWriter) Write(b []byte) (int, error) {
+	if !c.wroteHeader {
+		c.statusCode = http.StatusOK
+		c.wroteHeader = true
+	}
+	n, err := c.ResponseWriter.Write(b)
+	c.bytes += int64(n)
+	return n, err
+}
+
+func (c *captureResponseWriter) Flush() {
+	if f, ok := c.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// s3AccessLoggingMiddleware returns a gorilla/mux middleware that logs every
+// S3 API request to the bucket's configured access-log target (if any).
+// It must be registered after the auth middleware so the user is in context.
+func (s *Server) s3AccessLoggingMiddleware() mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			crw := &captureResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+			start := time.Now()
+			next.ServeHTTP(crw, r)
+
+			// Extract bucket from the first path segment.
+			p := strings.TrimPrefix(r.URL.Path, "/")
+			if p == "" || p == "health" || p == "ready" {
+				return
+			}
+			parts := strings.SplitN(p, "/", 2)
+			bucketName := parts[0]
+			if bucketName == "" {
+				return
+			}
+			var objectKey string
+			if len(parts) > 1 {
+				objectKey = parts[1]
+			}
+
+			// Auth info from context (available only after auth middleware ran).
+			tenantID := ""
+			requester := "-"
+			if user, ok := auth.GetUserFromContext(r.Context()); ok {
+				requester = user.Username
+				tenantID = user.TenantID
+			}
+
+			// Remote IP (strip port).
+			remoteIP := r.RemoteAddr
+			if ip, _, err := net.SplitHostPort(remoteIP); err == nil {
+				remoteIP = ip
+			}
+
+			requestID := w.Header().Get("x-amz-request-id")
+
+			s.accessLogger.Log(AccessLogEntry{
+				Timestamp:  start,
+				BucketName: bucketName,
+				TenantID:   tenantID,
+				ObjectKey:  objectKey,
+				Operation:  inferS3Operation(r, objectKey != ""),
+				RemoteIP:   remoteIP,
+				UserAgent:  r.UserAgent(),
+				Requester:  requester,
+				RequestID:  requestID,
+				HTTPStatus: crw.statusCode,
+				BytesSent:  crw.bytes,
+			})
+		})
+	}
+}
+
+// inferS3Operation maps an HTTP method + query string to an AWS S3 access log
+// operation name (e.g. REST.GET.OBJECT, REST.PUT.BUCKET).
+func inferS3Operation(r *http.Request, isObject bool) string {
+	method := r.Method
+	q := r.URL.RawQuery
+
+	if isObject {
+		switch method {
+		case http.MethodGet:
+			if strings.Contains(q, "select") {
+				return "REST.SELECT.OBJECT"
+			}
+			return "REST.GET.OBJECT"
+		case http.MethodHead:
+			return "REST.HEAD.OBJECT"
+		case http.MethodPut:
+			if strings.Contains(q, "uploadId") {
+				return "REST.PUT.PART"
+			}
+			if r.Header.Get("x-amz-copy-source") != "" {
+				return "REST.COPY.OBJECT"
+			}
+			return "REST.PUT.OBJECT"
+		case http.MethodDelete:
+			return "REST.DELETE.OBJECT"
+		case http.MethodPost:
+			if strings.Contains(q, "restore") {
+				return "REST.POST.OBJECT.RESTORE"
+			}
+			if strings.Contains(q, "uploads") {
+				return "REST.INIT.UPLOAD"
+			}
+			if strings.Contains(q, "uploadId") {
+				return "REST.COMPLETE.UPLOAD"
+			}
+			return "REST.POST.OBJECT"
+		}
+	} else {
+		switch method {
+		case http.MethodGet:
+			if strings.Contains(q, "uploads") {
+				return "REST.GET.BUCKET.LISTMULTIPARTUPLOADS"
+			}
+			if strings.Contains(q, "versions") {
+				return "REST.GET.BUCKET.VERSIONS"
+			}
+			return "REST.GET.BUCKET"
+		case http.MethodHead:
+			return "REST.HEAD.BUCKET"
+		case http.MethodPut:
+			return "REST.PUT.BUCKET"
+		case http.MethodDelete:
+			return "REST.DELETE.BUCKET"
+		case http.MethodPost:
+			if strings.Contains(q, "delete") {
+				return "REST.POST.BUCKET.DELETE"
+			}
+			return "REST.POST.BUCKET"
+		}
+	}
+	return method
 }

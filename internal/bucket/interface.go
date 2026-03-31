@@ -93,6 +93,7 @@ type Manager interface {
 	// Bucket notifications
 	GetNotification(ctx context.Context, tenantID, name string) (*NotificationConfig, error)
 	SetNotification(ctx context.Context, tenantID, name string, config *NotificationConfig) error
+	DeleteNotification(ctx context.Context, tenantID, name string) error
 
 	// Bucket Tagging
 	SetBucketTags(ctx context.Context, tenantID, name string, tags map[string]string) error
