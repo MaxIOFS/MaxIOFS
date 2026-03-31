@@ -63,6 +63,34 @@ type spaHandler struct {
 	basePath   string // Base path for the frontend (e.g., "/ui" or "/")
 }
 
+func setNoStoreHeaders(w http.ResponseWriter) {
+	// Never cache SPA HTML entry points; this prevents stale chunk manifests.
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+}
+
+func setImmutableAssetHeaders(w http.ResponseWriter) {
+	// Vite emits content-hashed assets; safe to cache aggressively.
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+}
+
+func isImmutableAsset(filePath string) bool {
+	if !strings.HasPrefix(filePath, "assets/") {
+		return false
+	}
+
+	return strings.HasSuffix(filePath, ".js") ||
+		strings.HasSuffix(filePath, ".css") ||
+		strings.HasSuffix(filePath, ".png") ||
+		strings.HasSuffix(filePath, ".jpg") ||
+		strings.HasSuffix(filePath, ".jpeg") ||
+		strings.HasSuffix(filePath, ".svg") ||
+		strings.HasSuffix(filePath, ".webp") ||
+		strings.HasSuffix(filePath, ".woff") ||
+		strings.HasSuffix(filePath, ".woff2")
+}
+
 // ServeHTTP serves the SPA with fallback to index.html for client-side routing
 func (h *spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	urlPath := r.URL.Path
@@ -97,12 +125,16 @@ func (h *spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		stat, _ := file.Stat()
 
 		if filePath == "index.html" {
+			setNoStoreHeaders(w)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Write(h.indexBytes)
 			return
 		}
 
 		if !stat.IsDir() {
+			if isImmutableAsset(filePath) {
+				setImmutableAssetHeaders(w)
+			}
 			http.ServeContent(w, r, filePath, stat.ModTime(), file.(io.ReadSeeker))
 			return
 		}
@@ -116,6 +148,7 @@ func (h *spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// For SPA routes, serve index.html
+	setNoStoreHeaders(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(h.indexBytes)
 }
