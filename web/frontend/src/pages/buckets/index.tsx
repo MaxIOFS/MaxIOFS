@@ -713,14 +713,29 @@ export default function BucketsPage() {
                               <Settings className="h-4 w-4" />
                             </button>
 
-                            <button
-                              onClick={() => handleDeleteBucket(bucket.name)}
-                              disabled={deleteBucketMutation.isPending}
-                              className="p-2 text-muted-foreground hover:text-error-600 dark:hover:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/20 rounded-lg transition-all duration-200 disabled:opacity-50"
-                              title={t('delete')}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+                            {(() => {
+                              const isObjectLockBucket = bucket.objectLock?.objectLockEnabled;
+                              const isOwner = bucket.ownerType === 'user' && bucket.ownerId === user?.id;
+                              const canDelete = isGlobalAdmin || isOwner || (isAnyAdmin && bucket.ownerType !== 'user');
+                              const lockedBlock = isObjectLockBucket && !isGlobalAdmin;
+                              const permBlock   = !canDelete;
+                              const deleteDisabled = deleteBucketMutation.isPending || lockedBlock || permBlock;
+                              const deleteTitle = lockedBlock
+                                ? t('deleteBlockedObjectLock', 'Cannot delete: bucket has Object Lock enabled')
+                                : permBlock
+                                  ? t('deleteBlockedPermission', 'You do not have permission to delete this bucket')
+                                  : t('delete');
+                              return (
+                                <button
+                                  onClick={() => handleDeleteBucket(bucket.name)}
+                                  disabled={deleteDisabled}
+                                  className="p-2 text-muted-foreground hover:text-error-600 dark:hover:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/20 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title={deleteTitle}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              );
+                            })()}
                           </div>
                         </TableCell>
 

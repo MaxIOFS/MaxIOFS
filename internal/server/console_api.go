@@ -1356,9 +1356,9 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		}
 		bucketInfo.IsPublic = req.IsPublic
 	} else {
-		// Usuario global sin tenant - bucket global
-		bucketInfo.OwnerID = ""
-		bucketInfo.OwnerType = ""
+		// Global user without tenant — assign as owner so they can see their own bucket.
+		bucketInfo.OwnerID = user.ID
+		bucketInfo.OwnerType = "user"
 		bucketInfo.IsPublic = req.IsPublic
 	}
 
@@ -1588,6 +1588,13 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 		} else {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 		}
+		return
+	}
+
+	// Object Lock protection: buckets with Object Lock enabled can only be deleted by global admins.
+	// This matches AWS S3 behavior where Object Lock buckets require special handling.
+	if bucketInfo.ObjectLock != nil && bucketInfo.ObjectLock.ObjectLockEnabled && !isGlobalAdmin {
+		s.writeError(w, "Cannot delete a bucket with Object Lock enabled. Contact an administrator.", http.StatusForbidden)
 		return
 	}
 

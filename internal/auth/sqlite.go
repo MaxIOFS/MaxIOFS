@@ -809,6 +809,7 @@ func (s *SQLiteStore) GetUserWith2FA(ctx context.Context, userID string) (*User,
 	`
 
 	var user User
+	var tenantID sql.NullString
 	var rolesJSON, policiesJSON, metadataJSON, backupCodesJSON, backupCodesUsedJSON sql.NullString
 	var twoFactorSecret sql.NullString
 	var twoFactorSetupAt sql.NullInt64
@@ -819,7 +820,7 @@ func (s *SQLiteStore) GetUserWith2FA(ctx context.Context, userID string) (*User,
 		&user.DisplayName,
 		&user.Email,
 		&user.Status,
-		&user.TenantID,
+		&tenantID,
 		&rolesJSON,
 		&policiesJSON,
 		&metadataJSON,
@@ -837,6 +838,10 @@ func (s *SQLiteStore) GetUserWith2FA(ctx context.Context, userID string) (*User,
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if tenantID.Valid {
+		user.TenantID = tenantID.String
 	}
 
 	// Parse JSON fields
