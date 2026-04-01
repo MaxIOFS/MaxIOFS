@@ -78,6 +78,11 @@ type Store interface {
 	// ListAllObjectVersions lists all versions of all objects in a bucket (for versioning support)
 	ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*ObjectVersion, error)
 
+	// HasActiveComplianceRetention returns true if any object or version in the bucket
+	// has COMPLIANCE-mode retention that has not yet expired, or has a legal hold applied.
+	// This is used to prevent bucket deletion when immutable data is present.
+	HasActiveComplianceRetention(ctx context.Context, bucket string) (bool, error)
+
 	// DeleteObjectVersion deletes a specific version of an object
 	DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error
 

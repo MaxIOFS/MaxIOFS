@@ -1591,11 +1591,31 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Object Lock protection: buckets with Object Lock enabled can only be deleted by global admins.
-	// This matches AWS S3 behavior where Object Lock buckets require special handling.
+	// Object Lock protection: non-global-admins can never delete Object Lock buckets.
 	if bucketInfo.ObjectLock != nil && bucketInfo.ObjectLock.ObjectLockEnabled && !isGlobalAdmin {
 		s.writeError(w, "Cannot delete a bucket with Object Lock enabled. Contact an administrator.", http.StatusForbidden)
 		return
+	}
+
+	// COMPLIANCE / legal-hold protection: even global admins and force-delete cannot
+	// bypass active COMPLIANCE retention or legal holds — this is the WORM guarantee.
+	if bucketInfo.ObjectLock != nil && bucketInfo.ObjectLock.ObjectLockEnabled {
+		bucketPath := bucketName
+		if tenantID != "" {
+			bucketPath = tenantID + "/" + bucketName
+		}
+		hasCompliance, err := s.objectManager.HasActiveComplianceRetention(r.Context(), bucketPath)
+		if err != nil {
+			s.writeError(w, "Failed to check Object Lock retention status: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if hasCompliance {
+			s.writeError(w,
+				"Cannot delete bucket: one or more objects are protected by active COMPLIANCE retention or legal hold. "+
+					"COMPLIANCE retention cannot be overridden by any user. Wait until all retention periods expire before deleting this bucket.",
+				http.StatusConflict)
+			return
+		}
 	}
 
 	// Use force delete if requested and user is global admin

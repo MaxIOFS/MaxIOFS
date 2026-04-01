@@ -199,7 +199,15 @@ export default function BucketsPage() {
     onError: async (err: any, variables) => {
       ModalManager.close();
       const msg = err?.response?.data?.error || err?.message || String(err);
-      if (msg.includes('not empty')) {
+      if (msg.toLowerCase().includes('compliance') || msg.toLowerCase().includes('legal hold')) {
+        // COMPLIANCE retention cannot be bypassed — show a clear, non-dismissible error.
+        ModalManager.fire({
+          title: t('deleteBlockedComplianceTitle', 'Deletion Blocked — COMPLIANCE Retention'),
+          text: msg,
+          icon: 'error',
+          confirmButtonText: t('close'),
+        });
+      } else if (msg.includes('not empty')) {
         const result = await ModalManager.fire({
           title: t('bucketNotEmpty'),
           text: t('bucketNotEmptyMessage', { name: variables.bucketName }),
@@ -511,21 +519,21 @@ export default function BucketsPage() {
 
         {/* ── Stats Cards ── */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-          <MetricCard
+          <MetricCard compact
             title={t('totalBuckets')}
             value={sortedBuckets.length}
             icon={Box}
             description={t('activeStorageContainers')}
             color="brand"
           />
-          <MetricCard
+          <MetricCard compact
             title={t('totalObjects')}
             value={sortedBuckets.reduce((s, b) => s + (b.object_count || b.objectCount || 0), 0).toLocaleString()}
             icon={HardDrive}
             description={t('storedAcrossAllBuckets')}
             color="blue-light"
           />
-          <MetricCard
+          <MetricCard compact
             title={t('totalSize')}
             value={formatSize(sortedBuckets.reduce((s, b) => s + (b.size || b.totalSize || 0), 0))}
             icon={HardDrive}
@@ -717,11 +725,13 @@ export default function BucketsPage() {
                               const isObjectLockBucket = bucket.objectLock?.objectLockEnabled;
                               const isOwner = bucket.ownerType === 'user' && bucket.ownerId === user?.id;
                               const canDelete = isGlobalAdmin || isOwner || (isAnyAdmin && bucket.ownerType !== 'user');
-                              const lockedBlock = isObjectLockBucket && !isGlobalAdmin;
+                              // Object Lock buckets are blocked for ALL users — COMPLIANCE retention
+                              // cannot be bypassed by anyone, not even global admins.
+                              const lockedBlock = !!isObjectLockBucket;
                               const permBlock   = !canDelete;
                               const deleteDisabled = deleteBucketMutation.isPending || lockedBlock || permBlock;
                               const deleteTitle = lockedBlock
-                                ? t('deleteBlockedObjectLock', 'Cannot delete: bucket has Object Lock enabled')
+                                ? t('deleteBlockedObjectLock', 'Cannot delete: bucket has Object Lock (WORM) enabled. Remove all objects and ensure no active retention periods exist before attempting deletion via the S3 API.')
                                 : permBlock
                                   ? t('deleteBlockedPermission', 'You do not have permission to delete this bucket')
                                   : t('delete');

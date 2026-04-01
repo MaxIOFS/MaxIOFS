@@ -76,6 +76,11 @@ type Manager interface {
 	VerifyObjectIntegrity(ctx context.Context, bucket, key string) (*IntegrityResult, error)
 	VerifyBucketIntegrity(ctx context.Context, bucket, prefix, marker string, maxKeys int) (*BucketIntegrityReport, error)
 
+	// Object Lock compliance check
+	// HasActiveComplianceRetention returns true if any object or version in the bucket
+	// has COMPLIANCE-mode retention that has not yet expired, or has a legal hold applied.
+	HasActiveComplianceRetention(ctx context.Context, bucket string) (bool, error)
+
 	// Health check
 	IsReady() bool
 }
@@ -1976,6 +1981,13 @@ func (om *objectManager) ListMultipartUploads(ctx context.Context, bucket string
 func (om *objectManager) IsReady() bool {
 	// TODO: Implement readiness check
 	return true
+}
+
+// HasActiveComplianceRetention returns true if any object or version in the bucket
+// has COMPLIANCE-mode retention that has not yet expired, or has a legal hold applied.
+// This is used to block bucket deletion when immutable data is present.
+func (om *objectManager) HasActiveComplianceRetention(ctx context.Context, bucket string) (bool, error) {
+	return om.metadataStore.HasActiveComplianceRetention(ctx, bucket)
 }
 
 // Helper methods

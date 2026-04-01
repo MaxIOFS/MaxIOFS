@@ -207,7 +207,7 @@ export default function TenantsPage() {
 
       {/* Statistics Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-        <MetricCard
+        <MetricCard compact
           title={t('totalTenants')}
           value={tenants?.length || 0}
           icon={Building2}
@@ -215,7 +215,7 @@ export default function TenantsPage() {
           color="brand"
         />
 
-        <MetricCard
+        <MetricCard compact
           title={t('activeTenants')}
           value={tenants?.filter((ten: Tenant) => ten.status === 'active').length || 0}
           icon={CheckCircle}
@@ -223,7 +223,7 @@ export default function TenantsPage() {
           color="success"
         />
 
-        <MetricCard
+        <MetricCard compact
           title={t('totalStorage')}
           value={formatBytes(tenants?.reduce((acc: number, ten: Tenant) => acc + (ten.currentStorageBytes || 0), 0) || 0)}
           icon={HardDrive}
@@ -231,7 +231,7 @@ export default function TenantsPage() {
           color="warning"
         />
 
-        <MetricCard
+        <MetricCard compact
           title={t('totalBuckets')}
           value={tenants?.reduce((acc: number, ten: Tenant) => acc + (ten.currentBuckets || 0), 0) || 0}
           icon={Box}

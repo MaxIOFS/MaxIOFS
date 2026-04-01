@@ -145,12 +145,27 @@ class TokenManager {
   }
 
   getRefreshToken(): string | null {
-    return this.refreshToken;
+    if (this.refreshToken) return this.refreshToken;
+    // Fallback: re-sync from localStorage in case in-memory was not set
+    // (e.g. after a setTokens call with a missing refresh_token argument).
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('refresh_token');
+      if (stored) {
+        this.refreshToken = stored;
+        return stored;
+      }
+    }
+    return null;
   }
 
   setTokens(token: string, refreshToken?: string): void {
     this.token = token;
-    this.refreshToken = refreshToken || null;
+    // Only update the refresh token if a new one is explicitly provided.
+    // Never clear it to null just because the caller omitted the argument —
+    // that would silently break all future refresh attempts.
+    if (refreshToken) {
+      this.refreshToken = refreshToken;
+    }
 
     if (typeof window !== 'undefined') {
       localStorage.setItem('auth_token', token);
@@ -312,17 +327,16 @@ const handleResponse = (response: AxiosResponse): AxiosResponse => {
         pendingRefreshCallbacks.forEach(cb => cb(access_token));
         pendingRefreshCallbacks = [];
       }
-    }).catch((err: unknown) => {
-      // If requests were queued waiting on this background refresh, release them
-      // so they don't hang forever. Pass empty token so they fail with 401 and
-      // the 401 handler takes over (retry + logout if needed).
+    }).catch((_err: unknown) => {
+      // Release any requests queued while this background refresh was in flight
+      // so they don't hang forever. Pass an empty token — they'll get 401 and
+      // the per-request error interceptor will handle retry / logout properly.
+      // Do NOT call doLogout() here: this is a best-effort background refresh.
+      // If the refresh token is genuinely expired, the next real API call's 401
+      // interceptor will detect it and trigger the proper logout flow.
       if (pendingRefreshCallbacks.length > 0) {
         pendingRefreshCallbacks.forEach(cb => cb(''));
         pendingRefreshCallbacks = [];
-      }
-      const status = (err as any)?.response?.status;
-      if (status === 401 || status === 403) {
-        doLogout();
       }
     }).finally(() => {
       isRefreshing = false;

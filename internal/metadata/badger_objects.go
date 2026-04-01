@@ -516,6 +516,62 @@ func (s *BadgerStore) ListAllObjectVersions(ctx context.Context, bucket, prefix 
 	return allVersions, nil
 }
 
+// HasActiveComplianceRetention returns true if any object or version in the bucket
+// has COMPLIANCE-mode retention that has not yet expired, or has a legal hold applied.
+func (s *BadgerStore) HasActiveComplianceRetention(ctx context.Context, bucket string) (bool, error) {
+	now := time.Now()
+	found := false
+
+	err := s.db.View(func(txn *badger.Txn) error {
+		// Check versioned objects
+		opts := badger.DefaultIteratorOptions
+		opts.Prefix = []byte(fmt.Sprintf("version:%s:", bucket))
+		it := txn.NewIterator(opts)
+		defer it.Close()
+		for it.Rewind(); it.Valid(); it.Next() {
+			item := it.Item()
+			var obj ObjectMetadata
+			if e := item.Value(func(val []byte) error { return json.Unmarshal(val, &obj) }); e != nil {
+				continue
+			}
+			if obj.LegalHold {
+				found = true
+				return nil
+			}
+			if obj.Retention != nil && obj.Retention.Mode == "COMPLIANCE" && obj.Retention.RetainUntilDate.After(now) {
+				found = true
+				return nil
+			}
+		}
+
+		// Check current-version objects
+		opts2 := badger.DefaultIteratorOptions
+		opts2.Prefix = []byte(fmt.Sprintf("obj:%s:", bucket))
+		it2 := txn.NewIterator(opts2)
+		defer it2.Close()
+		for it2.Rewind(); it2.Valid(); it2.Next() {
+			item := it2.Item()
+			var obj ObjectMetadata
+			if e := item.Value(func(val []byte) error { return json.Unmarshal(val, &obj) }); e != nil {
+				continue
+			}
+			if obj.LegalHold {
+				found = true
+				return nil
+			}
+			if obj.Retention != nil && obj.Retention.Mode == "COMPLIANCE" && obj.Retention.RetainUntilDate.After(now) {
+				found = true
+				return nil
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return found, nil
+}
+
 // DeleteObjectVersion deletes a specific version of an object
 func (s *BadgerStore) DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error {
 	versionKey := objectVersionKey(bucket, key, versionID)

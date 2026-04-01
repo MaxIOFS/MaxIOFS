@@ -471,6 +471,75 @@ func (s *PebbleStore) ListAllObjectVersions(ctx context.Context, bucket, prefix 
 	return allVersions, nil
 }
 
+// HasActiveComplianceRetention returns true if any object or version in the bucket
+// has COMPLIANCE-mode retention that has not yet expired, or has a legal hold applied.
+func (s *PebbleStore) HasActiveComplianceRetention(ctx context.Context, bucket string) (bool, error) {
+	now := time.Now()
+
+	// Check versioned objects (stored under "version:{bucket}:..." keys, full ObjectMetadata JSON)
+	versionPrefix := []byte(fmt.Sprintf("version:%s:", bucket))
+	vIter, err := s.pebbleIter(versionPrefix)
+	if err != nil {
+		return false, err
+	}
+	found := false
+	for vIter.First(); vIter.Valid(); vIter.Next() {
+		val := vIter.Value()
+		valCopy := make([]byte, len(val))
+		copy(valCopy, val)
+		var obj ObjectMetadata
+		if jsonErr := json.Unmarshal(valCopy, &obj); jsonErr != nil {
+			continue
+		}
+		if obj.LegalHold {
+			found = true
+			break
+		}
+		if obj.Retention != nil && obj.Retention.Mode == "COMPLIANCE" && obj.Retention.RetainUntilDate.After(now) {
+			found = true
+			break
+		}
+	}
+	vIterErr := vIter.Error()
+	_ = vIter.Close()
+	if vIterErr != nil {
+		return false, fmt.Errorf("failed iterating versions: %w", vIterErr)
+	}
+	if found {
+		return true, nil
+	}
+
+	// Check current-version (non-versioned) objects (stored under "obj:{bucket}:..." keys)
+	objectPrefix := []byte(fmt.Sprintf("obj:%s:", bucket))
+	oIter, err := s.pebbleIter(objectPrefix)
+	if err != nil {
+		return false, err
+	}
+	for oIter.First(); oIter.Valid(); oIter.Next() {
+		val := oIter.Value()
+		valCopy := make([]byte, len(val))
+		copy(valCopy, val)
+		var obj ObjectMetadata
+		if jsonErr := json.Unmarshal(valCopy, &obj); jsonErr != nil {
+			continue
+		}
+		if obj.LegalHold {
+			found = true
+			break
+		}
+		if obj.Retention != nil && obj.Retention.Mode == "COMPLIANCE" && obj.Retention.RetainUntilDate.After(now) {
+			found = true
+			break
+		}
+	}
+	oIterErr := oIter.Error()
+	_ = oIter.Close()
+	if oIterErr != nil {
+		return false, fmt.Errorf("failed iterating objects: %w", oIterErr)
+	}
+	return found, nil
+}
+
 // DeleteObjectVersion removes a specific version of an object.
 func (s *PebbleStore) DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error {
 	versionKey := objectVersionKey(bucket, key, versionID)

@@ -37,8 +37,9 @@ import { Copy as CopyIcon } from 'lucide-react';
 import { Pencil as PencilIcon } from 'lucide-react';
 import { Tag as TagIcon } from 'lucide-react';
 import { Sigma as SigmaIcon } from 'lucide-react';
+import { ExternalLink as ExternalLinkIcon } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { APIClient } from '@/lib/api';
+import { APIClient, s3Client } from '@/lib/api';
 import { UploadRequest, ObjectSearchFilter } from '@/types';
 import ModalManager from '@/lib/modals';
 import { isHttpStatus, getErrorMessage, escapeHtml } from '@/lib/utils';
@@ -178,6 +179,29 @@ export default function BucketDetailsPage() {
     queryFn: () => APIClient.listBucketVersions(bucketName, currentPrefix || undefined, tenantId),
     enabled: showVersions,
   });
+
+  // Server config and website — needed for bucket info in Actions dropdown
+  const { data: serverConfig } = useQuery({
+    queryKey: ['server-config'],
+    queryFn: APIClient.getServerConfig,
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: websiteConfig } = useQuery({
+    queryKey: ['bucket-website', bucketName, tenantId],
+    queryFn: () => APIClient.getBucketWebsite(bucketName, tenantId),
+    retry: false,
+    staleTime: 60 * 1000,
+  });
+
+  // Derived bucket info values for the Actions dropdown
+  const s3BaseUrl = s3Client.defaults.baseURL as string;
+  const bucketS3Uri = `s3://${bucketName}`;
+  const bucketArn = `arn:aws:s3:::${bucketName}`;
+  const bucketEndpointUrl = `${s3BaseUrl}/${bucketName}`;
+  const websiteHostname = serverConfig?.server?.websiteHostname;
+  const bucketWebsiteUrl = websiteHostname && websiteConfig?.indexDocument
+    ? `${window.location.protocol}//${bucketName}.${websiteHostname}`
+    : null;
 
   const createFolderMutation = useMutation({
     mutationFn: async (folderName: string) => {
@@ -1312,7 +1336,7 @@ export default function BucketDetailsPage() {
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard
+        <MetricCard compact
           title={t('totalObjects')}
           value={(bucketData?.object_count || 0).toLocaleString()}
           icon={FileIcon}
@@ -1320,7 +1344,7 @@ export default function BucketDetailsPage() {
           color="brand"
         />
 
-        <MetricCard
+        <MetricCard compact
           title={t('totalSize')}
           value={formatSize(bucketData?.size || 0)}
           icon={HardDriveIcon}
@@ -1328,7 +1352,7 @@ export default function BucketDetailsPage() {
           color="warning"
         />
 
-        <MetricCard
+        <MetricCard compact
           title={t('region')}
           value={bucketData?.region || 'us-east-1'}
           icon={GlobeIcon}
@@ -1337,78 +1361,53 @@ export default function BucketDetailsPage() {
         />
       </div>
 
-      {/* Object Lock Banner */}
+      {/* Object Lock — compact strip */}
       {bucketData?.objectLock?.objectLockEnabled && (
-        <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800 shadow-sm overflow-hidden">
-          <div className="p-6">
-            <div className="flex items-start gap-4">
-              <div className="flex-shrink-0">
-                <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                  <LockIcon className="h-5 w-5 text-blue-600" />
-                </div>
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
-                  <h3 className="text-lg font-semibold text-blue-900">{t('objectLockEnabled')}</h3>
-                  {bucketData.objectLock.rule?.defaultRetention && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      <ShieldIcon className="h-3 w-3" />
-                      {bucketData.objectLock.rule.defaultRetention.mode}
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm text-blue-800">
-                  {t('objectLockDesc')}
-                </p>
-                {bucketData.objectLock.rule?.defaultRetention && (
-                  <div className="mt-3 flex items-center gap-4 text-sm">
-                    <div className="flex items-center gap-2 text-blue-700">
-                      <ClockIcon className="h-4 w-4" />
-                      <span className="font-medium">{t('defaultRetention')}</span>
-                      <span>
-                        {bucketData.objectLock.rule.defaultRetention.days
-                          ? t('retentionDay', { count: bucketData.objectLock.rule.defaultRetention.days })
-                          : bucketData.objectLock.rule.defaultRetention.years
-                          ? t('retentionYear', { count: bucketData.objectLock.rule.defaultRetention.years })
-                          : t('notSpecified')
-                        }
-                      </span>
-                    </div>
-                    <div className="text-blue-600 text-xs">
-                      {bucketData.objectLock.rule.defaultRetention.mode === 'COMPLIANCE'
-                        ? t('complianceMode')
-                        : t('governanceMode')
-                      }
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800 text-xs">
+          <LockIcon className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+          <span className="font-semibold text-blue-900 dark:text-blue-100">{t('objectLockEnabled')}</span>
+          {bucketData.objectLock.rule?.defaultRetention && (
+            <>
+              <span className="text-blue-400 dark:text-blue-500">·</span>
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full font-medium bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200">
+                <ShieldIcon className="h-3 w-3" />
+                {bucketData.objectLock.rule.defaultRetention.mode}
+              </span>
+              <span className="text-blue-400 dark:text-blue-500">·</span>
+              <span className="text-blue-700 dark:text-blue-300">
+                {t('defaultRetention')}:{' '}
+                {bucketData.objectLock.rule.defaultRetention.days
+                  ? t('retentionDay', { count: bucketData.objectLock.rule.defaultRetention.days })
+                  : bucketData.objectLock.rule.defaultRetention.years
+                  ? t('retentionYear', { count: bucketData.objectLock.rule.defaultRetention.years })
+                  : t('notSpecified')}
+              </span>
+            </>
+          )}
+          <span className="ml-auto text-blue-500 dark:text-blue-400">{t('objectLockDesc')}</span>
         </div>
       )}
 
-      {/* Enhanced Search Bar */}
-      <div className="bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-800/50 rounded-xl border border-border shadow-sm p-4">
-        <div className="flex items-center gap-3">
-          <div className="relative max-w-md flex-1">
-            <div className="absolute left-4 top-1/2 transform -translate-y-1/2">
-              <SearchIcon className="text-muted-foreground h-5 w-5" />
-            </div>
+      {/* Objects Table — search and filters integrated at the top (AWS S3 style) */}
+      <div className="bg-card rounded-xl border border-border shadow-md">
+        {/* Search + filter toolbar */}
+        <div className="px-4 py-2.5 border-b border-border flex items-center gap-2">
+          <div className="relative flex-1 max-w-sm">
+            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <Input
               placeholder={t('searchObjects')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-12 bg-card border-border text-foreground focus:ring-2 focus:ring-brand-500 focus:border-brand-500 rounded-lg shadow-sm"
+              className="pl-9 h-8 text-sm bg-transparent"
             />
           </div>
           <Button
             onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
             variant={isFilterPanelOpen ? 'default' : 'outline'}
             size="sm"
-            className="gap-2 relative"
+            className="gap-1.5 h-8 relative"
           >
-            <FilterIcon className="h-4 w-4" />
+            <FilterIcon className="h-3.5 w-3.5" />
             {t('filters')}
             {activeFilterCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-brand-600 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
@@ -1417,19 +1416,18 @@ export default function BucketDetailsPage() {
             )}
           </Button>
         </div>
-      </div>
 
-      {/* Filter Panel */}
-      {isFilterPanelOpen && (
-        <ObjectFilterPanel
-          filters={objectFilter}
-          onFiltersChange={setObjectFilter}
-          onClear={() => setObjectFilter({})}
-        />
-      )}
+        {/* Expandable filter panel */}
+        {isFilterPanelOpen && (
+          <div className="border-b border-border">
+            <ObjectFilterPanel
+              filters={objectFilter}
+              onFiltersChange={setObjectFilter}
+              onClear={() => setObjectFilter({})}
+            />
+          </div>
+        )}
 
-      {/* Objects Table */}
-      <div className="bg-card rounded-xl border border-border shadow-md">
         <div className="px-6 border-b border-border flex items-center justify-between h-14 shrink-0">
           <h3 className="text-lg font-semibold text-foreground flex items-center gap-2 min-w-0 mr-4">
             {showVersions ? (
@@ -1474,14 +1472,66 @@ export default function BucketDetailsPage() {
                     }
                     setActionsOpen(o => !o);
                   }}
-                  disabled={isGlobalAdminInTenantBucket || showVersions || selectedObjects.size === 0}
+                  disabled={isGlobalAdminInTenantBucket || showVersions}
                 >
                   {t('actions')}
                   <ChevronDownIcon className="h-4 w-4" />
                 </Button>
                 {actionsOpen && (
-                  <div className={`absolute right-0 w-56 rounded-md shadow-lg bg-card border border-border z-50 ${actionsDropUp ? 'bottom-full mb-1' : 'mt-1'}`}>
+                  <div className={`absolute right-0 w-64 rounded-md shadow-lg bg-card border border-border z-50 ${actionsDropUp ? 'bottom-full mb-1' : 'mt-1'}`}>
                     <div className="py-1">
+                      {/* ── Bucket Info ── */}
+                      <div className="px-3 pt-2 pb-1">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{t('bucketInfo', 'Bucket Info')}</p>
+                      </div>
+                      <button
+                        className="w-full text-left flex items-start gap-2 px-3 py-1.5 hover:bg-secondary"
+                        onClick={() => { navigator.clipboard.writeText(bucketS3Uri); ModalManager.toast('success', 'Copied'); setActionsOpen(false); }}
+                      >
+                        <CopyIcon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium">{t('copyS3BucketUri', 'Copy S3 URI')}</div>
+                          <div className="text-[10px] text-muted-foreground truncate">{bucketS3Uri}</div>
+                        </div>
+                      </button>
+                      <button
+                        className="w-full text-left flex items-start gap-2 px-3 py-1.5 hover:bg-secondary"
+                        onClick={() => { navigator.clipboard.writeText(bucketArn); ModalManager.toast('success', 'Copied'); setActionsOpen(false); }}
+                      >
+                        <CopyIcon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium">{t('copyBucketArn', 'Copy ARN')}</div>
+                          <div className="text-[10px] text-muted-foreground truncate">{bucketArn}</div>
+                        </div>
+                      </button>
+                      <button
+                        className="w-full text-left flex items-start gap-2 px-3 py-1.5 hover:bg-secondary"
+                        onClick={() => { navigator.clipboard.writeText(bucketEndpointUrl); ModalManager.toast('success', 'Copied'); setActionsOpen(false); }}
+                      >
+                        <LinkIcon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium">{t('copyBucketEndpoint', 'Copy Endpoint URL')}</div>
+                          <div className="text-[10px] text-muted-foreground truncate">{bucketEndpointUrl}</div>
+                        </div>
+                      </button>
+                      {bucketWebsiteUrl && (
+                        <button
+                          className="w-full text-left flex items-start gap-2 px-3 py-1.5 hover:bg-secondary"
+                          onClick={() => { window.open(bucketWebsiteUrl, '_blank'); setActionsOpen(false); }}
+                        >
+                          <ExternalLinkIcon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium">{t('openWebsiteUrl', 'Open Website URL')}</div>
+                            <div className="text-[10px] text-muted-foreground truncate">{bucketWebsiteUrl}</div>
+                          </div>
+                        </button>
+                      )}
+
+                      {/* ── Object Actions ── */}
+                      <div className="my-1 border-t border-border" />
+                      <div className="px-3 pt-1.5 pb-1">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{t('objectActions', 'Object Actions')}</p>
+                      </div>
                       <button
                         className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
                         disabled={!isSingleSelection}

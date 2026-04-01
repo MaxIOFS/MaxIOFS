@@ -533,7 +533,7 @@ export default function AuditLogsPage() {
 
       {/* Stats Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-        <MetricCard
+        <MetricCard compact
           title={t('totalLogs')}
           value={totalLogs.toLocaleString()}
           icon={FileText}
@@ -541,7 +541,7 @@ export default function AuditLogsPage() {
           color="brand"
         />
 
-        <MetricCard
+        <MetricCard compact
           title={t('successful')}
           value={totalSuccessCount.toLocaleString()}
           icon={CheckCircle}
@@ -549,7 +549,7 @@ export default function AuditLogsPage() {
           color="success"
         />
 
-        <MetricCard
+        <MetricCard compact
           title={t('failed')}
           value={totalFailedCount.toLocaleString()}
           icon={XCircle}
@@ -557,7 +557,7 @@ export default function AuditLogsPage() {
           color="error"
         />
 
-        <MetricCard
+        <MetricCard compact
           title={t('viewing')}
           value={`${currentPage} / ${totalPages}`}
           icon={Activity}

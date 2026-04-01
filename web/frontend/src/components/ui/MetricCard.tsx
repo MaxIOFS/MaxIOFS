@@ -13,6 +13,8 @@ export interface MetricCardProps {
   description?: string;
   color?: 'brand' | 'success' | 'error' | 'warning' | 'blue-light';
   className?: string;
+  /** Compact mode: reduced padding, smaller text and icon. Use on sub-pages. */
+  compact?: boolean;
 }
 
 export function MetricCard({
@@ -23,6 +25,7 @@ export function MetricCard({
   description,
   color = 'brand',
   className,
+  compact = false,
 }: MetricCardProps) {
   const colorClasses = {
     brand: {
@@ -57,9 +60,10 @@ export function MetricCard({
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-card bg-card border border-border p-6',
+        'relative overflow-hidden rounded-card bg-card border border-border',
         'transition-all duration-300',
         colors.glow,
+        compact ? 'p-4' : 'p-6',
         className
       )}
     >
@@ -69,16 +73,22 @@ export function MetricCard({
       {/* Content */}
       <div className="relative">
         <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <p className="text-sm font-medium text-muted-foreground mb-2">{title}</p>
-            <p className="text-3xl font-bold text-foreground mb-1">{value}</p>
+          <div className="flex-1 min-w-0">
+            <p className={cn('font-medium text-muted-foreground', compact ? 'text-xs mb-1' : 'text-sm mb-2')}>
+              {title}
+            </p>
+            <p className={cn('font-bold text-foreground truncate', compact ? 'text-xl mb-0.5' : 'text-3xl mb-1')}>
+              {value}
+            </p>
 
             {description && (
-              <p className="text-xs text-muted-foreground mt-2">{description}</p>
+              <p className={cn('text-xs text-muted-foreground truncate', compact ? 'mt-1' : 'mt-2')}>
+                {description}
+              </p>
             )}
 
             {trend && (
-              <div className="flex items-center gap-1 mt-2">
+              <div className={cn('flex items-center gap-1', compact ? 'mt-1' : 'mt-2')}>
                 <span
                   className={cn(
                     'text-xs font-medium',
@@ -93,8 +103,8 @@ export function MetricCard({
           </div>
 
           {Icon && (
-            <div className={cn('p-3 rounded-button', colors.icon)}>
-              <Icon className="h-6 w-6" />
+            <div className={cn('shrink-0 rounded-button', colors.icon, compact ? 'p-2 ml-3' : 'p-3 ml-4')}>
+              <Icon className={compact ? 'h-4 w-4' : 'h-6 w-6'} />
             </div>
           )}
         </div>

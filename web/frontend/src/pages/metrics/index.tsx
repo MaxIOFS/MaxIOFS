@@ -301,28 +301,28 @@ export default function MetricsPage() {
             <div className="space-y-6">
               {/* Quick Stats Grid - General Summary */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <MetricCard
+                <MetricCard compact
                   title={t('systemHealth')}
                   value={`${(systemMetrics.cpuUsagePercent || 0).toFixed(0)}% CPU`}
                   icon={Server}
                   description={`${(systemMetrics.memoryUsagePercent || 0).toFixed(0)}% Memory`}
                   color="blue-light"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('totalStorage')}
                   value={formatBytes(storageMetrics.totalSize || 0)}
                   icon={Box}
                   description={`${formatNumber(storageMetrics.totalBuckets || 0)} ${t('bucketsCount')}`}
                   color="brand"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('totalRequests')}
                   value={formatNumber(s3Metrics.totalRequests || 0)}
                   icon={Globe}
                   description={`${formatNumber(s3Metrics.totalErrors || 0)} ${t('errors')}`}
                   color="warning"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('uptime')}
                   value={formatUptime(systemMetrics.uptime || 0)}
                   icon={Clock}
@@ -378,7 +378,7 @@ export default function MetricsPage() {
             <div className="space-y-6">
               {/* System Resources */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <MetricCard
+                <MetricCard compact
                   title={t('cpuUsage')}
                   value={`${(systemMetrics.cpuUsagePercent || 0).toFixed(1)}%`}
                   icon={Cpu}
@@ -389,21 +389,21 @@ export default function MetricsPage() {
                   }
                   color="blue-light"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('memoryUsage')}
                   value={`${(systemMetrics.memoryUsagePercent || 0).toFixed(1)}%`}
                   icon={MemoryStick}
                   description={`${formatBytes(systemMetrics.memoryUsedBytes || 0)} / ${formatBytes(systemMetrics.memoryTotalBytes || 0)}`}
                   color="success"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('diskUsage')}
                   value={`${(systemMetrics.diskUsagePercent || 0).toFixed(1)}%`}
                   icon={HardDrive}
                   description={`${formatBytes(systemMetrics.diskUsedBytes || 0)} / ${formatBytes(systemMetrics.diskTotalBytes || 0)}`}
                   color="warning"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('uptime')}
                   value={formatUptime(systemMetrics.uptime || 0)}
                   icon={Clock}
@@ -414,28 +414,28 @@ export default function MetricsPage() {
 
               {/* Runtime Metrics */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <MetricCard
+                <MetricCard compact
                   title={t('goroutines')}
                   value={formatNumber(systemMetrics.goroutines || 0)}
                   icon={Activity}
                   description={t('active')}
                   color="brand"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('heapMemory')}
                   value={`${((systemMetrics.heapAllocBytes || 0) / (1024 * 1024)).toFixed(1)} MB`}
                   icon={BarChart3}
                   description={t('allocated')}
                   color="blue-light"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('gcRuns')}
                   value={formatNumber(systemMetrics.gcRuns || 0)}
                   icon={TrendingUp}
                   description={t('collections')}
                   color="warning"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('networkIO')}
                   value={formatBytes(systemMetrics.networkBytesOut || 0)}
                   icon={ArrowUp}
@@ -490,28 +490,28 @@ export default function MetricsPage() {
             <div className="space-y-6">
               {/* Quick Stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <MetricCard
+                <MetricCard compact
                   title={t('totalStorage')}
                   value={formatBytes(storageMetrics.totalSize || 0)}
                   icon={HardDrive}
                   description={t('usedSpace')}
                   color="brand"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('totalObjectsCount')}
                   value={formatNumber(storageMetrics.totalObjects || 0)}
                   icon={Box}
                   description={t('storedFiles')}
                   color="blue-light"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('buckets')}
                   value={formatNumber(storageMetrics.totalBuckets || 0)}
                   icon={Box}
                   description={t('totalBucketsCount')}
                   color="success"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('avgObjectSize')}
                   value={formatBytes(storageMetrics.averageObjectSize || 0)}
                   icon={BarChart3}
@@ -565,21 +565,21 @@ export default function MetricsPage() {
             <div className="space-y-6">
               {/* API Metrics */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <MetricCard
+                <MetricCard compact
                   title={t('totalRequests')}
                   value={formatNumber(s3Metrics.totalRequests || 0)}
                   icon={Globe}
                   description={t('sinceStartup')}
                   color="blue-light"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('totalErrors')}
                   value={formatNumber(s3Metrics.totalErrors || 0)}
                   icon={XCircle}
                   description={t('failedRequests')}
                   color="error"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('successRate')}
                   value={`${
                     s3Metrics.totalRequests > 0
@@ -590,7 +590,7 @@ export default function MetricsPage() {
                   description={t('requestSuccess')}
                   color="success"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('avgLatency')}
                   value={`${(s3Metrics.avgLatency || 0).toFixed(1)}ms`}
                   icon={Clock}
@@ -600,14 +600,14 @@ export default function MetricsPage() {
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <MetricCard
+                <MetricCard compact
                   title={t('requestsPerSec')}
                   value={(s3Metrics.requestsPerSec || 0).toFixed(2)}
                   icon={TrendingUp}
                   description={t('currentRate')}
                   color="brand"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('errorRate')}
                   value={`${
                     s3Metrics.totalRequests > 0
@@ -618,14 +618,14 @@ export default function MetricsPage() {
                   description={t('percentageErrors')}
                   color="error"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('totalOperations')}
                   value={formatNumber(s3Metrics.totalRequests || 0)}
                   icon={Activity}
                   description={t('allApiCalls')}
                   color="blue-light"
                 />
-                <MetricCard
+                <MetricCard compact
                   title={t('responseTime')}
                   value={`${(s3Metrics.avgLatency || 0).toFixed(0)}ms`}
                   icon={Zap}
@@ -689,21 +689,21 @@ export default function MetricsPage() {
                       {t('tabOverview')}
                     </h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <MetricCard
+                      <MetricCard compact
                         title={t('totalRequests')}
                         value={formatNumber(s3Metrics.totalRequests || 0)}
                         icon={Globe}
                         description={t('sinceStartup')}
                         color="blue-light"
                       />
-                      <MetricCard
+                      <MetricCard compact
                         title={t('totalErrors')}
                         value={formatNumber(s3Metrics.totalErrors || 0)}
                         icon={AlertCircle}
                         description={t('failedRequests')}
                         color="error"
                       />
-                      <MetricCard
+                      <MetricCard compact
                         title={t('successRate')}
                         value={`${
                           s3Metrics.totalRequests > 0
@@ -714,7 +714,7 @@ export default function MetricsPage() {
                         description={t('requestSuccess')}
                         color="success"
                       />
-                      <MetricCard
+                      <MetricCard compact
                         title={t('avgLatency')}
                         value={`${(s3Metrics.avgLatency || 0).toFixed(1)}ms`}
                         icon={Activity}
@@ -730,28 +730,28 @@ export default function MetricsPage() {
                       {t('realtimeThroughput')}
                     </h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <MetricCard
+                      <MetricCard compact
                         title={t('requestsPerSec')}
                         value={performanceThroughput.current.requests_per_second.toFixed(2)}
                         icon={Zap}
                         description={t('currentRate')}
                         color="brand"
                       />
-                      <MetricCard
+                      <MetricCard compact
                         title={t('bytesPerSec')}
                         value={formatBytes(performanceThroughput.current.bytes_per_second)}
                         icon={HardDrive}
                         description={t('dataTransfer')}
                         color="blue-light"
                       />
-                      <MetricCard
+                      <MetricCard compact
                         title={t('objectsPerSec')}
                         value={performanceThroughput.current.objects_per_second.toFixed(2)}
                         icon={Box}
                         description={t('objectOps')}
                         color="success"
                       />
-                      <MetricCard
+                      <MetricCard compact
                         title={t('totalOperations')}
                         value={formatNumber(
                           Object.values(performanceLatencies.latencies).reduce(

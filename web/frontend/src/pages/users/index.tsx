@@ -315,7 +315,7 @@ export default function UsersPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-        <MetricCard
+        <MetricCard compact
           title={t('totalUsers')}
           value={filteredUsers.length}
           icon={Users}
@@ -323,7 +323,7 @@ export default function UsersPage() {
           color="brand"
         />
 
-        <MetricCard
+        <MetricCard compact
           title={t('activeUsers')}
           value={filteredUsers.filter((user: User) => user.status === 'active').length}
           icon={UserCheck}
@@ -331,7 +331,7 @@ export default function UsersPage() {
           color="success"
         />
 
-        <MetricCard
+        <MetricCard compact
           title={t('adminUsers')}
           value={filteredUsers.filter((user: User) => user.roles.includes('admin')).length}
           icon={UserStar}
@@ -339,7 +339,7 @@ export default function UsersPage() {
           color="blue-light"
         />
 
-        <MetricCard
+        <MetricCard compact
           title={t('inactiveUsers')}
           value={filteredUsers.filter((user: User) => user.status !== 'active').length}
           icon={UserX}

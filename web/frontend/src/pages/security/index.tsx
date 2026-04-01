@@ -133,7 +133,7 @@ export default function SecurityPage() {
       <div>
         <h2 className="text-xl font-semibold text-foreground mb-4">{t('securityStatus')}</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          <MetricCard
+          <MetricCard compact
             title={t('activeUsers')}
             value={activeUsers}
             icon={Users}
@@ -141,7 +141,7 @@ export default function SecurityPage() {
             color="success"
           />
 
-          <MetricCard
+          <MetricCard compact
             title={t('usersWith2FA')}
             value={users2FA}
             icon={KeyRound}
@@ -149,7 +149,7 @@ export default function SecurityPage() {
             color="brand"
           />
 
-          <MetricCard
+          <MetricCard compact
             title={t('lockedAccounts')}
             value={lockedUsers.length}
             icon={lockedUsers.length > 0 ? AlertTriangle : Lock}
@@ -157,7 +157,7 @@ export default function SecurityPage() {
             color={lockedUsers.length > 0 ? 'error' : 'success'}
           />
 
-          <MetricCard
+          <MetricCard compact
             title={t('tenantAdmins')}
             value={tenantAdminCount}
             icon={Shield}
@@ -165,7 +165,7 @@ export default function SecurityPage() {
             color="blue-light"
           />
 
-          <MetricCard
+          <MetricCard compact
             title={t('sessionTimeout')}
             value={formatDuration(getSetting('security.session_timeout', '86400'))}
             icon={Clock}

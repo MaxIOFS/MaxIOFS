@@ -342,16 +342,16 @@ export default function ClusterOverview() {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-        <MetricCard title={t('totalNodes')} value={status?.total_nodes || 0} icon={Server} description={t('nodesInCluster')} color="brand" />
-        <MetricCard title={t('healthyNodes')} value={status?.healthy_nodes || 0} icon={CheckCircle} description={t('fullyOperational')} color="success" />
-        <MetricCard title={t('degradedNodes')} value={status?.degraded_nodes || 0} icon={AlertTriangle} description={t('performanceIssues')} color="warning" />
-        <MetricCard title={t('unavailableNodes')} value={status?.unavailable_nodes || 0} icon={XCircle} description={t('offlineOrUnreachable')} color="error" />
+        <MetricCard compact title={t('totalNodes')} value={status?.total_nodes || 0} icon={Server} description={t('nodesInCluster')} color="brand" />
+        <MetricCard compact title={t('healthyNodes')} value={status?.healthy_nodes || 0} icon={CheckCircle} description={t('fullyOperational')} color="success" />
+        <MetricCard compact title={t('degradedNodes')} value={status?.degraded_nodes || 0} icon={AlertTriangle} description={t('performanceIssues')} color="warning" />
+        <MetricCard compact title={t('unavailableNodes')} value={status?.unavailable_nodes || 0} icon={XCircle} description={t('offlineOrUnreachable')} color="error" />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
-        <MetricCard title={t('totalBuckets')} value={status?.total_buckets || 0} icon={Package} description={t('acrossAllNodes')} color="blue-light" />
-        <MetricCard title={t('replicatedBuckets')} value={status?.replicated_buckets || 0} icon={Box} description={t('withReplicationConfigured')} color="success" />
-        <MetricCard title={t('localBuckets')} value={status?.local_buckets || 0} icon={Box} description={t('notReplicated')} color="warning" />
+        <MetricCard compact title={t('totalBuckets')} value={status?.total_buckets || 0} icon={Package} description={t('acrossAllNodes')} color="blue-light" />
+        <MetricCard compact title={t('replicatedBuckets')} value={status?.replicated_buckets || 0} icon={Box} description={t('withReplicationConfigured')} color="success" />
+        <MetricCard compact title={t('localBuckets')} value={status?.local_buckets || 0} icon={Box} description={t('notReplicated')} color="warning" />
       </div>
 
       {config && (
