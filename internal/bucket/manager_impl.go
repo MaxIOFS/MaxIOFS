@@ -901,37 +901,29 @@ func (bm *badgerBucketManager) isBucketEmpty(ctx context.Context, tenantID, name
 			continue
 		}
 
-		// Check if metadata exists in BadgerDB
+		// Check if metadata exists
 		objMeta, err := bm.metadataStore.GetObject(ctx, bucketPath, objectKey)
 		if err != nil {
 			if err == metadata.ErrObjectNotFound {
-				// Orphaned physical file - delete it
+				// Physical file has no metadata — it is an orphan (e.g., metadata was
+				// deleted first during a previous object deletion and the physical file
+				// cleanup did not complete). Treat it as absent: do NOT delete it here
+				// because isBucketEmpty is a read-only check. DeleteBucket will remove
+				// the entire directory afterwards; a dedicated scrubber can clean orphans.
 				logrus.WithFields(logrus.Fields{
 					"bucket": bucketPath,
 					"key":    objectKey,
 					"path":   obj.Path,
-				}).Warn("Found orphaned physical file without metadata - deleting")
-
-				if delErr := bm.storage.Delete(ctx, obj.Path); delErr != nil {
-					logrus.WithError(delErr).Error("Failed to delete orphaned file")
-				}
+				}).Debug("Found orphaned physical file without metadata during empty-check; skipping")
 				continue
 			}
 			// Other error - assume file is valid to be safe
 			return false, err
 		}
 
-		// If the current latest metadata is a delete marker (ETag="" Size=0), the
-		// object is logically deleted. The physical file is orphaned — clean it up.
+		// If the current latest metadata is a delete marker (ETag="" Size=0),
+		// the object is logically deleted — don't count it as a valid object.
 		if objMeta.ETag == "" && objMeta.Size == 0 {
-			logrus.WithFields(logrus.Fields{
-				"bucket": bucketPath,
-				"key":    objectKey,
-				"path":   obj.Path,
-			}).Debug("Skipping delete-marker object as logically deleted; removing orphaned physical file")
-			if delErr := bm.storage.Delete(ctx, obj.Path); delErr != nil && delErr != storage.ErrObjectNotFound {
-				logrus.WithError(delErr).Warn("Failed to delete orphaned physical file for delete-marked object")
-			}
 			continue
 		}
 

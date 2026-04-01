@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -37,6 +38,7 @@ type BucketAccessLogger struct {
 	objectManager object.Manager
 	entries       chan AccessLogEntry
 	done          chan struct{}
+	wg            sync.WaitGroup
 }
 
 // NewBucketAccessLogger creates and starts the background log-delivery goroutine.
@@ -47,6 +49,7 @@ func NewBucketAccessLogger(bm bucket.Manager, om object.Manager) *BucketAccessLo
 		entries:       make(chan AccessLogEntry, 1000),
 		done:          make(chan struct{}),
 	}
+	l.wg.Add(1)
 	go l.run()
 	return l
 }
@@ -60,12 +63,16 @@ func (l *BucketAccessLogger) Log(entry AccessLogEntry) {
 	}
 }
 
-// Stop flushes pending entries and stops the background goroutine.
+// Stop signals the background goroutine to flush pending entries and exit,
+// then waits for it to finish before returning. This ensures no writes happen
+// to the metadata store after Stop() returns, so Pebble can be safely closed.
 func (l *BucketAccessLogger) Stop() {
 	close(l.done)
+	l.wg.Wait()
 }
 
 func (l *BucketAccessLogger) run() {
+	defer l.wg.Done()
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 

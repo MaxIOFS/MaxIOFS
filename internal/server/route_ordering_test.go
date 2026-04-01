@@ -122,18 +122,27 @@ func TestRouteOrdering_S3EndpointsStillWork(t *testing.T) {
 	ts := httptest.NewServer(server.httpServer.Handler)
 	defer ts.Close()
 
+	// S3ClientMiddleware redirects browser-like requests (no S3 auth headers) to the
+	// console URL. Use a no-redirect client so we receive the redirect response directly
+	// instead of following it to a non-existent host in the test environment.
+	noRedirectClient := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
 	// Test S3 ListBuckets endpoint
-	resp, err := http.Get(ts.URL + "/")
+	resp, err := noRedirectClient.Get(ts.URL + "/")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	// S3 endpoints should respond (will require auth, but endpoint exists)
+	// S3 endpoints should respond (will require auth or redirect to console, but endpoint exists)
 	// Should NOT be 404 Not Found
 	assert.NotEqual(t, http.StatusNotFound, resp.StatusCode,
 		"S3 ListBuckets endpoint should be registered")
 
 	// Test S3 bucket endpoint
-	resp2, err := http.Get(ts.URL + "/test-bucket")
+	resp2, err := noRedirectClient.Get(ts.URL + "/test-bucket")
 	require.NoError(t, err)
 	defer resp2.Body.Close()
 
@@ -259,10 +268,19 @@ func TestRouteOrdering_WithoutCluster(t *testing.T) {
 
 	// When cluster is disabled, /api/internal/cluster/* paths will be captured by S3 handler
 	// This is expected behavior - cluster routes aren't registered, so S3 (with PathPrefix("/")) gets them
-	// The key test is that S3 endpoints continue to work properly
+	// The key test is that S3 endpoints continue to work properly.
+	//
+	// S3ClientMiddleware redirects browser-like requests to the console URL; use a
+	// no-redirect client so the redirect response is received directly instead of
+	// following it to a non-existent host in the test environment.
+	noRedirectClient := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 
 	// Test that S3 ListBuckets endpoint works
-	resp, err := http.Get(ts.URL + "/")
+	resp, err := noRedirectClient.Get(ts.URL + "/")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -271,7 +289,7 @@ func TestRouteOrdering_WithoutCluster(t *testing.T) {
 		"S3 ListBuckets endpoint should be registered when cluster is disabled")
 
 	// Test that S3 bucket endpoint works
-	resp2, err := http.Get(ts.URL + "/test-bucket")
+	resp2, err := noRedirectClient.Get(ts.URL + "/test-bucket")
 	require.NoError(t, err)
 	defer resp2.Body.Close()
 

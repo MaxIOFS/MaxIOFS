@@ -295,7 +295,7 @@ func TestDeleteSpecificVersion_VersionNotFound(t *testing.T) {
 	require.NoError(t, err)
 
 	// Try to delete non-existent version
-	err = om.deleteSpecificVersion(ctx, bucket, key, "nonexistent-version-id")
+	err = om.deleteSpecificVersion(ctx, bucket, key, "nonexistent-version-id", false)
 
 	// Should return error for non-existent version
 	assert.Error(t, err, "Should return error for non-existent version")
@@ -327,7 +327,7 @@ func TestDeleteSpecificVersion_WithExistingVersion(t *testing.T) {
 	// If versioning is enabled, obj.VersionID will be set
 	if obj.VersionID != "" {
 		// Try to delete this specific version
-		err = om.deleteSpecificVersion(ctx, bucket, key, obj.VersionID)
+		err = om.deleteSpecificVersion(ctx, bucket, key, obj.VersionID, false)
 
 		// Either succeeds or fails gracefully
 		if err != nil {

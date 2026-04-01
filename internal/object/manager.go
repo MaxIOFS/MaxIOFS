@@ -635,7 +635,7 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, b
 
 	if specificVersionID != "" {
 		// DELETE with versionId → Permanent deletion of specific version
-		return "", om.deleteSpecificVersion(ctx, bucket, key, specificVersionID)
+		return "", om.deleteSpecificVersion(ctx, bucket, key, specificVersionID, bypassGovernance)
 	} else if versioningEnabled {
 		// DELETE without versionId + versioning enabled → Create delete marker
 		return om.createDeleteMarker(ctx, bucket, key)
@@ -703,7 +703,7 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key str
 }
 
 // deleteSpecificVersion permanently deletes a specific version
-func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key, versionID string) error {
+func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key, versionID string, bypassGovernance bool) error {
 	// Get all versions first to check if we're deleting the latest
 	allVersions, err := om.metadataStore.GetObjectVersions(ctx, bucket, key)
 	if err != nil {
@@ -748,7 +748,14 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 				return NewComplianceRetentionError(objMetadata.Retention.RetainUntilDate)
 			}
 			if objMetadata.Retention.Mode == RetentionModeGovernance {
-				return NewGovernanceRetentionError(objMetadata.Retention.RetainUntilDate)
+				if !bypassGovernance {
+					return NewGovernanceRetentionError(objMetadata.Retention.RetainUntilDate)
+				}
+				logrus.WithFields(logrus.Fields{
+					"bucket":    bucket,
+					"key":       key,
+					"versionID": versionID,
+				}).Info("Bypassing GOVERNANCE retention for versioned delete")
 			}
 		}
 	}
@@ -921,37 +928,29 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 		}
 	}
 
-	// Delete object: physical file AND metadata together
-	// Step 1: Delete physical file
-	physicalDeleted := false
-	if err := om.storage.Delete(ctx, objectPath); err != nil {
-		if err != storage.ErrObjectNotFound {
-			return fmt.Errorf("failed to delete physical file: %w", err)
-		}
-	} else {
-		physicalDeleted = true
-	}
+	// Delete object: metadata first, then physical file.
+	// This order is intentional: once metadata is gone the object is logically
+	// deleted (S3 returns 404). If the physical delete then fails the file
+	// becomes an orphan that will be cleaned up by the next bucket scrub —
+	// a safe inconsistency. The reverse order (physical first) is dangerous:
+	// if metadata deletion fails, the integrity scanner would flag the object
+	// as corrupt even though its data is already gone.
 
-	// Step 2: Delete metadata from BadgerDB
+	// Step 1: Delete metadata
 	if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil {
 		if err != metadata.ErrObjectNotFound {
-			// Metadata delete failed but physical file was deleted
-			// This creates inconsistency - need to update bucket counters
-			if physicalDeleted {
-				logrus.WithFields(logrus.Fields{
-					"bucket": bucket,
-					"key":    key,
-				}).Error("Physical file deleted but metadata deletion failed - bucket counters may be incorrect")
-
-				// Decrement bucket counter since physical file is gone
-				if om.bucketManager != nil {
-					tenantID, bucketName := om.parseBucketPath(bucket)
-					if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objectSize); err != nil {
-						logrus.WithError(err).Error("Failed to update bucket counters after inconsistent delete")
-					}
-				}
-			}
 			return fmt.Errorf("failed to delete metadata: %w", err)
+		}
+	}
+
+	// Step 2: Delete physical file (best-effort; orphan cleanup handles failures)
+	if err := om.storage.Delete(ctx, objectPath); err != nil {
+		if err != storage.ErrObjectNotFound {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucket,
+				"key":    key,
+				"path":   objectPath,
+			}).WithError(err).Warn("Failed to delete physical file after metadata removal; file is now an orphan")
 		}
 	}
 
@@ -1512,7 +1511,7 @@ func (om *objectManager) GetObjectVersions(ctx context.Context, bucket, key stri
 }
 
 func (om *objectManager) DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error {
-	return om.deleteSpecificVersion(ctx, bucket, key, versionID)
+	return om.deleteSpecificVersion(ctx, bucket, key, versionID, false)
 }
 
 // Tagging operations implementations

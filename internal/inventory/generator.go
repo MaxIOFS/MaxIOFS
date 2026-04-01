@@ -3,6 +3,7 @@ package inventory
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -321,7 +322,7 @@ func (g *ReportGenerator) uploadReport(ctx context.Context, config *InventoryCon
 		Size:         int64(len(content)),
 		ContentType:  g.getContentType(config.Format),
 		LastModified: time.Now().UTC(),
-		ETag:         fmt.Sprintf("\"%x\"", len(content)), // Simple ETag
+		ETag:         fmt.Sprintf("\"%x\"", md5.Sum(content)),
 		StorageClass: "STANDARD",
 		Metadata:     objMetadata,
 	}

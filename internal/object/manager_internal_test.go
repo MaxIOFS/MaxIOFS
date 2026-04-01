@@ -74,7 +74,7 @@ func TestDeleteSpecificVersion(t *testing.T) {
 	versionID := generateVersionID()
 
 	// Attempt to delete specific version
-	err = om.deleteSpecificVersion(ctx, bucket, key, versionID)
+	err = om.deleteSpecificVersion(ctx, bucket, key, versionID, false)
 
 	// Should either succeed or fail gracefully (versioning might not be fully enabled)
 	if err != nil {

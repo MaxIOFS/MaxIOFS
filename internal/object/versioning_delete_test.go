@@ -71,7 +71,7 @@ func TestDeleteSpecificVersion_WithVersioning(t *testing.T) {
 	// Test 1: Delete the middle version (version 2)
 	if obj2.VersionID != "" {
 		t.Logf("Attempting to delete version 2: %s", obj2.VersionID)
-		err = om.deleteSpecificVersion(ctx, bucket, key, obj2.VersionID)
+		err = om.deleteSpecificVersion(ctx, bucket, key, obj2.VersionID, false)
 		if err != nil {
 			t.Logf("Delete version 2 returned error: %v", err)
 			// Error is acceptable - version deletion might have restrictions
@@ -83,7 +83,7 @@ func TestDeleteSpecificVersion_WithVersioning(t *testing.T) {
 	// Test 2: Delete the oldest version (version 1)
 	if obj1.VersionID != "" {
 		t.Logf("Attempting to delete version 1: %s", obj1.VersionID)
-		err = om.deleteSpecificVersion(ctx, bucket, key, obj1.VersionID)
+		err = om.deleteSpecificVersion(ctx, bucket, key, obj1.VersionID, false)
 		if err != nil {
 			t.Logf("Delete version 1 returned error: %v", err)
 		} else {
@@ -101,7 +101,7 @@ func TestDeleteSpecificVersion_WithVersioning(t *testing.T) {
 	t.Logf("Latest version still accessible: %s", latestObj.VersionID)
 
 	// Test 4: Try to delete non-existent version
-	err = om.deleteSpecificVersion(ctx, bucket, key, "nonexistent-version-12345")
+	err = om.deleteSpecificVersion(ctx, bucket, key, "nonexistent-version-12345", false)
 	assert.Error(t, err, "Should return error for non-existent version")
 	assert.Contains(t, err.Error(), "not found", "Error should mention not found")
 }
@@ -158,7 +158,7 @@ func TestDeleteSpecificVersion_MultipleFiles(t *testing.T) {
 	if len(versionIDs["file1.txt"]) > 0 {
 		firstVersion := versionIDs["file1.txt"][0]
 		t.Logf("Deleting first version of file1.txt: %s", firstVersion)
-		err = om.deleteSpecificVersion(ctx, bucket, "file1.txt", firstVersion)
+		err = om.deleteSpecificVersion(ctx, bucket, "file1.txt", firstVersion, false)
 		if err != nil {
 			t.Logf("Delete returned error: %v", err)
 		} else {
@@ -170,7 +170,7 @@ func TestDeleteSpecificVersion_MultipleFiles(t *testing.T) {
 	if len(versionIDs["file3.txt"]) >= 2 {
 		middleVersion := versionIDs["file3.txt"][1]
 		t.Logf("Deleting middle version of file3.txt: %s", middleVersion)
-		err = om.deleteSpecificVersion(ctx, bucket, "file3.txt", middleVersion)
+		err = om.deleteSpecificVersion(ctx, bucket, "file3.txt", middleVersion, false)
 		if err != nil {
 			t.Logf("Delete returned error: %v", err)
 		} else {
@@ -239,7 +239,7 @@ func TestDeleteSpecificVersion_DeleteLatest(t *testing.T) {
 	// Delete the latest version (version 2)
 	if obj2.VersionID != "" {
 		t.Logf("Deleting latest version: %s", obj2.VersionID)
-		err = om.deleteSpecificVersion(ctx, bucket, key, obj2.VersionID)
+		err = om.deleteSpecificVersion(ctx, bucket, key, obj2.VersionID, false)
 		if err != nil {
 			t.Logf("Delete latest version returned error: %v", err)
 		} else {
@@ -289,7 +289,7 @@ func TestDeleteSpecificVersion_WithoutVersioning(t *testing.T) {
 	t.Logf("Object created with VersionID: '%s'", obj.VersionID)
 
 	// Try to delete with a fake version ID
-	err = om.deleteSpecificVersion(ctx, bucket, key, "fake-version-id")
+	err = om.deleteSpecificVersion(ctx, bucket, key, "fake-version-id", false)
 
 	// Should return error (version not found or versioning not enabled)
 	assert.Error(t, err, "Should return error when versioning is not enabled")
@@ -327,7 +327,7 @@ func TestDeleteSpecificVersion_EmptyVersionID(t *testing.T) {
 	require.NoError(t, err)
 
 	// Try to delete with empty version ID
-	err = om.deleteSpecificVersion(ctx, bucket, key, "")
+	err = om.deleteSpecificVersion(ctx, bucket, key, "", false)
 
 	// Should return error for empty version ID
 	assert.Error(t, err, "Should return error for empty version ID")

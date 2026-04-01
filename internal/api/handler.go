@@ -196,6 +196,10 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketInventoryConfiguration).Methods("DELETE").Queries("inventory", "", "id", "{id}")
 		bucketRouter.HandleFunc(path, h.s3Handler.ListBucketInventoryConfigurations).Methods("GET").Queries("inventory", "")
 
+		// Multipart uploads list — must be before ListObjects (no query constraint) so
+		// GET /{bucket}?uploads is not captured by the generic ListObjects route.
+		bucketRouter.HandleFunc(path, h.s3Handler.ListMultipartUploads).Methods("GET").Queries("uploads", "")
+
 		// Generic bucket operations (without query parameters - registered last)
 		bucketRouter.HandleFunc(path, h.s3Handler.HeadBucket).Methods("HEAD")
 		bucketRouter.HandleFunc(path, h.s3Handler.CreateBucket).Methods("PUT")
@@ -210,10 +214,6 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	// POST presigned form upload (must be after query-param routes so ?delete is matched first)
 	bucketRouter.HandleFunc("", h.s3Handler.HandlePresignedPost).Methods("POST")
 	bucketRouter.HandleFunc("/", h.s3Handler.HandlePresignedPost).Methods("POST")
-
-	// Multipart uploads
-	bucketRouter.HandleFunc("", h.s3Handler.ListMultipartUploads).Methods("GET").Queries("uploads", "")
-	bucketRouter.HandleFunc("/", h.s3Handler.ListMultipartUploads).Methods("GET").Queries("uploads", "")
 
 	// Object operations
 	objectRouter := bucketRouter.PathPrefix("/{object:.+}").Subrouter()
