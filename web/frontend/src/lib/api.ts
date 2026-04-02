@@ -1285,8 +1285,13 @@ export class APIClient {
   // Bucket Inventory Configuration
   static async getBucketInventory(bucketName: string, tenantId?: string): Promise<any> {
     const url = tenantId ? `/buckets/${bucketName}/inventory?tenantId=${tenantId}` : `/buckets/${bucketName}/inventory`;
-    const response = await apiClient.get(url);
-    return response.data;
+    try {
+      const response = await apiClient.get(url);
+      return response.data?.data ?? response.data;
+    } catch (e: any) {
+      if (e.response?.status === 404) return null;
+      throw e;
+    }
   }
 
   static async putBucketInventory(bucketName: string, config: any, tenantId?: string): Promise<void> {

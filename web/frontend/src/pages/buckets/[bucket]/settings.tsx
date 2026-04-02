@@ -180,16 +180,8 @@ export default function BucketSettingsPage() {
     replicate_metadata: true,
   });
 
-  // Inventory state
-  const [inventoryForm, setInventoryForm] = useState({
-    enabled: false,
-    frequency: 'daily',
-    format: 'csv',
-    destination_bucket: '',
-    destination_prefix: '',
-    included_fields: ['bucket_name', 'object_key', 'size', 'last_modified', 'etag'],
-    schedule_time: '00:00',
-  });
+  // Inventory state — local edits only; form is derived from server data
+  const [localInventoryEdits, setLocalInventoryEdits] = useState<any>(null);
 
   const { data: bucketData, isLoading } = useQuery({
     queryKey: ['bucket', bucketName, tenantId],
@@ -417,11 +409,13 @@ export default function BucketSettingsPage() {
     },
   });
 
-  // Inventory query
+  // Inventory query — always fetch on mount, never cache stale data
   const { data: inventoryConfig, refetch: refetchInventory } = useQuery({
     queryKey: ['bucket-inventory', bucketName, tenantId],
     queryFn: () => APIClient.getBucketInventory(bucketName, tenantId),
-    enabled: activeTab === 'inventory',
+    retry: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const { data: inventoryReports } = useQuery({
@@ -582,20 +576,43 @@ export default function BucketSettingsPage() {
     loadCurrentPolicy();
   }, [bucketName, tenantId]);
 
-  // Populate inventory form when config is loaded
+  // Refetch inventory config every time the user opens the inventory tab
   useEffect(() => {
-    if (inventoryConfig) {
-      setInventoryForm({
-        enabled: inventoryConfig.enabled || false,
+    if (activeTab === 'inventory') {
+      refetchInventory();
+    }
+  }, [activeTab]);
+
+  // When server data changes (save/delete/refetch), discard local edits so the form
+  // reflects the fresh server state immediately on the next render.
+  useEffect(() => {
+    setLocalInventoryEdits(null);
+  }, [inventoryConfig]);
+
+  // Derived form: prefer local edits (user is mid-edit), otherwise derive from server data.
+  // This eliminates the useState+useEffect timing issue: the form always reflects the
+  // current inventoryConfig on the SAME render in which the query resolves.
+  const inventoryFormDefaults = {
+    enabled: false,
+    frequency: 'daily',
+    format: 'csv',
+    destination_bucket: '',
+    destination_prefix: '',
+    included_fields: ['bucket_name', 'object_key', 'size', 'last_modified', 'etag'],
+    schedule_time: '00:00',
+  };
+  const inventoryForm = localInventoryEdits ?? (inventoryConfig
+    ? {
+        enabled: inventoryConfig.enabled,
         frequency: inventoryConfig.frequency || 'daily',
         format: inventoryConfig.format || 'csv',
         destination_bucket: inventoryConfig.destination_bucket || '',
         destination_prefix: inventoryConfig.destination_prefix || '',
-        included_fields: inventoryConfig.included_fields || ['bucket_name', 'object_key', 'size', 'last_modified', 'etag'],
+        included_fields: inventoryConfig.included_fields || inventoryFormDefaults.included_fields,
         schedule_time: inventoryConfig.schedule_time || '00:00',
-      });
-    }
-  }, [inventoryConfig]);
+      }
+    : inventoryFormDefaults);
+  const setInventoryForm = (newForm: any) => setLocalInventoryEdits(newForm);
 
   // Helper function to detect canned ACL from grants
   const detectCannedACL = (grants: any[]): string => {

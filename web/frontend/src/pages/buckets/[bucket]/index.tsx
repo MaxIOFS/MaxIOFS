@@ -1480,167 +1480,172 @@ export default function BucketDetailsPage() {
                 {actionsOpen && (
                   <div className={`absolute right-0 w-64 rounded-md shadow-lg bg-card border border-border z-50 ${actionsDropUp ? 'bottom-full mb-1' : 'mt-1'}`}>
                     <div className="py-1">
-                      {/* ── Bucket Info ── */}
-                      <div className="px-3 pt-2 pb-1">
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{t('bucketInfo', 'Bucket Info')}</p>
-                      </div>
-                      <button
-                        className="w-full text-left flex items-start gap-2 px-3 py-1.5 hover:bg-secondary"
-                        onClick={() => { navigator.clipboard.writeText(bucketS3Uri); ModalManager.toast('success', 'Copied'); setActionsOpen(false); }}
-                      >
-                        <CopyIcon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0">
-                          <div className="text-xs font-medium">{t('copyS3BucketUri', 'Copy S3 URI')}</div>
-                          <div className="text-[10px] text-muted-foreground truncate">{bucketS3Uri}</div>
-                        </div>
-                      </button>
-                      <button
-                        className="w-full text-left flex items-start gap-2 px-3 py-1.5 hover:bg-secondary"
-                        onClick={() => { navigator.clipboard.writeText(bucketArn); ModalManager.toast('success', 'Copied'); setActionsOpen(false); }}
-                      >
-                        <CopyIcon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0">
-                          <div className="text-xs font-medium">{t('copyBucketArn', 'Copy ARN')}</div>
-                          <div className="text-[10px] text-muted-foreground truncate">{bucketArn}</div>
-                        </div>
-                      </button>
-                      <button
-                        className="w-full text-left flex items-start gap-2 px-3 py-1.5 hover:bg-secondary"
-                        onClick={() => { navigator.clipboard.writeText(bucketEndpointUrl); ModalManager.toast('success', 'Copied'); setActionsOpen(false); }}
-                      >
-                        <LinkIcon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0">
-                          <div className="text-xs font-medium">{t('copyBucketEndpoint', 'Copy Endpoint URL')}</div>
-                          <div className="text-[10px] text-muted-foreground truncate">{bucketEndpointUrl}</div>
-                        </div>
-                      </button>
-                      {bucketWebsiteUrl && (
-                        <button
-                          className="w-full text-left flex items-start gap-2 px-3 py-1.5 hover:bg-secondary"
-                          onClick={() => { window.open(bucketWebsiteUrl, '_blank'); setActionsOpen(false); }}
-                        >
-                          <ExternalLinkIcon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
-                          <div className="min-w-0">
-                            <div className="text-xs font-medium">{t('openWebsiteUrl', 'Open Website URL')}</div>
-                            <div className="text-[10px] text-muted-foreground truncate">{bucketWebsiteUrl}</div>
+                      {selectedObjects.size === 0 ? (
+                        /* ── No selection: show bucket info ── */
+                        <>
+                          <div className="px-3 pt-2 pb-1">
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{t('bucketInfo')}</p>
                           </div>
-                        </button>
+                          <button
+                            className="w-full text-left flex items-start gap-2 px-3 py-1.5 hover:bg-secondary"
+                            onClick={() => { navigator.clipboard.writeText(bucketS3Uri); ModalManager.toast('success', t('copyS3BucketUriSuccess')); setActionsOpen(false); }}
+                          >
+                            <CopyIcon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                            <div className="min-w-0">
+                              <div className="text-xs font-medium">{t('copyS3BucketUri')}</div>
+                              <div className="text-[10px] text-muted-foreground truncate">{bucketS3Uri}</div>
+                            </div>
+                          </button>
+                          <button
+                            className="w-full text-left flex items-start gap-2 px-3 py-1.5 hover:bg-secondary"
+                            onClick={() => { navigator.clipboard.writeText(bucketArn); ModalManager.toast('success', t('copyBucketArnSuccess')); setActionsOpen(false); }}
+                          >
+                            <CopyIcon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                            <div className="min-w-0">
+                              <div className="text-xs font-medium">{t('copyBucketArn')}</div>
+                              <div className="text-[10px] text-muted-foreground truncate">{bucketArn}</div>
+                            </div>
+                          </button>
+                          <button
+                            className="w-full text-left flex items-start gap-2 px-3 py-1.5 hover:bg-secondary"
+                            onClick={() => { navigator.clipboard.writeText(bucketEndpointUrl); ModalManager.toast('success', t('copyBucketEndpointSuccess')); setActionsOpen(false); }}
+                          >
+                            <LinkIcon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                            <div className="min-w-0">
+                              <div className="text-xs font-medium">{t('copyBucketEndpoint')}</div>
+                              <div className="text-[10px] text-muted-foreground truncate">{bucketEndpointUrl}</div>
+                            </div>
+                          </button>
+                          {bucketWebsiteUrl && (
+                            <button
+                              className="w-full text-left flex items-start gap-2 px-3 py-1.5 hover:bg-secondary"
+                              onClick={() => { window.open(bucketWebsiteUrl, '_blank'); setActionsOpen(false); }}
+                            >
+                              <ExternalLinkIcon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                              <div className="min-w-0">
+                                <div className="text-xs font-medium">{t('openWebsiteUrl')}</div>
+                                <div className="text-[10px] text-muted-foreground truncate">{bucketWebsiteUrl}</div>
+                              </div>
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        /* ── Objects selected: show object actions ── */
+                        <>
+                          <div className="px-3 pt-2 pb-1">
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{t('objectActions')}</p>
+                          </div>
+                          <button
+                            className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                            disabled={!isSingleSelection}
+                            onClick={() => singleItem && handleCopyS3Uri(singleItem.key)}
+                          >
+                            <CopyIcon className="h-4 w-4" />
+                            {t('copyS3Uri')}
+                          </button>
+                          <button
+                            className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                            disabled={!singleIsFile}
+                            onClick={() => singleItem && handleCopyObjectUrl(singleItem.key)}
+                          >
+                            <LinkIcon className="h-4 w-4" />
+                            {t('copyObjectUrl')}
+                          </button>
+                          <div className="my-1 border-t border-border" />
+                          <button
+                            className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                            disabled={!singleIsFile || isGlobalAdminInTenantBucket}
+                            onClick={() => { if (singleItem) handleDownloadObject(singleItem.key); setActionsOpen(false); }}
+                          >
+                            <DownloadIcon className="h-4 w-4" />
+                            {t('download')}
+                          </button>
+                          <button
+                            className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                            disabled={!singleIsFolder || isGlobalAdminInTenantBucket}
+                            onClick={() => { if (singleItem) { handleDownloadFolderZip(singleItem.key); setActionsOpen(false); } }}
+                          >
+                            <FolderDownIcon className="h-4 w-4" />
+                            {t('downloadFolderZip')}
+                          </button>
+                          <button
+                            className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                            disabled={!singleIsFolder}
+                            onClick={() => singleItem && handleCalculateFolderSize(singleItem.key)}
+                          >
+                            <SigmaIcon className="h-4 w-4" />
+                            {t('calculateSize')}
+                          </button>
+                          <div className="my-1 border-t border-border" />
+                          <button
+                            className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                            disabled={!singleIsFile || isGlobalAdminInTenantBucket}
+                            onClick={() => { if (singleItem) { handleShareObject(singleItem.key); setActionsOpen(false); } }}
+                          >
+                            <Share2Icon className="h-4 w-4" />
+                            {t('sharePublicLink')}
+                          </button>
+                          <button
+                            className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                            disabled={!singleIsFile || isGlobalAdminInTenantBucket}
+                            onClick={() => { if (singleItem) { handleGeneratePresignedURL(singleItem.key); setActionsOpen(false); } }}
+                          >
+                            <LinkIcon className="h-4 w-4" />
+                            {t('generatePresignedUrl')}
+                          </button>
+                          {bucketData?.versioning?.Status === 'Enabled' && (
+                            <button
+                              className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                              disabled={!singleIsFile}
+                              onClick={() => { if (singleItem) { handleViewVersions(singleItem.key); setActionsOpen(false); } }}
+                            >
+                              <HistoryIcon className="h-4 w-4" />
+                              {t('viewVersions')}
+                            </button>
+                          )}
+                          {bucketData?.objectLock?.objectLockEnabled && (
+                            <button
+                              className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                              disabled={!singleIsFile || isGlobalAdminInTenantBucket || toggleLegalHoldMutation.isPending}
+                              onClick={() => {
+                                if (singleItem) {
+                                  handleToggleLegalHold(singleItem.key, ('legalHold' in singleItem && (singleItem as any).legalHold?.status === 'ON'));
+                                  setActionsOpen(false);
+                                }
+                              }}
+                            >
+                              <ShieldIcon className="h-4 w-4" />
+                              {singleItem && 'legalHold' in singleItem && (singleItem as any).legalHold?.status === 'ON' ? t('disableLegalHold') : t('enableLegalHold')}
+                            </button>
+                          )}
+                          <div className="my-1 border-t border-border" />
+                          <button
+                            className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                            disabled={!singleIsFile || isGlobalAdminInTenantBucket}
+                            onClick={() => singleItem && openRenameModal(singleItem.key)}
+                          >
+                            <PencilIcon className="h-4 w-4" />
+                            {t('renameObject')}
+                          </button>
+                          <button
+                            className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                            disabled={!singleIsFile || isGlobalAdminInTenantBucket}
+                            onClick={() => singleItem && openEditTagsModal(singleItem.key)}
+                          >
+                            <TagIcon className="h-4 w-4" />
+                            {t('editTags')}
+                          </button>
+                          <div className="my-1 border-t border-border" />
+                          <button
+                            className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-40 disabled:cursor-not-allowed"
+                            disabled={isGlobalAdminInTenantBucket || deleteObjectMutation.isPending || hasLockedItems}
+                            onClick={() => { handleBulkDelete(); setActionsOpen(false); }}
+                          >
+                            <Trash2Icon className="h-4 w-4" />
+                            {t('deleteSelected')}
+                          </button>
+                        </>
                       )}
-
-                      {/* ── Object Actions ── */}
-                      <div className="my-1 border-t border-border" />
-                      <div className="px-3 pt-1.5 pb-1">
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{t('objectActions', 'Object Actions')}</p>
-                      </div>
-                      <button
-                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                        disabled={!isSingleSelection}
-                        onClick={() => singleItem && handleCopyS3Uri(singleItem.key)}
-                      >
-                        <CopyIcon className="h-4 w-4" />
-                        {t('copyS3Uri')}
-                      </button>
-                      <button
-                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                        disabled={!singleIsFile}
-                        onClick={() => singleItem && handleCopyObjectUrl(singleItem.key)}
-                      >
-                        <LinkIcon className="h-4 w-4" />
-                        {t('copyObjectUrl')}
-                      </button>
-                      <div className="my-1 border-t border-border" />
-                      <button
-                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                        disabled={!singleIsFile || isGlobalAdminInTenantBucket}
-                        onClick={() => { if (singleItem) handleDownloadObject(singleItem.key); setActionsOpen(false); }}
-                      >
-                        <DownloadIcon className="h-4 w-4" />
-                        {t('download')}
-                      </button>
-                      <button
-                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                        disabled={!singleIsFolder || isGlobalAdminInTenantBucket}
-                        onClick={() => { if (singleItem) { handleDownloadFolderZip(singleItem.key); setActionsOpen(false); } }}
-                      >
-                        <FolderDownIcon className="h-4 w-4" />
-                        {t('downloadFolderZip')}
-                      </button>
-                      <button
-                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                        disabled={!singleIsFolder}
-                        onClick={() => singleItem && handleCalculateFolderSize(singleItem.key)}
-                      >
-                        <SigmaIcon className="h-4 w-4" />
-                        {t('calculateSize')}
-                      </button>
-                      <div className="my-1 border-t border-border" />
-                      <button
-                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                        disabled={!singleIsFile || isGlobalAdminInTenantBucket}
-                        onClick={() => { if (singleItem) { handleShareObject(singleItem.key); setActionsOpen(false); } }}
-                      >
-                        <Share2Icon className="h-4 w-4" />
-                        {t('sharePublicLink')}
-                      </button>
-                      <button
-                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                        disabled={!singleIsFile || isGlobalAdminInTenantBucket}
-                        onClick={() => { if (singleItem) { handleGeneratePresignedURL(singleItem.key); setActionsOpen(false); } }}
-                      >
-                        <LinkIcon className="h-4 w-4" />
-                        {t('generatePresignedUrl')}
-                      </button>
-                      {bucketData?.versioning?.Status === 'Enabled' && (
-                        <button
-                          className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                          disabled={!singleIsFile}
-                          onClick={() => { if (singleItem) { handleViewVersions(singleItem.key); setActionsOpen(false); } }}
-                        >
-                          <HistoryIcon className="h-4 w-4" />
-                          {t('viewVersions')}
-                        </button>
-                      )}
-                      {bucketData?.objectLock?.objectLockEnabled && (
-                        <button
-                          className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                          disabled={!singleIsFile || isGlobalAdminInTenantBucket || toggleLegalHoldMutation.isPending}
-                          onClick={() => {
-                            if (singleItem) {
-                              handleToggleLegalHold(singleItem.key, ('legalHold' in singleItem && (singleItem as any).legalHold?.status === 'ON'));
-                              setActionsOpen(false);
-                            }
-                          }}
-                        >
-                          <ShieldIcon className="h-4 w-4" />
-                          {singleItem && 'legalHold' in singleItem && (singleItem as any).legalHold?.status === 'ON' ? t('disableLegalHold') : t('enableLegalHold')}
-                        </button>
-                      )}
-                      <div className="my-1 border-t border-border" />
-                      <button
-                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                        disabled={!singleIsFile || isGlobalAdminInTenantBucket}
-                        onClick={() => singleItem && openRenameModal(singleItem.key)}
-                      >
-                        <PencilIcon className="h-4 w-4" />
-                        {t('renameObject')}
-                      </button>
-                      <button
-                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                        disabled={!singleIsFile || isGlobalAdminInTenantBucket}
-                        onClick={() => singleItem && openEditTagsModal(singleItem.key)}
-                      >
-                        <TagIcon className="h-4 w-4" />
-                        {t('editTags')}
-                      </button>
-                      <div className="my-1 border-t border-border" />
-                      <button
-                        className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-40 disabled:cursor-not-allowed"
-                        disabled={isGlobalAdminInTenantBucket || deleteObjectMutation.isPending || hasLockedItems}
-                        onClick={() => { handleBulkDelete(); setActionsOpen(false); }}
-                      >
-                        <Trash2Icon className="h-4 w-4" />
-                        {t('deleteSelected')}
-                      </button>
                     </div>
                   </div>
                 )}

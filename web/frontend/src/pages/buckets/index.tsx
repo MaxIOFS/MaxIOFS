@@ -542,28 +542,22 @@ export default function BucketsPage() {
           />
         </div>
 
-        {/* ── Search ── */}
-        <div className="bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-800/50 rounded-xl border border-border shadow-sm p-4">
-          <div className="relative max-w-md">
-            <div className="absolute left-4 top-1/2 transform -translate-y-1/2">
-              <Search className="text-muted-foreground h-5 w-5" />
-            </div>
-            <Input
-              placeholder={t('searchBuckets')}
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="pl-12 bg-card border-border text-foreground focus:ring-2 focus:ring-brand-500 focus:border-brand-500 rounded-lg shadow-sm"
-            />
-          </div>
-        </div>
-
         {/* ── Table ── */}
         <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden">
-          <div className="px-6 py-5 border-b border-border">
-            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <Box className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 shrink-0">
+              <Box className="h-4 w-4 text-brand-600 dark:text-brand-400" />
               {t('allBuckets', { count: sortedBuckets.length })}
             </h3>
+            <div className="relative w-64">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder={t('searchBuckets')}
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="pl-8 h-8 text-sm"
+              />
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -759,22 +753,23 @@ export default function BucketsPage() {
 
           {/* Pagination */}
           {sortedBuckets.length > 0 && (
-            <div className="px-6 py-4 border-t border-border bg-gradient-to-r from-gray-50 to-white dark:from-gray-900 dark:to-gray-800 flex items-center justify-between">
-              <div className="text-sm font-medium text-foreground">
+            <div className="px-4 py-2 border-t border-border flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
                 {t('showing', {
                   start: startIndex + 1,
                   end: Math.min(startIndex + itemsPerPage, sortedBuckets.length),
                   total: sortedBuckets.length,
                 })}
-              </div>
-              <div className="flex items-center gap-2">
+              </span>
+              <div className="flex items-center gap-1">
                 <Button
                   variant="outline"
+                  size="sm"
                   onClick={() => setCurrentPage(p => p - 1)}
                   disabled={currentPage === 1}
-                  className="inline-flex items-center gap-1 bg-card border-border shadow-sm"
+                  className="h-7 px-2 gap-1 text-xs"
                 >
-                  <ChevronLeft className="h-4 w-4" />
+                  <ChevronLeft className="h-3.5 w-3.5" />
                   {t('previous')}
                 </Button>
 
@@ -784,14 +779,14 @@ export default function BucketsPage() {
                     .map((page, idx, arr) => (
                       <React.Fragment key={page}>
                         {idx > 0 && page - arr[idx - 1] > 1 && (
-                          <span className="px-2 text-muted-foreground">…</span>
+                          <span className="px-1 text-xs text-muted-foreground">…</span>
                         )}
                         <button
                           onClick={() => setCurrentPage(page)}
-                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                          className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                             currentPage === page
                               ? 'bg-brand-600 text-white'
-                              : 'bg-card text-foreground border border-border shadow-sm hover:bg-brand-50 dark:hover:bg-brand-900/20'
+                              : 'text-foreground border border-border hover:bg-secondary'
                           }`}
                         >
                           {page}
@@ -802,12 +797,13 @@ export default function BucketsPage() {
 
                 <Button
                   variant="outline"
+                  size="sm"
                   onClick={() => setCurrentPage(p => p + 1)}
                   disabled={currentPage === totalPages}
-                  className="inline-flex items-center gap-1 bg-card border-border shadow-sm"
+                  className="h-7 px-2 gap-1 text-xs"
                 >
                   {t('next')}
-                  <ChevronRight className="h-4 w-4" />
+                  <ChevronRight className="h-3.5 w-3.5" />
                 </Button>
               </div>
             </div>

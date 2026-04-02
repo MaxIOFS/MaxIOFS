@@ -438,6 +438,7 @@
 
   "inventory": {
     "title": "Inventario del Bucket",
+    "loading": "Cargando configuración...",
     "enableLabel": "Habilitar Informes de Inventario",
     "frequencyLabel": "Frecuencia",
     "frequencyDaily": "Diaria",
