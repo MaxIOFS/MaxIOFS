@@ -485,6 +485,11 @@ func (m *MockMetadataStore) IsReady() bool {
 	return args.Bool(0)
 }
 
+func (m *MockMetadataStore) HasActiveComplianceRetention(ctx context.Context, bucket string) (bool, error) {
+	args := m.Called(ctx, bucket)
+	return args.Bool(0), args.Error(1)
+}
+
 // Mock StorageBackend
 type MockStorageBackend struct {
 	mock.Mock
