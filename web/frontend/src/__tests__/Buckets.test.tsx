@@ -15,6 +15,7 @@ vi.mock('@/lib/api', () => ({
     deleteBucket: vi.fn(),
     getServerConfig: vi.fn(),
     getCurrentUser: vi.fn(),
+    getIntegrityHistory: vi.fn(),
   },
 }));
 
@@ -65,8 +66,9 @@ describe('Buckets Page', () => {
     vi.mocked(APIClient.getBuckets).mockResolvedValue(mockBuckets);
     vi.mocked(APIClient.getUsers).mockResolvedValue([]);
     vi.mocked(APIClient.getTenants).mockResolvedValue([]);
+    vi.mocked(APIClient.getIntegrityHistory).mockResolvedValue([]);
     vi.mocked(APIClient.getServerConfig).mockResolvedValue({
-      version: '0.6.1-beta',
+      version: '1.1.0',
       commit: 'abc123',
       buildDate: '2025-01-01',
       server: {

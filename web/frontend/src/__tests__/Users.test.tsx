@@ -109,7 +109,7 @@ describe('Users Page', () => {
     vi.mocked(APIClient.getAccessKeys).mockResolvedValue([]);
     vi.mocked(APIClient.getTenants).mockResolvedValue(mockTenants);
     vi.mocked(APIClient.getServerConfig).mockResolvedValue({
-      version: '0.6.1-beta',
+      version: '1.1.0',
       commit: 'abc123',
       buildDate: '2025-01-01',
       server: {

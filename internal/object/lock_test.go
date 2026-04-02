@@ -651,3 +651,7 @@ func (m *mockManager) VerifyBucketIntegrity(ctx context.Context, bucket, prefix,
 func (m *mockManager) IsReady() bool {
 	return true
 }
+
+func (m *mockManager) HasActiveComplianceRetention(ctx context.Context, bucket string) (bool, error) {
+	return false, nil
+}

@@ -461,6 +461,10 @@ func (m *MockObjectManager) SetRestoreStatus(ctx context.Context, bucket, key st
 	return nil
 }
 
+func (m *MockObjectManager) HasActiveComplianceRetention(ctx context.Context, bucket string) (bool, error) {
+	return false, nil
+}
+
 type MockAuthManager struct {
 	mock.Mock
 }

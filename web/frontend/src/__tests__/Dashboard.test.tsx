@@ -96,7 +96,7 @@ describe('Dashboard Page', () => {
     vi.mocked(APIClient.getBuckets).mockResolvedValue(mockBuckets);
     vi.mocked(APIClient.getUsers).mockResolvedValue(mockUsers);
     vi.mocked(APIClient.getServerConfig).mockResolvedValue({
-      version: '0.6.1-beta',
+      version: '1.1.0',
       commit: 'abc123',
       buildDate: '2025-01-01',
       server: {
