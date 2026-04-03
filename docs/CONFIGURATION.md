@@ -1,6 +1,6 @@
 # MaxIOFS Configuration Guide
 
-**Version**: 1.1.0 | **Last Updated**: March 25, 2026
+**Version**: 1.1.0 | **Last Updated**: April 2, 2026
 
 ## Configuration Architecture
 
@@ -55,6 +55,7 @@ storage:
   enable_encryption: false        # AES-256-GCM at rest
   encryption_key: ""              # 64 hex chars (32 bytes). Generate: openssl rand -hex 32
   enable_object_lock: true        # S3 Object Lock / WORM retention
+  metadata_cache_size_mb: 256     # Pebble block cache — increase for large/write-heavy buckets
 
 # Authentication
 auth:
@@ -125,6 +126,7 @@ All settings can be set via `MAXIOFS_` prefixed environment variables:
 - `MAXIOFS_STORAGE_ROOT` — Objects root directory
 - `MAXIOFS_STORAGE_ENABLE_ENCRYPTION` — Enable encryption
 - `MAXIOFS_STORAGE_ENCRYPTION_KEY` — Master encryption key (hex)
+- `MAXIOFS_STORAGE_METADATA_CACHE_SIZE_MB` — Pebble block cache size in MB (default: 256)
 
 **Auth:**
 - `MAXIOFS_AUTH_ENABLE_AUTH` — Enable authentication
@@ -222,6 +224,92 @@ PUT /api/v1/settings/{key}
 # Reset to default
 POST /api/v1/settings/reset
 ```
+
+---
+
+## Metadata Store (Pebble) Tuning
+
+MaxIOFS stores all object and bucket metadata in an embedded [Pebble](https://github.com/cockroachdb/pebble) LSM-tree database (`{data_dir}/metadata/`). Understanding how to tune it can significantly improve performance for large or write-heavy deployments.
+
+### How the block cache works
+
+When MaxIOFS reads metadata (listing objects in a folder, fetching object info, checking permissions), Pebble first looks for the data in its **block cache** (RAM). On a cache hit the response is essentially instant. On a miss, Pebble reads from disk and stores the result in the cache for subsequent reads.
+
+```
+First access to a large folder  → disk read  (slow, expected)
+Subsequent accesses             → block cache (fast, ~0.1 ms)
+After server restart            → disk read again (cache is cold)
+```
+
+This is the expected behaviour of any LSM-tree engine. You cannot avoid the cold-read penalty on the **very first** access after a restart; you can minimise how often it happens by keeping a large enough cache.
+
+### `metadata_cache_size_mb`
+
+**Where**: `config.yaml` (or environment variable `MAXIOFS_STORAGE_METADATA_CACHE_SIZE_MB`)  
+**Restart required**: Yes — the cache is allocated at startup  
+**Default**: `256` MB
+
+```yaml
+storage:
+  metadata_cache_size_mb: 256
+```
+
+| Deployment size | Objects / bucket | Recommended value |
+|-----------------|-----------------|-------------------|
+| Small / dev | < 5 000 | 256 MB (default) |
+| Medium | 5 000 – 20 000 | 512 MB |
+| Large (Veeam B&R, etc.) | 20 000 – 100 000 | 1 024 MB |
+| Very large | 100 000+ | 2 048 MB or more |
+
+> **Rule of thumb**: Each object metadata entry is ~500–800 bytes in the block cache. A bucket with 40 000 objects uses roughly 20–32 MB of cache. If your server has free RAM, increasing this value is the single most impactful tuning option.
+
+**Example — Veeam Backup & Replication deployment (server with 16 GB RAM):**
+
+```yaml
+storage:
+  metadata_cache_size_mb: 1024
+```
+
+Or without touching `config.yaml`:
+
+```bash
+MAXIOFS_STORAGE_METADATA_CACHE_SIZE_MB=1024 ./maxiofs serve
+```
+
+Or in Docker Compose:
+
+```yaml
+environment:
+  MAXIOFS_STORAGE_METADATA_CACHE_SIZE_MB: "1024"
+```
+
+### What else is tuned automatically (v1.1.0+)
+
+These internal settings are fixed at compile time and cannot be changed via config. They are documented here for transparency:
+
+| Parameter | Value | Effect |
+|-----------|-------|--------|
+| MemTable size | 64 MB | Buffers writes in RAM before flushing to disk. Larger = fewer flushes under write bursts. |
+| MemTable stop-writes threshold | 12 | Number of memtables allowed to accumulate before writes are stalled. Higher = more write tolerance during compaction lag. |
+| L0 compaction threshold | 4 | Pebble starts compacting L0 when 4 files accumulate. Lower = cleaner read path sooner. |
+| L0 stop-writes threshold | 12 | Writes stall if L0 reaches 12 files. Protects read performance under extreme write load. |
+| Compaction concurrency | 2 – 4 goroutines | Background compaction runs on 2 to 4 goroutines depending on system load. |
+| Bloom filters (L1–L6) | 10 bits/key | Probabilistic filter that avoids unnecessary disk reads for point lookups (e.g. "does object X exist?"). ~1% false positive rate. No bloom filter at L0 — range scans dominate there. |
+| Block size | 32 KB | Amount of data read per I/O operation. Larger blocks are efficient for sequential folder listings. |
+
+### Upgrade path for existing deployments
+
+Starting from **v1.1.0**, the metadata engine was upgraded from **Pebble v1 to Pebble v2** (incompatible on-disk formats). The server handles this automatically:
+
+| Previous version | On-disk format | What happens on first start |
+|-----------------|---------------|-----------------------------|
+| Pre-v1.0.0-beta | BadgerDB | All data migrated to Pebble v2. Original data backed up as `metadata_badger_backup_{timestamp}/`. |
+| v1.0.0-beta | Pebble v1 | All data migrated to Pebble v2. Original data backed up as `metadata_pebblev1_backup_{timestamp}/`. |
+| v1.1.0+ | Pebble v2 | No migration needed. Sentinel file `metadata/PEBBLE_FORMAT_V2` skips the check immediately. |
+
+Migration is **automatic and transparent** — no manual steps required. The backup directories can be deleted after you verify the server is working correctly on the new version.
+
+> **Important**: Migration runs before the server opens the store. If the server is killed mid-migration, the next start detects the incomplete state and either retries or recovers automatically.
 
 ---
 

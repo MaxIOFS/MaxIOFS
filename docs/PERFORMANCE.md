@@ -1,6 +1,6 @@
 # MaxIOFS Performance & SLOs
 
-**Version**: 1.1.0 | **Last Updated**: March 25, 2026
+**Version**: 1.1.0 | **Last Updated**: April 2, 2026
 
 ## Performance Summary
 
@@ -159,12 +159,71 @@ For 99.9% availability: **43.2 minutes/month**
 
 ---
 
+## Metadata Store Performance (Pebble)
+
+MaxIOFS stores all object and bucket metadata in an embedded Pebble LSM-tree database. Understanding its behaviour is essential for diagnosing latency spikes in large deployments.
+
+### Cold vs. hot reads
+
+The most common performance complaint is **"the first folder listing after a restart is slow."** This is expected and inherent to LSM-tree engines:
+
+- **Cold read** (first access after restart): Pebble reads SSTable blocks from disk and populates the block cache. Duration depends on disk speed and folder size.
+- **Hot read** (subsequent access): Data is served from the block cache in RAM — typically sub-millisecond.
+
+There is no way to avoid the cold-read penalty entirely; you minimise its frequency by making the cache large enough to hold your working set.
+
+### Tuning the block cache
+
+The single most impactful setting is `storage.metadata_cache_size_mb` in `config.yaml`:
+
+```yaml
+storage:
+  metadata_cache_size_mb: 1024   # MB — increase for write-heavy or large-bucket deployments
+```
+
+| Scenario | Recommended cache |
+|----------|------------------|
+| Dev / small deployment | 256 MB (default) |
+| Medium workload | 512 MB |
+| Veeam B&R / 20k–100k objects per bucket | 1 024 MB |
+| Very large deployments | 2 048 MB+ |
+
+> Each object metadata record occupies ~500–800 bytes in the cache. A Veeam bucket with 40 000 objects fits in ~20–32 MB of cache — well within even the default 256 MB.
+
+### Write-heavy workloads (Veeam Backup & Replication)
+
+Veeam writes thousands of objects in bursts. MaxIOFS v1.1.0 ships with Pebble pre-tuned for this pattern:
+
+| Tuning | Value | Why it matters for Veeam |
+|--------|-------|--------------------------|
+| MemTable size | 64 MB | Absorbs write bursts in RAM; fewer L0 flushes during active backup jobs. |
+| MemTableStopWritesThreshold | 12 | Prevents write stalls while compaction catches up after a large restore job. |
+| Compaction concurrency | 2–4 goroutines | Keeps the LSM tree compact in the background, maintaining fast list performance between backup sessions. |
+| Bloom filters (L1–L6) | 10 bits/key | Point lookups (HEAD requests, existence checks by Veeam) skip unnecessary disk reads on non-matching keys. |
+| Block size | 32 KB | Efficient for sequential range scans (folder listings, GETs of consecutive objects). |
+
+These values are fixed in the binary and do not require configuration. Only the cache size is user-tunable.
+
+### Estimating required cache for your workload
+
+```
+objects_per_bucket × avg_metadata_size_bytes ÷ 1_048_576 = MB needed per bucket
+
+Example (Veeam, 40 000 objects, 700 bytes avg):
+  40 000 × 700 ÷ 1 048 576 ≈ 27 MB per bucket
+
+For 10 such buckets:
+  27 × 10 = 270 MB → 512 MB cache recommended (headroom for indexing overhead)
+```
+
+---
+
 ## Optimization Guidelines
 
 **When to optimize**: SLO violations > 5% of the time over 7 days.
 
 **Priority order**:
-1. Database queries — add indexes, optimize SQLite/Pebble
+1. **Metadata cache** — increase `metadata_cache_size_mb` if folder listings are slow after restart
 2. Disk I/O — use SSD/NVMe, enable OS caching
 3. Memory — reduce GC pressure, reuse buffers
 4. Concurrency — optimize lock contention

@@ -280,6 +280,19 @@ storage:
   # Default: true
   enable_object_lock: true
 
+  # Pebble metadata store block cache size in MB.
+  # A larger cache keeps recently-accessed object and bucket metadata in RAM,
+  # dramatically reducing first-access latency when browsing large buckets
+  # (e.g. Veeam backups with tens of thousands of objects).
+  # Increase this value if your server has available RAM:
+  #   256  MB → default, suitable for small deployments
+  #   512  MB → recommended for medium workloads (5k–20k objects per bucket)
+  #   1024 MB → recommended for heavy workloads (Veeam B&R, 20k+ objects)
+  #   2048 MB → large deployments with multiple high-volume buckets
+  # Can also be set via environment variable: MAXIOFS_STORAGE_METADATA_CACHE_SIZE_MB
+  # Default: 256
+  metadata_cache_size_mb: 256
+
 # =============================================================================
 # AUTHENTICATION CONFIGURATION
 # =============================================================================

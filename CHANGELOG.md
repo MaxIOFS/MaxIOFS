@@ -44,9 +44,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Regular tenant users had buckets assigned to the tenant instead of themselves** — `handleCreateBucket` used `ownerType = "tenant"` for all tenant users including non-admins, preventing them from ever satisfying the `isOwner` condition. Non-admin tenant users now get `ownerType = "user"` and `ownerID = user.ID`; tenant admins retain tenant ownership. (`internal/server/console_api.go`)
 
 ### Changed
-- **Pebble metadata engine upgraded from v1.1.5 to v2.1.4** — the LSM-tree storage engine used for all object and bucket metadata has been updated to the latest stable release. The upgrade improves write throughput and compaction efficiency under write-heavy workloads (e.g. Veeam Backup & Replication writing 40 000+ objects). Because Pebble v1 and v2 use incompatible on-disk formats, the server now runs an automatic one-time migration on first start: the existing v1 database is opened read-only, all key-value pairs are streamed into a new v2 directory (`metadata_pebblev2/`), and the directories are swapped atomically. The original v1 data is preserved as `metadata_pebblev1_backup_{timestamp}/` for one restart cycle. A sentinel file `PEBBLE_FORMAT_V2` is written inside `metadata/` to mark the migration as complete; subsequent restarts skip the check entirely. The migration also runs transparently when upgrading from BadgerDB directly to v2 (both migration paths write the sentinel). (`internal/metadata/pebble_v1_migration.go`, `internal/metadata/pebble_store.go`, `internal/metadata/migration.go`, `internal/server/server.go`, `go.mod`)
-- **Pebble block cache size is now configurable** — a new `storage.metadata_cache_size_mb` option in `config.yaml` controls the Pebble block cache (default: 256 MB). Increasing this value on servers with ample RAM significantly reduces first-access latency when browsing large buckets. (`internal/config/config.go`, `internal/metadata/pebble_store.go`, `internal/server/server.go`)
-- **Pebble tuned for write-heavy workloads** — MemTable size raised to 64 MB, stop-writes threshold relaxed to 12 MemTables, compaction concurrency set to 2–4 parallel goroutines, and bloom filters (10 bits/key) enabled on levels L1–L6 to speed up point lookups after large sequential write batches. (`internal/metadata/pebble_store.go`)
+- **Pebble metadata engine upgraded from v1.1.5 to v2.1.4** — the embedded LSM-tree engine that stores all object and bucket metadata has been updated to the latest stable release. Pebble v1 and v2 use **incompatible on-disk formats**, so the server performs an automatic one-time migration on first start with this version:
+  1. The existing Pebble v1 database (`metadata/`) is opened **read-only**.
+  2. All key-value pairs are streamed into a temporary v2 directory (`metadata_pebblev2/`).
+  3. The directories are swapped atomically: `metadata/` is renamed to `metadata_pebblev1_backup_{timestamp}/` (preserved as a safety backup), and `metadata_pebblev2/` is promoted to `metadata/`.
+  4. A sentinel file `metadata/PEBBLE_FORMAT_V2` is written. All subsequent restarts detect it and skip the migration check immediately.
+
+  The migration is fully transparent — no manual steps, no downtime window, no data loss. The backup directory can be deleted after verifying the server operates normally. If the server is killed mid-migration, the next start automatically detects the incomplete state and either retries or completes the rename. Upgrading from BadgerDB (pre-v1.0.0-beta) is also covered: the BadgerDB migration path now writes to Pebble v2 directly and stamps the same sentinel, so the v1→v2 check is skipped for those deployments too.
+
+  **Upgrade path summary**:
+  - Pre-v1.0.0-beta (BadgerDB) → first upgrade to **v1.0.0-beta**, which migrates to Pebble v1, then upgrade to this version, which migrates to Pebble v2. Alternatively, upgrading directly to this version also works if the BadgerDB→Pebble v2 direct path runs first.
+  - v1.0.0-beta (Pebble v1) → upgrade directly to this version; automatic migration runs on first start.
+  - Fresh install → Pebble v2 is created directly, no migration needed.
+
+  (`internal/metadata/pebble_v1_migration.go`, `internal/metadata/pebble_store.go`, `internal/metadata/migration.go`, `internal/server/server.go`, `go.mod`)
+
+- **New config option: `storage.metadata_cache_size_mb`** — controls the size of the Pebble block cache, which is the primary lever for metadata read performance. When MaxIOFS lists a folder or fetches object info, Pebble first checks this in-RAM cache. A cache hit is essentially instant (~0.1 ms); a miss requires a disk read. The cache is populated on first access and persists for the lifetime of the process.
+
+  Default is **256 MB**. Recommended values by workload:
+
+  | Deployment | Objects / bucket | Recommended |
+  |------------|-----------------|-------------|
+  | Small / development | < 5 000 | 256 MB (default) |
+  | Medium | 5 000–20 000 | 512 MB |
+  | Veeam B&R / large buckets | 20 000–100 000 | 1 024 MB |
+  | Very large deployments | 100 000+ | 2 048 MB+ |
+
+  Configure in `config.yaml`:
+  ```yaml
+  storage:
+    metadata_cache_size_mb: 1024
+  ```
+  Or via environment variable (no restart of config file needed):
+  ```bash
+  MAXIOFS_STORAGE_METADATA_CACHE_SIZE_MB=1024
+  ```
+  **Note**: this is a startup-time setting. It cannot be changed at runtime via the console or API — the cache is allocated once when the database opens. Restart is required after changing it.
+
+  (`internal/config/config.go`, `internal/metadata/pebble_store.go`, `internal/server/server.go`, `config.example.yaml`, `docs/CONFIGURATION.md`)
+
+- **Pebble pre-tuned for write-heavy workloads** — several internal engine parameters were tuned to improve performance under the write-burst patterns produced by tools like Veeam Backup & Replication (tens of thousands of objects written in rapid succession):
+  - **MemTable size: 64 MB** (up from the default 4 MB) — writes are buffered in RAM before being flushed to L0 SSTables. A larger MemTable absorbs longer bursts without triggering a flush, reducing write amplification and keeping the LSM tree cleaner.
+  - **MemTableStopWritesThreshold: 12** — the number of unflushed MemTables before incoming writes are stalled. Raising this gives compaction more time to catch up during sustained write loads without blocking the client.
+  - **L0StopWritesThreshold: 12** — similarly, writes are only stalled when 12 L0 files are pending compaction (default is 4). This prevents false write stalls during backup job peaks.
+  - **Compaction concurrency: 2–4 goroutines** — Pebble now runs 2 to 4 background compaction goroutines simultaneously. This keeps the LSM tree compact between backup sessions, directly improving list and point-lookup latency.
+  - **Bloom filters on L1–L6 (10 bits/key)** — a probabilistic structure that avoids unnecessary disk reads for point lookups where the key is absent. For example, a Veeam existence check (`HEAD /{bucket}/{object}`) on a key that doesn't exist would previously require scanning each LSM level on disk; with bloom filters the answer is ~99% certain in RAM. L0 deliberately has no bloom filter because range scans dominate there.
+  - **Block size: 32 KB** — each SSTable block read from disk contains 32 KB of contiguous key-value data. Larger blocks are more efficient for sequential range scans (folder listings, prefix iteration) at the cost of slightly more memory per cached block.
+
+  These values are fixed in the binary. The only user-tunable parameter is the cache size described above. (`internal/metadata/pebble_store.go`)
 - **Actions dropdown in bucket browser is now context-aware** — previously the dropdown mixed bucket-level info (S3 URI, ARN, Endpoint URL, Website URL) with object actions in a single list regardless of selection state. Redesigned so that with no objects selected the dropdown shows only bucket information (S3 URI, ARN, Endpoint URL, Website URL) under a "Bucket Info" header, and with one or more objects selected it shows only object actions under an "Object Actions" header. All new labels internationalised in both `en` and `es` locales. (`web/frontend/src/pages/buckets/[bucket]/index.tsx`, `web/frontend/src/locales/en/buckets.json`, `web/frontend/src/locales/es/buckets.json`)
 - **Bucket list search moved inline into table header** — the standalone search card above the buckets table was removed. The search input is now embedded directly in the table header row alongside the bucket count, matching the layout used inside the bucket browser. Pagination row height reduced (`py-4` → `py-2`) and page-navigation buttons made more compact. (`web/frontend/src/pages/buckets/index.tsx`)
 - **CI/CD GitHub Actions updated to Node.js 24 runtime** — all actions in both workflow files (`main.yml`, `docker-publish.yml`) updated to versions that declare `runs.using: node24`: `actions/checkout` v4→v6, `actions/setup-go` v5→v6, `actions/setup-node` v4→v6, `actions/setup-python` v5→v6, `aws-actions/configure-aws-credentials` v4→v6, `docker/setup-qemu-action` v3→v4, `docker/setup-buildx-action` v3→v4, `docker/login-action` v3→v4, `docker/build-push-action` v6→v7, `peter-evans/dockerhub-description` v4→v5. Eliminates the "Node.js 20 actions are deprecated" warning ahead of GitHub's June 2, 2026 enforcement deadline. (`.github/workflows/main.yml`, `.github/workflows/docker-publish.yml`)
