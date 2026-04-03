@@ -61,6 +61,9 @@ type StorageConfig struct {
 
 	// Object locking
 	EnableObjectLock bool `mapstructure:"enable_object_lock"`
+
+	// Metadata store tuning
+	MetadataCacheSizeMB int `mapstructure:"metadata_cache_size_mb"` // Pebble block cache (default 256 MB)
 }
 
 // AuthConfig defines authentication configuration
@@ -155,6 +158,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("storage.root", "") // Empty by default, will be set based on data_dir
 	v.SetDefault("storage.enable_encryption", false)
 	v.SetDefault("storage.enable_object_lock", true)
+	v.SetDefault("storage.metadata_cache_size_mb", 256)
 
 	// Auth defaults - NO default credentials for security
 	v.SetDefault("auth.enable_auth", true)

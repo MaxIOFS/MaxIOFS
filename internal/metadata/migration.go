@@ -7,7 +7,7 @@ import (
 	"time"
 
 	badger "github.com/dgraph-io/badger/v4"
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/sirupsen/logrus"
 )
 
@@ -80,6 +80,12 @@ func MigrateFromBadgerIfNeeded(dataDir string, logger *logrus.Logger) error {
 		return fmt.Errorf("failed to rename Pebble directory: %w", err)
 	}
 
+	// Write Pebble v2 sentinel so MigrateFromPebbleV1IfNeeded skips this directory.
+	sentinelPath := filepath.Join(metaDir, PebbleV2SentinelFile)
+	if err := os.WriteFile(sentinelPath, []byte("v2\n"), 0644); err != nil {
+		logger.Warnf("Failed to write Pebble v2 sentinel after BadgerDB migration: %v", err)
+	}
+
 	logger.WithFields(logrus.Fields{
 		"migrated_keys": migrated,
 		"backup_dir":    backupDir,
@@ -113,7 +119,7 @@ func runMigration(badgerDir, pebbleDir string, logger *logrus.Logger) (int64, er
 
 	pdb, err := pebble.Open(pebbleDir, &pebble.Options{
 		Cache:  cache,
-		Levels: []pebble.LevelOptions{{Compression: pebble.SnappyCompression}},
+		Levels: [7]pebble.LevelOptions{},
 		Logger: &pebbleLogger{logger: logger},
 	})
 	if err != nil {

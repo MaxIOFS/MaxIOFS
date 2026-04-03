@@ -24,6 +24,7 @@ type BucketWithLocation struct {
 	ObjectCount int64                     `json:"object_count"`
 	SizeBytes   int64                     `json:"size_bytes"`
 	ObjectLock  *bucket.ObjectLockConfig  `json:"object_lock,omitempty"`
+	Encryption  *bucket.EncryptionConfig  `json:"encryption,omitempty"`
 	Metadata    map[string]string         `json:"metadata,omitempty"`
 	Tags        map[string]string         `json:"tags,omitempty"`
 	NodeID      string                    `json:"node_id"`
@@ -83,6 +84,7 @@ func (ba *BucketAggregator) ListAllBuckets(ctx context.Context, tenantID string)
 			ObjectCount: b.ObjectCount,
 			SizeBytes:   b.TotalSize,
 			ObjectLock:  b.ObjectLock,
+			Encryption:  b.Encryption,
 			Metadata:    b.Metadata,
 			Tags:        b.Tags,
 			NodeID:      localNodeID,

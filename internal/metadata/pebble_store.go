@@ -11,7 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/sirupsen/logrus"
 )
 
@@ -28,8 +29,9 @@ type PebbleStore struct {
 
 // PebbleOptions contains configuration options for PebbleStore
 type PebbleOptions struct {
-	DataDir string
-	Logger  *logrus.Logger
+	DataDir     string
+	Logger      *logrus.Logger
+	CacheSizeMB int // Block cache size in MB (default 256)
 }
 
 // NewPebbleStore creates a new Pebble-backed metadata store
@@ -43,13 +45,30 @@ func NewPebbleStore(opts PebbleOptions) (*PebbleStore, error) {
 		return nil, fmt.Errorf("failed to create metadata directory: %w", err)
 	}
 
-	cache := pebble.NewCache(256 << 20) // 256 MB block cache
+	cacheSizeMB := opts.CacheSizeMB
+	if cacheSizeMB <= 0 {
+		cacheSizeMB = 256
+	}
+	cache := pebble.NewCache(int64(cacheSizeMB) << 20)
 	defer cache.Unref()
 
 	pebbleOpts := &pebble.Options{
-		Cache: cache,
-		Levels: []pebble.LevelOptions{
-			{Compression: pebble.SnappyCompression},
+		Cache:                       cache,
+		MemTableSize:                64 << 20, // 64 MB per memtable
+		MemTableStopWritesThreshold: 12,       // allow more memtables before stalling writes
+		L0CompactionThreshold:       4,        // compact L0 sooner (default 4)
+		L0StopWritesThreshold:       12,       // allow more L0 files before stalling
+		CompactionConcurrencyRange:  func() (int, int) { return 2, 4 }, // 2–4 parallel compactions
+		Levels: [7]pebble.LevelOptions{
+			// L0: no bloom filter (range scans dominate at L0)
+			{BlockSize: 32 << 10},
+			// L1–L6: bloom filters speed up point lookups
+			{BlockSize: 32 << 10, FilterPolicy: bloom.FilterPolicy(10)},
+			{BlockSize: 32 << 10, FilterPolicy: bloom.FilterPolicy(10)},
+			{BlockSize: 32 << 10, FilterPolicy: bloom.FilterPolicy(10)},
+			{BlockSize: 32 << 10, FilterPolicy: bloom.FilterPolicy(10)},
+			{BlockSize: 32 << 10, FilterPolicy: bloom.FilterPolicy(10)},
+			{BlockSize: 32 << 10, FilterPolicy: bloom.FilterPolicy(10)},
 		},
 		Logger: &pebbleLogger{logger: opts.Logger},
 	}
@@ -57,6 +76,12 @@ func NewPebbleStore(opts PebbleOptions) (*PebbleStore, error) {
 	db, err := pebble.Open(dbPath, pebbleOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open pebble db: %w", err)
+	}
+
+	// Write sentinel so MigrateFromPebbleV1IfNeeded can identify this as v2 on future starts.
+	sentinelPath := filepath.Join(dbPath, PebbleV2SentinelFile)
+	if _, statErr := os.Stat(sentinelPath); os.IsNotExist(statErr) {
+		_ = os.WriteFile(sentinelPath, []byte("v2\n"), 0644)
 	}
 
 	store := &PebbleStore{
@@ -438,7 +463,7 @@ func (s *PebbleStore) IsReady() bool {
 // Compact triggers a manual compaction of the entire keyspace.
 func (s *PebbleStore) Compact(ctx context.Context) error {
 	s.logger.Info("Starting Pebble manual compaction")
-	return s.db.Compact([]byte{0x00}, []byte{0xFF}, true)
+	return s.db.Compact(ctx, []byte{0x00}, []byte{0xFF}, true)
 }
 
 // Backup creates a Pebble checkpoint (hard-linked snapshot) at the given path.
@@ -482,13 +507,17 @@ func (s *PebbleStore) DeleteRaw(ctx context.Context, key string) error {
 
 // ==================== Logger adapter ====================
 
-// pebbleLogger adapts logrus to pebble's Logger interface (Infof + Fatalf).
+// pebbleLogger adapts logrus to pebble's Logger interface (Infof + Errorf + Fatalf).
 type pebbleLogger struct {
 	logger *logrus.Logger
 }
 
 func (l *pebbleLogger) Infof(format string, args ...interface{}) {
 	l.logger.Debugf("[Pebble] "+format, args...)
+}
+
+func (l *pebbleLogger) Errorf(format string, args ...interface{}) {
+	l.logger.Errorf("[Pebble] "+format, args...)
 }
 
 func (l *pebbleLogger) Fatalf(format string, args ...interface{}) {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/sirupsen/logrus"
 )
 

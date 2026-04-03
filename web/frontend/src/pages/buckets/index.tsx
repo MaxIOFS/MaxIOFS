@@ -717,8 +717,10 @@ export default function BucketsPage() {
 
                             {(() => {
                               const isObjectLockBucket = bucket.objectLock?.objectLockEnabled;
-                              const isOwner = bucket.ownerType === 'user' && bucket.ownerId === user?.id;
-                              const canDelete = isGlobalAdmin || isOwner || (isAnyAdmin && bucket.ownerType !== 'user');
+                              const bucketOwnerType = bucket.owner_type || bucket.ownerType;
+                              const bucketOwnerId   = bucket.owner_id   || bucket.ownerId;
+                              const isOwner = bucketOwnerType === 'user' && bucketOwnerId === user?.id;
+                              const canDelete = isGlobalAdmin || isOwner || isAnyAdmin;
                               // Object Lock buckets are blocked for ALL users — COMPLIANCE retention
                               // cannot be bypassed by anyone, not even global admins.
                               const lockedBlock = !!isObjectLockBucket;

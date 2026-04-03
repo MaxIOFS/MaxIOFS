@@ -1218,6 +1218,7 @@ func bucketWithLocationToBucket(bwl cluster.BucketWithLocation) bucket.Bucket {
 		ObjectCount: bwl.ObjectCount,
 		TotalSize:   bwl.SizeBytes,
 		ObjectLock:  bwl.ObjectLock,
+		Encryption:  bwl.Encryption,
 		Metadata:    bwl.Metadata,
 		Tags:        bwl.Tags,
 	}
@@ -1341,11 +1342,17 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	// Aplicar ownership - determinar basado en el usuario autenticado
 	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 
-	// Tenant users (including tenant admins) ALWAYS get buckets assigned to their tenant
-	if user.TenantID != "" {
+	// Tenant admins get buckets assigned to the tenant; regular tenant users own their own buckets
+	isTenantAdmin := user.TenantID != "" && auth.IsAdminUser(r.Context())
+	if isTenantAdmin {
 		bucketInfo.OwnerID = user.TenantID
 		bucketInfo.OwnerType = "tenant"
-		bucketInfo.IsPublic = false // Los buckets de tenant no pueden ser públicos
+		bucketInfo.IsPublic = false
+	} else if user.TenantID != "" {
+		// Regular tenant user — owns the bucket individually (TenantID scopes it to the tenant)
+		bucketInfo.OwnerID = user.ID
+		bucketInfo.OwnerType = "user"
+		bucketInfo.IsPublic = false
 	} else if isGlobalAdmin {
 		// ONLY global admins can specify custom ownership
 		if req.OwnerID != "" {
@@ -1396,6 +1403,9 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	// Aplicar encriptación
 	if req.Encryption != nil {
 		bucketInfo.Encryption = req.Encryption
+	} else if s.config.Storage.EnableEncryption {
+		// Global encryption is active — persist it on the bucket metadata
+		bucketInfo.Encryption = &bucket.EncryptionConfig{Type: "AES256"}
 	}
 
 	// Aplicar public access block

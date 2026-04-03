@@ -97,15 +97,21 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create storage backend: %w", err)
 	}
 
-	// Migrate BadgerDB → Pebble if an existing BadgerDB installation is detected
+	// Migrate BadgerDB → Pebble v2 if an existing BadgerDB installation is detected
 	if err := metadata.MigrateFromBadgerIfNeeded(cfg.DataDir, logrus.StandardLogger()); err != nil {
 		return nil, fmt.Errorf("metadata migration failed: %w", err)
 	}
 
-	// Initialize metadata store (Pebble)
+	// Migrate Pebble v1 → Pebble v2 if the on-disk format is from an older release
+	if err := metadata.MigrateFromPebbleV1IfNeeded(cfg.DataDir, logrus.StandardLogger()); err != nil {
+		return nil, fmt.Errorf("pebble v1→v2 migration failed: %w", err)
+	}
+
+	// Initialize metadata store (Pebble v2)
 	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{
-		DataDir: cfg.DataDir,
-		Logger:  logrus.StandardLogger(),
+		DataDir:     cfg.DataDir,
+		Logger:      logrus.StandardLogger(),
+		CacheSizeMB: cfg.Storage.MetadataCacheSizeMB,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metadata store: %w", err)

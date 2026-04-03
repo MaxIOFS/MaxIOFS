@@ -116,11 +116,11 @@ export default function UserDetailsPage() {
     enabled: !!userId,
   });
 
-  // Fetch groups this user belongs to (admins only)
+  // Fetch groups this user belongs to (admins see any user; non-admins see their own)
   const { data: userGroups = [] } = useQuery({
     queryKey: ['userGroups', userId],
     queryFn: () => APIClient.listUserGroups(userId),
-    enabled: !!userId && !!isCurrentUserAdmin,
+    enabled: !!userId && (!!isCurrentUserAdmin || currentUser?.id === userId),
   });
 
   // Fetch all groups for the add-to-group dropdown, scoped to the user's tenant
@@ -677,24 +677,26 @@ export default function UserDetailsPage() {
           </div>
         </div>
 
-        {/* Groups — visible to admins only */}
-        {isCurrentUserAdmin && (
+        {/* Groups — admins can manage; current user sees read-only */}
+        {(isCurrentUserAdmin || isCurrentUser) && (
           <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden">
             <div className="px-4 py-3 border-b border-border flex items-center justify-between">
               <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
                 <UsersRound className="h-4 w-4 text-muted-foreground" />
                 {t('groupsTitle')}
               </h3>
-              <Button size="sm" onClick={() => setIsAddToGroupOpen(true)} className="gap-1">
-                <Plus className="h-3 w-3" />
-                {t('addToGroup')}
-              </Button>
+              {isCurrentUserAdmin && (
+                <Button size="sm" onClick={() => setIsAddToGroupOpen(true)} className="gap-1">
+                  <Plus className="h-3 w-3" />
+                  {t('addToGroup')}
+                </Button>
+              )}
             </div>
 
             <div className="p-4">
               {userGroups.length === 0 ? (
                 <p className="text-xs text-muted-foreground text-center py-4">
-                  {t('notInAnyGroup')}
+                  {isCurrentUser && !isCurrentUserAdmin ? t('notInAnyGroupSelf') : t('notInAnyGroup')}
                 </p>
               ) : (
                 <div className="space-y-1.5">
@@ -709,18 +711,20 @@ export default function UserDetailsPage() {
                           <p className="text-xs text-muted-foreground truncate">{group.name}</p>
                         )}
                       </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() =>
-                          ModalManager.confirmDelete(group.displayName || group.name, t('groupMembership')).then((result) => {
-                            if (result.isConfirmed) removeFromGroupMutation.mutate(group.id);
-                          })
-                        }
-                        className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0 ml-2"
-                      >
-                        <UserMinus className="h-4 w-4" />
-                      </Button>
+                      {isCurrentUserAdmin && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            ModalManager.confirmDelete(group.displayName || group.name, t('groupMembership')).then((result) => {
+                              if (result.isConfirmed) removeFromGroupMutation.mutate(group.id);
+                            })
+                          }
+                          className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0 ml-2"
+                        >
+                          <UserMinus className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>

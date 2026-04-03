@@ -167,6 +167,7 @@
   "groupsTitle": "Grupos",
   "addToGroup": "Agregar al Grupo",
   "notInAnyGroup": "Este usuario no pertenece a ningún grupo.",
+  "notInAnyGroupSelf": "No perteneces a ningún grupo.",
   "addToGroupModalTitle": "Agregar al Grupo",
   "selectGroupLabel": "Seleccionar Grupo",
   "selectGroupPlaceholder": "— Selecciona un grupo —",
