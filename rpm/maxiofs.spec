@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.1.0}
+%{!?version: %define version 1.2.0}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -266,6 +266,49 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Thu Apr 02 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.2.0-1
+- Version 1.2.0 — Pebble v2, S3 Select, RestoreObject, OwnershipControls, BucketNotifications delivery,
+  BucketLogging middleware, BucketInventory S3 API, version browser UI, Docker multi-arch, 30+ bug fixes
+- CRITICAL FIX: Metadata store not closed on shutdown — writes since last compaction were silently lost
+- METADATA: Upgraded Pebble from v1.1.5 to v2.1.4; automatic on-disk migration from v1 on first start
+- METADATA: New option storage.metadata_cache_size_mb (default 256 MB); increase for Veeam B&R workloads
+- METADATA: Pre-tuned for write-heavy loads: 64 MB MemTable, bloom filters L1-L6, 2-4 compaction goroutines
+- S3 API: SelectObjectContent (POST ?select) — SQL queries on CSV/JSON, Event Stream binary output
+- S3 API: RestoreObject (POST ?restore) — Glacier-compatible with x-amz-restore header on HEAD/GET
+- S3 API: OwnershipControls (GET/PUT/DELETE ?ownershipControls) — required by AWS SDK v2
+- S3 API: BucketNotifications — real async webhook delivery with prefix/suffix/event-type filtering
+- S3 API: BucketLogging — access log middleware writing S3-format log objects to target bucket
+- S3 API: BucketInventory — full S3 Inventory Configuration API (GET/PUT/DELETE ?inventory)
+- UI: Version browser — Show Versions toggle with restore, delete marker removal, specific version delete
+- UI: Actions dropdown context-aware (bucket info vs object actions based on selection state)
+- UI: Bucket list search moved inline into table header
+- UI: Bucket creation encryption toggle defaults to server setting
+- FIX: COMPLIANCE Object Lock retention did not prevent bucket deletion by global admins
+- FIX: GOVERNANCE bypass flag ignored when deleting a specific object version
+- FIX: ListMultipartUploads captured by ListObjects due to gorilla/mux route registration order
+- FIX: Panic pebble: closed on graceful shutdown (BucketAccessLogger race with Pebble close)
+- FIX: Inventory report ETag was file size in hex instead of MD5 checksum
+- FIX: Object deletion order: metadata deleted before physical file
+- FIX: isBucketEmpty silently deleted orphaned physical files as side effect
+- FIX: Bucket encryption not reflected in dashboard (BucketWithLocation missing Encryption field)
+- FIX: Bucket encryption metadata not persisted when global encryption enabled
+- FIX: Non-admin users could not delete their own buckets (snake_case vs camelCase mismatch)
+- FIX: Regular tenant users had buckets assigned to tenant ownerType instead of user ownerType
+- FIX: Non-admin users could not see buckets they created
+- FIX: Session sliding window: fixed 15-min expiry replaced with activity-based refresh
+- FIX: Idle timer logged out user during active file upload
+- FIX: Proactive token refresh silently abandoned on transient failure
+- FIX: Stale account-locked notification shown on fresh installations
+- FIX: cleanupEmptyDirectories never cleaned (relative vs absolute path comparison bug)
+- FIX: Inventory settings always showed as disabled (API envelope double-unwrap)
+- FIX: 2FA login HTTP 500 on NULL tenant_id (sql.NullString scan)
+- FIX: Vite compiled absolute /assets/ paths; changed to relative base ./
+- FIX: RestoreAlreadyInProgress and NoSuchConfiguration returned 500 instead of 409/404
+- FIX: Actions dropdown opened off-screen near viewport bottom
+- DOCKER: Multi-arch images (amd64+arm64) published to DockerHub on version tags
+- CI/CD: GitHub Actions updated to Node.js 24 runtime
+- TESTS: Added unit tests for replication, SSRF, object integrity, cleanupEmptyDirectories
+
 * Wed Mar 25 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.1.0-1
 - Version 1.1.0 - AWS S3 UI overhaul, S3 compatibility improvements, and security fixes
 - UI: Actions toolbar in bucket browser — replaced per-row action buttons with a single AWS S3-style

@@ -1,8 +1,8 @@
 # MaxIOFS Deployment Guide
 
-**Version**: 1.1.0 | **Last Updated**: March 25, 2026
+**Version**: 1.2.0 | **Last Updated**: April 2, 2026
 
-> **RELEASE CANDIDATE**: Feature-complete and security-audited. Suitable for production use — always backup your data and change default credentials before deploying.
+> Suitable for production use — always backup your data and change default credentials before deploying.
 
 ## System Requirements
 

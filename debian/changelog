@@ -1,3 +1,61 @@
+maxiofs (1:1.2.0) stable; urgency=medium
+
+  * Release v1.2.0 - Pebble v2 engine, S3 Select, RestoreObject, OwnershipControls, BucketNotifications
+    delivery, BucketLogging middleware, BucketInventory S3 API, version browser UI, Docker multi-arch,
+    30+ bug fixes including critical metadata persistence loss on shutdown
+
+  * [METADATA] Upgraded Pebble from v1.1.5 to v2.1.4; automatic on-disk format migration on first start
+    (v1 data preserved as metadata_pebblev1_backup_{timestamp}/); BadgerDB→Pebble v2 direct path also covered
+  * [METADATA] New config option storage.metadata_cache_size_mb (default 256 MB); increase for Veeam B&R
+    deployments with 20k+ objects per bucket
+  * [METADATA] Pebble pre-tuned for write-heavy workloads: 64 MB MemTable, bloom filters L1-L6,
+    2-4 compaction goroutines, L0StopWritesThreshold raised to 12
+  * [CRITICAL FIX] Metadata store not closed on shutdown — all writes since last compaction flush were
+    silently discarded on process exit; objects could reappear after restart
+  * [S3 API] SelectObjectContent (POST ?select) — SQL on CSV/JSON via in-memory SQLite; Event Stream output
+  * [S3 API] RestoreObject (POST ?restore) — Glacier-compatible; x-amz-restore header on HEAD/GET
+  * [S3 API] OwnershipControls (GET/PUT/DELETE ?ownershipControls) — required by AWS SDK v2
+  * [S3 API] BucketNotifications — real async webhook delivery with prefix/suffix/event-type filtering
+  * [S3 API] BucketLogging — access log middleware writing S3-format log objects to target bucket
+  * [S3 API] BucketInventory (GET/PUT/DELETE ?inventory) — full S3 Inventory Configuration API
+  * [UI] Version browser — Show Versions toggle: flat list of all versions and delete markers; restore,
+    remove delete markers, and permanently delete specific versions
+  * [UI] Actions dropdown context-aware: bucket info when nothing selected, object actions when selected
+  * [UI] Bucket list search moved inline into table header
+  * [UI] Bucket creation: encryption toggle defaults to enabled when server encryption is active
+  * [FIX] COMPLIANCE Object Lock retention did not prevent bucket deletion even by global admins
+  * [FIX] GOVERNANCE bypass flag ignored when deleting a specific object version
+  * [FIX] ListMultipartUploads (GET ?uploads) captured by ListObjects due to route registration order
+  * [FIX] Panic pebble: closed on graceful shutdown (BucketAccessLogger race with Pebble close)
+  * [FIX] Inventory report ETag was file size in hex instead of MD5 checksum; flagged as corrupt by scrubber
+  * [FIX] Object deletion order: metadata now deleted before physical file (safe failure direction)
+  * [FIX] isBucketEmpty silently deleted orphaned physical files as a side effect
+  * [FIX] Bucket encryption not reflected in dashboard (BucketWithLocation missing Encryption field)
+  * [FIX] Bucket encryption metadata not persisted when global encryption enabled and req.Encryption is nil
+  * [FIX] Non-admin users could not delete their own buckets (snake_case vs camelCase owner_type mismatch)
+  * [FIX] Regular tenant users had buckets assigned to tenant ownerType instead of user ownerType
+  * [FIX] Non-admin users could not see buckets they created (OwnerID/OwnerType left empty)
+  * [FIX] Session sliding window: fixed 15-min expiry replaced with activity-based refresh
+  * [FIX] Idle timer logged out user during active file upload
+  * [FIX] Proactive token refresh silently abandoned on transient failure (now retries every 30s)
+  * [FIX] Background refresh triggered logout on transient 401 instead of letting interceptor handle it
+  * [FIX] Stale account-locked notification shown on fresh installations (token-bound localStorage)
+  * [FIX] cleanupEmptyDirectories never cleaned (relative vs absolute path comparison)
+  * [FIX] Inventory settings always showed as disabled (API envelope double-unwrap)
+  * [FIX] 2FA login HTTP 500 on NULL tenant_id column (sql.NullString scan)
+  * [FIX] Vite compiled absolute /assets/ paths; changed to relative base ./
+  * [FIX] RestoreAlreadyInProgress and NoSuchConfiguration returned 500 instead of 409/404
+  * [FIX] RestoreObject allowed re-restoring an already-restored object
+  * [FIX] Actions dropdown opened off-screen when near viewport bottom
+  * [FIX] Actions button enabled with no objects selected
+  * [DOCKER] Multi-arch images (linux/amd64 + linux/arm64) published to DockerHub on version tags
+  * [DOCKER] docker-compose.yaml uses bind mount by default for easy config.yaml editing
+  * [CI/CD] GitHub Actions updated to Node.js 24 runtime (node24); actions versions bumped
+  * [TESTS] Added unit tests: replication worker, manager sync, credentials, SSRF, object adapter,
+    cleanupEmptyDirectories, object integrity
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Thu, 02 Apr 2026 12:00:00 +0000
+
 maxiofs (1:1.1.0) stable; urgency=medium
 
   * Release v1.1.0 - AWS S3 UI overhaul, S3 compatibility improvements, and security fixes

@@ -5,7 +5,7 @@
 **Self-hosted S3-compatible object storage — single binary, batteries included**
 
 [![Build](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml/badge.svg)](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml)
-[![Version](https://img.shields.io/badge/version-1.1.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.1.0)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.2.0)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go)](https://go.dev)
 [![S3 Compatible](https://img.shields.io/badge/S3-100%25%20compatible-orange)](docs/API.md)
@@ -241,13 +241,13 @@ aws --profile maxiofs --endpoint-url http://localhost:8080 s3 ls s3://my-bucket/
 
 **Debian / Ubuntu**
 ```bash
-sudo dpkg -i maxiofs_1.1.0_amd64.deb
+sudo dpkg -i maxiofs_1.2.0_amd64.deb
 sudo systemctl enable --now maxiofs
 ```
 
 **RHEL / Rocky / Alma / Fedora**
 ```bash
-sudo rpm -i maxiofs-1.1.0-1.x86_64.rpm
+sudo rpm -i maxiofs-1.2.0-1.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 
@@ -321,8 +321,8 @@ cd web/frontend && npm run test        # 95+ frontend tests
 
 | Version | Highlights |
 |---------|-----------|
-| **[Unreleased]** | S3 Select (SQL on CSV/JSON, event-stream), OwnershipControls, RestoreObject + x-amz-restore header, version browser, metadata store persistence fix, sliding-window sessions, Object Lock UI enforcement |
-| **v1.1.0** *(stable)* | AWS S3-style Actions toolbar, object detail view, object rename & tags, folder ZIP download, SigV2 fix, bucket policy Condition enforcement, PublicAccessBlock enforcement, DeleteBucket Object Lock bypass fix, encryption applied globally, 3 data races fixed |
+| **v1.2.0** *(stable)* | Pebble v2 metadata engine (auto-migration, configurable cache, Veeam B&R tuning), S3 Select, RestoreObject, OwnershipControls, BucketNotifications webhook delivery, BucketLogging, BucketInventory S3 API, version browser UI, Docker multi-arch, **critical fix**: metadata written since last compaction was silently lost on shutdown, 30+ additional bug fixes |
+| **v1.1.0** | AWS S3-style Actions toolbar, object detail view, object rename & tags, folder ZIP download, SigV2 fix, bucket policy Condition enforcement, PublicAccessBlock enforcement, DeleteBucket Object Lock bypass fix, encryption applied globally, 3 data races fixed |
 | **v1.0.0** | Complete UI redesign, folder upload, POST presigned URLs, bucket notifications, lifecycle execution, full Veeam B&R compatibility, Object Lock per-version enforcement, 3 security fixes |
 | **v1.0.0-rc1** | 28-vulnerability security audit: AES-256-GCM, CSR cluster join, SSRF hardening, static website hosting, frontend bundle −45% |
 | **v1.0.0-beta** | Pebble metadata engine, object integrity scrubber, maintenance mode, disk/quota email alerts |

@@ -1,6 +1,6 @@
 # MaxIOFS Architecture
 
-**Version**: 1.1.0 | **Last Updated**: March 25, 2026
+**Version**: 1.2.0 | **Last Updated**: April 2, 2026
 
 ## Overview
 
@@ -176,7 +176,7 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 |----------|-----------|----------|
 | `db/maxiofs.db` | SQLite (WAL mode) | Users, tenants, access keys, sessions, dynamic settings, cluster config, cluster nodes, replication rules, replication queue, bucket permissions, IDP providers, group mappings, deletion log, migrations |
 | `audit.db` | SQLite | Immutable audit trail (authentication, CRUD, security events). Separate for isolation and retention management |
-| `metadata/` | Pebble v1.1 | Object metadata (ETags, content-type, size), versioning info, object lock/retention, bucket configurations, tags, ACLs, multipart upload state |
+| `metadata/` | Pebble v2.1 | Object metadata (ETags, content-type, size), versioning info, object lock/retention, bucket configurations, tags, ACLs, multipart upload state |
 | `objects/` | Filesystem | Raw object data, organized by tenant and bucket |
 
 ---
@@ -295,7 +295,7 @@ MaxIOFS supports **four authentication methods**:
 | **CSS** | TailwindCSS | 4 (Oxide) |
 | **State Management** | TanStack Query | v5 |
 | **Routing** | React Router | v7 |
-| **Metadata Store** | Pebble | v1.1 |
+| **Metadata Store** | Pebble | v2.1 |
 | **Relational Store** | SQLite | WAL mode (via modernc.org/sqlite, no CGO) |
 | **HTTP Router** | Gorilla Mux | v1.8 |
 | **S3 Auth** | AWS SDK v2 | Signature v2/v4 |

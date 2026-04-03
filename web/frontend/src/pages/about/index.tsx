@@ -267,7 +267,7 @@ export default function AboutPage() {
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
-                  Pebble v1.1 (Object Metadata, crash-safe WAL)
+                  Pebble v2.1 (Object Metadata, crash-safe WAL)
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
@@ -327,118 +327,111 @@ export default function AboutPage() {
           </h2>
           <div className="space-y-4">
 
+            <div className="border-l-4 border-red-600 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Critical Fix: Metadata Lost on Shutdown
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Pebble buffers all writes in-memory and only flushes to disk on{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">db.Close()</code>.
+                The server shutdown sequence was missing this call, so every metadata change since the last
+                background compaction — object deletes, renames, tag updates, version promotions, bucket config
+                changes — was silently discarded on process exit. Objects could reappear after restart.
+                Fixed by adding the close call after all workers stop.
+              </p>
+            </div>
+
             <div className="border-l-4 border-blue-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                AWS S3-Style Actions Toolbar in Bucket Browser
+                Pebble v2 Metadata Engine with Auto-Migration
               </h3>
               <p className="text-sm text-muted-foreground">
-                Per-row action buttons replaced with a single <strong>Actions</strong> dropdown operating on
-                checkbox-selected items — the same pattern used by AWS S3 console. Supports Copy S3 URI,
-                Copy Object URL, Download, Download as ZIP (folders), Calculate Folder Size, Share,
-                Presigned URL, View Versions, Legal Hold toggle, Rename, Edit Tags, and Delete.
-                Actions are automatically disabled when the selection count or type does not match the operation.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-indigo-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Object Detail View
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Clicking a file name now opens a full-page detail view with three tabs:{' '}
-                <strong>Properties</strong> (S3 URI, ARN, URL, Key, size, ETag, content type, storage class,
-                region, custom metadata — all with copy buttons), <strong>Permissions</strong> (ACL owner and
-                grants, lazy-loaded), and <strong>Versions</strong> (version history with delete markers,
-                lazy-loaded). The breadcrumb tracks the full path and each segment is a clickable navigation link.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-cyan-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Object Rename and Tags Editor
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Objects can now be renamed directly from the bucket browser via the Actions menu. The server
-                copies data, metadata, and tags to the new key, then deletes the original — blocked for objects
-                under active COMPLIANCE retention or Legal Hold. S3 object tags can also be viewed and edited
-                inline without leaving the bucket browser.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-teal-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Folder Download as ZIP and Folder Size Calculator
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Entire folder trees can be downloaded as a ZIP archive directly from the Actions menu. Objects
-                are stored without compression (ZIP Store mode) to minimize server CPU. Limits: 10,000 objects
-                and 10 GB maximum; requests exceeding either receive a 400 error before streaming begins.
-                The folder size calculator totals all object sizes and counts under a prefix without downloading.
+                The embedded metadata engine was upgraded from Pebble v1.1.5 to v2.1.4. Because the on-disk
+                formats are incompatible, the server performs an automatic one-time migration on first start:
+                v1 data is streamed into a new v2 directory, directories are swapped atomically, and the
+                original is preserved as a timestamped backup. A new{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">storage.metadata_cache_size_mb</code>{' '}
+                option (default 256 MB) controls the block cache — increase to 1024 MB or more for Veeam B&R
+                deployments with 20 000+ objects per bucket. The engine is also pre-tuned with 64 MB MemTables,
+                bloom filters on L1–L6, and 2–4 compaction goroutines.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                S3: GetObjectAttributes, Conditional PutObject, and Real Bucket Logging
+                S3 Select — SQL on Object Data
               </h3>
               <p className="text-sm text-muted-foreground">
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetObjectAttributes</code> returns ETag,
-                StorageClass, ObjectSize, and part count without downloading the body — required by AWS CLI v2,
-                SDK v3, and Mountpoint S3.{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObject</code> now supports{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">If-None-Match: *</code>{' '}
-                for atomic "write only if not exists" semantics (Terraform state backends, distributed locks).
-                Bucket access logging now delivers log entries asynchronously to the target bucket in standard AWS
-                S3 access log format.
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">POST /{'{bucket}/{object}'}?select</code>{' '}
+                implements the S3 Select API. Queries are executed via in-memory SQLite, giving full SQL support
+                (SELECT, WHERE, GROUP BY, ORDER BY, aggregates). Supports CSV and JSON Lines input, CSV and
+                JSON output, streams results using the Amazon Event Stream binary protocol (CRC32-framed records).
+              </p>
+            </div>
+
+            <div className="border-l-4 border-indigo-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                RestoreObject, OwnershipControls, BucketNotifications, BucketLogging, BucketInventory
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Five new S3 API surfaces implemented:{' '}
+                <strong>RestoreObject</strong> (Glacier-compatible; returns{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-restore</code> header on HEAD/GET),{' '}
+                <strong>OwnershipControls</strong> (required by AWS SDK v2 on bucket creation),{' '}
+                <strong>BucketNotifications</strong> (real async webhook delivery with prefix/suffix/event-type filtering),{' '}
+                <strong>BucketLogging</strong> (access log middleware writing S3-format log objects to target bucket),{' '}
+                <strong>BucketInventory</strong> (full S3 Inventory Configuration API — GET/PUT/DELETE).
+              </p>
+            </div>
+
+            <div className="border-l-4 border-teal-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Version Browser in Bucket UI
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                A <strong>Show Versions</strong> toggle in the bucket browser replaces the object list with a
+                flat view of every version and delete marker across the bucket (or current prefix). Actions per
+                row: restore old versions with one click, remove delete markers to recover deleted files, and
+                permanently delete specific old versions.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-cyan-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Session & Auth Fixes
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Three session bugs fixed: sliding-window sessions (fixed 15-min expiry now resets on every API
+                call), idle timer no longer logs out during active file uploads, and background token refresh
+                no longer triggers logout on transient network failures. Stale notifications from a previous
+                server instance are cleared on first login to a fresh deployment.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                S3: Encryption Correctly Applied and SSE Headers Returned
+                Bucket & Object Lock Fixes
               </h3>
               <p className="text-sm text-muted-foreground">
-                Server-side encryption was silently skipped for buckets that had no explicit{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutBucketEncryption</code> call, even
-                when the global encryption key was configured. Fixed: encryption now applies to all buckets by
-                default. The <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-server-side-encryption</code>{' '}
-                response header is now returned on{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetObject</code>,{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">HeadObject</code>, and{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObject</code>{' '}
-                for encrypted objects.{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetBucketEncryption</code> /{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutBucketEncryption</code>{' '}
-                now persist real configuration (previously always returned 404).
-              </p>
-            </div>
-
-            <div className="border-l-4 border-red-600 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Security: SigV2 Fix, Bucket Policy Conditions, and PublicAccessBlock Enforcement
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                AWS Signature Version 2 used SHA256+hex instead of the required SHA1+base64 — all V2 presigned
-                URLs and Authorization-header requests were rejected. Fixed in both code paths. Bucket policy{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Condition</code> blocks
-                were silently skipped; full evaluator implemented (StringEquals/Like, IpAddress/CIDR, Bool, Arn,
-                Numeric operators). A <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Principal: null</code>{' '}
-                policy statement no longer grants access to everyone.{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PublicAccessBlock</code> flags
-                (IgnorePublicAcls, RestrictPublicBuckets) are now consulted before ACL evaluation.
-                The console port (8081) now sets security headers (CSP, X-Frame-Options, nosniff).
+                COMPLIANCE Object Lock now blocks bucket deletion even for global admins and force-delete.
+                GOVERNANCE bypass flag ({' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-bypass-governance-retention</code>)
+                now correctly applies when deleting a specific version. The UI blocks deletion of locked objects
+                before the confirmation dialog. Bucket encryption is now correctly displayed in the dashboard
+                and persisted on creation when global encryption is enabled.
               </p>
             </div>
 
             <div className="border-l-4 border-yellow-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Security: DeleteBucket No Longer Bypasses Object Lock
+                Docker Multi-Arch + 10+ More Fixes
               </h3>
               <p className="text-sm text-muted-foreground">
-                Deleting a versioned bucket silently deleted all version files (stored under{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">/.versions/</code>) before checking
-                emptiness, bypassing COMPLIANCE-mode Object Lock retention on every non-current version.
-                Fixed by resolving versioned paths to real object metadata before classifying them as empty.
+                Multi-architecture Docker images (linux/amd64 + linux/arm64) now published to DockerHub on
+                every version tag. Additional fixes: ListMultipartUploads routing conflict, inventory ETag
+                computed as size hex instead of MD5, panic on graceful shutdown, cleanupEmptyDirectories
+                path comparison bug, inventory settings always appearing disabled, 2FA HTTP 500 on NULL
+                tenant, and Vite absolute asset paths causing blank pages behind reverse proxies.
               </p>
             </div>
 

@@ -1,6 +1,6 @@
 # MaxIOFS Configuration Guide
 
-**Version**: 1.1.0 | **Last Updated**: April 2, 2026
+**Version**: 1.2.0 | **Last Updated**: April 2, 2026
 
 ## Configuration Architecture
 
@@ -283,7 +283,7 @@ environment:
   MAXIOFS_STORAGE_METADATA_CACHE_SIZE_MB: "1024"
 ```
 
-### What else is tuned automatically (v1.1.0+)
+### What else is tuned automatically (v1.2.0+)
 
 These internal settings are fixed at compile time and cannot be changed via config. They are documented here for transparency:
 
@@ -299,13 +299,13 @@ These internal settings are fixed at compile time and cannot be changed via conf
 
 ### Upgrade path for existing deployments
 
-Starting from **v1.1.0**, the metadata engine was upgraded from **Pebble v1 to Pebble v2** (incompatible on-disk formats). The server handles this automatically:
+Starting from **v1.2.0**, the metadata engine uses **Pebble v2** (upgraded from Pebble v1 in this release — incompatible on-disk formats). The server handles migration automatically:
 
 | Previous version | On-disk format | What happens on first start |
 |-----------------|---------------|-----------------------------|
 | Pre-v1.0.0-beta | BadgerDB | All data migrated to Pebble v2. Original data backed up as `metadata_badger_backup_{timestamp}/`. |
 | v1.0.0-beta | Pebble v1 | All data migrated to Pebble v2. Original data backed up as `metadata_pebblev1_backup_{timestamp}/`. |
-| v1.1.0+ | Pebble v2 | No migration needed. Sentinel file `metadata/PEBBLE_FORMAT_V2` skips the check immediately. |
+| v1.2.0+ | Pebble v2 | No migration needed. Sentinel file `metadata/PEBBLE_FORMAT_V2` skips the check immediately. |
 
 Migration is **automatic and transparent** — no manual steps required. The backup directories can be deleted after you verify the server is working correctly on the new version.
 
