@@ -24,7 +24,6 @@ import {
   Edit,
   Activity,
   ArrowLeft,
-  Copy,
   X
 } from 'lucide-react';
 import APIClient from '@/lib/api';
@@ -41,9 +40,7 @@ export default function ClusterNodes() {
   const [error, setError] = useState<string | null>(null);
   const [showAddNodeDialog, setShowAddNodeDialog] = useState(false);
   const [editingNode, setEditingNode] = useState<ClusterNode | null>(null);
-  const [showNodeReplicationDialog, setShowNodeReplicationDialog] = useState(false);
-  const [configuringBulk, setConfiguringBulk] = useState(false);
-  const [localNodeId, setLocalNodeId] = useState<string | null>(null);
+const [localNodeId, setLocalNodeId] = useState<string | null>(null);
   const [availableNodes, setAvailableNodes] = useState<ClusterNode[]>([]);
 
   useEffect(() => {
@@ -106,35 +103,7 @@ export default function ClusterNodes() {
     }
   };
 
-  const handleBulkReplication = async (targetNodeId: string, syncInterval: number) => {
-    try {
-      setConfiguringBulk(true);
-      if (syncInterval < 10) throw new Error(t('syncIntervalMin10'));
-
-      const result = await APIClient.createBulkClusterReplication({
-        destination_node_id: targetNodeId,
-        sync_interval_seconds: syncInterval,
-        enabled: true,
-      });
-
-      let message = t('bulkReplicationSuccess', { created: result.rules_created, failed: result.rules_failed });
-      if (result.failed_buckets && result.failed_buckets.length > 0 && result.failed_buckets.length <= 5) {
-        message += '\n\n' + t('failedBuckets') + '\n' + result.failed_buckets.join('\n');
-      } else if (result.failed_buckets && result.failed_buckets.length > 5) {
-        message += '\n\n' + t('failedBucketsFirst5') + '\n' + result.failed_buckets.slice(0, 5).join('\n');
-      }
-
-      alert(message);
-      setShowNodeReplicationDialog(false);
-      await loadNodes();
-    } catch (err: unknown) {
-      alert(getErrorMessage(err, t('failedToBulkReplication')));
-    } finally {
-      setConfiguringBulk(false);
-    }
-  };
-
-  const getHealthIcon = (status: HealthStatus) => {
+const getHealthIcon = (status: HealthStatus) => {
     switch (status) {
       case 'healthy':     return <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />;
       case 'degraded':    return <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />;
@@ -200,11 +169,7 @@ export default function ClusterNodes() {
             <RefreshCw className="h-4 w-4" />
             {t('refresh')}
           </Button>
-          <Button variant="outline" onClick={() => setShowNodeReplicationDialog(true)} className="bg-card">
-            <Copy className="h-4 w-4" />
-            {t('configureNodeReplication')}
-          </Button>
-          <Button onClick={() => setShowAddNodeDialog(true)} variant="default">
+<Button onClick={() => setShowAddNodeDialog(true)} variant="default">
             <Plus className="h-4 w-4" />
             {t('addNode')}
           </Button>
@@ -394,49 +359,6 @@ export default function ClusterNodes() {
         </div>
       )}
 
-      {/* Node-to-Node Replication Modal */}
-      {showNodeReplicationDialog && (
-        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-lg p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-foreground">{t('configureNodeReplicationTitle')}</h2>
-              <button onClick={() => setShowNodeReplicationDialog(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <p className="text-sm text-blue-800 dark:text-blue-200" dangerouslySetInnerHTML={{ __html: t('bulkReplicationDesc') }} />
-            </div>
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              const formData = new FormData(e.currentTarget);
-              handleBulkReplication(formData.get('targetNode') as string, parseInt(formData.get('syncInterval') as string) || 60);
-            }}>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">{t('targetNode')}</label>
-                  <select name="targetNode" required className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500">
-                    <option value="">{t('selectTargetNode')}</option>
-                    {availableNodes.map(node => (
-                      <option key={node.id} value={node.id}>{node.name} ({node.endpoint}) - {getHealthLabel(node.health_status as HealthStatus)}</option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-muted-foreground mt-1">{t('allBucketsReplicatedHint')}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">{t('syncInterval')}</label>
-                  <input name="syncInterval" type="number" min="10" defaultValue="60" required className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500" placeholder="60" />
-                  <p className="text-xs text-muted-foreground mt-1">{t('syncIntervalHint')}</p>
-                </div>
-              </div>
-              <div className="flex gap-3 mt-6">
-                <Button type="button" variant="outline" onClick={() => setShowNodeReplicationDialog(false)} disabled={configuringBulk} className="flex-1">{t('cancel')}</Button>
-                <Button type="submit" disabled={configuringBulk} className="flex-1 bg-brand-600 hover:bg-brand-700 text-white">
-                  {configuringBulk ? t('configuring') : t('configureReplication')}
-                </Button>
-              </div>
-            </form>
-          </Card>
-        </div>
-      )}
     </div>
   );
 }

@@ -62,7 +62,7 @@ type Server struct {
 	replicationManager      *replication.Manager
 	clusterManager          *cluster.Manager
 	clusterRouter           *cluster.Router
-	clusterReplicationMgr   *cluster.ClusterReplicationManager
+
 	bucketAggregator        *cluster.BucketAggregator
 	quotaAggregator         *cluster.QuotaAggregator
 	rateLimiter             *cluster.RateLimiter
@@ -303,11 +303,6 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize cluster schema: %w", err)
 	}
 
-	// Initialize cluster replication schema
-	if err := cluster.InitReplicationSchema(db); err != nil {
-		return nil, fmt.Errorf("failed to initialize cluster replication schema: %w", err)
-	}
-
 	// Initialize cluster manager
 	clusterManager := cluster.NewManager(db, cfg.PublicAPIURL)
 
@@ -386,9 +381,6 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize stale-node reconciler
 	staleReconciler := cluster.NewStaleReconciler(db, clusterManager)
 
-	// Initialize cluster replication manager
-	clusterReplicationMgr := cluster.NewClusterReplicationManager(db, clusterManager, objectManager, tenantSyncMgr)
-
 	// Create HTTP servers
 	httpServer := &http.Server{
 		Addr:              cfg.Listen,
@@ -421,7 +413,7 @@ func New(cfg *config.Config) (*Server, error) {
 		replicationManager:      replicationManager,
 		clusterManager:          clusterManager,
 		clusterRouter:           clusterRouter,
-		clusterReplicationMgr:   clusterReplicationMgr,
+
 		bucketAggregator:        bucketAggregator,
 		quotaAggregator:         quotaAggregator,
 		rateLimiter:             rateLimiter,
@@ -605,11 +597,7 @@ func (s *Server) Start(ctx context.Context) error {
 		cluster.StartDeletionLogCleanup(ctx, s.db, 1*time.Hour, 7*24*time.Hour)
 		logrus.Info("Deletion log cleanup started")
 
-		// Start cluster replication manager
-		if s.clusterReplicationMgr != nil {
-			s.clusterReplicationMgr.Start(ctx)
-			logrus.Info("Cluster replication manager started")
-		}
+
 	}
 
 	// Start API server

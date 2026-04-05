@@ -40,7 +40,6 @@ const About          = React.lazy(() => import('@/pages/about/index'));
 const IdentityProviders  = React.lazy(() => import('@/pages/identity-providers/index'));
 // Cluster pages grouped in a single chunk — always visited together
 const ClusterOverview    = React.lazy(() => import('@/pages/cluster/Overview'));
-const ClusterBuckets     = React.lazy(() => import('@/pages/cluster/BucketReplication'));
 const ClusterNodes       = React.lazy(() => import('@/pages/cluster/Nodes'));
 const ClusterMigrations  = React.lazy(() => import('@/pages/cluster/Migrations'));
 
@@ -329,16 +328,6 @@ function App() {
                 <ProtectedRoute>
                   <AppLayout>
                     <ClusterOverview />
-                  </AppLayout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/cluster/buckets"
-              element={
-                <ProtectedRoute>
-                  <AppLayout>
-                    <ClusterBuckets />
                   </AppLayout>
                 </ProtectedRoute>
               }

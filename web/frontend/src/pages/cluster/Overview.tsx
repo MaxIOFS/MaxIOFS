@@ -309,15 +309,7 @@ export default function ClusterOverview() {
             <KeyRound className="h-4 w-4" />
             {t('clusterTokenTitle')}
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => navigate('/cluster/buckets')}
-            className="bg-card hover:bg-secondary"
-          >
-            <Package className="h-4 w-4" />
-            {t('manageReplication')}
-          </Button>
-          <Button
+<Button
             variant="outline"
             onClick={() => navigate('/cluster/nodes')}
             className="bg-card hover:bg-secondary"

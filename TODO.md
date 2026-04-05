@@ -44,7 +44,7 @@
 
 ### Work items
 
-#### 1. Remove cluster-level async replication — START HERE
+#### ~~1. Remove cluster-level async replication~~ ✅ Done
 The `ClusterReplicationManager` / `ClusterReplicationWorker` system is incomplete and never delivered automatic failover. The HA quorum write covers its intended purpose properly. Nobody is using it.
 
 Files to delete:
@@ -110,6 +110,28 @@ Factor 2 is the recommended default: 50% efficiency, tolerates 1 node failure, q
 ### Upgrade path
 - Single-node deployments: no change, `ReplicaCount = 1` is the default.
 - Existing cluster deployments: opt-in per bucket. Enabling replicas triggers an initial sync from primary to replica nodes.
+
+#### 8. Event-driven config sync — eliminate polling lag between nodes (~1 week)
+
+**Problem today**: All sync managers (tenant, user, access key, bucket permission, IDP, group mapping) work on a polling timer (default 30s). If a user is created on node A, node B doesn't know about it for up to 30 seconds. During that window, a request routed to node B will fail auth even though the user exists.
+
+With HA quorum write this becomes more visible: clients can be routed to any node at any time, so a 30s auth blackout after any config change is unacceptable.
+
+**Solution**: make every write operation that modifies auth/config data immediately propagate to all healthy nodes **in the background** before returning 200 to the client. The polling loop stays as a reconciliation safety net (catches missed events due to node downtime), but the happy path becomes instant.
+
+Changes required per operation:
+- `POST /users` / `PUT /users/{id}` / `DELETE /users/{id}` → after writing locally, call `UserSyncManager.SyncUserNow(ctx, userID)` to push immediately to all healthy nodes
+- `POST /tenants` / `PUT /tenants/{id}` / `DELETE /tenants/{id}` → same via `TenantSyncManager.SyncTenantNow`
+- `POST /access-keys` / `DELETE /access-keys/{id}` → `AccessKeySyncManager.SyncKeyNow` — **highest priority**, S3 auth breaks without this
+- Bucket permission changes → `BucketPermissionSyncManager.SyncPermissionNow`
+- IDP provider create/update/delete → `IDPProviderSyncManager.SyncProviderNow`
+- Group mapping changes → `GroupMappingSyncManager.SyncMappingNow`
+
+Each `SyncXNow` method fans out to healthy nodes in parallel (goroutines), logs failures as warnings but does **not** block or fail the original request — if a node is down, the polling reconciler catches it when the node recovers.
+
+The polling interval can be raised from 30s to 5 minutes once event-driven sync is in place, reducing background noise.
+
+Files to modify: all 6 `*_sync.go` files (add `SyncXNow` method), all handler files that mutate users/tenants/keys/permissions/IDPs/mappings.
 
 ### Estimated effort
 - Total: **4–5 weeks** focused engineering
