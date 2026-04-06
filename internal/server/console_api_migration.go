@@ -61,6 +61,13 @@ func (s *Server) handleMigrateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject migration when HA replication is active: every node already holds all data,
+	// so migrating a bucket is undefined and would incorrectly delete source data.
+	if factor, err := s.clusterManager.GetReplicationFactor(r.Context()); err == nil && factor > 1 {
+		s.writeError(w, "Bucket migration is not available when HA replication is active (factor > 1). All nodes already hold a complete copy of all data.", http.StatusBadRequest)
+		return
+	}
+
 	// Create bucket location manager
 	bucketLocationCache := cluster.NewBucketLocationCache(5 * time.Minute)
 	localNodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())

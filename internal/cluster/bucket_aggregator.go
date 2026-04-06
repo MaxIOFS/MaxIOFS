@@ -98,6 +98,14 @@ func (ba *BucketAggregator) ListAllBuckets(ctx context.Context, tenantID string)
 		"tenant_id":     tenantID,
 	}).Debug("Listed local buckets")
 
+	// HA mode: every node holds a complete copy of all buckets, so the local
+	// listing is already complete.  Skip cross-node queries to avoid N-1
+	// redundant HTTP calls and spurious deduplication log noise.
+	if factor, err := ba.clusterManager.GetReplicationFactor(ctx); err == nil && factor > 1 {
+		ba.log.WithField("factor", factor).Debug("Bucket aggregation: HA mode, using local listing only")
+		return allBuckets, nil
+	}
+
 	// Get all healthy nodes (excluding self)
 	nodes, err := ba.clusterManager.GetHealthyNodes(ctx)
 	if err != nil {

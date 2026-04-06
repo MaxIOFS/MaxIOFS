@@ -21,13 +21,17 @@ type TenantStorageInfo struct {
 	NodeName           string `json:"node_name"`
 }
 
-// ClusterManagerInterface defines the interface needed by QuotaAggregator
+// ClusterManagerInterface defines the interface needed by QuotaAggregator and BucketAggregator.
 type ClusterManagerInterface interface {
 	GetHealthyNodes(ctx context.Context) ([]*Node, error)
 	GetLocalNodeID(ctx context.Context) (string, error)
 	GetLocalNodeName(ctx context.Context) (string, error)
 	GetLocalNodeToken(ctx context.Context) (string, error)
 	GetTLSConfig() *tls.Config
+	// GetReplicationFactor returns the cluster-wide HA replication factor (1 = no replication).
+	GetReplicationFactor(ctx context.Context) (int, error)
+	// GetLocalTenantStorage returns current_storage_bytes for a tenant from this node's DB only.
+	GetLocalTenantStorage(ctx context.Context, tenantID string) (int64, error)
 }
 
 // QuotaAggregator aggregates storage quota usage from all cluster nodes
@@ -54,10 +58,23 @@ func NewQuotaAggregator(clusterManager ClusterManagerInterface) *QuotaAggregator
 	}
 }
 
-// GetTenantTotalStorage queries all healthy nodes and aggregates tenant storage usage
-// Returns the total storage bytes used by the tenant across all nodes
+// GetTenantTotalStorage queries all healthy nodes and aggregates tenant storage usage.
+// When HA replication is active (factor > 1) every node holds the same data, so only
+// the local node's value is returned to avoid multiplying usage by the replication factor.
 func (qa *QuotaAggregator) GetTenantTotalStorage(ctx context.Context, tenantID string) (int64, error) {
 	startTime := time.Now()
+
+	// HA mode: each node is a full replica — only count local storage once.
+	if factor, err := qa.clusterManager.GetReplicationFactor(ctx); err == nil && factor > 1 {
+		bytes, err := qa.clusterManager.GetLocalTenantStorage(ctx, tenantID)
+		qa.log.WithFields(logrus.Fields{
+			"tenant_id":     tenantID,
+			"storage_bytes": bytes,
+			"factor":        factor,
+			"duration_ms":   time.Since(startTime).Milliseconds(),
+		}).Debug("Quota aggregation: HA mode, using local storage only")
+		return bytes, err
+	}
 
 	// Get all healthy nodes
 	nodes, err := qa.clusterManager.GetHealthyNodes(ctx)

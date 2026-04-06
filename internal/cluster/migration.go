@@ -487,11 +487,24 @@ func (m *Manager) executeMigration(ctx context.Context, locationMgr *BucketLocat
 		"new_location": job.TargetNodeID,
 	}).Info("Bucket location updated successfully")
 
-	// Step 5: Optionally delete from source
+	// Step 6: Optionally delete from source
 	if job.DeleteSource {
-		logrus.WithField("migration_id", job.ID).Warn("Deleting bucket data from source node")
-		// TODO: Implement source deletion
-		// This should only happen after successful verification
+		logrus.WithFields(logrus.Fields{
+			"migration_id": job.ID,
+			"bucket":       job.BucketName,
+		}).Warn("Deleting bucket data from source node after successful migration")
+
+		if m.bucketManager == nil {
+			return fmt.Errorf("bucket manager not set on cluster manager; cannot delete source data")
+		}
+		if err := m.bucketManager.ForceDeleteBucket(ctx, tenantID, job.BucketName); err != nil {
+			return fmt.Errorf("failed to delete source bucket after migration: %w", err)
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"migration_id": job.ID,
+			"bucket":       job.BucketName,
+		}).Info("Source bucket deleted successfully")
 	}
 
 	return nil

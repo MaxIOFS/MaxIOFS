@@ -50,6 +50,14 @@ func (m *mockManager) IsClusterEnabled() bool {
 	return len(m.nodes) > 0
 }
 
+func (m *mockManager) GetReplicationFactor(_ context.Context) (int, error) {
+	return 1, nil // tests always use factor=1 (sum all nodes)
+}
+
+func (m *mockManager) GetLocalTenantStorage(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
 // TestQuotaAggregator_GetTenantTotalStorage_Integration tests the full aggregation flow
 func TestQuotaAggregator_GetTenantTotalStorage_Integration(t *testing.T) {
 	// Create 3 mock nodes with different storage values

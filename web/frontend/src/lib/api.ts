@@ -1766,6 +1766,23 @@ export class APIClient {
     return response.data.data;
   }
 
+  static async getClusterHASyncJobs(): Promise<{
+    sync_jobs: Array<{
+      id: number;
+      target_node_id: string;
+      status: string;
+      objects_synced: number;
+      last_checkpoint_bucket: string;
+      last_checkpoint_key: string;
+      started_at: string;
+      completed_at: string | null;
+      error_message: string;
+    }>;
+  }> {
+    const response = await apiClient.get('/cluster/ha/sync-jobs');
+    return response.data.data;
+  }
+
   // Cluster Migration methods
   static async migrateBucket(bucket: string, request: MigrateBucketRequest): Promise<MigrationJob> {
     const response = await apiClient.post<APIResponse<MigrationJob>>(`/cluster/buckets/${bucket}/migrate`, request);

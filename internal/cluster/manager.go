@@ -29,10 +29,16 @@ type Manager struct {
 	log                 *logrus.Entry
 	storage             storage.Backend
 	aclManager          acl.Manager
+	bucketManager       bucketManagerForMigration
 	tlsConfig           *tls.Config
 	clusterHTTPClient   *http.Client
 	currentCert         atomic.Pointer[tls.Certificate]
 	readCounter         uint64 // atomic — round-robin read balancing
+}
+
+// bucketManagerForMigration is the minimal bucket.Manager interface needed for source deletion.
+type bucketManagerForMigration interface {
+	ForceDeleteBucket(ctx context.Context, tenantID, name string) error
 }
 
 // NewManager creates a new cluster manager
@@ -62,6 +68,11 @@ func (m *Manager) SetStorage(s storage.Backend) {
 // SetACLManager sets the ACL manager for the cluster manager
 func (m *Manager) SetACLManager(aclMgr acl.Manager) {
 	m.aclManager = aclMgr
+}
+
+// SetBucketManager sets the bucket manager used for source deletion during migrations.
+func (m *Manager) SetBucketManager(bm bucketManagerForMigration) {
+	m.bucketManager = bm
 }
 
 // InitializeCluster initializes a new cluster with this node
@@ -1081,6 +1092,19 @@ func (m *Manager) GetReplicationFactor(ctx context.Context) (int, error) {
 		factor = 1
 	}
 	return factor, nil
+}
+
+// GetLocalTenantStorage returns the current_storage_bytes for a tenant from the
+// local node's DB only.  Used by QuotaAggregator to avoid double-counting when
+// HA replication is active (every node holds the same data).
+func (m *Manager) GetLocalTenantStorage(ctx context.Context, tenantID string) (int64, error) {
+	var bytes int64
+	err := m.db.QueryRowContext(ctx,
+		`SELECT current_storage_bytes FROM tenants WHERE id = ?`, tenantID).Scan(&bytes)
+	if err == sql.ErrNoRows {
+		return 0, nil // tenant not found — no storage used
+	}
+	return bytes, err
 }
 
 // SetReplicationFactor persists the cluster-wide replication factor.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/sirupsen/logrus"
 )
@@ -89,6 +90,28 @@ func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {
 		"usable_bytes":       usableBytes,
 		"nodes":              nodeStatuses,
 	})
+}
+
+// handleGetHASyncJobs returns all HA initial-sync and delta-sync job records.
+// GET /cluster/ha/sync-jobs
+func (s *Server) handleGetHASyncJobs(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
+	if s.haSyncWorker == nil {
+		s.writeJSON(w, map[string]interface{}{"sync_jobs": []struct{}{}})
+		return
+	}
+	jobs, err := s.haSyncWorker.GetSyncJobs(r.Context())
+	if err != nil {
+		s.writeError(w, "Failed to get sync jobs: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if jobs == nil {
+		jobs = []cluster.SyncJobStatus{}
+	}
+	s.writeJSON(w, map[string]interface{}{"sync_jobs": jobs})
 }
 
 // handleSetClusterHA changes the cluster-wide replication factor.

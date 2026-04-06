@@ -309,6 +309,7 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Set storage backend and ACL manager for cluster operations (migrations)
 	clusterManager.SetStorage(storageBackend)
+	clusterManager.SetBucketManager(bucketManager)
 
 	// Wrap objectManager with HA fanout when cluster is active
 	if clusterManager.IsClusterEnabled() {

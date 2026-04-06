@@ -11,6 +11,8 @@ import {
   HelpCircle,
   Shield,
   Database,
+  RefreshCw,
+  Clock,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import APIClient from '@/lib/api';
@@ -18,6 +20,7 @@ import ModalManager from '@/lib/modals';
 import { formatBytes } from '@/lib/utils';
 
 type HealthStatus = 'healthy' | 'degraded' | 'unavailable' | 'unknown';
+type SyncStatus = 'running' | 'done' | 'failed';
 
 function HealthBadge({ status }: { status: string }) {
   const s = status as HealthStatus;
@@ -46,6 +49,33 @@ function HealthBadge({ status }: { status: string }) {
   );
 }
 
+function SyncBadge({ status }: { status: string }) {
+  const s = status as SyncStatus;
+  if (s === 'done')
+    return (
+      <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-sm font-medium">
+        <CheckCircle className="h-4 w-4" /> Ready
+      </span>
+    );
+  if (s === 'running')
+    return (
+      <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 text-sm font-medium">
+        <RefreshCw className="h-4 w-4 animate-spin" /> Syncing
+      </span>
+    );
+  if (s === 'failed')
+    return (
+      <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 text-sm font-medium">
+        <XCircle className="h-4 w-4" /> Failed
+      </span>
+    );
+  return (
+    <span className="inline-flex items-center gap-1 text-muted-foreground text-sm">
+      <Clock className="h-4 w-4" /> Pending
+    </span>
+  );
+}
+
 const FACTOR_INFO = {
   1: { label: 'No replication', description: 'Single copy — no redundancy. Cluster fails if any node goes down.', color: 'text-red-600 dark:text-red-400' },
   2: { label: 'Mirror (×2)', description: 'Two complete copies. Tolerates 1 simultaneous node failure.', color: 'text-amber-600 dark:text-amber-400' },
@@ -63,10 +93,17 @@ export default function ClusterHA() {
     refetchInterval: 10000,
   });
 
+  const { data: syncData } = useQuery({
+    queryKey: ['cluster-ha-sync-jobs'],
+    queryFn: APIClient.getClusterHASyncJobs,
+    refetchInterval: 5000,
+  });
+
   const setFactorMutation = useMutation({
     mutationFn: (factor: number) => APIClient.setClusterHA(factor),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['cluster-ha'] });
+      queryClient.invalidateQueries({ queryKey: ['cluster-ha-sync-jobs'] });
       setSelectedFactor(null);
       ModalManager.toast('success', `Replication factor changed to ×${result.new_factor}`);
     },
@@ -113,6 +150,18 @@ export default function ClusterHA() {
   const pressureNodes = data.nodes.filter(
     (n) => n.capacity_total > 0 && n.capacity_used / n.capacity_total >= 0.8,
   );
+
+  // Build per-node sync status from most-recent job per node
+  const nodeById = Object.fromEntries(data.nodes.map((n) => [n.id, n]));
+  const latestJobByNode: Record<string, (typeof syncData)['sync_jobs'][number]> = {};
+  for (const job of syncData?.sync_jobs ?? []) {
+    if (!latestJobByNode[job.target_node_id]) {
+      latestJobByNode[job.target_node_id] = job;
+    }
+  }
+  const syncRows = data.nodes
+    .filter((n) => latestJobByNode[n.id])
+    .map((n) => ({ node: n, job: latestJobByNode[n.id] }));
 
   return (
     <div className="p-6 space-y-6">
@@ -238,7 +287,93 @@ export default function ClusterHA() {
         )}
       </div>
 
-      {/* Node status table */}
+      {/* Replica sync status */}
+      {syncRows.length > 0 && (
+        <div className="bg-card border border-border rounded-lg shadow-sm">
+          <div className="px-6 py-4 border-b border-border">
+            <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Replica sync status
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Initial and catch-up sync jobs for each replica node
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">Node</th>
+                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">Sync status</th>
+                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">Objects synced</th>
+                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">Progress</th>
+                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">Last updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {syncRows.map(({ node, job }) => {
+                  const completedAt = job.completed_at ? new Date(job.completed_at) : null;
+                  const startedAt = new Date(job.started_at);
+                  const isRunning = job.status === 'running';
+
+                  return (
+                    <tr key={node.id} className="border-b border-border last:border-0 hover:bg-muted/20">
+                      <td className="px-6 py-4 font-medium text-foreground">
+                        <div className="flex items-center gap-2">
+                          <Database className="h-4 w-4 text-muted-foreground" />
+                          {node.name}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <SyncBadge status={job.status} />
+                        {job.status === 'failed' && job.error_message && (
+                          <p className="text-xs text-red-500 mt-1 max-w-xs truncate" title={job.error_message}>
+                            {job.error_message}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-muted-foreground tabular-nums">
+                        {job.objects_synced.toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 w-40">
+                        {isRunning ? (
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                              <div className="h-2 bg-blue-500 rounded-full animate-pulse w-1/3" />
+                            </div>
+                            <span className="text-xs text-muted-foreground">In progress</span>
+                          </div>
+                        ) : job.status === 'done' ? (
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 bg-muted rounded-full h-2">
+                              <div className="h-2 bg-green-500 rounded-full w-full" />
+                            </div>
+                            <span className="text-xs text-green-600 dark:text-green-400">100%</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 bg-muted rounded-full h-2">
+                              <div className="h-2 bg-red-500 rounded-full w-full" />
+                            </div>
+                            <span className="text-xs text-red-500">Failed</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-muted-foreground text-xs">
+                        {completedAt
+                          ? completedAt.toLocaleString()
+                          : `Started ${startedAt.toLocaleString()}`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Node storage table */}
       <div className="bg-card border border-border rounded-lg shadow-sm">
         <div className="px-6 py-4 border-b border-border">
           <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
