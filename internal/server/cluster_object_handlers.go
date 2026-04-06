@@ -12,6 +12,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/cluster"
+	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
 
@@ -1436,4 +1438,249 @@ func (s *Server) handleReceiveDeletionLogSync(w http.ResponseWriter, r *http.Req
 		"message":  "Deletion log entries synchronized",
 		"recorded": recorded,
 	})
+}
+
+// handleHAReceivePut receives an HA-fanout PUT from the primary node.
+// PUT /api/internal/ha/objects/{key:.*}
+// Bucket path is in the X-HA-Bucket header; key may contain slashes.
+func (s *Server) handleHAReceivePut(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	key := mux.Vars(r)["key"]
+	bucketPath := r.Header.Get(cluster.HABucketHeader)
+
+	if bucketPath == "" || key == "" {
+		http.Error(w, "missing bucket or key", http.StatusBadRequest)
+		return
+	}
+
+	ctx = cluster.WithHAReplicaContext(ctx)
+	headers := r.Header.Clone()
+	if _, err := s.objectManager.PutObject(ctx, bucketPath, key, r.Body, headers); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketPath, "key": key}).
+			Error("HA receive PUT failed")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleHAReceiveDelete receives an HA-fanout DELETE from the primary node.
+// DELETE /api/internal/ha/objects/{key:.*}
+func (s *Server) handleHAReceiveDelete(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	key := mux.Vars(r)["key"]
+	bucketPath := r.Header.Get(cluster.HABucketHeader)
+
+	if bucketPath == "" || key == "" {
+		http.Error(w, "missing bucket or key", http.StatusBadRequest)
+		return
+	}
+
+	ctx = cluster.WithHAReplicaContext(ctx)
+	if _, err := s.objectManager.DeleteObject(ctx, bucketPath, key, false); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketPath, "key": key}).
+			Warn("HA receive DELETE failed (may already be deleted)")
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleHAReceiveMetadataOp receives a metadata-only operation fanout.
+// POST /api/internal/ha/metadata-op
+// Bucket path is in X-HA-Bucket header; body is JSON cluster.HAMetadataOp.
+func (s *Server) handleHAReceiveMetadataOp(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	bucketPath := r.Header.Get(cluster.HABucketHeader)
+	if bucketPath == "" {
+		http.Error(w, "missing "+cluster.HABucketHeader+" header", http.StatusBadRequest)
+		return
+	}
+
+	var op cluster.HAMetadataOp
+	if err := json.NewDecoder(r.Body).Decode(&op); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ctx = cluster.WithHAReplicaContext(ctx)
+
+	if err := s.applyHAMetadataOp(ctx, bucketPath, op); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketPath, "op": op.Op, "key": op.Key}).
+			Error("HA receive metadata-op failed")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// applyHAMetadataOp dispatches a received metadata operation to the object manager.
+func (s *Server) applyHAMetadataOp(ctx context.Context, bucket string, op cluster.HAMetadataOp) error {
+	om := s.objectManager
+	switch op.Op {
+	case "update-metadata":
+		var m map[string]string
+		if err := json.Unmarshal(op.Data, &m); err != nil {
+			return err
+		}
+		return om.UpdateObjectMetadata(ctx, bucket, op.Key, m)
+
+	case "set-tagging":
+		var tags object.TagSet
+		if err := json.Unmarshal(op.Data, &tags); err != nil {
+			return err
+		}
+		return om.SetObjectTagging(ctx, bucket, op.Key, &tags)
+
+	case "delete-tagging":
+		return om.DeleteObjectTagging(ctx, bucket, op.Key)
+
+	case "set-acl":
+		var acl object.ACL
+		if err := json.Unmarshal(op.Data, &acl); err != nil {
+			return err
+		}
+		return om.SetObjectACL(ctx, bucket, op.Key, &acl)
+
+	case "set-retention":
+		var cfg object.RetentionConfig
+		if err := json.Unmarshal(op.Data, &cfg); err != nil {
+			return err
+		}
+		if op.VersionID != "" {
+			return om.SetObjectRetention(ctx, bucket, op.Key, &cfg, op.VersionID)
+		}
+		return om.SetObjectRetention(ctx, bucket, op.Key, &cfg)
+
+	case "set-legal-hold":
+		var cfg object.LegalHoldConfig
+		if err := json.Unmarshal(op.Data, &cfg); err != nil {
+			return err
+		}
+		if op.VersionID != "" {
+			return om.SetObjectLegalHold(ctx, bucket, op.Key, &cfg, op.VersionID)
+		}
+		return om.SetObjectLegalHold(ctx, bucket, op.Key, &cfg)
+
+	case "set-restore-status":
+		var p struct {
+			Status    string     `json:"status"`
+			ExpiresAt *time.Time `json:"expires_at,omitempty"`
+		}
+		if err := json.Unmarshal(op.Data, &p); err != nil {
+			return err
+		}
+		return om.SetRestoreStatus(ctx, bucket, op.Key, p.Status, p.ExpiresAt)
+
+	default:
+		logrus.WithField("op", op.Op).Warn("HA receive metadata-op: unknown operation, ignoring")
+		return nil
+	}
+}
+
+// ---------------------------------------------------------------------------
+// HA pull endpoints (used by stale-node catch-up)
+// ---------------------------------------------------------------------------
+
+// handleHAGetObject serves an object to a rejoining stale replica.
+// GET /api/internal/ha/objects/{key:.*}
+// Bucket path is in the X-HA-Bucket query parameter (or header).
+func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
+	key := mux.Vars(r)["key"]
+	bucketPath := r.URL.Query().Get("bucket")
+	if bucketPath == "" {
+		bucketPath = r.Header.Get(cluster.HABucketHeader)
+	}
+	if bucketPath == "" || key == "" {
+		http.Error(w, "missing bucket or key", http.StatusBadRequest)
+		return
+	}
+
+	obj, reader, err := s.objectManager.GetObject(r.Context(), bucketPath, key)
+	if err != nil {
+		if err == object.ErrObjectNotFound {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer reader.Close()
+
+	// Forward all object metadata as headers so the receiver can reconstruct it.
+	w.Header().Set("Content-Type", obj.ContentType)
+	if obj.ContentDisposition != "" {
+		w.Header().Set("Content-Disposition", obj.ContentDisposition)
+	}
+	if obj.ContentEncoding != "" {
+		w.Header().Set("Content-Encoding", obj.ContentEncoding)
+	}
+	if obj.CacheControl != "" {
+		w.Header().Set("Cache-Control", obj.CacheControl)
+	}
+	if obj.ContentLanguage != "" {
+		w.Header().Set("Content-Language", obj.ContentLanguage)
+	}
+	if obj.StorageClass != "" {
+		w.Header().Set("x-amz-storage-class", obj.StorageClass)
+	}
+	for k, v := range obj.Metadata {
+		w.Header().Set("x-amz-meta-"+k, v)
+	}
+	if obj.Size > 0 {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
+	}
+	w.WriteHeader(http.StatusOK)
+	io.Copy(w, reader) //nolint:errcheck
+}
+
+// handleHAListChangedSince lists objects modified after a given Unix timestamp.
+// GET /api/internal/ha/objects/changed-since?bucket=<path>&since=<unix>&marker=<key>
+// Returns JSON suitable for the stale-reconciler delta-sync loop.
+func (s *Server) handleHAListChangedSince(w http.ResponseWriter, r *http.Request) {
+	bucketPath := r.URL.Query().Get("bucket")
+	sinceStr := r.URL.Query().Get("since")
+	marker := r.URL.Query().Get("marker")
+
+	if bucketPath == "" || sinceStr == "" {
+		http.Error(w, "missing bucket or since", http.StatusBadRequest)
+		return
+	}
+
+	sinceUnix, err := strconv.ParseInt(sinceStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid since timestamp", http.StatusBadRequest)
+		return
+	}
+	sinceTime := time.Unix(sinceUnix, 0)
+
+	result, err := s.objectManager.SearchObjects(
+		r.Context(), bucketPath, "", "", marker, 500,
+		&metadata.ObjectFilter{ModifiedAfter: &sinceTime},
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	type entry struct {
+		Key          string    `json:"key"`
+		LastModified time.Time `json:"last_modified"`
+		ETag         string    `json:"etag"`
+	}
+	resp := struct {
+		Objects     []entry `json:"objects"`
+		NextMarker  string  `json:"next_marker,omitempty"`
+		IsTruncated bool    `json:"is_truncated"`
+	}{
+		NextMarker:  result.NextMarker,
+		IsTruncated: result.IsTruncated,
+	}
+	for _, obj := range result.Objects {
+		resp.Objects = append(resp.Objects, entry{
+			Key:          obj.Key,
+			LastModified: obj.LastModified,
+			ETag:         obj.ETag,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp) //nolint:errcheck
 }

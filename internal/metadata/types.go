@@ -85,6 +85,28 @@ type BucketMetadata struct {
 	// Cached metrics (updated incrementally for performance)
 	ObjectCount int64 `json:"object_count"`
 	TotalSize   int64 `json:"total_size"`
+
+	// HA replication — nil means factor 1 (no HA, single node)
+	HA *BucketHA `json:"ha,omitempty"`
+}
+
+// BucketHA holds the high-availability replication state for a bucket.
+// The bucket always appears once in listings regardless of how many nodes
+// hold a copy — only the PrimaryNodeID node publishes it in the aggregator.
+// Quota is counted only on the primary node.
+type BucketHA struct {
+	PrimaryNodeID string          `json:"primary_node_id"`
+	ReplicaNodes  []HAReplicaNode `json:"replica_nodes,omitempty"`
+}
+
+// HAReplicaNode tracks the state of one HA replica on a given cluster node.
+type HAReplicaNode struct {
+	NodeID   string    `json:"node_id"`
+	// Status values: "syncing" | "ready" | "stale" | "pending_removal" | "storage_pressure"
+	Status   string    `json:"status"`
+	// Progress is 0-100 and only meaningful when Status == "syncing"
+	Progress int       `json:"progress,omitempty"`
+	SyncedAt time.Time `json:"synced_at,omitempty"`
 }
 
 // WebsiteMetadata represents static website hosting configuration for a bucket.

@@ -516,6 +516,8 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/cluster/nodes/{nodeId}/health", s.handleCheckNodeHealth).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/cache/stats", s.handleGetCacheStats).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/cache/invalidate", s.handleInvalidateCache).Methods("POST", "OPTIONS")
+	router.HandleFunc("/cluster/ha", s.handleGetClusterHA).Methods("GET", "OPTIONS")
+	router.HandleFunc("/cluster/ha", s.handleSetClusterHA).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/cluster/buckets", s.handleGetClusterBuckets).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/buckets/{bucket}/replicas", s.handleGetBucketReplicas).Methods("GET", "OPTIONS")
 
@@ -1419,6 +1421,11 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	// Aplicar región
 	if req.Region != "" {
 		bucketInfo.Region = req.Region
+	}
+
+	// Assign HA primary node — always set so bucket aggregator knows which node owns this bucket
+	if nodeID, err := s.clusterManager.GetLocalNodeID(r.Context()); err == nil && nodeID != "" {
+		bucketInfo.HA = &metadata.BucketHA{PrimaryNodeID: nodeID}
 	}
 
 	// Guardar configuraciones

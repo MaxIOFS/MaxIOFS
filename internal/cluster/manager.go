@@ -32,6 +32,7 @@ type Manager struct {
 	tlsConfig           *tls.Config
 	clusterHTTPClient   *http.Client
 	currentCert         atomic.Pointer[tls.Certificate]
+	readCounter         uint64 // atomic — round-robin read balancing
 }
 
 // NewManager creates a new cluster manager
@@ -666,6 +667,92 @@ func (m *Manager) GetHealthyNodes(ctx context.Context) ([]*Node, error) {
 	return nodes, nil
 }
 
+// GetReadyReplicaNodes returns healthy non-local nodes that have a completed initial sync.
+// These nodes are safe to serve reads — they have a full copy of all objects.
+func (m *Manager) GetReadyReplicaNodes(ctx context.Context) ([]*Node, error) {
+	localID, err := m.GetLocalNodeID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := m.db.QueryContext(ctx, `
+		SELECT DISTINCT cn.id, cn.name, cn.endpoint, cn.node_token, cn.region, cn.priority,
+		       cn.health_status, cn.last_health_check, cn.last_seen, cn.latency_ms,
+		       cn.capacity_total, cn.capacity_used, cn.bucket_count, cn.metadata,
+		       cn.created_at, cn.updated_at, cn.is_stale, cn.last_local_write_at
+		FROM cluster_nodes cn
+		INNER JOIN ha_sync_jobs hsj ON hsj.target_node_id = cn.id
+		WHERE cn.id != ? AND cn.health_status = ? AND hsj.status = ?
+		ORDER BY cn.priority ASC, cn.name ASC
+	`, localID, HealthStatusHealthy, SyncJobDone)
+	if err != nil {
+		return nil, fmt.Errorf("get ready replica nodes: %w", err)
+	}
+	defer rows.Close()
+
+	var nodes []*Node
+	for rows.Next() {
+		var node Node
+		var lastHealthCheck, lastSeen, lastLocalWriteAt sql.NullTime
+		err := rows.Scan(
+			&node.ID, &node.Name, &node.Endpoint, &node.NodeToken, &node.Region, &node.Priority,
+			&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
+			&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
+			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan ready replica node: %w", err)
+		}
+		if lastHealthCheck.Valid {
+			node.LastHealthCheck = &lastHealthCheck.Time
+		}
+		if lastSeen.Valid {
+			node.LastSeen = &lastSeen.Time
+		}
+		if lastLocalWriteAt.Valid {
+			node.LastLocalWriteAt = &lastLocalWriteAt.Time
+		}
+		nodes = append(nodes, &node)
+	}
+	return nodes, rows.Err()
+}
+
+// SelectReadNode selects the best node to serve a read request for the given bucket.
+// Returns nil when the local node should handle the request.
+// With factor > 1 and ready replicas, the local node and all ready replicas participate
+// in round-robin to distribute read load evenly.
+func (m *Manager) SelectReadNode(ctx context.Context, bucket string) (*Node, error) {
+	if !m.IsClusterEnabled() {
+		return nil, nil
+	}
+	factor, err := m.GetReplicationFactor(ctx)
+	if err != nil || factor <= 1 {
+		return nil, nil
+	}
+	replicas, err := m.GetReadyReplicaNodes(ctx)
+	if err != nil || len(replicas) == 0 {
+		return nil, nil
+	}
+	// Slot 0 = local node; slots 1..N = replicas.
+	total := uint64(1 + len(replicas))
+	idx := atomic.AddUint64(&m.readCounter, 1) % total
+	if idx == 0 {
+		return nil, nil // local node's turn
+	}
+	return replicas[idx-1], nil
+}
+
+// ProxyRead forwards a client read request to the given replica node and copies the
+// response back.  If the replica returns 404 the caller should retry locally.
+func (m *Manager) ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *Node) error {
+	client := NewProxyClient(m.GetTLSConfig())
+	resp, err := client.ProxyRequest(ctx, node, r)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return client.CopyResponseToWriter(w, resp)
+}
+
 // GetClusterStatus returns overall cluster status
 func (m *Manager) GetClusterStatus(ctx context.Context) (*ClusterStatus, error) {
 	status := &ClusterStatus{
@@ -978,4 +1065,29 @@ func (m *Manager) Close() error {
 		close(m.stopChan)
 	}
 	return nil
+}
+
+// GetReplicationFactor returns the cluster-wide replication factor (1, 2, or 3).
+// Returns 1 (no replication) if not set.
+func (m *Manager) GetReplicationFactor(ctx context.Context) (int, error) {
+	val, err := GetGlobalConfig(ctx, m.db, "ha.replication_factor")
+	if err != nil {
+		// Not set yet — default to 1
+		return 1, nil
+	}
+	factor := 1
+	fmt.Sscanf(val, "%d", &factor)
+	if factor < 1 || factor > 3 {
+		factor = 1
+	}
+	return factor, nil
+}
+
+// SetReplicationFactor persists the cluster-wide replication factor.
+// Callers must validate space before calling this.
+func (m *Manager) SetReplicationFactor(ctx context.Context, factor int) error {
+	if factor < 1 || factor > 3 {
+		return fmt.Errorf("invalid replication factor %d: must be 1, 2, or 3", factor)
+	}
+	return SetGlobalConfig(ctx, m.db, "ha.replication_factor", fmt.Sprintf("%d", factor))
 }

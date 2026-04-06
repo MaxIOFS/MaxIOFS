@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -36,12 +37,21 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 	// "last time alive" rather than "last time we tried".
 	now := time.Now()
 	if result.Healthy {
-		_, err = m.db.ExecContext(ctx, `
-			UPDATE cluster_nodes
-			SET health_status = ?, last_health_check = ?, last_seen = ?, latency_ms = ?,
-			    updated_at = ?, is_stale = 0
-			WHERE id = ?
-		`, status, now, now, result.LatencyMs, now, nodeID)
+		if result.CapacityTotal > 0 {
+			_, err = m.db.ExecContext(ctx, `
+				UPDATE cluster_nodes
+				SET health_status = ?, last_health_check = ?, last_seen = ?, latency_ms = ?,
+				    capacity_total = ?, capacity_used = ?, updated_at = ?, is_stale = 0
+				WHERE id = ?
+			`, status, now, now, result.LatencyMs, result.CapacityTotal, result.CapacityUsed, now, nodeID)
+		} else {
+			_, err = m.db.ExecContext(ctx, `
+				UPDATE cluster_nodes
+				SET health_status = ?, last_health_check = ?, last_seen = ?, latency_ms = ?,
+				    updated_at = ?, is_stale = 0
+				WHERE id = ?
+			`, status, now, now, result.LatencyMs, now, nodeID)
+		}
 	} else {
 		_, err = m.db.ExecContext(ctx, `
 			UPDATE cluster_nodes
@@ -78,7 +88,9 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 	return healthStatus, nil
 }
 
-// performHealthCheck performs an HTTP health check on the given endpoint
+// performHealthCheck performs an HTTP health check on the given endpoint.
+// It also reads capacity_total and capacity_used from the health response
+// so that node storage stats are kept current in the cluster DB.
 func (m *Manager) performHealthCheck(endpoint string) *HealthCheckResult {
 	start := time.Now()
 
@@ -106,7 +118,6 @@ func (m *Manager) performHealthCheck(endpoint string) *HealthCheckResult {
 
 	latency := int(time.Since(start).Milliseconds())
 
-	// Check response status
 	if resp.StatusCode != http.StatusOK {
 		return &HealthCheckResult{
 			Healthy:      false,
@@ -115,10 +126,17 @@ func (m *Manager) performHealthCheck(endpoint string) *HealthCheckResult {
 		}
 	}
 
-	return &HealthCheckResult{
-		Healthy:   true,
-		LatencyMs: latency,
+	// Parse capacity fields from the health response (best-effort, flat JSON).
+	var body struct {
+		CapacityTotal uint64 `json:"capacity_total"`
+		CapacityUsed  uint64 `json:"capacity_used"`
 	}
+	result := &HealthCheckResult{Healthy: true, LatencyMs: latency}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err == nil {
+		result.CapacityTotal = int64(body.CapacityTotal)
+		result.CapacityUsed = int64(body.CapacityUsed)
+	}
+	return result
 }
 
 // StartHealthChecker starts the background health checker

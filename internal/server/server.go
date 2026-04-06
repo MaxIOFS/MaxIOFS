@@ -75,6 +75,7 @@ type Server struct {
 	groupMappingSyncMgr     *cluster.GroupMappingSyncManager
 	deletionLogSyncMgr      *cluster.DeletionLogSyncManager
 	staleReconciler         *cluster.StaleReconciler
+	haSyncWorker            *cluster.HASyncWorker
 	notificationHub         *NotificationHub
 	quotaAlerts             *quotaAlertTracker
 	systemMetrics           *metrics.SystemMetricsTracker
@@ -309,6 +310,11 @@ func New(cfg *config.Config) (*Server, error) {
 	// Set storage backend and ACL manager for cluster operations (migrations)
 	clusterManager.SetStorage(storageBackend)
 
+	// Wrap objectManager with HA fanout when cluster is active
+	if clusterManager.IsClusterEnabled() {
+		objectManager = cluster.NewHAObjectManager(objectManager, clusterManager)
+	}
+
 	// Get ACL manager from bucket manager
 	aclMgrInterface := bucketManager.GetACLManager()
 	if aclMgrInterface != nil {
@@ -381,6 +387,12 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize stale-node reconciler
 	staleReconciler := cluster.NewStaleReconciler(db, clusterManager)
 
+	// Initialize HA initial-sync worker (copies existing objects to new replica nodes).
+	haSyncWorker := cluster.NewHASyncWorker(objectManager, bucketManager, clusterManager)
+
+	// Wire object managers into stale reconciler for HA object delta sync on node rejoin.
+	staleReconciler.SetObjectManagers(objectManager, bucketManager)
+
 	// Create HTTP servers
 	httpServer := &http.Server{
 		Addr:              cfg.Listen,
@@ -426,6 +438,7 @@ func New(cfg *config.Config) (*Server, error) {
 		groupMappingSyncMgr:     groupMappingSyncMgr,
 		deletionLogSyncMgr:      deletionLogSyncMgr,
 		staleReconciler:         staleReconciler,
+		haSyncWorker:            haSyncWorker,
 		notificationHub:         notificationHub,
 		quotaAlerts:             quotaAlerts,
 		systemMetrics:           systemMetrics,
@@ -597,7 +610,10 @@ func (s *Server) Start(ctx context.Context) error {
 		cluster.StartDeletionLogCleanup(ctx, s.db, 1*time.Hour, 7*24*time.Hour)
 		logrus.Info("Deletion log cleanup started")
 
-
+		// Resume any HA initial-sync jobs that were in progress when the server last stopped.
+		if s.haSyncWorker != nil {
+			s.haSyncWorker.Start(ctx)
+		}
 	}
 
 	// Start API server
@@ -943,6 +959,13 @@ func (s *Server) setupRoutes() error {
 
 			// State snapshot endpoint (for stale-node reconciliation)
 			internalClusterRouter.HandleFunc("/state-snapshot", s.handleGetStateSnapshot).Methods("GET")
+
+			// HA write fanout receive endpoints (key may contain slashes)
+			internalClusterRouter.HandleFunc("/ha/objects/changed-since", s.handleHAListChangedSince).Methods("GET")
+			internalClusterRouter.HandleFunc("/ha/objects/{key:.*}", s.handleHAGetObject).Methods("GET")
+			internalClusterRouter.HandleFunc("/ha/objects/{key:.*}", s.handleHAReceivePut).Methods("PUT")
+			internalClusterRouter.HandleFunc("/ha/objects/{key:.*}", s.handleHAReceiveDelete).Methods("DELETE")
+			internalClusterRouter.HandleFunc("/ha/metadata-op", s.handleHAReceiveMetadataOp).Methods("POST")
 
 			logrus.Info("Internal cluster API routes registered with HMAC authentication")
 		}

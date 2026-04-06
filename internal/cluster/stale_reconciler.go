@@ -8,8 +8,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
 
@@ -40,11 +44,16 @@ func (m ReconcileMode) String() string {
 // It pushes locally-newer entities to each reachable peer, syncs tombstones
 // bidirectionally, and finally clears the is_stale flag so normal periodic
 // sync resumes.
+// When objMgr and bucketMgr are set (via SetObjectManagers), it also performs
+// a delta sync of objects modified while this node was offline.
 type StaleReconciler struct {
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
 	log            *logrus.Entry
+
+	objMgr    object.Manager  // optional; set via SetObjectManagers
+	bucketMgr bucket.Manager  // optional; set via SetObjectManagers
 }
 
 // NewStaleReconciler creates a StaleReconciler bound to the given db and manager.
@@ -55,6 +64,13 @@ func NewStaleReconciler(db *sql.DB, mgr *Manager) *StaleReconciler {
 		proxyClient:    NewProxyClient(mgr.GetTLSConfig()),
 		log:            logrus.WithField("component", "stale-reconciler"),
 	}
+}
+
+// SetObjectManagers wires the object and bucket managers needed for HA object delta sync.
+// Must be called before Reconcile if object catch-up is desired.
+func (r *StaleReconciler) SetObjectManagers(objMgr object.Manager, bucketMgr bucket.Manager) {
+	r.objMgr = objMgr
+	r.bucketMgr = bucketMgr
 }
 
 // Reconcile performs the full stale-node reconciliation sequence.
@@ -127,6 +143,15 @@ func (r *StaleReconciler) Reconcile(ctx context.Context) error {
 	// Clear the stale flag so normal sync managers include this node again.
 	if err := r.clearStaleFlag(ctx, localNodeID); err != nil {
 		return fmt.Errorf("clear stale flag: %w", err)
+	}
+
+	// Object delta sync: pull objects modified while this node was offline.
+	// Only runs when this node was previously a ready HA replica.
+	if r.objMgr != nil && r.bucketMgr != nil {
+		if err := r.reconcileObjects(ctx, localNodeID, peers); err != nil {
+			// Log but don't fail — config sync already succeeded.
+			r.log.WithError(err).Warn("HA object delta sync failed; node is back but may have stale objects")
+		}
 	}
 
 	r.log.WithField("node_id", localNodeID).Info("Stale-node reconciliation completed successfully")
@@ -541,4 +566,180 @@ func (r *StaleReconciler) pushGroupMapping(ctx context.Context, id string, peer 
 		return fmt.Errorf("query group mapping %s: %w", id, err)
 	}
 	return r.postToNode(ctx, peer, "/api/internal/cluster/group-mapping-sync", &gm, localNodeID, nodeToken)
+}
+
+// ── HA object delta sync ─────────────────────────────────────────────────────
+
+// reconcileObjects performs a delta sync of objects modified while this node
+// was offline. It only runs when there is a prior SyncJobDone entry for this
+// node, meaning this node was previously a ready HA replica.
+// It contacts any healthy peer to list changed objects and pulls them locally.
+func (r *StaleReconciler) reconcileObjects(ctx context.Context, localNodeID string, peers []*Node) error {
+	if len(peers) == 0 {
+		return nil
+	}
+
+	// Skip if this node was never a ready replica.
+	var prevDone bool
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) > 0 FROM ha_sync_jobs WHERE target_node_id = ? AND status = ?`,
+		localNodeID, SyncJobDone,
+	).Scan(&prevDone)
+	if err != nil || !prevDone {
+		r.log.Debug("No prior SyncJobDone for this node; skipping object delta sync")
+		return nil
+	}
+
+	// Determine stale-since timestamp: the last time this node was confirmed healthy.
+	var lastSeen sql.NullTime
+	if scanErr := r.db.QueryRowContext(ctx,
+		`SELECT last_seen FROM cluster_nodes WHERE id = ?`, localNodeID,
+	).Scan(&lastSeen); scanErr != nil || !lastSeen.Valid {
+		r.log.Warn("Could not determine last_seen for local node; skipping object delta sync")
+		return nil
+	}
+	staleAt := lastSeen.Time
+
+	r.log.WithFields(logrus.Fields{
+		"stale_since": staleAt,
+		"peers":       len(peers),
+	}).Info("HASyncWorker: starting object delta sync after stale rejoin")
+
+	// Use the first healthy peer as the source of truth.
+	peer := peers[0]
+	localToken, err := r.clusterManager.GetLocalNodeToken(ctx)
+	if err != nil {
+		return fmt.Errorf("get local node token: %w", err)
+	}
+
+	buckets, err := r.bucketMgr.ListBuckets(ctx, "")
+	if err != nil {
+		return fmt.Errorf("list buckets: %w", err)
+	}
+
+	// Insert a new sync job to track progress.
+	result, insertErr := r.db.ExecContext(ctx,
+		`INSERT INTO ha_sync_jobs
+		 (target_node_id, status, objects_synced, last_checkpoint_bucket, last_checkpoint_key, started_at)
+		 VALUES (?, ?, 0, '', '', ?)`,
+		localNodeID, SyncJobRunning, time.Now())
+	if insertErr != nil {
+		return fmt.Errorf("create delta sync job: %w", insertErr)
+	}
+	jobID, _ := result.LastInsertId()
+
+	synced := int64(0)
+	for _, b := range buckets {
+		bp := bucketPath(b)
+		marker := ""
+		for {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			changed, nextMarker, truncated, listErr := r.listChangedSince(ctx, peer, localNodeID, localToken, bp, staleAt, marker)
+			if listErr != nil {
+				r.log.WithError(listErr).WithField("bucket", bp).
+					Warn("Delta sync: list-changed-since failed, skipping bucket")
+				break
+			}
+			for _, key := range changed {
+				if pullErr := r.pullObject(ctx, peer, localNodeID, localToken, bp, key); pullErr != nil {
+					r.log.WithError(pullErr).WithFields(logrus.Fields{
+						"bucket": bp, "key": key,
+					}).Warn("Delta sync: failed to pull object, skipping")
+					continue
+				}
+				synced++
+				if synced%100 == 0 {
+					r.db.ExecContext(ctx, //nolint:errcheck
+						`UPDATE ha_sync_jobs SET objects_synced=?, last_checkpoint_bucket=?, last_checkpoint_key=? WHERE id=?`,
+						synced, bp, key, jobID)
+				}
+			}
+			if !truncated {
+				break
+			}
+			marker = nextMarker
+		}
+	}
+
+	now := time.Now()
+	r.db.ExecContext(context.Background(), //nolint:errcheck
+		`UPDATE ha_sync_jobs SET status=?, objects_synced=?, completed_at=? WHERE id=?`,
+		SyncJobDone, synced, now, jobID)
+
+	r.log.WithFields(logrus.Fields{
+		"objects_synced": synced,
+	}).Info("HA object delta sync completed")
+	return nil
+}
+
+// listChangedSince calls GET /api/internal/ha/objects/changed-since on the peer.
+func (r *StaleReconciler) listChangedSince(
+	ctx context.Context, peer *Node, localNodeID, localToken, bucketPath string,
+	since time.Time, marker string,
+) (keys []string, nextMarker string, truncated bool, err error) {
+	q := url.Values{}
+	q.Set("bucket", bucketPath)
+	q.Set("since", strconv.FormatInt(since.Unix(), 10))
+	if marker != "" {
+		q.Set("marker", marker)
+	}
+	endpoint := fmt.Sprintf("%s/api/internal/ha/objects/changed-since?%s", peer.Endpoint, q.Encode())
+	req, err := r.proxyClient.CreateAuthenticatedRequest(ctx, "GET", endpoint, nil, localNodeID, localToken)
+	if err != nil {
+		return nil, "", false, err
+	}
+	resp, err := r.proxyClient.DoAuthenticatedRequest(req)
+	if err != nil {
+		return nil, "", false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, "", false, fmt.Errorf("changed-since returned %d: %s", resp.StatusCode, body)
+	}
+	var result struct {
+		Objects []struct {
+			Key string `json:"key"`
+		} `json:"objects"`
+		NextMarker  string `json:"next_marker"`
+		IsTruncated bool   `json:"is_truncated"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, "", false, fmt.Errorf("decode changed-since response: %w", err)
+	}
+	for _, o := range result.Objects {
+		keys = append(keys, o.Key)
+	}
+	return keys, result.NextMarker, result.IsTruncated, nil
+}
+
+// pullObject fetches an object from the peer and writes it locally.
+func (r *StaleReconciler) pullObject(
+	ctx context.Context, peer *Node, localNodeID, localToken, bucketPath, key string,
+) error {
+	q := url.Values{}
+	q.Set("bucket", bucketPath)
+	endpoint := fmt.Sprintf("%s/api/internal/ha/objects/%s?%s", peer.Endpoint, key, q.Encode())
+	req, err := r.proxyClient.CreateAuthenticatedRequest(ctx, "GET", endpoint, nil, localNodeID, localToken)
+	if err != nil {
+		return err
+	}
+	resp, err := r.proxyClient.DoAuthenticatedRequest(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil // deleted on peer; leave it
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("GET object returned %d: %s", resp.StatusCode, body)
+	}
+
+	ctx = WithHAReplicaContext(ctx)
+	_, err = r.objMgr.PutObject(ctx, bucketPath, key, resp.Body, resp.Header.Clone())
+	return err
 }

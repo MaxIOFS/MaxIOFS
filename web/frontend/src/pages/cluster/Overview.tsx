@@ -17,7 +17,8 @@ import {
   Copy,
   Check,
   Link,
-  KeyRound
+  KeyRound,
+  Shield,
 } from 'lucide-react';
 import APIClient from '@/lib/api';
 import { getErrorMessage } from '@/lib/utils';
@@ -323,6 +324,14 @@ export default function ClusterOverview() {
           >
             <ArrowRightLeft className="h-4 w-4" />
             {t('manageMigrations')}
+          </Button>
+          <Button
+            onClick={() => navigate('/cluster/ha')}
+            variant="outline"
+            className="bg-card hover:bg-secondary"
+          >
+            <Shield className="h-4 w-4" />
+            HA Replication
           </Button>
         </div>
       </div>

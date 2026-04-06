@@ -781,6 +781,14 @@ func (m *mockClusterManager) IsClusterEnabled() bool {
 	return m.enabled
 }
 
+func (m *mockClusterManager) SelectReadNode(_ context.Context, _ string) (*cluster.Node, error) {
+	return nil, nil // tests always serve locally
+}
+
+func (m *mockClusterManager) ProxyRead(_ context.Context, _ http.ResponseWriter, _ *http.Request, _ *cluster.Node) error {
+	return nil
+}
+
 type mockBucketAggregator struct{}
 
 func (m *mockBucketAggregator) ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error) {

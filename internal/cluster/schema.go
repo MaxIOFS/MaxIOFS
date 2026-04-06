@@ -99,7 +99,30 @@ func InitSchema(db *sql.DB) error {
 	if err := applyTLSMigration(db); err != nil {
 		return err
 	}
-	return applyStaleNodeMigration(db)
+	if err := applyStaleNodeMigration(db); err != nil {
+		return err
+	}
+	return applySyncJobsMigration(db)
+}
+
+// applySyncJobsMigration creates the ha_sync_jobs table for tracking initial sync state.
+func applySyncJobsMigration(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS ha_sync_jobs (
+			id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+			target_node_id          TEXT NOT NULL,
+			status                  TEXT NOT NULL DEFAULT 'running',
+			objects_synced          INTEGER NOT NULL DEFAULT 0,
+			last_checkpoint_bucket  TEXT NOT NULL DEFAULT '',
+			last_checkpoint_key     TEXT NOT NULL DEFAULT '',
+			started_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			completed_at            TIMESTAMP,
+			error_message           TEXT NOT NULL DEFAULT ''
+		);
+		CREATE INDEX IF NOT EXISTS idx_ha_sync_jobs_node   ON ha_sync_jobs(target_node_id);
+		CREATE INDEX IF NOT EXISTS idx_ha_sync_jobs_status ON ha_sync_jobs(status);
+	`)
+	return err
 }
 
 // applyStaleNodeMigration adds stale-node tracking columns to cluster_nodes for existing databases.

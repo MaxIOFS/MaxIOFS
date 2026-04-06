@@ -1741,7 +1741,31 @@ export class APIClient {
     return response.data.data!;
   }
 
-  // Cluster Replication methods
+  // Cluster HA methods
+  static async getClusterHA(): Promise<{
+    replication_factor: number;
+    node_count: number;
+    tolerated_failures: number;
+    total_bytes: number;
+    usable_bytes: number;
+    nodes: Array<{
+      id: string;
+      name: string;
+      health_status: string;
+      capacity_total: number;
+      capacity_used: number;
+      capacity_free: number;
+    }>;
+  }> {
+    const response = await apiClient.get('/cluster/ha');
+    return response.data.data;
+  }
+
+  static async setClusterHA(factor: number): Promise<{ message: string; previous_factor: number; new_factor: number }> {
+    const response = await apiClient.put('/cluster/ha', { factor });
+    return response.data.data;
+  }
+
   // Cluster Migration methods
   static async migrateBucket(bucket: string, request: MigrateBucketRequest): Promise<MigrationJob> {
     const response = await apiClient.post<APIResponse<MigrationJob>>(`/cluster/buckets/${bucket}/migrate`, request);

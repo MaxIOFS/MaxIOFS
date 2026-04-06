@@ -119,6 +119,8 @@ type Handler struct {
 	}
 	clusterManager interface {
 		IsClusterEnabled() bool
+		SelectReadNode(ctx context.Context, bucket string) (*cluster.Node, error)
+		ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *cluster.Node) error
 	}
 	bucketAggregator interface {
 		ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
@@ -207,9 +209,11 @@ func (h *Handler) buildLocationURL(r *http.Request, bucketName, objectKey string
 	return "/" + bucketName + "/" + objectKey
 }
 
-// SetClusterManager sets the cluster manager for checking cluster status
+// SetClusterManager sets the cluster manager for checking cluster status and read routing.
 func (h *Handler) SetClusterManager(cm interface {
 	IsClusterEnabled() bool
+	SelectReadNode(ctx context.Context, bucket string) (*cluster.Node, error)
+	ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *cluster.Node) error
 }) {
 	h.clusterManager = cm
 }
@@ -1187,7 +1191,21 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Intentar obtener el objeto
+	// 2. Read load balancing: if a ready replica is selected, proxy the request there.
+	// Fall through to local on any error or 404 from the replica.
+	if h.clusterManager != nil {
+		if node, routeErr := h.clusterManager.SelectReadNode(r.Context(), bucketPath); routeErr == nil && node != nil {
+			proxyErr := h.clusterManager.ProxyRead(r.Context(), w, r, node)
+			if proxyErr == nil {
+				return // replica served the response
+			}
+			// Replica unreachable — fall through to local read below.
+			logrus.WithError(proxyErr).WithField("node_id", node.ID).
+				Warn("read balancing: replica unavailable, falling back to local")
+		}
+	}
+
+	// 3. Intentar obtener el objeto
 	// Si el objeto NO existe, devolver NoSuchKey (404) - esto es correcto para S3
 	versionID := r.URL.Query().Get("versionId")
 	obj, reader, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)

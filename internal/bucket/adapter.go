@@ -38,6 +38,9 @@ func toMetadataBucket(b *Bucket) *metadata.BucketMetadata {
 		// Metrics
 		ObjectCount: b.ObjectCount,
 		TotalSize:   b.TotalSize,
+
+		// HA replication
+		HA: b.HA,
 	}
 }
 
@@ -74,6 +77,9 @@ func fromMetadataBucket(mb *metadata.BucketMetadata) *Bucket {
 		// Metrics
 		ObjectCount: mb.ObjectCount,
 		TotalSize:   mb.TotalSize,
+
+		// HA replication
+		HA: mb.HA,
 	}
 }
 

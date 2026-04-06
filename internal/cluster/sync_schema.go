@@ -198,6 +198,10 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 			value:       "30",
 			description: "Interval for IDP group mapping synchronization checks in seconds",
 		},
+		"ha.replication_factor": {
+			value:       "1",
+			description: "Cluster-wide replication factor: 1 = no replication, 2 = mirror (tolerates 1 node failure), 3 = triple copy (tolerates 2 node failures)",
+		},
 	}
 
 	now := time.Now()

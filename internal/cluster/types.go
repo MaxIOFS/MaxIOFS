@@ -65,9 +65,11 @@ type ClusterInfo struct {
 
 // HealthCheckResult is returned by health check operations
 type HealthCheckResult struct {
-	Healthy      bool   `json:"healthy"`
-	LatencyMs    int    `json:"latency_ms"`
-	ErrorMessage string `json:"error_message,omitempty"`
+	Healthy       bool   `json:"healthy"`
+	LatencyMs     int    `json:"latency_ms"`
+	ErrorMessage  string `json:"error_message,omitempty"`
+	CapacityTotal int64  `json:"capacity_total,omitempty"`
+	CapacityUsed  int64  `json:"capacity_used,omitempty"`
 }
 
 // Health status constants

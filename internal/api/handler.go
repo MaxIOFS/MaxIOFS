@@ -2,13 +2,13 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/gorilla/mux"
-	"github.com/sirupsen/logrus"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
@@ -17,7 +17,17 @@ import (
 	"github.com/maxiofs/maxiofs/internal/metrics"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/pkg/s3compat"
+	"github.com/shirou/gopsutil/v3/disk"
+	"github.com/sirupsen/logrus"
 )
+
+// diskUsage returns partition usage stats for the given path.
+func diskUsage(path string) (*disk.UsageStat, error) {
+	if path == "" {
+		return nil, fmt.Errorf("empty path")
+	}
+	return disk.Usage(path)
+}
 
 // Handler handles S3 API requests
 type Handler struct {
@@ -28,6 +38,7 @@ type Handler struct {
 	s3Handler        *s3compat.Handler
 	publicAPIURL     string
 	publicConsoleURL string
+	dataDir          string
 }
 
 // NewHandler creates a new API handler
@@ -85,6 +96,7 @@ func NewHandler(
 		s3Handler:        s3Handler,
 		publicAPIURL:     publicAPIURL,
 		publicConsoleURL: publicConsoleURL,
+		dataDir:          dataDir,
 	}
 }
 
@@ -507,7 +519,17 @@ func corsMethodAllowed(method string, allowed []string) bool {
 func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status": "healthy", "service": "maxiofs"}`))
+
+	var capacityTotal, capacityUsed uint64
+	if usage, err := diskUsage(h.dataDir); err == nil {
+		capacityTotal = usage.Total
+		capacityUsed = usage.Used
+	}
+
+	w.Write([]byte(fmt.Sprintf(
+		`{"status":"healthy","service":"maxiofs","capacity_total":%d,"capacity_used":%d}`,
+		capacityTotal, capacityUsed,
+	)))
 }
 
 func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {

@@ -8,6 +8,15 @@ import (
 	"github.com/maxiofs/maxiofs/internal/storage"
 )
 
+// HAStatus constants for HAReplicaNode.Status.
+const (
+	HAStatusSyncing         = "syncing"
+	HAStatusReady           = "ready"
+	HAStatusStale           = "stale"
+	HAStatusPendingRemoval  = "pending_removal"
+	HAStatusStoragePressure = "storage_pressure"
+)
+
 // Bucket represents a storage bucket
 type Bucket struct {
 	Name              string             `json:"name"`
@@ -33,6 +42,9 @@ type Bucket struct {
 	// Cached metrics for performance (updated incrementally)
 	ObjectCount int64 `json:"object_count"` // Cached object count
 	TotalSize   int64 `json:"total_size"`   // Cached total size in bytes
+
+	// HA replication — nil means factor 1 (no HA, single node)
+	HA *metadata.BucketHA `json:"ha,omitempty"`
 }
 
 // Manager defines the interface for bucket management

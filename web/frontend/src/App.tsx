@@ -42,6 +42,7 @@ const IdentityProviders  = React.lazy(() => import('@/pages/identity-providers/i
 const ClusterOverview    = React.lazy(() => import('@/pages/cluster/Overview'));
 const ClusterNodes       = React.lazy(() => import('@/pages/cluster/Nodes'));
 const ClusterMigrations  = React.lazy(() => import('@/pages/cluster/Migrations'));
+const ClusterHA          = React.lazy(() => import('@/pages/cluster/HA'));
 
 // Error Boundary to catch React render crashes and show a recovery UI
 class ErrorBoundary extends React.Component<
@@ -348,6 +349,16 @@ function App() {
                 <ProtectedRoute>
                   <AppLayout>
                     <ClusterMigrations />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cluster/ha"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <ClusterHA />
                   </AppLayout>
                 </ProtectedRoute>
               }
