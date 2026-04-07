@@ -1106,6 +1106,18 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 	// Check if truncated based on nextMarker from metadata store
 	isTruncated := nextMarker != ""
 
+	// If the store's nextMarker falls inside a common prefix we've already collected,
+	// advance it past the entire prefix so the same folder doesn't reappear on the
+	// next page (which would cause clients like S3 Browser to show duplicate folders).
+	if nextMarker != "" && delimiter != "" {
+		for _, cp := range commonPrefixes {
+			if strings.HasPrefix(nextMarker, cp.Prefix) {
+				nextMarker = advancePastPrefix(cp.Prefix, delimiter)
+				break
+			}
+		}
+	}
+
 	// Apply maxKeys limit considering both objects and common prefixes
 	totalItems := len(objects) + len(commonPrefixes)
 	if totalItems > maxKeys {
@@ -1116,7 +1128,9 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 			commonPrefixes = commonPrefixes[:maxKeys]
 			objects = []Object{}
 			if len(commonPrefixes) > 0 {
-				nextMarker = commonPrefixes[len(commonPrefixes)-1].Prefix
+				// Use advancePastPrefix so the next page starts after the entire
+				// last folder, not inside it (which would re-emit the same prefix).
+				nextMarker = advancePastPrefix(commonPrefixes[len(commonPrefixes)-1].Prefix, delimiter)
 			}
 		} else {
 			remainingSlots := maxKeys - len(commonPrefixes)
@@ -1141,6 +1155,29 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 	}
 
 	return result, nil
+}
+
+// advancePastPrefix returns a pagination marker that is lexicographically greater
+// than every key that starts with prefix (which must end with delimiter).
+// Used to skip a common prefix entirely when building the NextMarker/NextContinuationToken
+// so that the same folder never appears twice across pages.
+//
+// Example: advancePastPrefix("folder_1000/", "/") → "folder_1001"
+// All keys starting with "folder_1000/" are < "folder_1001" in byte order.
+func advancePastPrefix(prefix, delimiter string) string {
+	if len(prefix) == 0 || len(delimiter) == 0 {
+		return prefix
+	}
+	base := prefix[:len(prefix)-len(delimiter)]
+	if len(base) == 0 {
+		return prefix // root prefix — can't advance
+	}
+	b := []byte(base)
+	if b[len(b)-1] == 0xFF {
+		return prefix // overflow edge case — fall back to prefix itself
+	}
+	b[len(b)-1]++
+	return string(b)
 }
 
 // SearchObjects searches objects with filters applied server-side
@@ -1223,6 +1260,16 @@ func (om *objectManager) SearchObjects(ctx context.Context, bucket, prefix, deli
 
 	isTruncated := nextMarker != ""
 
+	// Same duplicate-folder prevention as in ListObjects.
+	if nextMarker != "" && delimiter != "" {
+		for _, cp := range commonPrefixes {
+			if strings.HasPrefix(nextMarker, cp.Prefix) {
+				nextMarker = advancePastPrefix(cp.Prefix, delimiter)
+				break
+			}
+		}
+	}
+
 	// Apply maxKeys limit
 	totalItems := len(objects) + len(commonPrefixes)
 	if totalItems > maxKeys {
@@ -1231,7 +1278,7 @@ func (om *objectManager) SearchObjects(ctx context.Context, bucket, prefix, deli
 			commonPrefixes = commonPrefixes[:maxKeys]
 			objects = []Object{}
 			if len(commonPrefixes) > 0 {
-				nextMarker = commonPrefixes[len(commonPrefixes)-1].Prefix
+				nextMarker = advancePastPrefix(commonPrefixes[len(commonPrefixes)-1].Prefix, delimiter)
 			}
 		} else {
 			remainingSlots := maxKeys - len(commonPrefixes)

@@ -204,9 +204,14 @@ func (s *PebbleStore) ListObjects(ctx context.Context, bucket, prefix, marker st
 
 		if !started {
 			if objKeyStr == marker {
+				// Found the marker key — skip it (exclusive lower bound).
 				started = true
+				continue
 			}
-			continue
+			// SeekGE guarantees objKeyStr >= marker, so here objKeyStr > marker.
+			// The marker doesn't exist as a real key (e.g. it was a synthesised
+			// "skip-past-prefix" sentinel). Start collecting from this key.
+			started = true
 		}
 
 		if count >= maxKeys {
@@ -728,8 +733,10 @@ func (s *PebbleStore) searchObjectsByScan(ctx context.Context, bucket, prefix, m
 		if !started {
 			if objKeyStr == marker {
 				started = true
+				continue
 			}
-			continue
+			// objKeyStr > marker (SeekGE guarantee): marker not in store, start here.
+			started = true
 		}
 
 		if count >= maxKeys {

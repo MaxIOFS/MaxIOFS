@@ -3,10 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import APIClient, { getActiveUploadCount } from '@/lib/api';
 import { getBasePath, isLoginPath } from '@/lib/basePath';
 import type { User, LoginRequest, APIError } from '@/types';
-import { useIdleTimer } from './useIdleTimer';
+import { useIdleTimer, getLastActivityTimestamp, clearLastActivityTimestamp } from './useIdleTimer';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { isHttpStatus } from '@/lib/utils';
+
+// 15 minutes of inactivity → logout
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
 // Auth Context Type
 interface AuthContextType {
@@ -41,10 +44,8 @@ export function useAuthProvider(): AuthContextType {
   const { setTheme } = useTheme();
   const { setLanguage } = useLanguage();
 
-  // Check if user is authenticated
   const isAuthenticated = !!user && APIClient.isAuthenticated();
 
-  // Apply user preferences
   const applyUserPreferences = useCallback((userData: User) => {
     if (userData.themePreference) {
       setTheme(userData.themePreference as 'light' | 'dark' | 'system');
@@ -54,56 +55,61 @@ export function useAuthProvider(): AuthContextType {
     }
   }, [setTheme, setLanguage]);
 
-  // Clear error
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
+  const clearError = useCallback(() => setError(null), []);
 
-  // Initialize auth state
+  // Initialize auth state on mount
   useEffect(() => {
     const initializeAuth = async () => {
-      // Don't try to authenticate on login page
       if (typeof window !== 'undefined' && isLoginPath()) {
         setUser(null);
         setIsLoading(false);
         return;
       }
 
-      try {
-        if (APIClient.isAuthenticated()) {
-          const currentUser = await APIClient.getCurrentUser();
-          setUser(currentUser);
-          applyUserPreferences(currentUser);
-          setIsLoading(false);
-        } else {
-          setUser(null);
-          setIsLoading(false);
+      // If the user has no token at all, nothing to restore
+      if (!APIClient.isAuthenticated()) {
+        setUser(null);
+        setIsLoading(false);
+        return;
+      }
+
+      // Check if the user was inactive for too long while the tab was closed.
+      // last_activity is written to localStorage on every UI interaction by useIdleTimer.
+      const lastActivity = getLastActivityTimestamp();
+      if (lastActivity > 0 && Date.now() - lastActivity > IDLE_TIMEOUT_MS) {
+        APIClient.clearAuth();
+        clearLastActivityTimestamp();
+        setUser(null);
+        setIsLoading(false);
+        if (!isLoginPath()) {
+          window.location.href = `${getBasePath()}/login`;
         }
+        return;
+      }
+
+      try {
+        const currentUser = await APIClient.getCurrentUser();
+        setUser(currentUser);
+        applyUserPreferences(currentUser);
       } catch (err: unknown) {
-        // If we get a 401, the token is invalid
+        // 401 → token invalid; redirect to login
         if (isHttpStatus(err, 401)) {
           APIClient.clearAuth();
-          setUser(null);
-          setIsLoading(false);
-          // Redirect to login if not already on login page
-          if (typeof window !== 'undefined' && !isLoginPath()) {
-            setTimeout(() => {
-              window.location.href = `${getBasePath()}/login`;
-            }, 0);
+          clearLastActivityTimestamp();
+          if (!isLoginPath()) {
+            window.location.href = `${getBasePath()}/login`;
           }
-        } else {
-          APIClient.clearAuth();
-          setUser(null);
-          setIsLoading(false);
         }
+        setUser(null);
+      } finally {
+        setIsLoading(false);
       }
     };
 
     initializeAuth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run once on mount
+  }, []);
 
-  // Login function
   const login = useCallback(async (credentials: LoginRequest) => {
     try {
       setIsLoading(true);
@@ -114,7 +120,6 @@ export function useAuthProvider(): AuthContextType {
       if (response.success && response.user) {
         setUser(response.user);
         applyUserPreferences(response.user);
-        // Use hard redirect to ensure auth state is properly initialized
         if (typeof window !== 'undefined') {
           window.location.href = getBasePath() || '/';
         }
@@ -134,12 +139,12 @@ export function useAuthProvider(): AuthContextType {
     }
   }, [navigate]);
 
-  // Logout function
   const logout = useCallback(async () => {
     try {
       setIsLoading(true);
       await APIClient.logout();
     } finally {
+      clearLastActivityTimestamp();
       setUser(null);
       setError(null);
       setIsLoading(false);
@@ -147,7 +152,6 @@ export function useAuthProvider(): AuthContextType {
     }
   }, [navigate]);
 
-  // Refresh auth state
   const refreshAuth = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -158,7 +162,7 @@ export function useAuthProvider(): AuthContextType {
       } else {
         setUser(null);
       }
-    } catch (err) {
+    } catch {
       setUser(null);
       APIClient.clearAuth();
     } finally {
@@ -166,11 +170,12 @@ export function useAuthProvider(): AuthContextType {
     }
   }, [applyUserPreferences]);
 
-  // Idle timer - logout after 30 minutes of inactivity
+  // Idle timer — fires after 15 min of no user interaction.
+  // Blocked during active uploads so the session doesn't die mid-transfer.
   const handleIdle = useCallback(() => {
     if (isAuthenticated && typeof window !== 'undefined') {
-      // Clear auth and redirect to login
       APIClient.clearAuth();
+      clearLastActivityTimestamp();
       setUser(null);
       setError({
         code: 'SESSION_TIMEOUT',
@@ -181,11 +186,8 @@ export function useAuthProvider(): AuthContextType {
     }
   }, [isAuthenticated]);
 
-  // Only activate idle timer when user is authenticated.
-  // isBlocked suppresses logout when a file upload is in progress — the user
-  // isn't interacting with the UI but the session is actively being used.
   useIdleTimer({
-    timeout: 30 * 60 * 1000, // 30 minutes in milliseconds
+    timeout: IDLE_TIMEOUT_MS,
     onIdle: handleIdle,
     isBlocked: () => getActiveUploadCount() > 0,
   });

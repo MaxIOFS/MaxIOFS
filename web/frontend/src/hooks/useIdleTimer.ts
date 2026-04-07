@@ -1,5 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 
+const LAST_ACTIVITY_KEY = 'last_activity';
+
 interface UseIdleTimerOptions {
   timeout: number; // Timeout in milliseconds
   onIdle: () => void; // Callback when user becomes idle
@@ -8,8 +10,11 @@ interface UseIdleTimerOptions {
 }
 
 /**
- * Hook to detect user inactivity and trigger a callback after a specified timeout
- * @param options Configuration options for the idle timer
+ * Hook to detect user inactivity and trigger a callback after a specified timeout.
+ *
+ * Last-activity timestamp is written to localStorage on every event so that
+ * tab-close / page-reload are included in the inactivity window (the calling
+ * code is responsible for checking the stored timestamp on mount).
  */
 export function useIdleTimer({
   timeout,
@@ -18,8 +23,7 @@ export function useIdleTimer({
   isBlocked,
 }: UseIdleTimerOptions) {
   const timeoutId = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastActivity = useRef<number | null>(null);
-  // Keep latest callbacks in refs so the setTimeout closure never goes stale
+  // Keep latest callbacks in refs so setTimeout closures never go stale
   const onIdleRef = useRef(onIdle);
   const isBlockedRef = useRef(isBlocked);
   const resetTimerRef = useRef<() => void>(() => {});
@@ -27,20 +31,14 @@ export function useIdleTimer({
   useEffect(() => { onIdleRef.current = onIdle; }, [onIdle]);
   useEffect(() => { isBlockedRef.current = isBlocked; }, [isBlocked]);
 
-  useEffect(() => {
-    lastActivity.current = Date.now();
-  }, []);
-
   const resetTimer = useCallback(() => {
-    // Clear existing timeout
     if (timeoutId.current) {
       clearTimeout(timeoutId.current);
     }
 
-    // Update last activity time
-    lastActivity.current = Date.now();
+    // Persist the timestamp so other tabs and page reloads know the user was active
+    try { localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now())); } catch { /* storage unavailable */ }
 
-    // Set new timeout — always reads latest callbacks via refs
     timeoutId.current = setTimeout(() => {
       // If blocked (e.g. active upload in progress), postpone instead of firing
       if (isBlockedRef.current?.()) {
@@ -49,21 +47,19 @@ export function useIdleTimer({
       }
       onIdleRef.current();
     }, timeout);
-  }, [timeout]); // timeout is the only real dep; callbacks are accessed via refs
+  }, [timeout]);
 
   // Keep resetTimerRef in sync
   useEffect(() => { resetTimerRef.current = resetTimer; }, [resetTimer]);
 
   useEffect(() => {
-    // Start the timer initially
+    // Start the timer immediately
     resetTimer();
 
-    // Attach event listeners for user activity
     events.forEach((event) => {
       window.addEventListener(event, resetTimer, { passive: true });
     });
 
-    // Cleanup
     return () => {
       if (timeoutId.current) {
         clearTimeout(timeoutId.current);
@@ -74,8 +70,19 @@ export function useIdleTimer({
     };
   }, [resetTimer, events]);
 
-  return {
-    getLastActivity: () => lastActivity.current,
-    resetTimer,
-  };
+  return { resetTimer };
+}
+
+/** Returns the timestamp of the last recorded user activity (ms since epoch), or 0 if unknown. */
+export function getLastActivityTimestamp(): number {
+  try {
+    return parseInt(localStorage.getItem(LAST_ACTIVITY_KEY) ?? '0', 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Clears the stored last-activity timestamp (call on logout). */
+export function clearLastActivityTimestamp(): void {
+  try { localStorage.removeItem(LAST_ACTIVITY_KEY); } catch { /* ignore */ }
 }

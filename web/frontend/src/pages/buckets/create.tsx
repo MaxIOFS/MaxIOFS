@@ -465,8 +465,6 @@ export default function CreateBucketPage() {
                       <ul className="list-disc list-inside space-y-1">
                         <li>{t('objectLockWarning1')}</li>
                         <li>{t('objectLockWarning2')}</li>
-                        <li>{t('objectLockWarning3')}</li>
-                        <li>{t('objectLockWarning4')}</li>
                       </ul>
                     </div>
                   </div>
@@ -497,6 +495,24 @@ export default function CreateBucketPage() {
                         {t('retentionMode')}
                       </label>
                       <div className="space-y-3">
+                        <label className="flex items-start space-x-3 p-3 border border-border rounded-md cursor-pointer hover:bg-secondary">
+                          <input
+                            type="radio"
+                            name="retentionMode"
+                            value=""
+                            checked={config.retentionMode === ''}
+                            onChange={() => updateConfig('retentionMode', '')}
+                            className="mt-1"
+                          />
+                          <div>
+                            <div className="font-medium text-sm text-foreground">{t('noRetentionMode')}</div>
+                            <div
+                              className="text-xs text-muted-foreground mt-1"
+                              dangerouslySetInnerHTML={{ __html: t('noRetentionModeDesc') }}
+                            />
+                          </div>
+                        </label>
+
                         <label className="flex items-start space-x-3 p-3 border border-border rounded-md cursor-pointer hover:bg-secondary">
                           <input
                             type="radio"
@@ -535,33 +551,37 @@ export default function CreateBucketPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-foreground mb-2">{t('retentionDays')}</label>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={config.retentionDays}
-                          onChange={(e) => updateConfig('retentionDays', parseInt(e.target.value) || 0)}
-                          placeholder="0"
-                          className="bg-card text-foreground border-border"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-foreground mb-2">{t('retentionYears')}</label>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={config.retentionYears}
-                          onChange={(e) => updateConfig('retentionYears', parseInt(e.target.value) || 0)}
-                          placeholder="0"
-                          className="bg-card text-foreground border-border"
-                        />
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {t('retentionHelp')}
-                    </p>
+                    {config.retentionMode !== '' && (
+                      <>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-foreground mb-2">{t('retentionDays')}</label>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={config.retentionDays}
+                              onChange={(e) => updateConfig('retentionDays', parseInt(e.target.value) || 0)}
+                              placeholder="0"
+                              className="bg-card text-foreground border-border"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-foreground mb-2">{t('retentionYears')}</label>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={config.retentionYears}
+                              onChange={(e) => updateConfig('retentionYears', parseInt(e.target.value) || 0)}
+                              placeholder="0"
+                              className="bg-card text-foreground border-border"
+                            />
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {t('retentionHelp')}
+                        </p>
+                      </>
+                    )}
 
                     {config.retentionMode === 'COMPLIANCE' && (
                       <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md p-3 text-sm text-red-800 dark:text-red-300">

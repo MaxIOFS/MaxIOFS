@@ -487,7 +487,7 @@ export class APIClient {
       const result: LoginResponse = {
         success: response.data.success,
         token: response.data.token,
-        refreshToken: response.data.refreshToken,
+        refreshToken: response.data.refresh_token ?? response.data.refreshToken,
         user: response.data.user,
         error: response.data.error,
         requires_2fa: response.data.requires_2fa,
