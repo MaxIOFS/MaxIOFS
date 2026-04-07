@@ -1425,8 +1425,10 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Assign HA primary node — always set so bucket aggregator knows which node owns this bucket
-	if nodeID, err := s.clusterManager.GetLocalNodeID(r.Context()); err == nil && nodeID != "" {
-		bucketInfo.HA = &metadata.BucketHA{PrimaryNodeID: nodeID}
+	if s.clusterManager != nil {
+		if nodeID, err := s.clusterManager.GetLocalNodeID(r.Context()); err == nil && nodeID != "" {
+			bucketInfo.HA = &metadata.BucketHA{PrimaryNodeID: nodeID}
+		}
 	}
 
 	// Guardar configuraciones
