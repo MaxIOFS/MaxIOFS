@@ -643,6 +643,8 @@ export default function BucketSettingsPage() {
   };
 
   // Handlers
+  const isObjectLockEnabled = bucketData?.objectLock?.objectLockEnabled === true;
+
   const handleToggleVersioning = () => {
     const newState = !isVersioningEnabled;
     ModalManager.confirm(
@@ -1349,8 +1351,8 @@ export default function BucketSettingsPage() {
                 <Button
                   variant="outline"
                   onClick={handleToggleVersioning}
-                  disabled={isGlobalAdminInTenantBucket || toggleVersioningMutation.isPending}
-                  title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : undefined}
+                  disabled={isGlobalAdminInTenantBucket || toggleVersioningMutation.isPending || (isObjectLockEnabled && isVersioningEnabled)}
+                  title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : (isObjectLockEnabled && isVersioningEnabled) ? t('versioning.wormLocked') : undefined}
                 >
                   {isVersioningEnabled ? t('versioning.suspend') : t('versioning.enable')}
                 </Button>

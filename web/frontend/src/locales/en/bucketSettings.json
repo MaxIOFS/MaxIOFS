@@ -45,7 +45,8 @@
     "confirmSuspendTitle": "Suspend versioning?",
     "confirmEnableMsg": "This will enable object versioning for this bucket.",
     "confirmSuspendMsg": "This will suspend object versioning for this bucket.",
-    "updatedSuccess": "Versioning updated successfully"
+    "updatedSuccess": "Versioning updated successfully",
+    "wormLocked": "Versioning cannot be suspended because Object Lock (WORM) is enabled on this bucket"
   },
 
   "objectLock": {

@@ -5868,6 +5868,16 @@ func (s *Server) handlePutBucketVersioning(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Object Lock (WORM) buckets require versioning to be permanently Enabled.
+	// AWS S3 does not allow suspending versioning on a bucket with Object Lock.
+	if req.Status == "Suspended" {
+		bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+		if err == nil && bucketInfo.ObjectLock != nil && bucketInfo.ObjectLock.ObjectLockEnabled {
+			s.writeError(w, "Object Lock is enabled on this bucket. Versioning cannot be suspended on a bucket with Object Lock (WORM) enabled.", http.StatusConflict)
+			return
+		}
+	}
+
 	// Create versioning config
 	versioningConfig := &bucket.VersioningConfig{
 		Status: req.Status,
