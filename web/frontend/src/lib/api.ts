@@ -178,6 +178,15 @@ class TokenManager {
 
     // Schedule a proactive refresh 2 min before the access token expires
     this.scheduleProactiveRefresh(token);
+
+    // Signal the idle timer that the session is still alive (e.g. after a
+    // proactive or sliding-window token refresh while the user is idle).
+    // Without this, the idle timer fires at 15 min and kills the session
+    // even though the token was just refreshed.
+    if (typeof window !== 'undefined') {
+      try { localStorage.setItem('last_activity', String(Date.now())); } catch { /* ignore */ }
+      window.dispatchEvent(new CustomEvent('session-keep-alive'));
+    }
   }
 
   clearTokens(): void {

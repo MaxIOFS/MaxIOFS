@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Loading } from '@/components/ui/Loading';
 import {
@@ -23,69 +24,73 @@ type HealthStatus = 'healthy' | 'degraded' | 'unavailable' | 'unknown';
 type SyncStatus = 'running' | 'done' | 'failed';
 
 function HealthBadge({ status }: { status: string }) {
+  const { t } = useTranslation('cluster');
   const s = status as HealthStatus;
   if (s === 'healthy')
     return (
       <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-sm font-medium">
-        <CheckCircle className="h-4 w-4" /> Healthy
+        <CheckCircle className="h-4 w-4" /> {t('statusHealthy')}
       </span>
     );
   if (s === 'degraded')
     return (
       <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 text-sm font-medium">
-        <AlertTriangle className="h-4 w-4" /> Degraded
+        <AlertTriangle className="h-4 w-4" /> {t('statusDegraded')}
       </span>
     );
   if (s === 'unavailable')
     return (
       <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 text-sm font-medium">
-        <XCircle className="h-4 w-4" /> Unavailable
+        <XCircle className="h-4 w-4" /> {t('statusUnavailable')}
       </span>
     );
   return (
     <span className="inline-flex items-center gap-1 text-muted-foreground text-sm">
-      <HelpCircle className="h-4 w-4" /> Unknown
+      <HelpCircle className="h-4 w-4" /> {t('statusUnknown')}
     </span>
   );
 }
 
 function SyncBadge({ status }: { status: string }) {
+  const { t } = useTranslation('cluster');
   const s = status as SyncStatus;
   if (s === 'done')
     return (
       <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-sm font-medium">
-        <CheckCircle className="h-4 w-4" /> Ready
+        <CheckCircle className="h-4 w-4" /> {t('syncReady')}
       </span>
     );
   if (s === 'running')
     return (
       <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 text-sm font-medium">
-        <RefreshCw className="h-4 w-4 animate-spin" /> Syncing
+        <RefreshCw className="h-4 w-4 animate-spin" /> {t('syncSyncing')}
       </span>
     );
   if (s === 'failed')
     return (
       <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 text-sm font-medium">
-        <XCircle className="h-4 w-4" /> Failed
+        <XCircle className="h-4 w-4" /> {t('syncFailed')}
       </span>
     );
   return (
     <span className="inline-flex items-center gap-1 text-muted-foreground text-sm">
-      <Clock className="h-4 w-4" /> Pending
+      <Clock className="h-4 w-4" /> {t('syncPending')}
     </span>
   );
 }
 
-const FACTOR_INFO = {
-  1: { label: 'No replication', description: 'Single copy — no redundancy. Cluster fails if any node goes down.', color: 'text-red-600 dark:text-red-400' },
-  2: { label: 'Mirror (×2)', description: 'Two complete copies. Tolerates 1 simultaneous node failure.', color: 'text-amber-600 dark:text-amber-400' },
-  3: { label: 'Triple copy (×3)', description: 'Three complete copies. Tolerates 2 simultaneous node failures.', color: 'text-green-600 dark:text-green-400' },
-};
-
 export default function ClusterHA() {
+  const { t } = useTranslation('cluster');
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedFactor, setSelectedFactor] = useState<number | null>(null);
+
+  // Factor metadata — labels and descriptions come from i18n
+  const FACTOR_INFO = {
+    1: { labelKey: 'factorNoReplication', descKey: 'factorNoReplicationDesc', color: 'text-red-600 dark:text-red-400' },
+    2: { labelKey: 'factorMirror',        descKey: 'factorMirrorDesc',        color: 'text-amber-600 dark:text-amber-400' },
+    3: { labelKey: 'factorTriple',        descKey: 'factorTripleDesc',        color: 'text-green-600 dark:text-green-400' },
+  } as const;
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['cluster-ha'],
@@ -105,7 +110,7 @@ export default function ClusterHA() {
       queryClient.invalidateQueries({ queryKey: ['cluster-ha'] });
       queryClient.invalidateQueries({ queryKey: ['cluster-ha-sync-jobs'] });
       setSelectedFactor(null);
-      ModalManager.toast('success', `Replication factor changed to ×${result.new_factor}`);
+      ModalManager.toast('success', t('factorChangedSuccess', { factor: result.new_factor }));
     },
     onError: (error: any) => {
       ModalManager.apiError(error);
@@ -117,12 +122,13 @@ export default function ClusterHA() {
 
     const info = FACTOR_INFO[selectedFactor as keyof typeof FACTOR_INFO];
     const isDowngrade = selectedFactor < data.replication_factor;
+    const desc = t(info.descKey);
 
     ModalManager.confirm(
-      isDowngrade ? 'Downgrade replication factor?' : 'Change replication factor?',
+      isDowngrade ? t('confirmDowngradeTitle') : t('confirmChangeTitle'),
       isDowngrade
-        ? `You are reducing the replication factor from ×${data.replication_factor} to ×${selectedFactor}. ${info.description} This will remove redundant copies from some nodes in the background.`
-        : `You are changing the replication factor to ×${selectedFactor}. ${info.description} The cluster will sync all data to new replicas in the background.`,
+        ? t('confirmDowngradeBody', { from: data.replication_factor, to: selectedFactor, desc })
+        : t('confirmChangeBody', { factor: selectedFactor, desc }),
       () => setFactorMutation.mutate(selectedFactor),
     );
   };
@@ -134,7 +140,7 @@ export default function ClusterHA() {
       <div className="p-6">
         <div className="flex items-center gap-3 text-red-600 dark:text-red-400">
           <XCircle className="h-5 w-5" />
-          <span>Failed to load cluster HA status. Is the cluster enabled?</span>
+          <span>{t('haLoadError')}</span>
         </div>
       </div>
     );
@@ -143,7 +149,7 @@ export default function ClusterHA() {
   if (!data) return null;
 
   const activeFactor = selectedFactor ?? data.replication_factor;
-  const factorInfo = FACTOR_INFO[activeFactor as keyof typeof FACTOR_INFO];
+  const activeInfo = FACTOR_INFO[activeFactor as keyof typeof FACTOR_INFO];
   const hasChange = selectedFactor !== null && selectedFactor !== data.replication_factor;
 
   // Storage pressure: any node over 80%
@@ -152,7 +158,6 @@ export default function ClusterHA() {
   );
 
   // Build per-node sync status from most-recent job per node
-  const nodeById = Object.fromEntries(data.nodes.map((n) => [n.id, n]));
   const latestJobByNode: Record<string, (typeof syncData)['sync_jobs'][number]> = {};
   for (const job of syncData?.sync_jobs ?? []) {
     if (!latestJobByNode[job.target_node_id]) {
@@ -173,10 +178,10 @@ export default function ClusterHA() {
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <Shield className="h-6 w-6" />
-            HA Replication
+            {t('haReplication')}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Cluster-wide replication factor — applies to all buckets on all nodes
+            {t('haReplicationDesc')}
           </p>
         </div>
       </div>
@@ -186,11 +191,11 @@ export default function ClusterHA() {
         <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
           <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
           <div className="text-sm text-amber-800 dark:text-amber-300">
-            <p className="font-semibold mb-1">Storage pressure detected</p>
+            <p className="font-semibold mb-1">{t('storagePressureTitle')}</p>
             <p>
-              {pressureNodes.map((n) => n.name).join(', ')}{' '}
-              {pressureNodes.length === 1 ? 'is' : 'are'} above 80% capacity. Consider expanding
-              storage or reducing the replication factor.
+              {t(`storagePressureDesc_${pressureNodes.length === 1 ? 'one' : 'other'}`, {
+                nodes: pressureNodes.map((n) => n.name).join(', '),
+              })}
             </p>
           </div>
         </div>
@@ -199,33 +204,33 @@ export default function ClusterHA() {
       {/* Current status cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
-          <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Current factor</p>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('currentFactor')}</p>
           <p className={`text-2xl font-bold ${FACTOR_INFO[data.replication_factor as keyof typeof FACTOR_INFO].color}`}>
             ×{data.replication_factor}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            {FACTOR_INFO[data.replication_factor as keyof typeof FACTOR_INFO].label}
+            {t(FACTOR_INFO[data.replication_factor as keyof typeof FACTOR_INFO].labelKey)}
           </p>
         </div>
         <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
-          <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Usable capacity</p>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('usableCapacity')}</p>
           <p className="text-2xl font-bold text-foreground">{formatBytes(data.usable_bytes)}</p>
-          <p className="text-xs text-muted-foreground mt-1">of {formatBytes(data.total_bytes)} total</p>
+          <p className="text-xs text-muted-foreground mt-1">{t('ofTotal', { total: formatBytes(data.total_bytes) })}</p>
         </div>
         <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
-          <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Tolerated failures</p>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('toleratedFailures')}</p>
           <p className="text-2xl font-bold text-foreground">{data.tolerated_failures}</p>
           <p className="text-xs text-muted-foreground mt-1">
             {data.tolerated_failures === 0
-              ? 'No node can fail'
-              : `${data.tolerated_failures} node${data.tolerated_failures > 1 ? 's' : ''} can fail simultaneously`}
+              ? t('noNodeCanFail')
+              : t(`nodesCan_${data.tolerated_failures === 1 ? 'one' : 'other'}`, { count: data.tolerated_failures })}
           </p>
         </div>
       </div>
 
       {/* Factor selector */}
       <div className="bg-card border border-border rounded-lg p-6 shadow-sm space-y-4">
-        <h2 className="text-base font-semibold text-foreground">Change replication factor</h2>
+        <h2 className="text-base font-semibold text-foreground">{t('changeReplicationFactor')}</h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {([1, 2, 3] as const).map((f) => {
@@ -251,15 +256,15 @@ export default function ClusterHA() {
                   <span className={`text-lg font-bold ${info.color}`}>×{f}</span>
                   {isActive && (
                     <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
-                      Current
+                      {t('factorCurrent')}
                     </span>
                   )}
                 </div>
-                <p className="text-sm font-medium text-foreground">{info.label}</p>
-                <p className="text-xs text-muted-foreground mt-1">{info.description}</p>
+                <p className="text-sm font-medium text-foreground">{t(info.labelKey)}</p>
+                <p className="text-xs text-muted-foreground mt-1">{t(info.descKey)}</p>
                 {notEnoughNodes && (
                   <p className="text-xs text-red-500 mt-1">
-                    Requires {f} healthy node{f > 1 ? 's' : ''} — cluster has {data.node_count}
+                    {t(`factorRequires_${f === 1 ? 'one' : 'other'}`, { count: f, actual: data.node_count })}
                   </p>
                 )}
               </button>
@@ -269,19 +274,19 @@ export default function ClusterHA() {
 
         {hasChange && (
           <div className="flex items-center gap-3 pt-2">
-            <div className={`text-sm font-medium ${factorInfo.color}`}>
-              {factorInfo.label} — {factorInfo.description}
+            <div className={`text-sm font-medium ${activeInfo.color}`}>
+              {t(activeInfo.labelKey)} — {t(activeInfo.descKey)}
             </div>
             <div className="flex-1" />
             <Button variant="outline" onClick={() => setSelectedFactor(null)}>
-              Cancel
+              {t('cancel')}
             </Button>
             <Button
               onClick={handleApplyFactor}
               loading={setFactorMutation.isPending}
               disabled={setFactorMutation.isPending}
             >
-              Apply ×{activeFactor}
+              {t('applyFactor', { factor: activeFactor })}
             </Button>
           </div>
         )}
@@ -293,21 +298,21 @@ export default function ClusterHA() {
           <div className="px-6 py-4 border-b border-border">
             <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
               <RefreshCw className="h-4 w-4" />
-              Replica sync status
+              {t('replicaSyncStatus')}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Initial and catch-up sync jobs for each replica node
+              {t('replicaSyncDesc')}
             </p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
-                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">Node</th>
-                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">Sync status</th>
-                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">Objects synced</th>
-                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">Progress</th>
-                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">Last updated</th>
+                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">{t('colNode')}</th>
+                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">{t('colSyncStatus')}</th>
+                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">{t('colObjectsSynced')}</th>
+                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">{t('colProgress')}</th>
+                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">{t('colLastUpdated')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -341,7 +346,7 @@ export default function ClusterHA() {
                             <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
                               <div className="h-2 bg-blue-500 rounded-full animate-pulse w-1/3" />
                             </div>
-                            <span className="text-xs text-muted-foreground">In progress</span>
+                            <span className="text-xs text-muted-foreground">{t('syncInProgress')}</span>
                           </div>
                         ) : job.status === 'done' ? (
                           <div className="flex items-center gap-2">
@@ -355,14 +360,14 @@ export default function ClusterHA() {
                             <div className="flex-1 bg-muted rounded-full h-2">
                               <div className="h-2 bg-red-500 rounded-full w-full" />
                             </div>
-                            <span className="text-xs text-red-500">Failed</span>
+                            <span className="text-xs text-red-500">{t('syncFailed')}</span>
                           </div>
                         )}
                       </td>
                       <td className="px-6 py-4 text-muted-foreground text-xs">
                         {completedAt
                           ? completedAt.toLocaleString()
-                          : `Started ${startedAt.toLocaleString()}`}
+                          : t('syncStartedAt', { time: startedAt.toLocaleString() })}
                       </td>
                     </tr>
                   );
@@ -378,19 +383,19 @@ export default function ClusterHA() {
         <div className="px-6 py-4 border-b border-border">
           <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
             <Server className="h-4 w-4" />
-            Node storage ({data.node_count} node{data.node_count !== 1 ? 's' : ''})
+            {t(`nodeStorage_${data.node_count === 1 ? 'one' : 'other'}`, { count: data.node_count })}
           </h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                <th className="text-left px-6 py-3 font-medium text-muted-foreground">Node</th>
-                <th className="text-left px-6 py-3 font-medium text-muted-foreground">Status</th>
-                <th className="text-left px-6 py-3 font-medium text-muted-foreground">Used</th>
-                <th className="text-left px-6 py-3 font-medium text-muted-foreground">Free</th>
-                <th className="text-left px-6 py-3 font-medium text-muted-foreground">Total</th>
-                <th className="text-left px-6 py-3 font-medium text-muted-foreground">Usage</th>
+                <th className="text-left px-6 py-3 font-medium text-muted-foreground">{t('colNode')}</th>
+                <th className="text-left px-6 py-3 font-medium text-muted-foreground">{t('colStatus')}</th>
+                <th className="text-left px-6 py-3 font-medium text-muted-foreground">{t('colUsed')}</th>
+                <th className="text-left px-6 py-3 font-medium text-muted-foreground">{t('colFree')}</th>
+                <th className="text-left px-6 py-3 font-medium text-muted-foreground">{t('colTotal')}</th>
+                <th className="text-left px-6 py-3 font-medium text-muted-foreground">{t('colUsage')}</th>
               </tr>
             </thead>
             <tbody>

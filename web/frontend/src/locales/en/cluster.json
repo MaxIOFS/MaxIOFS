@@ -204,5 +204,63 @@
   "sameNodeError": "Source node and target node cannot be the same!",
   "migrationStartedSuccess": "Migration started successfully!",
   "failedToStartMigration": "Failed to start migration",
-  "loadingNodes2": "Loading nodes..."
+  "loadingNodes2": "Loading nodes...",
+
+  "haReplication": "HA Replication",
+  "haReplicationDesc": "Cluster-wide replication factor — applies to all buckets on all nodes",
+  "haLoadError": "Failed to load cluster HA status. Is the cluster enabled?",
+
+  "storagePressureTitle": "Storage pressure detected",
+  "storagePressureDesc_one": "{{nodes}} is above 80% capacity. Consider expanding storage or reducing the replication factor.",
+  "storagePressureDesc_other": "{{nodes}} are above 80% capacity. Consider expanding storage or reducing the replication factor.",
+
+  "currentFactor": "Current factor",
+  "usableCapacity": "Usable capacity",
+  "ofTotal": "of {{total}} total",
+  "toleratedFailures": "Tolerated failures",
+  "noNodeCanFail": "No node can fail",
+  "nodesCan_one": "{{count}} node can fail simultaneously",
+  "nodesCan_other": "{{count}} nodes can fail simultaneously",
+
+  "changeReplicationFactor": "Change replication factor",
+  "factorCurrent": "Current",
+  "factorRequires_one": "Requires {{count}} healthy node — cluster has {{actual}}",
+  "factorRequires_other": "Requires {{count}} healthy nodes — cluster has {{actual}}",
+  "applyFactor": "Apply ×{{factor}}",
+
+  "confirmDowngradeTitle": "Downgrade replication factor?",
+  "confirmChangeTitle": "Change replication factor?",
+  "confirmDowngradeBody": "You are reducing the replication factor from ×{{from}} to ×{{to}}. {{desc}} This will remove redundant copies from some nodes in the background.",
+  "confirmChangeBody": "You are changing the replication factor to ×{{factor}}. {{desc}} The cluster will sync all data to new replicas in the background.",
+  "factorChangedSuccess": "Replication factor changed to ×{{factor}}",
+
+  "factorNoReplication": "No replication",
+  "factorNoReplicationDesc": "Single copy — no redundancy. Cluster fails if any node goes down.",
+  "factorMirror": "Mirror (×2)",
+  "factorMirrorDesc": "Two complete copies. Tolerates 1 simultaneous node failure.",
+  "factorTriple": "Triple copy (×3)",
+  "factorTripleDesc": "Three complete copies. Tolerates 2 simultaneous node failures.",
+
+  "replicaSyncStatus": "Replica sync status",
+  "replicaSyncDesc": "Initial and catch-up sync jobs for each replica node",
+  "colNode": "Node",
+  "colSyncStatus": "Sync status",
+  "colObjectsSynced": "Objects synced",
+  "colProgress": "Progress",
+  "colLastUpdated": "Last updated",
+  "syncInProgress": "In progress",
+  "syncStartedAt": "Started {{time}}",
+
+  "syncReady": "Ready",
+  "syncSyncing": "Syncing",
+  "syncFailed": "Failed",
+  "syncPending": "Pending",
+
+  "nodeStorage": "Node storage",
+  "nodeStorage_one": "Node storage ({{count}} node)",
+  "nodeStorage_other": "Node storage ({{count}} nodes)",
+  "colUsed": "Used",
+  "colFree": "Free",
+  "colTotal": "Total",
+  "colUsage": "Usage"
 }

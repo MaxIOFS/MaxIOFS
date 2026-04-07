@@ -204,5 +204,62 @@
   "sameNodeError": "¡El nodo origen y el nodo destino no pueden ser el mismo!",
   "migrationStartedSuccess": "¡Migración iniciada correctamente!",
   "failedToStartMigration": "Error al iniciar la migración",
-  "loadingNodes2": "Cargando nodos..."
+  "loadingNodes2": "Cargando nodos...",
+
+  "haReplication": "Replicación HA",
+  "haReplicationDesc": "Factor de replicación global del clúster — aplica a todos los buckets en todos los nodos",
+  "haLoadError": "Error al cargar el estado HA del clúster. ¿Está el clúster habilitado?",
+
+  "storagePressureTitle": "Presión de almacenamiento detectada",
+  "storagePressureDesc_one": "{{nodes}} supera el 80% de capacidad. Considera ampliar el almacenamiento o reducir el factor de replicación.",
+  "storagePressureDesc_other": "{{nodes}} superan el 80% de capacidad. Considera ampliar el almacenamiento o reducir el factor de replicación.",
+
+  "currentFactor": "Factor actual",
+  "usableCapacity": "Capacidad utilizable",
+  "ofTotal": "de {{total}} total",
+  "toleratedFailures": "Fallos tolerados",
+  "noNodeCanFail": "Ningún nodo puede fallar",
+  "nodesCan_one": "{{count}} nodo puede fallar simultáneamente",
+  "nodesCan_other": "{{count}} nodos pueden fallar simultáneamente",
+
+  "changeReplicationFactor": "Cambiar factor de replicación",
+  "factorCurrent": "Actual",
+  "factorRequires_one": "Requiere {{count}} nodo saludable — el clúster tiene {{actual}}",
+  "factorRequires_other": "Requiere {{count}} nodos saludables — el clúster tiene {{actual}}",
+  "applyFactor": "Aplicar ×{{factor}}",
+
+  "confirmDowngradeTitle": "¿Reducir el factor de replicación?",
+  "confirmChangeTitle": "¿Cambiar el factor de replicación?",
+  "confirmDowngradeBody": "Estás reduciendo el factor de replicación de ×{{from}} a ×{{to}}. {{desc}} Esto eliminará copias redundantes de algunos nodos en segundo plano.",
+  "confirmChangeBody": "Estás cambiando el factor de replicación a ×{{factor}}. {{desc}} El clúster sincronizará todos los datos con las nuevas réplicas en segundo plano.",
+  "factorChangedSuccess": "Factor de replicación cambiado a ×{{factor}}",
+
+  "factorNoReplication": "Sin replicación",
+  "factorNoReplicationDesc": "Copia única — sin redundancia. El clúster falla si algún nodo cae.",
+  "factorMirror": "Espejo (×2)",
+  "factorMirrorDesc": "Dos copias completas. Tolera 1 fallo de nodo simultáneo.",
+  "factorTriple": "Triple copia (×3)",
+  "factorTripleDesc": "Tres copias completas. Tolera 2 fallos de nodo simultáneos.",
+
+  "replicaSyncStatus": "Estado de sincronización de réplicas",
+  "replicaSyncDesc": "Trabajos de sincronización inicial y de recuperación para cada nodo réplica",
+  "colNode": "Nodo",
+  "colSyncStatus": "Estado de sincronización",
+  "colObjectsSynced": "Objetos sincronizados",
+  "colProgress": "Progreso",
+  "colLastUpdated": "Última actualización",
+  "syncInProgress": "En progreso",
+  "syncStartedAt": "Iniciado {{time}}",
+
+  "syncReady": "Listo",
+  "syncSyncing": "Sincronizando",
+  "syncFailed": "Fallido",
+  "syncPending": "Pendiente",
+
+  "nodeStorage_one": "Almacenamiento de nodos ({{count}} nodo)",
+  "nodeStorage_other": "Almacenamiento de nodos ({{count}} nodos)",
+  "colUsed": "Usado",
+  "colFree": "Libre",
+  "colTotal": "Total",
+  "colUsage": "Uso"
 }
