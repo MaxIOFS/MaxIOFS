@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
 import { isErrorWithResponse } from '@/lib/utils';
 import type {
@@ -7,7 +8,6 @@ import type {
   LoginResponse,
   Bucket,
   S3Object,
-  ListBucketsResponse,
   ListObjectsResponse,
   ListObjectsRequest,
   ListObjectVersionsResponse,
@@ -20,14 +20,11 @@ import type {
   SystemMetrics,
   S3Metrics,
   ServerConfig,
-  CreateBucketForm,
   EditBucketForm,
-  CreateUserForm,
   CreateUserRequest,
   EditUserForm,
   APIError,
   AccessKey,
-  CreateAccessKeyForm,
   Tenant,
   CreateTenantRequest,
   UpdateTenantRequest,
@@ -331,7 +328,7 @@ const handleResponse = (response: AxiosResponse): AxiosResponse => {
         pendingRefreshCallbacks.forEach(cb => cb(access_token));
         pendingRefreshCallbacks = [];
       }
-    }).catch((_err: unknown) => {
+    }).catch(() => {
       // Release any requests queued while this background refresh was in flight
       // so they don't hang forever. Pass an empty token — they'll get 401 and
       // the per-request error interceptor will handle retry / logout properly.
@@ -738,9 +735,11 @@ export class APIClient {
   }
 
   static async getObject(bucket: string, key: string, tenantId?: string, versionId?: string): Promise<S3Object> {
-    const url = tenantId
-      ? `/buckets/${bucket}/objects/${key}?tenantId=${encodeURIComponent(tenantId)}`
-      : `/buckets/${bucket}/objects/${key}`;
+    const params = new URLSearchParams();
+    if (tenantId) params.set('tenantId', tenantId);
+    if (versionId) params.set('versionId', versionId);
+    const qs = params.toString();
+    const url = `/buckets/${bucket}/objects/${key}${qs ? `?${qs}` : ''}`;
     const response = await apiClient.get<APIResponse<S3Object>>(url);
     return response.data.data!;
   }

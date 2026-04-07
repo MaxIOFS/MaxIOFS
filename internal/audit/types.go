@@ -52,6 +52,12 @@ const (
 	EventTypeDataCorruption     = "data_corruption"
 )
 
+// Event Types - System Alert Events
+const (
+	EventTypeDiskAlert        = "disk_alert"
+	EventTypeClusterNodeAlert = "cluster_node_alert"
+)
+
 // Event Types - Tenant Management Events
 const (
 	EventTypeTenantCreated = "tenant_created"
@@ -85,6 +91,8 @@ const (
 	ActionDisable         = "disable"
 	ActionVerify          = "verify"
 	ActionVerifyIntegrity = "verify_integrity"
+	ActionAlert           = "alert"
+	ActionResolve         = "resolve"
 )
 
 // Status

@@ -615,6 +615,10 @@ func (s *Server) Start(ctx context.Context) error {
 		if s.haSyncWorker != nil {
 			s.haSyncWorker.Start(ctx)
 		}
+
+		// Start cluster node storage alert monitor (checks every 5 minutes)
+		s.startClusterNodeAlertMonitor(ctx)
+		logrus.Info("Cluster node alert monitor started")
 	}
 
 	// Start API server

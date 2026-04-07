@@ -9,6 +9,8 @@ export interface Notification {
     userId?: string;
     username?: string;
     tenantId?: string;
+    nodeId?: string;
+    nodeName?: string;
   };
   timestamp: number;
   tenantId?: string;
@@ -148,6 +150,20 @@ export function useNotifications(enabled = true) {
                       const updated = prev.filter((n) => {
                         if (n.type !== 'quota_warning' && n.type !== 'quota_critical') return true;
                         if (resolvedTenantId && n.data?.tenantId !== resolvedTenantId) return true;
+                        return false;
+                      });
+                      localStorage.setItem('notifications', JSON.stringify(updated));
+                      return updated;
+                    });
+                    continue;
+                  }
+
+                  if (parsed.type === 'cluster_node_resolved') {
+                    const resolvedNodeId = parsed.data?.nodeId;
+                    setNotifications((prev) => {
+                      const updated = prev.filter((n) => {
+                        if (n.type !== 'cluster_node_warning' && n.type !== 'cluster_node_critical') return true;
+                        if (resolvedNodeId && n.data?.nodeId !== resolvedNodeId) return true;
                         return false;
                       });
                       localStorage.setItem('notifications', JSON.stringify(updated));

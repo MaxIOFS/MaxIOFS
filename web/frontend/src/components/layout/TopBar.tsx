@@ -2,15 +2,19 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
+  AlertTriangle,
   Bell,
   ChevronDown,
+  HardDrive,
   Lock,
   LogOut,
   Menu,
   Moon,
+  Network,
   ShieldAlert,
   Sun,
   User,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { User as UserType } from '@/types';
@@ -38,6 +42,7 @@ interface TopBarProps {
   hasDefaultPassword: boolean;
   onMarkAsRead: (id: string) => void;
   onMarkAllAsRead: () => void;
+  onClearNotification: (id: string) => void;
   onLogout: () => void;
 }
 
@@ -56,6 +61,7 @@ export function TopBar({
   hasDefaultPassword,
   onMarkAsRead,
   onMarkAllAsRead,
+  onClearNotification,
   onLogout,
 }: TopBarProps) {
   const navigate = useNavigate();
@@ -218,32 +224,81 @@ export function TopBar({
                             diffMins < 1440 ? t('hoursAgo', { count: Math.floor(diffMins / 60) }) :
                             t('daysAgo', { count: Math.floor(diffMins / 1440) });
 
+                          // Per-type visual config
+                          type NotifConfig = {
+                            Icon: React.ElementType;
+                            iconClass: string;
+                            bgClass: string;
+                            dotClass: string;
+                            title: string;
+                            to: string;
+                          };
+                          const CONFIG: Record<string, NotifConfig> = {
+                            user_locked: {
+                              Icon: Lock, iconClass: 'text-error-600', bgClass: 'bg-error-500/10',
+                              dotClass: 'bg-error-500', title: t('accountLocked'), to: '/users',
+                            },
+                            disk_warning: {
+                              Icon: HardDrive, iconClass: 'text-amber-600 dark:text-amber-400', bgClass: 'bg-amber-500/10',
+                              dotClass: 'bg-amber-500', title: t('diskWarning'), to: '/settings',
+                            },
+                            disk_critical: {
+                              Icon: HardDrive, iconClass: 'text-error-600', bgClass: 'bg-error-500/10',
+                              dotClass: 'bg-error-500', title: t('diskCritical'), to: '/settings',
+                            },
+                            cluster_node_warning: {
+                              Icon: Network, iconClass: 'text-amber-600 dark:text-amber-400', bgClass: 'bg-amber-500/10',
+                              dotClass: 'bg-amber-500', title: t('clusterNodeWarning'), to: '/cluster/ha',
+                            },
+                            cluster_node_critical: {
+                              Icon: Network, iconClass: 'text-error-600', bgClass: 'bg-error-500/10',
+                              dotClass: 'bg-error-500', title: t('clusterNodeCritical'), to: '/cluster/ha',
+                            },
+                          };
+                          const cfg: NotifConfig = CONFIG[notification.type] ?? {
+                            Icon: AlertTriangle, iconClass: 'text-amber-600', bgClass: 'bg-amber-500/10',
+                            dotClass: 'bg-amber-500', title: notification.type, to: '/',
+                          };
+
                           return (
-                            <Link
+                            <div
                               key={notification.id}
-                              to="/users"
-                              onClick={() => { onMarkAsRead(notification.id); setShowNotifications(false); }}
                               className={cn(
-                                'flex gap-4 border-b border-border/50 px-5 py-4 hover:bg-secondary transition-colors',
+                                'flex gap-3 border-b border-border/50 px-4 py-3 transition-colors',
                                 !notification.read && 'bg-brand-600/5'
                               )}
                             >
-                              <div className="h-12 w-12 rounded-full bg-error-500/10 flex items-center justify-center flex-shrink-0">
-                                <Lock className="h-6 w-6 text-error-600" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-start justify-between gap-2 mb-1">
-                                  <h6 className={cn('text-sm text-foreground', !notification.read && 'font-semibold')}>
-                                    {notification.type === 'user_locked' ? t('accountLocked') : notification.type}
-                                  </h6>
-                                  {!notification.read && (
-                                    <span className="h-2 w-2 rounded-full bg-brand-600 flex-shrink-0 mt-1.5" />
-                                  )}
+                              {/* Clickable area navigates to relevant page */}
+                              <Link
+                                to={cfg.to}
+                                onClick={() => { onMarkAsRead(notification.id); setShowNotifications(false); }}
+                                className="flex gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity"
+                              >
+                                <div className={cn('h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0', cfg.bgClass)}>
+                                  <cfg.Icon className={cn('h-5 w-5', cfg.iconClass)} />
                                 </div>
-                                <p className="text-xs text-muted-foreground break-words">{notification.message}</p>
-                                <p className="text-xs text-muted-foreground/70 mt-1">{timeAgo}</p>
-                              </div>
-                            </Link>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-0.5">
+                                    <h6 className={cn('text-sm text-foreground truncate', !notification.read && 'font-semibold')}>
+                                      {cfg.title}
+                                    </h6>
+                                    {!notification.read && (
+                                      <span className={cn('h-2 w-2 rounded-full flex-shrink-0', cfg.dotClass)} />
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground break-words line-clamp-2">{notification.message}</p>
+                                  <p className="text-xs text-muted-foreground/70 mt-0.5">{timeAgo}</p>
+                                </div>
+                              </Link>
+                              {/* Dismiss button — removes from panel without requiring confirmation */}
+                              <button
+                                onClick={() => onClearNotification(notification.id)}
+                                aria-label={t('dismissNotification')}
+                                className="flex-shrink-0 self-start mt-1 p-1 rounded hover:bg-secondary text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           );
                         })}
                       </div>

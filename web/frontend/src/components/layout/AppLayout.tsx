@@ -58,7 +58,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   }, []);
 
   const isAdminUser = user?.roles?.includes('admin') ?? false;
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications(isAdminUser);
+  const { notifications, unreadCount, markAsRead, markAllAsRead, clearNotification } = useNotifications(isAdminUser);
   const totalUnread = unreadCount + (hasDefaultPassword ? 1 : 0);
 
   // Server config — also drives the maintenance banner (polls every 30s)
@@ -223,6 +223,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           hasDefaultPassword={hasDefaultPassword}
           onMarkAsRead={markAsRead}
           onMarkAllAsRead={markAllAsRead}
+          onClearNotification={clearNotification}
           onLogout={handleLogout}
         />
 
