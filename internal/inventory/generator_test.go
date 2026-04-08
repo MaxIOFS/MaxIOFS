@@ -333,6 +333,14 @@ func (m *MockMetadataStore) ListObjects(ctx context.Context, bucket, prefix, mar
 	return args.Get(0).([]*metadata.ObjectMetadata), args.String(1), args.Error(2)
 }
 
+func (m *MockMetadataStore) ListObjectsDelimited(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*metadata.DelimitedListResult, error) {
+	args := m.Called(ctx, bucket, prefix, delimiter, marker, maxKeys)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*metadata.DelimitedListResult), args.Error(1)
+}
+
 func (m *MockMetadataStore) ObjectExists(ctx context.Context, bucket, key string) (bool, error) {
 	args := m.Called(ctx, bucket, key)
 	return args.Bool(0), args.Error(1)
