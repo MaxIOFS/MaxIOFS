@@ -238,6 +238,147 @@ func (s *PebbleStore) ListObjects(ctx context.Context, bucket, prefix, marker st
 	return objects, nextMarker, nil
 }
 
+// ListObjectsDelimited lists objects with delimiter support using SeekGE to skip
+// entire common prefixes. When a key belongs to a "folder" (contains the delimiter
+// after the listing prefix), the iterator jumps past all keys sharing that common
+// prefix instead of reading them one by one. This makes hierarchical listing
+// O(results) instead of O(total objects in bucket).
+func (s *PebbleStore) ListObjectsDelimited(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*DelimitedListResult, error) {
+	if bucket == "" {
+		return nil, fmt.Errorf("bucket name is required")
+	}
+	if maxKeys <= 0 {
+		maxKeys = 1000
+	}
+
+	var lower []byte
+	if prefix != "" {
+		lower = objectPrefixKey(bucket, prefix)
+	} else {
+		lower = objectListPrefix(bucket)
+	}
+
+	iter, err := s.pebbleIter(lower)
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close() //nolint:errcheck
+
+	result := &DelimitedListResult{}
+	seenPrefixes := make(map[string]bool)
+	count := 0 // objects + common prefixes counted together
+
+	var valid bool
+	started := marker == ""
+	if marker != "" {
+		valid = iter.SeekGE(objectKey(bucket, marker))
+	} else {
+		valid = iter.First()
+	}
+
+	for ; valid; valid = iter.Next() {
+		objKeyStr := extractObjectKeyFromKey(string(iter.Key()))
+
+		if !started {
+			if objKeyStr == marker {
+				started = true
+				continue
+			}
+			started = true
+		}
+
+		// Check if this key forms a common prefix (is inside a "folder")
+		if delimiter != "" && len(objKeyStr) > len(prefix) {
+			remaining := objKeyStr[len(prefix):]
+			delimIdx := strings.Index(remaining, delimiter)
+			if delimIdx >= 0 {
+				// Found delimiter — this is inside a folder.
+				commonPrefix := prefix + remaining[:delimIdx+len(delimiter)]
+				if !seenPrefixes[commonPrefix] {
+					if count >= maxKeys {
+						result.IsTruncated = true
+						result.NextMarker = commonPrefix
+						break
+					}
+					seenPrefixes[commonPrefix] = true
+					result.CommonPrefixes = append(result.CommonPrefixes, commonPrefix)
+					count++
+				}
+				// Skip past all keys under this common prefix using SeekGE.
+				// Build the key that comes immediately after all keys with this prefix.
+				skipTo := objectPrefixKey(bucket, commonPrefix)
+				skipTarget := prefixEnd(skipTo)
+				if skipTarget != nil {
+					valid = iter.SeekGE(skipTarget)
+					if !valid {
+						break
+					}
+					// iter.Next() will be called by the loop, but SeekGE already
+					// positioned us at the right key, so re-process this key.
+					goto processKey
+				}
+				continue
+			}
+		}
+
+	processKey:
+		// Re-extract key after potential SeekGE
+		objKeyStr = extractObjectKeyFromKey(string(iter.Key()))
+
+		// Re-check delimiter after SeekGE repositioned us
+		if delimiter != "" && len(objKeyStr) > len(prefix) {
+			remaining := objKeyStr[len(prefix):]
+			delimIdx := strings.Index(remaining, delimiter)
+			if delimIdx >= 0 {
+				commonPrefix := prefix + remaining[:delimIdx+len(delimiter)]
+				if !seenPrefixes[commonPrefix] {
+					if count >= maxKeys {
+						result.IsTruncated = true
+						result.NextMarker = commonPrefix
+						break
+					}
+					seenPrefixes[commonPrefix] = true
+					result.CommonPrefixes = append(result.CommonPrefixes, commonPrefix)
+					count++
+				}
+				skipTo := objectPrefixKey(bucket, commonPrefix)
+				skipTarget := prefixEnd(skipTo)
+				if skipTarget != nil {
+					valid = iter.SeekGE(skipTarget)
+					if !valid {
+						break
+					}
+					goto processKey
+				}
+				continue
+			}
+		}
+
+		if count >= maxKeys {
+			result.IsTruncated = true
+			result.NextMarker = objKeyStr
+			break
+		}
+
+		val := iter.Value()
+		valCopy := make([]byte, len(val))
+		copy(valCopy, val)
+
+		var obj ObjectMetadata
+		if err := json.Unmarshal(valCopy, &obj); err != nil {
+			s.logger.WithError(err).Warn("Failed to unmarshal object metadata")
+			continue
+		}
+		result.Objects = append(result.Objects, &obj)
+		count++
+	}
+
+	if err := iter.Error(); err != nil {
+		return nil, fmt.Errorf("failed during delimited object list: %w", err)
+	}
+	return result, nil
+}
+
 // ObjectExists checks if an object exists in the store.
 func (s *PebbleStore) ObjectExists(ctx context.Context, bucket, key string) (bool, error) {
 	if bucket == "" || key == "" {

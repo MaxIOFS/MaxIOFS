@@ -126,7 +126,7 @@ type Handler struct {
 		ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
 	}
 	publicAPIURL    string
-	dataDir         string // For calculating disk capacity in SOSAPI
+	dataDir         string       // For calculating disk capacity in SOSAPI
 	notifHTTPClient *http.Client // HTTP client for notification webhooks; defaults to SSRF-blocking client
 }
 
@@ -2010,7 +2010,7 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 		"NoSuchBucketPolicy", "NoSuchObjectLockConfiguration", "NoSuchLifecycleConfiguration",
 		"NoSuchCORSConfiguration", "NoSuchWebsiteConfiguration",
 		"ServerSideEncryptionConfigurationNotFoundError", "NoSuchPublicAccessBlockConfiguration",
-		"NoSuchConfiguration":
+		"NoSuchConfiguration", "ReplicationConfigurationNotFoundError":
 		statusCode = http.StatusNotFound
 	// 405 Method Not Allowed
 	case "MethodNotAllowed":
@@ -2077,7 +2077,8 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 		errorResponse.Key = resource
 	case "NoSuchBucket", "BucketAlreadyExists", "BucketNotEmpty", "NoSuchLifecycleConfiguration",
 		"NoSuchCORSConfiguration", "NoSuchBucketPolicy", "NoSuchWebsiteConfiguration",
-		"ServerSideEncryptionConfigurationNotFoundError", "NoSuchPublicAccessBlockConfiguration":
+		"ServerSideEncryptionConfigurationNotFoundError", "NoSuchPublicAccessBlockConfiguration",
+		"ReplicationConfigurationNotFoundError":
 		errorResponse.BucketName = resource
 
 	// Auth errors: AWS includes AWSAccessKeyId in the response body.
@@ -3637,8 +3638,8 @@ func (h *Handler) RestoreObject(w http.ResponseWriter, r *http.Request) {
 		Tier string `xml:"Tier"`
 	}
 	type restoreRequestXML struct {
-		Days              int              `xml:"Days"`
-		GlacierJobParams  *glacierJobParams `xml:"GlacierJobParameters"`
+		Days             int               `xml:"Days"`
+		GlacierJobParams *glacierJobParams `xml:"GlacierJobParameters"`
 	}
 	var req restoreRequestXML
 	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {

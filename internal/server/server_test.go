@@ -3429,14 +3429,20 @@ func TestHandleGetBucketInventory(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, rr.Code)
 	})
 
-	t.Run("should return not found when no config exists", func(t *testing.T) {
+	t.Run("should return 200 with null when no config exists", func(t *testing.T) {
 		req := createAuthenticatedRequest("GET", "/api/v1/buckets/"+bucketName+"/inventory", nil, tenantID, "user-1", false)
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
 		rr := httptest.NewRecorder()
 		server.handleGetBucketInventory(rr, req)
 
-		assert.Equal(t, http.StatusNotFound, rr.Code)
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var resp APIResponse
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.True(t, resp.Success)
+		assert.Nil(t, resp.Data)
 	})
 }
 

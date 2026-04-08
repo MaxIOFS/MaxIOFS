@@ -409,13 +409,14 @@ export default function BucketSettingsPage() {
     },
   });
 
-  // Inventory query — always fetch on mount, never cache stale data
+  // Inventory query — only fetch when the inventory tab is active
   const { data: inventoryConfig, refetch: refetchInventory } = useQuery({
     queryKey: ['bucket-inventory', bucketName, tenantId],
     queryFn: () => APIClient.getBucketInventory(bucketName, tenantId),
     retry: false,
     staleTime: 0,
     refetchOnMount: 'always',
+    enabled: activeTab === 'inventory',
   });
 
   const { data: inventoryReports } = useQuery({
@@ -689,11 +690,12 @@ export default function BucketSettingsPage() {
   const handleEditCORS = async () => {
     try {
       const corsXml = await APIClient.getBucketCORS(bucketName, tenantId);
-      setCorsText(corsXml);
+      const xmlStr = typeof corsXml === 'string' ? corsXml : '';
+      setCorsText(xmlStr);
 
       // Parse XML to extract CORS rules
       const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(corsXml, 'text/xml');
+      const xmlDoc = parser.parseFromString(xmlStr, 'text/xml');
       const ruleElements = xmlDoc.getElementsByTagName('CORSRule');
 
       const parsedRules: CORSRule[] = [];

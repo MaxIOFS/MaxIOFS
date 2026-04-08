@@ -46,8 +46,8 @@ func (s *Server) handlePutBucketInventory(w http.ResponseWriter, r *http.Request
 	// Parse request body
 	var req struct {
 		Enabled           bool     `json:"enabled"`
-		Frequency         string   `json:"frequency"`          // "daily" or "weekly"
-		Format            string   `json:"format"`             // "csv" or "json"
+		Frequency         string   `json:"frequency"` // "daily" or "weekly"
+		Format            string   `json:"format"`    // "csv" or "json"
 		DestinationBucket string   `json:"destination_bucket"`
 		DestinationPrefix string   `json:"destination_prefix,omitempty"`
 		IncludedFields    []string `json:"included_fields"`
@@ -183,7 +183,7 @@ func (s *Server) handleGetBucketInventory(w http.ResponseWriter, r *http.Request
 	// Get configuration
 	config, err := s.inventoryManager.GetConfig(ctx, bucketName, tenantID)
 	if err != nil {
-		s.writeError(w, "Inventory configuration not found", http.StatusNotFound)
+		s.writeJSON(w, nil)
 		return
 	}
 

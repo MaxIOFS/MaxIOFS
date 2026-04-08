@@ -134,8 +134,8 @@ export default function BucketsPage() {
             },
           }));
         }
-      } catch (err) {
-        console.error(`Failed to load integrity history for bucket ${bucket.name}:`, err);
+      } catch {
+        // 400/404 is expected when a bucket has never been scanned — ignore silently
       }
     });
   }, [buckets, scanStates]);

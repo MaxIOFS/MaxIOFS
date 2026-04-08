@@ -5253,8 +5253,10 @@ func (s *Server) handleGetBucketCors(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err == bucket.ErrCORSNotFound {
-			// CORS not configured is a valid state, return empty response without error logging
-			s.writeJSON(w, nil)
+			// CORS not configured is a valid state, return empty XML
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><CORSConfiguration/>`))
 			return
 		}
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
@@ -5262,8 +5264,10 @@ func (s *Server) handleGetBucketCors(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if corsConfig == nil || len(corsConfig.CORSRules) == 0 {
-		// CORS not configured is a valid state, return empty response without error logging
-		s.writeJSON(w, nil)
+		// CORS not configured is a valid state, return empty XML
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><CORSConfiguration/>`))
 		return
 	}
 

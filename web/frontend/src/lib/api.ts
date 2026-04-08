@@ -83,9 +83,10 @@ import { getBasePath } from '@/lib/basePath';
 
 const API_CONFIG = {
   baseURL: `${getBasePath()}/api/v1`, // Dynamic base URL based on public_console_url
-  s3URL: typeof window !== 'undefined'
-    ? `${window.location.protocol}//${window.location.hostname}:8080` // S3 API on port 8080 (auto-detects HTTP/HTTPS from browser)
-    : 'https://localhost:8080', // Fallback to HTTPS for SSR/SSG (TLS is typically enabled in production)
+  // S3 base URL: starts empty and is set at runtime from serverConfig.server.publicApiUrl
+  // via APIClient.updateS3BaseUrl() in AppLayout.  Using an empty string avoids
+  // hardcoding a port that may differ from the operator's config.yaml.
+  s3URL: '',
   timeout: 30000,
   withCredentials: false, // Changed to false for development CORS
 };
@@ -1123,10 +1124,14 @@ export class APIClient {
   }
 
   // Bucket CORS
-  static async getBucketCORS(bucketName: string, tenantId?: string): Promise<any> {
+  static async getBucketCORS(bucketName: string, tenantId?: string): Promise<string> {
     const url = tenantId ? `/buckets/${bucketName}/cors?tenantId=${tenantId}` : `/buckets/${bucketName}/cors`;
-    const response = await apiClient.get(url);
-    return response.data;
+    const response = await apiClient.get(url, {
+      // Force plain text so the XML is not parsed by axios into an object
+      responseType: 'text',
+      transformResponse: [(data: unknown) => data],
+    });
+    return typeof response.data === 'string' ? response.data : '';
   }
 
   static async putBucketCORS(bucketName: string, cors: string, tenantId?: string): Promise<void> {
@@ -1312,7 +1317,7 @@ export class APIClient {
     const url = tenantId ? `/buckets/${bucketName}/website?tenantId=${tenantId}` : `/buckets/${bucketName}/website`;
     try {
       const response = await apiClient.get(url);
-      return response.data;
+      return response.data.data ?? null;
     } catch (e: any) {
       if (e.response?.status === 404 || e.response?.status === 501) return null;
       throw e;

@@ -19,6 +19,14 @@ var (
 	ErrVersionNotFound     = errors.New("version not found")
 )
 
+// DelimitedListResult holds the result of a delimiter-aware listing.
+type DelimitedListResult struct {
+	Objects        []*ObjectMetadata
+	CommonPrefixes []string
+	NextMarker     string
+	IsTruncated    bool
+}
+
 // Store defines the interface for metadata storage operations
 type Store interface {
 	// ==================== Bucket Operations ====================
@@ -60,6 +68,11 @@ type Store interface {
 
 	// ListObjects lists objects in a bucket with optional prefix and pagination
 	ListObjects(ctx context.Context, bucket, prefix, marker string, maxKeys int) ([]*ObjectMetadata, string, error)
+
+	// ListObjectsDelimited lists objects with delimiter support, returning objects at the
+	// current hierarchy level and common prefixes (folders). Uses SeekGE to skip past
+	// entire common prefixes for O(results) instead of O(total objects) performance.
+	ListObjectsDelimited(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*DelimitedListResult, error)
 
 	// SearchObjects searches objects with filters, returning matching objects with pagination
 	SearchObjects(ctx context.Context, bucket, prefix, marker string, maxKeys int, filter *ObjectFilter) ([]*ObjectMetadata, string, error)
@@ -167,14 +180,14 @@ type ObjectFilter struct {
 
 // ListObjectsOptions provides options for listing objects
 type ListObjectsOptions struct {
-	Bucket      string
-	Prefix      string
-	Delimiter   string
-	Marker      string
-	MaxKeys     int
-	VersionID   string
-	StartAfter  string
-	FetchOwner  bool
+	Bucket       string
+	Prefix       string
+	Delimiter    string
+	Marker       string
+	MaxKeys      int
+	VersionID    string
+	StartAfter   string
+	FetchOwner   bool
 	EncodingType string
 }
 

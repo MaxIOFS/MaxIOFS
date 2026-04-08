@@ -353,7 +353,7 @@ export const CANNED_ACL_DESCRIPTIONS: Record<CannedACL, string> = {
   'private': 'Owner gets FULL_CONTROL. No one else has access.',
   'public-read': 'Owner gets FULL_CONTROL. Anyone can READ.',
   'public-read-write': 'Owner gets FULL_CONTROL. Anyone can READ and WRITE.',
-  'authenticated-read': 'Owner gets FULL_CONTROL. Any authenticated AWS user can READ.',
+  'authenticated-read': 'Owner gets FULL_CONTROL. Any authenticated MaxIOFS user can READ.',
   'bucket-owner-read': 'Object owner gets FULL_CONTROL. Bucket owner gets READ.',
   'bucket-owner-full-control': 'Both object owner and bucket owner get FULL_CONTROL.',
   'log-delivery-write': 'LogDelivery group gets WRITE and READ_ACP permissions.',

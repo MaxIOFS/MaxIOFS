@@ -87,11 +87,11 @@ type Manager interface {
 
 // Object represents a stored object
 type Object struct {
-	Key          string            `json:"key"`
-	Bucket       string            `json:"bucket"`
-	Size         int64             `json:"size"`
-	LastModified time.Time         `json:"last_modified"`
-	ETag         string            `json:"etag"`
+	Key                string            `json:"key"`
+	Bucket             string            `json:"bucket"`
+	Size               int64             `json:"size"`
+	LastModified       time.Time         `json:"last_modified"`
+	ETag               string            `json:"etag"`
 	ContentType        string            `json:"content_type"`
 	ContentDisposition string            `json:"content_disposition,omitempty"`
 	ContentEncoding    string            `json:"content_encoding,omitempty"`
@@ -99,10 +99,10 @@ type Object struct {
 	ContentLanguage    string            `json:"content_language,omitempty"`
 	Metadata           map[string]string `json:"metadata"`
 	StorageClass       string            `json:"storage_class"`
-	ChecksumAlgorithm string            `json:"checksum_algorithm,omitempty"`
-	ChecksumValue     string            `json:"checksum_value,omitempty"`
-	VersionID    string            `json:"version_id,omitempty"`
-	IsLatest     bool              `json:"is_latest,omitempty"`
+	ChecksumAlgorithm  string            `json:"checksum_algorithm,omitempty"`
+	ChecksumValue      string            `json:"checksum_value,omitempty"`
+	VersionID          string            `json:"version_id,omitempty"`
+	IsLatest           bool              `json:"is_latest,omitempty"`
 
 	// Object Lock
 	Retention *RetentionConfig `json:"retention,omitempty"`
@@ -1024,130 +1024,104 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 		return nil, ErrBucketNotFound
 	}
 
-	// When using delimiter, we need to scan more objects to find all unique folders
-	// Since folders are derived from object keys, we must iterate through enough objects
-	// to discover all common prefixes (folders)
-	scanLimit := maxKeys
+	// When delimiter is set, use the optimized store method that uses SeekGE
+	// to skip entire common prefixes instead of scanning all objects.
 	if delimiter != "" {
-		// Scan up to 100k objects to find all folders
-		// This is necessary because folders are derived from file paths
-		scanLimit = 100000
+		return om.listObjectsDelimited(ctx, bucket, prefix, delimiter, marker, maxKeys)
 	}
 
-	// OPTIMIZATION: Use BadgerDB metadata store for fast listing
-	// This avoids expensive filesystem operations
-	metadataObjects, nextMarker, err := om.metadataStore.ListObjects(ctx, bucket, prefix, marker, scanLimit)
+	// Flat listing (no delimiter) — scan only maxKeys objects.
+	metadataObjects, nextMarker, err := om.metadataStore.ListObjects(ctx, bucket, prefix, marker, maxKeys)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list objects from metadata store: %w", err)
 	}
 
 	var objects []Object
-	commonPrefixesMap := make(map[string]bool) // Use map to avoid duplicates
 
 	for _, metaObj := range metadataObjects {
 		key := metaObj.Key
 
 		// Skip internal MaxIOFS files
-		// Check if the filename (not just prefix) contains .maxiofs-
 		if strings.HasPrefix(key, ".maxiofs-") || strings.Contains(key, "/.maxiofs-") {
 			continue
 		}
 
-		// Implicit folder markers (auto-created when files are uploaded to nested paths):
-		// - Without delimiter (flat listing): skip them — they are internal infrastructure.
-		// - With delimiter (hierarchical listing): fall through to the common-prefix logic
-		//   below so that empty folders remain visible as common prefixes.
-		// - When the key exactly equals the prefix we are listing inside: skip the
-		//   self-referential entry to avoid a folder appearing as its own child.
+		// Flat listing: skip implicit folder markers
 		if metaObj.Metadata != nil {
 			if implicit, ok := metaObj.Metadata["x-maxiofs-implicit-folder"]; ok && implicit == "true" {
-				if delimiter == "" || key == prefix {
-					continue
-				}
-				// Fall through — the delimiter block below will add it as a common prefix.
+				continue
 			}
 		}
 
-		// Skip Delete Markers (objects with Size=0 and empty ETag)
-		// These are "deleted" objects and should not appear in ListObjects (AWS S3 behavior)
+		// Skip Delete Markers
 		if metaObj.Size == 0 && metaObj.ETag == "" {
 			continue
 		}
 
-		// Handle delimiter (common prefixes / folders)
-		if delimiter != "" {
-			// Find the delimiter after the prefix
-			remainingKey := key[len(prefix):]
-			delimiterIndex := strings.Index(remainingKey, delimiter)
-
-			if delimiterIndex >= 0 {
-				// This object is inside a "folder"
-				// Extract the common prefix (folder name)
-				commonPrefix := prefix + remainingKey[:delimiterIndex+len(delimiter)]
-				commonPrefixesMap[commonPrefix] = true
-				continue // Don't include this object in the objects list
-			}
-		}
-
-		// Convert metadata object to API object
 		objects = append(objects, *fromMetadataObject(metaObj))
 	}
 
-	// Convert commonPrefixesMap to slice and sort
-	var commonPrefixes []CommonPrefix
-	for prefix := range commonPrefixesMap {
-		commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: prefix})
-	}
-	sort.Slice(commonPrefixes, func(i, j int) bool {
-		return commonPrefixes[i].Prefix < commonPrefixes[j].Prefix
-	})
-
-	// Objects are already sorted by BadgerDB iterator
-	// Check if truncated based on nextMarker from metadata store
 	isTruncated := nextMarker != ""
 
-	// If the store's nextMarker falls inside a common prefix we've already collected,
-	// advance it past the entire prefix so the same folder doesn't reappear on the
-	// next page (which would cause clients like S3 Browser to show duplicate folders).
-	if nextMarker != "" && delimiter != "" {
-		for _, cp := range commonPrefixes {
-			if strings.HasPrefix(nextMarker, cp.Prefix) {
-				nextMarker = advancePastPrefix(cp.Prefix, delimiter)
-				break
-			}
-		}
+	result := &ListObjectsResult{
+		Objects:        objects,
+		CommonPrefixes: nil,
+		IsTruncated:    isTruncated,
+		NextMarker:     nextMarker,
+		MaxKeys:        maxKeys,
+		Prefix:         prefix,
+		Delimiter:      "",
+		Marker:         marker,
 	}
 
-	// Apply maxKeys limit considering both objects and common prefixes
-	totalItems := len(objects) + len(commonPrefixes)
-	if totalItems > maxKeys {
-		isTruncated = true
+	return result, nil
+}
 
-		// Prioritize showing common prefixes first, then objects
-		if len(commonPrefixes) > maxKeys {
-			commonPrefixes = commonPrefixes[:maxKeys]
-			objects = []Object{}
-			if len(commonPrefixes) > 0 {
-				// Use advancePastPrefix so the next page starts after the entire
-				// last folder, not inside it (which would re-emit the same prefix).
-				nextMarker = advancePastPrefix(commonPrefixes[len(commonPrefixes)-1].Prefix, delimiter)
-			}
-		} else {
-			remainingSlots := maxKeys - len(commonPrefixes)
-			if len(objects) > remainingSlots {
-				objects = objects[:remainingSlots]
-			}
-			if len(objects) > 0 {
-				nextMarker = objects[len(objects)-1].Key
+// listObjectsDelimited handles hierarchical listing with delimiter. It delegates
+// to the store's ListObjectsDelimited which uses SeekGE to skip entire common
+// prefixes, making it O(results) instead of O(total objects).
+func (om *objectManager) listObjectsDelimited(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*ListObjectsResult, error) {
+	dlResult, err := om.metadataStore.ListObjectsDelimited(ctx, bucket, prefix, delimiter, marker, maxKeys)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list objects with delimiter: %w", err)
+	}
+
+	var objects []Object
+	for _, metaObj := range dlResult.Objects {
+		key := metaObj.Key
+
+		// Skip internal MaxIOFS files
+		if strings.HasPrefix(key, ".maxiofs-") || strings.Contains(key, "/.maxiofs-") {
+			continue
+		}
+
+		// Skip implicit folder markers that are self-referential
+		if metaObj.Metadata != nil {
+			if implicit, ok := metaObj.Metadata["x-maxiofs-implicit-folder"]; ok && implicit == "true" {
+				if key == prefix {
+					continue
+				}
 			}
 		}
+
+		// Skip Delete Markers
+		if metaObj.Size == 0 && metaObj.ETag == "" {
+			continue
+		}
+
+		objects = append(objects, *fromMetadataObject(metaObj))
+	}
+
+	var commonPrefixes []CommonPrefix
+	for _, cp := range dlResult.CommonPrefixes {
+		commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: cp})
 	}
 
 	result := &ListObjectsResult{
 		Objects:        objects,
 		CommonPrefixes: commonPrefixes,
-		IsTruncated:    isTruncated,
-		NextMarker:     nextMarker,
+		IsTruncated:    dlResult.IsTruncated,
+		NextMarker:     dlResult.NextMarker,
 		MaxKeys:        maxKeys,
 		Prefix:         prefix,
 		Delimiter:      delimiter,

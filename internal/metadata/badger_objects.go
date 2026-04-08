@@ -273,6 +273,57 @@ func (s *BadgerStore) ListObjects(ctx context.Context, bucket, prefix, marker st
 	return objects, nextMarker, nil
 }
 
+// ListObjectsDelimited provides delimiter-aware listing for BadgerStore.
+// BadgerStore doesn't support SeekGE-based skipping, so this fetches a large
+// page and filters in memory (same as the old manager behavior).
+func (s *BadgerStore) ListObjectsDelimited(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*DelimitedListResult, error) {
+	if maxKeys <= 0 {
+		maxKeys = 1000
+	}
+	scanLimit := maxKeys * 100
+	if scanLimit > 100000 {
+		scanLimit = 100000
+	}
+	objects, _, err := s.ListObjects(ctx, bucket, prefix, marker, scanLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &DelimitedListResult{}
+	seenPrefixes := make(map[string]bool)
+	count := 0
+
+	for _, obj := range objects {
+		key := obj.Key
+		if delimiter != "" && len(key) > len(prefix) {
+			remaining := key[len(prefix):]
+			delimIdx := strings.Index(remaining, delimiter)
+			if delimIdx >= 0 {
+				cp := prefix + remaining[:delimIdx+len(delimiter)]
+				if !seenPrefixes[cp] {
+					if count >= maxKeys {
+						result.IsTruncated = true
+						result.NextMarker = cp
+						return result, nil
+					}
+					seenPrefixes[cp] = true
+					result.CommonPrefixes = append(result.CommonPrefixes, cp)
+					count++
+				}
+				continue
+			}
+		}
+		if count >= maxKeys {
+			result.IsTruncated = true
+			result.NextMarker = obj.Key
+			return result, nil
+		}
+		result.Objects = append(result.Objects, obj)
+		count++
+	}
+	return result, nil
+}
+
 // ObjectExists checks if an object exists
 func (s *BadgerStore) ObjectExists(ctx context.Context, bucket, key string) (bool, error) {
 	if bucket == "" || key == "" {

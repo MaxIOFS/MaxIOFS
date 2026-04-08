@@ -160,7 +160,7 @@
     "publicReadWriteDesc": "El propietario obtiene FULL_CONTROL. Cualquiera puede LEER y ESCRIBIR objetos.",
     "publicReadWriteCaution": "¡Usar con precaución!",
     "authenticatedReadLabel": "Lectura Autenticada",
-    "authenticatedReadDesc": "El propietario obtiene FULL_CONTROL. Cualquier usuario autenticado de AWS puede LEER objetos.",
+    "authenticatedReadDesc": "El propietario obtiene FULL_CONTROL. Cualquier usuario autenticado de MaxIOFS puede LEER objetos.",
     "publicWarning": "Esta ACL otorga acceso público. Cualquier persona en internet puede acceder a tu bucket.",
     "cancel": "Cancelar",
     "saving": "Guardando...",

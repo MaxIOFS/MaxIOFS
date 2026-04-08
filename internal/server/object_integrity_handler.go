@@ -155,7 +155,7 @@ func (s *Server) handleGetIntegrityStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if len(history) == 0 {
-		s.writeError(w, "No scan results found for this bucket", http.StatusNotFound)
+		s.writeJSON(w, []struct{}{})
 		return
 	}
 

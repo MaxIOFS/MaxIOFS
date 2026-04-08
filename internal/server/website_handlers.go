@@ -38,7 +38,7 @@ func (s *Server) handleGetBucketWebsite(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if err == bucket.ErrWebsiteNotFound {
-			s.writeError(w, "Website hosting not configured", http.StatusNotFound)
+			s.writeJSON(w, nil)
 			return
 		}
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
