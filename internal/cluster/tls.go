@@ -11,9 +11,30 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"net/url"
 	"sync/atomic"
 	"time"
 )
+
+// endpointSANs extracts the DNS name or IP address from a node endpoint URL so it can be
+// included in certificate Subject Alternative Names. This is required for TLS verification
+// to succeed when nodes communicate via real IPs or hostnames (not just localhost).
+func endpointSANs(endpointURL string) (dnsNames []string, ipAddresses []net.IP) {
+	if endpointURL == "" {
+		return
+	}
+	parsed, err := url.Parse(endpointURL)
+	if err != nil || parsed.Hostname() == "" {
+		return
+	}
+	host := parsed.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		ipAddresses = append(ipAddresses, ip)
+	} else {
+		dnsNames = append(dnsNames, host)
+	}
+	return
+}
 
 // GenerateCA creates a self-signed CA certificate and private key (ECDSA P-256, 10-year validity).
 func GenerateCA() (certPEM, keyPEM []byte, err error) {
@@ -58,8 +79,9 @@ func GenerateCA() (certPEM, keyPEM []byte, err error) {
 }
 
 // GenerateNodeCert creates a node certificate signed by the given CA (1-year validity).
-// The certificate includes the commonName as a DNS SAN and also covers localhost and 127.0.0.1.
-func GenerateNodeCert(caCertPEM, caKeyPEM []byte, commonName string) (certPEM, keyPEM []byte, err error) {
+// The certificate covers the commonName, localhost, 127.0.0.1, and the hostname or IP
+// extracted from endpointURL so that TLS verification succeeds for real cluster addresses.
+func GenerateNodeCert(caCertPEM, caKeyPEM []byte, commonName, endpointURL string) (certPEM, keyPEM []byte, err error) {
 	// Parse CA cert
 	caBlock, _ := pem.Decode(caCertPEM)
 	if caBlock == nil {
@@ -91,6 +113,10 @@ func GenerateNodeCert(caCertPEM, caKeyPEM []byte, commonName string) (certPEM, k
 		return nil, nil, err
 	}
 
+	extraDNS, extraIPs := endpointSANs(endpointURL)
+	dnsNames := append([]string{commonName, "localhost"}, extraDNS...)
+	ipAddresses := append([]net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}, extraIPs...)
+
 	template := &x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
@@ -104,8 +130,8 @@ func GenerateNodeCert(caCertPEM, caKeyPEM []byte, commonName string) (certPEM, k
 			x509.ExtKeyUsageServerAuth,
 			x509.ExtKeyUsageClientAuth,
 		},
-		DNSNames:    []string{commonName, "localhost"},
-		IPAddresses: []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
+		DNSNames:    dnsNames,
+		IPAddresses: ipAddresses,
 	}
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, caCert, &nodeKey.PublicKey, caKey)
@@ -183,21 +209,24 @@ func IsCertExpiringSoon(certPEM []byte, days int) (bool, error) {
 }
 
 // GenerateKeyAndCSR generates a new ECDSA P-256 private key and a PEM-encoded
-// Certificate Signing Request (CSR) for the given commonName.
+// Certificate Signing Request (CSR) for the given commonName. The endpointURL is used
+// to include the node's real hostname or IP in the CSR SANs so that TLS verification
+// succeeds for inter-node communication on real cluster addresses.
 // The private key never needs to leave the requesting node.
-func GenerateKeyAndCSR(commonName string) (keyPEM, csrPEM []byte, err error) {
+func GenerateKeyAndCSR(commonName, endpointURL string) (keyPEM, csrPEM []byte, err error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate key: %w", err)
 	}
 
+	extraDNS, extraIPs := endpointSANs(endpointURL)
 	template := &x509.CertificateRequest{
 		Subject: pkix.Name{
 			CommonName:   commonName,
 			Organization: []string{"MaxIOFS"},
 		},
-		DNSNames:    []string{commonName, "localhost"},
-		IPAddresses: []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
+		DNSNames:    append([]string{commonName, "localhost"}, extraDNS...),
+		IPAddresses: append([]net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}, extraIPs...),
 	}
 
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, template, key)

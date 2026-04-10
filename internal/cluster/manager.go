@@ -101,7 +101,7 @@ func (m *Manager) InitializeCluster(ctx context.Context, nodeName, region string
 		return "", fmt.Errorf("failed to generate internal CA: %w", err)
 	}
 
-	nodeCertPEM, nodeKeyPEM, err := GenerateNodeCert(caCertPEM, caKeyPEM, nodeName)
+	nodeCertPEM, nodeKeyPEM, err := GenerateNodeCert(caCertPEM, caKeyPEM, nodeName, m.publicAPIURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate node certificate: %w", err)
 	}
@@ -190,7 +190,7 @@ func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint st
 	// The private key never leaves this node; the cluster returns only the signed certificate.
 	var nodeCertPEM, nodeKeyPEM string
 	if caCertPEM != "" {
-		keyPEM, csrPEM, err := GenerateKeyAndCSR(thisNodeName)
+		keyPEM, csrPEM, err := GenerateKeyAndCSR(thisNodeName, m.publicAPIURL)
 		if err != nil {
 			m.log.WithError(err).Warn("Failed to generate CSR during join")
 		} else {
@@ -1039,7 +1039,7 @@ func (m *Manager) checkAndRenewCert() {
 	}
 
 	// Generate new node cert
-	newCertPEM, newKeyPEM, err := GenerateNodeCert([]byte(caCert), []byte(caKey), nodeName)
+	newCertPEM, newKeyPEM, err := GenerateNodeCert([]byte(caCert), []byte(caKey), nodeName, m.publicAPIURL)
 	if err != nil {
 		m.log.WithError(err).Error("Failed to generate renewed node certificate")
 		return

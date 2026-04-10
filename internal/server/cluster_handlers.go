@@ -250,10 +250,12 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine this node's console URL for the remote node to connect back
-	localEndpoint := s.config.PublicConsoleURL
+	// Determine this node's S3 API endpoint for the remote node to connect back.
+	// Inter-node routes (/api/internal/cluster/...) are registered on the S3 API port,
+	// not on the console port, so we must use PublicAPIURL here.
+	localEndpoint := s.config.PublicAPIURL
 	if localEndpoint == "" {
-		s.writeError(w, "PublicConsoleURL is not configured on this node", http.StatusInternalServerError)
+		s.writeError(w, "PublicAPIURL is not configured on this node", http.StatusInternalServerError)
 		return
 	}
 

@@ -67,20 +67,15 @@ type spaHandler struct {
 func (h *spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	urlPath := r.URL.Path
 
-	// If we have a base path (like /ui), check if the request starts with it
+	// If a base path is configured (e.g. /ui from public_console_url), strip it when
+	// present so that reverse proxies that do not strip the prefix still work.
+	// When the path does not start with the base path (e.g. direct access via IP:port),
+	// serve from root — never 404 here.
 	if h.basePath != "/" && h.basePath != "" {
 		basePathWithoutSlash := strings.TrimSuffix(h.basePath, "/")
-
-		// Request must start with base path
-		if !strings.HasPrefix(urlPath, basePathWithoutSlash) {
-			// Not under our base path, 404
-			http.NotFound(w, r)
-			return
+		if strings.HasPrefix(urlPath, basePathWithoutSlash) {
+			urlPath = strings.TrimPrefix(urlPath, basePathWithoutSlash)
 		}
-
-		// Strip the base path to get the file path
-		// /ui/assets/file.js -> /assets/file.js
-		urlPath = strings.TrimPrefix(urlPath, basePathWithoutSlash)
 	}
 
 	// Clean and remove leading slash
@@ -214,7 +209,7 @@ func extractBasePath(urlStr string) string {
 }
 
 // setupEmbeddedFrontend sets up the embedded frontend handler
-func (s *Server) setupEmbeddedFrontend(router http.Handler) (http.Handler, error) {
+func (s *Server) setupEmbeddedFrontend() (http.Handler, error) {
 	frontendFS, err := getFrontendFS()
 	if err != nil {
 		logrus.WithError(err).Warn("Failed to load embedded frontend")

@@ -1078,68 +1078,34 @@ func (s *Server) setupRoutes() error {
 }
 
 func (s *Server) setupConsoleRoutes(router *mux.Router) {
-	// Extract base path from public_console_url
-	basePath := extractBasePathFromURL(s.config.PublicConsoleURL)
-
+	// public_console_url defines the public-facing URL for link generation and the SPA
+	// base path (for reverse-proxy scenarios). It does NOT control which paths the server
+	// listens on — the server always serves all routes at / so direct access via IP:port
+	// always works, regardless of what public_console_url is set to.
 	logrus.WithFields(logrus.Fields{
 		"public_console_url": s.config.PublicConsoleURL,
-		"base_path":          basePath,
 	}).Info("Setting up console routes")
 
-	// Create base router
-	var baseRouter *mux.Router
-	if basePath != "/" && basePath != "" {
-		// All routes (including API) must be under the base path
-		baseRouter = router.PathPrefix(basePath).Subrouter()
-	} else {
-		baseRouter = router
-	}
-
 	// API root endpoints (handle both with and without trailing slash)
-	baseRouter.HandleFunc("/api/v1", s.handleAPIRoot).Methods("GET", "OPTIONS")
-	baseRouter.HandleFunc("/api/v1/", s.handleAPIRoot).Methods("GET", "OPTIONS")
+	router.HandleFunc("/api/v1", s.handleAPIRoot).Methods("GET", "OPTIONS")
+	router.HandleFunc("/api/v1/", s.handleAPIRoot).Methods("GET", "OPTIONS")
 
-	// API endpoints for the web console (under base path)
-	apiRouter := baseRouter.PathPrefix("/api/v1").Subrouter()
+	// API endpoints for the web console
+	apiRouter := router.PathPrefix("/api/v1").Subrouter()
 	apiRouter.Use(middleware.TracingMiddleware) // Add tracing for performance metrics
 	s.setupConsoleAPIRoutes(apiRouter)
 
-	// Register pprof profiling endpoints (under base path, authenticated)
-	s.RegisterProfilingRoutes(baseRouter)
+	// Register pprof profiling endpoints
+	s.RegisterProfilingRoutes(router)
 
-	// Serve embedded frontend for all other routes (under base path)
-	frontendHandler, err := s.setupEmbeddedFrontend(router)
+	// Serve embedded frontend for all other routes
+	frontendHandler, err := s.setupEmbeddedFrontend()
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to setup embedded frontend - frontend must be built and embedded")
 		return
 	}
 
-	baseRouter.PathPrefix("/").Handler(frontendHandler)
-}
-
-// extractBasePathFromURL extracts the path component from a URL
-// Example: "https://s3.accst.local/ui" -> "/ui"
-// Example: "http://localhost:8081" -> "/"
-func extractBasePathFromURL(urlStr string) string {
-	parsedURL, err := url.Parse(urlStr)
-	if err != nil {
-		logrus.WithError(err).Warn("Failed to parse public console URL, using / as base path")
-		return "/"
-	}
-
-	basePath := parsedURL.Path
-	if basePath == "" || basePath == "/" {
-		return "/"
-	}
-
-	// Ensure base path starts with / but does NOT end with /
-	// This is important for PathPrefix matching in mux
-	basePath = strings.TrimSuffix(basePath, "/")
-	if !strings.HasPrefix(basePath, "/") {
-		basePath = "/" + basePath
-	}
-
-	return basePath
+	router.PathPrefix("/").Handler(frontendHandler)
 }
 
 // logS3APIRequests logs every HTTP request that hits the S3 API server (this process/port) at Info level.
