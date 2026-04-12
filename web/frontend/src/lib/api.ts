@@ -167,10 +167,11 @@ class TokenManager {
       }
 
       // Also set in cookies for middleware (24 hours max)
-      // Secure: never sent over HTTP · SameSite=Strict: CSRF protection
-      document.cookie = `auth_token=${token}; path=/; max-age=${24 * 60 * 60}; Secure; SameSite=Strict`;
+      // Only add Secure flag when the page is served over HTTPS
+      const secureFlag = window.location.protocol === 'https:' ? '; Secure' : '';
+      document.cookie = `auth_token=${token}; path=/; max-age=${24 * 60 * 60}${secureFlag}; SameSite=Strict`;
       if (refreshToken) {
-        document.cookie = `refresh_token=${refreshToken}; path=/; max-age=${24 * 60 * 60}; Secure; SameSite=Strict`;
+        document.cookie = `refresh_token=${refreshToken}; path=/; max-age=${24 * 60 * 60}${secureFlag}; SameSite=Strict`;
       }
     }
 
@@ -201,8 +202,9 @@ class TokenManager {
       localStorage.removeItem('refresh_token');
 
       // Also clear cookies
-      document.cookie = 'auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; SameSite=Strict';
-      document.cookie = 'refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; SameSite=Strict';
+      const secureFlag = window.location.protocol === 'https:' ? '; Secure' : '';
+      document.cookie = `auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT${secureFlag}; SameSite=Strict`;
+      document.cookie = `refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT${secureFlag}; SameSite=Strict`;
     }
   }
 

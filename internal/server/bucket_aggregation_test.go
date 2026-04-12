@@ -41,7 +41,7 @@ func setupServerWithCluster(t *testing.T) (*Server, *cluster.Manager, func()) {
 
 	// Initialize cluster
 	ctx := context.Background()
-	_, err = clusterManager.InitializeCluster(ctx, "test-node", "us-east-1")
+	_, err = clusterManager.InitializeCluster(ctx, "test-node", "us-east-1", "")
 	require.NoError(t, err)
 
 	// Initialize rate limiter (required for cluster routes)

@@ -428,7 +428,7 @@ func TestRouteRequest_LocalBucket_NoCache(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize cluster to enable it
-	_, err := manager.InitializeCluster(ctx, "local-node", "us-east-1")
+	_, err := manager.InitializeCluster(ctx, "local-node", "us-east-1", "")
 	require.NoError(t, err)
 
 	bucketMgr := NewMockBucketManager()
@@ -480,7 +480,7 @@ func TestRouteRequest_BucketNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize cluster to enable it
-	_, err := manager.InitializeCluster(ctx, "local-node", "us-east-1")
+	_, err := manager.InitializeCluster(ctx, "local-node", "us-east-1", "")
 	require.NoError(t, err)
 
 	bucketMgr := NewMockBucketManager()
@@ -552,7 +552,7 @@ func TestRouteRequest_CacheEviction(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize cluster to enable it
-	_, err := manager.InitializeCluster(ctx, "local-node", "us-east-1")
+	_, err := manager.InitializeCluster(ctx, "local-node", "us-east-1", "")
 	require.NoError(t, err)
 
 	bucketMgr := NewMockBucketManager()

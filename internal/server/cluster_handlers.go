@@ -24,8 +24,9 @@ func (s *Server) handleInitializeCluster(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req struct {
-		NodeName string `json:"node_name"`
-		Region   string `json:"region"`
+		NodeName      string `json:"node_name"`
+		Region        string `json:"region"`
+		LocalEndpoint string `json:"local_endpoint"` // optional: internal S3 API address for peer-to-peer communication
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -38,7 +39,7 @@ func (s *Server) handleInitializeCluster(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	clusterToken, err := s.clusterManager.InitializeCluster(r.Context(), req.NodeName, req.Region)
+	clusterToken, err := s.clusterManager.InitializeCluster(r.Context(), req.NodeName, req.Region, strings.TrimRight(req.LocalEndpoint, "/"))
 	if err != nil {
 		logrus.WithError(err).Error("Failed to initialize cluster")
 		s.writeError(w, "Failed to initialize cluster: "+err.Error(), http.StatusInternalServerError)
@@ -220,9 +221,10 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Endpoint string `json:"endpoint"`
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Endpoint      string `json:"endpoint"`
+		Username      string `json:"username"`
+		Password      string `json:"password"`
+		LocalEndpoint string `json:"local_endpoint"` // optional: internal API URL other nodes use to reach this node
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -251,11 +253,15 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Determine this node's S3 API endpoint for the remote node to connect back.
-	// Inter-node routes (/api/internal/cluster/...) are registered on the S3 API port,
-	// not on the console port, so we must use PublicAPIURL here.
-	localEndpoint := s.config.PublicAPIURL
+	// Inter-node routes (/api/internal/cluster/...) are registered on the S3 API port.
+	// Prefer an explicitly provided local_endpoint (internal/LAN address) over
+	// public_api_url, which may point to a NAT/firewall address unreachable from peers.
+	localEndpoint := strings.TrimRight(req.LocalEndpoint, "/")
 	if localEndpoint == "" {
-		s.writeError(w, "PublicAPIURL is not configured on this node", http.StatusInternalServerError)
+		localEndpoint = strings.TrimRight(s.config.PublicAPIURL, "/")
+	}
+	if localEndpoint == "" {
+		s.writeError(w, "No local endpoint available: set public_api_url or provide local_endpoint in the request", http.StatusInternalServerError)
 		return
 	}
 
@@ -287,18 +293,25 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var loginResult struct {
-		Data struct {
-			Token string `json:"token"`
-		} `json:"data"`
+		Token       string `json:"token"`
+		AccessToken string `json:"access_token"`
 	}
-	if err := json.NewDecoder(loginResp.Body).Decode(&loginResult); err != nil || loginResult.Data.Token == "" {
+	if err := json.NewDecoder(loginResp.Body).Decode(&loginResult); err != nil {
+		s.writeError(w, "Failed to parse authentication response from remote node", http.StatusBadGateway)
+		return
+	}
+	remoteToken := loginResult.AccessToken
+	if remoteToken == "" {
+		remoteToken = loginResult.Token
+	}
+	if remoteToken == "" {
 		s.writeError(w, "Failed to parse authentication response from remote node", http.StatusBadGateway)
 		return
 	}
 
 	// Step 2: Check if remote node is already in a cluster
 	configReq, _ := http.NewRequestWithContext(r.Context(), "GET", remoteEndpoint+"/api/v1/cluster/config", nil)
-	configReq.Header.Set("Authorization", "Bearer "+loginResult.Data.Token)
+	configReq.Header.Set("Authorization", "Bearer "+remoteToken)
 
 	configResp, err := insecureClient.Do(configReq)
 	if err != nil {
@@ -328,7 +341,7 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 
 	joinReq, _ := http.NewRequestWithContext(r.Context(), "POST", remoteEndpoint+"/api/v1/cluster/join", bytes.NewReader(joinPayload))
 	joinReq.Header.Set("Content-Type", "application/json")
-	joinReq.Header.Set("Authorization", "Bearer "+loginResult.Data.Token)
+	joinReq.Header.Set("Authorization", "Bearer "+remoteToken)
 
 	joinResp, err := insecureClient.Do(joinReq)
 	if err != nil {

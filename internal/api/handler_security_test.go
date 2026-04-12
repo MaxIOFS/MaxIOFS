@@ -1000,6 +1000,7 @@ func setupTestHandler() (*Handler, *MockBucketManager, *MockObjectManager, *Mock
 		nil, // shareManager
 		"http://localhost:8080",
 		"http://localhost:5173",
+		":8081",
 		"/tmp",
 		nil, // clusterManager
 		nil, // bucketAggregator

@@ -3,8 +3,8 @@ package api
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -38,6 +38,7 @@ type Handler struct {
 	s3Handler        *s3compat.Handler
 	publicAPIURL     string
 	publicConsoleURL string
+	consoleListen    string // e.g. ":8081" — used to redirect direct-access browsers to the console port
 	dataDir          string
 }
 
@@ -53,6 +54,7 @@ func NewHandler(
 	},
 	publicAPIURL string,
 	publicConsoleURL string,
+	consoleListen string,
 	dataDir string,
 	clusterManager *cluster.Manager,
 	bucketAggregator *cluster.BucketAggregator,
@@ -96,6 +98,7 @@ func NewHandler(
 		s3Handler:        s3Handler,
 		publicAPIURL:     publicAPIURL,
 		publicConsoleURL: publicConsoleURL,
+		consoleListen:    consoleListen,
 		dataDir:          dataDir,
 	}
 }
@@ -316,46 +319,50 @@ func (h *Handler) S3ClientMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// effectiveConsoleRedirectURL builds the Location header for browser redirects.
-// When public_api_url and public_console_url share the same host and both point at
-// the API root (/), the SPA is typically mounted at /ui/ — append it if missing.
+// effectiveConsoleRedirectURL returns where browser requests on the S3 API port
+// should be redirected.
+//
+//   - Behind a reverse proxy (X-Forwarded-For / X-Forwarded-Host / X-Real-IP present):
+//     use public_console_url, which includes whatever subpath the operator configured.
+//   - Direct access by IP/hostname (no proxy headers): redirect to the same host but
+//     on the console listen port — the same way MinIO redirects to its console.
 func (h *Handler) effectiveConsoleRedirectURL(r *http.Request) string {
-	raw := strings.TrimSpace(h.publicConsoleURL)
-	if raw == "" {
-		return h.fallbackConsoleURLFromRequest(r)
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return raw
-	}
-	apiU, apiErr := url.Parse(strings.TrimSpace(h.publicAPIURL))
-	if apiErr != nil {
-		return raw
-	}
-	if u.Scheme == apiU.Scheme && u.Host == apiU.Host {
-		conPath := strings.TrimSuffix(u.Path, "/")
-		apiPath := strings.TrimSuffix(apiU.Path, "/")
-		if (conPath == "" || conPath == "/") && (apiPath == "" || apiPath == "/") {
-			return strings.TrimRight(raw, "/") + "/ui/"
+	behindProxy := r.Header.Get("X-Forwarded-For") != "" ||
+		r.Header.Get("X-Forwarded-Host") != "" ||
+		r.Header.Get("X-Real-IP") != ""
+
+	if behindProxy {
+		if raw := strings.TrimSpace(h.publicConsoleURL); raw != "" {
+			return raw
 		}
 	}
-	return raw
+
+	return h.fallbackConsoleURLFromRequest(r)
 }
 
+// fallbackConsoleURLFromRequest builds a redirect URL for direct (non-proxy) access:
+// same host as the incoming request, but on the console listen port.
 func (h *Handler) fallbackConsoleURLFromRequest(r *http.Request) string {
-	proto := r.Header.Get("X-Forwarded-Proto")
-	if proto == "" {
-		if r.TLS != nil {
-			proto = "https"
-		} else {
-			proto = "http"
+	proto := "http"
+	if r.TLS != nil {
+		proto = "https"
+	}
+
+	// Extract just the hostname (strip any port from the Host header).
+	hostname := r.Host
+	if host, _, err := net.SplitHostPort(r.Host); err == nil {
+		hostname = host
+	}
+
+	// Derive the console port from consoleListen (e.g. ":8081" → "8081").
+	consolePort := "8081"
+	if h.consoleListen != "" {
+		if _, p, err := net.SplitHostPort(h.consoleListen); err == nil && p != "" {
+			consolePort = p
 		}
 	}
-	host := r.Host
-	if host == "" {
-		return ""
-	}
-	return proto + "://" + host + "/ui/"
+
+	return proto + "://" + hostname + ":" + consolePort + "/"
 }
 
 // isS3Client detects whether the request is from an S3 client (CLI, SDK, GUI) vs browser/curl.

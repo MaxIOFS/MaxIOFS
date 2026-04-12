@@ -75,8 +75,13 @@ func (m *Manager) SetBucketManager(bm bucketManagerForMigration) {
 	m.bucketManager = bm
 }
 
-// InitializeCluster initializes a new cluster with this node
-func (m *Manager) InitializeCluster(ctx context.Context, nodeName, region string) (string, error) {
+// InitializeCluster initializes a new cluster with this node.
+// nodeEndpoint is the S3 API address other nodes will use to reach this node.
+// If empty, falls back to the configured publicAPIURL.
+func (m *Manager) InitializeCluster(ctx context.Context, nodeName, region, nodeEndpoint string) (string, error) {
+	if nodeEndpoint == "" {
+		nodeEndpoint = m.publicAPIURL
+	}
 	// Check if cluster is already initialized
 	var exists int
 	err := m.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM cluster_config").Scan(&exists)
@@ -116,13 +121,12 @@ func (m *Manager) InitializeCluster(ctx context.Context, nodeName, region string
 	}
 
 	// Add this node to cluster_nodes table
-	// Use public API URL from configuration as endpoint
 	_, err = m.db.ExecContext(ctx, `
 		INSERT INTO cluster_nodes (
 			id, name, endpoint, node_token, region, priority,
 			health_status, latency_ms, capacity_total, capacity_used, bucket_count
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, nodeID, nodeName, m.publicAPIURL, clusterToken, region, 100,
+	`, nodeID, nodeName, nodeEndpoint, clusterToken, region, 100,
 		HealthStatusHealthy, 0, 0, 0, 0)
 	if err != nil {
 		return "", fmt.Errorf("failed to add node to cluster: %w", err)

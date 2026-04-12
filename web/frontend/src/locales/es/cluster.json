@@ -14,6 +14,8 @@
   "initClusterDesc": "Esto creará un nuevo clúster con este nodo como primer miembro. Recibirás un token de clúster para añadir otros nodos.",
   "nodeName": "Nombre del Nodo",
   "regionOptional": "Región (opcional)",
+  "localEndpointOptional": "Endpoint S3 API local (opcional)",
+  "localEndpointHint": "Dirección interna que usarán los otros nodos para comunicarse con este, ej. http://192.168.1.10:8080. Vacío usa public_api_url.",
   "cancel": "Cancelar",
   "initialize": "Inicializar",
   "failedToInitCluster": "Error al inicializar el clúster",

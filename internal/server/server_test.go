@@ -6034,51 +6034,6 @@ func TestNotificationHubBroadcast(t *testing.T) {
 	})
 }
 
-// Test rewriteAbsoluteURLs function
-func TestRewriteAbsoluteURLs(t *testing.T) {
-	t.Run("should rewrite href URLs", func(t *testing.T) {
-		input := []byte(`<a href="/about">About</a>`)
-		result := rewriteAbsoluteURLs(input, "/ui")
-		assert.Contains(t, string(result), `href="/ui/about"`)
-	})
-
-	t.Run("should rewrite src URLs", func(t *testing.T) {
-		input := []byte(`<img src="/images/logo.png">`)
-		result := rewriteAbsoluteURLs(input, "/app")
-		assert.Contains(t, string(result), `src="/app/images/logo.png"`)
-	})
-
-	t.Run("should rewrite srcset URLs", func(t *testing.T) {
-		input := []byte(`<img srcset="/images/logo.png 1x">`)
-		result := rewriteAbsoluteURLs(input, "/console")
-		assert.Contains(t, string(result), `srcset="/console/images/logo.png 1x"`)
-	})
-
-	t.Run("should not rewrite api URLs", func(t *testing.T) {
-		input := []byte(`<a href="/api/v1/users">API</a>`)
-		result := rewriteAbsoluteURLs(input, "/ui")
-		assert.Contains(t, string(result), `href="/api/v1/users"`)
-	})
-
-	t.Run("should handle content URLs", func(t *testing.T) {
-		input := []byte(`<meta content="/page" property="og:url">`)
-		result := rewriteAbsoluteURLs(input, "/base")
-		assert.Contains(t, string(result), `content="/base/page"`)
-	})
-
-	t.Run("should handle multiple patterns", func(t *testing.T) {
-		input := []byte(`<a href="/link1"><img src="/img.png"></a>`)
-		result := rewriteAbsoluteURLs(input, "/x")
-		assert.Contains(t, string(result), `href="/x/link1"`)
-		assert.Contains(t, string(result), `src="/x/img.png"`)
-	})
-
-	t.Run("should handle empty base path", func(t *testing.T) {
-		input := []byte(`<a href="/about">About</a>`)
-		result := rewriteAbsoluteURLs(input, "")
-		assert.Contains(t, string(result), `href="/about"`)
-	})
-}
 
 // Test metricsResponseWriter
 func TestMetricsResponseWriter(t *testing.T) {

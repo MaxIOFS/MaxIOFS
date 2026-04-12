@@ -63,9 +63,13 @@ export default function ClusterOverview() {
     }
   };
 
-  const handleInitializeCluster = async (nodeName: string, region: string) => {
+  const handleInitializeCluster = async (nodeName: string, region: string, localEndpoint: string) => {
     try {
-      const response = await APIClient.initializeCluster({ node_name: nodeName, region: region || undefined });
+      const response = await APIClient.initializeCluster({
+        node_name: nodeName,
+        region: region || undefined,
+        local_endpoint: localEndpoint || undefined,
+      });
       setClusterToken(response.cluster_token);
       setShowInitDialog(false);
       setShowTokenModal(true);
@@ -158,7 +162,8 @@ export default function ClusterOverview() {
                 const formData = new FormData(e.currentTarget);
                 handleInitializeCluster(
                   formData.get('node_name') as string,
-                  formData.get('region') as string
+                  formData.get('region') as string,
+                  formData.get('local_endpoint') as string
                 );
               }}>
                 <div className="space-y-4">
@@ -180,6 +185,18 @@ export default function ClusterOverview() {
                       className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500"
                       placeholder="us-east-1"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1">
+                      {t('localEndpointOptional')}
+                    </label>
+                    <input
+                      name="local_endpoint"
+                      type="url"
+                      className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500"
+                      placeholder="http://192.168.1.10:8080"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">{t('localEndpointHint')}</p>
                   </div>
                 </div>
                 <div className="flex gap-2 mt-6">

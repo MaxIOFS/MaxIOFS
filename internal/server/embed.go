@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -13,222 +14,116 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// extractBasePathFromURL returns the path component of rawURL, with trailing
+// slash stripped. E.g. "https://maxiofs.local/ui" → "/ui", "" → "".
+func extractBasePathFromURL(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimRight(parsed.Path, "/")
+}
+
 // getFrontendFS returns the embedded filesystem with the correct root
 func getFrontendFS() (fs.FS, error) {
 	return web.GetFrontendFS()
 }
 
-// rewriteAbsoluteURLs rewrites all absolute URLs in HTML to include the base path
-func rewriteAbsoluteURLs(htmlBytes []byte, basePath string) []byte {
-	// Patterns to match: href="/" src="/" srcset="/" content="/"
-	patterns := []string{
-		`href="/`,
-		`src="/`,
-		`srcset="/`,
-		`content="/`,
-	}
-
-	result := htmlBytes
-	for _, pattern := range patterns {
-		// Skip /api/ URLs - those should not be rewritten
-		// Replace pattern=/ with pattern=/basePath/ for all other cases
-		parts := bytes.Split(result, []byte(pattern))
-		if len(parts) <= 1 {
-			continue
-		}
-
-		var newResult []byte
-		for i, part := range parts {
-			if i > 0 {
-				// Check if this is an /api/ URL - don't rewrite those
-				if bytes.HasPrefix(part, []byte("api/")) {
-					newResult = append(newResult, []byte(pattern)...)
-				} else {
-					// Rewrite with base path
-					newResult = append(newResult, []byte(pattern[:len(pattern)-1]+basePath+"/")...)
-				}
-			}
-			newResult = append(newResult, part...)
-		}
-		result = newResult
-	}
-
-	return result
-}
-
-// spaHandler implements the http.Handler interface for serving a SPA
+// spaHandler serves the embedded SPA. Static assets are served directly;
+// everything else falls back to index.html for client-side routing.
+//
+// The reverse proxy (nginx) is responsible for stripping the subpath prefix
+// (e.g. /ui/) before forwarding requests to this port. This handler always
+// receives paths rooted at "/".
+//
+// window.BASE_PATH is injected statically from the configured public_console_url
+// so the React app knows its basename (e.g. "/ui" or "" for direct access).
 type spaHandler struct {
 	staticFS   http.FileSystem
 	indexBytes []byte
-	basePath   string // Base path for the frontend (e.g., "/ui" or "/")
+	basePath   string // e.g. "/ui" extracted from public_console_url, may be empty
 }
 
-// ServeHTTP serves the SPA with fallback to index.html for client-side routing
 func (h *spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	urlPath := r.URL.Path
-
-	// If a base path is configured (e.g. /ui from public_console_url), strip it when
-	// present so that reverse proxies that do not strip the prefix still work.
-	// When the path does not start with the base path (e.g. direct access via IP:port),
-	// serve from root — never 404 here.
-	if h.basePath != "/" && h.basePath != "" {
-		basePathWithoutSlash := strings.TrimSuffix(h.basePath, "/")
-		if strings.HasPrefix(urlPath, basePathWithoutSlash) {
-			urlPath = strings.TrimPrefix(urlPath, basePathWithoutSlash)
-		}
-	}
-
-	// Clean and remove leading slash
-	urlPath = path.Clean(urlPath)
-	filePath := strings.TrimPrefix(urlPath, "/")
+	filePath := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 	if filePath == "" {
 		filePath = "index.html"
 	}
 
-	// Try to open file from embedded filesystem
 	file, err := h.staticFS.Open(filePath)
 	if err == nil {
 		defer file.Close()
 		stat, _ := file.Stat()
-
-		if filePath == "index.html" {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Write(h.indexBytes)
-			return
-		}
-
 		if !stat.IsDir() {
+			if filePath == "index.html" {
+				h.serveIndex(w, r)
+				return
+			}
 			http.ServeContent(w, r, filePath, stat.ModTime(), file.(io.ReadSeeker))
 			return
 		}
 	}
 
-	// If it's a static asset and not found, return 404
+	// Static assets not found → 404
 	if strings.HasPrefix(filePath, "assets/") || strings.HasSuffix(filePath, ".js") ||
-	   strings.HasSuffix(filePath, ".css") || strings.HasSuffix(filePath, ".png") {
+		strings.HasSuffix(filePath, ".css") || strings.HasSuffix(filePath, ".png") {
 		http.NotFound(w, r)
 		return
 	}
 
-	// For SPA routes, serve index.html
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(h.indexBytes)
+	// SPA route → serve index.html
+	h.serveIndex(w, r)
 }
 
-// newSPAHandler creates a new SPA handler with dynamic base path
-func newSPAHandler(staticFS http.FileSystem, basePath string) (*spaHandler, error) {
-	// Read index.html into memory for fast serving
-	indexFile, err := staticFS.Open("index.html")
+// serveIndex serves index.html with window.BASE_PATH injected from config.
+// The value comes from the path component of public_console_url (e.g. "/ui"),
+// or empty string for direct IP:port access.
+func (h *spaHandler) serveIndex(w http.ResponseWriter, r *http.Request) {
+	// Use the configured basePath when behind a reverse proxy (nginx sets X-Forwarded-For
+	// or X-Real-IP). For direct IP:port access neither header is present, so inject an
+	// empty BASE_PATH so React Router matches routes at root.
+	basePath := h.basePath
+	if r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("X-Real-IP") == "" {
+		basePath = ""
+	}
+	script := fmt.Sprintf(`<script>window.BASE_PATH=%q;</script>`, basePath)
+	injected := bytes.Replace(h.indexBytes, []byte("</head>"), []byte(script+"</head>"), 1)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(injected)
+}
+
+// setupEmbeddedFrontend loads the embedded frontend and returns an http.Handler.
+func (s *Server) setupEmbeddedFrontend() (http.Handler, error) {
+	frontendFS, err := getFrontendFS()
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to load embedded frontend")
+		return nil, err
+	}
+
+	httpFS := http.FS(frontendFS)
+
+	indexFile, err := httpFS.Open("index.html")
 	if err != nil {
 		return nil, err
 	}
 	defer indexFile.Close()
 
-	indexStat, err := indexFile.Stat()
+	stat, err := indexFile.Stat()
 	if err != nil {
 		return nil, err
 	}
 
-	indexBytes := make([]byte, indexStat.Size())
-	_, err = io.ReadFull(indexFile, indexBytes)
-	if err != nil {
+	indexBytes := make([]byte, stat.Size())
+	if _, err = io.ReadFull(indexFile, indexBytes); err != nil {
 		return nil, err
 	}
 
-	// Rewrite ALL absolute asset paths to include the base path
-	// Vite generates paths like src="/assets/file.js"
-	// We need to convert them to src="/ui/assets/file.js" when basePath is "/ui/"
-	if basePath != "/" {
-		basePathWithoutSlash := strings.TrimSuffix(basePath, "/")
-
-		// Replace all absolute URLs that start with / (except /api which is handled separately)
-		// This covers /assets/, /static/, /img/, /fonts/, etc.
-		indexBytes = rewriteAbsoluteURLs(indexBytes, basePathWithoutSlash)
-	}
-
-	// Inject base tag and window.BASE_PATH variable
-	// BASE_PATH is used by React Router to handle routes correctly under a subpath
-	baseTag := []byte(`<base href="` + basePath + `">`)
-	scriptTag := []byte(`<script>
-		// Set base path for React Router and other frontend code
-		window.__BASE_PATH__ = "` + basePath + `";
-		window.BASE_PATH = "` + basePath + `";
-		// Also set as a constant for imports
-		if (typeof globalThis !== 'undefined') {
-			globalThis.BASE_PATH = "` + basePath + `";
-		}
-	</script>`)
-
-	// Find the <head> tag and inject after it
-	headEnd := bytes.Index(indexBytes, []byte("<head>"))
-	if headEnd != -1 {
-		headEnd += len("<head>")
-		// Insert base tag and script right after <head>
-		modifiedIndex := make([]byte, 0, len(indexBytes)+len(baseTag)+len(scriptTag)+2)
-		modifiedIndex = append(modifiedIndex, indexBytes[:headEnd]...)
-		modifiedIndex = append(modifiedIndex, '\n')
-		modifiedIndex = append(modifiedIndex, baseTag...)
-		modifiedIndex = append(modifiedIndex, '\n')
-		modifiedIndex = append(modifiedIndex, scriptTag...)
-		modifiedIndex = append(modifiedIndex, indexBytes[headEnd:]...)
-		indexBytes = modifiedIndex
-	}
-
-	return &spaHandler{
-		staticFS:   staticFS,
-		indexBytes: indexBytes,
-		basePath:   basePath,
-	}, nil
-}
-
-// extractBasePath extracts the path component from a URL with trailing slash
-// Example: "https://s3.accst.local/ui" -> "/ui/"
-// Example: "http://localhost:8081" -> "/"
-func extractBasePath(urlStr string) string {
-	parsedURL, err := url.Parse(urlStr)
-	if err != nil {
-		logrus.WithError(err).Warn("Failed to parse public console URL, using / as base path")
-		return "/"
-	}
-
-	basePath := parsedURL.Path
-	if basePath == "" || basePath == "/" {
-		return "/"
-	}
-
-	// Ensure base path starts with / and ends with /
-	// The trailing slash is needed for the <base> tag in HTML
-	if !strings.HasPrefix(basePath, "/") {
-		basePath = "/" + basePath
-	}
-	if !strings.HasSuffix(basePath, "/") {
-		basePath = basePath + "/"
-	}
-
-	return basePath
-}
-
-// setupEmbeddedFrontend sets up the embedded frontend handler
-func (s *Server) setupEmbeddedFrontend() (http.Handler, error) {
-	frontendFS, err := getFrontendFS()
-	if err != nil {
-		logrus.WithError(err).Warn("Failed to load embedded frontend")
-		return nil, err // Return error instead of router
-	}
-
-	// Extract base path from public console URL (DYNAMIC - from config.yaml)
-	basePath := extractBasePath(s.config.PublicConsoleURL)
-	logrus.WithField("base_path", basePath).Info("Setting up embedded frontend")
-
-	httpFS := http.FS(frontendFS)
-
-	// Create SPA handler with dynamic base path
-	spaHandler, err := newSPAHandler(httpFS, basePath)
-	if err != nil {
-		logrus.WithError(err).Warn("Failed to create SPA handler")
-		return nil, err // Return error instead of router
-	}
-
-	logrus.Info("Embedded web console enabled")
-	return spaHandler, nil
+	basePath := extractBasePathFromURL(s.config.PublicConsoleURL)
+	logrus.WithFields(logrus.Fields{
+		"base_path": basePath,
+	}).Info("Embedded web console enabled")
+	return &spaHandler{staticFS: httpFS, indexBytes: indexBytes, basePath: basePath}, nil
 }

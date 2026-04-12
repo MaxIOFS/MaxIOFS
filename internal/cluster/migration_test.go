@@ -21,7 +21,7 @@ func TestMigrationJobCRUD(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize cluster
-	_, err := manager.InitializeCluster(ctx, "node-1", "us-east-1")
+	_, err := manager.InitializeCluster(ctx, "node-1", "us-east-1", "")
 	if err != nil {
 		t.Fatalf("Failed to initialize cluster: %v", err)
 	}

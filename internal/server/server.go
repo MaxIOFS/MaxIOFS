@@ -993,6 +993,7 @@ func (s *Server) setupRoutes() error {
 		shareManagerWrapper,
 		s.config.PublicAPIURL,
 		s.config.PublicConsoleURL,
+		s.config.ConsoleListen,
 		s.config.DataDir,
 		s.clusterManager,
 		s.bucketAggregator,
@@ -1078,32 +1079,25 @@ func (s *Server) setupRoutes() error {
 }
 
 func (s *Server) setupConsoleRoutes(router *mux.Router) {
-	// public_console_url defines the public-facing URL for link generation and the SPA
-	// base path (for reverse-proxy scenarios). It does NOT control which paths the server
-	// listens on — the server always serves all routes at / so direct access via IP:port
-	// always works, regardless of what public_console_url is set to.
-	logrus.WithFields(logrus.Fields{
-		"public_console_url": s.config.PublicConsoleURL,
-	}).Info("Setting up console routes")
+	logrus.WithField("public_console_url", s.config.PublicConsoleURL).Info("Setting up console routes")
 
-	// API root endpoints (handle both with and without trailing slash)
-	router.HandleFunc("/api/v1", s.handleAPIRoot).Methods("GET", "OPTIONS")
-	router.HandleFunc("/api/v1/", s.handleAPIRoot).Methods("GET", "OPTIONS")
-
-	// API endpoints for the web console
-	apiRouter := router.PathPrefix("/api/v1").Subrouter()
-	apiRouter.Use(middleware.TracingMiddleware) // Add tracing for performance metrics
-	s.setupConsoleAPIRoutes(apiRouter)
-
-	// Register pprof profiling endpoints
-	s.RegisterProfilingRoutes(router)
-
-	// Serve embedded frontend for all other routes
 	frontendHandler, err := s.setupEmbeddedFrontend()
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to setup embedded frontend - frontend must be built and embedded")
 		return
 	}
+
+	// Routes are always at root. The reverse proxy is responsible for stripping
+	// any subpath prefix (e.g. /ui/) before forwarding to this port, and for
+	// setting X-Forwarded-Prefix so the SPA receives the correct BASE_PATH.
+	router.HandleFunc("/api/v1", s.handleAPIRoot).Methods("GET", "OPTIONS")
+	router.HandleFunc("/api/v1/", s.handleAPIRoot).Methods("GET", "OPTIONS")
+
+	apiRouter := router.PathPrefix("/api/v1").Subrouter()
+	apiRouter.Use(middleware.TracingMiddleware)
+	s.setupConsoleAPIRoutes(apiRouter)
+
+	s.RegisterProfilingRoutes(router)
 
 	router.PathPrefix("/").Handler(frontendHandler)
 }
