@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -64,6 +65,7 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ClusterToken string `json:"cluster_token"`
 		NodeEndpoint string `json:"node_endpoint"`
+		SelfEndpoint string `json:"self_endpoint"` // cluster URL this node should register as (set by Add Node flow)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -76,7 +78,37 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.clusterManager.JoinCluster(r.Context(), req.ClusterToken, req.NodeEndpoint)
+	// Parse and normalize the cluster node address (default port 8082 for inter-node communication)
+	clusterNodeURL, err := parseNodeAddress(req.NodeEndpoint, "8082")
+	if err != nil {
+		s.writeError(w, "Invalid node address: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.NodeEndpoint = clusterNodeURL
+
+	// Determine this node's own cluster endpoint.
+	// If Add Node flow provided self_endpoint, use it directly.
+	// Otherwise derive from the Host the browser used to reach this console + cluster port.
+	selfEndpoint := strings.TrimRight(req.SelfEndpoint, "/")
+	if selfEndpoint == "" {
+		scheme := "http"
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		host := r.Host
+		if h, _, err := net.SplitHostPort(r.Host); err == nil {
+			host = h
+		}
+		clusterPort := "8082"
+		if s.config.ClusterListen != "" {
+			if _, p, err := net.SplitHostPort(s.config.ClusterListen); err == nil && p != "" {
+				clusterPort = p
+			}
+		}
+		selfEndpoint = scheme + "://" + host + ":" + clusterPort
+	}
+
+	err = s.clusterManager.JoinCluster(r.Context(), req.ClusterToken, req.NodeEndpoint, selfEndpoint)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to join cluster")
 		s.writeError(w, "Failed to join cluster: "+err.Error(), http.StatusInternalServerError)
@@ -237,13 +269,15 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate the remote endpoint scheme to prevent SSRF via cloud metadata IPs.
+	// Parse and validate the remote console endpoint (default port 8081).
 	// We intentionally allow private-range IPs (RFC 1918) because cluster nodes
 	// are commonly deployed on private networks.
-	if err := validateClusterNodeEndpoint(req.Endpoint); err != nil {
-		s.writeError(w, "Invalid node endpoint: "+err.Error(), http.StatusBadRequest)
+	remoteConsoleURL, err := parseNodeAddress(req.Endpoint, "8081")
+	if err != nil {
+		s.writeError(w, "Invalid node address: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	req.Endpoint = remoteConsoleURL
 
 	// Get local cluster config to obtain the cluster token
 	config, err := s.clusterManager.GetConfig(r.Context())
@@ -252,17 +286,30 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine this node's S3 API endpoint for the remote node to connect back.
-	// Inter-node routes (/api/internal/cluster/...) are registered on the S3 API port.
-	// Prefer an explicitly provided local_endpoint (internal/LAN address) over
-	// public_api_url, which may point to a NAT/firewall address unreachable from peers.
+	// Determine this node's cluster endpoint for inter-node communication.
+	// All cluster routes are on the dedicated cluster port (default :8082).
+	//
+	// Priority:
+	//  1. Explicitly provided local_endpoint in the request body.
+	//  2. Derived from the request Host (the IP the browser reached) + cluster port.
 	localEndpoint := strings.TrimRight(req.LocalEndpoint, "/")
 	if localEndpoint == "" {
-		localEndpoint = strings.TrimRight(s.config.PublicAPIURL, "/")
-	}
-	if localEndpoint == "" {
-		s.writeError(w, "No local endpoint available: set public_api_url or provide local_endpoint in the request", http.StatusInternalServerError)
-		return
+		scheme := "http"
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		// Extract just the hostname/IP from r.Host (strip any port)
+		host := r.Host
+		if h, _, err := net.SplitHostPort(r.Host); err == nil {
+			host = h
+		}
+		clusterPort := "8082"
+		if s.config.ClusterListen != "" {
+			if _, p, err := net.SplitHostPort(s.config.ClusterListen); err == nil && p != "" {
+				clusterPort = p
+			}
+		}
+		localEndpoint = scheme + "://" + host + ":" + clusterPort
 	}
 
 	// Step 1: Authenticate to the remote node
@@ -333,10 +380,22 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Derive B's cluster URL from the console URL A used to reach it.
+	// B's IP is already known; just swap the port to the cluster port (8082).
+	remoteParsed, _ := url.Parse(remoteConsoleURL)
+	clusterPort := "8082"
+	if s.config.ClusterListen != "" {
+		if _, p, err := net.SplitHostPort(s.config.ClusterListen); err == nil && p != "" {
+			clusterPort = p
+		}
+	}
+	remoteClusterURL := remoteParsed.Scheme + "://" + remoteParsed.Hostname() + ":" + clusterPort
+
 	// Step 3: Call the remote node's join endpoint
 	joinPayload, _ := json.Marshal(map[string]string{
 		"cluster_token": config.ClusterToken,
 		"node_endpoint": localEndpoint,
+		"self_endpoint": remoteClusterURL, // tell B to register with its own cluster URL
 	})
 
 	joinReq, _ := http.NewRequestWithContext(r.Context(), "POST", remoteEndpoint+"/api/v1/cluster/join", bytes.NewReader(joinPayload))
@@ -625,7 +684,7 @@ func (s *Server) handleGetLocalBuckets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.writeJSON(w, map[string]interface{}{
+	s.writeClusterJSON(w, map[string]interface{}{
 		"buckets": bucketsWithLocation,
 	})
 }
@@ -651,7 +710,7 @@ func (s *Server) handleGetTenantStorage(w http.ResponseWriter, r *http.Request) 
 		NodeName:            "", // Will be filled by aggregator
 	}
 
-	s.writeJSON(w, storageInfo)
+	s.writeClusterJSON(w, storageInfo)
 }
 
 // handleValidateClusterToken validates a cluster token for node join operations
@@ -710,7 +769,7 @@ func (s *Server) handleValidateClusterToken(w http.ResponseWriter, r *http.Reque
 		resp["ca_cert"] = caCert
 	}
 
-	s.writeJSON(w, resp)
+	s.writeClusterJSON(w, resp)
 }
 
 // handleSignCSR signs a Certificate Signing Request (CSR) from a node that is joining the cluster.
@@ -759,7 +818,7 @@ func (s *Server) handleSignCSR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.writeJSON(w, map[string]string{
+	s.writeClusterJSON(w, map[string]string{
 		"node_cert": string(nodeCertPEM),
 	})
 }
@@ -819,7 +878,7 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 	if caCert := s.clusterManager.GetCACertPEM(); caCert != "" {
 		resp["ca_cert"] = caCert
 	}
-	s.writeJSON(w, resp)
+	s.writeClusterJSON(w, resp)
 }
 
 // handleGetClusterJWTSecret returns the JWT secret for cluster synchronization (HMAC-authenticated)
@@ -833,7 +892,7 @@ func (s *Server) handleGetClusterJWTSecret(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	s.writeJSON(w, map[string]string{
+	s.writeClusterJSON(w, map[string]string{
 		"jwt_secret": jwtSecret,
 	})
 }
@@ -875,32 +934,57 @@ func (s *Server) handleGetClusterNodesInternal(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	s.writeJSON(w, map[string]interface{}{
+	s.writeClusterJSON(w, map[string]interface{}{
 		"nodes": nodes,
 	})
 }
 
-// validateClusterNodeEndpoint checks that a cluster node endpoint URL uses an
-// http or https scheme.  Unlike the replication SSRF validator we deliberately
-// allow RFC-1918 / link-local addresses because cluster peers are commonly
-// deployed on private LANs.  We only reject the most obviously malicious values:
-// an empty/non-http(s) scheme and the cloud metadata address 169.254.169.254
-// (which is never a valid MaxIOFS node endpoint).
-func validateClusterNodeEndpoint(rawURL string) error {
-	u, err := url.Parse(rawURL)
+// writeClusterJSON writes a raw JSON response for inter-node cluster API endpoints.
+// Unlike writeJSON (console API), it does NOT wrap the response in {"success":true,"data":{...}}.
+// The Go cluster manager client code (manager.go) decodes flat structs, so the envelope must be absent.
+func (s *Server) writeClusterJSON(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(data)
+}
+
+// parseNodeAddress parses a user-provided node address into a full URL.
+// The input can be:
+//   - "192.168.1.10"          → http://192.168.1.10:<defaultPort>
+//   - "192.168.1.10:9000"     → http://192.168.1.10:9000
+//   - "http://192.168.1.10"   → http://192.168.1.10:<defaultPort>  (scheme kept, port added)
+//   - "http://192.168.1.10:9000" → http://192.168.1.10:9000        (used as-is)
+//
+// defaultPort is "8081" for console communication or "8082" for cluster communication.
+func parseNodeAddress(input, defaultPort string) (string, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", fmt.Errorf("address is required")
+	}
+
+	// If no scheme, prepend http:// so url.Parse works correctly
+	raw := input
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+
+	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("malformed URL: %w", err)
+		return "", fmt.Errorf("invalid address: %w", err)
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("scheme must be http or https, got %q", u.Scheme)
-	}
+
 	host := u.Hostname()
 	if host == "" {
-		return fmt.Errorf("host is empty")
+		return "", fmt.Errorf("host is empty")
 	}
-	// Block the cloud instance-metadata address regardless of path.
 	if host == "169.254.169.254" {
-		return fmt.Errorf("endpoint resolves to a cloud metadata address")
+		return "", fmt.Errorf("address resolves to a cloud metadata address")
 	}
-	return nil
+
+	port := u.Port()
+	if port == "" {
+		port = defaultPort
+	}
+
+	return u.Scheme + "://" + host + ":" + port, nil
 }

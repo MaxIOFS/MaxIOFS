@@ -63,12 +63,11 @@ export default function ClusterOverview() {
     }
   };
 
-  const handleInitializeCluster = async (nodeName: string, region: string, localEndpoint: string) => {
+  const handleInitializeCluster = async (nodeName: string, region: string) => {
     try {
       const response = await APIClient.initializeCluster({
         node_name: nodeName,
         region: region || undefined,
-        local_endpoint: localEndpoint || undefined,
       });
       setClusterToken(response.cluster_token);
       setShowInitDialog(false);
@@ -162,8 +161,7 @@ export default function ClusterOverview() {
                 const formData = new FormData(e.currentTarget);
                 handleInitializeCluster(
                   formData.get('node_name') as string,
-                  formData.get('region') as string,
-                  formData.get('local_endpoint') as string
+                  formData.get('region') as string
                 );
               }}>
                 <div className="space-y-4">
@@ -186,18 +184,7 @@ export default function ClusterOverview() {
                       placeholder="us-east-1"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
-                      {t('localEndpointOptional')}
-                    </label>
-                    <input
-                      name="local_endpoint"
-                      type="url"
-                      className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500"
-                      placeholder="http://192.168.1.10:8080"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">{t('localEndpointHint')}</p>
-                  </div>
+
                 </div>
                 <div className="flex gap-2 mt-6">
                   <Button type="button" variant="outline" onClick={() => setShowInitDialog(false)} className="flex-1">
@@ -231,10 +218,10 @@ export default function ClusterOverview() {
                     <label className="block text-sm font-medium text-foreground mb-1">{t('clusterNodeEndpoint')}</label>
                     <input
                       name="node_endpoint"
-                      type="url"
+                      type="text"
                       required
                       className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500"
-                      placeholder="https://node-1.example.com:8081"
+                      placeholder="192.168.1.10"
                     />
                     <p className="text-xs text-muted-foreground mt-1">{t('clusterNodeEndpointHint')}</p>
                   </div>

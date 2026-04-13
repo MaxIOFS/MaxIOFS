@@ -1,6 +1,6 @@
 # MaxIOFS Configuration Guide
 
-**Version**: 1.2.0 | **Last Updated**: April 2, 2026
+**Version**: 1.2.0 | **Last Updated**: April 12, 2026
 
 ## Configuration Architecture
 
@@ -35,6 +35,7 @@ Only `data_dir` is required. Everything else has sensible defaults:
 # config.yaml
 listen: ":8080"                              # S3 API listen address
 console_listen: ":8081"                      # Web Console listen address
+cluster_listen: ":8082"                      # Cluster inter-node communication port
 data_dir: "/var/lib/maxiofs"                 # Data directory (REQUIRED)
 log_level: "info"                            # debug | info | warn | error
 public_api_url: "https://s3.example.com"     # Public S3 URL (for presigned URLs)
@@ -102,6 +103,8 @@ When MaxIOFS starts, it creates this structure under `data_dir`:
 | `--tls-cert` | — | — | TLS certificate path (must be paired with `--tls-key`) |
 | `--tls-key` | — | — | TLS private key path (must be paired with `--tls-cert`) |
 
+> `cluster_listen` is not available as a CLI flag — configure it in `config.yaml` or via the `MAXIOFS_CLUSTER_LISTEN` environment variable.
+
 ---
 
 ## Environment Variables
@@ -112,6 +115,7 @@ All settings can be set via `MAXIOFS_` prefixed environment variables:
 - `MAXIOFS_DATA_DIR` — Data directory
 - `MAXIOFS_LISTEN` — S3 API listen address
 - `MAXIOFS_CONSOLE_LISTEN` — Console listen address
+- `MAXIOFS_CLUSTER_LISTEN` — Cluster inter-node listen address (default: `:8082`)
 - `MAXIOFS_LOG_LEVEL` — Log level
 - `MAXIOFS_PUBLIC_API_URL` — Public S3 URL
 - `MAXIOFS_PUBLIC_CONSOLE_URL` — Public Console URL
@@ -133,6 +137,7 @@ All settings can be set via `MAXIOFS_` prefixed environment variables:
 - `MAXIOFS_AUTH_JWT_SECRET` — JWT signing secret
 
 **Cluster:**
+- `MAXIOFS_CLUSTER_LISTEN` — Cluster inter-node listen address (default: `:8082`)
 - `MAXIOFS_CLUSTER_NODE_NAME` — Node name for cluster
 - `MAXIOFS_CLUSTER_REGION` — Geographic region
 
@@ -366,11 +371,14 @@ services:
 data_dir: /var/lib/maxiofs
 listen: :8080
 console_listen: :8081
+cluster_listen: :8082           # Cluster inter-node port — keep off the public load balancer
 public_api_url: https://node1.s3.example.com
 public_console_url: https://node1.console.example.com
 ```
 
 Cluster configuration (nodes, replication, sync) is managed via the Web Console or API — not config files. See [CLUSTER.md](CLUSTER.md).
+
+> **Firewall note**: port 8082 must be reachable between cluster node IPs but should not be exposed to end users or the public internet. See [CLUSTER.md — Network Configuration](CLUSTER.md#network-configuration) for firewall rules.
 
 ---
 

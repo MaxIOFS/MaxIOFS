@@ -15,6 +15,7 @@ type Config struct {
 	// Server configuration
 	Listen        string `mapstructure:"listen"`
 	ConsoleListen string `mapstructure:"console_listen"`
+	ClusterListen string `mapstructure:"cluster_listen"` // dedicated inter-node port, default :8082
 	DataDir       string `mapstructure:"data_dir"`
 	LogLevel      string `mapstructure:"log_level"`
 

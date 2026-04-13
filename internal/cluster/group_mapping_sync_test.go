@@ -16,7 +16,7 @@ func TestGroupMappingSyncManager_New(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewGroupMappingSyncManager(db, clusterManager)
 
 	assert.NotNil(t, syncManager)
@@ -88,7 +88,7 @@ func TestGroupMappingSyncManager_ListLocalMappings(t *testing.T) {
 	`, now, now)
 	require.NoError(t, err)
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewGroupMappingSyncManager(db, clusterManager)
 
 	mappings, err := syncManager.listLocalMappings(ctx)
@@ -113,7 +113,7 @@ func TestGroupMappingSyncManager_ComputeChecksum(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewGroupMappingSyncManager(db, clusterManager)
 
 	now := time.Now().Unix()
@@ -144,7 +144,7 @@ func TestGroupMappingSyncManager_NeedsSynchronization(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, InitReplicationSchema(db))
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewGroupMappingSyncManager(db, clusterManager)
 
 	// Never synced - should need sync
@@ -174,7 +174,7 @@ func TestGroupMappingSyncManager_UpdateSyncStatus(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, InitReplicationSchema(db))
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewGroupMappingSyncManager(db, clusterManager)
 
 	// Insert sync status
@@ -213,7 +213,7 @@ func TestGroupMappingSyncManager_Stop(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewGroupMappingSyncManager(db, clusterManager)
 
 	syncManager.Stop()
@@ -259,7 +259,7 @@ func TestGroupMappingSyncManager_SendMappingToNode(t *testing.T) {
 		UpdatedAt:         time.Now().Unix(),
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewGroupMappingSyncManager(db, clusterManager)
 
 	err := syncManager.sendMappingToNode(ctx, mapping, node, "source-node", "test-token")
@@ -290,7 +290,7 @@ func TestGroupMappingSyncManager_SendMappingToNode_ServerError(t *testing.T) {
 	node := &Node{ID: "test-node-1", Endpoint: server.URL}
 	mapping := &GroupMappingData{ID: "gm-1", ProviderID: "idp-1", ExternalGroup: "group", Role: "admin", CreatedAt: time.Now().Unix()}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewGroupMappingSyncManager(db, clusterManager)
 
 	err := syncManager.sendMappingToNode(ctx, mapping, node, "source-node", "test-token")
@@ -332,7 +332,7 @@ func TestGroupMappingSyncManager_SyncMappingToNode(t *testing.T) {
 		UpdatedAt:     time.Now().Unix(),
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewGroupMappingSyncManager(db, clusterManager)
 
 	err = syncManager.syncMappingToNode(ctx, mapping, node, "local-node")
@@ -407,7 +407,7 @@ func TestGroupMappingSyncManager_SyncLoop(t *testing.T) {
 	`, now, now)
 	require.NoError(t, err)
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewGroupMappingSyncManager(db, clusterManager)
 
 	go syncManager.syncLoop(ctx, 100*time.Millisecond)
@@ -433,7 +433,7 @@ func TestGroupMappingSyncManager_Start(t *testing.T) {
 		`)
 		require.NoError(t, err)
 
-		clusterManager := NewManager(db, "http://localhost:8080")
+		clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 		syncManager := NewGroupMappingSyncManager(db, clusterManager)
 
 		syncManager.Start(ctx) // Should return immediately
@@ -467,7 +467,7 @@ func TestGroupMappingSyncManager_Start(t *testing.T) {
 		`)
 		require.NoError(t, err)
 
-		clusterManager := NewManager(db, "http://localhost:8080")
+		clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 		syncManager := NewGroupMappingSyncManager(db, clusterManager)
 
 		syncManager.Start(ctx)
@@ -496,7 +496,7 @@ func TestGroupMappingSyncManager_SendDeletionToNode(t *testing.T) {
 
 	node := &Node{ID: "remote-node", Endpoint: server.URL, HealthStatus: "healthy"}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewGroupMappingSyncManager(db, clusterManager)
 
 	err := syncManager.sendDeletionToNode(ctx, "gm-1", time.Now().Unix(), node, "local-node", "test-token")

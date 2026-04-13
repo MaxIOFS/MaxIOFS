@@ -16,7 +16,7 @@ func TestIDPProviderSyncManager_New(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewIDPProviderSyncManager(db, clusterManager)
 
 	assert.NotNil(t, syncManager)
@@ -64,7 +64,7 @@ func TestIDPProviderSyncManager_ListLocalProviders(t *testing.T) {
 	`, now, now)
 	require.NoError(t, err)
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewIDPProviderSyncManager(db, clusterManager)
 
 	providers, err := syncManager.listLocalProviders(ctx)
@@ -88,7 +88,7 @@ func TestIDPProviderSyncManager_ComputeChecksum(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewIDPProviderSyncManager(db, clusterManager)
 
 	now := time.Now().Unix()
@@ -118,7 +118,7 @@ func TestIDPProviderSyncManager_NeedsSynchronization(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, InitReplicationSchema(db))
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewIDPProviderSyncManager(db, clusterManager)
 
 	// Never synced - should need sync
@@ -148,7 +148,7 @@ func TestIDPProviderSyncManager_UpdateSyncStatus(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, InitReplicationSchema(db))
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewIDPProviderSyncManager(db, clusterManager)
 
 	// Insert sync status
@@ -189,7 +189,7 @@ func TestIDPProviderSyncManager_Stop(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewIDPProviderSyncManager(db, clusterManager)
 
 	syncManager.Stop()
@@ -235,7 +235,7 @@ func TestIDPProviderSyncManager_SendProviderToNode(t *testing.T) {
 		UpdatedAt: time.Now().Unix(),
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewIDPProviderSyncManager(db, clusterManager)
 
 	err := syncManager.sendProviderToNode(ctx, provider, node, "source-node", "test-token")
@@ -265,7 +265,7 @@ func TestIDPProviderSyncManager_SendProviderToNode_ServerError(t *testing.T) {
 	node := &Node{ID: "test-node-1", Endpoint: server.URL}
 	provider := &IDPProviderData{ID: "idp-1", Name: "Test", Type: "ldap", Status: "active", Config: "{}", CreatedBy: "admin", CreatedAt: time.Now().Unix()}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewIDPProviderSyncManager(db, clusterManager)
 
 	err := syncManager.sendProviderToNode(ctx, provider, node, "source-node", "test-token")
@@ -309,7 +309,7 @@ func TestIDPProviderSyncManager_SyncProviderToNode(t *testing.T) {
 		UpdatedAt: time.Now().Unix(),
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewIDPProviderSyncManager(db, clusterManager)
 
 	err = syncManager.syncProviderToNode(ctx, provider, node, "local-node")
@@ -382,7 +382,7 @@ func TestIDPProviderSyncManager_SyncLoop(t *testing.T) {
 	`, now, now)
 	require.NoError(t, err)
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewIDPProviderSyncManager(db, clusterManager)
 
 	go syncManager.syncLoop(ctx, 100*time.Millisecond)
@@ -408,7 +408,7 @@ func TestIDPProviderSyncManager_Start(t *testing.T) {
 		`)
 		require.NoError(t, err)
 
-		clusterManager := NewManager(db, "http://localhost:8080")
+		clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 		syncManager := NewIDPProviderSyncManager(db, clusterManager)
 
 		syncManager.Start(ctx) // Should return immediately (auto sync disabled)
@@ -442,7 +442,7 @@ func TestIDPProviderSyncManager_Start(t *testing.T) {
 		`)
 		require.NoError(t, err)
 
-		clusterManager := NewManager(db, "http://localhost:8080")
+		clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 		syncManager := NewIDPProviderSyncManager(db, clusterManager)
 
 		syncManager.Start(ctx)
@@ -471,7 +471,7 @@ func TestIDPProviderSyncManager_SendDeletionToNode(t *testing.T) {
 
 	node := &Node{ID: "remote-node", Endpoint: server.URL, HealthStatus: "healthy"}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewIDPProviderSyncManager(db, clusterManager)
 
 	err := syncManager.sendDeletionToNode(ctx, "idp-1", time.Now().Unix(), node, "local-node", "test-token")

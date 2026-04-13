@@ -17,7 +17,7 @@ func TestJoinCluster_Success(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	joiningManager := NewManager(db, "http://localhost:9090")
+	joiningManager := NewManager(db, "http://localhost:9090", "http://localhost:9092")
 	ctx := context.Background()
 
 	// Setup mock server to simulate existing cluster node
@@ -25,7 +25,7 @@ func TestJoinCluster_Success(t *testing.T) {
 	defer mockClusterNode.Close()
 
 	// Execute join
-	err := joiningManager.JoinCluster(ctx, "test-cluster-token", mockClusterNode.URL)
+	err := joiningManager.JoinCluster(ctx, "test-cluster-token", mockClusterNode.URL, "http://localhost:9092")
 	require.NoError(t, err, "JoinCluster should succeed")
 
 	// Verify cluster config was updated
@@ -43,7 +43,7 @@ func TestJoinCluster_InvalidToken(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	joiningManager := NewManager(db, "http://localhost:9090")
+	joiningManager := NewManager(db, "http://localhost:9090", "http://localhost:9092")
 	ctx := context.Background()
 
 	// Setup mock server that rejects the token
@@ -51,7 +51,7 @@ func TestJoinCluster_InvalidToken(t *testing.T) {
 	defer mockClusterNode.Close()
 
 	// Execute join with invalid token
-	err := joiningManager.JoinCluster(ctx, "invalid-token", mockClusterNode.URL)
+	err := joiningManager.JoinCluster(ctx, "invalid-token", mockClusterNode.URL, "http://localhost:9092")
 	require.Error(t, err, "JoinCluster should fail with invalid token")
 	assert.Contains(t, err.Error(), "invalid cluster token", "Error should mention invalid token")
 }
@@ -61,7 +61,7 @@ func TestJoinCluster_NodeRegistrationFailure(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	joiningManager := NewManager(db, "http://localhost:9090")
+	joiningManager := NewManager(db, "http://localhost:9090", "http://localhost:9092")
 	ctx := context.Background()
 
 	// Setup mock server that validates token but fails registration
@@ -69,7 +69,7 @@ func TestJoinCluster_NodeRegistrationFailure(t *testing.T) {
 	defer mockClusterNode.Close()
 
 	// Execute join
-	err := joiningManager.JoinCluster(ctx, "test-cluster-token", mockClusterNode.URL)
+	err := joiningManager.JoinCluster(ctx, "test-cluster-token", mockClusterNode.URL, "http://localhost:9092")
 	require.Error(t, err, "JoinCluster should fail when registration fails")
 	assert.Contains(t, err.Error(), "failed to register with cluster", "Error should mention registration failure")
 }
@@ -79,11 +79,11 @@ func TestJoinCluster_NetworkError(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	joiningManager := NewManager(db, "http://localhost:9090")
+	joiningManager := NewManager(db, "http://localhost:9090", "http://localhost:9092")
 	ctx := context.Background()
 
 	// Use invalid endpoint to trigger network error
-	err := joiningManager.JoinCluster(ctx, "test-cluster-token", "http://invalid-endpoint:99999")
+	err := joiningManager.JoinCluster(ctx, "test-cluster-token", "http://invalid-endpoint:99999", "http://localhost:9092")
 	require.Error(t, err, "JoinCluster should fail with network error")
 	assert.Contains(t, err.Error(), "failed to validate cluster token", "Error should mention token validation failure")
 }
@@ -93,7 +93,7 @@ func TestJoinCluster_NodeSynchronization(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	joiningManager := NewManager(db, "http://localhost:9090")
+	joiningManager := NewManager(db, "http://localhost:9090", "http://localhost:9092")
 	ctx := context.Background()
 
 	// Setup mock server with multiple existing nodes
@@ -101,7 +101,7 @@ func TestJoinCluster_NodeSynchronization(t *testing.T) {
 	defer mockClusterNode.Close()
 
 	// Execute join
-	err := joiningManager.JoinCluster(ctx, "test-cluster-token", mockClusterNode.URL)
+	err := joiningManager.JoinCluster(ctx, "test-cluster-token", mockClusterNode.URL, "http://localhost:9092")
 	require.NoError(t, err, "JoinCluster should succeed")
 
 	// Verify nodes were synchronized

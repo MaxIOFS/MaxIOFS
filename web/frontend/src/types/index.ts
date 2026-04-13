@@ -1064,7 +1064,6 @@ export interface ClusterConfig {
 export interface InitializeClusterRequest {
   node_name: string;
   region?: string;
-  local_endpoint?: string;
 }
 
 export interface InitializeClusterResponse {

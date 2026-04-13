@@ -16,7 +16,7 @@ func TestTenantSyncManager_NewTenantSyncManager(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewTenantSyncManager(db, clusterManager)
 
 	assert.NotNil(t, syncManager)
@@ -73,7 +73,7 @@ func TestTenantSyncManager_ListLocalTenants(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewTenantSyncManager(db, clusterManager)
 
 	tenants, err := syncManager.listLocalTenants(ctx)
@@ -96,7 +96,7 @@ func TestTenantSyncManager_ComputeChecksum(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewTenantSyncManager(db, clusterManager)
 
 	now := time.Now()
@@ -176,7 +176,7 @@ func TestTenantSyncManager_NeedsSynchronization(t *testing.T) {
 
 	require.NoError(t, InitReplicationSchema(db))
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewTenantSyncManager(db, clusterManager)
 
 	// Test 1: Never synced before - should need sync
@@ -207,7 +207,7 @@ func TestTenantSyncManager_UpdateSyncStatus(t *testing.T) {
 
 	require.NoError(t, InitReplicationSchema(db))
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewTenantSyncManager(db, clusterManager)
 
 	// Insert new sync status
@@ -249,7 +249,7 @@ func TestTenantSyncManager_Stop(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewTenantSyncManager(db, clusterManager)
 
 	// Stop should not panic
@@ -307,7 +307,7 @@ func TestTenantSyncManager_SendTenantToNode(t *testing.T) {
 		UpdatedAt:       now,
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewTenantSyncManager(db, clusterManager)
 
 	err := syncManager.sendTenantToNode(ctx, tenant, node, "source-node", "test-token")
@@ -345,7 +345,7 @@ func TestTenantSyncManager_SendTenantToNode_ServerError(t *testing.T) {
 		UpdatedAt: time.Now(),
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewTenantSyncManager(db, clusterManager)
 
 	err := syncManager.sendTenantToNode(ctx, tenant, node, "source-node", "test-token")
@@ -387,7 +387,7 @@ func TestTenantSyncManager_SyncTenantToNode(t *testing.T) {
 		UpdatedAt: time.Now(),
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewTenantSyncManager(db, clusterManager)
 
 	err = syncManager.syncTenantToNode(ctx, tenant, node, "local-node")
@@ -460,7 +460,7 @@ func TestTenantSyncManager_SyncLoop(t *testing.T) {
 	_, err = db.ExecContext(ctx, `INSERT INTO tenants (id, name, status, created_at, updated_at) VALUES ('tenant-1', 'test', 'active', ?, ?)`, now, now)
 	require.NoError(t, err)
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewTenantSyncManager(db, clusterManager)
 
 	go syncManager.syncLoop(ctx, 100*time.Millisecond)
@@ -487,7 +487,7 @@ func TestTenantSyncManager_Start(t *testing.T) {
 		`)
 		require.NoError(t, err)
 
-		clusterManager := NewManager(db, "http://localhost:8080")
+		clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 		syncManager := NewTenantSyncManager(db, clusterManager)
 
 		syncManager.Start(ctx) // Should return immediately
@@ -521,7 +521,7 @@ func TestTenantSyncManager_Start(t *testing.T) {
 		`)
 		require.NoError(t, err)
 
-		clusterManager := NewManager(db, "http://localhost:8080")
+		clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 		syncManager := NewTenantSyncManager(db, clusterManager)
 
 		syncManager.Start(ctx)

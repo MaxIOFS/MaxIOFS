@@ -95,7 +95,7 @@ func TestBucketPermissionSyncManager_ListLocalBucketPermissions(t *testing.T) {
 	}
 
 	// Create managers
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewBucketPermissionSyncManager(db, clusterManager)
 
 	// Test listing permissions
@@ -138,7 +138,7 @@ func TestBucketPermissionSyncManager_ComputeChecksum(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewBucketPermissionSyncManager(db, clusterManager)
 
 	now := time.Now().Unix()
@@ -190,7 +190,7 @@ func TestBucketPermissionSyncManager_NeedsSynchronization(t *testing.T) {
 		t.Fatalf("Failed to initialize replication schema: %v", err)
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewBucketPermissionSyncManager(db, clusterManager)
 
 	// Test 1: Never synced before - should need sync
@@ -239,7 +239,7 @@ func TestBucketPermissionSyncManager_UpdateSyncStatus(t *testing.T) {
 		t.Fatalf("Failed to initialize replication schema: %v", err)
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewBucketPermissionSyncManager(db, clusterManager)
 
 	// Test 1: Insert new sync status
@@ -298,7 +298,7 @@ func TestBucketPermissionSyncManager_Stop(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewBucketPermissionSyncManager(db, clusterManager)
 
 	// Stop should not panic
@@ -386,7 +386,7 @@ func TestBucketPermissionChecksumWithExpiry(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewBucketPermissionSyncManager(db, clusterManager)
 
 	now := time.Now().Unix()
@@ -497,7 +497,7 @@ func TestBucketPermissionSyncManager_SendPermissionToNode(t *testing.T) {
 		ExpiresAt:       nil,
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewBucketPermissionSyncManager(db, clusterManager)
 
 	// Send permission to node
@@ -554,7 +554,7 @@ func TestBucketPermissionSyncManager_SendPermissionToNode_ServerError(t *testing
 		GrantedAt:       time.Now().Unix(),
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewBucketPermissionSyncManager(db, clusterManager)
 
 	// Should return error
@@ -621,7 +621,7 @@ func TestBucketPermissionSyncManager_SyncPermissionToNode(t *testing.T) {
 		GrantedAt:       time.Now().Unix(),
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewBucketPermissionSyncManager(db, clusterManager)
 
 	// First sync - should succeed
@@ -754,7 +754,7 @@ func TestBucketPermissionSyncManager_SyncLoop(t *testing.T) {
 		t.Fatalf("Failed to insert permission: %v", err)
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewBucketPermissionSyncManager(db, clusterManager)
 
 	// Run sync loop with very short interval
@@ -800,7 +800,7 @@ func TestBucketPermissionSyncManager_Start(t *testing.T) {
 			t.Fatalf("Failed to insert cluster config: %v", err)
 		}
 
-		clusterManager := NewManager(db, "http://localhost:8080")
+		clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 		syncManager := NewBucketPermissionSyncManager(db, clusterManager)
 
 		// Don't enable auto sync - Start() should return immediately
@@ -851,7 +851,7 @@ func TestBucketPermissionSyncManager_Start(t *testing.T) {
 			t.Fatalf("Failed to set sync interval: %v", err)
 		}
 
-		clusterManager := NewManager(db, "http://localhost:8080")
+		clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 		syncManager := NewBucketPermissionSyncManager(db, clusterManager)
 
 		// Start should launch goroutine and return immediately

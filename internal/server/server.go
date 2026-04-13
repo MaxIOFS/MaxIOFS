@@ -47,6 +47,7 @@ type Server struct {
 	config                  *config.Config
 	httpServer              *http.Server
 	consoleServer           *http.Server
+	clusterServer           *http.Server // dedicated inter-node communication port
 	storageBackend          storage.Backend
 	metadataStore           metadata.Store
 	bucketManager           bucket.Manager
@@ -304,8 +305,21 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize cluster schema: %w", err)
 	}
 
+	// Compute cluster URL: same host as PublicAPIURL but on the cluster inter-node port.
+	clusterURL := cfg.PublicAPIURL
+	if clusterListen := cfg.ClusterListen; clusterListen != "" {
+		// Extract port from cluster_listen (e.g. ":8082" → "8082", "0.0.0.0:8082" → "8082")
+		clusterPort := clusterListen
+		if idx := strings.LastIndex(clusterListen, ":"); idx >= 0 {
+			clusterPort = clusterListen[idx+1:]
+		}
+		if u, err := url.Parse(cfg.PublicAPIURL); err == nil && clusterPort != "" {
+			clusterURL = u.Scheme + "://" + u.Hostname() + ":" + clusterPort
+		}
+	}
+
 	// Initialize cluster manager
-	clusterManager := cluster.NewManager(db, cfg.PublicAPIURL)
+	clusterManager := cluster.NewManager(db, cfg.PublicAPIURL, clusterURL)
 
 	// Set storage backend and ACL manager for cluster operations (migrations)
 	clusterManager.SetStorage(storageBackend)
@@ -403,7 +417,17 @@ func New(cfg *config.Config) (*Server, error) {
 
 	consoleServer := &http.Server{
 		Addr:              cfg.ConsoleListen,
-		ReadHeaderTimeout: 30 * time.Second, // Header read limit; body read unlimited for large uploads/downloads
+		ReadHeaderTimeout: 30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	clusterListen := cfg.ClusterListen
+	if clusterListen == "" {
+		clusterListen = ":8082"
+	}
+	clusterServer := &http.Server{
+		Addr:              clusterListen,
+		ReadHeaderTimeout: 30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
 
@@ -411,6 +435,7 @@ func New(cfg *config.Config) (*Server, error) {
 		config:                  cfg,
 		httpServer:              httpServer,
 		consoleServer:           consoleServer,
+		clusterServer:           clusterServer,
 		storageBackend:          storageBackend,
 		metadataStore:           metadataStore,
 		bucketManager:           bucketManager,
@@ -498,6 +523,7 @@ func (s *Server) Start(ctx context.Context) error {
 	logrus.WithFields(logrus.Fields{
 		"api_address":     s.config.Listen,
 		"console_address": s.config.ConsoleListen,
+		"cluster_address": s.clusterServer.Addr,
 		"data_dir":        s.config.DataDir,
 	}).Info("Starting MaxIOFS servers")
 
@@ -635,6 +661,13 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 
+	// Start cluster inter-node server (dedicated port, not exposed to clients)
+	go func() {
+		if err := s.startClusterServer(); err != nil && err != http.ErrServerClosed {
+			logrus.WithError(err).Error("Cluster server error")
+		}
+	}()
+
 	// Wait for context cancellation
 	<-ctx.Done()
 
@@ -709,6 +742,11 @@ func (s *Server) startConsoleServer() error {
 	return s.consoleServer.ListenAndServe()
 }
 
+func (s *Server) startClusterServer() error {
+	logrus.WithField("address", s.clusterServer.Addr).Info("Starting cluster inter-node server")
+	return s.clusterServer.ListenAndServe()
+}
+
 func (s *Server) shutdown() error {
 	logrus.Info("Shutting down servers")
 
@@ -723,6 +761,11 @@ func (s *Server) shutdown() error {
 	// Shutdown console server
 	if err := s.consoleServer.Shutdown(ctx); err != nil {
 		logrus.WithError(err).Error("Failed to shutdown console server")
+	}
+
+	// Shutdown cluster server
+	if err := s.clusterServer.Shutdown(ctx); err != nil {
+		logrus.WithError(err).Error("Failed to shutdown cluster server")
 	}
 
 	// Stop metrics
@@ -899,85 +942,6 @@ func (s *Server) setupRoutes() error {
 		logrus.Info("Prometheus metrics endpoint enabled at /metrics on S3 API")
 	}
 
-	// IMPORTANT: Register internal cluster API routes FIRST (before S3 routes)
-	// to prevent S3 handler from capturing /api/internal/cluster/* routes
-	if s.clusterManager != nil {
-		// Register cluster join endpoints (no HMAC auth required, uses cluster token)
-		// These must be available even when cluster is not yet enabled on this node
-		internalPublicRouter := apiRouter.PathPrefix("/api/internal/cluster").Subrouter()
-		internalPublicRouter.Use(s.rateLimiter.Middleware())
-
-		// Cluster join endpoints (token-based auth, not HMAC)
-		internalPublicRouter.HandleFunc("/validate-token", s.handleValidateClusterToken).Methods("POST")
-		internalPublicRouter.HandleFunc("/register-node", s.handleRegisterNode).Methods("POST")
-		internalPublicRouter.HandleFunc("/nodes", s.handleGetClusterNodesInternal).Methods("GET")
-		// CSR signing: joining node sends a CSR, receives only the signed certificate (CA key stays server-side)
-		internalPublicRouter.HandleFunc("/sign-csr", s.handleSignCSR).Methods("POST")
-
-		if s.clusterManager.IsClusterEnabled() {
-			clusterAuthMiddleware := middleware.NewClusterAuthMiddleware(s.db)
-			internalClusterRouter := apiRouter.PathPrefix("/api/internal/cluster").Subrouter()
-
-			// Apply rate limiting to internal cluster APIs
-			internalClusterRouter.Use(s.rateLimiter.Middleware())
-
-			// Apply HMAC authentication
-			internalClusterRouter.Use(clusterAuthMiddleware.ClusterAuth)
-
-			// Tenant synchronization endpoint
-			internalClusterRouter.HandleFunc("/tenant-sync", s.handleReceiveTenantSync).Methods("POST")
-			internalClusterRouter.HandleFunc("/tenant-delete-sync", s.handleReceiveTenantDeleteSync).Methods("POST")
-
-			// User synchronization endpoint
-			internalClusterRouter.HandleFunc("/user-sync", s.handleReceiveUserSync).Methods("POST")
-			internalClusterRouter.HandleFunc("/user-delete-sync", s.handleReceiveUserDeleteSync).Methods("POST")
-
-			// Object replication endpoints
-			internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectReplication).Methods("PUT")
-			internalClusterRouter.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectDeletion).Methods("DELETE")
-
-			// Bucket migration endpoints
-			internalClusterRouter.HandleFunc("/bucket-permissions", s.handleReceiveBucketPermission).Methods("POST")
-			internalClusterRouter.HandleFunc("/bucket-acl", s.handleReceiveBucketACL).Methods("POST")
-			internalClusterRouter.HandleFunc("/bucket-config", s.handleReceiveBucketConfiguration).Methods("POST")
-			internalClusterRouter.HandleFunc("/bucket-inventory", s.handleReceiveBucketInventory).Methods("POST")
-
-			// Synchronization endpoints
-			internalClusterRouter.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
-			internalClusterRouter.HandleFunc("/access-key-delete-sync", s.handleReceiveAccessKeyDeleteSync).Methods("POST")
-			internalClusterRouter.HandleFunc("/bucket-permission-sync", s.handleReceiveBucketPermissionSync).Methods("POST")
-			internalClusterRouter.HandleFunc("/bucket-permission-delete-sync", s.handleReceiveBucketPermissionDeleteSync).Methods("POST")
-			internalClusterRouter.HandleFunc("/idp-provider-sync", s.handleReceiveIDPProviderSync).Methods("POST")
-			internalClusterRouter.HandleFunc("/idp-provider-delete-sync", s.handleReceiveIDPProviderDeleteSync).Methods("POST")
-			internalClusterRouter.HandleFunc("/group-mapping-sync", s.handleReceiveGroupMappingSync).Methods("POST")
-			internalClusterRouter.HandleFunc("/group-mapping-delete-sync", s.handleReceiveGroupMappingDeleteSync).Methods("POST")
-			internalClusterRouter.HandleFunc("/deletion-log-sync", s.handleReceiveDeletionLogSync).Methods("POST")
-
-			// JWT secret endpoint (for cluster JWT synchronization)
-			internalClusterRouter.HandleFunc("/jwt-secret", s.handleGetClusterJWTSecret).Methods("GET")
-
-			// Bucket aggregation endpoint (for cross-node bucket listing)
-			internalClusterRouter.HandleFunc("/buckets", s.handleGetLocalBuckets).Methods("GET")
-
-			// Quota aggregation endpoint (for cross-node quota checking)
-			internalClusterRouter.HandleFunc("/tenant/{tenantID}/storage", s.handleGetTenantStorage).Methods("GET")
-
-			// State snapshot endpoint (for stale-node reconciliation)
-			internalClusterRouter.HandleFunc("/state-snapshot", s.handleGetStateSnapshot).Methods("GET")
-
-			// HA write fanout receive endpoints (key may contain slashes)
-			internalClusterRouter.HandleFunc("/ha/objects/changed-since", s.handleHAListChangedSince).Methods("GET")
-			internalClusterRouter.HandleFunc("/ha/objects/{key:.*}", s.handleHAGetObject).Methods("GET")
-			internalClusterRouter.HandleFunc("/ha/objects/{key:.*}", s.handleHAReceivePut).Methods("PUT")
-			internalClusterRouter.HandleFunc("/ha/objects/{key:.*}", s.handleHAReceiveDelete).Methods("DELETE")
-			internalClusterRouter.HandleFunc("/ha/metadata-op", s.handleHAReceiveMetadataOp).Methods("POST")
-
-			logrus.Info("Internal cluster API routes registered with HMAC authentication")
-		}
-
-		logrus.Info("Cluster join API routes registered (token-based authentication)")
-	}
-
 	// Create subrouter for authenticated S3 API routes
 	s3Router := apiRouter.PathPrefix("/").Subrouter()
 
@@ -1075,6 +1039,11 @@ func (s *Server) setupRoutes() error {
 	s.setupConsoleRoutes(consoleRouter)
 	s.consoleServer.Handler = handlers.RecoveryHandler()(middleware.ConsoleHeaders()(consoleRouter))
 
+	// Setup cluster inter-node routes (dedicated port, not exposed to clients)
+	clusterRouter := mux.NewRouter()
+	s.setupClusterRoutes(clusterRouter)
+	s.clusterServer.Handler = handlers.RecoveryHandler()(clusterRouter)
+
 	return nil
 }
 
@@ -1087,9 +1056,6 @@ func (s *Server) setupConsoleRoutes(router *mux.Router) {
 		return
 	}
 
-	// Routes are always at root. The reverse proxy is responsible for stripping
-	// any subpath prefix (e.g. /ui/) before forwarding to this port, and for
-	// setting X-Forwarded-Prefix so the SPA receives the correct BASE_PATH.
 	router.HandleFunc("/api/v1", s.handleAPIRoot).Methods("GET", "OPTIONS")
 	router.HandleFunc("/api/v1/", s.handleAPIRoot).Methods("GET", "OPTIONS")
 
@@ -1100,6 +1066,57 @@ func (s *Server) setupConsoleRoutes(router *mux.Router) {
 	s.RegisterProfilingRoutes(router)
 
 	router.PathPrefix("/").Handler(frontendHandler)
+}
+
+// setupClusterRoutes registers all inter-node cluster communication routes on the
+// dedicated cluster port (default :8082). This port must be reachable between nodes
+// on the internal network but does NOT need to be exposed to end users or clients.
+func (s *Server) setupClusterRoutes(router *mux.Router) {
+	if s.clusterManager == nil {
+		return
+	}
+
+	// Bootstrap routes — cluster-token auth (no HMAC, used during node join)
+	public := router.PathPrefix("/api/internal/cluster").Subrouter()
+	public.HandleFunc("/validate-token", s.handleValidateClusterToken).Methods("POST")
+	public.HandleFunc("/register-node", s.handleRegisterNode).Methods("POST")
+	public.HandleFunc("/nodes", s.handleGetClusterNodesInternal).Methods("GET")
+	public.HandleFunc("/sign-csr", s.handleSignCSR).Methods("POST")
+
+	// Ongoing sync routes — HMAC auth (used after the node is part of the cluster)
+	clusterAuth := middleware.NewClusterAuthMiddleware(s.db)
+	hmac := router.PathPrefix("/api/internal/cluster").Subrouter()
+	hmac.Use(clusterAuth.ClusterAuth)
+	hmac.HandleFunc("/jwt-secret", s.handleGetClusterJWTSecret).Methods("GET")
+	hmac.HandleFunc("/buckets", s.handleGetLocalBuckets).Methods("GET")
+	hmac.HandleFunc("/tenant/{tenantID}/storage", s.handleGetTenantStorage).Methods("GET")
+	hmac.HandleFunc("/state-snapshot", s.handleGetStateSnapshot).Methods("GET")
+	hmac.HandleFunc("/tenant-sync", s.handleReceiveTenantSync).Methods("POST")
+	hmac.HandleFunc("/tenant-delete-sync", s.handleReceiveTenantDeleteSync).Methods("POST")
+	hmac.HandleFunc("/user-sync", s.handleReceiveUserSync).Methods("POST")
+	hmac.HandleFunc("/user-delete-sync", s.handleReceiveUserDeleteSync).Methods("POST")
+	hmac.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
+	hmac.HandleFunc("/access-key-delete-sync", s.handleReceiveAccessKeyDeleteSync).Methods("POST")
+	hmac.HandleFunc("/bucket-permissions", s.handleReceiveBucketPermission).Methods("POST")
+	hmac.HandleFunc("/bucket-acl", s.handleReceiveBucketACL).Methods("POST")
+	hmac.HandleFunc("/bucket-config", s.handleReceiveBucketConfiguration).Methods("POST")
+	hmac.HandleFunc("/bucket-inventory", s.handleReceiveBucketInventory).Methods("POST")
+	hmac.HandleFunc("/bucket-permission-sync", s.handleReceiveBucketPermissionSync).Methods("POST")
+	hmac.HandleFunc("/bucket-permission-delete-sync", s.handleReceiveBucketPermissionDeleteSync).Methods("POST")
+	hmac.HandleFunc("/idp-provider-sync", s.handleReceiveIDPProviderSync).Methods("POST")
+	hmac.HandleFunc("/idp-provider-delete-sync", s.handleReceiveIDPProviderDeleteSync).Methods("POST")
+	hmac.HandleFunc("/group-mapping-sync", s.handleReceiveGroupMappingSync).Methods("POST")
+	hmac.HandleFunc("/group-mapping-delete-sync", s.handleReceiveGroupMappingDeleteSync).Methods("POST")
+	hmac.HandleFunc("/deletion-log-sync", s.handleReceiveDeletionLogSync).Methods("POST")
+	hmac.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectReplication).Methods("PUT")
+	hmac.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectDeletion).Methods("DELETE")
+	hmac.HandleFunc("/ha/objects/changed-since", s.handleHAListChangedSince).Methods("GET")
+	hmac.HandleFunc("/ha/objects/{key:.*}", s.handleHAGetObject).Methods("GET")
+	hmac.HandleFunc("/ha/objects/{key:.*}", s.handleHAReceivePut).Methods("PUT")
+	hmac.HandleFunc("/ha/objects/{key:.*}", s.handleHAReceiveDelete).Methods("DELETE")
+	hmac.HandleFunc("/ha/metadata-op", s.handleHAReceiveMetadataOp).Methods("POST")
+
+	logrus.WithField("address", s.clusterServer.Addr).Info("Cluster inter-node routes registered")
 }
 
 // logS3APIRequests logs every HTTP request that hits the S3 API server (this process/port) at Info level.

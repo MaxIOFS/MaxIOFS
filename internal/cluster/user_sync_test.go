@@ -16,7 +16,7 @@ func TestUserSyncManager_NewUserSyncManager(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewUserSyncManager(db, clusterManager)
 
 	assert.NotNil(t, syncManager)
@@ -79,7 +79,7 @@ func TestUserSyncManager_ListLocalUsers(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewUserSyncManager(db, clusterManager)
 
 	users, err := syncManager.listLocalUsers(ctx)
@@ -102,7 +102,7 @@ func TestUserSyncManager_ComputeChecksum(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewUserSyncManager(db, clusterManager)
 
 	now := time.Now().Unix()
@@ -133,7 +133,7 @@ func TestUserSyncManager_NeedsSynchronization(t *testing.T) {
 
 	require.NoError(t, InitReplicationSchema(db))
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewUserSyncManager(db, clusterManager)
 
 	// Test 1: Never synced before - should need sync
@@ -164,7 +164,7 @@ func TestUserSyncManager_UpdateSyncStatus(t *testing.T) {
 
 	require.NoError(t, InitReplicationSchema(db))
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewUserSyncManager(db, clusterManager)
 
 	// Insert new sync status
@@ -206,7 +206,7 @@ func TestUserSyncManager_Stop(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewUserSyncManager(db, clusterManager)
 
 	// Stop should not panic
@@ -260,7 +260,7 @@ func TestUserSyncManager_SendUserToNode(t *testing.T) {
 		CreatedAt:    now,
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewUserSyncManager(db, clusterManager)
 
 	err := syncManager.sendUserToNode(ctx, user, node, "source-node", "test-token")
@@ -291,7 +291,7 @@ func TestUserSyncManager_SendUserToNode_ServerError(t *testing.T) {
 	node := &Node{ID: "test-node-1", Endpoint: server.URL}
 	user := &UserData{ID: "user-123", Username: "test", Status: "active", CreatedAt: time.Now().Unix()}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewUserSyncManager(db, clusterManager)
 
 	err := syncManager.sendUserToNode(ctx, user, node, "source-node", "test-token")
@@ -327,7 +327,7 @@ func TestUserSyncManager_SyncUserToNode(t *testing.T) {
 	node := &Node{ID: "test-node-1", Endpoint: server.URL, HealthStatus: "healthy"}
 	user := &UserData{ID: "user-123", Username: "test", Status: "active", CreatedAt: time.Now().Unix()}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewUserSyncManager(db, clusterManager)
 
 	err = syncManager.syncUserToNode(ctx, user, node, "local-node")
@@ -409,7 +409,7 @@ func TestUserSyncManager_SyncLoop(t *testing.T) {
 	`, now, now)
 	require.NoError(t, err)
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewUserSyncManager(db, clusterManager)
 
 	go syncManager.syncLoop(ctx, 100*time.Millisecond)
@@ -436,7 +436,7 @@ func TestUserSyncManager_Start(t *testing.T) {
 		`)
 		require.NoError(t, err)
 
-		clusterManager := NewManager(db, "http://localhost:8080")
+		clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 		syncManager := NewUserSyncManager(db, clusterManager)
 
 		syncManager.Start(ctx) // Should return immediately
@@ -470,7 +470,7 @@ func TestUserSyncManager_Start(t *testing.T) {
 		`)
 		require.NoError(t, err)
 
-		clusterManager := NewManager(db, "http://localhost:8080")
+		clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 		syncManager := NewUserSyncManager(db, clusterManager)
 
 		syncManager.Start(ctx)

@@ -37,7 +37,7 @@ func setupServerWithCluster(t *testing.T) (*Server, *cluster.Manager, func()) {
 	require.NoError(t, err)
 
 	// Create cluster manager
-	clusterManager := cluster.NewManager(db, "http://localhost:8080")
+	clusterManager := cluster.NewManager(db, "http://localhost:8080", "http://localhost:8082")
 
 	// Initialize cluster
 	ctx := context.Background()

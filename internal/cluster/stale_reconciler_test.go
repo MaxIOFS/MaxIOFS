@@ -41,7 +41,7 @@ func setupReconcilerDB(t *testing.T) (*sql.DB, *Manager, *StaleReconciler, func(
 	`)
 	require.NoError(t, err)
 
-	mgr := NewManager(db, "http://localhost:8081")
+	mgr := NewManager(db, "http://localhost:8081", "http://localhost:8082")
 	r := NewStaleReconciler(db, mgr)
 	return db, mgr, r, cleanup
 }

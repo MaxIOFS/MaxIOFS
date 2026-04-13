@@ -18,6 +18,8 @@ docker run -d \
 - **S3 API:** http://localhost:8080
 - **Config file:** `/srv/maxiofs/config.yaml` (created on first run)
 
+> **Cluster deployments**: add `-p 8082:8082` to expose the cluster inter-node port. Restrict port 8082 at the firewall to cluster node IPs only — it should never be reachable from the public internet.
+
 ### Docker Compose
 
 ```bash

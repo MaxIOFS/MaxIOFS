@@ -267,7 +267,7 @@ const getHealthIcon = (status: HealthStatus) => {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1">{t('consoleUrl')}</label>
-                  <input name="endpoint" type="url" required placeholder="https://node2.example.com:8081" className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500" />
+                  <input name="endpoint" type="text" required placeholder="192.168.1.10" className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500" />
                   <p className="text-xs text-muted-foreground mt-1">{t('consoleUrlHint')}</p>
                 </div>
                 <div>

@@ -244,7 +244,7 @@ func TestDeletionLogSyncManager_New(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewDeletionLogSyncManager(db, clusterManager)
 
 	assert.NotNil(t, syncManager)
@@ -259,7 +259,7 @@ func TestDeletionLogSyncManager_Stop(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewDeletionLogSyncManager(db, clusterManager)
 
 	syncManager.Stop()
@@ -276,7 +276,7 @@ func TestDeletionLogSyncManager_ComputeChecksum(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewDeletionLogSyncManager(db, clusterManager)
 
 	entries := []*DeletionEntry{
@@ -345,7 +345,7 @@ func TestDeletionLogSyncManager_SyncToNode(t *testing.T) {
 		{ID: "del-2", EntityType: EntityTypeTenant, EntityID: "tenant-1", DeletedByNodeID: "local-node", DeletedAt: time.Now().Unix()},
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewDeletionLogSyncManager(db, clusterManager)
 
 	err = syncManager.syncToNode(ctx, entries, node, "local-node", "local-token", "checksum")
@@ -377,7 +377,7 @@ func TestDeletionLogSyncManager_SyncToNode_ServerError(t *testing.T) {
 		{ID: "del-1", EntityType: EntityTypeUser, EntityID: "user-1", DeletedByNodeID: "local-node", DeletedAt: time.Now().Unix()},
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewDeletionLogSyncManager(db, clusterManager)
 
 	err := syncManager.syncToNode(ctx, entries, node, "local-node", "local-token", "checksum")

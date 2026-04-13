@@ -162,6 +162,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 <summary><strong>Cluster & High Availability</strong></summary>
 
 - Multi-node cluster — up to 5 nodes tested
+- **Dedicated cluster port 8082** — inter-node coordination fully separated from S3 (8080) and Console (8081)
 - Automatic failover and health monitoring
 - HMAC-authenticated inter-node replication
 - Bucket migration between nodes (full data + metadata + settings)
@@ -205,6 +206,8 @@ docker run -d \
 - **S3 API:** http://localhost:8080
 
 > ⚠️ Change the default password immediately after first login.
+
+> **Cluster deployments**: also expose `-p 8082:8082` and restrict port 8082 to cluster node IPs only. See [CLUSTER.md](docs/CLUSTER.md).
 
 ### Docker Compose
 

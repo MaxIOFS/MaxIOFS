@@ -80,7 +80,7 @@ func TestAccessKeySyncManager_ListLocalAccessKeys(t *testing.T) {
 	}
 
 	// Create cluster manager and access key sync manager
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewAccessKeySyncManager(db, clusterManager)
 
 	// Test listing access keys
@@ -121,7 +121,7 @@ func TestAccessKeySyncManager_ComputeChecksum(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewAccessKeySyncManager(db, clusterManager)
 
 	now := time.Now().Unix()
@@ -161,7 +161,7 @@ func TestAccessKeySyncManager_NeedsSynchronization(t *testing.T) {
 		t.Fatalf("Failed to initialize replication schema: %v", err)
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewAccessKeySyncManager(db, clusterManager)
 
 	// Test 1: Never synced before - should need sync
@@ -210,7 +210,7 @@ func TestAccessKeySyncManager_UpdateSyncStatus(t *testing.T) {
 		t.Fatalf("Failed to initialize replication schema: %v", err)
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewAccessKeySyncManager(db, clusterManager)
 
 	// Test 1: Insert new sync status
@@ -269,7 +269,7 @@ func TestAccessKeySyncManager_Stop(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewAccessKeySyncManager(db, clusterManager)
 
 	// Stop should not panic
@@ -418,7 +418,7 @@ func TestAccessKeySyncManager_SendAccessKeyToNode(t *testing.T) {
 		CreatedAt:       now,
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewAccessKeySyncManager(db, clusterManager)
 
 	// Send access key to node
@@ -473,7 +473,7 @@ func TestAccessKeySyncManager_SendAccessKeyToNode_ServerError(t *testing.T) {
 		CreatedAt:       time.Now().Unix(),
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewAccessKeySyncManager(db, clusterManager)
 
 	// Should return error
@@ -538,7 +538,7 @@ func TestAccessKeySyncManager_SyncAccessKeyToNode(t *testing.T) {
 		CreatedAt:       time.Now().Unix(),
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewAccessKeySyncManager(db, clusterManager)
 
 	// First sync - should succeed
@@ -660,7 +660,7 @@ func TestAccessKeySyncManager_SyncLoop(t *testing.T) {
 		t.Fatalf("Failed to insert access key: %v", err)
 	}
 
-	clusterManager := NewManager(db, "http://localhost:8080")
+	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewAccessKeySyncManager(db, clusterManager)
 
 	// Run sync loop with very short interval
@@ -706,7 +706,7 @@ func TestAccessKeySyncManager_Start(t *testing.T) {
 			t.Fatalf("Failed to insert cluster config: %v", err)
 		}
 
-		clusterManager := NewManager(db, "http://localhost:8080")
+		clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 		syncManager := NewAccessKeySyncManager(db, clusterManager)
 
 		// Don't enable auto sync - Start() should return immediately
@@ -757,7 +757,7 @@ func TestAccessKeySyncManager_Start(t *testing.T) {
 			t.Fatalf("Failed to set sync interval: %v", err)
 		}
 
-		clusterManager := NewManager(db, "http://localhost:8080")
+		clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 		syncManager := NewAccessKeySyncManager(db, clusterManager)
 
 		// Timeout only for Start() so we don't block forever if it hangs

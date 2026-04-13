@@ -17,7 +17,7 @@ func TestMigrationJobCRUD(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	// Initialize cluster
@@ -144,7 +144,7 @@ func TestGetMigrationJob_NotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	_, err := manager.GetMigrationJob(ctx, 999)
@@ -167,7 +167,7 @@ func TestManager_SendBucketPermission(t *testing.T) {
 	}))
 	defer server.Close()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	proxyClient := NewProxyClient(nil)
 
 	err := manager.sendBucketPermission(ctx, proxyClient, server.URL, "local-node", "test-token",
@@ -189,7 +189,7 @@ func TestManager_SendBucketACL(t *testing.T) {
 	}))
 	defer server.Close()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	proxyClient := NewProxyClient(nil)
 
 	acl := map[string]interface{}{
@@ -216,7 +216,7 @@ func TestManager_SendBucketConfiguration(t *testing.T) {
 	}))
 	defer server.Close()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	proxyClient := NewProxyClient(nil)
 
 	err := manager.sendBucketConfiguration(ctx, proxyClient, server.URL, "local-node", "test-token",
@@ -246,7 +246,7 @@ func TestManager_SendBucketInventory(t *testing.T) {
 	}))
 	defer server.Close()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	proxyClient := NewProxyClient(nil)
 
 	err := manager.sendBucketInventory(ctx, proxyClient, server.URL, "local-node", "test-token",
@@ -303,7 +303,7 @@ func TestManager_CountBucketObjects(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 
 	// Count objects in test-bucket
 	count, totalSize, err := manager.countBucketObjects(ctx, "tenant-1", "test-bucket")
@@ -333,7 +333,7 @@ func TestManager_CountBucketObjects_EmptyBucket(t *testing.T) {
 	`)
 	require.NoError(t, err)
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 
 	// Count objects in empty bucket
 	count, totalSize, err := manager.countBucketObjects(ctx, "tenant-1", "empty-bucket")
@@ -360,7 +360,7 @@ func TestManager_VerifyObjectOnTarget(t *testing.T) {
 	}))
 	defer server.Close()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	proxyClient := NewProxyClient(nil)
 
 	// Verify object exists with correct metadata
@@ -381,7 +381,7 @@ func TestManager_VerifyObjectOnTarget_NotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	proxyClient := NewProxyClient(nil)
 
 	// Verify object - should fail with 404

@@ -44,7 +44,7 @@ func TestInitializeCluster(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	token, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "")
@@ -79,7 +79,7 @@ func TestInitializeCluster_AlreadyInitialized(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	// Initialize once
@@ -99,7 +99,7 @@ func TestAddNode(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	node := &Node{
@@ -125,7 +125,7 @@ func TestGetNode(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	// Add a node
@@ -162,7 +162,7 @@ func TestGetNode_NotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	_, err := manager.GetNode(ctx, "non-existent-id")
@@ -175,7 +175,7 @@ func TestListNodes(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	// Add multiple nodes
@@ -210,7 +210,7 @@ func TestUpdateNode(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	// Add a node
@@ -256,7 +256,7 @@ func TestRemoveNode(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	// Add a node
@@ -291,7 +291,7 @@ func TestGetHealthyNodes(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	// Add healthy node
@@ -352,7 +352,7 @@ func TestGetClusterStatus(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	// Initialize cluster first
@@ -414,7 +414,7 @@ func TestIsClusterEnabled(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	// Initially, cluster should not be enabled
@@ -438,7 +438,7 @@ func TestLeaveCluster(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	// Initialize cluster
@@ -468,7 +468,7 @@ func TestSetStorage(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 
 	// SetStorage should not panic and should set the storage
 	manager.SetStorage(nil)
@@ -483,7 +483,7 @@ func TestSetACLManager(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 
 	// SetACLManager should not panic and should set the ACL manager
 	manager.SetACLManager(nil)
@@ -498,7 +498,7 @@ func TestUpdateNodeBucketCount(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	// Initialize cluster
@@ -541,7 +541,7 @@ func TestUpdateLocalNodeBucketCount(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
 	// Initialize cluster (this also adds the local node to cluster_nodes)
@@ -577,7 +577,7 @@ func TestClose(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	manager := NewManager(db, "http://localhost:8080")
+	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 
 	// Close should not panic
 	err := manager.Close()

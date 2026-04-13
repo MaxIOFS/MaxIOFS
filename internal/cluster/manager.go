@@ -24,6 +24,7 @@ import (
 type Manager struct {
 	db                  *sql.DB
 	publicAPIURL        string
+	clusterURL          string // cluster inter-node URL (scheme://host:clusterPort)
 	healthCheckInterval time.Duration
 	stopChan            chan struct{}
 	log                 *logrus.Entry
@@ -41,11 +42,13 @@ type bucketManagerForMigration interface {
 	ForceDeleteBucket(ctx context.Context, tenantID, name string) error
 }
 
-// NewManager creates a new cluster manager
-func NewManager(db *sql.DB, publicAPIURL string) *Manager {
+// NewManager creates a new cluster manager.
+// publicAPIURL is the S3 API URL (port 8080); clusterURL is the inter-node URL (port 8082).
+func NewManager(db *sql.DB, publicAPIURL, clusterURL string) *Manager {
 	m := &Manager{
 		db:                  db,
 		publicAPIURL:        publicAPIURL,
+		clusterURL:          clusterURL,
 		healthCheckInterval: 30 * time.Second,
 		stopChan:            make(chan struct{}),
 		log:                 logrus.WithField("component", "cluster-manager"),
@@ -76,11 +79,15 @@ func (m *Manager) SetBucketManager(bm bucketManagerForMigration) {
 }
 
 // InitializeCluster initializes a new cluster with this node.
-// nodeEndpoint is the S3 API address other nodes will use to reach this node.
-// If empty, falls back to the configured publicAPIURL.
+// nodeEndpoint is the cluster inter-node address other nodes will use to reach this node.
+// If empty, falls back to clusterURL (port 8082), then publicAPIURL as last resort.
 func (m *Manager) InitializeCluster(ctx context.Context, nodeName, region, nodeEndpoint string) (string, error) {
 	if nodeEndpoint == "" {
-		nodeEndpoint = m.publicAPIURL
+		if m.clusterURL != "" {
+			nodeEndpoint = m.clusterURL
+		} else {
+			nodeEndpoint = m.publicAPIURL
+		}
 	}
 	// Check if cluster is already initialized
 	var exists int
@@ -148,8 +155,9 @@ func (m *Manager) InitializeCluster(ctx context.Context, nodeName, region, nodeE
 	return clusterToken, nil
 }
 
-// JoinCluster joins an existing cluster
-func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint string) error {
+// JoinCluster joins an existing cluster.
+// selfEndpoint is the cluster URL (scheme://ip:clusterPort) that this node should register as.
+func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint, selfEndpoint string) error {
 	// Step 1: Validate cluster token with the existing cluster node (receives CA cert only, NOT the CA key)
 	valid, nodeInfo, caCertPEM, err := m.validateClusterToken(ctx, clusterToken, nodeEndpoint)
 	if err != nil {
@@ -176,7 +184,7 @@ func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint st
 	registeredNode, err := m.registerWithCluster(ctx, nodeEndpoint, clusterToken, &Node{
 		ID:        thisNodeID,
 		Name:      thisNodeName,
-		Endpoint:  m.publicAPIURL,
+		Endpoint:  selfEndpoint,
 		NodeToken: thisNodeToken,
 		Region:    nodeInfo.Region,
 		Priority:  5, // Default priority
@@ -242,6 +250,19 @@ func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint st
 			}
 		}
 		m.log.WithField("node_count", len(nodes)-1).Info("Synchronized cluster nodes")
+	}
+
+	// Step 5.5: Add self to local cluster_nodes so ListNodes includes this node.
+	// InitializeCluster does this for the primary node; we mirror it here for joining nodes.
+	_, err = m.db.ExecContext(ctx, `
+		INSERT OR REPLACE INTO cluster_nodes (
+			id, name, endpoint, node_token, region, priority,
+			health_status, latency_ms, capacity_total, capacity_used, bucket_count
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, thisNodeID, thisNodeName, selfEndpoint, thisNodeToken, nodeInfo.Region, 5,
+		HealthStatusHealthy, 0, 0, 0, 0)
+	if err != nil {
+		m.log.WithError(err).Warn("Failed to add self to local cluster_nodes registry")
 	}
 
 	// Load TLS config into memory after join

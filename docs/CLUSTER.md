@@ -2,7 +2,7 @@
 
 **Version**: 1.2.0
 **Status**: Production-Ready
-**Last Updated**: April 2, 2026
+**Last Updated**: April 12, 2026
 
 ---
 
@@ -31,6 +31,7 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 ### Key Features
 
 - ✅ Multi-node cluster support with smart routing
+- ✅ **Dedicated cluster port 8082** — inter-node traffic is fully separated from S3 (8080) and console (8081)
 - ✅ **Inter-node TLS encryption** — automatic, zero-configuration (v0.9.1)
 - ✅ HMAC-authenticated node-to-node replication
 - ✅ Automatic synchronization for 6 entity types (users, tenants, access keys, bucket permissions, IDPs, group mappings)
@@ -53,22 +54,36 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 
 ## Architecture
 
+### Port Layout
+
+Each MaxIOFS node exposes three independent ports:
+
+| Port | Purpose | Exposed to |
+|------|---------|-----------|
+| **8080** | S3 API — object storage operations | S3 clients, load balancer |
+| **8081** | Web Console — admin UI and console REST API | Operators, load balancer |
+| **8082** | Cluster inter-node — coordination, sync, CSR signing | Other cluster nodes only (firewall off from public) |
+
 ### Cluster Components
 
 ```
-┌──────────────────────────────────────────────┐
-│        Load Balancer (HAProxy/Nginx)         │
-│          VIP: 192.168.1.100:8080             │
-└─────────────────┬────────────────────────────┘
-                  │
-       ┌──────────┴──────────┐
-       │                     │
-┌──────▼──────┐       ┌──────▼──────┐
-│   Node 1    │◄─────►│   Node 2    │
-│  10.0.1.10  │ HMAC  │  10.0.1.20  │
-│  :8080      │ Auth  │  :8080      │
-└─────────────┘       └─────────────┘
+┌──────────────────────────────────────────────────────┐
+│         Load Balancer (HAProxy/Nginx)                │
+│  :8080 → S3 API     :8081 → Web Console              │
+└──────────────────────┬───────────────────────────────┘
+                       │
+          ┌────────────┴────────────┐
+          │                         │
+   ┌──────▼──────┐           ┌──────▼──────┐
+   │   Node 1    │◄──:8082──►│   Node 2    │
+   │  10.0.1.10  │  cluster   │  10.0.1.20  │
+   │  S3  :8080  │  (HMAC+    │  S3  :8080  │
+   │  UI  :8081  │   TLS)     │  UI  :8081  │
+   │  CL  :8082  │            │  CL  :8082  │
+   └─────────────┘            └─────────────┘
 ```
+
+> **Note**: Port 8082 should **never** be exposed to end users or the public internet. Restrict it at the firewall to cluster node IPs only.
 
 ### Core Components
 
@@ -100,52 +115,72 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 ### Prerequisites
 
 - 2+ MaxIOFS instances on different servers
-- Network connectivity between all nodes
+- Network connectivity on all three ports (8080, 8081, 8082) between all nodes
+- Firewall: port 8082 open between node IPs only (not to the public internet)
 - Admin access to all nodes
 
 ### Setup Steps
 
-**1. Initialize Cluster (Node 1)**
+**1. Start both nodes**
 
 ```bash
-# Start Node 1
-./maxiofs --data-dir /data/node1 --listen :8080 --console-listen :8081
+# Node 1 (IP: 10.0.1.10)
+./maxiofs --data-dir /data/node1
 
-# Access web console: http://node1:8081
-# Navigate to: Cluster page → Click "Initialize Cluster"
-# Fill in: Node Name: node-1, Region: us-east-1
-# Result: Cluster token generated → COPY THIS TOKEN
+# Node 2 (IP: 10.0.1.20)
+./maxiofs --data-dir /data/node2
 ```
 
-**2. Join Cluster (Node 2)**
+Both nodes start on their default ports: S3 on `:8080`, Console on `:8081`, Cluster on `:8082`.
 
-```bash
-# Start Node 2
-./maxiofs --data-dir /data/node2 --listen :8080 --console-listen :8081
+**2. Initialize the cluster on Node 1**
 
-# Access web console: http://node2:8081
-# Navigate to: Cluster page → Click "Add Node"
+```
+# Open http://10.0.1.10:8081 → Cluster → Initialize Cluster
 # Fill in:
-#   - Node Name: node-2
-#   - Endpoint URL: http://node1:8080
-#   - Node Token: <paste from step 1>
-#   - Region: us-east-1
-#   - Priority: 100
+#   Node Name: node-1
+#   Region: us-east-1 (optional)
+# → Cluster token is displayed — COPY AND SAVE IT
 ```
 
-**3. Verify Cluster**
+**3. Add Node 2 from Node 1's console**
 
-Check Cluster page on either node:
+This is the recommended method. From Node 1's console:
+
+```
+# Cluster → Nodes → Add Node
+# Fill in:
+#   Node IP Address: 10.0.1.20   (or 10.0.1.20:8081 to use a non-default port)
+#   Admin Username:  admin
+#   Admin Password:  <node 2 password>
+```
+
+The primary node authenticates to Node 2's console API (port 8081), triggers a cluster join, and Node 2 contacts Node 1's cluster port (8082) to register.
+
+**Alternative: Join from Node 2's console**
+
+If you prefer to initiate the join from Node 2 instead:
+
+```
+# Open http://10.0.1.20:8081 → Cluster → Join Existing Cluster
+# Fill in:
+#   Cluster Node IP Address: 10.0.1.10   (or 10.0.1.10:8082 to use a non-default port)
+#   Cluster Token: <paste from step 2>
+```
+
+**4. Verify cluster**
+
+Check the Cluster page on either node:
 - Total Nodes: 2
 - Healthy Nodes: 2
-- Both nodes showing green status with latency < 10ms
+- Both nodes showing green status with latency < 10 ms
 
-**4. Configure Replication (Optional for HA)**
+**5. Configure replication (optional — required for HA)**
 
 Navigate to Cluster → Bucket Replication:
 - Select bucket
 - Choose destination node
-- Set sync interval (60s for real-time HA)
+- Set sync interval: 60 s for real-time HA, 300 s for near-real-time, 3600 s for hourly
 - Enable "Replicate deletes" and "Replicate metadata"
 
 ---
@@ -170,6 +205,8 @@ Navigate to Cluster → Bucket Replication:
 
 ### HAProxy Configuration
 
+> Port 8082 is internal cluster coordination — do **not** route it through the load balancer. Each node must be able to reach the other nodes' port 8082 directly.
+
 ```haproxy
 # /etc/haproxy/haproxy.cfg
 global
@@ -182,7 +219,7 @@ defaults
     timeout client 50000ms
     timeout server 50000ms
 
-# S3 API (Port 8080)
+# S3 API (Port 8080) — client-facing
 frontend s3_frontend
     bind *:8080
     default_backend s3_backend
@@ -193,7 +230,7 @@ backend s3_backend
     server node1 10.0.1.10:8080 check inter 10s fall 3 rise 2
     server node2 10.0.1.20:8080 check inter 10s fall 3 rise 2
 
-# Console API (Port 8081)
+# Web Console (Port 8081) — operator-facing
 frontend console_frontend
     bind *:8081
     default_backend console_backend
@@ -203,6 +240,9 @@ backend console_backend
     option httpchk GET /health
     server node1 10.0.1.10:8081 check inter 10s fall 3 rise 2
     server node2 10.0.1.20:8081 check inter 10s fall 3 rise 2
+
+# Port 8082 — cluster inter-node communication
+# DO NOT expose via HAProxy — nodes reach each other directly
 ```
 
 ### Network Configuration
@@ -210,13 +250,14 @@ backend console_backend
 **Firewall Rules:**
 
 ```bash
-# Allow S3 and Console API
+# Allow S3 and Console API from anywhere (or your client CIDR)
 iptables -A INPUT -p tcp --dport 8080 -j ACCEPT
 iptables -A INPUT -p tcp --dport 8081 -j ACCEPT
 
-# Allow cluster communication
-iptables -A INPUT -s 10.0.1.10 -j ACCEPT  # Node 1
-iptables -A INPUT -s 10.0.1.20 -j ACCEPT  # Node 2
+# Allow cluster inter-node communication only between cluster node IPs
+iptables -A INPUT -s 10.0.1.10 -p tcp --dport 8082 -j ACCEPT  # From Node 1
+iptables -A INPUT -s 10.0.1.20 -p tcp --dport 8082 -j ACCEPT  # From Node 2
+iptables -A INPUT -p tcp --dport 8082 -j DROP                   # Block all others
 ```
 
 **DNS Configuration:**
@@ -232,23 +273,41 @@ iptables -A INPUT -s 10.0.1.20 -j ACCEPT  # Node 2
 
 ## Configuration
 
+### Server Config Options
+
+| Config key | Default | Description |
+|------------|---------|-------------|
+| `cluster_listen` | `:8082` | Bind address for the cluster inter-node server. Change the port if 8082 is taken, or use `127.0.0.1:8082` to restrict to loopback (single-machine test clusters). |
+
+```yaml
+# config.yaml — cluster port (all other cluster config is managed via the web console)
+cluster_listen: ":8082"
+```
+
+Environment variable equivalent: `MAXIOFS_CLUSTER_LISTEN=:8082`
+
 ### Cluster Initialization Parameters
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `node_name` | string | Yes | Human-readable name (e.g., "node-east-1") |
 | `region` | string | No | Geographic region (e.g., "us-east-1") |
+| `local_endpoint` | string | No | Override S3 API endpoint other nodes should use to reach this node. Leave empty to use `public_api_url`. |
 
-### Adding Nodes Parameters
+### Add Node Parameters (from the primary node's console)
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | string | Yes | Name for the remote node |
-| `endpoint` | string | Yes | S3 API endpoint URL (e.g., "http://node2:8080") |
-| `node_token` | string | Yes | Cluster token from initialization |
-| `region` | string | No | Geographic region |
-| `priority` | integer | No | Routing priority (lower = higher, default: 100) |
-| `metadata` | JSON | No | Additional metadata |
+| Field | Default port | Description |
+|-------|-------------|-------------|
+| **Node IP Address** | 8081 | IP address (or `IP:port`) of the remote node's **console** port. Port 8081 is used if omitted. The primary node authenticates here, then tells the remote to join via port 8082. |
+| **Admin Username** | — | Admin credentials on the remote node |
+| **Admin Password** | — | Admin credentials on the remote node |
+
+### Join Cluster Parameters (from the new node's console)
+
+| Field | Default port | Description |
+|-------|-------------|-------------|
+| **Cluster Node IP Address** | 8082 | IP address (or `IP:port`) of **any existing cluster node's cluster port**. Port 8082 is used if omitted. |
+| **Cluster Token** | — | Token displayed when the cluster was initialized |
 
 ### Health Check Configuration
 
@@ -759,15 +818,21 @@ ssh target-node "top -bn1 | grep maxiofs"
 ### Dialogs
 
 **Initialize Cluster:**
-- Node Name, Region
-- Generates cluster token (must be copied and saved)
+- Node Name, Region (optional), Local S3 API Endpoint (optional — leave empty to use `public_api_url`)
+- Generates cluster token — copy and save it; you will need it to join other nodes
 
-**Add Node:**
-- Node Name, Endpoint URL, Node Token, Region, Priority, Metadata
+**Add Node** (initiated from the primary node):
+- Node IP Address — IP or IP:port of the remote node's console (default port 8081)
+- Admin Username and Admin Password — credentials on the remote node
+- The primary node handles the full join handshake automatically
+
+**Join Existing Cluster** (initiated from the new node):
+- Cluster Node IP Address — IP or IP:port of any existing node's cluster port (default port 8082)
+- Cluster Token — the token generated at cluster initialization
 
 **Edit Node:**
 - Editable: Name, Region, Priority, Metadata
-- Read-only: Endpoint, Node ID
+- Read-only: Endpoint, Node ID (cannot change after join; remove and re-add to change)
 
 ---
 
