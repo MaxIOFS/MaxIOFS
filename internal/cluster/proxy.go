@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -251,3 +253,134 @@ func (p *ProxyClient) DoAuthenticatedRequest(req *http.Request) (*http.Response,
 
 	return resp, nil
 }
+
+// AddClusterProxyHeaders adds inter-node proxy authentication headers to an outgoing S3 request.
+// It replaces the original Authorization header (which was SigV4-signed for the client's host)
+// with cluster HMAC auth so the target node can validate the request without re-verifying SigV4.
+//
+// Parameters:
+//   - req: the outgoing request to be modified
+//   - nodeID: local node's ID
+//   - clusterToken: local node's cluster token (used as HMAC key)
+//   - userID, tenantID, roles: forwarded user context
+func AddClusterProxyHeaders(req *http.Request, nodeID, clusterToken, userID, tenantID, roles string) {
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+
+	// Compute HMAC-SHA256(clusterToken, "proxy:{nodeID}:{timestamp}")
+	payload := fmt.Sprintf("proxy:%s:%s", nodeID, timestamp)
+	h := hmac.New(sha256.New, []byte(clusterToken))
+	h.Write([]byte(payload))
+	sig := hex.EncodeToString(h.Sum(nil))
+
+	// Remove original Authorization (SigV4 was signed for the client's host — invalid on the target node)
+	req.Header.Del("Authorization")
+
+	req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
+	req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
+	req.Header.Set("X-MaxIOFS-Node-Hmac", sig)
+	req.Header.Set("X-MaxIOFS-Forwarded-User", userID)
+	req.Header.Set("X-MaxIOFS-Forwarded-Tenant", tenantID)
+	req.Header.Set("X-MaxIOFS-Forwarded-Roles", roles)
+}
+
+// ValidateClusterProxyAuth validates inter-node proxy authentication headers.
+// Returns the forwarded user context if valid, or ok=false if validation fails.
+//
+// Validation checks:
+//   - X-MaxIOFS-Proxied: true header present
+//   - HMAC-SHA256(clusterToken, "proxy:{nodeID}:{timestamp}") matches X-MaxIOFS-Node-Hmac
+//   - Timestamp within ±5 minutes of current time
+func ValidateClusterProxyAuth(req *http.Request, clusterToken string) (userID, tenantID, roles string, ok bool) {
+	if req.Header.Get("X-MaxIOFS-Proxied") != "true" {
+		return "", "", "", false
+	}
+
+	nodeID := req.Header.Get("X-MaxIOFS-Node-ID")
+	timestamp := req.Header.Get("X-MaxIOFS-Timestamp")
+	providedSig := req.Header.Get("X-MaxIOFS-Node-Hmac")
+
+	if nodeID == "" || timestamp == "" || providedSig == "" {
+		return "", "", "", false
+	}
+
+	// Validate timestamp (within 5 minutes)
+	ts, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return "", "", "", false
+	}
+	diff := time.Now().Unix() - ts
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > int64(5*time.Minute.Seconds()) {
+		return "", "", "", false
+	}
+
+	// Validate HMAC
+	payload := fmt.Sprintf("proxy:%s:%s", nodeID, timestamp)
+	h := hmac.New(sha256.New, []byte(clusterToken))
+	h.Write([]byte(payload))
+	expectedSig := hex.EncodeToString(h.Sum(nil))
+
+	if !hmac.Equal([]byte(providedSig), []byte(expectedSig)) {
+		return "", "", "", false
+	}
+
+	return req.Header.Get("X-MaxIOFS-Forwarded-User"),
+		req.Header.Get("X-MaxIOFS-Forwarded-Tenant"),
+		req.Header.Get("X-MaxIOFS-Forwarded-Roles"),
+		true
+}
+
+// ProxyToNodeAPIURL proxies an S3 request to a remote node's S3 API URL.
+// It adds cluster auth headers, sets the target to node.APIURL (or Endpoint as fallback),
+// and executes the request.
+// Returns the raw HTTP response (caller must close Body).
+func (p *ProxyClient) ProxyToNodeAPIURL(ctx context.Context, node *Node, originalReq *http.Request, nodeID, clusterToken, userID, tenantID, roles string) (*http.Response, error) {
+	// Determine target base URL: prefer APIURL (S3 port), fall back to Endpoint (cluster port)
+	baseURL := node.APIURL
+	if baseURL == "" {
+		baseURL = node.Endpoint
+	}
+	targetURL := fmt.Sprintf("%s%s", strings.TrimRight(baseURL, "/"), originalReq.URL.RequestURI())
+
+	p.log.WithFields(logrus.Fields{
+		"target_node": node.Name,
+		"target_url":  targetURL,
+		"method":      originalReq.Method,
+	}).Debug("Proxying S3 request to remote node S3 API")
+
+	// Buffer request body
+	var bodyReader io.Reader
+	if originalReq.Body != nil {
+		bodyBytes, err := io.ReadAll(originalReq.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read request body: %w", err)
+		}
+		originalReq.Body.Close()
+		bodyReader = bytes.NewReader(bodyBytes)
+	}
+
+	proxyReq, err := http.NewRequestWithContext(ctx, originalReq.Method, targetURL, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create proxy request: %w", err)
+	}
+
+	// Copy headers from original request
+	copyHeaders(proxyReq.Header, originalReq.Header)
+
+	// Mark as proxied (loop prevention)
+	proxyReq.Header.Set("X-MaxIOFS-Proxied", "true")
+	proxyReq.Header.Set("X-MaxIOFS-Proxy-Node", nodeID)
+
+	// Add cluster auth headers (replaces Authorization)
+	AddClusterProxyHeaders(proxyReq, nodeID, clusterToken, userID, tenantID, roles)
+
+	resp, err := p.httpClient.Do(proxyReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to proxy request to %s: %w", node.Name, err)
+	}
+
+	return resp, nil
+}
+

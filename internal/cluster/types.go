@@ -7,6 +7,7 @@ type Node struct {
 	ID            string    `json:"id"`
 	Name          string    `json:"name"`
 	Endpoint      string    `json:"endpoint"`
+	APIURL        string    `json:"api_url,omitempty"` // S3 API URL (port 8080); empty = use Endpoint
 	NodeToken     string    `json:"-"` // Never expose in JSON
 	Region        string    `json:"region"`
 	Priority      int       `json:"priority"`

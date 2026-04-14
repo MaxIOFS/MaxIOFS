@@ -125,10 +125,10 @@ func (m *Manager) InitializeCluster(ctx context.Context, nodeName, region, nodeE
 	// Add this node to cluster_nodes table
 	_, err = m.db.ExecContext(ctx, `
 		INSERT INTO cluster_nodes (
-			id, name, endpoint, node_token, region, priority,
+			id, name, endpoint, api_url, node_token, region, priority,
 			health_status, latency_ms, capacity_total, capacity_used, bucket_count
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, nodeID, nodeName, nodeEndpoint, clusterToken, region, 100,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, nodeID, nodeName, nodeEndpoint, m.publicAPIURL, clusterToken, region, 100,
 		HealthStatusHealthy, 0, 0, 0, 0)
 	if err != nil {
 		return "", fmt.Errorf("failed to add node to cluster: %w", err)
@@ -185,6 +185,7 @@ func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint, s
 		ID:        thisNodeID,
 		Name:      thisNodeName,
 		Endpoint:  selfEndpoint,
+		APIURL:    m.publicAPIURL,
 		NodeToken: thisNodeToken,
 		Region:    nodeInfo.Region,
 		Priority:  5, // Default priority
@@ -256,10 +257,10 @@ func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint, s
 	// InitializeCluster does this for the primary node; we mirror it here for joining nodes.
 	_, err = m.db.ExecContext(ctx, `
 		INSERT OR REPLACE INTO cluster_nodes (
-			id, name, endpoint, node_token, region, priority,
+			id, name, endpoint, api_url, node_token, region, priority,
 			health_status, latency_ms, capacity_total, capacity_used, bucket_count
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, thisNodeID, thisNodeName, selfEndpoint, thisNodeToken, nodeInfo.Region, 5,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, thisNodeID, thisNodeName, selfEndpoint, m.publicAPIURL, thisNodeToken, nodeInfo.Region, 5,
 		HealthStatusHealthy, 0, 0, 0, 0)
 	if err != nil {
 		m.log.WithError(err).Warn("Failed to add self to local cluster_nodes registry")
@@ -537,18 +538,19 @@ func (m *Manager) AddNode(ctx context.Context, node *Node) error {
 	now := time.Now()
 	_, err := m.db.ExecContext(ctx, `
 		INSERT INTO cluster_nodes (
-			id, name, endpoint, node_token, region, priority,
+			id, name, endpoint, api_url, node_token, region, priority,
 			health_status, latency_ms, capacity_total, capacity_used,
 			bucket_count, metadata, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name       = excluded.name,
 			endpoint   = excluded.endpoint,
+			api_url    = CASE WHEN excluded.api_url != '' THEN excluded.api_url ELSE cluster_nodes.api_url END,
 			node_token = CASE WHEN excluded.node_token != '' THEN excluded.node_token ELSE cluster_nodes.node_token END,
 			region     = excluded.region,
 			priority   = excluded.priority,
 			updated_at = excluded.updated_at
-	`, node.ID, node.Name, node.Endpoint, node.NodeToken, node.Region, node.Priority,
+	`, node.ID, node.Name, node.Endpoint, node.APIURL, node.NodeToken, node.Region, node.Priority,
 		HealthStatusUnknown, 0, 0, 0, 0, node.Metadata, now, now)
 
 	if err != nil {
@@ -570,14 +572,14 @@ func (m *Manager) GetNode(ctx context.Context, nodeID string) (*Node, error) {
 	var lastHealthCheck, lastSeen, lastLocalWriteAt sql.NullTime
 
 	err := m.db.QueryRowContext(ctx, `
-		SELECT id, name, endpoint, node_token, region, priority,
+		SELECT id, name, endpoint, api_url, node_token, region, priority,
 		       health_status, last_health_check, last_seen, latency_ms,
 		       capacity_total, capacity_used, bucket_count, metadata,
 		       created_at, updated_at, is_stale, last_local_write_at
 		FROM cluster_nodes
 		WHERE id = ?
 	`, nodeID).Scan(
-		&node.ID, &node.Name, &node.Endpoint, &node.NodeToken, &node.Region, &node.Priority,
+		&node.ID, &node.Name, &node.Endpoint, &node.APIURL, &node.NodeToken, &node.Region, &node.Priority,
 		&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
 		&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
 		&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt,
@@ -606,7 +608,7 @@ func (m *Manager) GetNode(ctx context.Context, nodeID string) (*Node, error) {
 // ListNodes returns all nodes in the cluster
 func (m *Manager) ListNodes(ctx context.Context) ([]*Node, error) {
 	rows, err := m.db.QueryContext(ctx, `
-		SELECT id, name, endpoint, node_token, region, priority,
+		SELECT id, name, endpoint, api_url, node_token, region, priority,
 		       health_status, last_health_check, last_seen, latency_ms,
 		       capacity_total, capacity_used, bucket_count, metadata,
 		       created_at, updated_at, is_stale, last_local_write_at
@@ -624,7 +626,7 @@ func (m *Manager) ListNodes(ctx context.Context) ([]*Node, error) {
 		var lastHealthCheck, lastSeen, lastLocalWriteAt sql.NullTime
 
 		err := rows.Scan(
-			&node.ID, &node.Name, &node.Endpoint, &node.NodeToken, &node.Region, &node.Priority,
+			&node.ID, &node.Name, &node.Endpoint, &node.APIURL, &node.NodeToken, &node.Region, &node.Priority,
 			&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
 			&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
 			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt,
@@ -686,7 +688,7 @@ func (m *Manager) RemoveNode(ctx context.Context, nodeID string) error {
 // GetHealthyNodes returns all healthy nodes
 func (m *Manager) GetHealthyNodes(ctx context.Context) ([]*Node, error) {
 	rows, err := m.db.QueryContext(ctx, `
-		SELECT id, name, endpoint, node_token, region, priority,
+		SELECT id, name, endpoint, api_url, node_token, region, priority,
 		       health_status, last_health_check, last_seen, latency_ms,
 		       capacity_total, capacity_used, bucket_count, metadata,
 		       created_at, updated_at, is_stale, last_local_write_at
@@ -705,7 +707,7 @@ func (m *Manager) GetHealthyNodes(ctx context.Context) ([]*Node, error) {
 		var lastHealthCheck, lastSeen, lastLocalWriteAt sql.NullTime
 
 		err := rows.Scan(
-			&node.ID, &node.Name, &node.Endpoint, &node.NodeToken, &node.Region, &node.Priority,
+			&node.ID, &node.Name, &node.Endpoint, &node.APIURL, &node.NodeToken, &node.Region, &node.Priority,
 			&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
 			&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
 			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt,
@@ -738,7 +740,7 @@ func (m *Manager) GetReadyReplicaNodes(ctx context.Context) ([]*Node, error) {
 		return nil, err
 	}
 	rows, err := m.db.QueryContext(ctx, `
-		SELECT DISTINCT cn.id, cn.name, cn.endpoint, cn.node_token, cn.region, cn.priority,
+		SELECT DISTINCT cn.id, cn.name, cn.endpoint, cn.api_url, cn.node_token, cn.region, cn.priority,
 		       cn.health_status, cn.last_health_check, cn.last_seen, cn.latency_ms,
 		       cn.capacity_total, cn.capacity_used, cn.bucket_count, cn.metadata,
 		       cn.created_at, cn.updated_at, cn.is_stale, cn.last_local_write_at
@@ -757,7 +759,7 @@ func (m *Manager) GetReadyReplicaNodes(ctx context.Context) ([]*Node, error) {
 		var node Node
 		var lastHealthCheck, lastSeen, lastLocalWriteAt sql.NullTime
 		err := rows.Scan(
-			&node.ID, &node.Name, &node.Endpoint, &node.NodeToken, &node.Region, &node.Priority,
+			&node.ID, &node.Name, &node.Endpoint, &node.APIURL, &node.NodeToken, &node.Region, &node.Priority,
 			&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
 			&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
 			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt,

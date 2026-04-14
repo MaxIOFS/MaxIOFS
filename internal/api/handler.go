@@ -564,6 +564,11 @@ func (h *Handler) SetReplicationManager(rm interface {
 	h.s3Handler.SetReplicationManager(rm)
 }
 
+// SetClusterRouter sets the cluster router for routing S3 bucket operations to the correct node.
+func (h *Handler) SetClusterRouter(cr *cluster.Router) {
+	h.s3Handler.SetClusterRouter(cr)
+}
+
 // handleRoot handles GET / and HEAD /. Non-S3 clients are redirected by S3ClientMiddleware.
 // Both GET and HEAD run ListBuckets so that HEAD / returns the same headers (including
 // Content-Length) as GET / but without the body. Veeam uses HEAD / to detect a valid S3

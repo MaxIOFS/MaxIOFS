@@ -789,9 +789,21 @@ func (m *mockClusterManager) ProxyRead(_ context.Context, _ http.ResponseWriter,
 	return nil
 }
 
+func (m *mockClusterManager) GetLocalNodeID(_ context.Context) (string, error) {
+	return "test-node-id", nil
+}
+
+func (m *mockClusterManager) GetLocalNodeToken(_ context.Context) (string, error) {
+	return "test-cluster-token", nil
+}
+
 type mockBucketAggregator struct{}
 
 func (m *mockBucketAggregator) ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error) {
+	return []cluster.BucketWithLocation{}, nil
+}
+
+func (m *mockBucketAggregator) ListAllBucketsFromAllNodes(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error) {
 	return []cluster.BucketWithLocation{}, nil
 }
 

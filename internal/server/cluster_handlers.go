@@ -688,6 +688,30 @@ func (s *Server) handleGetLocalBuckets(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleBucketExists checks if a bucket exists on this node (internal cluster API).
+// Returns 200 if the bucket exists locally, 404 if not found.
+func (s *Server) handleBucketExists(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bucketName := vars["name"]
+
+	exists, err := s.bucketManager.BucketExists(r.Context(), "", bucketName)
+	if err != nil {
+		logrus.WithError(err).WithField("bucket", bucketName).Error("Failed to check bucket existence")
+		s.writeError(w, "Failed to check bucket: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if !exists {
+		s.writeError(w, "Bucket not found", http.StatusNotFound)
+		return
+	}
+
+	s.writeClusterJSON(w, map[string]interface{}{
+		"exists": true,
+		"bucket": bucketName,
+	})
+}
+
 // handleGetTenantStorage returns tenant storage usage from this node only (internal cluster API)
 func (s *Server) handleGetTenantStorage(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)

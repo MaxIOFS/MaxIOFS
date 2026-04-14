@@ -979,6 +979,9 @@ func (s *Server) setupRoutes() error {
 	if s.replicationManager != nil {
 		apiHandler.SetReplicationManager(s.replicationManager)
 	}
+	if s.clusterRouter != nil {
+		apiHandler.SetClusterRouter(s.clusterRouter)
+	}
 
 	// Start S3 access logger (delivers requests to configured target buckets)
 	s.accessLogger = NewBucketAccessLogger(s.bucketManager, s.objectManager)
@@ -998,6 +1001,37 @@ func (s *Server) setupRoutes() error {
 	// before the redirect to public_console_url (e.g. /ui/) is ever sent.
 	s3Router.Use(apiHandler.BucketCORSMiddleware)
 	s3Router.Use(apiHandler.S3ClientMiddleware)
+	// Cluster proxy auth bypass: if the request is from another cluster node with valid
+	// HMAC credentials, extract the forwarded user context and skip SigV4 auth.
+	if s.clusterManager != nil {
+		s3Router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("X-MaxIOFS-Proxied") == "true" && r.Header.Get("X-MaxIOFS-Node-Hmac") != "" {
+					// Get cluster token for HMAC validation
+					config, err := s.clusterManager.GetConfig(r.Context())
+					if err == nil {
+						userID, tenantID, rolesStr, ok := cluster.ValidateClusterProxyAuth(r, config.ClusterToken)
+						if ok {
+							roles := []string{}
+							if rolesStr != "" {
+								roles = strings.Split(rolesStr, ",")
+							}
+							proxyUser := &auth.User{
+								ID:       userID,
+								TenantID: tenantID,
+								Roles:    roles,
+							}
+							ctx := context.WithValue(r.Context(), "user", proxyUser)
+							next.ServeHTTP(w, r.WithContext(ctx))
+							return
+						}
+					}
+					// Invalid cluster proxy auth — fall through to normal auth
+				}
+				next.ServeHTTP(w, r)
+			})
+		})
+	}
 	if s.config.Auth.EnableAuth {
 		s3Router.Use(s.authManager.Middleware())
 	}
@@ -1106,6 +1140,7 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac := router.PathPrefix("/api/internal/cluster").Subrouter()
 	hmac.Use(clusterAuth.ClusterAuth)
 	hmac.HandleFunc("/jwt-secret", s.handleGetClusterJWTSecret).Methods("GET")
+	hmac.HandleFunc("/bucket-exists/{name}", s.handleBucketExists).Methods("GET")
 	hmac.HandleFunc("/buckets", s.handleGetLocalBuckets).Methods("GET")
 	hmac.HandleFunc("/tenant/{tenantID}/storage", s.handleGetTenantStorage).Methods("GET")
 	hmac.HandleFunc("/state-snapshot", s.handleGetStateSnapshot).Methods("GET")

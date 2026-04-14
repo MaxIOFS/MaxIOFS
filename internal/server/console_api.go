@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -1046,22 +1047,28 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 		localNodeName = "standalone"
 	}
 
-	// STEP 1 & 2: Get bucket list. In cluster mode use the same deduplicated list as S3 API.
+	// STEP 1 & 2: Get bucket list. In cluster mode aggregate from all nodes.
+	type nodeInfo struct {
+		name   string
+		status string // "local" | "remote"
+	}
 	var allBuckets []bucket.Bucket
-	var bucketNodeMap map[string]string // bucket name -> node name (for response)
+	var bucketNodeMap map[string]nodeInfo // bucket name -> node info
 
 	if isClusterEnabled && s.bucketAggregator != nil {
-		// Use aggregator: same deduplicated list as S3 ListBuckets (one entry per logical bucket).
-		aggregated, err := s.bucketAggregator.ListAllBuckets(r.Context(), tenantID)
+		// Use full cross-node aggregation so the console shows all buckets from all
+		// cluster nodes, tagged with their owning node. The S3 API keeps its local-only
+		// listing (objects on remote nodes are not accessible via this endpoint).
+		aggregated, err := s.bucketAggregator.ListAllBucketsFromAllNodes(r.Context(), tenantID)
 		if err != nil {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		allBuckets = make([]bucket.Bucket, 0, len(aggregated))
-		bucketNodeMap = make(map[string]string)
+		bucketNodeMap = make(map[string]nodeInfo)
 		for _, bwl := range aggregated {
 			allBuckets = append(allBuckets, bucketWithLocationToBucket(bwl))
-			bucketNodeMap[bwl.Name] = bwl.NodeName
+			bucketNodeMap[bwl.Name] = nodeInfo{name: bwl.NodeName, status: bwl.NodeStatus}
 		}
 	} else {
 		// Standalone or no aggregator: local buckets only
@@ -1071,9 +1078,9 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		allBuckets = localBuckets
-		bucketNodeMap = make(map[string]string)
+		bucketNodeMap = make(map[string]nodeInfo)
 		for _, b := range localBuckets {
-			bucketNodeMap[b.Name] = localNodeName
+			bucketNodeMap[b.Name] = nodeInfo{name: localNodeName, status: "local"}
 		}
 	}
 
@@ -1116,9 +1123,10 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 	// STEP 4: Build response with node information
 	response := make([]BucketResponse, len(filteredBuckets))
 	for i, b := range filteredBuckets {
-		nodeName := bucketNodeMap[b.Name]
-		if nodeName == "" {
-			nodeName = localNodeName
+		ni := bucketNodeMap[b.Name]
+		if ni.name == "" {
+			ni.name = localNodeName
+			ni.status = "local"
 		}
 
 		response[i] = BucketResponse{
@@ -1139,8 +1147,8 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 			Lifecycle:           b.Lifecycle,
 			Tags:                b.Tags,
 			Metadata:            b.Metadata,
-			NodeName:            nodeName,
-			NodeStatus:          "healthy", // All nodes in list are healthy
+			NodeName:            ni.name,
+			NodeStatus:          ni.status,
 		}
 	}
 
@@ -1235,6 +1243,123 @@ func parseVersioningFromString(versioningStr string) *bucket.VersioningConfig {
 	return &bucket.VersioningConfig{
 		Status: versioningStr,
 	}
+}
+
+// proxyConsoleRequest checks if a bucket lives on a remote cluster node and, if so,
+// forwards the console API request to that node using the client's JWT token.
+// JWT secrets are synced across nodes, so the remote node can validate the JWT normally.
+// Returns true if the request was proxied (caller should not handle the request further).
+func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, bucketName string) bool {
+	if s.clusterRouter == nil || s.clusterManager == nil {
+		return false
+	}
+	// Prevent infinite proxy loops
+	if r.Header.Get("X-MaxIOFS-Proxied") == "true" {
+		return false
+	}
+
+	node, isLocal, err := s.clusterRouter.RouteRequest(r.Context(), bucketName)
+	if err != nil || isLocal || node == nil {
+		return false
+	}
+
+	// Determine target console URL: use node.APIURL as a hint for the host,
+	// but swap to the console port (8081 by default). If node.APIURL is empty,
+	// derive the console URL from node.Endpoint (cluster port 8082) → port 8081.
+	baseURL := node.APIURL
+	if baseURL == "" {
+		// Fallback: use Endpoint (cluster port) host and try console port 8081
+		baseURL = node.Endpoint
+	}
+	// Build target URL: replace the port in baseURL with the console port if needed.
+	// For simplicity, use node.Endpoint (cluster port), which has the same host.
+	// The console API and cluster API are on the same host — just different ports.
+	// We derive the console base URL by replacing the cluster port with 8081.
+	targetBase := deriveConsoleURL(node)
+	if targetBase == "" {
+		return false
+	}
+	targetURL := strings.TrimRight(targetBase, "/") + r.URL.RequestURI()
+
+	// Buffer request body
+	var bodyBytes []byte
+	if r.Body != nil {
+		var readErr error
+		bodyBytes, readErr = io.ReadAll(r.Body)
+		if readErr != nil {
+			logrus.WithError(readErr).Warn("proxyConsoleRequest: failed to read request body")
+			return false
+		}
+		r.Body.Close()
+	}
+
+	proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		logrus.WithError(err).Warn("proxyConsoleRequest: failed to create request")
+		return false
+	}
+
+	// Copy relevant headers (JWT auth, content-type, etc.)
+	for key, values := range r.Header {
+		// Skip hop-by-hop and cluster-specific headers
+		switch strings.ToLower(key) {
+		case "connection", "keep-alive", "transfer-encoding", "upgrade":
+			continue
+		}
+		for _, v := range values {
+			proxyReq.Header.Add(key, v)
+		}
+	}
+	// Mark as proxied to prevent loops
+	proxyReq.Header.Set("X-MaxIOFS-Proxied", "true")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucketName,
+			"node":   node.Name,
+			"url":    targetURL,
+			"error":  err.Error(),
+		}).Error("proxyConsoleRequest: failed to forward request")
+		return false
+	}
+	defer resp.Body.Close()
+
+	// Copy response headers and status
+	for key, values := range resp.Header {
+		for _, v := range values {
+			w.Header().Add(key, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body) //nolint:errcheck
+	return true
+}
+
+// deriveConsoleURL builds the console API base URL for a remote node.
+// It takes node.APIURL (S3 port 8080) or node.Endpoint (cluster port 8082)
+// and replaces the port with the console port 8081.
+func deriveConsoleURL(node *cluster.Node) string {
+	// Prefer APIURL (has the right host), fall back to Endpoint
+	src := node.APIURL
+	if src == "" {
+		src = node.Endpoint
+	}
+	if src == "" {
+		return ""
+	}
+
+	// Parse and replace port with 8081
+	parsed, err := url.Parse(src)
+	if err != nil {
+		return ""
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s://%s:8081", parsed.Scheme, host)
 }
 
 func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
@@ -1458,6 +1583,11 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetBucket(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if s.proxyConsoleRequest(w, r, bucketName) {
+		return
+	}
 
 	// Extract user and tenant ID from context
 	user, exists := auth.GetUserFromContext(r.Context())
@@ -1684,6 +1814,11 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if s.proxyConsoleRequest(w, r, bucketName) {
+		return
+	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {

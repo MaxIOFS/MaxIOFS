@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync/atomic"
 	"time"
 
@@ -57,7 +58,8 @@ func NewRouter(manager *Manager, bucketMgr BucketManager, replMgr ReplicationMan
 }
 
 // GetBucketNode returns the primary node for a bucket
-// This is determined by checking where the bucket exists (locally or on a remote node)
+// This is determined by checking where the bucket exists (locally or on a remote node).
+// Returns nil when the bucket is on the local node.
 func (r *Router) GetBucketNode(ctx context.Context, bucket string) (*Node, error) {
 	// First, check if bucket exists locally
 	_, err := r.bucketManager.GetBucketTenant(ctx, bucket)
@@ -67,11 +69,72 @@ func (r *Router) GetBucketNode(ctx context.Context, bucket string) (*Node, error
 		return nil, nil
 	}
 
-	// If not local, check if any remote node has it
-	// For now, we'll return an error. In a full implementation, you would:
-	// 1. Query all nodes for the bucket
-	// 2. Return the node that has it
-	// 3. Cache this information for performance
+	// Bucket not found locally — query remote nodes in parallel
+	localNodeID, _ := r.manager.GetLocalNodeID(ctx)
+	nodes, err := r.manager.GetHealthyNodes(ctx)
+	if err != nil || len(nodes) == 0 {
+		// No healthy nodes to query (cluster not initialized or no peers)
+		return nil, fmt.Errorf("bucket not found on any node: %s", bucket)
+	}
+
+	localNodeToken, err := r.manager.GetLocalNodeToken(ctx)
+	if err != nil {
+		// Can't authenticate cluster requests — treat as bucket not found
+		return nil, fmt.Errorf("bucket not found on any node: %s", bucket)
+	}
+
+	type result struct {
+		node *Node
+		err  error
+	}
+	queried := 0
+	ch := make(chan result, len(nodes))
+
+	for _, node := range nodes {
+		if node.ID == localNodeID {
+			continue // already checked locally
+		}
+		queried++
+		go func(n *Node) {
+			reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+
+			url := fmt.Sprintf("%s/api/internal/cluster/bucket-exists/%s", n.Endpoint, bucket)
+			req, reqErr := r.proxyClient.CreateAuthenticatedRequest(reqCtx, http.MethodGet, url, nil, localNodeID, localNodeToken)
+			if reqErr != nil {
+				ch <- result{nil, reqErr}
+				return
+			}
+			resp, doErr := r.proxyClient.DoAuthenticatedRequest(req)
+			if doErr != nil {
+				ch <- result{nil, doErr}
+				return
+			}
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				ch <- result{n, nil}
+			} else {
+				ch <- result{nil, nil} // not found on this node, not an error
+			}
+		}(node)
+	}
+
+	for i := 0; i < queried; i++ {
+		res := <-ch
+		if res.err != nil {
+			r.log.WithError(res.err).Debug("Error querying remote node for bucket existence")
+			continue
+		}
+		if res.node != nil {
+			r.log.WithFields(logrus.Fields{
+				"bucket": bucket,
+				"node":   res.node.Name,
+			}).Debug("Bucket found on remote node")
+			// Cache the result
+			r.cache.Set(bucket, res.node.ID)
+			return res.node, nil
+		}
+	}
 
 	return nil, fmt.Errorf("bucket not found on any node: %s", bucket)
 }

@@ -109,6 +109,95 @@ func (ba *BucketAggregator) ListAllBuckets(ctx context.Context, tenantID string)
 	return allBuckets, nil
 }
 
+// ListAllBucketsFromAllNodes queries local buckets plus all healthy peer nodes and
+// returns a merged list tagged with NodeID/NodeName. This is intended for the
+// management console UI only — the S3 API must NOT use this method because
+// objects on remote nodes are inaccessible via the local S3 endpoint.
+func (ba *BucketAggregator) ListAllBucketsFromAllNodes(ctx context.Context, tenantID string) ([]BucketWithLocation, error) {
+	startTime := time.Now()
+
+	// Start with local buckets
+	localBuckets, err := ba.bucketManager.ListBuckets(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list local buckets: %w", err)
+	}
+	localNodeID, _ := ba.clusterManager.GetLocalNodeID(ctx)
+	localNodeName, _ := ba.clusterManager.GetLocalNodeName(ctx)
+
+	allBuckets := make([]BucketWithLocation, 0, len(localBuckets))
+	for _, b := range localBuckets {
+		allBuckets = append(allBuckets, BucketWithLocation{
+			Name:        b.Name,
+			TenantID:    b.TenantID,
+			OwnerID:     b.OwnerID,
+			OwnerType:   b.OwnerType,
+			CreatedAt:   b.CreatedAt,
+			ObjectCount: b.ObjectCount,
+			SizeBytes:   b.TotalSize,
+			ObjectLock:  b.ObjectLock,
+			Encryption:  b.Encryption,
+			Metadata:    b.Metadata,
+			Tags:        b.Tags,
+			NodeID:      localNodeID,
+			NodeName:    localNodeName,
+			NodeStatus:  "local",
+		})
+	}
+
+	// Query all healthy peer nodes in parallel
+	peerNodes, err := ba.clusterManager.GetHealthyNodes(ctx)
+	if err != nil {
+		ba.log.WithError(err).Warn("Failed to get peer nodes; returning local buckets only")
+		return allBuckets, nil
+	}
+
+	type result struct {
+		buckets []BucketWithLocation
+		node    *Node
+		err     error
+	}
+	ch := make(chan result, len(peerNodes))
+
+	queried := 0
+	for _, node := range peerNodes {
+		if node.ID == localNodeID {
+			continue // skip self
+		}
+		queried++
+		go func(n *Node) {
+			buckets, err := ba.queryBucketsFromNode(ctx, n, tenantID)
+			if err != nil {
+				ba.log.WithError(err).WithField("node", n.Name).Warn("Failed to query buckets from peer node")
+				ch <- result{nil, n, err}
+				return
+			}
+			// Tag each bucket with the remote node's info
+			for i := range buckets {
+				buckets[i].NodeID = n.ID
+				buckets[i].NodeName = n.Name
+				buckets[i].NodeStatus = "remote"
+			}
+			ch <- result{buckets, n, nil}
+		}(node)
+	}
+
+	for i := 0; i < queried; i++ {
+		res := <-ch
+		if res.err == nil {
+			allBuckets = append(allBuckets, res.buckets...)
+		}
+	}
+
+	ba.log.WithFields(logrus.Fields{
+		"total_buckets": len(allBuckets),
+		"local_buckets": len(localBuckets),
+		"peer_nodes":    queried,
+		"duration_ms":   time.Since(startTime).Milliseconds(),
+	}).Debug("Full cluster bucket listing completed")
+
+	return allBuckets, nil
+}
+
 // deduplicateBucketsByTenantAndName returns one entry per (TenantID, Name).
 // Prefers the entry with NodeStatus == "local"; otherwise keeps the first by NodeID.
 func deduplicateBucketsByTenantAndName(buckets []BucketWithLocation) []BucketWithLocation {

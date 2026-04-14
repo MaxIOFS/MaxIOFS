@@ -656,14 +656,18 @@ export default function BucketsPage() {
                         </TableCell>
 
                         <TableCell className="whitespace-nowrap">
-                          {bucket.node_name || bucket.nodeName ? (
-                            <div className="flex items-center gap-2">
-                              <div className={`w-2 h-2 rounded-full ${(bucket.node_status || bucket.nodeStatus) === 'healthy' ? 'bg-green-500' : 'bg-yellow-500'}`} />
-                              <span className="text-sm">{bucket.node_name || bucket.nodeName}</span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground italic">{t('local')}</span>
-                          )}
+                          {(() => {
+                            const nodeName = bucket.node_name || bucket.nodeName;
+                            const nodeStatus = bucket.node_status || bucket.nodeStatus;
+                            if (!nodeName) return <span className="text-xs text-muted-foreground italic">{t('local')}</span>;
+                            const isLocal = nodeStatus === 'local';
+                            return (
+                              <div className="flex items-center gap-2">
+                                <div className={`w-2 h-2 rounded-full ${isLocal ? 'bg-green-500' : 'bg-blue-500'}`} />
+                                <span className="text-sm">{nodeName}</span>
+                              </div>
+                            );
+                          })()}
                         </TableCell>
 
                         <TableCell className="whitespace-nowrap">

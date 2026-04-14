@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS cluster_nodes (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     endpoint TEXT NOT NULL,
+    api_url TEXT DEFAULT '',
     node_token TEXT NOT NULL,
     region TEXT DEFAULT '',
     priority INTEGER NOT NULL DEFAULT 100,
@@ -102,6 +103,9 @@ func InitSchema(db *sql.DB) error {
 	if err := applyStaleNodeMigration(db); err != nil {
 		return err
 	}
+	if err := applyAPIURLMigration(db); err != nil {
+		return err
+	}
 	return applySyncJobsMigration(db)
 }
 
@@ -123,6 +127,39 @@ func applySyncJobsMigration(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_ha_sync_jobs_status ON ha_sync_jobs(status);
 	`)
 	return err
+}
+
+// applyAPIURLMigration adds the api_url column to cluster_nodes for existing databases.
+func applyAPIURLMigration(db *sql.DB) error {
+	var exists bool
+	rows, err := db.Query("PRAGMA table_info(cluster_nodes)")
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dfltValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "api_url" {
+			exists = true
+			break
+		}
+	}
+	rows.Close()
+
+	if !exists {
+		_, err := db.Exec("ALTER TABLE cluster_nodes ADD COLUMN api_url TEXT DEFAULT ''")
+		if err != nil {
+			return fmt.Errorf("failed to add column api_url: %w", err)
+		}
+	}
+	return nil
 }
 
 // applyStaleNodeMigration adds stale-node tracking columns to cluster_nodes for existing databases.

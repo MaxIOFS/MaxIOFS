@@ -121,9 +121,15 @@ type Handler struct {
 		IsClusterEnabled() bool
 		SelectReadNode(ctx context.Context, bucket string) (*cluster.Node, error)
 		ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *cluster.Node) error
+		GetLocalNodeID(ctx context.Context) (string, error)
+		GetLocalNodeToken(ctx context.Context) (string, error)
 	}
 	bucketAggregator interface {
 		ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
+		ListAllBucketsFromAllNodes(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
+	}
+	clusterRouter interface {
+		RouteRequest(ctx context.Context, bucket string) (*cluster.Node, bool, error)
 	}
 	replicationManager interface {
 		QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error
@@ -217,6 +223,8 @@ func (h *Handler) SetClusterManager(cm interface {
 	IsClusterEnabled() bool
 	SelectReadNode(ctx context.Context, bucket string) (*cluster.Node, error)
 	ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *cluster.Node) error
+	GetLocalNodeID(ctx context.Context) (string, error)
+	GetLocalNodeToken(ctx context.Context) (string, error)
 }) {
 	h.clusterManager = cm
 }
@@ -224,8 +232,16 @@ func (h *Handler) SetClusterManager(cm interface {
 // SetBucketAggregator sets the bucket aggregator for cross-node bucket listing
 func (h *Handler) SetBucketAggregator(ba interface {
 	ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
+	ListAllBucketsFromAllNodes(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
 }) {
 	h.bucketAggregator = ba
+}
+
+// SetClusterRouter sets the cluster router for routing bucket operations to the correct node.
+func (h *Handler) SetClusterRouter(cr interface {
+	RouteRequest(ctx context.Context, bucket string) (*cluster.Node, bool, error)
+}) {
+	h.clusterRouter = cr
 }
 
 // SetReplicationManager sets the replication manager for realtime object replication
@@ -233,6 +249,88 @@ func (h *Handler) SetReplicationManager(rm interface {
 	QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error
 }) {
 	h.replicationManager = rm
+}
+
+// proxyBucketRequest checks if the given bucket should be routed to a remote cluster node
+// and, if so, proxies the request there, writing the response to w and returning true.
+// Returns false when the request should be handled locally.
+func (h *Handler) proxyBucketRequest(w http.ResponseWriter, r *http.Request, bucketName string) bool {
+	if h.clusterRouter == nil || h.clusterManager == nil {
+		return false
+	}
+	// Prevent infinite proxy loops
+	if r.Header.Get("X-MaxIOFS-Proxied") == "true" {
+		return false
+	}
+
+	node, isLocal, err := h.clusterRouter.RouteRequest(r.Context(), bucketName)
+	if err != nil || isLocal || node == nil {
+		// Error, local bucket, or no node found — handle locally
+		return false
+	}
+
+	// Get local node credentials for HMAC signing
+	nodeID, err := h.clusterManager.GetLocalNodeID(r.Context())
+	if err != nil {
+		logrus.WithError(err).Warn("proxyBucketRequest: failed to get local node ID, handling locally")
+		return false
+	}
+	clusterToken, err := h.clusterManager.GetLocalNodeToken(r.Context())
+	if err != nil {
+		logrus.WithError(err).Warn("proxyBucketRequest: failed to get cluster token, handling locally")
+		return false
+	}
+
+	// Extract user context for forwarding
+	user, _ := auth.GetUserFromContext(r.Context())
+	var userID, tenantID, roles string
+	if user != nil {
+		userID = user.ID
+		tenantID = user.TenantID
+		roles = strings.Join(user.Roles, ",")
+	}
+
+	// Build the proxy client and forward the request to node.APIURL
+	proxyClient := cluster.NewProxyClient(nil) // TLS config optional here; cluster manages its own
+	resp, err := proxyClient.ProxyToNodeAPIURL(r.Context(), node, r, nodeID, clusterToken, userID, tenantID, roles)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucketName,
+			"node":   node.Name,
+			"error":  err.Error(),
+		}).Error("proxyBucketRequest: failed to proxy to remote node")
+		// Let the request fall through to local handling (will likely 404, but better than 502)
+		return false
+	}
+	defer resp.Body.Close()
+
+	proxyClient.CopyResponseToWriter(w, resp) //nolint:errcheck
+	return true
+}
+
+// ValidateAndApplyClusterProxyAuth checks if the request carries inter-node proxy auth headers.
+// If valid, it sets up the user context from forwarded headers and returns true.
+// This allows target nodes to accept proxied S3 requests without re-verifying SigV4.
+func (h *Handler) ValidateAndApplyClusterProxyAuth(r *http.Request, clusterToken string) (newCtx context.Context, ok bool) {
+	userID, tenantID, rolesStr, valid := cluster.ValidateClusterProxyAuth(r, clusterToken)
+	if !valid {
+		return r.Context(), false
+	}
+
+	roles := []string{}
+	if rolesStr != "" {
+		roles = strings.Split(rolesStr, ",")
+	}
+
+	// Build a minimal auth.User from the forwarded context
+	user := &auth.User{
+		ID:       userID,
+		TenantID: tenantID,
+		Roles:    roles,
+	}
+	// Store user in context using the same key as the auth middleware
+	ctx := context.WithValue(r.Context(), "user", user)
+	return ctx, true
 }
 
 // SetMetadataStore sets the metadata store for accessing object versions
@@ -388,8 +486,8 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	var buckets []bucket.Bucket
 
 	if isClusterEnabled && h.bucketAggregator != nil {
-		// Cluster mode: aggregate buckets from all healthy nodes
-		bucketsWithLocation, err := h.bucketAggregator.ListAllBuckets(r.Context(), tenantID)
+		// Cluster mode: aggregate buckets from all healthy nodes (shows remote buckets too)
+		bucketsWithLocation, err := h.bucketAggregator.ListAllBucketsFromAllNodes(r.Context(), tenantID)
 		if err != nil {
 			h.writeError(w, "InternalError", "Failed to list buckets from cluster: "+err.Error(), "", r)
 			return
@@ -727,6 +825,11 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: HeadBucket")
 
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if h.proxyBucketRequest(w, r, bucketName) {
+		return
+	}
+
 	tenantID := h.getTenantIDFromRequest(r)
 
 	// Permission check: Verify user has READ permission via ACL
@@ -812,6 +915,11 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: ListObjects")
+
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if h.proxyBucketRequest(w, r, bucketName) {
+		return
+	}
 
 	// Permission check: Verify user has READ permission via ACL
 	user, userExists := auth.GetUserFromContext(r.Context())
@@ -953,6 +1061,11 @@ func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: ListObjectsV2")
+
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if h.proxyBucketRequest(w, r, bucketName) {
+		return
+	}
 
 	// Permission check: identical logic to ListObjects
 	user, userExists := auth.GetUserFromContext(r.Context())
@@ -1107,6 +1220,11 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		"bucket": bucketName,
 		"object": objectKey,
 	}).Debug("S3 API: GetObject")
+
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if h.proxyBucketRequest(w, r, bucketName) {
+		return
+	}
 
 	// Check if user is authenticated
 	user, userExists := auth.GetUserFromContext(r.Context())
@@ -1293,6 +1411,11 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := getObjectKey(r)
 
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if h.proxyBucketRequest(w, r, bucketName) {
+		return
+	}
+
 	// IMPORTANT: Detect CopyObject operation by x-amz-copy-source header
 	// AWS CLI sends PUT with this header for copy operations
 	if copySource := r.Header.Get("x-amz-copy-source"); copySource != "" {
@@ -1442,6 +1565,11 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := getObjectKey(r)
 
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if h.proxyBucketRequest(w, r, bucketName) {
+		return
+	}
+
 	// Get versionId if specified (for permanent deletion)
 	versionID := r.URL.Query().Get("versionId")
 
@@ -1526,6 +1654,11 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: HeadObject")
 
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if h.proxyBucketRequest(w, r, bucketName) {
+		return
+	}
+
 	// Permission check: Verify user has READ permission on BUCKET (not object yet)
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.getTenantIDFromRequest(r)
@@ -1609,6 +1742,11 @@ func (h *Handler) GetBucketLocation(w http.ResponseWriter, r *http.Request) {
 	// Detect Veeam and log
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if h.proxyBucketRequest(w, r, bucketName) {
+		return
+	}
 	userAgent := r.Header.Get("User-Agent")
 	if isVeeamClient(userAgent) {
 		logrus.WithFields(logrus.Fields{
@@ -1631,6 +1769,11 @@ func (h *Handler) GetBucketVersioning(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	tenantID := h.getTenantIDFromRequest(r)
+
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if h.proxyBucketRequest(w, r, bucketName) {
+		return
+	}
 
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
@@ -1684,6 +1827,11 @@ func (h *Handler) PutBucketVersioning(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	tenantID := h.getTenantIDFromRequest(r)
+
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if h.proxyBucketRequest(w, r, bucketName) {
+		return
+	}
 
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
@@ -1748,6 +1896,11 @@ func (h *Handler) GetObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if h.proxyBucketRequest(w, r, bucketName) {
+		return
+	}
 
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
@@ -1886,6 +2039,11 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
 	}).Info("S3 API: PutObjectLockConfiguration - START")
+
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if h.proxyBucketRequest(w, r, bucketName) {
+		return
+	}
 
 	// Obtener tenantID del usuario autenticado
 	tenantID := h.getTenantIDFromRequest(r)
