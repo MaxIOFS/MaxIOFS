@@ -456,15 +456,30 @@ func (m *Manager) fetchClusterNodes(ctx context.Context, nodeEndpoint, clusterTo
 		return nil, fmt.Errorf("failed to fetch nodes with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	// Parse response
+	// Parse response — node_token is sent as a separate JSON field because
+	// Node.NodeToken has json:"-".  We decode into an intermediate struct so
+	// the token is preserved when storing nodes locally.
 	var response struct {
-		Nodes []*Node `json:"nodes"`
+		Nodes []struct {
+			*Node
+			NodeToken string `json:"node_token"`
+		} `json:"nodes"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return response.Nodes, nil
+	nodes := make([]*Node, len(response.Nodes))
+	for i, n := range response.Nodes {
+		node := n.Node
+		if node == nil {
+			continue
+		}
+		node.NodeToken = n.NodeToken
+		nodes[i] = node
+	}
+
+	return nodes, nil
 }
 
 // LeaveCluster removes this node from the cluster
@@ -512,7 +527,8 @@ func (m *Manager) GetConfig(ctx context.Context) (*ClusterConfig, error) {
 	return &config, nil
 }
 
-// AddNode adds a new node to the cluster
+// AddNode adds a new node to the cluster (or updates key fields if it already exists).
+// Uses INSERT ... ON CONFLICT to preserve health_status, latency, capacity, etc.
 func (m *Manager) AddNode(ctx context.Context, node *Node) error {
 	if node.ID == "" {
 		node.ID = uuid.New().String()
@@ -525,6 +541,13 @@ func (m *Manager) AddNode(ctx context.Context, node *Node) error {
 			health_status, latency_ms, capacity_total, capacity_used,
 			bucket_count, metadata, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			name       = excluded.name,
+			endpoint   = excluded.endpoint,
+			node_token = CASE WHEN excluded.node_token != '' THEN excluded.node_token ELSE cluster_nodes.node_token END,
+			region     = excluded.region,
+			priority   = excluded.priority,
+			updated_at = excluded.updated_at
 	`, node.ID, node.Name, node.Endpoint, node.NodeToken, node.Region, node.Priority,
 		HealthStatusUnknown, 0, 0, 0, 0, node.Metadata, now, now)
 

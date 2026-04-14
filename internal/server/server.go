@@ -74,6 +74,7 @@ type Server struct {
 	idpProviderSyncMgr      *cluster.IDPProviderSyncManager
 	groupMappingSyncMgr     *cluster.GroupMappingSyncManager
 	deletionLogSyncMgr      *cluster.DeletionLogSyncManager
+	globalConfigSyncMgr     *cluster.GlobalConfigSyncManager
 	staleReconciler         *cluster.StaleReconciler
 	haSyncWorker            *cluster.HASyncWorker
 	notificationHub         *NotificationHub
@@ -395,6 +396,9 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize deletion log synchronization manager
 	deletionLogSyncMgr := cluster.NewDeletionLogSyncManager(db, clusterManager)
 
+	// Initialize global config and node list synchronization manager
+	globalConfigSyncMgr := cluster.NewGlobalConfigSyncManager(db, clusterManager)
+
 	// Initialize stale-node reconciler
 	staleReconciler := cluster.NewStaleReconciler(db, clusterManager)
 	staleReconciler.SetObjectManagers(objectManager, bucketManager)
@@ -464,6 +468,7 @@ func New(cfg *config.Config) (*Server, error) {
 		idpProviderSyncMgr:      idpProviderSyncMgr,
 		groupMappingSyncMgr:     groupMappingSyncMgr,
 		deletionLogSyncMgr:      deletionLogSyncMgr,
+		globalConfigSyncMgr:     globalConfigSyncMgr,
 		staleReconciler:         staleReconciler,
 		notificationHub:         notificationHub,
 		quotaAlerts:             quotaAlerts,
@@ -630,6 +635,12 @@ func (s *Server) Start(ctx context.Context) error {
 		if s.deletionLogSyncMgr != nil {
 			s.deletionLogSyncMgr.Start(ctx)
 			logrus.Info("Deletion log synchronization manager started")
+		}
+
+		// Start global config and node list synchronization manager
+		if s.globalConfigSyncMgr != nil {
+			s.globalConfigSyncMgr.Start(ctx)
+			logrus.Info("Global config synchronization manager started")
 		}
 
 		// Start deletion log cleanup (every 1 hour, remove entries older than 7 days)
@@ -1089,6 +1100,7 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	public.HandleFunc("/register-node", s.handleRegisterNode).Methods("POST")
 	public.HandleFunc("/nodes", s.handleGetClusterNodesInternal).Methods("GET")
 	public.HandleFunc("/sign-csr", s.handleSignCSR).Methods("POST")
+	public.HandleFunc("/notify-node", s.handleNotifyNewNode).Methods("POST")
 
 	clusterAuth := middleware.NewClusterAuthMiddleware(s.db)
 	hmac := router.PathPrefix("/api/internal/cluster").Subrouter()
@@ -1113,6 +1125,8 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/idp-provider-delete-sync", s.handleReceiveIDPProviderDeleteSync).Methods("POST")
 	hmac.HandleFunc("/group-mapping-sync", s.handleReceiveGroupMappingSync).Methods("POST")
 	hmac.HandleFunc("/group-mapping-delete-sync", s.handleReceiveGroupMappingDeleteSync).Methods("POST")
+	hmac.HandleFunc("/global-config-sync", s.handleReceiveGlobalConfigSync).Methods("POST")
+	hmac.HandleFunc("/node-list-sync", s.handleReceiveNodeListSync).Methods("POST")
 	hmac.HandleFunc("/deletion-log-sync", s.handleReceiveDeletionLogSync).Methods("POST")
 	hmac.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectReplication).Methods("PUT")
 	hmac.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectDeletion).Methods("DELETE")

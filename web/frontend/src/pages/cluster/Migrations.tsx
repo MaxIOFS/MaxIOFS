@@ -18,7 +18,7 @@ interface MigrationsTabProps {
   migrations: MigrationJob[];
   buckets: BucketWithReplication[];
   nodes: ClusterNode[];
-  onMigrate: (request: MigrateBucketRequest) => void;
+  onMigrate: (bucket: string, request: MigrateBucketRequest) => void;
   onViewDetails: (id: number) => void;
   onRefresh: () => void;
 }
@@ -244,7 +244,7 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
           }}
           onSubmit={(bucket, request) => {
             setSelectedBucket(bucket);
-            onMigrate(request);
+            onMigrate(bucket, request);
             setShowMigrateDialog(false);
           }}
         />
@@ -399,7 +399,6 @@ export default function ClusterMigrations() {
   const [buckets, setBuckets] = useState<BucketWithReplication[]>([]);
   const [nodes, setNodes] = useState<ClusterNode[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -423,11 +422,9 @@ export default function ClusterMigrations() {
     }
   };
 
-  const handleMigrateBucket = async (request: MigrateBucketRequest) => {
-    if (!selectedBucket) return;
-
+  const handleMigrateBucket = async (bucket: string, request: MigrateBucketRequest) => {
     try {
-      await APIClient.migrateBucket(selectedBucket, request);
+      await APIClient.migrateBucket(bucket, request);
       alert(t('migrationStartedSuccess'));
       await loadData();
     } catch (err: unknown) {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/tls"
 	"encoding/json"
@@ -83,7 +84,7 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 		ClusterToken string `json:"cluster_token"`
 		NodeEndpoint string `json:"node_endpoint"`
 		SelfEndpoint string `json:"self_endpoint"` // cluster URL this node should register as (set by Add Node flow)
-		NodeName     string `json:"node_name"`      // optional name for this node (set by Add Node flow)
+		NodeName     string `json:"node_name"`     // optional name for this node (set by Add Node flow)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -883,6 +884,11 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 		"endpoint":  req.Node.Endpoint,
 	}).Info("Node registered successfully")
 
+	// Broadcast the new node to all other existing nodes (best-effort, async).
+	// This ensures that when a 3rd node joins via node A, nodes B, C, etc.
+	// also learn about the new node immediately instead of never discovering it.
+	go s.broadcastNewNode(r.Context(), req.Node, config.ClusterToken)
+
 	resp := map[string]interface{}{
 		"node": req.Node,
 	}
@@ -890,6 +896,106 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 		resp["ca_cert"] = caCert
 	}
 	s.writeClusterJSON(w, resp)
+}
+
+// broadcastNewNode notifies all existing nodes about a newly registered node.
+// Runs in a goroutine — best-effort, logs errors but does not block the caller.
+func (s *Server) broadcastNewNode(ctx context.Context, newNode *cluster.Node, clusterToken string) {
+	// Use a background context so this is not cancelled when the HTTP request ends.
+	bgCtx := context.Background()
+
+	nodes, err := s.clusterManager.ListNodes(bgCtx)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to list nodes for broadcast")
+		return
+	}
+
+	localNodeID, _ := s.clusterManager.GetLocalNodeID(bgCtx)
+
+	for _, node := range nodes {
+		// Skip the new node itself and ourselves
+		if node.ID == newNode.ID || node.ID == localNodeID {
+			continue
+		}
+
+		url := fmt.Sprintf("%s/api/internal/cluster/notify-node", node.Endpoint)
+		payload, _ := json.Marshal(map[string]interface{}{
+			"cluster_token": clusterToken,
+			"node":          newNode,
+			"node_token":    newNode.NodeToken,
+		})
+
+		req, err := http.NewRequestWithContext(bgCtx, "POST", url, bytes.NewReader(payload))
+		if err != nil {
+			logrus.WithError(err).WithField("target_node", node.ID).Warn("Failed to create broadcast request")
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			logrus.WithError(err).WithField("target_node", node.ID).Warn("Failed to broadcast new node")
+			continue
+		}
+		resp.Body.Close()
+
+		logrus.WithFields(logrus.Fields{
+			"new_node":    newNode.ID,
+			"target_node": node.ID,
+			"status":      resp.StatusCode,
+		}).Info("Broadcasted new node to existing cluster member")
+	}
+}
+
+// handleNotifyNewNode receives a notification about a new node joining the cluster.
+// This is called by the node that accepted the join, to notify all other members.
+func (s *Server) handleNotifyNewNode(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ClusterToken string        `json:"cluster_token"`
+		Node         *cluster.Node `json:"node"`
+		NodeToken    string        `json:"node_token"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.ClusterToken == "" || req.Node == nil {
+		s.writeError(w, "Cluster token and node are required", http.StatusBadRequest)
+		return
+	}
+
+	// Restore node_token from the dedicated field (Node.NodeToken is json:"-")
+	if req.NodeToken != "" {
+		req.Node.NodeToken = req.NodeToken
+	}
+
+	// Validate cluster token
+	config, err := s.clusterManager.GetConfig(r.Context())
+	if err != nil {
+		s.writeError(w, "Failed to get cluster config", http.StatusInternalServerError)
+		return
+	}
+
+	if !hmac.Equal([]byte(config.ClusterToken), []byte(req.ClusterToken)) {
+		s.writeError(w, "Invalid cluster token", http.StatusUnauthorized)
+		return
+	}
+
+	// Add the new node (idempotent — uses INSERT OR REPLACE)
+	if err := s.clusterManager.AddNode(r.Context(), req.Node); err != nil {
+		logrus.WithError(err).Error("Failed to add broadcasted node")
+		s.writeError(w, "Failed to add node", http.StatusInternalServerError)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"node_id":   req.Node.ID,
+		"node_name": req.Node.Name,
+	}).Info("Received new node notification from cluster")
+
+	w.WriteHeader(http.StatusOK)
 }
 
 // handleGetClusterJWTSecret returns the JWT secret for cluster synchronization (HMAC-authenticated)
@@ -945,8 +1051,21 @@ func (s *Server) handleGetClusterNodesInternal(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Build response with node_token included.
+	// Node.NodeToken has json:"-" so we must expose it explicitly here.
+	// This endpoint is already authenticated via cluster token, so sharing
+	// node tokens is safe — they are needed for HMAC inter-node auth.
+	type nodeWithToken struct {
+		*cluster.Node
+		NodeToken string `json:"node_token"`
+	}
+	nodesWithTokens := make([]nodeWithToken, len(nodes))
+	for i, n := range nodes {
+		nodesWithTokens[i] = nodeWithToken{Node: n, NodeToken: n.NodeToken}
+	}
+
 	s.writeClusterJSON(w, map[string]interface{}{
-		"nodes": nodes,
+		"nodes": nodesWithTokens,
 	})
 }
 
