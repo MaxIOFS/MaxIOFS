@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/bucket"
@@ -98,127 +97,15 @@ func (ba *BucketAggregator) ListAllBuckets(ctx context.Context, tenantID string)
 		"tenant_id":     tenantID,
 	}).Debug("Listed local buckets")
 
-	// HA mode: every node holds a complete copy of all buckets, so the local
-	// listing is already complete.  Skip cross-node queries to avoid N-1
-	// redundant HTTP calls and spurious deduplication log noise.
-	if factor, err := ba.clusterManager.GetReplicationFactor(ctx); err == nil && factor > 1 {
-		ba.log.WithField("factor", factor).Debug("Bucket aggregation: HA mode, using local listing only")
-		return allBuckets, nil
-	}
-
-	// Get all healthy nodes (excluding self)
-	nodes, err := ba.clusterManager.GetHealthyNodes(ctx)
-	if err != nil {
-		ba.log.WithError(err).Warn("Failed to get healthy nodes, returning local buckets only")
-		return allBuckets, nil
-	}
-
-	if len(nodes) == 0 {
-		ba.log.Debug("No remote nodes in cluster, returning local buckets only")
-		return allBuckets, nil
-	}
-
+	// Each node is authoritative for its own buckets only.
+	// factor > 1 (HA): every node holds a full copy — local listing is complete.
+	// factor <= 1 (independent): each node owns its own buckets — local only.
+	// Cross-node aggregation is not done here: showing remote buckets via the local
+	// S3 API causes empty-bucket confusion because objects live on the remote node.
 	ba.log.WithFields(logrus.Fields{
-		"node_count": len(nodes),
-		"tenant_id":  tenantID,
-	}).Debug("Querying buckets from all cluster nodes")
-
-	// Query all nodes in parallel
-	type nodeResult struct {
-		nodeID   string
-		nodeName string
-		buckets  []BucketWithLocation
-		err      error
-	}
-
-	resultsChan := make(chan nodeResult, len(nodes))
-	var wg sync.WaitGroup
-
-	for _, node := range nodes {
-		wg.Add(1)
-		go func(n *Node) {
-			defer wg.Done()
-
-			// Get circuit breaker for this node
-			circuitBreaker := ba.circuitBreakers.GetBreaker(n.ID)
-
-			// Wrap query in circuit breaker
-			var buckets []BucketWithLocation
-			err := circuitBreaker.Call(func() error {
-				b, err := ba.queryBucketsFromNode(ctx, n, tenantID)
-				if err != nil {
-					return err
-				}
-				buckets = b
-				return nil
-			})
-
-			if err == ErrCircuitOpen {
-				ba.log.WithFields(logrus.Fields{
-					"node_id":   n.ID,
-					"node_name": n.Name,
-				}).Warn("Circuit breaker open for node, skipping query")
-			}
-
-			resultsChan <- nodeResult{
-				nodeID:   n.ID,
-				nodeName: n.Name,
-				buckets:  buckets,
-				err:      err,
-			}
-		}(node)
-	}
-
-	// Wait for all goroutines to complete
-	go func() {
-		wg.Wait()
-		close(resultsChan)
-	}()
-
-	// Collect results from remote nodes and add to local buckets
-	successCount := 0
-	failureCount := 0
-	remoteBucketsCount := 0
-
-	for result := range resultsChan {
-		if result.err != nil {
-			ba.log.WithError(result.err).WithFields(logrus.Fields{
-				"node_id":   result.nodeID,
-				"node_name": result.nodeName,
-			}).Warn("Failed to query buckets from remote node")
-			failureCount++
-			continue
-		}
-
-		// Add node information to each bucket
-		for i := range result.buckets {
-			result.buckets[i].NodeID = result.nodeID
-			result.buckets[i].NodeName = result.nodeName
-			result.buckets[i].NodeStatus = "remote"
-		}
-
-		allBuckets = append(allBuckets, result.buckets...)
-		remoteBucketsCount += len(result.buckets)
-		successCount++
-	}
-
-	// Deduplicate by (TenantID, Name): same logical bucket on multiple nodes appears once.
-	// Prefer local node as representative; otherwise keep first by NodeID (stable order).
-	allBuckets = deduplicateBucketsByTenantAndName(allBuckets)
-
-	duration := time.Since(startTime)
-
-	ba.log.WithFields(logrus.Fields{
-		"total_buckets":  len(allBuckets),
-		"local_buckets":  len(allBuckets) - remoteBucketsCount,
-		"remote_buckets": remoteBucketsCount,
-		"success_nodes":  successCount,
-		"failed_nodes":   failureCount,
-		"duration_ms":    duration.Milliseconds(),
-	}).Info("Bucket aggregation completed")
-
-	// Note: We always have local buckets, so never return error
-	// Even if all remote nodes fail, local buckets are still available
+		"local_buckets": len(allBuckets),
+		"duration_ms":   time.Since(startTime).Milliseconds(),
+	}).Debug("Bucket listing completed (local only)")
 	return allBuckets, nil
 }
 

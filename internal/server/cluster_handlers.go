@@ -25,9 +25,8 @@ func (s *Server) handleInitializeCluster(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req struct {
-		NodeName      string `json:"node_name"`
-		Region        string `json:"region"`
-		LocalEndpoint string `json:"local_endpoint"` // optional: internal S3 API address for peer-to-peer communication
+		NodeName string `json:"node_name"`
+		Region   string `json:"region"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -40,7 +39,25 @@ func (s *Server) handleInitializeCluster(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	clusterToken, err := s.clusterManager.InitializeCluster(r.Context(), req.NodeName, req.Region, strings.TrimRight(req.LocalEndpoint, "/"))
+	// Derive this node's cluster endpoint from the IP the browser used to reach this console.
+	// For multi-NIC servers the user can set cluster_listen to bind a specific IP.
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	host := r.Host
+	if h, _, err := net.SplitHostPort(r.Host); err == nil {
+		host = h
+	}
+	clusterPort := "8082"
+	if s.config.ClusterListen != "" {
+		if _, p, err := net.SplitHostPort(s.config.ClusterListen); err == nil && p != "" {
+			clusterPort = p
+		}
+	}
+	nodeClusterEndpoint := scheme + "://" + host + ":" + clusterPort
+
+	clusterToken, err := s.clusterManager.InitializeCluster(r.Context(), req.NodeName, req.Region, nodeClusterEndpoint)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to initialize cluster")
 		s.writeError(w, "Failed to initialize cluster: "+err.Error(), http.StatusInternalServerError)
@@ -66,6 +83,7 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 		ClusterToken string `json:"cluster_token"`
 		NodeEndpoint string `json:"node_endpoint"`
 		SelfEndpoint string `json:"self_endpoint"` // cluster URL this node should register as (set by Add Node flow)
+		NodeName     string `json:"node_name"`      // optional name for this node (set by Add Node flow)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -108,26 +126,22 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 		selfEndpoint = scheme + "://" + host + ":" + clusterPort
 	}
 
-	err = s.clusterManager.JoinCluster(r.Context(), req.ClusterToken, req.NodeEndpoint, selfEndpoint)
+	jwtSecret, err := s.clusterManager.JoinCluster(r.Context(), req.ClusterToken, req.NodeEndpoint, selfEndpoint, req.NodeName)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to join cluster")
 		s.writeError(w, "Failed to join cluster: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// After successful join, fetch JWT secret from the existing node
-	// so all cluster nodes share the same JWT signing key
-	jwtSecret, err := s.clusterManager.FetchJWTSecretFromNode(r.Context(), req.NodeEndpoint)
-	if err != nil {
-		logrus.WithError(err).Warn("Failed to fetch JWT secret from cluster node (sessions may not be shared across nodes)")
-	} else {
-		// Update the auth manager's JWT secret at runtime
+	// Adopt the cluster's JWT secret so all nodes share the same signing key.
+	// The secret is returned directly from the validate-token step (cluster-token-protected).
+	if jwtSecret != "" {
 		if setter, ok := s.authManager.(interface{ SetJWTSecret(string) }); ok {
 			setter.SetJWTSecret(jwtSecret)
 			logrus.Info("JWT secret synchronized from cluster node")
-		} else {
-			logrus.Warn("Auth manager does not support SetJWTSecret")
 		}
+	} else {
+		logrus.Warn("Cluster did not return a JWT secret — cross-node sessions will not be shared")
 	}
 
 	s.writeJSON(w, map[string]interface{}{
@@ -253,10 +267,10 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Endpoint      string `json:"endpoint"`
-		Username      string `json:"username"`
-		Password      string `json:"password"`
-		LocalEndpoint string `json:"local_endpoint"` // optional: internal API URL other nodes use to reach this node
+		Endpoint string `json:"endpoint"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		NodeName string `json:"node_name"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -269,9 +283,7 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse and validate the remote console endpoint (default port 8081).
-	// We intentionally allow private-range IPs (RFC 1918) because cluster nodes
-	// are commonly deployed on private networks.
+	// Parse B's console address (default port 8081).
 	remoteConsoleURL, err := parseNodeAddress(req.Endpoint, "8081")
 	if err != nil {
 		s.writeError(w, "Invalid node address: "+err.Error(), http.StatusBadRequest)
@@ -286,31 +298,22 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine this node's cluster endpoint for inter-node communication.
-	// All cluster routes are on the dedicated cluster port (default :8082).
-	//
-	// Priority:
-	//  1. Explicitly provided local_endpoint in the request body.
-	//  2. Derived from the request Host (the IP the browser reached) + cluster port.
-	localEndpoint := strings.TrimRight(req.LocalEndpoint, "/")
-	if localEndpoint == "" {
-		scheme := "http"
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-			scheme = "https"
-		}
-		// Extract just the hostname/IP from r.Host (strip any port)
-		host := r.Host
-		if h, _, err := net.SplitHostPort(r.Host); err == nil {
-			host = h
-		}
-		clusterPort := "8082"
-		if s.config.ClusterListen != "" {
-			if _, p, err := net.SplitHostPort(s.config.ClusterListen); err == nil && p != "" {
-				clusterPort = p
-			}
-		}
-		localEndpoint = scheme + "://" + host + ":" + clusterPort
+	// A's cluster endpoint: the IP the browser used to reach A's console + cluster port.
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
 	}
+	host := r.Host
+	if h, _, err := net.SplitHostPort(r.Host); err == nil {
+		host = h
+	}
+	clusterPort := "8082"
+	if s.config.ClusterListen != "" {
+		if _, p, err := net.SplitHostPort(s.config.ClusterListen); err == nil && p != "" {
+			clusterPort = p
+		}
+	}
+	localEndpoint := scheme + "://" + host + ":" + clusterPort
 
 	// Step 1: Authenticate to the remote node
 	// Use insecure TLS — the remote node is standalone and may have a self-signed cert
@@ -383,19 +386,14 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	// Derive B's cluster URL from the console URL A used to reach it.
 	// B's IP is already known; just swap the port to the cluster port (8082).
 	remoteParsed, _ := url.Parse(remoteConsoleURL)
-	clusterPort := "8082"
-	if s.config.ClusterListen != "" {
-		if _, p, err := net.SplitHostPort(s.config.ClusterListen); err == nil && p != "" {
-			clusterPort = p
-		}
-	}
 	remoteClusterURL := remoteParsed.Scheme + "://" + remoteParsed.Hostname() + ":" + clusterPort
 
 	// Step 3: Call the remote node's join endpoint
 	joinPayload, _ := json.Marshal(map[string]string{
 		"cluster_token": config.ClusterToken,
 		"node_endpoint": localEndpoint,
-		"self_endpoint": remoteClusterURL, // tell B to register with its own cluster URL
+		"self_endpoint": remoteClusterURL,
+		"node_name":     req.NodeName,
 	})
 
 	joinReq, _ := http.NewRequestWithContext(r.Context(), "POST", remoteEndpoint+"/api/v1/cluster/join", bytes.NewReader(joinPayload))
@@ -769,6 +767,13 @@ func (s *Server) handleValidateClusterToken(w http.ResponseWriter, r *http.Reque
 		resp["ca_cert"] = caCert
 	}
 
+	// Include the JWT secret so joining nodes can adopt it immediately.
+	// Protected by the cluster token that was already validated above.
+	var jwtSecret string
+	if err := s.db.QueryRow(`SELECT value FROM system_settings WHERE key = ?`, "jwt_secret").Scan(&jwtSecret); err == nil && jwtSecret != "" {
+		resp["jwt_secret"] = jwtSecret
+	}
+
 	s.writeClusterJSON(w, resp)
 }
 
@@ -828,6 +833,7 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ClusterToken string        `json:"cluster_token"`
 		Node         *cluster.Node `json:"node"`
+		NodeToken    string        `json:"node_token"` // sent separately because Node.NodeToken has json:"-"
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -843,6 +849,11 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 	if req.Node == nil {
 		s.writeError(w, "Node information is required", http.StatusBadRequest)
 		return
+	}
+
+	// Restore node_token from the dedicated field (Node.NodeToken is json:"-")
+	if req.NodeToken != "" {
+		req.Node.NodeToken = req.NodeToken
 	}
 
 	// Validate cluster token

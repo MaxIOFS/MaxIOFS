@@ -44,25 +44,25 @@ import (
 
 // Server represents the MaxIOFS server
 type Server struct {
-	config                  *config.Config
-	httpServer              *http.Server
-	consoleServer           *http.Server
-	clusterServer           *http.Server // dedicated inter-node communication port
-	storageBackend          storage.Backend
-	metadataStore           metadata.Store
-	bucketManager           bucket.Manager
-	objectManager           object.Manager
-	authManager             auth.Manager
-	db                      *sql.DB
-	auditManager            *audit.Manager
-	metricsManager          metrics.Manager
-	settingsManager         *settings.Manager
-	loggingManager          *logging.Manager
-	shareManager            share.Manager
-	notificationManager     *notifications.Manager
-	replicationManager      *replication.Manager
-	clusterManager          *cluster.Manager
-	clusterRouter           *cluster.Router
+	config              *config.Config
+	httpServer          *http.Server
+	consoleServer       *http.Server
+	clusterServer       *http.Server // dedicated inter-node communication port
+	storageBackend      storage.Backend
+	metadataStore       metadata.Store
+	bucketManager       bucket.Manager
+	objectManager       object.Manager
+	authManager         auth.Manager
+	db                  *sql.DB
+	auditManager        *audit.Manager
+	metricsManager      metrics.Manager
+	settingsManager     *settings.Manager
+	loggingManager      *logging.Manager
+	shareManager        share.Manager
+	notificationManager *notifications.Manager
+	replicationManager  *replication.Manager
+	clusterManager      *cluster.Manager
+	clusterRouter       *cluster.Router
 
 	bucketAggregator        *cluster.BucketAggregator
 	quotaAggregator         *cluster.QuotaAggregator
@@ -432,25 +432,25 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	server := &Server{
-		config:                  cfg,
-		httpServer:              httpServer,
-		consoleServer:           consoleServer,
-		clusterServer:           clusterServer,
-		storageBackend:          storageBackend,
-		metadataStore:           metadataStore,
-		bucketManager:           bucketManager,
-		objectManager:           objectManager,
-		authManager:             authManager,
-		db:                      db,
-		auditManager:            auditManager,
-		metricsManager:          metricsManager,
-		settingsManager:         settingsManager,
-		loggingManager:          loggingManager,
-		shareManager:            shareManager,
-		notificationManager:     notificationManager,
-		replicationManager:      replicationManager,
-		clusterManager:          clusterManager,
-		clusterRouter:           clusterRouter,
+		config:              cfg,
+		httpServer:          httpServer,
+		consoleServer:       consoleServer,
+		clusterServer:       clusterServer,
+		storageBackend:      storageBackend,
+		metadataStore:       metadataStore,
+		bucketManager:       bucketManager,
+		objectManager:       objectManager,
+		authManager:         authManager,
+		db:                  db,
+		auditManager:        auditManager,
+		metricsManager:      metricsManager,
+		settingsManager:     settingsManager,
+		loggingManager:      loggingManager,
+		shareManager:        shareManager,
+		notificationManager: notificationManager,
+		replicationManager:  replicationManager,
+		clusterManager:      clusterManager,
+		clusterRouter:       clusterRouter,
 
 		bucketAggregator:        bucketAggregator,
 		quotaAggregator:         quotaAggregator,
@@ -1048,24 +1048,39 @@ func (s *Server) setupRoutes() error {
 }
 
 func (s *Server) setupConsoleRoutes(router *mux.Router) {
-	logrus.WithField("public_console_url", s.config.PublicConsoleURL).Info("Setting up console routes")
+	basePath := extractBasePathFromURL(s.config.PublicConsoleURL)
 
+	logrus.WithFields(logrus.Fields{
+		"public_console_url": s.config.PublicConsoleURL,
+		"base_path":          basePath,
+	}).Info("Setting up console routes")
+
+	// If there's a subpath, all routes live under it
+	var baseRouter *mux.Router
+	if basePath != "/" && basePath != "" {
+		baseRouter = router.PathPrefix(basePath).Subrouter()
+	} else {
+		baseRouter = router
+	}
+
+	// API endpoints under base path
+	baseRouter.HandleFunc("/api/v1", s.handleAPIRoot).Methods("GET", "OPTIONS")
+	baseRouter.HandleFunc("/api/v1/", s.handleAPIRoot).Methods("GET", "OPTIONS")
+
+	apiRouter := baseRouter.PathPrefix("/api/v1").Subrouter()
+	apiRouter.Use(middleware.TracingMiddleware)
+	s.setupConsoleAPIRoutes(apiRouter)
+
+	s.RegisterProfilingRoutes(baseRouter)
+
+	// Serve embedded frontend for all other routes
 	frontendHandler, err := s.setupEmbeddedFrontend()
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to setup embedded frontend - frontend must be built and embedded")
 		return
 	}
 
-	router.HandleFunc("/api/v1", s.handleAPIRoot).Methods("GET", "OPTIONS")
-	router.HandleFunc("/api/v1/", s.handleAPIRoot).Methods("GET", "OPTIONS")
-
-	apiRouter := router.PathPrefix("/api/v1").Subrouter()
-	apiRouter.Use(middleware.TracingMiddleware)
-	s.setupConsoleAPIRoutes(apiRouter)
-
-	s.RegisterProfilingRoutes(router)
-
-	router.PathPrefix("/").Handler(frontendHandler)
+	baseRouter.PathPrefix("/").Handler(frontendHandler)
 }
 
 // setupClusterRoutes registers all inter-node cluster communication routes on the
@@ -1075,6 +1090,9 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	if s.clusterManager == nil {
 		return
 	}
+
+	// Health check — unauthenticated, used by peer nodes to verify liveness
+	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET")
 
 	// Bootstrap routes — cluster-token auth (no HMAC, used during node join)
 	public := router.PathPrefix("/api/internal/cluster").Subrouter()
@@ -1242,12 +1260,12 @@ func websiteServingMiddleware(s *Server, next http.Handler) http.Handler {
 // When the bucket has no website config (or bucket not found), we return 403 AccessDenied
 // so it looks like a normal permission denial instead of revealing bucket/website state.
 type s3ErrorXML struct {
-	XMLName xml.Name `xml:"Error"`
-	Code    string   `xml:"Code"`
-	Message string   `xml:"Message"`
-	Resource string  `xml:"Resource,omitempty"`
-	RequestID string `xml:"RequestId"`
-	HostID   string  `xml:"HostId"`
+	XMLName   xml.Name `xml:"Error"`
+	Code      string   `xml:"Code"`
+	Message   string   `xml:"Message"`
+	Resource  string   `xml:"Resource,omitempty"`
+	RequestID string   `xml:"RequestId"`
+	HostID    string   `xml:"HostId"`
 }
 
 // writeWebsiteAccessDenied sends 403 with S3-style XML so the endpoint behaves like

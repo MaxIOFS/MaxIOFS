@@ -13,6 +13,7 @@
   "initClusterTitle": "Inicializar Clúster",
   "initClusterDesc": "Esto creará un nuevo clúster con este nodo como primer miembro. Recibirás un token de clúster para añadir otros nodos.",
   "nodeName": "Nombre del Nodo",
+  "nodeNameHint": "Opcional. Si se deja vacío se genera automáticamente.",
   "regionOptional": "Región (opcional)",
 "cancel": "Cancelar",
   "initialize": "Inicializar",
@@ -104,7 +105,7 @@
   "addNodeTitle": "Añadir Nodo al Clúster",
   "addNodeDesc": "Introduce la URL de consola y las credenciales de administrador del nodo remoto. El nodo debe estar en modo independiente (no pertenecer ya a un clúster).",
   "consoleUrl": "IP del Nodo *",
-  "consoleUrlHint": "Dirección IP (o IP:puerto) del nodo remoto. El puerto predeterminado es 8081.",
+  "consoleUrlHint": "IP del nodo remoto (puerto de consola 8081). La comunicación del clúster usará el puerto 8082 automáticamente.",
   "adminUsername": "Usuario Administrador *",
   "adminPassword": "Contraseña de Administrador *",
 

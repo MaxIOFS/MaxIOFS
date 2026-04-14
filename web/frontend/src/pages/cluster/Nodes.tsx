@@ -262,13 +262,18 @@ const getHealthIcon = (status: HealthStatus) => {
             <form onSubmit={(e) => {
               e.preventDefault();
               const formData = new FormData(e.currentTarget);
-              handleAddNode({ endpoint: formData.get('endpoint') as string, username: formData.get('username') as string, password: formData.get('password') as string } as AddNodeRequest);
+              handleAddNode({ endpoint: formData.get('endpoint') as string, username: formData.get('username') as string, password: formData.get('password') as string, node_name: formData.get('node_name') as string || undefined } as AddNodeRequest);
             }}>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1">{t('consoleUrl')}</label>
                   <input name="endpoint" type="text" required placeholder="192.168.1.10" className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500" />
                   <p className="text-xs text-muted-foreground mt-1">{t('consoleUrlHint')}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('nodeName')}</label>
+                  <input name="node_name" type="text" placeholder="node-2" className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500" />
+                  <p className="text-xs text-muted-foreground mt-1">{t('nodeNameHint')}</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1">{t('adminUsername')}</label>

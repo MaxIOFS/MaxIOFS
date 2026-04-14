@@ -13,6 +13,7 @@
   "initClusterTitle": "Initialize Cluster",
   "initClusterDesc": "This will create a new cluster with this node as the first member. You will receive a cluster token to add other nodes.",
   "nodeName": "Node Name",
+  "nodeNameHint": "Optional. Leave empty to auto-generate.",
   "regionOptional": "Region (optional)",
 "cancel": "Cancel",
   "initialize": "Initialize",
@@ -104,7 +105,7 @@
   "addNodeTitle": "Add Node to Cluster",
   "addNodeDesc": "Enter the console URL and admin credentials of the remote node. The node must be in standalone mode (not already in a cluster).",
   "consoleUrl": "Node IP Address *",
-  "consoleUrlHint": "IP address (or IP:port) of the remote node. Default port is 8081.",
+  "consoleUrlHint": "IP address of the remote node (console port 8081). Cluster communication will use port 8082 automatically.",
   "adminUsername": "Admin Username *",
   "adminPassword": "Admin Password *",
 

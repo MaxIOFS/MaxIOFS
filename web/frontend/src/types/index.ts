@@ -1082,6 +1082,7 @@ export interface AddNodeRequest {
   endpoint: string;
   username: string;
   password: string;
+  node_name?: string;
 }
 
 export interface UpdateNodeRequest {

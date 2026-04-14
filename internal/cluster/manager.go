@@ -79,15 +79,10 @@ func (m *Manager) SetBucketManager(bm bucketManagerForMigration) {
 }
 
 // InitializeCluster initializes a new cluster with this node.
-// nodeEndpoint is the cluster inter-node address other nodes will use to reach this node.
-// If empty, falls back to clusterURL (port 8082), then publicAPIURL as last resort.
+// nodeEndpoint is the cluster inter-node address (scheme://ip:clusterPort) other nodes will use to reach this node.
 func (m *Manager) InitializeCluster(ctx context.Context, nodeName, region, nodeEndpoint string) (string, error) {
 	if nodeEndpoint == "" {
-		if m.clusterURL != "" {
-			nodeEndpoint = m.clusterURL
-		} else {
-			nodeEndpoint = m.publicAPIURL
-		}
+		return "", fmt.Errorf("node cluster endpoint is required")
 	}
 	// Check if cluster is already initialized
 	var exists int
@@ -157,14 +152,16 @@ func (m *Manager) InitializeCluster(ctx context.Context, nodeName, region, nodeE
 
 // JoinCluster joins an existing cluster.
 // selfEndpoint is the cluster URL (scheme://ip:clusterPort) that this node should register as.
-func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint, selfEndpoint string) error {
-	// Step 1: Validate cluster token with the existing cluster node (receives CA cert only, NOT the CA key)
-	valid, nodeInfo, caCertPEM, err := m.validateClusterToken(ctx, clusterToken, nodeEndpoint)
+// nodeName is optional — if empty, a name is auto-generated.
+// Returns the cluster's JWT secret (for cross-node session sharing) and any error.
+func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint, selfEndpoint, nodeName string) (string, error) {
+	// Step 1: Validate cluster token with the existing cluster node (receives CA cert, JWT secret, NOT the CA key)
+	valid, nodeInfo, caCertPEM, jwtSecret, err := m.validateClusterToken(ctx, clusterToken, nodeEndpoint)
 	if err != nil {
-		return fmt.Errorf("failed to validate cluster token: %w", err)
+		return "", fmt.Errorf("failed to validate cluster token: %w", err)
 	}
 	if !valid {
-		return fmt.Errorf("invalid cluster token")
+		return "", fmt.Errorf("invalid cluster token")
 	}
 
 	m.log.WithFields(logrus.Fields{
@@ -176,9 +173,12 @@ func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint, s
 	thisNodeID := uuid.New().String()
 	thisNodeToken, err := generateClusterToken()
 	if err != nil {
-		return fmt.Errorf("failed to generate node token: %w", err)
+		return "", fmt.Errorf("failed to generate node token: %w", err)
 	}
-	thisNodeName := fmt.Sprintf("node-%s", thisNodeID[:8])
+	thisNodeName := nodeName
+	if thisNodeName == "" {
+		thisNodeName = fmt.Sprintf("node-%s", thisNodeID[:8])
+	}
 
 	// Step 3: Register this node with the existing cluster node
 	registeredNode, err := m.registerWithCluster(ctx, nodeEndpoint, clusterToken, &Node{
@@ -190,7 +190,7 @@ func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint, s
 		Priority:  5, // Default priority
 	})
 	if err != nil {
-		return fmt.Errorf("failed to register with cluster: %w", err)
+		return "", fmt.Errorf("failed to register with cluster: %w", err)
 	}
 
 	m.log.WithFields(logrus.Fields{
@@ -221,7 +221,7 @@ func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint, s
 	// Delete any existing config and insert new one (since node_id is primary key)
 	_, err = m.db.ExecContext(ctx, `DELETE FROM cluster_config`)
 	if err != nil {
-		return fmt.Errorf("failed to clear cluster config: %w", err)
+		return "", fmt.Errorf("failed to clear cluster config: %w", err)
 	}
 
 	// Store caCertPEM but NOT the CA key (we never receive it — security by design)
@@ -231,7 +231,7 @@ func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint, s
 	`, thisNodeID, thisNodeName, clusterToken, nodeInfo.Region, caCertPEM, nodeCertPEM, nodeKeyPEM)
 
 	if err != nil {
-		return fmt.Errorf("failed to update cluster config: %w", err)
+		return "", fmt.Errorf("failed to update cluster config: %w", err)
 	}
 
 	// Step 5: Fetch and store all other nodes from the cluster
@@ -278,13 +278,14 @@ func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint, s
 		"cluster_id": nodeInfo.ClusterID,
 	}).Info("Successfully joined cluster")
 
-	return nil
+	return jwtSecret, nil
 }
 
 // validateClusterToken validates a cluster token with an existing cluster node.
-// Returns validity, cluster info, and the CA certificate PEM.
+// Returns validity, cluster info, the CA certificate PEM, the JWT secret, and any error.
 // The CA private key is never transmitted; use requestSignedCert to obtain a node certificate.
-func (m *Manager) validateClusterToken(ctx context.Context, clusterToken, nodeEndpoint string) (bool, *ClusterInfo, string, error) {
+// The JWT secret is included so the joining node can synchronize sessions immediately.
+func (m *Manager) validateClusterToken(ctx context.Context, clusterToken, nodeEndpoint string) (bool, *ClusterInfo, string, string, error) {
 	// Build URL for validation endpoint
 	url := fmt.Sprintf("%s/api/internal/cluster/validate-token", nodeEndpoint)
 
@@ -294,13 +295,13 @@ func (m *Manager) validateClusterToken(ctx context.Context, clusterToken, nodeEn
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return false, nil, "", fmt.Errorf("failed to marshal payload: %w", err)
+		return false, nil, "", "", fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
 	// Create HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
-		return false, nil, "", fmt.Errorf("failed to create request: %w", err)
+		return false, nil, "", "", fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -308,16 +309,16 @@ func (m *Manager) validateClusterToken(ctx context.Context, clusterToken, nodeEn
 	client := m.insecureHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, nil, "", fmt.Errorf("failed to execute request: %w", err)
+		return false, nil, "", "", fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode == http.StatusUnauthorized {
-			return false, nil, "", fmt.Errorf("invalid cluster token")
+			return false, nil, "", "", fmt.Errorf("invalid cluster token")
 		}
-		return false, nil, "", fmt.Errorf("validation failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+		return false, nil, "", "", fmt.Errorf("validation failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	// Parse response — ca_key is intentionally absent; obtain a signed cert via /sign-csr
@@ -325,12 +326,13 @@ func (m *Manager) validateClusterToken(ctx context.Context, clusterToken, nodeEn
 		Valid       bool         `json:"valid"`
 		ClusterInfo *ClusterInfo `json:"cluster_info"`
 		CACert      string       `json:"ca_cert"`
+		JWTSecret   string       `json:"jwt_secret"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return false, nil, "", fmt.Errorf("failed to decode response: %w", err)
+		return false, nil, "", "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return response.Valid, response.ClusterInfo, response.CACert, nil
+	return response.Valid, response.ClusterInfo, response.CACert, response.JWTSecret, nil
 }
 
 // requestSignedCert sends a CSR to the cluster's sign-csr endpoint and returns a
@@ -383,10 +385,12 @@ func (m *Manager) registerWithCluster(ctx context.Context, nodeEndpoint, cluster
 	// Build URL for node registration endpoint
 	url := fmt.Sprintf("%s/api/internal/cluster/register-node", nodeEndpoint)
 
-	// Create request payload
+	// Create request payload.
+	// NodeToken has json:"-" so it must be sent as a separate field, not inside the Node struct.
 	payload := map[string]interface{}{
 		"cluster_token": clusterToken,
 		"node":          node,
+		"node_token":    node.NodeToken,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -627,9 +631,9 @@ func (m *Manager) UpdateNode(ctx context.Context, node *Node) error {
 	now := time.Now()
 	_, err := m.db.ExecContext(ctx, `
 		UPDATE cluster_nodes
-		SET name = ?, endpoint = ?, region = ?, priority = ?, metadata = ?, updated_at = ?
+		SET name = ?, region = ?, priority = ?, metadata = ?, updated_at = ?
 		WHERE id = ?
-	`, node.Name, node.Endpoint, node.Region, node.Priority, node.Metadata, now, node.ID)
+	`, node.Name, node.Region, node.Priority, node.Metadata, now, node.ID)
 
 	if err != nil {
 		return fmt.Errorf("failed to update node: %w", err)
@@ -902,51 +906,6 @@ func (m *Manager) GetLocalNodeToken(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return m.GetNodeToken(ctx, nodeID)
-}
-
-// FetchJWTSecretFromNode fetches the JWT secret from a cluster node using HMAC authentication
-func (m *Manager) FetchJWTSecretFromNode(ctx context.Context, nodeEndpoint string) (string, error) {
-	// Get local node credentials for HMAC signing
-	localNodeID, err := m.GetLocalNodeID(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get local node ID: %w", err)
-	}
-	localNodeToken, err := m.GetLocalNodeToken(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get local node token: %w", err)
-	}
-
-	// Create HMAC-authenticated request
-	targetURL := fmt.Sprintf("%s/api/internal/cluster/jwt-secret", nodeEndpoint)
-	proxy := NewProxyClient(m.GetTLSConfig())
-	req, err := proxy.CreateAuthenticatedRequest(ctx, "GET", targetURL, nil, localNodeID, localNodeToken)
-	if err != nil {
-		return "", fmt.Errorf("failed to create authenticated request: %w", err)
-	}
-
-	resp, err := proxy.DoAuthenticatedRequest(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch JWT secret from node: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("failed to fetch JWT secret: status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var response struct {
-		JWTSecret string `json:"jwt_secret"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return "", fmt.Errorf("failed to decode JWT secret response: %w", err)
-	}
-
-	if response.JWTSecret == "" {
-		return "", fmt.Errorf("empty JWT secret returned from node")
-	}
-
-	return response.JWTSecret, nil
 }
 
 // GetTLSConfig returns the cluster TLS config, or nil if TLS is not configured.
