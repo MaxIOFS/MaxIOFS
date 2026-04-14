@@ -13,31 +13,31 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestValidateReplicationEndpoint_Empty(t *testing.T) {
-	assert.NoError(t, validateReplicationEndpoint(""))
+	assert.NoError(t, validateReplicationEndpoint("", false))
 }
 
 func TestValidateReplicationEndpoint_ValidHTTP(t *testing.T) {
-	assert.NoError(t, validateReplicationEndpoint("http://public-s3.example.com:9000"))
+	assert.NoError(t, validateReplicationEndpoint("http://public-s3.example.com:9000", false))
 }
 
 func TestValidateReplicationEndpoint_ValidHTTPS(t *testing.T) {
-	assert.NoError(t, validateReplicationEndpoint("https://s3.amazonaws.com"))
+	assert.NoError(t, validateReplicationEndpoint("https://s3.amazonaws.com", false))
 }
 
 func TestValidateReplicationEndpoint_InvalidScheme(t *testing.T) {
-	err := validateReplicationEndpoint("ftp://some-host/bucket")
+	err := validateReplicationEndpoint("ftp://some-host/bucket", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "http or https")
 }
 
 func TestValidateReplicationEndpoint_NoScheme(t *testing.T) {
-	err := validateReplicationEndpoint("some-host:9000/bucket")
+	err := validateReplicationEndpoint("some-host:9000/bucket", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "http or https")
 }
 
 func TestValidateReplicationEndpoint_Loopback(t *testing.T) {
-	err := validateReplicationEndpoint("http://127.0.0.1:9000")
+	err := validateReplicationEndpoint("http://127.0.0.1:9000", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "private/internal")
 }
@@ -45,44 +45,56 @@ func TestValidateReplicationEndpoint_Loopback(t *testing.T) {
 func TestValidateReplicationEndpoint_Loopback_Named(t *testing.T) {
 	// localhost resolves at dial time — static check only catches literal IPs.
 	// This should pass validation (blocked at dial time by the SSRF dialer).
-	assert.NoError(t, validateReplicationEndpoint("http://localhost:9000"))
+	assert.NoError(t, validateReplicationEndpoint("http://localhost:9000", false))
 }
 
 func TestValidateReplicationEndpoint_PrivateClass_A(t *testing.T) {
-	err := validateReplicationEndpoint("http://10.0.0.1:9000")
+	err := validateReplicationEndpoint("http://10.0.0.1:9000", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "private/internal")
 }
 
 func TestValidateReplicationEndpoint_PrivateClass_B(t *testing.T) {
-	err := validateReplicationEndpoint("http://172.16.0.1:9000")
+	err := validateReplicationEndpoint("http://172.16.0.1:9000", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "private/internal")
 }
 
 func TestValidateReplicationEndpoint_PrivateClass_C(t *testing.T) {
-	err := validateReplicationEndpoint("http://192.168.1.100:9000")
+	err := validateReplicationEndpoint("http://192.168.1.100:9000", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "private/internal")
 }
 
 func TestValidateReplicationEndpoint_LinkLocal_Metadata(t *testing.T) {
 	// AWS/GCP metadata endpoint
-	err := validateReplicationEndpoint("http://169.254.169.254/latest/meta-data/")
+	err := validateReplicationEndpoint("http://169.254.169.254/latest/meta-data/", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "private/internal")
 }
 
 func TestValidateReplicationEndpoint_IPv6_Loopback(t *testing.T) {
-	err := validateReplicationEndpoint("http://[::1]:9000")
+	err := validateReplicationEndpoint("http://[::1]:9000", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "private/internal")
 }
 
 func TestValidateReplicationEndpoint_UnspecifiedIP(t *testing.T) {
-	err := validateReplicationEndpoint("http://0.0.0.0:9000")
+	err := validateReplicationEndpoint("http://0.0.0.0:9000", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "private/internal")
+}
+
+func TestValidateReplicationEndpoint_AllowInternal(t *testing.T) {
+	// With allowInternal=true, private IPs should be accepted
+	assert.NoError(t, validateReplicationEndpoint("http://10.0.0.1:9000", true))
+	assert.NoError(t, validateReplicationEndpoint("http://172.16.0.1:9000", true))
+	assert.NoError(t, validateReplicationEndpoint("http://192.168.1.100:9000", true))
+	assert.NoError(t, validateReplicationEndpoint("http://127.0.0.1:9000", true))
+	// Invalid scheme still rejected even with allowInternal
+	err := validateReplicationEndpoint("ftp://10.0.0.1:9000", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "http or https")
 }
 
 // ---------------------------------------------------------------------------

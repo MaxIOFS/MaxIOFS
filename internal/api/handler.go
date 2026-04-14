@@ -557,6 +557,13 @@ func (h *Handler) SetInventoryManager(m *inventory.Manager) {
 	h.s3Handler.SetInventoryManager(m)
 }
 
+// SetReplicationManager sets the replication manager for realtime object replication hooks
+func (h *Handler) SetReplicationManager(rm interface {
+	QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error
+}) {
+	h.s3Handler.SetReplicationManager(rm)
+}
+
 // handleRoot handles GET / and HEAD /. Non-S3 clients are redirected by S3ClientMiddleware.
 // Both GET and HEAD run ListBuckets so that HEAD / returns the same headers (including
 // Content-Length) as GET / but without the body. Veeam uses HEAD / to detect a valid S3

@@ -47,6 +47,9 @@ type Config struct {
 
 	// Metrics configuration
 	Metrics MetricsConfig `mapstructure:"metrics"`
+
+	// Replication configuration
+	Replication ReplicationYAMLConfig `mapstructure:"replication"`
 }
 
 // StorageConfig defines storage backend configuration
@@ -98,6 +101,15 @@ type AuditConfig struct {
 	Enable        bool   `mapstructure:"enable"`
 	RetentionDays int    `mapstructure:"retention_days"`
 	DBPath        string `mapstructure:"db_path"`
+}
+
+// ReplicationYAMLConfig defines replication configuration (static, from config.yaml)
+type ReplicationYAMLConfig struct {
+	// AllowInternalEndpoints disables SSRF protection for replication destinations,
+	// allowing connections to private/internal IP ranges (10.x, 172.16.x, 192.168.x).
+	// Enable this when replicating between instances on the same private network or K8s cluster.
+	// Default: false (SSRF protection enabled)
+	AllowInternalEndpoints bool `mapstructure:"allow_internal_endpoints"`
 }
 
 // Load loads configuration from various sources

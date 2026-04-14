@@ -72,8 +72,9 @@ func NewManager(db *sql.DB, config ReplicationConfig, objectAdapter ObjectAdapte
 	}
 
 	// Default S3 client factory (uses real AWS SDK)
+	allowInternal := config.AllowInternalEndpoints
 	defaultS3Factory := func(endpoint, region, accessKey, secretKey string) S3Client {
-		return NewS3RemoteClient(endpoint, region, accessKey, secretKey)
+		return NewS3RemoteClient(endpoint, region, accessKey, secretKey, allowInternal)
 	}
 
 	return &Manager{
@@ -163,7 +164,7 @@ func (m *Manager) Stop() error {
 
 // CreateRule creates a new replication rule
 func (m *Manager) CreateRule(ctx context.Context, rule *ReplicationRule) error {
-	if err := validateReplicationEndpoint(rule.DestinationEndpoint); err != nil {
+	if err := validateReplicationEndpoint(rule.DestinationEndpoint, m.config.AllowInternalEndpoints); err != nil {
 		return fmt.Errorf("invalid destination endpoint: %w", err)
 	}
 
@@ -305,7 +306,7 @@ func (m *Manager) GetRulesForBucket(ctx context.Context, bucketName string) ([]*
 
 // UpdateRule updates an existing replication rule
 func (m *Manager) UpdateRule(ctx context.Context, rule *ReplicationRule) error {
-	if err := validateReplicationEndpoint(rule.DestinationEndpoint); err != nil {
+	if err := validateReplicationEndpoint(rule.DestinationEndpoint, m.config.AllowInternalEndpoints); err != nil {
 		return fmt.Errorf("invalid destination endpoint: %w", err)
 	}
 
@@ -370,10 +371,22 @@ func (m *Manager) DeleteRule(ctx context.Context, tenantID, ruleID string) error
 	return nil
 }
 
-// QueueObject queues an object for replication
+// QueueObject queues an object for replication across all matching enabled rules.
+// When called from SyncRule (scheduled/batch), all modes are matched.
+// Use QueueRealtimeObject for hooks from PutObject/DeleteObject.
 func (m *Manager) QueueObject(ctx context.Context, tenantID, bucket, objectKey, action string) error {
+	return m.queueObjectForModes(ctx, tenantID, bucket, objectKey, action, "")
+}
+
+// QueueRealtimeObject queues an object for replication only for rules with mode=realtime.
+// Called from S3 PutObject/DeleteObject handlers.
+func (m *Manager) QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error {
+	return m.queueObjectForModes(ctx, tenantID, bucket, objectKey, action, string(ModeRealTime))
+}
+
+func (m *Manager) queueObjectForModes(ctx context.Context, tenantID, bucket, objectKey, action, modeFilter string) error {
 	// Find matching rules
-	rules, err := m.findMatchingRules(ctx, tenantID, bucket, objectKey)
+	rules, err := m.findMatchingRules(ctx, tenantID, bucket, objectKey, modeFilter)
 	if err != nil {
 		return err
 	}
@@ -433,8 +446,9 @@ func (m *Manager) GetMetrics(ctx context.Context, ruleID string) (*ReplicationMe
 	return metrics, err
 }
 
-// findMatchingRules finds replication rules that match the object
-func (m *Manager) findMatchingRules(ctx context.Context, tenantID, bucket, objectKey string) ([]*ReplicationRule, error) {
+// findMatchingRules finds replication rules that match the object.
+// If modeFilter is non-empty, only rules with that mode are returned.
+func (m *Manager) findMatchingRules(ctx context.Context, tenantID, bucket, objectKey, modeFilter string) ([]*ReplicationRule, error) {
 	query := `
 		SELECT id, tenant_id, source_bucket, destination_endpoint, destination_bucket,
 			   destination_access_key, destination_secret_key, destination_region, prefix, enabled,
@@ -444,8 +458,22 @@ func (m *Manager) findMatchingRules(ctx context.Context, tenantID, bucket, objec
 		WHERE tenant_id = ? AND source_bucket = ? AND enabled = 1
 		ORDER BY priority DESC
 	`
+	args := []interface{}{tenantID, bucket}
 
-	rows, err := m.db.QueryContext(ctx, query, tenantID, bucket)
+	if modeFilter != "" {
+		query = `
+		SELECT id, tenant_id, source_bucket, destination_endpoint, destination_bucket,
+			   destination_access_key, destination_secret_key, destination_region, prefix, enabled,
+			   priority, mode, schedule_interval, conflict_resolution, replicate_deletes,
+			   replicate_metadata, created_at, updated_at
+		FROM replication_rules
+		WHERE tenant_id = ? AND source_bucket = ? AND enabled = 1 AND mode = ?
+		ORDER BY priority DESC
+		`
+		args = append(args, modeFilter)
+	}
+
+	rows, err := m.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

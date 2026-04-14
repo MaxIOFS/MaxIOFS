@@ -44,26 +44,25 @@ import (
 
 // Server represents the MaxIOFS server
 type Server struct {
-	config              *config.Config
-	httpServer          *http.Server
-	consoleServer       *http.Server
-	clusterServer       *http.Server // dedicated inter-node communication port
-	storageBackend      storage.Backend
-	metadataStore       metadata.Store
-	bucketManager       bucket.Manager
-	objectManager       object.Manager
-	authManager         auth.Manager
-	db                  *sql.DB
-	auditManager        *audit.Manager
-	metricsManager      metrics.Manager
-	settingsManager     *settings.Manager
-	loggingManager      *logging.Manager
-	shareManager        share.Manager
-	notificationManager *notifications.Manager
-	replicationManager  *replication.Manager
-	clusterManager      *cluster.Manager
-	clusterRouter       *cluster.Router
-
+	config                  *config.Config
+	httpServer              *http.Server
+	consoleServer           *http.Server
+	clusterServer           *http.Server // dedicated inter-node communication port
+	storageBackend          storage.Backend
+	metadataStore           metadata.Store
+	bucketManager           bucket.Manager
+	objectManager           object.Manager
+	authManager             auth.Manager
+	db                      *sql.DB
+	auditManager            *audit.Manager
+	metricsManager          metrics.Manager
+	settingsManager         *settings.Manager
+	loggingManager          *logging.Manager
+	shareManager            share.Manager
+	notificationManager     *notifications.Manager
+	replicationManager      *replication.Manager
+	clusterManager          *cluster.Manager
+	clusterRouter           *cluster.Router
 	bucketAggregator        *cluster.BucketAggregator
 	quotaAggregator         *cluster.QuotaAggregator
 	rateLimiter             *cluster.RateLimiter
@@ -290,6 +289,10 @@ func New(cfg *config.Config) (*Server, error) {
 		CleanupInterval:         24 * time.Hour,
 		RetentionDays:           30,
 		CredentialEncryptionKey: cryptoSecret, // AES-256-GCM encrypt destination_secret_key at rest
+		AllowInternalEndpoints:  cfg.Replication.AllowInternalEndpoints,
+	}
+	if replicationConfig.AllowInternalEndpoints {
+		logrus.Warn("Replication SSRF protection disabled: allow_internal_endpoints is true — private/internal IPs are reachable")
 	}
 	// Create adapters for replication manager
 	objectManagerAdapted := &objectManagerAdapter{mgr: objectManager}
@@ -308,7 +311,6 @@ func New(cfg *config.Config) (*Server, error) {
 	// Compute cluster URL: same host as PublicAPIURL but on the cluster inter-node port.
 	clusterURL := cfg.PublicAPIURL
 	if clusterListen := cfg.ClusterListen; clusterListen != "" {
-		// Extract port from cluster_listen (e.g. ":8082" → "8082", "0.0.0.0:8082" → "8082")
 		clusterPort := clusterListen
 		if idx := strings.LastIndex(clusterListen, ":"); idx >= 0 {
 			clusterPort = clusterListen[idx+1:]
@@ -323,12 +325,6 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Set storage backend and ACL manager for cluster operations (migrations)
 	clusterManager.SetStorage(storageBackend)
-	clusterManager.SetBucketManager(bucketManager)
-
-	// Wrap objectManager with HA fanout when cluster is active
-	if clusterManager.IsClusterEnabled() {
-		objectManager = cluster.NewHAObjectManager(objectManager, clusterManager)
-	}
 
 	// Get ACL manager from bucket manager
 	aclMgrInterface := bucketManager.GetACLManager()
@@ -401,17 +397,22 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize stale-node reconciler
 	staleReconciler := cluster.NewStaleReconciler(db, clusterManager)
-
-	// Initialize HA initial-sync worker (copies existing objects to new replica nodes).
-	haSyncWorker := cluster.NewHASyncWorker(objectManager, bucketManager, clusterManager)
-
-	// Wire object managers into stale reconciler for HA object delta sync on node rejoin.
 	staleReconciler.SetObjectManagers(objectManager, bucketManager)
+
+	clusterManager.SetBucketManager(bucketManager)
+
+	// Wrap objectManager with HA fanout when cluster is active
+	if clusterManager.IsClusterEnabled() {
+		objectManager = cluster.NewHAObjectManager(objectManager, clusterManager)
+	}
+
+	// Initialize HA initial-sync worker
+	haSyncWorker := cluster.NewHASyncWorker(objectManager, bucketManager, clusterManager)
 
 	// Create HTTP servers
 	httpServer := &http.Server{
 		Addr:              cfg.Listen,
-		ReadHeaderTimeout: 30 * time.Second, // Header read limit; body read unlimited for large uploads/downloads
+		ReadHeaderTimeout: 30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
 
@@ -432,26 +433,26 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	server := &Server{
-		config:              cfg,
-		httpServer:          httpServer,
-		consoleServer:       consoleServer,
-		clusterServer:       clusterServer,
-		storageBackend:      storageBackend,
-		metadataStore:       metadataStore,
-		bucketManager:       bucketManager,
-		objectManager:       objectManager,
-		authManager:         authManager,
-		db:                  db,
-		auditManager:        auditManager,
-		metricsManager:      metricsManager,
-		settingsManager:     settingsManager,
-		loggingManager:      loggingManager,
-		shareManager:        shareManager,
-		notificationManager: notificationManager,
-		replicationManager:  replicationManager,
-		clusterManager:      clusterManager,
-		clusterRouter:       clusterRouter,
-
+		config:                  cfg,
+		httpServer:              httpServer,
+		consoleServer:           consoleServer,
+		storageBackend:          storageBackend,
+		metadataStore:           metadataStore,
+		bucketManager:           bucketManager,
+		objectManager:           objectManager,
+		authManager:             authManager,
+		db:                      db,
+		auditManager:            auditManager,
+		metricsManager:          metricsManager,
+		settingsManager:         settingsManager,
+		loggingManager:          loggingManager,
+		shareManager:            shareManager,
+		notificationManager:     notificationManager,
+		replicationManager:      replicationManager,
+		clusterManager:          clusterManager,
+		clusterRouter:           clusterRouter,
+		clusterServer:           clusterServer,
+		haSyncWorker:            haSyncWorker,
 		bucketAggregator:        bucketAggregator,
 		quotaAggregator:         quotaAggregator,
 		rateLimiter:             rateLimiter,
@@ -464,7 +465,6 @@ func New(cfg *config.Config) (*Server, error) {
 		groupMappingSyncMgr:     groupMappingSyncMgr,
 		deletionLogSyncMgr:      deletionLogSyncMgr,
 		staleReconciler:         staleReconciler,
-		haSyncWorker:            haSyncWorker,
 		notificationHub:         notificationHub,
 		quotaAlerts:             quotaAlerts,
 		systemMetrics:           systemMetrics,
@@ -523,7 +523,6 @@ func (s *Server) Start(ctx context.Context) error {
 	logrus.WithFields(logrus.Fields{
 		"api_address":     s.config.Listen,
 		"console_address": s.config.ConsoleListen,
-		"cluster_address": s.clusterServer.Addr,
 		"data_dir":        s.config.DataDir,
 	}).Info("Starting MaxIOFS servers")
 
@@ -637,12 +636,13 @@ func (s *Server) Start(ctx context.Context) error {
 		cluster.StartDeletionLogCleanup(ctx, s.db, 1*time.Hour, 7*24*time.Hour)
 		logrus.Info("Deletion log cleanup started")
 
-		// Resume any HA initial-sync jobs that were in progress when the server last stopped.
+		// Start HA initial-sync worker
 		if s.haSyncWorker != nil {
 			s.haSyncWorker.Start(ctx)
+			logrus.Info("HA sync worker started")
 		}
 
-		// Start cluster node storage alert monitor (checks every 5 minutes)
+		// Start cluster node storage alert monitor
 		s.startClusterNodeAlertMonitor(ctx)
 		logrus.Info("Cluster node alert monitor started")
 	}
@@ -661,7 +661,7 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 
-	// Start cluster inter-node server (dedicated port, not exposed to clients)
+	// Start cluster inter-node server
 	go func() {
 		if err := s.startClusterServer(); err != nil && err != http.ErrServerClosed {
 			logrus.WithError(err).Error("Cluster server error")
@@ -965,6 +965,9 @@ func (s *Server) setupRoutes() error {
 	if s.inventoryManager != nil {
 		apiHandler.SetInventoryManager(s.inventoryManager)
 	}
+	if s.replicationManager != nil {
+		apiHandler.SetReplicationManager(s.replicationManager)
+	}
 
 	// Start S3 access logger (delivers requests to configured target buckets)
 	s.accessLogger = NewBucketAccessLogger(s.bucketManager, s.objectManager)
@@ -1037,7 +1040,32 @@ func (s *Server) setupRoutes() error {
 	// Setup console routes (Web UI)
 	consoleRouter := mux.NewRouter()
 	s.setupConsoleRoutes(consoleRouter)
-	s.consoleServer.Handler = handlers.RecoveryHandler()(middleware.ConsoleHeaders()(consoleRouter))
+
+	// Wrap the console router with a basePath-stripping handler.
+	// This allows the console to work correctly both:
+	//   - Behind a reverse proxy that does NOT strip the prefix
+	//     (e.g. nginx: /ui/ → http://backend:8081/ui/)
+	//   - Behind a reverse proxy that DOES strip the prefix
+	//     (e.g. nginx: /ui/ → http://backend:8081/)
+	//   - Direct IP:port access (http://192.168.1.1:8081/)
+	// In all cases the mux always sees paths rooted at "/".
+	var consoleHandler http.Handler = consoleRouter
+	if bp := extractBasePath(s.config.PublicConsoleURL); bp != "/" && bp != "" {
+		bpNoSlash := strings.TrimSuffix(bp, "/")
+		consoleHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, bpNoSlash) {
+				r.URL.Path = strings.TrimPrefix(r.URL.Path, bpNoSlash)
+				if r.URL.Path == "" {
+					r.URL.Path = "/"
+				}
+				if r.URL.RawPath != "" {
+					r.URL.RawPath = strings.TrimPrefix(r.URL.RawPath, bpNoSlash)
+				}
+			}
+			consoleRouter.ServeHTTP(w, r)
+		})
+	}
+	s.consoleServer.Handler = handlers.RecoveryHandler()(middleware.ConsoleHeaders()(consoleHandler))
 
 	// Setup cluster inter-node routes (dedicated port, not exposed to clients)
 	clusterRouter := mux.NewRouter()
@@ -1047,61 +1075,21 @@ func (s *Server) setupRoutes() error {
 	return nil
 }
 
-func (s *Server) setupConsoleRoutes(router *mux.Router) {
-	basePath := extractBasePathFromURL(s.config.PublicConsoleURL)
-
-	logrus.WithFields(logrus.Fields{
-		"public_console_url": s.config.PublicConsoleURL,
-		"base_path":          basePath,
-	}).Info("Setting up console routes")
-
-	// If there's a subpath, all routes live under it
-	var baseRouter *mux.Router
-	if basePath != "/" && basePath != "" {
-		baseRouter = router.PathPrefix(basePath).Subrouter()
-	} else {
-		baseRouter = router
-	}
-
-	// API endpoints under base path
-	baseRouter.HandleFunc("/api/v1", s.handleAPIRoot).Methods("GET", "OPTIONS")
-	baseRouter.HandleFunc("/api/v1/", s.handleAPIRoot).Methods("GET", "OPTIONS")
-
-	apiRouter := baseRouter.PathPrefix("/api/v1").Subrouter()
-	apiRouter.Use(middleware.TracingMiddleware)
-	s.setupConsoleAPIRoutes(apiRouter)
-
-	s.RegisterProfilingRoutes(baseRouter)
-
-	// Serve embedded frontend for all other routes
-	frontendHandler, err := s.setupEmbeddedFrontend()
-	if err != nil {
-		logrus.WithError(err).Fatal("Failed to setup embedded frontend - frontend must be built and embedded")
-		return
-	}
-
-	baseRouter.PathPrefix("/").Handler(frontendHandler)
-}
-
 // setupClusterRoutes registers all inter-node cluster communication routes on the
-// dedicated cluster port (default :8082). This port must be reachable between nodes
-// on the internal network but does NOT need to be exposed to end users or clients.
+// dedicated cluster port (default :8082).
 func (s *Server) setupClusterRoutes(router *mux.Router) {
 	if s.clusterManager == nil {
 		return
 	}
 
-	// Health check — unauthenticated, used by peer nodes to verify liveness
 	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET")
 
-	// Bootstrap routes — cluster-token auth (no HMAC, used during node join)
 	public := router.PathPrefix("/api/internal/cluster").Subrouter()
 	public.HandleFunc("/validate-token", s.handleValidateClusterToken).Methods("POST")
 	public.HandleFunc("/register-node", s.handleRegisterNode).Methods("POST")
 	public.HandleFunc("/nodes", s.handleGetClusterNodesInternal).Methods("GET")
 	public.HandleFunc("/sign-csr", s.handleSignCSR).Methods("POST")
 
-	// Ongoing sync routes — HMAC auth (used after the node is part of the cluster)
 	clusterAuth := middleware.NewClusterAuthMiddleware(s.db)
 	hmac := router.PathPrefix("/api/internal/cluster").Subrouter()
 	hmac.Use(clusterAuth.ClusterAuth)
@@ -1135,6 +1123,31 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/ha/metadata-op", s.handleHAReceiveMetadataOp).Methods("POST")
 
 	logrus.WithField("address", s.clusterServer.Addr).Info("Cluster inter-node routes registered")
+}
+
+func (s *Server) setupConsoleRoutes(router *mux.Router) {
+	logrus.WithField("public_console_url", s.config.PublicConsoleURL).Info("Setting up console routes")
+
+	frontendHandler, err := s.setupEmbeddedFrontend()
+	if err != nil {
+		logrus.WithError(err).Fatal("Failed to setup embedded frontend - frontend must be built and embedded")
+		return
+	}
+
+	// All routes are registered at root. The reverse proxy is responsible for
+	// stripping the subpath prefix (e.g. /ui/) before forwarding to this port.
+	// The SPA handler serves assets correctly whether or not the prefix has been
+	// stripped, so both proxy-with-strip and direct IP:port access work.
+	router.HandleFunc("/api/v1", s.handleAPIRoot).Methods("GET", "OPTIONS")
+	router.HandleFunc("/api/v1/", s.handleAPIRoot).Methods("GET", "OPTIONS")
+
+	apiRouter := router.PathPrefix("/api/v1").Subrouter()
+	apiRouter.Use(middleware.TracingMiddleware)
+	s.setupConsoleAPIRoutes(apiRouter)
+
+	s.RegisterProfilingRoutes(router)
+
+	router.PathPrefix("/").Handler(frontendHandler)
 }
 
 // logS3APIRequests logs every HTTP request that hits the S3 API server (this process/port) at Info level.

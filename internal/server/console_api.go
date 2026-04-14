@@ -140,7 +140,14 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	}) // Apply CORS middleware for Console API
 	// Use the proper CORS middleware with origin validation instead of wildcard "*"
 	corsConfig := middleware.DefaultCORSConfig()
-	// Add the console's own origin (same-origin requests send Origin header)
+	// Always allow direct local access, regardless of public_console_url.
+	if host, port, err := net.SplitHostPort(s.config.ConsoleListen); err == nil {
+		if host == "" || host == "0.0.0.0" || host == "::" {
+			host = "localhost"
+		}
+		corsConfig.AllowedOrigins = append(corsConfig.AllowedOrigins, "http://"+host+":"+port)
+	}
+	// Also allow the configured public URL (for reverse-proxy / remote browser access).
 	if s.config.PublicConsoleURL != "" {
 		corsConfig.AllowedOrigins = append(corsConfig.AllowedOrigins, s.config.PublicConsoleURL)
 	}

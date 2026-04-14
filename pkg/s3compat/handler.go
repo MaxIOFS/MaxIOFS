@@ -125,6 +125,9 @@ type Handler struct {
 	bucketAggregator interface {
 		ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
 	}
+	replicationManager interface {
+		QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error
+	}
 	publicAPIURL    string
 	dataDir         string       // For calculating disk capacity in SOSAPI
 	notifHTTPClient *http.Client // HTTP client for notification webhooks; defaults to SSRF-blocking client
@@ -223,6 +226,13 @@ func (h *Handler) SetBucketAggregator(ba interface {
 	ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
 }) {
 	h.bucketAggregator = ba
+}
+
+// SetReplicationManager sets the replication manager for realtime object replication
+func (h *Handler) SetReplicationManager(rm interface {
+	QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error
+}) {
+	h.replicationManager = rm
 }
 
 // SetMetadataStore sets the metadata store for accessing object versions
@@ -1413,6 +1423,18 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 
 	// Fire s3:ObjectCreated:Put notification asynchronously.
 	h.fireNotifications(r.Context(), bucketName, tenantID, objectKey, "s3:ObjectCreated:Put", obj.ETag, obj.Size)
+
+	// Queue object for realtime replication (async, best-effort)
+	if h.replicationManager != nil {
+		go func() {
+			if err := h.replicationManager.QueueRealtimeObject(context.Background(), tenantID, bucketName, objectKey, "PUT"); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"bucket": bucketName,
+					"object": objectKey,
+				}).Debug("Replication queue skipped (no matching rules or error)")
+			}
+		}()
+	}
 }
 
 func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
@@ -1480,6 +1502,18 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		eventName = "s3:ObjectRemoved:DeleteMarkerCreated"
 	}
 	h.fireNotifications(r.Context(), bucketName, tenantID, objectKey, eventName, "", 0)
+
+	// Queue delete for realtime replication (async, best-effort)
+	if h.replicationManager != nil {
+		go func() {
+			if err := h.replicationManager.QueueRealtimeObject(context.Background(), tenantID, bucketName, objectKey, "DELETE"); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"bucket": bucketName,
+					"object": objectKey,
+				}).Debug("Replication delete queue skipped (no matching rules or error)")
+			}
+		}()
+	}
 }
 
 func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {

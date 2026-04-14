@@ -23,7 +23,8 @@ import (
 // worker as an SSRF proxy to reach internal services.
 // An empty endpoint is allowed (the rule will simply fail at connection time without
 // causing any unintended outbound request).
-func validateReplicationEndpoint(rawURL string) error {
+// When allowInternal is true, private/internal IP validation is skipped (for K8s/LAN replication).
+func validateReplicationEndpoint(rawURL string, allowInternal bool) error {
 	if rawURL == "" {
 		return nil
 	}
@@ -33,6 +34,10 @@ func validateReplicationEndpoint(rawURL string) error {
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("replication destination endpoint must use http or https scheme, got %q", u.Scheme)
+	}
+
+	if allowInternal {
+		return nil
 	}
 
 	// Static check on the hostname as supplied (catches literal IPs and obvious names).
@@ -108,18 +113,25 @@ type S3RemoteClient struct {
 // NewS3RemoteClient creates a new S3 client configured for a remote endpoint.
 // The HTTP transport uses an SSRF-blocking dialer that prevents the replication
 // worker from being used as a proxy to reach internal/private addresses.
-func NewS3RemoteClient(endpoint, region, accessKey, secretKey string) *S3RemoteClient {
-	// Build an HTTP client that blocks connections to private/internal IPs.
-	ssrfSafeTransport := &http.Transport{
-		DialContext:           ssrfBlockingReplicationDialer(),
+// When allowInternal is true, the SSRF-blocking dialer is not used, allowing
+// connections to private/internal IP ranges (for K8s/LAN replication).
+func NewS3RemoteClient(endpoint, region, accessKey, secretKey string, allowInternal ...bool) *S3RemoteClient {
+	skipSSRF := len(allowInternal) > 0 && allowInternal[0]
+
+	transport := &http.Transport{
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
-	ssrfSafeClient := &http.Client{
-		Transport: ssrfSafeTransport,
+	if !skipSSRF {
+		// Block connections to private/internal IPs.
+		transport.DialContext = ssrfBlockingReplicationDialer()
+	}
+
+	httpClient := &http.Client{
+		Transport: transport,
 		Timeout:   120 * time.Second,
 		// Block redirects to prevent redirect-based SSRF bypass.
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -130,7 +142,7 @@ func NewS3RemoteClient(endpoint, region, accessKey, secretKey string) *S3RemoteC
 	cfg := aws.Config{
 		Region:      region,
 		Credentials: credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
-		HTTPClient:  ssrfSafeClient,
+		HTTPClient:  httpClient,
 	}
 
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {

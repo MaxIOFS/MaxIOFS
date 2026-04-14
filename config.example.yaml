@@ -222,6 +222,17 @@ key_file: ""
 trusted_proxies: []
 
 # =============================================================================
+# REPLICATION CONFIGURATION
+# =============================================================================
+replication:
+  # Allow replication to internal/private endpoints (10.x, 172.16.x, 192.168.x)
+  # Enable this when replicating between MaxIOFS instances on the same private
+  # network (e.g., Kubernetes cluster, LAN, Docker network).
+  # WARNING: Disables SSRF protection for replication destinations.
+  # Default: false
+  allow_internal_endpoints: false
+
+# =============================================================================
 # STORAGE CONFIGURATION
 # =============================================================================
 storage:
