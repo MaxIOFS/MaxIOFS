@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -672,12 +673,16 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 
-	// Start cluster inter-node server
-	go func() {
-		if err := s.startClusterServer(); err != nil && err != http.ErrServerClosed {
-			logrus.WithError(err).Error("Cluster server error")
-		}
-	}()
+	// Start cluster inter-node server only if cluster is already initialized.
+	// In standalone mode this port is never opened. The enableClusterTLS()
+	// method opens it (with TLS) after a successful init or join.
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		go func() {
+			if err := s.startClusterServer(); err != nil && err != http.ErrServerClosed {
+				logrus.WithError(err).Error("Cluster server error")
+			}
+		}()
+	}
 
 	// Wait for context cancellation
 	<-ctx.Done()
@@ -754,8 +759,53 @@ func (s *Server) startConsoleServer() error {
 }
 
 func (s *Server) startClusterServer() error {
-	logrus.WithField("address", s.clusterServer.Addr).Info("Starting cluster inter-node server")
-	return s.clusterServer.ListenAndServe()
+	// Only called when cluster is already initialized (certs exist in DB).
+	tlsCfg, err := s.clusterManager.GetServerTLSConfig()
+	if err != nil {
+		return fmt.Errorf("cluster server requires TLS but certs are unavailable: %w", err)
+	}
+	s.clusterServer.TLSConfig = tlsCfg
+	logrus.WithField("address", s.clusterServer.Addr).Info("Starting cluster inter-node server (TLS)")
+	return s.clusterServer.ListenAndServeTLS("", "")
+}
+
+// enableClusterTLS shuts down the plain-HTTP cluster listener and restarts it
+// with TLS using the certificates that were just generated during cluster
+// initialization or join. Called in a goroutine from the cluster handlers.
+func (s *Server) enableClusterTLS() {
+	tlsCfg, err := s.clusterManager.GetServerTLSConfig()
+	if err != nil {
+		logrus.WithError(err).Error("Failed to build cluster TLS config after init — cluster port remains plain HTTP")
+		return
+	}
+
+	// Gracefully stop the current listener.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.clusterServer.Shutdown(ctx); err != nil {
+		logrus.WithError(err).Warn("Cluster server did not shut down cleanly before TLS restart")
+	}
+
+	// Build a fresh http.Server on the same address with TLS config.
+	addr := s.clusterServer.Addr
+	s.clusterServer = &http.Server{
+		Addr:              addr,
+		TLSConfig:         tlsCfg,
+		ReadHeaderTimeout: 30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	// Re-register cluster routes on the new server.
+	clusterRouter := mux.NewRouter()
+	s.setupClusterRoutes(clusterRouter)
+	s.clusterServer.Handler = handlers.RecoveryHandler()(clusterRouter)
+
+	logrus.WithField("address", addr).Info("Cluster inter-node server restarting with TLS")
+	go func() {
+		if err := s.clusterServer.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logrus.WithError(err).Fatal("Cluster inter-node server failed after TLS restart")
+		}
+	}()
 }
 
 func (s *Server) shutdown() error {

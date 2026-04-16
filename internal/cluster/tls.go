@@ -318,6 +318,26 @@ func InsecureClusterTLSConfig() *tls.Config {
 	}
 }
 
+// BuildServerTLSConfig returns a *tls.Config for the cluster server listener using
+// the node certificate already stored in the atomic pointer (populated by
+// BuildClusterTLSConfig after cluster initialization or join).
+// Returns an error if no certificate is available yet.
+func BuildServerTLSConfig(currentCert *atomic.Pointer[tls.Certificate]) (*tls.Config, error) {
+	if currentCert.Load() == nil {
+		return nil, fmt.Errorf("cluster certificates not initialized yet")
+	}
+	return &tls.Config{
+		GetCertificate: func(_ *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			cert := currentCert.Load()
+			if cert == nil {
+				return nil, fmt.Errorf("cluster certificate not available")
+			}
+			return cert, nil
+		},
+		MinVersion: tls.VersionTLS12,
+	}, nil
+}
+
 func randomSerialNumber() (*big.Int, error) {
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {

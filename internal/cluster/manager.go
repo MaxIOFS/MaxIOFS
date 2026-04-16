@@ -933,9 +933,18 @@ func (m *Manager) GetLocalNodeToken(ctx context.Context) (string, error) {
 	return m.GetNodeToken(ctx, nodeID)
 }
 
-// GetTLSConfig returns the cluster TLS config, or nil if TLS is not configured.
+// GetTLSConfig returns the cluster TLS config for outbound client connections,
+// or nil if TLS is not configured.
 func (m *Manager) GetTLSConfig() *tls.Config {
 	return m.tlsConfig
+}
+
+// GetServerTLSConfig returns a TLS config for the cluster server listener.
+// It always returns a valid config: a temporary self-signed cert is used before
+// the cluster is initialized, and the real CA-signed cert is served afterward via
+// the atomic hot-swap mechanism — no listener restart required.
+func (m *Manager) GetServerTLSConfig() (*tls.Config, error) {
+	return BuildServerTLSConfig(&m.currentCert)
 }
 
 // GetCACertPEM returns the PEM-encoded CA certificate from the database.

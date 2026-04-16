@@ -61,6 +61,9 @@ func (s *Server) handleInitializeCluster(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Cluster certs were just generated — restart the cluster listener with TLS.
+	go s.enableClusterTLS()
+
 	s.writeJSON(w, map[string]interface{}{
 		"message":       "Cluster initialized successfully",
 		"cluster_token": clusterToken,
@@ -137,6 +140,9 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 	} else {
 		logrus.Warn("Cluster did not return a JWT secret — cross-node sessions will not be shared")
 	}
+
+	// Certs were just obtained via CSR — restart the cluster listener with TLS.
+	go s.enableClusterTLS()
 
 	s.writeJSON(w, map[string]interface{}{
 		"message": "Successfully joined cluster",
@@ -401,7 +407,8 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	remoteParsed, _ := url.Parse(remoteConsoleURL)
-	remoteClusterURL := remoteParsed.Scheme + "://" + remoteParsed.Hostname() + ":" + remoteClusterPort
+	// The cluster inter-node port always uses HTTPS (cluster-managed TLS).
+	remoteClusterURL := "https://" + remoteParsed.Hostname() + ":" + remoteClusterPort
 
 	// Step 3: Call the remote node's join endpoint
 	joinPayload, _ := json.Marshal(map[string]string{
@@ -1119,11 +1126,11 @@ func (s *Server) writeClusterJSON(w http.ResponseWriter, data interface{}) {
 // resolveLocalClusterEndpoint returns this node's cluster endpoint.
 // Priority: 1) overrideAddr (admin picked from UI), 2) cluster_advertise_address
 // config (Docker/K8s), 3) ClusterListen host, 4) auto-detection via UDP dial.
+//
+// The cluster inter-node port always uses HTTPS — it manages its own TLS via
+// the internal cluster CA, independent of the console reverse proxy scheme.
 func (s *Server) resolveLocalClusterEndpoint(r *http.Request, overrideAddr string) (string, error) {
-	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
+	scheme := "https"
 
 	clusterPort := "8082"
 	clusterHost := strings.TrimSpace(overrideAddr)
