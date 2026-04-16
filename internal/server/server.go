@@ -1113,9 +1113,11 @@ func (s *Server) setupRoutes() error {
 	s.consoleServer.Handler = handlers.RecoveryHandler()(middleware.ConsoleHeaders()(consoleHandler))
 
 	// Setup cluster inter-node routes (dedicated port, not exposed to clients)
-	clusterRouter := mux.NewRouter()
-	s.setupClusterRoutes(clusterRouter)
-	s.clusterServer.Handler = handlers.RecoveryHandler()(clusterRouter)
+	if s.clusterServer != nil {
+		clusterRouter := mux.NewRouter()
+		s.setupClusterRoutes(clusterRouter)
+		s.clusterServer.Handler = handlers.RecoveryHandler()(clusterRouter)
+	}
 
 	return nil
 }

@@ -86,5 +86,10 @@
   "loadingMessage": "Configuring \"{{name}}\"",
   "ownerUserLabel": "Owner User",
   "ownerTenantLabel": "Owner Tenant",
-  "noEmail": "no email"
+  "noEmail": "no email",
+  "targetNode": "Target Node",
+  "targetNodeHelp": "Select the cluster node where this bucket will be created. Choose based on available disk space.",
+  "targetNodeLocal": "(this node)",
+  "targetNodeFree": "{{free}} free",
+  "targetNodeUnknown": "space unknown"
 }

@@ -26,8 +26,9 @@ func (s *Server) handleInitializeCluster(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req struct {
-		NodeName string `json:"node_name"`
-		Region   string `json:"region"`
+		NodeName    string `json:"node_name"`
+		Region      string `json:"region"`
+		NodeAddress string `json:"node_address"` // IP address of this node for cluster communication
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -39,24 +40,19 @@ func (s *Server) handleInitializeCluster(w http.ResponseWriter, r *http.Request)
 		s.writeError(w, "Node name is required", http.StatusBadRequest)
 		return
 	}
+	if strings.TrimSpace(req.NodeAddress) == "" {
+		s.writeError(w, "Node address (IP) is required", http.StatusBadRequest)
+		return
+	}
 
-	// Derive this node's cluster endpoint from the IP the browser used to reach this console.
-	// For multi-NIC servers the user can set cluster_listen to bind a specific IP.
-	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
+	// Derive this node's cluster endpoint. If the admin selected a specific IP
+	// (from the network-interfaces list) respect it; otherwise auto-detect.
+	nodeClusterEndpoint, err := s.resolveLocalClusterEndpoint(r, req.NodeAddress)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to resolve local cluster endpoint")
+		s.writeError(w, "Failed to determine local cluster address: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
-	host := r.Host
-	if h, _, err := net.SplitHostPort(r.Host); err == nil {
-		host = h
-	}
-	clusterPort := "8082"
-	if s.config.ClusterListen != "" {
-		if _, p, err := net.SplitHostPort(s.config.ClusterListen); err == nil && p != "" {
-			clusterPort = p
-		}
-	}
-	nodeClusterEndpoint := scheme + "://" + host + ":" + clusterPort
 
 	clusterToken, err := s.clusterManager.InitializeCluster(r.Context(), req.NodeName, req.Region, nodeClusterEndpoint)
 	if err != nil {
@@ -85,6 +81,7 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 		NodeEndpoint string `json:"node_endpoint"`
 		SelfEndpoint string `json:"self_endpoint"` // cluster URL this node should register as (set by Add Node flow)
 		NodeName     string `json:"node_name"`     // optional name for this node (set by Add Node flow)
+		NodeAddress  string `json:"node_address"`  // IP address of this node for cluster communication
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -94,6 +91,10 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 
 	if req.ClusterToken == "" || req.NodeEndpoint == "" {
 		s.writeError(w, "Cluster token and node endpoint are required", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.NodeAddress) == "" && strings.TrimSpace(req.SelfEndpoint) == "" {
+		s.writeError(w, "Node address (IP) is required", http.StatusBadRequest)
 		return
 	}
 
@@ -110,21 +111,13 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 	// Otherwise derive from the Host the browser used to reach this console + cluster port.
 	selfEndpoint := strings.TrimRight(req.SelfEndpoint, "/")
 	if selfEndpoint == "" {
-		scheme := "http"
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-			scheme = "https"
+		var err error
+		selfEndpoint, err = s.resolveLocalClusterEndpoint(r, req.NodeAddress)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to resolve local cluster endpoint")
+			s.writeError(w, "Failed to determine local cluster address: "+err.Error(), http.StatusInternalServerError)
+			return
 		}
-		host := r.Host
-		if h, _, err := net.SplitHostPort(r.Host); err == nil {
-			host = h
-		}
-		clusterPort := "8082"
-		if s.config.ClusterListen != "" {
-			if _, p, err := net.SplitHostPort(s.config.ClusterListen); err == nil && p != "" {
-				clusterPort = p
-			}
-		}
-		selfEndpoint = scheme + "://" + host + ":" + clusterPort
 	}
 
 	jwtSecret, err := s.clusterManager.JoinCluster(r.Context(), req.ClusterToken, req.NodeEndpoint, selfEndpoint, req.NodeName)
@@ -243,7 +236,16 @@ func (s *Server) handleGetClusterConfig(w http.ResponseWriter, r *http.Request) 
 	s.writeJSON(w, config)
 }
 
-// handleListClusterNodes lists all nodes in the cluster
+// clusterNodeResponse is the JSON shape returned by handleListClusterNodes.
+// It adds an is_local flag on top of the standard cluster.Node fields.
+type clusterNodeResponse struct {
+	cluster.Node
+	IsLocal bool `json:"is_local"`
+}
+
+// handleListClusterNodes lists all nodes in the cluster.
+// The local node is enriched with live OS disk stats and flagged with is_local=true,
+// since the local entry in the DB starts at zero and is not updated by health checks.
 func (s *Server) handleListClusterNodes(w http.ResponseWriter, r *http.Request) {
 	nodes, err := s.clusterManager.ListNodes(r.Context())
 	if err != nil {
@@ -252,9 +254,24 @@ func (s *Server) handleListClusterNodes(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	localNodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
+
+	enriched := make([]clusterNodeResponse, 0, len(nodes))
+	for _, n := range nodes {
+		entry := clusterNodeResponse{Node: *n, IsLocal: n.ID == localNodeID}
+		if entry.IsLocal {
+			// Replace DB capacity (starts at zero) with live OS disk stats
+			if diskStats, diskErr := s.systemMetrics.GetDiskUsage(); diskErr == nil && diskStats != nil {
+				entry.Node.CapacityTotal = int64(diskStats.TotalBytes)
+				entry.Node.CapacityUsed = int64(diskStats.UsedBytes)
+			}
+		}
+		enriched = append(enriched, entry)
+	}
+
 	s.writeJSON(w, map[string]interface{}{
-		"nodes": nodes,
-		"total": len(nodes),
+		"nodes": enriched,
+		"total": len(enriched),
 	})
 }
 
@@ -299,22 +316,13 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A's cluster endpoint: the IP the browser used to reach A's console + cluster port.
-	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
+	// A's cluster endpoint: use the real local IP, not the public URL.
+	localEndpoint, err := s.resolveLocalClusterEndpoint(r, "")
+	if err != nil {
+		logrus.WithError(err).Error("Failed to resolve local cluster endpoint")
+		s.writeError(w, "Failed to determine local cluster address: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
-	host := r.Host
-	if h, _, err := net.SplitHostPort(r.Host); err == nil {
-		host = h
-	}
-	clusterPort := "8082"
-	if s.config.ClusterListen != "" {
-		if _, p, err := net.SplitHostPort(s.config.ClusterListen); err == nil && p != "" {
-			clusterPort = p
-		}
-	}
-	localEndpoint := scheme + "://" + host + ":" + clusterPort
 
 	// Step 1: Authenticate to the remote node
 	// Use insecure TLS — the remote node is standalone and may have a self-signed cert
@@ -386,8 +394,14 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 
 	// Derive B's cluster URL from the console URL A used to reach it.
 	// B's IP is already known; just swap the port to the cluster port (8082).
+	remoteClusterPort := "8082"
+	if s.config.ClusterListen != "" {
+		if _, p, err := net.SplitHostPort(s.config.ClusterListen); err == nil && p != "" {
+			remoteClusterPort = p
+		}
+	}
 	remoteParsed, _ := url.Parse(remoteConsoleURL)
-	remoteClusterURL := remoteParsed.Scheme + "://" + remoteParsed.Hostname() + ":" + clusterPort
+	remoteClusterURL := remoteParsed.Scheme + "://" + remoteParsed.Hostname() + ":" + remoteClusterPort
 
 	// Step 3: Call the remote node's join endpoint
 	joinPayload, _ := json.Marshal(map[string]string{
@@ -1100,6 +1114,52 @@ func (s *Server) writeClusterJSON(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(data)
+}
+
+// resolveLocalClusterEndpoint returns this node's cluster endpoint.
+// Priority: 1) overrideAddr (admin picked from UI), 2) cluster_advertise_address
+// config (Docker/K8s), 3) ClusterListen host, 4) auto-detection via UDP dial.
+func (s *Server) resolveLocalClusterEndpoint(r *http.Request, overrideAddr string) (string, error) {
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+
+	clusterPort := "8082"
+	clusterHost := strings.TrimSpace(overrideAddr)
+
+	// cluster_advertise_address: explicit IP for Docker/K8s deployments
+	if clusterHost == "" && s.config.ClusterAdvertiseAddress != "" {
+		clusterHost = strings.TrimSpace(s.config.ClusterAdvertiseAddress)
+	}
+
+	if s.config.ClusterListen != "" {
+		if h, p, err := net.SplitHostPort(s.config.ClusterListen); err == nil {
+			if p != "" {
+				clusterPort = p
+			}
+			if clusterHost == "" && h != "" && h != "0.0.0.0" && h != "::" {
+				clusterHost = h
+			}
+		}
+	}
+
+	if clusterHost == "" {
+		// Discover the local IP by opening a UDP "connection" (no traffic sent).
+		conn, err := net.Dial("udp4", "8.8.8.8:80")
+		if err != nil {
+			return "", fmt.Errorf("unable to determine local IP: %w", err)
+		}
+		defer conn.Close()
+		clusterHost = conn.LocalAddr().(*net.UDPAddr).IP.String()
+	}
+
+	// Validate that the chosen IP is a valid IP address
+	if net.ParseIP(clusterHost) == nil {
+		return "", fmt.Errorf("invalid IP address: %s", clusterHost)
+	}
+
+	return scheme + "://" + clusterHost + ":" + clusterPort, nil
 }
 
 // parseNodeAddress parses a user-provided node address into a full URL.

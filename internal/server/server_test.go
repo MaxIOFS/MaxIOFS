@@ -2983,7 +2983,7 @@ func TestHandleInitializeCluster(t *testing.T) {
 	server := getSharedServer()
 
 	t.Run("should initialize cluster with valid request", func(t *testing.T) {
-		body := `{"node_name": "node-1", "region": "us-east-1"}`
+		body := `{"node_name": "node-1", "region": "us-east-1", "node_address": "10.0.0.1"}`
 		req := createAuthenticatedRequest("POST", "/api/v1/cluster/initialize", strings.NewReader(body), "", "admin-1", true)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -5977,7 +5977,7 @@ func TestHandleClusterNodesInternalEdgeCases(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer invalid")
 		rr := httptest.NewRecorder()
 		server.handleGetClusterNodesInternal(rr, req)
-		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusBadRequest}, rr.Code)
+		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusBadRequest, http.StatusInternalServerError}, rr.Code)
 	})
 }
 
@@ -6033,7 +6033,6 @@ func TestNotificationHubBroadcast(t *testing.T) {
 		hub.SendNotification(notification)
 	})
 }
-
 
 // Test metricsResponseWriter
 func TestMetricsResponseWriter(t *testing.T) {

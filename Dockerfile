@@ -46,6 +46,7 @@ RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
+        iproute2 \
         tzdata \
         wget \
     && rm -rf /var/lib/apt/lists/*
@@ -64,13 +65,14 @@ RUN mkdir -p /data && chown -R maxiofs:maxiofs /data /app
 
 VOLUME ["/data"]
 
-EXPOSE 8080 8081
+EXPOSE 8080 8081 8082
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD wget -q --spider http://localhost:8081/api/v1/health || exit 1
 
 ENV MAXIOFS_LISTEN=":8080"
 ENV MAXIOFS_CONSOLE_LISTEN=":8081"
+ENV MAXIOFS_CLUSTER_LISTEN=":8082"
 ENV MAXIOFS_DATA_DIR="/data"
 ENV MAXIOFS_LOG_LEVEL="info"
 

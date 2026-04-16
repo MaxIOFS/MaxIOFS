@@ -13,11 +13,12 @@ import (
 // Config holds all configuration for MaxIOFS
 type Config struct {
 	// Server configuration
-	Listen        string `mapstructure:"listen"`
-	ConsoleListen string `mapstructure:"console_listen"`
-	ClusterListen string `mapstructure:"cluster_listen"` // dedicated inter-node port, default :8082
-	DataDir       string `mapstructure:"data_dir"`
-	LogLevel      string `mapstructure:"log_level"`
+	Listen                  string `mapstructure:"listen"`
+	ConsoleListen           string `mapstructure:"console_listen"`
+	ClusterListen           string `mapstructure:"cluster_listen"`            // dedicated inter-node port, default :8082
+	ClusterAdvertiseAddress string `mapstructure:"cluster_advertise_address"` // external IP for cluster registration (useful in Docker/K8s)
+	DataDir                 string `mapstructure:"data_dir"`
+	LogLevel                string `mapstructure:"log_level"`
 
 	// Public URLs (for redirects, presigned URLs, etc.)
 	PublicAPIURL     string `mapstructure:"public_api_url"`     // e.g., https://s3.example.com or http://localhost:8080

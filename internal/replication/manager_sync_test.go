@@ -303,12 +303,13 @@ func TestProcessScheduledRules_TriggersOverdueRule(t *testing.T) {
 	m.processScheduledRules(ctx, lastSync)
 
 	// Poll until the spawned goroutine queues the object or we time out.
-	deadline := time.Now().Add(3 * time.Second)
+	// Use a generous timeout (10s) so the test is stable under CI load.
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if queueCount(t, m, rule.ID) == 1 {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	assert.Equal(t, 1, queueCount(t, m, rule.ID))

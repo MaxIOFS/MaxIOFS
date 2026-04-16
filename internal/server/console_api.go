@@ -1380,6 +1380,7 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		PublicAccessBlock *bucket.PublicAccessBlock `json:"publicAccessBlock,omitempty"`
 		Lifecycle         *bucket.LifecycleConfig   `json:"lifecycle,omitempty"`
 		Tags              map[string]string         `json:"tags,omitempty"`
+		NodeID            string                    `json:"node_id,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1398,6 +1399,54 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	if !userExists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
+	}
+
+	// Cluster: if a specific node is requested and it is not the local node, proxy the creation.
+	// The remote node will perform its own quota and validation checks.
+	if req.NodeID != "" && r.Header.Get("X-MaxIOFS-Proxied") != "true" &&
+		s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		localNodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
+		if req.NodeID != localNodeID {
+			targetNode, nodeErr := s.clusterManager.GetNode(r.Context(), req.NodeID)
+			if nodeErr != nil || targetNode == nil {
+				s.writeError(w, "Target cluster node not found", http.StatusBadRequest)
+				return
+			}
+			consoleBase := deriveConsoleURL(targetNode)
+			if consoleBase == "" {
+				s.writeError(w, "Cannot determine remote console URL for target node", http.StatusInternalServerError)
+				return
+			}
+			// Re-encode payload without node_id to prevent proxy loops on the remote node
+			req.NodeID = ""
+			payload, _ := json.Marshal(req)
+			proxyReq, proxyErr := http.NewRequestWithContext(r.Context(), "POST",
+				consoleBase+"/api/v1/buckets", bytes.NewReader(payload))
+			if proxyErr != nil {
+				s.writeError(w, "Failed to build proxy request", http.StatusInternalServerError)
+				return
+			}
+			proxyReq.Header.Set("Content-Type", "application/json")
+			if authHdr := r.Header.Get("Authorization"); authHdr != "" {
+				proxyReq.Header.Set("Authorization", authHdr)
+			}
+			proxyReq.Header.Set("X-MaxIOFS-Proxied", "true")
+			proxyClient := &http.Client{Timeout: 30 * time.Second}
+			proxyResp, proxyDoErr := proxyClient.Do(proxyReq)
+			if proxyDoErr != nil {
+				s.writeError(w, "Failed to proxy bucket creation to target node: "+proxyDoErr.Error(), http.StatusBadGateway)
+				return
+			}
+			defer proxyResp.Body.Close()
+			for k, vs := range proxyResp.Header {
+				for _, v := range vs {
+					w.Header().Add(k, v)
+				}
+			}
+			w.WriteHeader(proxyResp.StatusCode)
+			io.Copy(w, proxyResp.Body) //nolint:errcheck
+			return
+		}
 	}
 
 	// Determine the tenant ID for quota checking
@@ -3098,6 +3147,37 @@ func (s *Server) handleGetSystemMetrics(w http.ResponseWriter, r *http.Request) 
 		response["diskTotalBytes"] = diskStats.TotalBytes
 	}
 
+	// In cluster mode, aggregate capacity across all nodes.
+	// The local node uses live OS disk stats; peer nodes use values stored from their last health check.
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		response["isClusterEnabled"] = true
+		localNodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
+		nodes, listErr := s.clusterManager.ListNodes(r.Context())
+		if listErr == nil && len(nodes) > 1 {
+			var clusterTotal, clusterUsed int64
+			// Local node: use real OS stats
+			if diskStats != nil {
+				clusterTotal += int64(diskStats.TotalBytes)
+				clusterUsed += int64(diskStats.UsedBytes)
+			}
+			// Peer nodes: use stored capacity from health checks
+			for _, n := range nodes {
+				if n.ID == localNodeID {
+					continue
+				}
+				if n.CapacityTotal > 0 {
+					clusterTotal += n.CapacityTotal
+					clusterUsed += n.CapacityUsed
+				}
+			}
+			if clusterTotal > 0 {
+				response["clusterDiskTotalBytes"] = clusterTotal
+				response["clusterDiskUsedBytes"] = clusterUsed
+				response["clusterNodeCount"] = len(nodes)
+			}
+		}
+	}
+
 	s.writeJSON(w, response)
 }
 
@@ -3292,6 +3372,12 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
 	// Include maintenance mode state so the frontend can show a banner.
 	maintenanceMode, _ := s.settingsManager.GetBool("system.maintenance_mode")
 	config["maintenanceMode"] = maintenanceMode
+
+	// Expose cluster mode so the frontend can adapt UI accordingly.
+	isClusterEnabledCfg := s.clusterManager != nil && s.clusterManager.IsClusterEnabled()
+	config["cluster"] = map[string]interface{}{
+		"enabled": isClusterEnabledCfg,
+	}
 
 	s.writeJSON(w, config)
 }

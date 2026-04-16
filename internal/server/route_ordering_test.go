@@ -11,18 +11,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRouteOrdering_ClusterNotCapturedByS3 verifies that cluster endpoints are NOT captured by S3 routes
-// This is the CRITICAL test that ensures the bug doesn't return
+// TestRouteOrdering_ClusterNotCapturedByS3 verifies that cluster endpoints on the
+// dedicated cluster port return 401 when no authentication is provided.
+// (Historically, cluster routes shared the S3 port and could be captured by the
+// S3 catch-all handler.  Now they live on a dedicated port so the test verifies
+// the cluster server directly.)
 func TestRouteOrdering_ClusterNotCapturedByS3(t *testing.T) {
 	server, _, cleanup := setupServerWithCluster(t)
 	defer cleanup()
 
-	// Start the actual HTTP server to test routing
 	err := server.setupRoutes()
 	require.NoError(t, err)
 
-	// Create test server
-	ts := httptest.NewServer(server.httpServer.Handler)
+	// Cluster routes are on the dedicated cluster server, not the S3 server.
+	ts := httptest.NewServer(server.clusterServer.Handler)
 	defer ts.Close()
 
 	// Test cluster endpoints WITHOUT authentication
@@ -77,7 +79,8 @@ func TestRouteOrdering_ClusterWithValidAuth(t *testing.T) {
 	err = server.setupRoutes()
 	require.NoError(t, err)
 
-	ts := httptest.NewServer(server.httpServer.Handler)
+	// Cluster routes live on the dedicated cluster server.
+	ts := httptest.NewServer(server.clusterServer.Handler)
 	defer ts.Close()
 
 	// Create authenticated request
@@ -150,7 +153,9 @@ func TestRouteOrdering_S3EndpointsStillWork(t *testing.T) {
 		"S3 bucket endpoint should be registered")
 }
 
-// TestRouteOrdering_BugReproduction tests the EXACT scenario that caused the original bug
+// TestRouteOrdering_BugReproduction tests the scenario that caused the original bug.
+// With the dedicated cluster port this can no longer happen, but we verify the
+// cluster server still responds correctly to unauthenticated requests.
 func TestRouteOrdering_BugReproduction(t *testing.T) {
 	server, _, cleanup := setupServerWithCluster(t)
 	defer cleanup()
@@ -158,7 +163,8 @@ func TestRouteOrdering_BugReproduction(t *testing.T) {
 	err := server.setupRoutes()
 	require.NoError(t, err)
 
-	ts := httptest.NewServer(server.httpServer.Handler)
+	// Cluster routes now live on a dedicated port; test against the cluster server.
+	ts := httptest.NewServer(server.clusterServer.Handler)
 	defer ts.Close()
 
 	// Reproduce the EXACT request that was failing:
@@ -211,7 +217,8 @@ func TestRouteOrdering_MultipleClusterEndpoints(t *testing.T) {
 	err := server.setupRoutes()
 	require.NoError(t, err)
 
-	ts := httptest.NewServer(server.httpServer.Handler)
+	// Cluster routes live on the dedicated cluster server.
+	ts := httptest.NewServer(server.clusterServer.Handler)
 	defer ts.Close()
 
 	// Test multiple cluster endpoints

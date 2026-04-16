@@ -47,7 +47,7 @@ func TestInitializeCluster(t *testing.T) {
 	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	ctx := context.Background()
 
-	token, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "")
+	token, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "http://localhost:8082")
 	if err != nil {
 		t.Fatalf("Failed to initialize cluster: %v", err)
 	}
@@ -83,13 +83,13 @@ func TestInitializeCluster_AlreadyInitialized(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize once
-	_, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "")
+	_, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "http://localhost:8082")
 	if err != nil {
 		t.Fatalf("Failed to initialize cluster: %v", err)
 	}
 
 	// Try to initialize again
-	_, err = manager.InitializeCluster(ctx, "test-node-2", "us-west-1", "")
+	_, err = manager.InitializeCluster(ctx, "test-node-2", "us-west-1", "http://localhost:8082")
 	if err == nil {
 		t.Error("Expected error when initializing cluster twice")
 	}
@@ -356,7 +356,7 @@ func TestGetClusterStatus(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize cluster first
-	_, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "")
+	_, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "http://localhost:8082")
 	if err != nil {
 		t.Fatalf("Failed to initialize cluster: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestIsClusterEnabled(t *testing.T) {
 	}
 
 	// Initialize cluster
-	_, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "")
+	_, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "http://localhost:8082")
 	if err != nil {
 		t.Fatalf("Failed to initialize cluster: %v", err)
 	}
@@ -442,7 +442,7 @@ func TestLeaveCluster(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize cluster
-	_, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "")
+	_, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "http://localhost:8082")
 	if err != nil {
 		t.Fatalf("Failed to initialize cluster: %v", err)
 	}
@@ -502,7 +502,7 @@ func TestUpdateNodeBucketCount(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize cluster
-	_, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "")
+	_, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "http://localhost:8082")
 	if err != nil {
 		t.Fatalf("Failed to initialize cluster: %v", err)
 	}
@@ -545,7 +545,7 @@ func TestUpdateLocalNodeBucketCount(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize cluster (this also adds the local node to cluster_nodes)
-	_, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "")
+	_, err := manager.InitializeCluster(ctx, "test-node", "us-east-1", "http://localhost:8082")
 	if err != nil {
 		t.Fatalf("Failed to initialize cluster: %v", err)
 	}

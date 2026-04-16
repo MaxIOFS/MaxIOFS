@@ -41,7 +41,7 @@ func setupServerWithCluster(t *testing.T) (*Server, *cluster.Manager, func()) {
 
 	// Initialize cluster
 	ctx := context.Background()
-	_, err = clusterManager.InitializeCluster(ctx, "test-node", "us-east-1", "")
+	_, err = clusterManager.InitializeCluster(ctx, "test-node", "us-east-1", "http://localhost:8082")
 	require.NoError(t, err)
 
 	// Initialize rate limiter (required for cluster routes)
@@ -51,6 +51,9 @@ func setupServerWithCluster(t *testing.T) (*Server, *cluster.Manager, func()) {
 	server.clusterManager = clusterManager
 	server.rateLimiter = rateLimiter
 	server.db = db
+
+	// Create the dedicated cluster server (setupRoutes expects it to register inter-node routes)
+	server.clusterServer = &http.Server{}
 
 	cleanup := func() {
 		db.Close()

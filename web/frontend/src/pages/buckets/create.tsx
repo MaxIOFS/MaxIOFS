@@ -15,17 +15,21 @@ import {
   Settings,
   AlertTriangle,
   Info,
-  CheckCircle2
+  CheckCircle2,
+  Server
 } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
-import { escapeHtml } from '@/lib/utils';
+import { escapeHtml, formatBytes } from '@/lib/utils';
 
 interface BucketCreationConfig {
   // General
   name: string;
   region: string;
+
+  // Cluster node selection (only used in cluster mode)
+  nodeId: string;
 
   // Ownership
   ownerId: string;
@@ -69,6 +73,7 @@ export default function CreateBucketPage() {
   const [config, setConfig] = useState<BucketCreationConfig>({
     name: '',
     region: 'us-east-1',
+    nodeId: '',
     ownerId: '',
     ownerType: '',
     isPublic: false,
@@ -98,6 +103,31 @@ export default function CreateBucketPage() {
   // Check if server has encryption enabled
   const serverEncryptionEnabled = serverConfig?.storage?.enableEncryption ?? false;
 
+  // Check if cluster mode is active
+  const isClusterMode = serverConfig?.cluster?.enabled === true;
+
+  // Fetch cluster nodes only in cluster mode (for node selector in bucket creation)
+  const { data: clusterNodes } = useQuery({
+    queryKey: ['clusterNodes'],
+    queryFn: APIClient.listClusterNodes,
+    enabled: isClusterMode,
+  });
+
+  // When cluster nodes load, auto-select the node with the most free space
+  useEffect(() => {
+    if (!isClusterMode || !clusterNodes || clusterNodes.length === 0) return;
+    // Already selected — don't override user choice
+    if (config.nodeId) return;
+    const best = [...clusterNodes].sort((a, b) => {
+      const freeA = (a.capacity_total || 0) - (a.capacity_used || 0);
+      const freeB = (b.capacity_total || 0) - (b.capacity_used || 0);
+      // Prefer local node on tie (or when capacities are 0)
+      if (freeA === freeB) return a.is_local ? -1 : 1;
+      return freeB - freeA;
+    })[0];
+    if (best) setConfig(prev => ({ ...prev, nodeId: best.id }));
+  }, [isClusterMode, clusterNodes]); // intentionally omit config.nodeId to only run on first load
+
   // When server config loads and encryption is globally active, auto-enable it for the new bucket
   useEffect(() => {
     if (serverEncryptionEnabled) {
@@ -117,6 +147,8 @@ export default function CreateBucketPage() {
       const payload: any = {
         name: config.name,
         region: config.region,
+        // Only include node_id in cluster mode so standalone deployments are unaffected
+        node_id: isClusterMode && config.nodeId ? config.nodeId : undefined,
         ownerId: config.ownerId || undefined,
         ownerType: config.ownerType || undefined,
         isPublic: config.isPublic,
@@ -414,6 +446,72 @@ export default function CreateBucketPage() {
                 <p className="text-xs text-muted-foreground ml-6">
                   {t('versioningHelp')}
                 </p>
+
+                {/* Node selector — only shown in cluster mode */}
+                {isClusterMode && clusterNodes && clusterNodes.length > 0 && (
+                  <div className="border-t border-border pt-4 mt-4">
+                    <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                      <Server className="h-4 w-4" />
+                      {t('targetNode')}
+                    </h3>
+                    <div className="space-y-2">
+                      {clusterNodes.map(node => {
+                        const freeBytes = (node.capacity_total || 0) - (node.capacity_used || 0);
+                        const hasDiskInfo = node.capacity_total > 0;
+                        const freeLabel = hasDiskInfo
+                          ? t('targetNodeFree', { free: formatBytes(freeBytes) })
+                          : t('targetNodeUnknown');
+                        const isSelected = config.nodeId === node.id;
+                        return (
+                          <label
+                            key={node.id}
+                            className={`flex items-center justify-between p-3 border rounded-md cursor-pointer transition-colors ${
+                              isSelected
+                                ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20'
+                                : 'border-border hover:bg-secondary'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="radio"
+                                name="targetNode"
+                                value={node.id}
+                                checked={isSelected}
+                                onChange={() => updateConfig('nodeId', node.id)}
+                                className="accent-brand-600"
+                              />
+                              <div>
+                                <span className="text-sm font-medium text-foreground">{node.name}</span>
+                                {node.is_local && (
+                                  <span className="ml-2 text-xs text-muted-foreground">{t('targetNodeLocal')}</span>
+                                )}
+                                <div className="text-xs text-muted-foreground mt-0.5">
+                                  {node.health_status} · {freeLabel}
+                                </div>
+                              </div>
+                            </div>
+                            {hasDiskInfo && (
+                              <div className="text-right">
+                                <div className="w-24 bg-secondary rounded-full h-1.5 overflow-hidden">
+                                  <div
+                                    className="h-full bg-brand-500 rounded-full"
+                                    style={{
+                                      width: `${Math.min(100, ((node.capacity_used || 0) / node.capacity_total) * 100).toFixed(0)}%`
+                                    }}
+                                  />
+                                </div>
+                                <span className="text-xs text-muted-foreground">
+                                  {Math.min(100, Math.round(((node.capacity_used || 0) / node.capacity_total) * 100))}% used
+                                </span>
+                              </div>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">{t('targetNodeHelp')}</p>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-2">{t('tags')}</label>

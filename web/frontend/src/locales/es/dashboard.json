@@ -42,5 +42,7 @@
   "topBuckets": "Principales Buckets",
   "largestBucketsByStorage": "Buckets más grandes por almacenamiento",
   "bucketLabel": "Bucket: {{name}}",
-  "storageOf": "de {{total}}"
+  "storageOf": "de {{total}}",
+  "clusterStorageUsed": "Almacenamiento del Cluster Usado",
+  "storageOfCluster": "de {{total}} total ({{nodes}} nodos)"
 }

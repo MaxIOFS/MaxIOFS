@@ -154,8 +154,12 @@ export default function Dashboard() {
   const encryptedBucketsCount = buckets.filter((b: any) => b.encryption).length;
   const encryptedPercentage = totalBuckets > 0 ? ((encryptedBucketsCount / totalBuckets) * 100).toFixed(0) : 0;
 
-  // Calculate real storage percentage based on disk size
-  const diskTotal = systemMetrics?.diskTotalBytes || 0;
+  // In cluster mode use aggregated capacity; in standalone use the local disk stats
+  const isClusterMode = systemMetrics?.isClusterEnabled === true;
+  const diskTotal = isClusterMode
+    ? (systemMetrics?.clusterDiskTotalBytes || systemMetrics?.diskTotalBytes || 0)
+    : (systemMetrics?.diskTotalBytes || 0);
+  const clusterNodeCount = systemMetrics?.clusterNodeCount || 0;
   const storagePercentage = diskTotal > 0 ? ((totalSize / diskTotal) * 100) : 0;
 
   return (
@@ -214,10 +218,16 @@ export default function Dashboard() {
         />
 
         <MetricCard
-          title={t('storageUsed')}
+          title={isClusterMode ? t('clusterStorageUsed') : t('storageUsed')}
           value={formatBytes(totalSize)}
           icon={HardDrive}
-          description={diskTotal > 0 ? t('storageOf', { total: formatBytes(diskTotal) }) : t('totalStorageConsumption')}
+          description={
+            diskTotal > 0
+              ? isClusterMode && clusterNodeCount > 0
+                ? t('storageOfCluster', { total: formatBytes(diskTotal), nodes: clusterNodeCount })
+                : t('storageOf', { total: formatBytes(diskTotal) })
+              : t('totalStorageConsumption')
+          }
           color="warning"
         />
 

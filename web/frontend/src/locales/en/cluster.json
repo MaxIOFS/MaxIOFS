@@ -15,6 +15,8 @@
   "nodeName": "Node Name",
   "nodeNameHint": "Optional. Leave empty to auto-generate.",
   "regionOptional": "Region (optional)",
+  "nodeAddress": "Node IP Address",
+  "nodeAddressHint": "The IP address other cluster nodes will use to reach this server (e.g. 192.168.1.10, 10.0.0.5).",
 "cancel": "Cancel",
   "initialize": "Initialize",
   "failedToInitCluster": "Failed to initialize cluster",

@@ -37,6 +37,7 @@ export default function ClusterOverview() {
   const [clusterToken, setClusterToken] = useState('');
   const [tokenCopied, setTokenCopied] = useState(false);
   const [joinLoading, setJoinLoading] = useState(false);
+  const [nodeIP, setNodeIP] = useState('');
 
   useEffect(() => {
     loadData();
@@ -68,6 +69,7 @@ export default function ClusterOverview() {
       const response = await APIClient.initializeCluster({
         node_name: nodeName,
         region: region || undefined,
+        node_address: nodeIP,
       });
       setClusterToken(response.cluster_token);
       setShowInitDialog(false);
@@ -81,7 +83,7 @@ export default function ClusterOverview() {
   const handleJoinCluster = async (clusterTokenValue: string, nodeEndpoint: string) => {
     try {
       setJoinLoading(true);
-      await APIClient.joinCluster({ cluster_token: clusterTokenValue, node_endpoint: nodeEndpoint });
+      await APIClient.joinCluster({ cluster_token: clusterTokenValue, node_endpoint: nodeEndpoint, node_address: nodeIP });
       setShowJoinDialog(false);
       await loadData();
     } catch (err: unknown) {
@@ -133,7 +135,7 @@ export default function ClusterOverview() {
           <p className="text-muted-foreground mb-6">{t('clusterNotInitializedDesc')}</p>
           <div className="flex items-center justify-center gap-3">
             <Button
-              onClick={() => setShowInitDialog(true)}
+              onClick={() => { setNodeIP(''); setShowInitDialog(true); }}
               variant="default"
             >
               <Server className="h-4 w-4" />
@@ -141,7 +143,7 @@ export default function ClusterOverview() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => setShowJoinDialog(true)}
+              onClick={() => { setNodeIP(''); setShowJoinDialog(true); }}
               className="bg-card"
             >
               <Link className="h-4 w-4" />
@@ -184,13 +186,25 @@ export default function ClusterOverview() {
                       placeholder="us-east-1"
                     />
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1">{t('nodeAddress')} *</label>
+                    <input
+                      type="text"
+                      required
+                      value={nodeIP}
+                      onChange={(e) => setNodeIP(e.target.value)}
+                      className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500 font-mono"
+                      placeholder="192.168.1.10"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">{t('nodeAddressHint')}</p>
+                  </div>
 
                 </div>
                 <div className="flex gap-2 mt-6">
                   <Button type="button" variant="outline" onClick={() => setShowInitDialog(false)} className="flex-1">
                     {t('cancel')}
                   </Button>
-                  <Button type="submit" className="flex-1 bg-brand-600 hover:bg-brand-700 text-white">
+                  <Button type="submit" className="flex-1 bg-brand-600 hover:bg-brand-700 text-white" disabled={!nodeIP.trim()}>
                     {t('initialize')}
                   </Button>
                 </div>
@@ -236,12 +250,25 @@ export default function ClusterOverview() {
                     />
                     <p className="text-xs text-muted-foreground mt-1">{t('clusterTokenHint')}</p>
                   </div>
+                  <div>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1">{t('nodeAddress')} *</label>
+                    <input
+                      type="text"
+                      required
+                      value={nodeIP}
+                      onChange={(e) => setNodeIP(e.target.value)}
+                      className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500 font-mono"
+                      placeholder="192.168.1.10"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">{t('nodeAddressHint')}</p>
+                  </div>
                 </div>
                 <div className="flex gap-2 mt-6">
                   <Button type="button" variant="outline" onClick={() => setShowJoinDialog(false)} className="flex-1" disabled={joinLoading}>
                     {t('cancel')}
                   </Button>
-                  <Button type="submit" className="flex-1 bg-brand-600 hover:bg-brand-700 text-white" disabled={joinLoading}>
+                  <Button type="submit" className="flex-1 bg-brand-600 hover:bg-brand-700 text-white" disabled={joinLoading || !nodeIP.trim()}>
                     {joinLoading ? t('joining') : t('joinCluster')}
                   </Button>
                 </div>

@@ -98,6 +98,17 @@ listen: ":8080"
 # Default: :8081
 console_listen: ":8081"
 
+# Cluster inter-node listen address
+# Default: :8082
+# cluster_listen: ":8082"
+
+# Cluster advertise address
+# The external IP that other cluster nodes should use to reach this node.
+# Required in Docker/Kubernetes where the container's internal IP differs
+# from the host IP. Leave empty for auto-detection (bare-metal/VM).
+# Example: "10.200.1.135"
+# cluster_advertise_address: ""
+
 # Data directory path (REQUIRED)
 # This is where all data will be stored (buckets, objects, metadata, etc.)
 # Default: ./data

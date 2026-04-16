@@ -33,6 +33,7 @@ services:
     ports:
       - "8080:8080"  # S3 API
       - "8081:8081"  # Web Console
+      - "8082:8082"  # Cluster inter-node
 
     volumes:
       # Data directory: buckets, objects, metadata, and config.yaml all live here.
@@ -48,6 +49,9 @@ services:
     environment:
       # Data directory — must match the volume mount above
       MAXIOFS_DATA_DIR: "/data"
+      # Cluster: set to the host's real IP so other nodes can reach this container.
+      # Required for multi-host Docker clusters. Leave empty for auto-detection.
+      # MAXIOFS_CLUSTER_ADVERTISE_ADDRESS: "10.200.1.135"
 
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/api/v1/health"]

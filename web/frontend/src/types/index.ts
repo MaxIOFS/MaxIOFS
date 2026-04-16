@@ -593,6 +593,11 @@ export interface SystemMetrics {
   heapAllocBytes?: number; // Bytes allocated in heap
   gcRuns?: number; // Number of GC runs
   timestamp: number;
+  // Cluster mode: aggregated capacity across all nodes
+  isClusterEnabled?: boolean;
+  clusterDiskTotalBytes?: number;
+  clusterDiskUsedBytes?: number;
+  clusterNodeCount?: number;
 }
 
 export interface S3Metrics {
@@ -806,6 +811,9 @@ export interface ServerConfig {
     tagging: boolean;
   };
   maintenanceMode: boolean;
+  cluster?: {
+    enabled: boolean;
+  };
 }
 
 // Two-Factor Authentication types
@@ -1038,6 +1046,7 @@ export interface ClusterNode {
   metadata?: string;
   created_at: string;
   updated_at: string;
+  is_local?: boolean; // true only for the node that handled this response
 }
 
 export interface ClusterStatus {
@@ -1064,6 +1073,7 @@ export interface ClusterConfig {
 export interface InitializeClusterRequest {
   node_name: string;
   region?: string;
+  node_address?: string;
 }
 
 export interface InitializeClusterResponse {
@@ -1076,6 +1086,7 @@ export interface InitializeClusterResponse {
 export interface JoinClusterRequest {
   cluster_token: string;
   node_endpoint: string;
+  node_address?: string;
 }
 
 export interface AddNodeRequest {
