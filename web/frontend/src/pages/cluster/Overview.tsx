@@ -251,7 +251,6 @@ export default function ClusterOverview() {
                     <p className="text-xs text-muted-foreground mt-1">{t('clusterTokenHint')}</p>
                   </div>
                   <div>
-                  <div>
                     <label className="block text-sm font-medium text-foreground mb-1">{t('nodeAddress')} *</label>
                     <input
                       type="text"
