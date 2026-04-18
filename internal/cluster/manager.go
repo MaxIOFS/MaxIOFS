@@ -282,6 +282,61 @@ func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint, s
 	return jwtSecret, nil
 }
 
+// ClusterJoinPackage is the complete join payload that Node A pushes to Node B via port 8081.
+// Node B applies this package, sets up TLS, and opens port 8082 — no callbacks to Node A's 8082 needed.
+type ClusterJoinPackage struct {
+	NodeID       string  `json:"node_id"`
+	NodeName     string  `json:"node_name"`
+	ClusterToken string  `json:"cluster_token"`
+	Region       string  `json:"region"`
+	CACertPEM    string  `json:"ca_cert"`
+	NodeCertPEM  string  `json:"node_cert"`
+	NodeKeyPEM   string  `json:"node_key"`
+	JWTSecret    string  `json:"jwt_secret"`
+	SelfEndpoint string  `json:"self_endpoint"` // Node B's 8082 URL
+	NodeEndpoint string  `json:"node_endpoint"` // Node A's 8082 URL
+	APIURL       string  `json:"api_url"`       // Node B's S3 API public URL
+	Nodes        []*Node `json:"nodes"`
+}
+
+// AcceptClusterJoin applies a ClusterJoinPackage sent by Node A.
+// Stores cluster config + certs in DB and loads TLS into memory.
+// The caller is responsible for opening port 8082 and validating connectivity.
+func (m *Manager) AcceptClusterJoin(ctx context.Context, pkg *ClusterJoinPackage) error {
+	if pkg.ClusterToken == "" || pkg.CACertPEM == "" || pkg.NodeCertPEM == "" || pkg.NodeKeyPEM == "" {
+		return fmt.Errorf("incomplete join package: missing required fields")
+	}
+
+	_, err := m.db.ExecContext(ctx, `DELETE FROM cluster_config`)
+	if err != nil {
+		return fmt.Errorf("failed to clear cluster config: %w", err)
+	}
+
+	_, err = m.db.ExecContext(ctx, `
+		INSERT INTO cluster_config (node_id, node_name, cluster_token, is_cluster_enabled, region, ca_cert, ca_key, node_cert, node_key)
+		VALUES (?, ?, ?, 1, ?, ?, '', ?, ?)
+	`, pkg.NodeID, pkg.NodeName, pkg.ClusterToken, pkg.Region, pkg.CACertPEM, pkg.NodeCertPEM, pkg.NodeKeyPEM)
+	if err != nil {
+		return fmt.Errorf("failed to store cluster config: %w", err)
+	}
+
+	for _, node := range pkg.Nodes {
+		if node == nil || node.ID == pkg.NodeID {
+			continue
+		}
+		if err := m.AddNode(ctx, node); err != nil {
+			m.log.WithError(err).WithField("node_id", node.ID).Warn("Failed to add node during join")
+		}
+	}
+
+	if err := m.loadTLSConfig(); err != nil {
+		return fmt.Errorf("failed to load TLS config after join: %w", err)
+	}
+
+	m.log.WithField("node_id", pkg.NodeID).Info("Cluster join package applied, TLS ready")
+	return nil
+}
+
 // validateClusterToken validates a cluster token with an existing cluster node.
 // Returns validity, cluster info, the CA certificate PEM, the JWT secret, and any error.
 // The CA private key is never transmitted; use requestSignedCert to obtain a node certificate.
@@ -945,6 +1000,21 @@ func (m *Manager) GetTLSConfig() *tls.Config {
 // the atomic hot-swap mechanism — no listener restart required.
 func (m *Manager) GetServerTLSConfig() (*tls.Config, error) {
 	return BuildServerTLSConfig(&m.currentCert)
+}
+
+// CheckNodeConnectivity does a GET to the given URL using the cluster TLS client.
+// Used by a joining node to verify it can reach Node A's 8082 after setting up TLS.
+func (m *Manager) CheckNodeConnectivity(url string) error {
+	client := m.clusterHTTPClient
+	resp, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to reach node: %w", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 500 {
+		return fmt.Errorf("node returned status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // GetCACertPEM returns the PEM-encoded CA certificate from the database.

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/sirupsen/logrus"
@@ -79,70 +80,41 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		ClusterToken string `json:"cluster_token"`
-		NodeEndpoint string `json:"node_endpoint"`
-		SelfEndpoint string `json:"self_endpoint"` // cluster URL this node should register as (set by Add Node flow)
-		NodeName     string `json:"node_name"`     // optional name for this node (set by Add Node flow)
-		NodeAddress  string `json:"node_address"`  // IP address of this node for cluster communication
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var pkg cluster.ClusterJoinPackage
+	if err := json.NewDecoder(r.Body).Decode(&pkg); err != nil {
 		s.writeError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if req.ClusterToken == "" || req.NodeEndpoint == "" {
-		s.writeError(w, "Cluster token and node endpoint are required", http.StatusBadRequest)
-		return
-	}
-	if strings.TrimSpace(req.NodeAddress) == "" && strings.TrimSpace(req.SelfEndpoint) == "" {
-		s.writeError(w, "Node address (IP) is required", http.StatusBadRequest)
-		return
-	}
-
-	// Parse and normalize the cluster node address (default port 8082 for inter-node communication)
-	clusterNodeURL, err := parseNodeAddress(req.NodeEndpoint, "8082")
-	if err != nil {
-		s.writeError(w, "Invalid node address: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	req.NodeEndpoint = clusterNodeURL
-
-	// Determine this node's own cluster endpoint.
-	// If Add Node flow provided self_endpoint, use it directly.
-	// Otherwise derive from the Host the browser used to reach this console + cluster port.
-	selfEndpoint := strings.TrimRight(req.SelfEndpoint, "/")
-	if selfEndpoint == "" {
-		var err error
-		selfEndpoint, err = s.resolveLocalClusterEndpoint(r, req.NodeAddress)
-		if err != nil {
-			logrus.WithError(err).Error("Failed to resolve local cluster endpoint")
-			s.writeError(w, "Failed to determine local cluster address: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-
-	jwtSecret, err := s.clusterManager.JoinCluster(r.Context(), req.ClusterToken, req.NodeEndpoint, selfEndpoint, req.NodeName)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to join cluster")
+	// Apply the join package: store config + certs, load TLS into memory.
+	if err := s.clusterManager.AcceptClusterJoin(r.Context(), &pkg); err != nil {
+		logrus.WithError(err).Error("Failed to accept cluster join package")
 		s.writeError(w, "Failed to join cluster: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Adopt the cluster's JWT secret so all nodes share the same signing key.
-	// The secret is returned directly from the validate-token step (cluster-token-protected).
-	if jwtSecret != "" {
+	// Synchronize the cluster JWT secret so cross-node sessions work immediately.
+	if pkg.JWTSecret != "" {
 		if setter, ok := s.authManager.(interface{ SetJWTSecret(string) }); ok {
-			setter.SetJWTSecret(jwtSecret)
-			logrus.Info("JWT secret synchronized from cluster node")
+			setter.SetJWTSecret(pkg.JWTSecret)
+			logrus.Info("JWT secret synchronized from cluster join package")
 		}
-	} else {
-		logrus.Warn("Cluster did not return a JWT secret — cross-node sessions will not be shared")
 	}
 
-	// Certs were just obtained via CSR — restart the cluster listener with TLS.
-	go s.enableClusterTLS()
+	// Open port 8082 with TLS now that certs are loaded.
+	s.enableClusterTLS()
+
+	// Validate connectivity to Node A's 8082 using the cluster TLS client.
+	// This confirms the TLS channel between the two nodes is working end-to-end.
+	if pkg.NodeEndpoint != "" {
+		healthURL := strings.TrimRight(pkg.NodeEndpoint, "/") + "/health"
+		if err := s.clusterManager.CheckNodeConnectivity(healthURL); err != nil {
+			logrus.WithError(err).WithField("node_endpoint", pkg.NodeEndpoint).Warn("Connectivity check to cluster node failed")
+			s.writeError(w, "Joined but connectivity check to cluster node failed: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		logrus.WithField("node_endpoint", pkg.NodeEndpoint).Info("Connectivity to cluster node confirmed via TLS")
+	}
 
 	s.writeJSON(w, map[string]interface{}{
 		"message": "Successfully joined cluster",
@@ -315,23 +287,20 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Endpoint = remoteConsoleURL
 
-	// Get local cluster config to obtain the cluster token
+	// Get Node A's cluster config (token, region) and CA key pair for cert generation
 	config, err := s.clusterManager.GetConfig(r.Context())
 	if err != nil {
 		s.writeError(w, "Cluster not initialized", http.StatusBadRequest)
 		return
 	}
-
-	// A's cluster endpoint: use the real local IP, not the public URL.
-	localEndpoint, err := s.resolveLocalClusterEndpoint(r, "")
-	if err != nil {
-		logrus.WithError(err).Error("Failed to resolve local cluster endpoint")
-		s.writeError(w, "Failed to determine local cluster address: "+err.Error(), http.StatusInternalServerError)
+	caCertPEM := s.clusterManager.GetCACertPEM()
+	caKeyPEM := s.clusterManager.GetCAKeyPEM()
+	if caCertPEM == "" || caKeyPEM == "" {
+		s.writeError(w, "Cluster CA certificates not available", http.StatusInternalServerError)
 		return
 	}
 
-	// Step 1: Authenticate to the remote node
-	// Use insecure TLS — the remote node is standalone and may have a self-signed cert
+	// Use insecure TLS — Node B is standalone and may not have TLS at all
 	insecureClient := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12},
@@ -339,11 +308,12 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	remoteEndpoint := strings.TrimRight(req.Endpoint, "/")
+
+	// Step 1: Authenticate to Node B via 8081
 	loginPayload, _ := json.Marshal(map[string]string{
 		"username": req.Username,
 		"password": req.Password,
 	})
-
 	loginResp, err := insecureClient.Post(remoteEndpoint+"/api/v1/auth/login", "application/json", bytes.NewReader(loginPayload))
 	if err != nil {
 		logrus.WithError(err).Error("Failed to connect to remote node")
@@ -351,12 +321,10 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer loginResp.Body.Close()
-
 	if loginResp.StatusCode != http.StatusOK {
 		s.writeError(w, "Authentication failed on remote node (check credentials)", http.StatusUnauthorized)
 		return
 	}
-
 	var loginResult struct {
 		Token       string `json:"token"`
 		AccessToken string `json:"access_token"`
@@ -370,22 +338,19 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		remoteToken = loginResult.Token
 	}
 	if remoteToken == "" {
-		s.writeError(w, "Failed to parse authentication response from remote node", http.StatusBadGateway)
+		s.writeError(w, "Failed to obtain token from remote node", http.StatusBadGateway)
 		return
 	}
 
-	// Step 2: Check if remote node is already in a cluster
+	// Step 2: Verify Node B is in standalone mode
 	configReq, _ := http.NewRequestWithContext(r.Context(), "GET", remoteEndpoint+"/api/v1/cluster/config", nil)
 	configReq.Header.Set("Authorization", "Bearer "+remoteToken)
-
 	configResp, err := insecureClient.Do(configReq)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to check remote node cluster status")
 		s.writeError(w, "Failed to check remote node cluster status: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer configResp.Body.Close()
-
 	if configResp.StatusCode == http.StatusOK {
 		var remoteConfig struct {
 			Data struct {
@@ -398,8 +363,14 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Derive B's cluster URL from the console URL A used to reach it.
-	// B's IP is already known; just swap the port to the cluster port (8082).
+	// Step 3: Build the join package
+	// Generate Node B's node ID, name, and TLS cert+key signed by Node A's CA
+	nodeID := uuid.New().String()
+	nodeName := req.NodeName
+	if nodeName == "" {
+		nodeName = fmt.Sprintf("node-%s", nodeID[:8])
+	}
+
 	remoteClusterPort := "8082"
 	if s.config.ClusterListen != "" {
 		if _, p, err := net.SplitHostPort(s.config.ClusterListen); err == nil && p != "" {
@@ -407,37 +378,82 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	remoteParsed, _ := url.Parse(remoteConsoleURL)
-	// The cluster inter-node port always uses HTTPS (cluster-managed TLS).
 	remoteClusterURL := "https://" + remoteParsed.Hostname() + ":" + remoteClusterPort
 
-	// Step 3: Call the remote node's join endpoint
-	joinPayload, _ := json.Marshal(map[string]string{
-		"cluster_token": config.ClusterToken,
-		"node_endpoint": localEndpoint,
-		"self_endpoint": remoteClusterURL,
-		"node_name":     req.NodeName,
-	})
+	localClusterEndpoint, err := s.resolveLocalClusterEndpoint(r, "")
+	if err != nil {
+		logrus.WithError(err).Error("Failed to resolve local cluster endpoint")
+		s.writeError(w, "Failed to determine local cluster address: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
+	nodeCertPEM, nodeKeyPEM, err := cluster.GenerateNodeCert([]byte(caCertPEM), []byte(caKeyPEM), nodeName, remoteClusterURL)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to generate node certificate for joining node")
+		s.writeError(w, "Failed to generate node certificate: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var jwtSecret string
+	_ = s.db.QueryRow(`SELECT value FROM system_settings WHERE key = ?`, "jwt_secret").Scan(&jwtSecret)
+
+	nodes, err := s.clusterManager.ListNodes(r.Context())
+	if err != nil {
+		logrus.WithError(err).Error("Failed to list cluster nodes")
+		s.writeError(w, "Failed to list cluster nodes: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Node B's S3 API URL: same host as console, port 8080
+	remoteAPIURL := "http://" + remoteParsed.Hostname() + ":8080"
+
+	pkg := cluster.ClusterJoinPackage{
+		NodeID:       nodeID,
+		NodeName:     nodeName,
+		ClusterToken: config.ClusterToken,
+		Region:       config.Region,
+		CACertPEM:    caCertPEM,
+		NodeCertPEM:  string(nodeCertPEM),
+		NodeKeyPEM:   string(nodeKeyPEM),
+		JWTSecret:    jwtSecret,
+		SelfEndpoint: remoteClusterURL,
+		NodeEndpoint: localClusterEndpoint,
+		APIURL:       remoteAPIURL,
+		Nodes:        nodes,
+	}
+
+	// Step 4: Push the join package to Node B via 8081
+	joinPayload, _ := json.Marshal(pkg)
 	joinReq, _ := http.NewRequestWithContext(r.Context(), "POST", remoteEndpoint+"/api/v1/cluster/join", bytes.NewReader(joinPayload))
 	joinReq.Header.Set("Content-Type", "application/json")
 	joinReq.Header.Set("Authorization", "Bearer "+remoteToken)
-
 	joinResp, err := insecureClient.Do(joinReq)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to send join request to remote node")
-		s.writeError(w, "Failed to send join request to remote node: "+err.Error(), http.StatusBadGateway)
+		logrus.WithError(err).Error("Failed to send join package to remote node")
+		s.writeError(w, "Failed to send join package to remote node: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer joinResp.Body.Close()
-
 	if joinResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(joinResp.Body)
 		s.writeError(w, "Remote node failed to join cluster: "+string(body), http.StatusBadGateway)
 		return
 	}
 
-	logrus.WithField("endpoint", req.Endpoint).Info("Remote node joined cluster successfully")
+	// Step 5: Register Node B in Node A's cluster_nodes
+	if err := s.clusterManager.AddNode(r.Context(), &cluster.Node{
+		ID:        nodeID,
+		Name:      nodeName,
+		Endpoint:  remoteClusterURL,
+		APIURL:    remoteAPIURL,
+		NodeToken: config.ClusterToken,
+		Region:    config.Region,
+		Priority:  5,
+	}); err != nil {
+		logrus.WithError(err).Warn("Failed to register new node in cluster after successful join")
+	}
 
+	logrus.WithField("endpoint", req.Endpoint).Info("Remote node joined cluster successfully")
 	s.writeJSON(w, map[string]interface{}{
 		"message": "Node added to cluster successfully",
 	})
