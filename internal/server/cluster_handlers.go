@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -62,8 +61,15 @@ func (s *Server) handleInitializeCluster(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Cluster certs were just generated — restart the cluster listener with TLS.
-	go s.enableClusterTLS()
+	// Cluster certs were just generated — restart the cluster listener with TLS and
+	// start all cluster background services (health checker, sync managers, etc.).
+	go func() {
+		if err := s.enableClusterTLS(); err != nil {
+			logrus.WithError(err).Error("Failed to start cluster TLS after initialization")
+			return
+		}
+		s.startClusterBackgroundServices(s.serverCtx)
+	}()
 
 	s.writeJSON(w, map[string]interface{}{
 		"message":       "Cluster initialized successfully",
@@ -73,7 +79,9 @@ func (s *Server) handleInitializeCluster(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// handleJoinCluster joins an existing cluster
+// handleJoinCluster receives the join package pushed by Node A (via this node's port 8081).
+// It generates this node's TLS certificate, starts the cluster TLS listener on port 8082,
+// and only then responds to Node A — so Node A knows the cluster port is ready immediately.
 func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
 		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
@@ -86,7 +94,7 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Apply the join package: store config + certs, load TLS into memory.
+	// Generate this node's cert using the CA, save config to DB, load TLS into memory.
 	if err := s.clusterManager.AcceptClusterJoin(r.Context(), &pkg); err != nil {
 		logrus.WithError(err).Error("Failed to accept cluster join package")
 		s.writeError(w, "Failed to join cluster: "+err.Error(), http.StatusInternalServerError)
@@ -97,28 +105,22 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 	if pkg.JWTSecret != "" {
 		if setter, ok := s.authManager.(interface{ SetJWTSecret(string) }); ok {
 			setter.SetJWTSecret(pkg.JWTSecret)
-			logrus.Info("JWT secret synchronized from cluster join package")
 		}
 	}
 
-	// Open port 8082 with TLS now that certs are loaded.
-	s.enableClusterTLS()
-
-	// Validate connectivity to Node A's 8082 using the cluster TLS client.
-	// This confirms the TLS channel between the two nodes is working end-to-end.
-	if pkg.NodeEndpoint != "" {
-		healthURL := strings.TrimRight(pkg.NodeEndpoint, "/") + "/health"
-		if err := s.clusterManager.CheckNodeConnectivity(healthURL); err != nil {
-			logrus.WithError(err).WithField("node_endpoint", pkg.NodeEndpoint).Warn("Connectivity check to cluster node failed")
-			s.writeError(w, "Joined but connectivity check to cluster node failed: "+err.Error(), http.StatusBadGateway)
-			return
-		}
-		logrus.WithField("node_endpoint", pkg.NodeEndpoint).Info("Connectivity to cluster node confirmed via TLS")
+	// Bind the cluster TLS port synchronously. Node A receives 200 only after
+	// this succeeds, so it can immediately treat this node as reachable on 8082.
+	if err := s.enableClusterTLS(); err != nil {
+		logrus.WithError(err).Error("Failed to start cluster TLS after join")
+		s.writeError(w, "Join succeeded but failed to start cluster TLS: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	s.writeJSON(w, map[string]interface{}{
-		"message": "Successfully joined cluster",
-	})
+	// Start health checker, sync managers and all other cluster background services.
+	// Uses sync.Once so it's safe to call even if already started.
+	go s.startClusterBackgroundServices(s.serverCtx)
+
+	s.writeJSON(w, map[string]interface{}{"message": "Join accepted, cluster TLS ready"})
 }
 
 // handleLeaveCluster removes this node from the cluster
@@ -387,13 +389,6 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nodeCertPEM, nodeKeyPEM, err := cluster.GenerateNodeCert([]byte(caCertPEM), []byte(caKeyPEM), nodeName, remoteClusterURL)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to generate node certificate for joining node")
-		s.writeError(w, "Failed to generate node certificate: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	var jwtSecret string
 	_ = s.db.QueryRow(`SELECT value FROM system_settings WHERE key = ?`, "jwt_secret").Scan(&jwtSecret)
 
@@ -407,19 +402,20 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	// Node B's S3 API URL: same host as console, port 8080
 	remoteAPIURL := "http://" + remoteParsed.Hostname() + ":8080"
 
+	// Node B generates its own cert+key using the CA once it receives this package.
+	// CAKeyPEM is included so Node B can sign a cert with its own IP in the SANs.
 	pkg := cluster.ClusterJoinPackage{
 		NodeID:       nodeID,
 		NodeName:     nodeName,
 		ClusterToken: config.ClusterToken,
 		Region:       config.Region,
 		CACertPEM:    caCertPEM,
-		NodeCertPEM:  string(nodeCertPEM),
-		NodeKeyPEM:   string(nodeKeyPEM),
+		CAKeyPEM:     caKeyPEM,
 		JWTSecret:    jwtSecret,
 		SelfEndpoint: remoteClusterURL,
 		NodeEndpoint: localClusterEndpoint,
 		APIURL:       remoteAPIURL,
-		Nodes:        nodes,
+		Nodes:        cluster.NodesToJoinPackage(nodes),
 	}
 
 	// Step 4: Push the join package to Node B via 8081
@@ -440,8 +436,9 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 5: Register Node B in Node A's cluster_nodes
-	if err := s.clusterManager.AddNode(r.Context(), &cluster.Node{
+	// Step 5: Node B responded 200 only after its TLS port was bound — no polling needed.
+	// Register Node B in Node A's cluster_nodes.
+	newNode := &cluster.Node{
 		ID:        nodeID,
 		Name:      nodeName,
 		Endpoint:  remoteClusterURL,
@@ -449,9 +446,18 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		NodeToken: config.ClusterToken,
 		Region:    config.Region,
 		Priority:  5,
-	}); err != nil {
+	}
+	if err := s.clusterManager.AddNode(r.Context(), newNode); err != nil {
 		logrus.WithError(err).Warn("Failed to register new node in cluster after successful join")
 	}
+
+	// Step 6: Broadcast Node B to ALL existing cluster nodes so every member's
+	// registry is updated immediately (not waiting for the next periodic sync).
+	go s.broadcastNewNodeToCluster(newNode)
+
+	// Step 7: Health-check + immediate data push to new node so users, access keys
+	// and tenants are available right away (no 30-second wait for the periodic ticker).
+	go s.kickstartNewNodeSync(newNode)
 
 	logrus.WithField("endpoint", req.Endpoint).Info("Remote node joined cluster successfully")
 	s.writeJSON(w, map[string]interface{}{
@@ -773,229 +779,111 @@ func (s *Server) handleGetTenantStorage(w http.ResponseWriter, r *http.Request) 
 	s.writeClusterJSON(w, storageInfo)
 }
 
-// handleValidateClusterToken validates a cluster token for node join operations
-func (s *Server) handleValidateClusterToken(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ClusterToken string `json:"cluster_token"`
+// handleRegisterPeerNode receives a new peer node registration from another cluster member.
+// HMAC-authenticated (cluster auth middleware). Idempotent — safe to call multiple times.
+func (s *Server) handleRegisterPeerNode(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		ID        string `json:"id"`
+		Name      string `json:"name"`
+		Endpoint  string `json:"endpoint"`
+		APIURL    string `json:"api_url"`
+		NodeToken string `json:"node_token"`
+		Region    string `json:"region"`
+		Priority  int    `json:"priority"`
 	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if payload.ID == "" || payload.Endpoint == "" {
+		http.Error(w, "Node ID and endpoint are required", http.StatusBadRequest)
 		return
 	}
 
-	if req.ClusterToken == "" {
-		s.writeError(w, "Cluster token is required", http.StatusBadRequest)
-		return
+	node := &cluster.Node{
+		ID:       payload.ID,
+		Name:     payload.Name,
+		Endpoint: payload.Endpoint,
+		APIURL:   payload.APIURL,
+		Region:   payload.Region,
+		Priority: payload.Priority,
 	}
+	node.NodeToken = payload.NodeToken
 
-	// Get local cluster config
-	config, err := s.clusterManager.GetConfig(r.Context())
-	if err != nil {
-		logrus.WithError(err).Error("Failed to get cluster config")
-		s.writeError(w, "Failed to get cluster config: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Validate token matches local cluster token (timing-safe to prevent timing attacks).
-	if !hmac.Equal([]byte(config.ClusterToken), []byte(req.ClusterToken)) {
-		s.writeError(w, "Invalid cluster token", http.StatusUnauthorized)
-		return
-	}
-
-	// Get cluster node count
-	nodes, err := s.clusterManager.ListNodes(r.Context())
-	if err != nil {
-		logrus.WithError(err).Error("Failed to list nodes")
-		s.writeError(w, "Failed to list nodes: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Return cluster info along with CA cert+key for inter-node TLS setup
-	clusterInfo := cluster.ClusterInfo{
-		ClusterID: config.NodeID, // Use first node ID as cluster ID
-		Region:    config.Region,
-		NodeCount: len(nodes),
-	}
-
-	resp := map[string]interface{}{
-		"valid":        true,
-		"cluster_info": clusterInfo,
-	}
-
-	// Include only the CA *certificate* (public). The CA private key is never transmitted.
-	// Joining nodes obtain their signed certificate via the /sign-csr endpoint instead.
-	if caCert := s.clusterManager.GetCACertPEM(); caCert != "" {
-		resp["ca_cert"] = caCert
-	}
-
-	// Include the JWT secret so joining nodes can adopt it immediately.
-	// Protected by the cluster token that was already validated above.
-	var jwtSecret string
-	if err := s.db.QueryRow(`SELECT value FROM system_settings WHERE key = ?`, "jwt_secret").Scan(&jwtSecret); err == nil && jwtSecret != "" {
-		resp["jwt_secret"] = jwtSecret
-	}
-
-	s.writeClusterJSON(w, resp)
-}
-
-// handleSignCSR signs a Certificate Signing Request (CSR) from a node that is joining the cluster.
-// Authentication uses the shared cluster token (pre-HMAC bootstrap flow).
-// The CA private key never leaves this handler — only the signed certificate is returned.
-func (s *Server) handleSignCSR(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ClusterToken string `json:"cluster_token"`
-		CSR          string `json:"csr"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if req.ClusterToken == "" || req.CSR == "" {
-		s.writeError(w, "cluster_token and csr are required", http.StatusBadRequest)
-		return
-	}
-
-	// Validate cluster token
-	config, err := s.clusterManager.GetConfig(r.Context())
-	if err != nil {
-		s.writeError(w, "Cluster not initialized", http.StatusInternalServerError)
-		return
-	}
-	if !hmac.Equal([]byte(config.ClusterToken), []byte(req.ClusterToken)) {
-		s.writeError(w, "Invalid cluster token", http.StatusUnauthorized)
-		return
-	}
-
-	// Get CA cert and key (key stays server-side, never transmitted)
-	caCertPEM := s.clusterManager.GetCACertPEM()
-	caKeyPEM := s.clusterManager.GetCAKeyPEM()
-	if caCertPEM == "" || caKeyPEM == "" {
-		s.writeError(w, "CA certificates not available on this node", http.StatusInternalServerError)
-		return
-	}
-
-	// Sign the CSR
-	nodeCertPEM, err := cluster.SignCSR([]byte(req.CSR), []byte(caCertPEM), []byte(caKeyPEM))
-	if err != nil {
-		logrus.WithError(err).Error("Failed to sign node CSR")
-		s.writeError(w, "Failed to sign CSR: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	s.writeClusterJSON(w, map[string]string{
-		"node_cert": string(nodeCertPEM),
-	})
-}
-
-// handleRegisterNode registers a new node joining the cluster
-func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ClusterToken string        `json:"cluster_token"`
-		Node         *cluster.Node `json:"node"`
-		NodeToken    string        `json:"node_token"` // sent separately because Node.NodeToken has json:"-"
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if req.ClusterToken == "" {
-		s.writeError(w, "Cluster token is required", http.StatusBadRequest)
-		return
-	}
-
-	if req.Node == nil {
-		s.writeError(w, "Node information is required", http.StatusBadRequest)
-		return
-	}
-
-	// Restore node_token from the dedicated field (Node.NodeToken is json:"-")
-	if req.NodeToken != "" {
-		req.Node.NodeToken = req.NodeToken
-	}
-
-	// Validate cluster token
-	config, err := s.clusterManager.GetConfig(r.Context())
-	if err != nil {
-		logrus.WithError(err).Error("Failed to get cluster config")
-		s.writeError(w, "Failed to get cluster config: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if !hmac.Equal([]byte(config.ClusterToken), []byte(req.ClusterToken)) {
-		s.writeError(w, "Invalid cluster token", http.StatusUnauthorized)
-		return
-	}
-
-	// Add node to cluster
-	err = s.clusterManager.AddNode(r.Context(), req.Node)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to register node")
-		s.writeError(w, "Failed to register node: "+err.Error(), http.StatusInternalServerError)
+	if err := s.clusterManager.AddNode(r.Context(), node); err != nil {
+		logrus.WithError(err).WithField("node_id", payload.ID).Error("Failed to register peer node")
+		http.Error(w, "Failed to register node: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"node_id":   req.Node.ID,
-		"node_name": req.Node.Name,
-		"endpoint":  req.Node.Endpoint,
-	}).Info("Node registered successfully")
-
-	// Broadcast the new node to all other existing nodes (best-effort, async).
-	// This ensures that when a 3rd node joins via node A, nodes B, C, etc.
-	// also learn about the new node immediately instead of never discovering it.
-	go s.broadcastNewNode(r.Context(), req.Node, config.ClusterToken)
-
-	resp := map[string]interface{}{
-		"node": req.Node,
-	}
-	if caCert := s.clusterManager.GetCACertPEM(); caCert != "" {
-		resp["ca_cert"] = caCert
-	}
-	s.writeClusterJSON(w, resp)
+		"node_id":   payload.ID,
+		"node_name": payload.Name,
+	}).Info("Peer node registered via broadcast")
+	w.WriteHeader(http.StatusOK)
 }
 
-// broadcastNewNode notifies all existing nodes about a newly registered node.
-// Runs in a goroutine — best-effort, logs errors but does not block the caller.
-func (s *Server) broadcastNewNode(ctx context.Context, newNode *cluster.Node, clusterToken string) {
-	// Use a background context so this is not cancelled when the HTTP request ends.
+// broadcastNewNodeToCluster notifies all existing cluster members (except self and the new node)
+// about the new node so every member's registry is immediately up to date.
+// Runs in a goroutine — best-effort, logs but does not block the caller.
+func (s *Server) broadcastNewNodeToCluster(newNode *cluster.Node) {
 	bgCtx := context.Background()
 
-	nodes, err := s.clusterManager.ListNodes(bgCtx)
+	localNodeID, err := s.clusterManager.GetLocalNodeID(bgCtx)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to list nodes for broadcast")
+		logrus.WithError(err).Error("broadcastNewNode: failed to get local node ID")
+		return
+	}
+	localNodeToken, err := s.clusterManager.GetLocalNodeToken(bgCtx)
+	if err != nil {
+		logrus.WithError(err).Error("broadcastNewNode: failed to get local node token")
 		return
 	}
 
-	localNodeID, _ := s.clusterManager.GetLocalNodeID(bgCtx)
+	nodes, err := s.clusterManager.ListNodes(bgCtx)
+	if err != nil {
+		logrus.WithError(err).Error("broadcastNewNode: failed to list nodes")
+		return
+	}
+
+	proxyClient := cluster.NewProxyClient(s.clusterManager.GetTLSConfig())
+
+	// Serialize with node_token explicitly (Node.NodeToken is json:"-")
+	type nodePayload struct {
+		ID        string `json:"id"`
+		Name      string `json:"name"`
+		Endpoint  string `json:"endpoint"`
+		APIURL    string `json:"api_url"`
+		NodeToken string `json:"node_token"`
+		Region    string `json:"region"`
+		Priority  int    `json:"priority"`
+	}
+	body, _ := json.Marshal(nodePayload{
+		ID:        newNode.ID,
+		Name:      newNode.Name,
+		Endpoint:  newNode.Endpoint,
+		APIURL:    newNode.APIURL,
+		NodeToken: newNode.NodeToken,
+		Region:    newNode.Region,
+		Priority:  newNode.Priority,
+	})
 
 	for _, node := range nodes {
-		// Skip the new node itself and ourselves
 		if node.ID == newNode.ID || node.ID == localNodeID {
 			continue
 		}
 
-		url := fmt.Sprintf("%s/api/internal/cluster/notify-node", node.Endpoint)
-		payload, _ := json.Marshal(map[string]interface{}{
-			"cluster_token": clusterToken,
-			"node":          newNode,
-			"node_token":    newNode.NodeToken,
-		})
-
-		req, err := http.NewRequestWithContext(bgCtx, "POST", url, bytes.NewReader(payload))
+		url := strings.TrimRight(node.Endpoint, "/") + "/api/internal/cluster/peer-node"
+		req, err := proxyClient.CreateAuthenticatedRequest(bgCtx, "POST", url, bytes.NewReader(body), localNodeID, localNodeToken)
 		if err != nil {
-			logrus.WithError(err).WithField("target_node", node.ID).Warn("Failed to create broadcast request")
+			logrus.WithError(err).WithField("target_node", node.ID).Warn("broadcastNewNode: failed to create request")
 			continue
 		}
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := proxyClient.DoAuthenticatedRequest(req)
 		if err != nil {
-			logrus.WithError(err).WithField("target_node", node.ID).Warn("Failed to broadcast new node")
+			logrus.WithError(err).WithField("target_node", node.ID).Warn("broadcastNewNode: request failed")
 			continue
 		}
 		resp.Body.Close()
@@ -1003,131 +891,8 @@ func (s *Server) broadcastNewNode(ctx context.Context, newNode *cluster.Node, cl
 		logrus.WithFields(logrus.Fields{
 			"new_node":    newNode.ID,
 			"target_node": node.ID,
-			"status":      resp.StatusCode,
-		}).Info("Broadcasted new node to existing cluster member")
+		}).Info("New node broadcast to cluster member")
 	}
-}
-
-// handleNotifyNewNode receives a notification about a new node joining the cluster.
-// This is called by the node that accepted the join, to notify all other members.
-func (s *Server) handleNotifyNewNode(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ClusterToken string        `json:"cluster_token"`
-		Node         *cluster.Node `json:"node"`
-		NodeToken    string        `json:"node_token"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if req.ClusterToken == "" || req.Node == nil {
-		s.writeError(w, "Cluster token and node are required", http.StatusBadRequest)
-		return
-	}
-
-	// Restore node_token from the dedicated field (Node.NodeToken is json:"-")
-	if req.NodeToken != "" {
-		req.Node.NodeToken = req.NodeToken
-	}
-
-	// Validate cluster token
-	config, err := s.clusterManager.GetConfig(r.Context())
-	if err != nil {
-		s.writeError(w, "Failed to get cluster config", http.StatusInternalServerError)
-		return
-	}
-
-	if !hmac.Equal([]byte(config.ClusterToken), []byte(req.ClusterToken)) {
-		s.writeError(w, "Invalid cluster token", http.StatusUnauthorized)
-		return
-	}
-
-	// Add the new node (idempotent — uses INSERT OR REPLACE)
-	if err := s.clusterManager.AddNode(r.Context(), req.Node); err != nil {
-		logrus.WithError(err).Error("Failed to add broadcasted node")
-		s.writeError(w, "Failed to add node", http.StatusInternalServerError)
-		return
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"node_id":   req.Node.ID,
-		"node_name": req.Node.Name,
-	}).Info("Received new node notification from cluster")
-
-	w.WriteHeader(http.StatusOK)
-}
-
-// handleGetClusterJWTSecret returns the JWT secret for cluster synchronization (HMAC-authenticated)
-func (s *Server) handleGetClusterJWTSecret(w http.ResponseWriter, r *http.Request) {
-	// Read JWT secret from system_settings
-	var jwtSecret string
-	err := s.db.QueryRow(`SELECT value FROM system_settings WHERE key = ?`, "jwt_secret").Scan(&jwtSecret)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to read JWT secret from database")
-		s.writeError(w, "Failed to read JWT secret", http.StatusInternalServerError)
-		return
-	}
-
-	s.writeClusterJSON(w, map[string]string{
-		"jwt_secret": jwtSecret,
-	})
-}
-
-// handleGetClusterNodesInternal returns cluster nodes for internal cluster sync (with token auth).
-// The cluster token is expected in the Authorization header as "Bearer <token>" to avoid
-// leaking the token into HTTP access logs which record the full URL.
-func (s *Server) handleGetClusterNodesInternal(w http.ResponseWriter, r *http.Request) {
-	authHeader := r.Header.Get("Authorization")
-	const bearerPrefix = "Bearer "
-	if !strings.HasPrefix(authHeader, bearerPrefix) {
-		s.writeError(w, "Cluster token is required (Authorization: Bearer <token>)", http.StatusBadRequest)
-		return
-	}
-	clusterToken := strings.TrimPrefix(authHeader, bearerPrefix)
-	if clusterToken == "" {
-		s.writeError(w, "Cluster token is required", http.StatusBadRequest)
-		return
-	}
-
-	// Validate cluster token
-	config, err := s.clusterManager.GetConfig(r.Context())
-	if err != nil {
-		logrus.WithError(err).Error("Failed to get cluster config")
-		s.writeError(w, "Failed to get cluster config: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if !hmac.Equal([]byte(config.ClusterToken), []byte(clusterToken)) {
-		s.writeError(w, "Invalid cluster token", http.StatusUnauthorized)
-		return
-	}
-
-	// Get all nodes
-	nodes, err := s.clusterManager.ListNodes(r.Context())
-	if err != nil {
-		logrus.WithError(err).Error("Failed to list nodes")
-		s.writeError(w, "Failed to list nodes: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Build response with node_token included.
-	// Node.NodeToken has json:"-" so we must expose it explicitly here.
-	// This endpoint is already authenticated via cluster token, so sharing
-	// node tokens is safe — they are needed for HMAC inter-node auth.
-	type nodeWithToken struct {
-		*cluster.Node
-		NodeToken string `json:"node_token"`
-	}
-	nodesWithTokens := make([]nodeWithToken, len(nodes))
-	for i, n := range nodes {
-		nodesWithTokens[i] = nodeWithToken{Node: n, NodeToken: n.NodeToken}
-	}
-
-	s.writeClusterJSON(w, map[string]interface{}{
-		"nodes": nodesWithTokens,
-	})
 }
 
 // writeClusterJSON writes a raw JSON response for inter-node cluster API endpoints.
@@ -1224,4 +989,37 @@ func parseNodeAddress(input, defaultPort string) (string, error) {
 	}
 
 	return u.Scheme + "://" + host + ":" + port, nil
+}
+
+// kickstartNewNodeSync performs an immediate health check on the new node (to mark it
+// healthy in the DB so periodic sync loops will target it), then pushes all local users,
+// access keys, and tenants to the node without waiting for the next ticker cycle.
+// Runs in a goroutine — does not block the caller.
+func (s *Server) kickstartNewNodeSync(newNode *cluster.Node) {
+	ctx := context.Background()
+
+	// Health check marks the node healthy in the DB immediately.
+	if _, err := s.clusterManager.CheckNodeHealth(ctx, newNode.ID); err != nil {
+		logrus.WithError(err).WithField("node_id", newNode.ID).Warn("kickstartNewNodeSync: health check failed, sync may be delayed")
+	}
+
+	// Push tenants first (users may belong to tenants).
+	if s.tenantSyncMgr != nil {
+		s.tenantSyncMgr.SyncToNode(ctx, newNode)
+	}
+
+	// Push all users so that authentication works on the new node immediately.
+	if s.userSyncMgr != nil {
+		s.userSyncMgr.SyncToNode(ctx, newNode)
+	}
+
+	// Push all access keys so that S3 API calls work from both nodes immediately.
+	if s.accessKeySyncMgr != nil {
+		s.accessKeySyncMgr.SyncToNode(ctx, newNode)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"node_id":   newNode.ID,
+		"node_name": newNode.Name,
+	}).Info("kickstartNewNodeSync: initial data push to new node completed")
 }

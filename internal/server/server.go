@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"encoding/xml"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"path"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/handlers"
@@ -86,10 +88,12 @@ type Server struct {
 	inventoryWorker         *inventory.Worker
 	accessLogger            *BucketAccessLogger
 	idpManager              *idpkg.Manager
-	startTime               time.Time // Server start time for uptime calculation
-	version                 string    // Server version
-	commit                  string    // Git commit hash
-	buildDate               string    // Build date
+	startTime               time.Time       // Server start time for uptime calculation
+	version                 string          // Server version
+	commit                  string          // Git commit hash
+	buildDate               string          // Build date
+	serverCtx               context.Context // lifecycle context, set in Start()
+	clusterBgOnce           sync.Once       // ensures cluster background services start exactly once
 }
 
 // New creates a new MaxIOFS server
@@ -310,6 +314,13 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize cluster schema: %w", err)
 	}
 
+	// Initialize cluster replication/sync schema (sync tracking tables + cluster_global_config).
+	// This MUST run on every startup so the default config values (auto_*_sync_enabled = true)
+	// are present before sync managers query them.
+	if err := cluster.InitReplicationSchema(db); err != nil {
+		return nil, fmt.Errorf("failed to initialize cluster replication schema: %w", err)
+	}
+
 	// Compute cluster URL: same host as PublicAPIURL but on the cluster inter-node port.
 	clusterURL := cfg.PublicAPIURL
 	if clusterListen := cfg.ClusterListen; clusterListen != "" {
@@ -526,6 +537,8 @@ func (s *Server) SetVersion(version, commit, date string) {
 
 // Start starts the MaxIOFS server
 func (s *Server) Start(ctx context.Context) error {
+	s.serverCtx = ctx
+
 	logrus.WithFields(logrus.Fields{
 		"api_address":     s.config.Listen,
 		"console_address": s.config.ConsoleListen,
@@ -572,91 +585,11 @@ func (s *Server) Start(ctx context.Context) error {
 		logrus.Info("Replication manager started")
 	}
 
-	// Start cluster health checker and certificate renewal
+	// Start cluster background services if cluster is already enabled at boot.
+	// If the node initializes or joins a cluster at runtime, handleInitializeCluster /
+	// handleJoinCluster will call startClusterBackgroundServices via the same Once.
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
-		go s.clusterManager.StartHealthChecker(ctx)
-		logrus.Info("Cluster health checker started")
-
-		s.clusterManager.StartCertRenewal(ctx)
-		logrus.Info("Cluster certificate renewal checker started")
-
-		// Start bucket count updater (runs every 30 seconds)
-		go s.updateBucketCountPeriodically(ctx, 30*time.Second)
-		logrus.Info("Bucket count updater started")
-
-		// Run stale-node reconciliation before periodic sync managers start.
-		// The reconciler returns immediately when the node is not stale, so
-		// this is a no-op in the normal (non-recovery) case.
-		if s.staleReconciler != nil {
-			go func() {
-				if err := s.staleReconciler.Reconcile(ctx); err != nil {
-					logrus.WithError(err).Warn("Stale-node reconciliation encountered an error")
-				}
-			}()
-			logrus.Info("Stale-node reconciler started")
-		}
-
-		// Start tenant synchronization manager
-		if s.tenantSyncMgr != nil {
-			s.tenantSyncMgr.Start(ctx)
-			logrus.Info("Tenant synchronization manager started")
-		}
-
-		// Start user synchronization manager
-		if s.userSyncMgr != nil {
-			s.userSyncMgr.Start(ctx)
-			logrus.Info("User synchronization manager started")
-		}
-
-		// Start access key synchronization manager
-		if s.accessKeySyncMgr != nil {
-			s.accessKeySyncMgr.Start(ctx)
-			logrus.Info("Access key synchronization manager started")
-		}
-
-		// Start bucket permission synchronization manager
-		if s.bucketPermissionSyncMgr != nil {
-			s.bucketPermissionSyncMgr.Start(ctx)
-			logrus.Info("Bucket permission synchronization manager started")
-		}
-
-		// Start IDP provider synchronization manager
-		if s.idpProviderSyncMgr != nil {
-			s.idpProviderSyncMgr.Start(ctx)
-			logrus.Info("IDP provider synchronization manager started")
-		}
-
-		// Start group mapping synchronization manager
-		if s.groupMappingSyncMgr != nil {
-			s.groupMappingSyncMgr.Start(ctx)
-			logrus.Info("Group mapping synchronization manager started")
-		}
-
-		// Start deletion log synchronization manager
-		if s.deletionLogSyncMgr != nil {
-			s.deletionLogSyncMgr.Start(ctx)
-			logrus.Info("Deletion log synchronization manager started")
-		}
-
-		// Start global config and node list synchronization manager
-		if s.globalConfigSyncMgr != nil {
-			s.globalConfigSyncMgr.Start(ctx)
-			logrus.Info("Global config synchronization manager started")
-		}
-
-		// Start deletion log cleanup (every 1 hour, remove entries older than 7 days)
-		cluster.StartDeletionLogCleanup(ctx, s.db, 1*time.Hour, 7*24*time.Hour)
-		logrus.Info("Deletion log cleanup started")
-
-		// Start HA initial-sync worker
-		if s.haSyncWorker != nil {
-			s.haSyncWorker.Start(ctx)
-			logrus.Info("HA sync worker started")
-		}
-
-		// Start cluster node storage alert monitor
-		s.startClusterNodeAlertMonitor(ctx)
-		logrus.Info("Cluster node alert monitor started")
+		s.startClusterBackgroundServices(ctx)
 	}
 
 	// Start API server
@@ -769,25 +702,101 @@ func (s *Server) startClusterServer() error {
 	return s.clusterServer.ListenAndServeTLS("", "")
 }
 
-// enableClusterTLS shuts down the plain-HTTP cluster listener and restarts it
-// with TLS using the certificates that were just generated during cluster
-// initialization or join. Called in a goroutine from the cluster handlers.
-func (s *Server) enableClusterTLS() {
+// startClusterBackgroundServices starts all cluster-mode background goroutines exactly once.
+// It is safe to call from multiple goroutines; the sync.Once guarantees a single execution.
+// Called from Start() when cluster is already enabled at boot, and from handleInitializeCluster /
+// handleJoinCluster when a node enters cluster mode at runtime.
+func (s *Server) startClusterBackgroundServices(ctx context.Context) {
+	s.clusterBgOnce.Do(func() {
+		go s.clusterManager.StartHealthChecker(ctx)
+		logrus.Info("Cluster health checker started")
+
+		s.clusterManager.StartCertRenewal(ctx)
+		logrus.Info("Cluster certificate renewal checker started")
+
+		go s.updateBucketCountPeriodically(ctx, 30*time.Second)
+		logrus.Info("Bucket count updater started")
+
+		if s.staleReconciler != nil {
+			go func() {
+				if err := s.staleReconciler.Reconcile(ctx); err != nil {
+					logrus.WithError(err).Warn("Stale-node reconciliation encountered an error")
+				}
+			}()
+			logrus.Info("Stale-node reconciler started")
+		}
+		if s.tenantSyncMgr != nil {
+			s.tenantSyncMgr.Start(ctx)
+			logrus.Info("Tenant synchronization manager started")
+		}
+		if s.userSyncMgr != nil {
+			s.userSyncMgr.Start(ctx)
+			logrus.Info("User synchronization manager started")
+		}
+		if s.accessKeySyncMgr != nil {
+			s.accessKeySyncMgr.Start(ctx)
+			logrus.Info("Access key synchronization manager started")
+		}
+		if s.bucketPermissionSyncMgr != nil {
+			s.bucketPermissionSyncMgr.Start(ctx)
+			logrus.Info("Bucket permission synchronization manager started")
+		}
+		if s.idpProviderSyncMgr != nil {
+			s.idpProviderSyncMgr.Start(ctx)
+			logrus.Info("IDP provider synchronization manager started")
+		}
+		if s.groupMappingSyncMgr != nil {
+			s.groupMappingSyncMgr.Start(ctx)
+			logrus.Info("Group mapping synchronization manager started")
+		}
+		if s.deletionLogSyncMgr != nil {
+			s.deletionLogSyncMgr.Start(ctx)
+			logrus.Info("Deletion log synchronization manager started")
+		}
+		if s.globalConfigSyncMgr != nil {
+			s.globalConfigSyncMgr.Start(ctx)
+			logrus.Info("Global config synchronization manager started")
+		}
+		cluster.StartDeletionLogCleanup(ctx, s.db, 1*time.Hour, 7*24*time.Hour)
+		logrus.Info("Deletion log cleanup started")
+		if s.haSyncWorker != nil {
+			s.haSyncWorker.Start(ctx)
+			logrus.Info("HA sync worker started")
+		}
+		s.startClusterNodeAlertMonitor(ctx)
+		logrus.Info("Cluster node alert monitor started")
+	})
+}
+
+// enableClusterTLS shuts down the current cluster listener and restarts it with TLS.
+// It binds the TCP port synchronously before returning so callers can rely on the
+// cluster port being reachable as soon as this call returns nil.
+// During cluster initialization it is called from a goroutine (fire-and-forget).
+// During a cluster join it is called synchronously so Node B only responds to Node A
+// after the TLS port is actually bound and ready.
+func (s *Server) enableClusterTLS() error {
 	tlsCfg, err := s.clusterManager.GetServerTLSConfig()
 	if err != nil {
-		logrus.WithError(err).Error("Failed to build cluster TLS config after init — cluster port remains plain HTTP")
-		return
+		return fmt.Errorf("failed to build cluster TLS config: %w", err)
 	}
 
-	// Gracefully stop the current listener.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Gracefully stop the current listener (5 s timeout).
+	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := s.clusterServer.Shutdown(ctx); err != nil {
+	if err := s.clusterServer.Shutdown(shutCtx); err != nil {
 		logrus.WithError(err).Warn("Cluster server did not shut down cleanly before TLS restart")
 	}
 
-	// Build a fresh http.Server on the same address with TLS config.
 	addr := s.clusterServer.Addr
+
+	// Bind the port synchronously so the caller knows the port is reachable
+	// before this function returns.
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to bind cluster port %s: %w", addr, err)
+	}
+
+	// Build a fresh http.Server with TLS config.
 	s.clusterServer = &http.Server{
 		Addr:              addr,
 		TLSConfig:         tlsCfg,
@@ -800,12 +809,16 @@ func (s *Server) enableClusterTLS() {
 	s.setupClusterRoutes(clusterRouter)
 	s.clusterServer.Handler = handlers.RecoveryHandler()(clusterRouter)
 
-	logrus.WithField("address", addr).Info("Cluster inter-node server restarting with TLS")
+	// Wrap with TLS and serve in background — port is already bound above.
+	tlsListener := tls.NewListener(ln, tlsCfg)
+	logrus.WithField("address", addr).Info("Cluster inter-node TLS server started (port bound)")
 	go func() {
-		if err := s.clusterServer.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := s.clusterServer.Serve(tlsListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logrus.WithError(err).Fatal("Cluster inter-node server failed after TLS restart")
 		}
 	}()
+
+	return nil
 }
 
 func (s *Server) shutdown() error {
@@ -1181,17 +1194,10 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 
 	router.HandleFunc("/health", s.handleAPIHealth).Methods("GET")
 
-	public := router.PathPrefix("/api/internal/cluster").Subrouter()
-	public.HandleFunc("/validate-token", s.handleValidateClusterToken).Methods("POST")
-	public.HandleFunc("/register-node", s.handleRegisterNode).Methods("POST")
-	public.HandleFunc("/nodes", s.handleGetClusterNodesInternal).Methods("GET")
-	public.HandleFunc("/sign-csr", s.handleSignCSR).Methods("POST")
-	public.HandleFunc("/notify-node", s.handleNotifyNewNode).Methods("POST")
-
 	clusterAuth := middleware.NewClusterAuthMiddleware(s.db)
 	hmac := router.PathPrefix("/api/internal/cluster").Subrouter()
 	hmac.Use(clusterAuth.ClusterAuth)
-	hmac.HandleFunc("/jwt-secret", s.handleGetClusterJWTSecret).Methods("GET")
+	hmac.HandleFunc("/peer-node", s.handleRegisterPeerNode).Methods("POST")
 	hmac.HandleFunc("/bucket-exists/{name}", s.handleBucketExists).Methods("GET")
 	hmac.HandleFunc("/buckets", s.handleGetLocalBuckets).Methods("GET")
 	hmac.HandleFunc("/tenant/{tenantID}/storage", s.handleGetTenantStorage).Methods("GET")

@@ -51,6 +51,9 @@ func NewIDPProviderSyncManager(db *sql.DB, clusterManager *Manager) *IDPProvider
 
 // Start begins the IDP provider synchronization loop
 func (m *IDPProviderSyncManager) Start(ctx context.Context) {
+	// Refresh proxy client so it picks up TLS certs loaded after cluster init/join.
+	m.proxyClient = NewProxyClient(m.clusterManager.GetTLSConfig())
+
 	// Get sync interval from config
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "idp_provider_sync_interval_seconds")
 	if err != nil {

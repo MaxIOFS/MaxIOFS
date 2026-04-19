@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/cluster"
@@ -180,8 +181,37 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 			tenant.UpdatedAt,
 		)
 		if err != nil {
-			// Check if it's a unique constraint violation (race condition)
-			if err == sql.ErrNoRows || err.Error() == "UNIQUE constraint failed: tenants.id" {
+			// Handle tenant name uniqueness conflict: incoming tenant has same name but
+			// different ID than an existing local tenant (e.g. standalone node created a
+			// default tenant before joining the cluster).
+			// Strategy: re-key the local tenant to the canonical ID from the primary node,
+			// then update all users that reference the old tenant ID.
+			if strings.Contains(err.Error(), "UNIQUE constraint failed: tenants.name") {
+				var conflictID string
+				if qErr := s.db.QueryRowContext(ctx,
+					`SELECT id FROM tenants WHERE name = ?`, tenant.Name,
+				).Scan(&conflictID); qErr == nil && conflictID != tenant.ID {
+					logrus.WithFields(logrus.Fields{
+						"incoming_id": tenant.ID,
+						"existing_id": conflictID,
+						"name":        tenant.Name,
+					}).Warn("Tenant name conflict during sync: re-keying local tenant to canonical ID from primary node")
+					// Re-key users referencing this tenant, then re-key tenant row.
+					if _, err2 := s.db.ExecContext(ctx,
+						`UPDATE users SET tenant_id = ? WHERE tenant_id = ?`, tenant.ID, conflictID,
+					); err2 != nil {
+						return fmt.Errorf("failed to re-key users for conflicting tenant %s: %w", conflictID, err2)
+					}
+					if _, err2 := s.db.ExecContext(ctx,
+						`UPDATE tenants SET id = ? WHERE id = ?`, tenant.ID, conflictID,
+					); err2 != nil {
+						return fmt.Errorf("failed to re-key conflicting tenant %s: %w", conflictID, err2)
+					}
+					return s.upsertTenant(ctx, tenant)
+				}
+			}
+			// Check if it's a unique constraint violation on id (race condition)
+			if err == sql.ErrNoRows || strings.Contains(err.Error(), "UNIQUE constraint failed: tenants.id") {
 				// Try update instead
 				logrus.WithField("tenant_id", tenant.ID).Debug("Tenant created concurrently, updating instead")
 				return s.upsertTenant(ctx, tenant) // Retry as update
@@ -394,8 +424,38 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 			user.UpdatedAt,
 		)
 		if err != nil {
-			// Check if it's a unique constraint violation (race condition)
-			if err == sql.ErrNoRows || err.Error() == "UNIQUE constraint failed: users.id" {
+			// Handle username uniqueness conflict: incoming user has same username but
+			// different ID than an existing local user.  This happens when a node was set
+			// up standalone (creating its own admin user) before joining the cluster.
+			// Strategy: re-key the local user so that its ID matches the incoming canonical
+			// ID, and update all access_keys that reference the old ID.
+			if strings.Contains(err.Error(), "UNIQUE constraint failed: users.username") {
+				var conflictID string
+				if qErr := s.db.QueryRowContext(ctx,
+					`SELECT id FROM users WHERE username = ?`, user.Username,
+				).Scan(&conflictID); qErr == nil && conflictID != user.ID {
+					logrus.WithFields(logrus.Fields{
+						"incoming_id": user.ID,
+						"existing_id": conflictID,
+						"username":    user.Username,
+					}).Warn("Username conflict during user sync: re-keying local user to canonical ID from primary node")
+					// Re-key access_keys first to avoid FK issues, then re-key the user row.
+					if _, err2 := s.db.ExecContext(ctx,
+						`UPDATE access_keys SET user_id = ? WHERE user_id = ?`, user.ID, conflictID,
+					); err2 != nil {
+						return fmt.Errorf("failed to re-key access_keys for conflicting user %s: %w", conflictID, err2)
+					}
+					if _, err2 := s.db.ExecContext(ctx,
+						`UPDATE users SET id = ? WHERE id = ?`, user.ID, conflictID,
+					); err2 != nil {
+						return fmt.Errorf("failed to re-key conflicting user %s: %w", conflictID, err2)
+					}
+					// Now the row exists with the correct ID — retry as an update.
+					return s.upsertUser(ctx, user)
+				}
+			}
+			// Check if it's a unique constraint violation on id (race condition)
+			if err == sql.ErrNoRows || strings.Contains(err.Error(), "UNIQUE constraint failed: users.id") {
 				// Try update instead
 				logrus.WithField("user_id", user.ID).Debug("User created concurrently, updating instead")
 				return s.upsertUser(ctx, user) // Retry as update

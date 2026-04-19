@@ -48,6 +48,9 @@ func NewAccessKeySyncManager(db *sql.DB, clusterManager *Manager) *AccessKeySync
 
 // Start begins the access key synchronization loop
 func (m *AccessKeySyncManager) Start(ctx context.Context) {
+	// Refresh proxy client so it picks up TLS certs loaded after cluster init/join.
+	m.proxyClient = NewProxyClient(m.clusterManager.GetTLSConfig())
+
 	// Get sync interval from config
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "access_key_sync_interval_seconds")
 	if err != nil {
@@ -390,4 +393,48 @@ func (m *AccessKeySyncManager) sendDeletionToNode(ctx context.Context, accessKey
 // Stop stops the access key sync manager
 func (m *AccessKeySyncManager) Stop() {
 	close(m.stopChan)
+}
+
+// SyncToNode immediately pushes all local access keys to the given node.
+// Used to bootstrap a newly-joined node without waiting for the periodic ticker.
+func (m *AccessKeySyncManager) SyncToNode(ctx context.Context, node *Node) {
+	if !m.clusterManager.IsClusterEnabled() {
+		return
+	}
+
+	// Always use a fresh proxy client here to pick up the latest TLS config.
+	pc := NewProxyClient(m.clusterManager.GetTLSConfig())
+	savedClient := m.proxyClient
+	m.proxyClient = pc
+	defer func() { m.proxyClient = savedClient }()
+
+	localNodeID, err := m.clusterManager.GetLocalNodeID(ctx)
+	if err != nil {
+		m.log.WithError(err).Error("SyncToNode(keys): failed to get local node ID")
+		return
+	}
+
+	keys, err := m.listLocalAccessKeys(ctx)
+	if err != nil {
+		m.log.WithError(err).Error("SyncToNode(keys): failed to list local access keys")
+		return
+	}
+
+	for _, key := range keys {
+		if err := m.syncAccessKeyToNode(ctx, key, node, localNodeID); err != nil {
+			m.log.WithFields(logrus.Fields{
+				"access_key_id": key.AccessKeyID,
+				"node_id":       node.ID,
+				"error":         err,
+			}).Warn("SyncToNode(keys): failed to sync access key")
+		}
+	}
+
+	m.syncDeletions(ctx, []*Node{node}, localNodeID)
+
+	m.log.WithFields(logrus.Fields{
+		"key_count": len(keys),
+		"node_id":   node.ID,
+		"node_name": node.Name,
+	}).Info("Immediate access key sync to new node completed")
 }

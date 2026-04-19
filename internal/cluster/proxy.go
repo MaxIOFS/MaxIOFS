@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -332,15 +333,48 @@ func ValidateClusterProxyAuth(req *http.Request, clusterToken string) (userID, t
 		true
 }
 
+// buildInternalS3URL derives the inter-node S3 API URL from node.Endpoint.
+// node.Endpoint is always https://<internal-ip>:<clusterPort> (IP validated at cluster init).
+// We extract the IP and build http://<ip>:<s3Port> to avoid using node.APIURL's public
+// hostname, which may carry a certificate not signed by the cluster CA.
+// s3Port is taken from node.APIURL's explicit port if set (and not a default port), otherwise 8080.
+func buildInternalS3URL(node *Node) string {
+	if node.Endpoint == "" {
+		return ""
+	}
+	endpointParsed, err := url.Parse(node.Endpoint)
+	if err != nil || endpointParsed.Hostname() == "" {
+		return ""
+	}
+	host := endpointParsed.Hostname()
+
+	// Determine S3 port: prefer explicit port from node.APIURL (skip default 80/443), otherwise 8080.
+	apiPort := "8080"
+	if node.APIURL != "" {
+		if apiParsed, err2 := url.Parse(node.APIURL); err2 == nil {
+			if p := apiParsed.Port(); p != "" && p != "80" && p != "443" {
+				apiPort = p
+			}
+		}
+	}
+	return "http://" + host + ":" + apiPort
+}
+
 // ProxyToNodeAPIURL proxies an S3 request to a remote node's S3 API URL.
-// It adds cluster auth headers, sets the target to node.APIURL (or Endpoint as fallback),
-// and executes the request.
+// It adds cluster auth headers, derives the internal target URL from node.Endpoint
+// (always an internal IP), and executes the request.
 // Returns the raw HTTP response (caller must close Body).
 func (p *ProxyClient) ProxyToNodeAPIURL(ctx context.Context, node *Node, originalReq *http.Request, nodeID, clusterToken, userID, tenantID, roles string) (*http.Response, error) {
-	// Determine target base URL: prefer APIURL (S3 port), fall back to Endpoint (cluster port)
-	baseURL := node.APIURL
+	// Always derive the internal S3 URL from node.Endpoint (guaranteed internal IP).
+	// node.APIURL is the public-facing URL and may use a public cert not trusted by the
+	// cluster CA — using it for inter-node proxying causes x509 certificate errors.
+	baseURL := buildInternalS3URL(node)
 	if baseURL == "" {
-		baseURL = node.Endpoint
+		// Fallback for standalone/test scenarios without Endpoint.
+		baseURL = node.APIURL
+		if baseURL == "" {
+			baseURL = node.Endpoint
+		}
 	}
 	targetURL := fmt.Sprintf("%s%s", strings.TrimRight(baseURL, "/"), originalReq.URL.RequestURI())
 
@@ -383,4 +417,3 @@ func (p *ProxyClient) ProxyToNodeAPIURL(ctx context.Context, node *Node, origina
 
 	return resp, nil
 }
-

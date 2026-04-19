@@ -131,7 +131,7 @@ func (m *GlobalConfigSyncManager) syncAll(ctx context.Context) {
 
 // listGlobalConfig returns all entries from cluster_global_config.
 func (m *GlobalConfigSyncManager) listGlobalConfig(ctx context.Context) ([]GlobalConfigEntry, error) {
-	rows, err := m.db.QueryContext(ctx, `SELECT key, value, CAST(strftime('%s', updated_at) AS INTEGER) FROM cluster_global_config`)
+	rows, err := m.db.QueryContext(ctx, `SELECT key, value, COALESCE(CAST(strftime('%s', updated_at) AS INTEGER), 0) FROM cluster_global_config`)
 	if err != nil {
 		return nil, err
 	}

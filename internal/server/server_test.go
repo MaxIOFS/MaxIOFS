@@ -5069,71 +5069,6 @@ func TestHandleGetLocalBuckets(t *testing.T) {
 	})
 }
 
-func TestHandleGetClusterNodesInternal(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should require cluster token", func(t *testing.T) {
-		// Handler requires Authorization: Bearer <token> header, returns BadRequest without it
-		req := httptest.NewRequest("GET", "/api/internal/cluster/nodes", nil)
-		rr := httptest.NewRecorder()
-		server.handleGetClusterNodesInternal(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
-
-	t.Run("should reject invalid cluster token", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/internal/cluster/nodes", nil)
-		req.Header.Set("Authorization", "Bearer invalid")
-		rr := httptest.NewRecorder()
-		server.handleGetClusterNodesInternal(rr, req)
-		// Returns 500 if cluster not configured, or 401 if token invalid
-		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusInternalServerError}, rr.Code)
-	})
-}
-
-func TestHandleRegisterNode(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should reject invalid body", func(t *testing.T) {
-		req := httptest.NewRequest("POST", "/api/internal/cluster/register", strings.NewReader("invalid"))
-		rr := httptest.NewRecorder()
-		server.handleRegisterNode(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
-
-	t.Run("should require cluster token", func(t *testing.T) {
-		// Body with node but no cluster_token
-		body := `{"node": {"id": "test-node", "name": "Test Node", "endpoint": "localhost:9000"}}`
-		req := httptest.NewRequest("POST", "/api/internal/cluster/register", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		rr := httptest.NewRecorder()
-		server.handleRegisterNode(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
-}
-
-func TestHandleValidateClusterToken(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should require cluster token in body", func(t *testing.T) {
-		// Handler requires cluster_token in JSON body
-		req := httptest.NewRequest("POST", "/api/internal/cluster/validate-token", strings.NewReader(`{}`))
-		req.Header.Set("Content-Type", "application/json")
-		rr := httptest.NewRecorder()
-		server.handleValidateClusterToken(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
-
-	t.Run("should reject invalid token", func(t *testing.T) {
-		body := `{"cluster_token": "invalid-token"}`
-		req := httptest.NewRequest("POST", "/api/internal/cluster/validate-token", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		rr := httptest.NewRecorder()
-		server.handleValidateClusterToken(rr, req)
-		// Returns 500 if cluster not configured, or 401 if token invalid
-		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusInternalServerError}, rr.Code)
-	})
-}
-
 func TestHandleGetTenantStorage(t *testing.T) {
 	server := getSharedServer()
 	testUser := &auth.User{ID: "admin1", Username: "admin", Roles: []string{"admin"}, TenantID: "default"}
@@ -5962,25 +5897,6 @@ func TestHandleCacheStatsEdgeCases(t *testing.T) {
 	})
 }
 
-func TestHandleClusterNodesInternalEdgeCases(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should require cluster token", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/internal/cluster/nodes", nil)
-		rr := httptest.NewRecorder()
-		server.handleGetClusterNodesInternal(rr, req)
-		assert.Contains(t, []int{http.StatusBadRequest, http.StatusUnauthorized}, rr.Code)
-	})
-
-	t.Run("should reject invalid cluster token", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/internal/cluster/nodes", nil)
-		req.Header.Set("Authorization", "Bearer invalid")
-		rr := httptest.NewRecorder()
-		server.handleGetClusterNodesInternal(rr, req)
-		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusBadRequest, http.StatusInternalServerError}, rr.Code)
-	})
-}
-
 func TestSSENotificationAdvanced(t *testing.T) {
 	server := getSharedServer()
 
@@ -6789,46 +6705,6 @@ func TestHandleUpdateClusterNodeEdgeCases(t *testing.T) {
 	})
 }
 
-// Test handleValidateClusterToken edge cases
-func TestHandleValidateClusterTokenEdgeCases(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should reject empty token", func(t *testing.T) {
-		req := httptest.NewRequest("POST", "/api/internal/cluster/validate-token", nil)
-		rr := httptest.NewRecorder()
-		server.handleValidateClusterToken(rr, req)
-		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusBadRequest, http.StatusForbidden}, rr.Code)
-	})
-
-	t.Run("should reject invalid token", func(t *testing.T) {
-		req := httptest.NewRequest("POST", "/api/internal/cluster/validate-token", nil)
-		req.Header.Set("X-Cluster-Token", "invalid-token")
-		rr := httptest.NewRecorder()
-		server.handleValidateClusterToken(rr, req)
-		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusBadRequest, http.StatusForbidden, http.StatusOK}, rr.Code)
-	})
-}
-
-// Test handleRegisterNode edge cases
-func TestHandleRegisterNodeEdgeCases(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should reject invalid JSON", func(t *testing.T) {
-		body := `{invalid`
-		req := httptest.NewRequest("POST", "/api/internal/cluster/register", strings.NewReader(body))
-		rr := httptest.NewRecorder()
-		server.handleRegisterNode(rr, req)
-		assert.Contains(t, []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden}, rr.Code)
-	})
-
-	t.Run("should reject registration with missing data", func(t *testing.T) {
-		body := `{"node_id": ""}`
-		req := httptest.NewRequest("POST", "/api/internal/cluster/register", strings.NewReader(body))
-		rr := httptest.NewRecorder()
-		server.handleRegisterNode(rr, req)
-		assert.Contains(t, []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusOK}, rr.Code)
-	})
-}
 
 // Test handleShareObject edge cases
 func TestHandleShareObjectEdgeCases(t *testing.T) {

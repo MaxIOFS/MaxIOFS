@@ -1,15 +1,12 @@
 package cluster
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -60,7 +57,34 @@ func NewManager(db *sql.DB, publicAPIURL, clusterURL string) *Manager {
 		m.log.WithError(err).Debug("No TLS config loaded (cluster may not be initialized yet)")
 	}
 
+	// Repair any cluster_nodes rows with empty node_token — can happen when nodes were
+	// joined with an older binary that stripped NodeToken during JSON serialization.
+	// All nodes in a cluster share the same cluster_token, so it is safe to back-fill.
+	m.repairEmptyNodeTokens()
+
 	return m
+}
+
+// repairEmptyNodeTokens fills node_token for any cluster_nodes row where it is empty,
+// using the cluster_token from cluster_config. This heals deployments that were joined
+// before the JoinPackageNode fix was in place.
+func (m *Manager) repairEmptyNodeTokens() {
+	var clusterToken string
+	if err := m.db.QueryRow("SELECT cluster_token FROM cluster_config LIMIT 1").Scan(&clusterToken); err != nil || clusterToken == "" {
+		return // cluster not initialized yet — nothing to repair
+	}
+
+	result, err := m.db.Exec(
+		"UPDATE cluster_nodes SET node_token = ? WHERE node_token = '' OR node_token IS NULL",
+		clusterToken,
+	)
+	if err != nil {
+		m.log.WithError(err).Warn("Failed to repair empty node tokens")
+		return
+	}
+	if n, _ := result.RowsAffected(); n > 0 {
+		m.log.WithField("rows_fixed", n).Info("Repaired cluster nodes with missing node_token")
+	}
 }
 
 // SetStorage sets the storage backend for the cluster manager
@@ -108,7 +132,7 @@ func (m *Manager) InitializeCluster(ctx context.Context, nodeName, region, nodeE
 		return "", fmt.Errorf("failed to generate internal CA: %w", err)
 	}
 
-	nodeCertPEM, nodeKeyPEM, err := GenerateNodeCert(caCertPEM, caKeyPEM, nodeName, m.publicAPIURL)
+	nodeCertPEM, nodeKeyPEM, err := GenerateNodeCert(caCertPEM, caKeyPEM, nodeName, nodeEndpoint)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate node certificate: %w", err)
 	}
@@ -150,183 +174,125 @@ func (m *Manager) InitializeCluster(ctx context.Context, nodeName, region, nodeE
 	return clusterToken, nil
 }
 
-// JoinCluster joins an existing cluster.
-// selfEndpoint is the cluster URL (scheme://ip:clusterPort) that this node should register as.
-// nodeName is optional — if empty, a name is auto-generated.
-// Returns the cluster's JWT secret (for cross-node session sharing) and any error.
-func (m *Manager) JoinCluster(ctx context.Context, clusterToken, nodeEndpoint, selfEndpoint, nodeName string) (string, error) {
-	// Step 1: Validate cluster token with the existing cluster node (receives CA cert, JWT secret, NOT the CA key)
-	valid, nodeInfo, caCertPEM, jwtSecret, err := m.validateClusterToken(ctx, clusterToken, nodeEndpoint)
+// JoinPackageNode is the wire format for a Node inside a ClusterJoinPackage.
+// It explicitly includes node_token (unlike Node, which has json:"-" to prevent
+// token leakage through the public console API). Without the token, the receiving
+// node cannot verify HMAC signatures from the senders in the existing cluster.
+type JoinPackageNode struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Endpoint  string `json:"endpoint"`
+	APIURL    string `json:"api_url,omitempty"`
+	NodeToken string `json:"node_token"`
+	Region    string `json:"region"`
+	Priority  int    `json:"priority"`
+}
+
+// NodesToJoinPackage converts a slice of *Node into []*JoinPackageNode, preserving
+// the NodeToken that json:"-" would otherwise strip during serialization.
+func NodesToJoinPackage(nodes []*Node) []*JoinPackageNode {
+	out := make([]*JoinPackageNode, 0, len(nodes))
+	for _, n := range nodes {
+		out = append(out, &JoinPackageNode{
+			ID:        n.ID,
+			Name:      n.Name,
+			Endpoint:  n.Endpoint,
+			APIURL:    n.APIURL,
+			NodeToken: n.NodeToken,
+			Region:    n.Region,
+			Priority:  n.Priority,
+		})
+	}
+	return out
+}
+
+// ClusterJoinPackage is the complete join payload that Node A pushes to Node B via port 8081.
+// Node B uses the CA key to generate its OWN cert+key (with its own IP in the SANs),
+// so every node has a cert valid for its own address, all signed by the same CA.
+type ClusterJoinPackage struct {
+	NodeID       string             `json:"node_id"`
+	NodeName     string             `json:"node_name"`
+	ClusterToken string             `json:"cluster_token"`
+	Region       string             `json:"region"`
+	CACertPEM    string             `json:"ca_cert"`
+	CAKeyPEM     string             `json:"ca_key"` // sent once so Node B can sign its own cert
+	JWTSecret    string             `json:"jwt_secret"`
+	SelfEndpoint string             `json:"self_endpoint"` // Node B's 8082 URL — used for cert SANs
+	NodeEndpoint string             `json:"node_endpoint"` // Node A's 8082 URL
+	APIURL       string             `json:"api_url"`       // Node B's S3 API public URL
+	Nodes        []*JoinPackageNode `json:"nodes"`
+}
+
+// AcceptClusterJoin applies a ClusterJoinPackage sent by Node A.
+// Generates this node's own TLS cert+key using the cluster CA (with SelfEndpoint IP in the SANs),
+// stores config in DB, and loads TLS into memory.
+func (m *Manager) AcceptClusterJoin(ctx context.Context, pkg *ClusterJoinPackage) error {
+	if pkg.ClusterToken == "" || pkg.CACertPEM == "" || pkg.CAKeyPEM == "" || pkg.SelfEndpoint == "" {
+		return fmt.Errorf("incomplete join package: missing required fields")
+	}
+
+	// Generate this node's own cert+key. SelfEndpoint carries the node's real IP so
+	// the cert SANs are correct for TLS verification by any peer in the cluster.
+	nodeCertPEM, nodeKeyPEM, err := GenerateNodeCert([]byte(pkg.CACertPEM), []byte(pkg.CAKeyPEM), pkg.NodeName, pkg.SelfEndpoint)
 	if err != nil {
-		return "", fmt.Errorf("failed to validate cluster token: %w", err)
-	}
-	if !valid {
-		return "", fmt.Errorf("invalid cluster token")
+		return fmt.Errorf("failed to generate node certificate: %w", err)
 	}
 
-	m.log.WithFields(logrus.Fields{
-		"cluster_id": nodeInfo.ClusterID,
-		"region":     nodeInfo.Region,
-	}).Info("Cluster token validated successfully")
-
-	// Step 2: Generate node information for this node
-	thisNodeID := uuid.New().String()
-	thisNodeToken, err := generateClusterToken()
-	if err != nil {
-		return "", fmt.Errorf("failed to generate node token: %w", err)
-	}
-	thisNodeName := nodeName
-	if thisNodeName == "" {
-		thisNodeName = fmt.Sprintf("node-%s", thisNodeID[:8])
-	}
-
-	// Step 3: Register this node with the existing cluster node
-	registeredNode, err := m.registerWithCluster(ctx, nodeEndpoint, clusterToken, &Node{
-		ID:        thisNodeID,
-		Name:      thisNodeName,
-		Endpoint:  selfEndpoint,
-		APIURL:    m.publicAPIURL,
-		NodeToken: thisNodeToken,
-		Region:    nodeInfo.Region,
-		Priority:  5, // Default priority
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to register with cluster: %w", err)
-	}
-
-	m.log.WithFields(logrus.Fields{
-		"node_id":   registeredNode.ID,
-		"node_name": registeredNode.Name,
-	}).Info("Successfully registered with cluster")
-
-	// Step 3.5: Generate a local key pair and send a CSR to the cluster for signing.
-	// The private key never leaves this node; the cluster returns only the signed certificate.
-	var nodeCertPEM, nodeKeyPEM string
-	if caCertPEM != "" {
-		keyPEM, csrPEM, err := GenerateKeyAndCSR(thisNodeName, m.publicAPIURL)
-		if err != nil {
-			m.log.WithError(err).Warn("Failed to generate CSR during join")
-		} else {
-			signedCert, err := m.requestSignedCert(ctx, nodeEndpoint, clusterToken, csrPEM)
-			if err != nil {
-				m.log.WithError(err).Warn("Failed to obtain signed node certificate from cluster")
-			} else {
-				nodeCertPEM = string(signedCert)
-				nodeKeyPEM = string(keyPEM)
-				m.log.Info("Obtained CA-signed node certificate via CSR exchange")
-			}
-		}
-	}
-
-	// Step 4: Update local cluster_config to enable cluster mode
-	// Delete any existing config and insert new one (since node_id is primary key)
 	_, err = m.db.ExecContext(ctx, `DELETE FROM cluster_config`)
 	if err != nil {
-		return "", fmt.Errorf("failed to clear cluster config: %w", err)
+		return fmt.Errorf("failed to clear cluster config: %w", err)
 	}
 
-	// Store caCertPEM but NOT the CA key (we never receive it — security by design)
+	// Remove all global users (tenant_id IS NULL or empty) from this node so the cluster
+	// primary can sync them with the correct UUIDs. Without this, the local admin user
+	// conflicts with the primary's admin by username UNIQUE constraint, blocking all user sync.
+	// Tenant-scoped users are left untouched; they will be synced separately.
+	if _, err := m.db.ExecContext(ctx, `DELETE FROM users WHERE tenant_id IS NULL OR tenant_id = ''`); err != nil {
+		m.log.WithError(err).Warn("Failed to clear local global users before join — user sync may fail")
+	}
+	// Remove stale sync tracking for those users so the primary syncs them fresh.
+	if _, err := m.db.ExecContext(ctx, `DELETE FROM cluster_user_sync WHERE user_id NOT IN (SELECT id FROM users)`); err != nil {
+		m.log.WithError(err).Warn("Failed to clean up stale user sync records")
+	}
+
+	// Store CA cert but NOT the CA key — this node doesn't need to sign more certs.
 	_, err = m.db.ExecContext(ctx, `
 		INSERT INTO cluster_config (node_id, node_name, cluster_token, is_cluster_enabled, region, ca_cert, ca_key, node_cert, node_key)
 		VALUES (?, ?, ?, 1, ?, ?, '', ?, ?)
-	`, thisNodeID, thisNodeName, clusterToken, nodeInfo.Region, caCertPEM, nodeCertPEM, nodeKeyPEM)
-
+	`, pkg.NodeID, pkg.NodeName, pkg.ClusterToken, pkg.Region, pkg.CACertPEM, string(nodeCertPEM), string(nodeKeyPEM))
 	if err != nil {
-		return "", fmt.Errorf("failed to update cluster config: %w", err)
+		return fmt.Errorf("failed to store cluster config: %w", err)
 	}
 
-	// Step 5: Fetch and store all other nodes from the cluster
-	nodes, err := m.fetchClusterNodes(ctx, nodeEndpoint, clusterToken)
-	if err != nil {
-		m.log.WithError(err).Warn("Failed to fetch cluster nodes, will sync later")
-	} else {
-		for _, node := range nodes {
-			// Skip self
-			if node.ID == thisNodeID {
-				continue
-			}
-			// Add each node to local cluster_nodes table
-			if err := m.AddNode(ctx, node); err != nil {
-				m.log.WithError(err).WithField("node_id", node.ID).Warn("Failed to add node to local registry")
-			}
+	// Add all existing cluster nodes (convert JoinPackageNode → Node to preserve NodeToken)
+	for _, jn := range pkg.Nodes {
+		if jn == nil || jn.ID == pkg.NodeID {
+			continue
 		}
-		m.log.WithField("node_count", len(nodes)-1).Info("Synchronized cluster nodes")
+		node := &Node{
+			ID:        jn.ID,
+			Name:      jn.Name,
+			Endpoint:  jn.Endpoint,
+			APIURL:    jn.APIURL,
+			NodeToken: jn.NodeToken,
+			Region:    jn.Region,
+			Priority:  jn.Priority,
+		}
+		if err := m.AddNode(ctx, node); err != nil {
+			m.log.WithError(err).WithField("node_id", jn.ID).Warn("Failed to add node during join")
+		}
 	}
 
-	// Step 5.5: Add self to local cluster_nodes so ListNodes includes this node.
-	// InitializeCluster does this for the primary node; we mirror it here for joining nodes.
+	// Add this node itself to cluster_nodes so it appears in ListNodes()
 	_, err = m.db.ExecContext(ctx, `
 		INSERT OR REPLACE INTO cluster_nodes (
 			id, name, endpoint, api_url, node_token, region, priority,
 			health_status, latency_ms, capacity_total, capacity_used, bucket_count
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, thisNodeID, thisNodeName, selfEndpoint, m.publicAPIURL, thisNodeToken, nodeInfo.Region, 5,
+	`, pkg.NodeID, pkg.NodeName, pkg.SelfEndpoint, pkg.APIURL, pkg.ClusterToken, pkg.Region, 5,
 		HealthStatusHealthy, 0, 0, 0, 0)
 	if err != nil {
-		m.log.WithError(err).Warn("Failed to add self to local cluster_nodes registry")
-	}
-
-	// Load TLS config into memory after join
-	if err := m.loadTLSConfig(); err != nil {
-		m.log.WithError(err).Warn("Failed to load TLS config after joining cluster")
-	} else if m.tlsConfig != nil {
-		m.log.Info("Inter-node TLS enabled after joining cluster")
-	}
-
-	m.log.WithFields(logrus.Fields{
-		"node_id":    thisNodeID,
-		"node_name":  thisNodeName,
-		"cluster_id": nodeInfo.ClusterID,
-	}).Info("Successfully joined cluster")
-
-	return jwtSecret, nil
-}
-
-// ClusterJoinPackage is the complete join payload that Node A pushes to Node B via port 8081.
-// Node B applies this package, sets up TLS, and opens port 8082 — no callbacks to Node A's 8082 needed.
-type ClusterJoinPackage struct {
-	NodeID       string  `json:"node_id"`
-	NodeName     string  `json:"node_name"`
-	ClusterToken string  `json:"cluster_token"`
-	Region       string  `json:"region"`
-	CACertPEM    string  `json:"ca_cert"`
-	NodeCertPEM  string  `json:"node_cert"`
-	NodeKeyPEM   string  `json:"node_key"`
-	JWTSecret    string  `json:"jwt_secret"`
-	SelfEndpoint string  `json:"self_endpoint"` // Node B's 8082 URL
-	NodeEndpoint string  `json:"node_endpoint"` // Node A's 8082 URL
-	APIURL       string  `json:"api_url"`       // Node B's S3 API public URL
-	Nodes        []*Node `json:"nodes"`
-}
-
-// AcceptClusterJoin applies a ClusterJoinPackage sent by Node A.
-// Stores cluster config + certs in DB and loads TLS into memory.
-// The caller is responsible for opening port 8082 and validating connectivity.
-func (m *Manager) AcceptClusterJoin(ctx context.Context, pkg *ClusterJoinPackage) error {
-	if pkg.ClusterToken == "" || pkg.CACertPEM == "" || pkg.NodeCertPEM == "" || pkg.NodeKeyPEM == "" {
-		return fmt.Errorf("incomplete join package: missing required fields")
-	}
-
-	_, err := m.db.ExecContext(ctx, `DELETE FROM cluster_config`)
-	if err != nil {
-		return fmt.Errorf("failed to clear cluster config: %w", err)
-	}
-
-	_, err = m.db.ExecContext(ctx, `
-		INSERT INTO cluster_config (node_id, node_name, cluster_token, is_cluster_enabled, region, ca_cert, ca_key, node_cert, node_key)
-		VALUES (?, ?, ?, 1, ?, ?, '', ?, ?)
-	`, pkg.NodeID, pkg.NodeName, pkg.ClusterToken, pkg.Region, pkg.CACertPEM, pkg.NodeCertPEM, pkg.NodeKeyPEM)
-	if err != nil {
-		return fmt.Errorf("failed to store cluster config: %w", err)
-	}
-
-	for _, node := range pkg.Nodes {
-		if node == nil || node.ID == pkg.NodeID {
-			continue
-		}
-		if err := m.AddNode(ctx, node); err != nil {
-			m.log.WithError(err).WithField("node_id", node.ID).Warn("Failed to add node during join")
-		}
+		m.log.WithError(err).Warn("Failed to add self to cluster_nodes during join")
 	}
 
 	if err := m.loadTLSConfig(); err != nil {
@@ -335,207 +301,6 @@ func (m *Manager) AcceptClusterJoin(ctx context.Context, pkg *ClusterJoinPackage
 
 	m.log.WithField("node_id", pkg.NodeID).Info("Cluster join package applied, TLS ready")
 	return nil
-}
-
-// validateClusterToken validates a cluster token with an existing cluster node.
-// Returns validity, cluster info, the CA certificate PEM, the JWT secret, and any error.
-// The CA private key is never transmitted; use requestSignedCert to obtain a node certificate.
-// The JWT secret is included so the joining node can synchronize sessions immediately.
-func (m *Manager) validateClusterToken(ctx context.Context, clusterToken, nodeEndpoint string) (bool, *ClusterInfo, string, string, error) {
-	// Build URL for validation endpoint
-	url := fmt.Sprintf("%s/api/internal/cluster/validate-token", nodeEndpoint)
-
-	// Create request payload
-	payload := map[string]string{
-		"cluster_token": clusterToken,
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return false, nil, "", "", fmt.Errorf("failed to marshal payload: %w", err)
-	}
-
-	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return false, nil, "", "", fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// Execute request (use insecure TLS for join — we don't have the CA cert yet)
-	client := m.insecureHTTPClient()
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, nil, "", "", fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode == http.StatusUnauthorized {
-			return false, nil, "", "", fmt.Errorf("invalid cluster token")
-		}
-		return false, nil, "", "", fmt.Errorf("validation failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	// Parse response — ca_key is intentionally absent; obtain a signed cert via /sign-csr
-	var response struct {
-		Valid       bool         `json:"valid"`
-		ClusterInfo *ClusterInfo `json:"cluster_info"`
-		CACert      string       `json:"ca_cert"`
-		JWTSecret   string       `json:"jwt_secret"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return false, nil, "", "", fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return response.Valid, response.ClusterInfo, response.CACert, response.JWTSecret, nil
-}
-
-// requestSignedCert sends a CSR to the cluster's sign-csr endpoint and returns a
-// PEM-encoded, CA-signed node certificate. The private key stays on the local node.
-func (m *Manager) requestSignedCert(ctx context.Context, nodeEndpoint, clusterToken string, csrPEM []byte) ([]byte, error) {
-	url := fmt.Sprintf("%s/api/internal/cluster/sign-csr", nodeEndpoint)
-
-	payload, err := json.Marshal(map[string]string{
-		"cluster_token": clusterToken,
-		"csr":           string(csrPEM),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal CSR payload: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create sign-csr request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// Still insecure TLS here — we have not yet loaded the CA into our trust store
-	client := m.insecureHTTPClient()
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute sign-csr request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("sign-csr failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var response struct {
-		NodeCert string `json:"node_cert"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode sign-csr response: %w", err)
-	}
-	if response.NodeCert == "" {
-		return nil, fmt.Errorf("empty node certificate in sign-csr response")
-	}
-
-	return []byte(response.NodeCert), nil
-}
-
-// registerWithCluster registers this node with an existing cluster node
-func (m *Manager) registerWithCluster(ctx context.Context, nodeEndpoint, clusterToken string, node *Node) (*Node, error) {
-	// Build URL for node registration endpoint
-	url := fmt.Sprintf("%s/api/internal/cluster/register-node", nodeEndpoint)
-
-	// Create request payload.
-	// NodeToken has json:"-" so it must be sent as a separate field, not inside the Node struct.
-	payload := map[string]interface{}{
-		"cluster_token": clusterToken,
-		"node":          node,
-		"node_token":    node.NodeToken,
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal payload: %w", err)
-	}
-
-	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// Execute request (use insecure TLS for join — we don't have the CA cert yet)
-	client := m.insecureHTTPClient()
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("registration failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	// Parse response — includes CA cert from the existing cluster
-	var response struct {
-		Node   *Node  `json:"node"`
-		CACert string `json:"ca_cert"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return response.Node, nil
-}
-
-// fetchClusterNodes fetches all nodes from an existing cluster node
-func (m *Manager) fetchClusterNodes(ctx context.Context, nodeEndpoint, clusterToken string) ([]*Node, error) {
-	// Build URL for nodes list endpoint.
-	// The cluster token is sent in the Authorization header (not as a URL parameter)
-	// to prevent it from appearing in HTTP access logs.
-	url := fmt.Sprintf("%s/api/internal/cluster/nodes", nodeEndpoint)
-
-	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+clusterToken)
-
-	// Execute request (use insecure TLS for join — we don't have the CA cert yet)
-	client := m.insecureHTTPClient()
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("failed to fetch nodes with status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	// Parse response — node_token is sent as a separate JSON field because
-	// Node.NodeToken has json:"-".  We decode into an intermediate struct so
-	// the token is preserved when storing nodes locally.
-	var response struct {
-		Nodes []struct {
-			*Node
-			NodeToken string `json:"node_token"`
-		} `json:"nodes"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	nodes := make([]*Node, len(response.Nodes))
-	for i, n := range response.Nodes {
-		node := n.Node
-		if node == nil {
-			continue
-		}
-		node.NodeToken = n.NodeToken
-		nodes[i] = node
-	}
-
-	return nodes, nil
 }
 
 // LeaveCluster removes this node from the cluster
@@ -1002,19 +767,25 @@ func (m *Manager) GetServerTLSConfig() (*tls.Config, error) {
 	return BuildServerTLSConfig(&m.currentCert)
 }
 
-// CheckNodeConnectivity does a GET to the given URL using the cluster TLS client.
-// Used by a joining node to verify it can reach Node A's 8082 after setting up TLS.
-func (m *Manager) CheckNodeConnectivity(url string) error {
-	client := m.clusterHTTPClient
-	resp, err := client.Get(url)
-	if err != nil {
-		return fmt.Errorf("failed to reach node: %w", err)
+// WaitForNodeReady polls the given health URL using the cluster TLS client until it
+// responds successfully or timeoutSeconds elapses. Used by Node A to confirm Node B's
+// 8082 TLS server is up after the async startup triggered by the join response.
+func (m *Manager) WaitForNodeReady(ctx context.Context, healthURL string, timeoutSeconds int) error {
+	deadline := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
+	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		resp, err := m.clusterHTTPClient.Get(healthURL)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode < 500 {
+				return nil
+			}
+		}
+		time.Sleep(2 * time.Second)
 	}
-	resp.Body.Close()
-	if resp.StatusCode >= 500 {
-		return fmt.Errorf("node returned status %d", resp.StatusCode)
-	}
-	return nil
+	return fmt.Errorf("node did not become ready within %d seconds", timeoutSeconds)
 }
 
 // GetCACertPEM returns the PEM-encoded CA certificate from the database.
@@ -1065,17 +836,6 @@ func (m *Manager) loadTLSConfig() error {
 	}
 
 	return nil
-}
-
-// insecureHTTPClient returns an HTTP client that skips TLS verification.
-// Used during the initial join handshake before we have the cluster CA cert.
-func (m *Manager) insecureHTTPClient() *http.Client {
-	return &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: InsecureClusterTLSConfig(),
-		},
-	}
 }
 
 // StartCertRenewal starts a background goroutine that checks monthly for cert renewal.

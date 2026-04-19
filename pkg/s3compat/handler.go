@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
@@ -123,6 +124,7 @@ type Handler struct {
 		ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *cluster.Node) error
 		GetLocalNodeID(ctx context.Context) (string, error)
 		GetLocalNodeToken(ctx context.Context) (string, error)
+		GetTLSConfig() *tls.Config
 	}
 	bucketAggregator interface {
 		ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
@@ -225,6 +227,7 @@ func (h *Handler) SetClusterManager(cm interface {
 	ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *cluster.Node) error
 	GetLocalNodeID(ctx context.Context) (string, error)
 	GetLocalNodeToken(ctx context.Context) (string, error)
+	GetTLSConfig() *tls.Config
 }) {
 	h.clusterManager = cm
 }
@@ -291,7 +294,7 @@ func (h *Handler) proxyBucketRequest(w http.ResponseWriter, r *http.Request, buc
 	}
 
 	// Build the proxy client and forward the request to node.APIURL
-	proxyClient := cluster.NewProxyClient(nil) // TLS config optional here; cluster manages its own
+	proxyClient := cluster.NewProxyClient(h.clusterManager.GetTLSConfig())
 	resp, err := proxyClient.ProxyToNodeAPIURL(r.Context(), node, r, nodeID, clusterToken, userID, tenantID, roles)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{

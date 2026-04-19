@@ -1338,19 +1338,20 @@ func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, buc
 }
 
 // deriveConsoleURL builds the console API base URL for a remote node.
-// It takes node.APIURL (S3 port 8080) or node.Endpoint (cluster port 8082)
-// and replaces the port with the console port 8081.
+// It always uses the internal IP from node.Endpoint (guaranteed to be an IP, not a
+// public hostname) with the console port 8081 over plain HTTP.
+// node.APIURL may point to a public hostname with a certificate not trusted by the
+// cluster CA; using it would cause TLS errors when the proxy client has no custom CA.
 func deriveConsoleURL(node *cluster.Node) string {
-	// Prefer APIURL (has the right host), fall back to Endpoint
-	src := node.APIURL
+	// Prefer Endpoint (always has internal IP), fall back to APIURL.
+	src := node.Endpoint
 	if src == "" {
-		src = node.Endpoint
+		src = node.APIURL
 	}
 	if src == "" {
 		return ""
 	}
 
-	// Parse and replace port with 8081
 	parsed, err := url.Parse(src)
 	if err != nil {
 		return ""
@@ -1359,7 +1360,8 @@ func deriveConsoleURL(node *cluster.Node) string {
 	if host == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s://%s:8081", parsed.Scheme, host)
+	// Internal traffic uses plain HTTP — no TLS cert issues on the cluster LAN.
+	return fmt.Sprintf("http://%s:8081", host)
 }
 
 func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
@@ -3402,7 +3404,16 @@ func (s *Server) handleVersionCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIHealth(w http.ResponseWriter, r *http.Request) {
-	s.writeJSON(w, map[string]string{"status": "healthy"})
+	resp := map[string]interface{}{"status": "healthy"}
+	if s.systemMetrics != nil {
+		if diskStats, err := s.systemMetrics.GetDiskUsage(); err == nil && diskStats != nil {
+			resp["capacity_total"] = diskStats.TotalBytes
+			resp["capacity_used"] = diskStats.UsedBytes
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
 }
 
 // Helper methods

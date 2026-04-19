@@ -61,6 +61,9 @@ func NewUserSyncManager(db *sql.DB, clusterManager *Manager) *UserSyncManager {
 
 // Start begins the user synchronization loop
 func (m *UserSyncManager) Start(ctx context.Context) {
+	// Refresh proxy client so it picks up TLS certs loaded after cluster init/join.
+	m.proxyClient = NewProxyClient(m.clusterManager.GetTLSConfig())
+
 	// Get sync interval from config
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "user_sync_interval_seconds")
 	if err != nil {
@@ -429,4 +432,48 @@ func (m *UserSyncManager) sendDeletionToNode(ctx context.Context, userID string,
 // Stop stops the user sync manager
 func (m *UserSyncManager) Stop() {
 	close(m.stopChan)
+}
+
+// SyncToNode immediately pushes all local users to the given node.
+// Used to bootstrap a newly-joined node without waiting for the periodic ticker.
+func (m *UserSyncManager) SyncToNode(ctx context.Context, node *Node) {
+	if !m.clusterManager.IsClusterEnabled() {
+		return
+	}
+
+	// Always use a fresh proxy client here to pick up the latest TLS config.
+	pc := NewProxyClient(m.clusterManager.GetTLSConfig())
+	savedClient := m.proxyClient
+	m.proxyClient = pc
+	defer func() { m.proxyClient = savedClient }()
+
+	localNodeID, err := m.clusterManager.GetLocalNodeID(ctx)
+	if err != nil {
+		m.log.WithError(err).Error("SyncToNode(users): failed to get local node ID")
+		return
+	}
+
+	users, err := m.listLocalUsers(ctx)
+	if err != nil {
+		m.log.WithError(err).Error("SyncToNode(users): failed to list local users")
+		return
+	}
+
+	for _, user := range users {
+		if err := m.syncUserToNode(ctx, user, node, localNodeID); err != nil {
+			m.log.WithFields(logrus.Fields{
+				"user_id": user.ID,
+				"node_id": node.ID,
+				"error":   err,
+			}).Warn("SyncToNode(users): failed to sync user")
+		}
+	}
+
+	m.syncDeletions(ctx, []*Node{node}, localNodeID)
+
+	m.log.WithFields(logrus.Fields{
+		"user_count": len(users),
+		"node_id":    node.ID,
+		"node_name":  node.Name,
+	}).Info("Immediate user sync to new node completed")
 }

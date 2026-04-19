@@ -55,6 +55,9 @@ func NewTenantSyncManager(db *sql.DB, clusterManager *Manager) *TenantSyncManage
 
 // Start begins the tenant synchronization loop
 func (m *TenantSyncManager) Start(ctx context.Context) {
+	// Refresh proxy client so it picks up TLS certs loaded after cluster init/join.
+	m.proxyClient = NewProxyClient(m.clusterManager.GetTLSConfig())
+
 	// Get sync interval from config
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "tenant_sync_interval_seconds")
 	if err != nil {
@@ -429,4 +432,48 @@ func (m *TenantSyncManager) sendDeletionToNode(ctx context.Context, tenantID str
 // Stop stops the tenant sync manager
 func (m *TenantSyncManager) Stop() {
 	close(m.stopChan)
+}
+
+// SyncToNode immediately pushes all local tenants to the given node.
+// Used to bootstrap a newly-joined node without waiting for the periodic ticker.
+func (m *TenantSyncManager) SyncToNode(ctx context.Context, node *Node) {
+	if !m.clusterManager.IsClusterEnabled() {
+		return
+	}
+
+	// Always use a fresh proxy client here to pick up the latest TLS config.
+	pc := NewProxyClient(m.clusterManager.GetTLSConfig())
+	savedClient := m.proxyClient
+	m.proxyClient = pc
+	defer func() { m.proxyClient = savedClient }()
+
+	localNodeID, err := m.clusterManager.GetLocalNodeID(ctx)
+	if err != nil {
+		m.log.WithError(err).Error("SyncToNode(tenants): failed to get local node ID")
+		return
+	}
+
+	tenants, err := m.listLocalTenants(ctx)
+	if err != nil {
+		m.log.WithError(err).Error("SyncToNode(tenants): failed to list local tenants")
+		return
+	}
+
+	for _, tenant := range tenants {
+		if err := m.syncTenantToNode(ctx, tenant, node, localNodeID); err != nil {
+			m.log.WithFields(logrus.Fields{
+				"tenant_id": tenant.ID,
+				"node_id":   node.ID,
+				"error":     err,
+			}).Warn("SyncToNode(tenants): failed to sync tenant")
+		}
+	}
+
+	m.syncDeletions(ctx, []*Node{node}, localNodeID)
+
+	m.log.WithFields(logrus.Fields{
+		"tenant_count": len(tenants),
+		"node_id":      node.ID,
+		"node_name":    node.Name,
+	}).Info("Immediate tenant sync to new node completed")
 }
