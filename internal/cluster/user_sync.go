@@ -53,7 +53,7 @@ func NewUserSyncManager(db *sql.DB, clusterManager *Manager) *UserSyncManager {
 	return &UserSyncManager{
 		db:             db,
 		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(clusterManager.GetTLSConfig()),
+		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "user-sync"),
 	}
@@ -62,7 +62,7 @@ func NewUserSyncManager(db *sql.DB, clusterManager *Manager) *UserSyncManager {
 // Start begins the user synchronization loop
 func (m *UserSyncManager) Start(ctx context.Context) {
 	// Refresh proxy client so it picks up TLS certs loaded after cluster init/join.
-	m.proxyClient = NewProxyClient(m.clusterManager.GetTLSConfig())
+	m.proxyClient = NewDynamicProxyClient(m.clusterManager.GetTLSConfig)
 
 	// Get sync interval from config
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "user_sync_interval_seconds")
@@ -442,7 +442,7 @@ func (m *UserSyncManager) SyncToNode(ctx context.Context, node *Node) {
 	}
 
 	// Always use a fresh proxy client here to pick up the latest TLS config.
-	pc := NewProxyClient(m.clusterManager.GetTLSConfig())
+	pc := NewDynamicProxyClient(m.clusterManager.GetTLSConfig)
 	savedClient := m.proxyClient
 	m.proxyClient = pc
 	defer func() { m.proxyClient = savedClient }()

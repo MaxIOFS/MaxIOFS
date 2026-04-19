@@ -40,7 +40,7 @@ func NewAccessKeySyncManager(db *sql.DB, clusterManager *Manager) *AccessKeySync
 	return &AccessKeySyncManager{
 		db:             db,
 		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(clusterManager.GetTLSConfig()),
+		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "access-key-sync"),
 	}
@@ -49,7 +49,7 @@ func NewAccessKeySyncManager(db *sql.DB, clusterManager *Manager) *AccessKeySync
 // Start begins the access key synchronization loop
 func (m *AccessKeySyncManager) Start(ctx context.Context) {
 	// Refresh proxy client so it picks up TLS certs loaded after cluster init/join.
-	m.proxyClient = NewProxyClient(m.clusterManager.GetTLSConfig())
+	m.proxyClient = NewDynamicProxyClient(m.clusterManager.GetTLSConfig)
 
 	// Get sync interval from config
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "access_key_sync_interval_seconds")
@@ -311,6 +311,9 @@ func (m *AccessKeySyncManager) needsSynchronization(ctx context.Context, accessK
 		return false, err
 	}
 
+	if existingChecksum == "DELETED" {
+		return false, nil // tombstone already delivered; don't re-sync this key
+	}
 	return existingChecksum != checksum, nil
 }
 
@@ -332,7 +335,11 @@ func (m *AccessKeySyncManager) updateSyncStatus(ctx context.Context, accessKeyID
 	return err
 }
 
-// syncDeletions sends deletion tombstones for access keys to all target nodes
+// syncDeletions sends deletion tombstones for access keys to target nodes.
+// Each tombstone is sent at most once per destination node: after successful
+// delivery the result is recorded in cluster_access_key_sync with checksum
+// "DELETED" so subsequent cycles skip it.  The stale reconciler handles
+// nodes that were offline when the deletion first occurred.
 func (m *AccessKeySyncManager) syncDeletions(ctx context.Context, targetNodes []*Node, localNodeID string) {
 	deletions, err := ListDeletions(ctx, m.db, EntityTypeAccessKey)
 	if err != nil {
@@ -352,15 +359,35 @@ func (m *AccessKeySyncManager) syncDeletions(ctx context.Context, targetNodes []
 
 	for _, deletion := range deletions {
 		for _, node := range targetNodes {
+			// Skip if this tombstone was already delivered to this node.
+			if m.isDeletionDelivered(ctx, deletion.EntityID, node.ID) {
+				continue
+			}
 			if err := m.sendDeletionToNode(ctx, deletion.EntityID, deletion.DeletedAt, node, localNodeID, nodeToken); err != nil {
 				m.log.WithFields(logrus.Fields{
 					"access_key_id": deletion.EntityID,
 					"node_id":       node.ID,
 					"error":         err,
 				}).Warn("Failed to send access key deletion to node")
+				continue
+			}
+			// Record successful delivery so we don't resend on the next cycle.
+			if err := m.updateSyncStatus(ctx, deletion.EntityID, localNodeID, node.ID, "DELETED"); err != nil {
+				m.log.WithError(err).Warn("Failed to record tombstone delivery status")
 			}
 		}
 	}
+}
+
+// isDeletionDelivered returns true if this node has already successfully delivered
+// the tombstone for accessKeyID to destNodeID.
+func (m *AccessKeySyncManager) isDeletionDelivered(ctx context.Context, accessKeyID, destNodeID string) bool {
+	var checksum string
+	err := m.db.QueryRowContext(ctx, `
+		SELECT key_checksum FROM cluster_access_key_sync
+		WHERE access_key_id = ? AND destination_node_id = ?
+	`, accessKeyID, destNodeID).Scan(&checksum)
+	return err == nil && checksum == "DELETED"
 }
 
 // sendDeletionToNode sends an access key deletion request to a target node
@@ -395,6 +422,12 @@ func (m *AccessKeySyncManager) Stop() {
 	close(m.stopChan)
 }
 
+// TriggerSync immediately runs a full access key sync to all healthy nodes without
+// waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
+func (m *AccessKeySyncManager) TriggerSync(ctx context.Context) {
+	go m.syncAllAccessKeys(ctx)
+}
+
 // SyncToNode immediately pushes all local access keys to the given node.
 // Used to bootstrap a newly-joined node without waiting for the periodic ticker.
 func (m *AccessKeySyncManager) SyncToNode(ctx context.Context, node *Node) {
@@ -403,7 +436,7 @@ func (m *AccessKeySyncManager) SyncToNode(ctx context.Context, node *Node) {
 	}
 
 	// Always use a fresh proxy client here to pick up the latest TLS config.
-	pc := NewProxyClient(m.clusterManager.GetTLSConfig())
+	pc := NewDynamicProxyClient(m.clusterManager.GetTLSConfig)
 	savedClient := m.proxyClient
 	m.proxyClient = pc
 	defer func() { m.proxyClient = savedClient }()

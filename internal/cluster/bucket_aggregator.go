@@ -51,7 +51,7 @@ func NewBucketAggregator(clusterManager ClusterManagerInterface, bucketManager b
 	return &BucketAggregator{
 		clusterManager:  clusterManager,
 		bucketManager:   bucketManager,
-		proxyClient:     NewProxyClient(clusterManager.GetTLSConfig()),
+		proxyClient:     NewDynamicProxyClient(clusterManager.GetTLSConfig),
 		circuitBreakers: circuitBreakers,
 		log:             logrus.WithField("component", "bucket-aggregator"),
 	}

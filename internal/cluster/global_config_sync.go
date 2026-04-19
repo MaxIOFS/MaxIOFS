@@ -35,7 +35,7 @@ func NewGlobalConfigSyncManager(db *sql.DB, clusterManager *Manager) *GlobalConf
 	return &GlobalConfigSyncManager{
 		db:             db,
 		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(clusterManager.GetTLSConfig()),
+		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "global-config-sync"),
 	}

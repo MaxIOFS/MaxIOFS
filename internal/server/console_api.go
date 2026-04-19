@@ -1948,6 +1948,11 @@ func (s *Server) handleSearchObjects(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if s.proxyConsoleRequest(w, r, bucketName) {
+		return
+	}
+
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
@@ -2081,6 +2086,11 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if s.proxyConsoleRequest(w, r, bucketName) {
+		return
+	}
+
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
@@ -2181,6 +2191,11 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
+
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if s.proxyConsoleRequest(w, r, bucketName) {
+		return
+	}
 
 	// Extract user and tenant ID from context
 	user, exists := auth.GetUserFromContext(r.Context())
@@ -2491,6 +2506,11 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
+
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if s.proxyConsoleRequest(w, r, bucketName) {
+		return
+	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
@@ -3411,6 +3431,11 @@ func (s *Server) handleAPIHealth(w http.ResponseWriter, r *http.Request) {
 			resp["capacity_used"] = diskStats.UsedBytes
 		}
 	}
+	if s.bucketManager != nil {
+		if buckets, err := s.bucketManager.ListBuckets(r.Context(), ""); err == nil {
+			resp["bucket_count"] = len(buckets)
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(resp)
@@ -3671,6 +3696,12 @@ func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 
 	s.touchLocalWriteAt(r.Context())
 
+	// Push the new key to all cluster nodes immediately so S3 requests via the
+	// load balancer don't fail on nodes that haven't run their 30-second sync yet.
+	if s.accessKeySyncMgr != nil {
+		s.accessKeySyncMgr.TriggerSync(r.Context())
+	}
+
 	// Return complete key with secret (only shown once)
 	type CreateAccessKeyResponse struct {
 		ID        string `json:"id"`
@@ -3762,6 +3793,11 @@ func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
 		nodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
 		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeAccessKey, accessKeyID, nodeID); err != nil {
 			logrus.WithError(err).WithField("access_key_id", accessKeyID).Warn("Failed to record access key deletion tombstone")
+		}
+		// Push the tombstone to all nodes immediately so S3 requests stop working
+		// on peer nodes without waiting for the 30-second sync cycle.
+		if s.accessKeySyncMgr != nil {
+			s.accessKeySyncMgr.TriggerSync(r.Context())
 		}
 	}
 
@@ -5062,6 +5098,11 @@ func (s *Server) handleListObjectVersions(w http.ResponseWriter, r *http.Request
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
+
+	// Cluster routing: proxy to the node that owns this bucket if not local
+	if s.proxyConsoleRequest(w, r, bucketName) {
+		return
+	}
 
 	// Extract user and tenant ID from context
 	user, exists := auth.GetUserFromContext(r.Context())
@@ -6733,10 +6774,8 @@ func (s *Server) handleListAuditLogs(w http.ResponseWriter, r *http.Request) {
 	var err error
 
 	if isGlobalAdmin {
-		// Global admins see all logs
 		logs, total, err = s.auditManager.GetLogs(r.Context(), filters)
 	} else {
-		// Tenant admins see only their tenant's logs
 		logs, total, err = s.auditManager.GetLogsByTenant(r.Context(), currentUser.TenantID, filters)
 	}
 
@@ -6746,7 +6785,11 @@ func (s *Server) handleListAuditLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return response
+	// For global admins in a cluster, federate the query across all peer nodes and merge.
+	if isGlobalAdmin && s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		logs, total = s.federateAuditLogs(r.Context(), r.URL.Query(), filters, logs)
+	}
+
 	response := map[string]interface{}{
 		"logs":      logs,
 		"total":     total,
@@ -6755,6 +6798,123 @@ func (s *Server) handleListAuditLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, response)
+}
+
+// federateAuditLogs queries audit logs from all healthy peer nodes, merges with local
+// results, sorts by timestamp descending, and returns the requested page.
+func (s *Server) federateAuditLogs(ctx context.Context, queryParams url.Values, filters *audit.AuditLogFilters, localLogs []*audit.AuditLog) ([]*audit.AuditLog, int) {
+	clusterCfg, err := s.clusterManager.GetConfig(ctx)
+	if err != nil {
+		return localLogs, len(localLogs)
+	}
+
+	localNodeID, err := s.clusterManager.GetLocalNodeID(ctx)
+	if err != nil {
+		return localLogs, len(localLogs)
+	}
+
+	nodes, err := s.clusterManager.GetHealthyNodes(ctx)
+	if err != nil || len(nodes) == 0 {
+		return localLogs, len(localLogs)
+	}
+
+	// Build filter query string (reuse params already parsed by caller).
+	remoteQuery := url.Values{}
+	for _, key := range []string{"tenant_id", "user_id", "event_type", "resource_type", "action", "status", "start_date", "end_date"} {
+		if v := queryParams.Get(key); v != "" {
+			remoteQuery.Set(key, v)
+		}
+	}
+
+	type nodeResult struct {
+		logs []*audit.AuditLog
+	}
+	resultsCh := make(chan nodeResult, len(nodes))
+
+	proxyClient := cluster.NewDynamicProxyClient(s.clusterManager.GetTLSConfig)
+
+	for _, node := range nodes {
+		if node.ID == localNodeID {
+			continue
+		}
+		go func(n *cluster.Node) {
+			endpoint := fmt.Sprintf("%s/api/internal/cluster/audit-logs", n.Endpoint)
+			if len(remoteQuery) > 0 {
+				endpoint += "?" + remoteQuery.Encode()
+			}
+			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+
+			req, err := proxyClient.CreateAuthenticatedRequest(reqCtx, "GET", endpoint, nil, clusterCfg.NodeID, clusterCfg.ClusterToken)
+			if err != nil {
+				logrus.WithError(err).WithField("node_id", n.ID).Warn("audit federation: failed to create request")
+				resultsCh <- nodeResult{}
+				return
+			}
+
+			resp, err := proxyClient.DoAuthenticatedRequest(req)
+			if err != nil {
+				logrus.WithError(err).WithField("node_id", n.ID).Warn("audit federation: request failed")
+				resultsCh <- nodeResult{}
+				return
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				logrus.WithField("node_id", n.ID).WithField("status", resp.StatusCode).Warn("audit federation: unexpected status")
+				resultsCh <- nodeResult{}
+				return
+			}
+
+			var remoteLogs []*audit.AuditLog
+			if err := json.NewDecoder(resp.Body).Decode(&remoteLogs); err != nil {
+				logrus.WithError(err).WithField("node_id", n.ID).Warn("audit federation: failed to decode response")
+				resultsCh <- nodeResult{}
+				return
+			}
+			resultsCh <- nodeResult{logs: remoteLogs}
+		}(node)
+	}
+
+	// Count peers we sent requests to.
+	peerCount := 0
+	for _, node := range nodes {
+		if node.ID != localNodeID {
+			peerCount++
+		}
+	}
+
+	// Collect all results.
+	merged := make([]*audit.AuditLog, 0, len(localLogs))
+	merged = append(merged, localLogs...)
+	for i := 0; i < peerCount; i++ {
+		res := <-resultsCh
+		merged = append(merged, res.logs...)
+	}
+
+	// Sort by timestamp descending (newest first).
+	for i := 0; i < len(merged); i++ {
+		for j := i + 1; j < len(merged); j++ {
+			if merged[j].Timestamp > merged[i].Timestamp {
+				merged[i], merged[j] = merged[j], merged[i]
+			}
+		}
+	}
+
+	total := len(merged)
+
+	// Apply page/page_size on merged result.
+	page := filters.Page
+	pageSize := filters.PageSize
+	start := (page - 1) * pageSize
+	if start >= total {
+		return []*audit.AuditLog{}, total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return merged[start:end], total
 }
 
 func (s *Server) handleGetAuditLog(w http.ResponseWriter, r *http.Request) {

@@ -61,7 +61,7 @@ func NewStaleReconciler(db *sql.DB, mgr *Manager) *StaleReconciler {
 	return &StaleReconciler{
 		db:             db,
 		clusterManager: mgr,
-		proxyClient:    NewProxyClient(mgr.GetTLSConfig()),
+		proxyClient:    NewDynamicProxyClient(mgr.GetTLSConfig),
 		log:            logrus.WithField("component", "stale-reconciler"),
 	}
 }

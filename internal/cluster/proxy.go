@@ -14,35 +14,76 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
-// ProxyClient handles proxying S3 requests to remote nodes
+// ProxyClient handles proxying S3 requests to remote nodes.
+// It holds a getTLS getter that is called at each request so the TLS config is
+// always current — even when a node transitions from standalone to cluster mode
+// after the ProxyClient was created.
 type ProxyClient struct {
-	httpClient *http.Client
+	getTLS     func() *tls.Config // called at request time; nil getter = no TLS
+	mu         sync.Mutex
+	curTLS     *tls.Config  // last seen TLS config pointer (for change detection)
+	httpClient *http.Client // rebuilt whenever curTLS changes
 	log        *logrus.Entry
 }
 
-// NewProxyClient creates a new proxy client.
-// If tlsConfig is non-nil, inter-node requests use TLS with that config.
+// NewProxyClient creates a ProxyClient with a static TLS config (captured once).
+// Use NewDynamicProxyClient when the TLS config may change after construction
+// (e.g. a node that starts standalone and later joins a cluster).
 func NewProxyClient(tlsConfig *tls.Config) *ProxyClient {
+	p := &ProxyClient{
+		getTLS: func() *tls.Config { return tlsConfig },
+		curTLS: tlsConfig,
+		log:    logrus.WithField("component", "cluster-proxy"),
+	}
+	p.httpClient = buildHTTPClient(tlsConfig)
+	return p
+}
+
+// NewDynamicProxyClient creates a ProxyClient that re-evaluates getTLS on every
+// request. Use this for long-lived sync managers whose TLS config may change
+// (e.g. after a cluster join). Pass manager.GetTLSConfig (method value, not call).
+func NewDynamicProxyClient(getTLS func() *tls.Config) *ProxyClient {
+	if getTLS == nil {
+		getTLS = func() *tls.Config { return nil }
+	}
+	current := getTLS()
+	p := &ProxyClient{
+		getTLS: getTLS,
+		curTLS: current,
+		log:    logrus.WithField("component", "cluster-proxy"),
+	}
+	p.httpClient = buildHTTPClient(current)
+	return p
+}
+
+func buildHTTPClient(tlsCfg *tls.Config) *http.Client {
 	transport := &http.Transport{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 10,
 		IdleConnTimeout:     90 * time.Second,
 	}
-	if tlsConfig != nil {
-		transport.TLSClientConfig = tlsConfig
+	if tlsCfg != nil {
+		transport.TLSClientConfig = tlsCfg
 	}
-	return &ProxyClient{
-		httpClient: &http.Client{
-			Timeout:   60 * time.Second,
-			Transport: transport,
-		},
-		log: logrus.WithField("component", "cluster-proxy"),
+	return &http.Client{Timeout: 60 * time.Second, Transport: transport}
+}
+
+// getHTTPClient returns the HTTP client, rebuilding it if the TLS config has changed.
+func (p *ProxyClient) getHTTPClient() *http.Client {
+	current := p.getTLS()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if current != p.curTLS {
+		p.httpClient = buildHTTPClient(current)
+		p.curTLS = current
 	}
+	return p.httpClient
 }
 
 // ProxyRequest proxies an HTTP request to a remote node.
@@ -92,7 +133,7 @@ func (p *ProxyClient) ProxyRequest(ctx context.Context, node *Node, originalReq 
 
 	// Execute request
 	startTime := time.Now()
-	resp, err := p.httpClient.Do(proxyReq)
+	resp, err := p.getHTTPClient().Do(proxyReq)
 	duration := time.Since(startTime)
 
 	if err != nil {
@@ -232,7 +273,7 @@ func (p *ProxyClient) CreateAuthenticatedRequest(ctx context.Context, method, ur
 // DoAuthenticatedRequest executes an authenticated cluster request and returns the response
 func (p *ProxyClient) DoAuthenticatedRequest(req *http.Request) (*http.Response, error) {
 	startTime := time.Now()
-	resp, err := p.httpClient.Do(req)
+	resp, err := p.getHTTPClient().Do(req)
 	duration := time.Since(startTime)
 
 	if err != nil {
@@ -410,7 +451,7 @@ func (p *ProxyClient) ProxyToNodeAPIURL(ctx context.Context, node *Node, origina
 	// Add cluster auth headers (replaces Authorization)
 	AddClusterProxyHeaders(proxyReq, nodeID, clusterToken, userID, tenantID, roles)
 
-	resp, err := p.httpClient.Do(proxyReq)
+	resp, err := p.getHTTPClient().Do(proxyReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to proxy request to %s: %w", node.Name, err)
 	}

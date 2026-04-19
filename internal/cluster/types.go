@@ -71,6 +71,7 @@ type HealthCheckResult struct {
 	ErrorMessage  string `json:"error_message,omitempty"`
 	CapacityTotal int64  `json:"capacity_total,omitempty"`
 	CapacityUsed  int64  `json:"capacity_used,omitempty"`
+	BucketCount   int    `json:"bucket_count,omitempty"`
 }
 
 // Health status constants

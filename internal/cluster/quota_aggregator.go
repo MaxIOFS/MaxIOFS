@@ -52,7 +52,7 @@ func NewQuotaAggregator(clusterManager ClusterManagerInterface) *QuotaAggregator
 
 	return &QuotaAggregator{
 		clusterManager:  clusterManager,
-		proxyClient:     NewProxyClient(clusterManager.GetTLSConfig()),
+		proxyClient:     NewDynamicProxyClient(clusterManager.GetTLSConfig),
 		circuitBreakers: circuitBreakers,
 		log:             logrus.WithField("component", "quota-aggregator"),
 	}

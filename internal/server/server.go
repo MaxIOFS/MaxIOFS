@@ -1223,6 +1223,7 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/deletion-log-sync", s.handleReceiveDeletionLogSync).Methods("POST")
 	hmac.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectReplication).Methods("PUT")
 	hmac.HandleFunc("/objects/{tenantID}/{bucket}/{key}", s.handleReceiveObjectDeletion).Methods("DELETE")
+	hmac.HandleFunc("/audit-logs", s.handleGetLocalAuditLogs).Methods("GET")
 	hmac.HandleFunc("/ha/objects/changed-since", s.handleHAListChangedSince).Methods("GET")
 	hmac.HandleFunc("/ha/objects/{key:.*}", s.handleHAGetObject).Methods("GET")
 	hmac.HandleFunc("/ha/objects/{key:.*}", s.handleHAReceivePut).Methods("PUT")

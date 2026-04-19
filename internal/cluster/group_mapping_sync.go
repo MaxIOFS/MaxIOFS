@@ -44,7 +44,7 @@ func NewGroupMappingSyncManager(db *sql.DB, clusterManager *Manager) *GroupMappi
 	return &GroupMappingSyncManager{
 		db:             db,
 		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(clusterManager.GetTLSConfig()),
+		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "group-mapping-sync"),
 	}
@@ -53,7 +53,7 @@ func NewGroupMappingSyncManager(db *sql.DB, clusterManager *Manager) *GroupMappi
 // Start begins the group mapping synchronization loop
 func (m *GroupMappingSyncManager) Start(ctx context.Context) {
 	// Refresh proxy client so it picks up TLS certs loaded after cluster init/join.
-	m.proxyClient = NewProxyClient(m.clusterManager.GetTLSConfig())
+	m.proxyClient = NewDynamicProxyClient(m.clusterManager.GetTLSConfig)
 
 	// Get sync interval from config
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "group_mapping_sync_interval_seconds")

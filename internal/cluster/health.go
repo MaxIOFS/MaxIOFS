@@ -41,16 +41,16 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 			_, err = m.db.ExecContext(ctx, `
 				UPDATE cluster_nodes
 				SET health_status = ?, last_health_check = ?, last_seen = ?, latency_ms = ?,
-				    capacity_total = ?, capacity_used = ?, updated_at = ?, is_stale = 0
+				    capacity_total = ?, capacity_used = ?, bucket_count = ?, updated_at = ?, is_stale = 0
 				WHERE id = ?
-			`, status, now, now, result.LatencyMs, result.CapacityTotal, result.CapacityUsed, now, nodeID)
+			`, status, now, now, result.LatencyMs, result.CapacityTotal, result.CapacityUsed, result.BucketCount, now, nodeID)
 		} else {
 			_, err = m.db.ExecContext(ctx, `
 				UPDATE cluster_nodes
 				SET health_status = ?, last_health_check = ?, last_seen = ?, latency_ms = ?,
-				    updated_at = ?, is_stale = 0
+				    bucket_count = ?, updated_at = ?, is_stale = 0
 				WHERE id = ?
-			`, status, now, now, result.LatencyMs, now, nodeID)
+			`, status, now, now, result.LatencyMs, result.BucketCount, now, nodeID)
 		}
 	} else {
 		_, err = m.db.ExecContext(ctx, `
@@ -126,15 +126,17 @@ func (m *Manager) performHealthCheck(endpoint string) *HealthCheckResult {
 		}
 	}
 
-	// Parse capacity fields from the health response (best-effort, flat JSON).
+	// Parse capacity and bucket count from the health response (best-effort, flat JSON).
 	var body struct {
 		CapacityTotal uint64 `json:"capacity_total"`
 		CapacityUsed  uint64 `json:"capacity_used"`
+		BucketCount   int    `json:"bucket_count"`
 	}
 	result := &HealthCheckResult{Healthy: true, LatencyMs: latency}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err == nil {
 		result.CapacityTotal = int64(body.CapacityTotal)
 		result.CapacityUsed = int64(body.CapacityUsed)
+		result.BucketCount = body.BucketCount
 	}
 	return result
 }

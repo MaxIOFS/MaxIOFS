@@ -43,7 +43,7 @@ func NewIDPProviderSyncManager(db *sql.DB, clusterManager *Manager) *IDPProvider
 	return &IDPProviderSyncManager{
 		db:             db,
 		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(clusterManager.GetTLSConfig()),
+		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "idp-provider-sync"),
 	}
@@ -52,7 +52,7 @@ func NewIDPProviderSyncManager(db *sql.DB, clusterManager *Manager) *IDPProvider
 // Start begins the IDP provider synchronization loop
 func (m *IDPProviderSyncManager) Start(ctx context.Context) {
 	// Refresh proxy client so it picks up TLS certs loaded after cluster init/join.
-	m.proxyClient = NewProxyClient(m.clusterManager.GetTLSConfig())
+	m.proxyClient = NewDynamicProxyClient(m.clusterManager.GetTLSConfig)
 
 	// Get sync interval from config
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "idp_provider_sync_interval_seconds")

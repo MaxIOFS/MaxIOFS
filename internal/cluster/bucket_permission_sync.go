@@ -42,7 +42,7 @@ func NewBucketPermissionSyncManager(db *sql.DB, clusterManager *Manager) *Bucket
 	return &BucketPermissionSyncManager{
 		db:             db,
 		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(clusterManager.GetTLSConfig()),
+		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "bucket-permission-sync"),
 	}
@@ -51,7 +51,7 @@ func NewBucketPermissionSyncManager(db *sql.DB, clusterManager *Manager) *Bucket
 // Start begins the bucket permission synchronization loop
 func (m *BucketPermissionSyncManager) Start(ctx context.Context) {
 	// Refresh proxy client so it picks up TLS certs loaded after cluster init/join.
-	m.proxyClient = NewProxyClient(m.clusterManager.GetTLSConfig())
+	m.proxyClient = NewDynamicProxyClient(m.clusterManager.GetTLSConfig)
 
 	// Get sync interval from config
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "bucket_permission_sync_interval_seconds")

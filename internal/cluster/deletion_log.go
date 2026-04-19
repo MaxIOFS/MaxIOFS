@@ -78,6 +78,31 @@ func ListDeletions(ctx context.Context, db *sql.DB, entityType string) ([]*Delet
 	return entries, rows.Err()
 }
 
+// ListRecentDeletions returns tombstones for a given entity type created after minDeletedAt.
+// Use this in periodic sync loops so that old tombstones are not re-sent every cycle;
+// the stale reconciler handles historical tombstones for nodes that were offline.
+func ListRecentDeletions(ctx context.Context, db *sql.DB, entityType string, minDeletedAt int64) ([]*DeletionEntry, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, entity_type, entity_id, deleted_by_node_id, deleted_at
+		FROM cluster_deletion_log
+		WHERE entity_type = ? AND deleted_at >= ?
+	`, entityType, minDeletedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list recent deletions: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []*DeletionEntry
+	for rows.Next() {
+		e := &DeletionEntry{}
+		if err := rows.Scan(&e.ID, &e.EntityType, &e.EntityID, &e.DeletedByNodeID, &e.DeletedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan deletion entry: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
 // HasDeletion checks if a tombstone exists for a given entity
 func HasDeletion(ctx context.Context, db *sql.DB, entityType, entityID string) (bool, error) {
 	var exists bool
@@ -188,7 +213,7 @@ func NewDeletionLogSyncManager(db *sql.DB, clusterManager *Manager) *DeletionLog
 	return &DeletionLogSyncManager{
 		db:             db,
 		clusterManager: clusterManager,
-		proxyClient:    NewProxyClient(clusterManager.GetTLSConfig()),
+		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "deletion-log-sync"),
 	}
