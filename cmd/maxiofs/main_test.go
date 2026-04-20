@@ -332,6 +332,17 @@ func newTestCommand(dataDir, listen, consoleListen string) *cobra.Command {
 	return cmd
 }
 
+// serverStartTimeout returns the wait window used by tests that boot a real server.
+// Local dev machines initialize the server in well under 200ms, but slow CI runners
+// (notably GitHub Actions Ubuntu) need significantly more headroom — without it the
+// test process is torn down mid-startup and reported as FAIL with no per-test output.
+func serverStartTimeout() time.Duration {
+	if os.Getenv("CI") != "" {
+		return 3 * time.Second
+	}
+	return 200 * time.Millisecond
+}
+
 // runServerWithTimeout launches runServer in a goroutine and returns its error (or nil on timeout).
 func runServerWithTimeout(cmd *cobra.Command, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -387,7 +398,7 @@ func TestRunServer_TLSValidation(t *testing.T) {
 			cmd.Flags().Set("tls-cert", tt.cert)
 			cmd.Flags().Set("tls-key", tt.key)
 
-			err := runServerWithTimeout(cmd, 200*time.Millisecond)
+			err := runServerWithTimeout(cmd, serverStartTimeout())
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
@@ -409,7 +420,7 @@ func TestRunServer_TLSBothProvided(t *testing.T) {
 	logrus.SetOutput(io.Discard)
 	defer logrus.SetOutput(os.Stderr)
 
-	err := runServerWithTimeout(cmd, 200*time.Millisecond)
+	err := runServerWithTimeout(cmd, serverStartTimeout())
 	// Should NOT be the "must be provided together" error
 	if err != nil {
 		assert.NotContains(t, err.Error(), "must be provided together")
@@ -436,7 +447,7 @@ func TestRunServer_WithValidDataDir(t *testing.T) {
 	logrus.SetOutput(io.Discard)
 	defer logrus.SetOutput(os.Stderr)
 
-	err := runServerWithTimeout(cmd, 200*time.Millisecond)
+	err := runServerWithTimeout(cmd, serverStartTimeout())
 	// Either server starts (nil) or fails at a later stage - both are fine
 	if err != nil {
 		t.Logf("Server error (expected during test): %v", err)
@@ -452,5 +463,5 @@ func TestRunServer_EmptyArgs(t *testing.T) {
 	defer logrus.SetOutput(os.Stderr)
 
 	// Should not panic with empty args
-	_ = runServerWithTimeout(cmd, 200*time.Millisecond)
+	_ = runServerWithTimeout(cmd, serverStartTimeout())
 }
