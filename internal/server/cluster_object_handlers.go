@@ -1640,6 +1640,44 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, reader) //nolint:errcheck
 }
 
+// handleHAChecksumBatch returns (etag, size, last_modified) for each requested
+// object key.  Used by the anti-entropy scrubber on a peer to compare with its
+// own local view.  Missing keys are returned with found=false.
+// POST /api/internal/ha/checksum-batch
+func (s *Server) handleHAChecksumBatch(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Bucket string   `json:"bucket"`
+		Keys   []string `json:"keys"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Bucket == "" {
+		http.Error(w, "missing bucket", http.StatusBadRequest)
+		return
+	}
+
+	entries := make([]cluster.ChecksumEntry, 0, len(req.Keys))
+	for _, key := range req.Keys {
+		obj, err := s.objectManager.GetObjectMetadata(r.Context(), req.Bucket, key)
+		if err != nil || obj == nil {
+			entries = append(entries, cluster.ChecksumEntry{Key: key, Found: false})
+			continue
+		}
+		entries = append(entries, cluster.ChecksumEntry{
+			Key:          key,
+			Found:        true,
+			ETag:         obj.ETag,
+			Size:         obj.Size,
+			LastModified: obj.LastModified.Unix(),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"entries": entries}) //nolint:errcheck
+}
+
 // handleHAListChangedSince lists objects modified after a given Unix timestamp.
 // GET /api/internal/ha/objects/changed-since?bucket=<path>&since=<unix>&marker=<key>
 // Returns JSON suitable for the stale-reconciler delta-sync loop.

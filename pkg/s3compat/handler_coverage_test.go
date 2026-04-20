@@ -786,8 +786,16 @@ func (m *mockClusterManager) SelectReadNode(_ context.Context, _ string) (*clust
 	return nil, nil // tests always serve locally
 }
 
+func (m *mockClusterManager) SelectReadNodes(_ context.Context, _ string) ([]*cluster.Node, error) {
+	return nil, nil // tests always serve locally
+}
+
 func (m *mockClusterManager) ProxyRead(_ context.Context, _ http.ResponseWriter, _ *http.Request, _ *cluster.Node) error {
 	return nil
+}
+
+func (m *mockClusterManager) TryProxyRead(_ context.Context, _ http.ResponseWriter, _ *http.Request, _ *cluster.Node) (bool, error) {
+	return false, nil
 }
 
 func (m *mockClusterManager) GetLocalNodeID(_ context.Context) (string, error) {

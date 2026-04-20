@@ -114,6 +114,35 @@ func (s *Server) handleGetHASyncJobs(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, map[string]interface{}{"sync_jobs": jobs})
 }
 
+// handleGetHAScrubStatus returns the most recent anti-entropy scrubber runs
+// plus the in-progress checkpoint when a cycle is active.
+// GET /cluster/ha/scrub-status
+func (s *Server) handleGetHAScrubStatus(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
+	if s.antiEntropyScrubber == nil {
+		s.writeJSON(w, map[string]interface{}{"runs": []struct{}{}, "current": nil})
+		return
+	}
+
+	runs, err := s.antiEntropyScrubber.ListRecentRuns(r.Context(), 10)
+	if err != nil {
+		s.writeError(w, "Failed to list scrub runs: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if runs == nil {
+		runs = []cluster.ScrubRun{}
+	}
+
+	current := s.antiEntropyScrubber.CurrentCheckpoint()
+	s.writeJSON(w, map[string]interface{}{
+		"runs":    runs,
+		"current": current,
+	})
+}
+
 // handleSetClusterHA changes the cluster-wide replication factor.
 // PUT /cluster/ha
 //

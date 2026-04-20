@@ -527,6 +527,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/cluster/ha", s.handleGetClusterHA).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/ha", s.handleSetClusterHA).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/cluster/ha/sync-jobs", s.handleGetHASyncJobs).Methods("GET", "OPTIONS")
+	router.HandleFunc("/cluster/ha/scrub-status", s.handleGetHAScrubStatus).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/buckets", s.handleGetClusterBuckets).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/buckets/{bucket}/replicas", s.handleGetBucketReplicas).Methods("GET", "OPTIONS")
 

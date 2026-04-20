@@ -81,6 +81,7 @@ type Server struct {
 	globalConfigSyncMgr     *cluster.GlobalConfigSyncManager
 	staleReconciler         *cluster.StaleReconciler
 	haSyncWorker            *cluster.HASyncWorker
+	antiEntropyScrubber     *cluster.AntiEntropyScrubber
 	notificationHub         *NotificationHub
 	quotaAlerts             *quotaAlertTracker
 	systemMetrics           *metrics.SystemMetricsTracker
@@ -429,6 +430,9 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize HA initial-sync worker
 	haSyncWorker := cluster.NewHASyncWorker(objectManager, bucketManager, clusterManager)
 
+	// Initialize anti-entropy scrubber (PebbleStore implements RawKVStore for crash-safe checkpoints).
+	antiEntropyScrubber := cluster.NewAntiEntropyScrubber(objectManager, bucketManager, clusterManager, metadataStore)
+
 	// Create HTTP servers
 	httpServer := &http.Server{
 		Addr:              cfg.Listen,
@@ -473,6 +477,7 @@ func New(cfg *config.Config) (*Server, error) {
 		clusterRouter:           clusterRouter,
 		clusterServer:           clusterServer,
 		haSyncWorker:            haSyncWorker,
+		antiEntropyScrubber:     antiEntropyScrubber,
 		bucketAggregator:        bucketAggregator,
 		quotaAggregator:         quotaAggregator,
 		rateLimiter:             rateLimiter,
@@ -771,6 +776,10 @@ func (s *Server) startClusterBackgroundServices(ctx context.Context) {
 		if s.haSyncWorker != nil {
 			s.haSyncWorker.Start(ctx)
 			logrus.Info("HA sync worker started")
+		}
+		if s.antiEntropyScrubber != nil {
+			s.antiEntropyScrubber.Start(ctx)
+			logrus.Info("Anti-entropy scrubber started")
 		}
 		s.startClusterNodeAlertMonitor(ctx)
 		logrus.Info("Cluster node alert monitor started")
@@ -1254,6 +1263,7 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/ha/objects/{key:.*}", s.handleHAReceivePut).Methods("PUT")
 	hmac.HandleFunc("/ha/objects/{key:.*}", s.handleHAReceiveDelete).Methods("DELETE")
 	hmac.HandleFunc("/ha/metadata-op", s.handleHAReceiveMetadataOp).Methods("POST")
+	hmac.HandleFunc("/ha/checksum-batch", s.handleHAChecksumBatch).Methods("POST")
 
 	logrus.WithField("address", s.clusterServer.Addr).Info("Cluster inter-node routes registered")
 }

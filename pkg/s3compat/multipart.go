@@ -3,6 +3,7 @@ package s3compat
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
@@ -534,6 +536,8 @@ done:
 			code = "NoSuchUpload"
 		} else if res.err == object.ErrInvalidPart {
 			code = "InvalidPart"
+		} else if errors.Is(res.err, cluster.ErrClusterDegraded) {
+			code = "ServiceUnavailable"
 		} else if strings.Contains(res.err.Error(), "storage quota exceeded") || strings.Contains(res.err.Error(), "quota exceeded") {
 			code = "QuotaExceeded"
 		}

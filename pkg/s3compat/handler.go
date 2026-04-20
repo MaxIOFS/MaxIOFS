@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -121,7 +122,9 @@ type Handler struct {
 	clusterManager interface {
 		IsClusterEnabled() bool
 		SelectReadNode(ctx context.Context, bucket string) (*cluster.Node, error)
+		SelectReadNodes(ctx context.Context, bucket string) ([]*cluster.Node, error)
 		ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *cluster.Node) error
+		TryProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *cluster.Node) (bool, error)
 		GetLocalNodeID(ctx context.Context) (string, error)
 		GetLocalNodeToken(ctx context.Context) (string, error)
 		GetTLSConfig() *tls.Config
@@ -224,7 +227,9 @@ func (h *Handler) buildLocationURL(r *http.Request, bucketName, objectKey string
 func (h *Handler) SetClusterManager(cm interface {
 	IsClusterEnabled() bool
 	SelectReadNode(ctx context.Context, bucket string) (*cluster.Node, error)
+	SelectReadNodes(ctx context.Context, bucket string) ([]*cluster.Node, error)
 	ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *cluster.Node) error
+	TryProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *cluster.Node) (bool, error)
 	GetLocalNodeID(ctx context.Context) (string, error)
 	GetLocalNodeToken(ctx context.Context) (string, error)
 	GetTLSConfig() *tls.Config
@@ -1322,17 +1327,21 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Read load balancing: if a ready replica is selected, proxy the request there.
-	// Fall through to local on any error or 404 from the replica.
+	// 2. Read load balancing with ordered fallback: try each ready replica in
+	// turn. TryProxyRead does not write to w until the response is definitive,
+	// so a 404/5xx from one replica still lets us try the next (and finally
+	// fall through to the local read below).
 	if h.clusterManager != nil {
-		if node, routeErr := h.clusterManager.SelectReadNode(r.Context(), bucketPath); routeErr == nil && node != nil {
-			proxyErr := h.clusterManager.ProxyRead(r.Context(), w, r, node)
-			if proxyErr == nil {
-				return // replica served the response
+		nodes, _ := h.clusterManager.SelectReadNodes(r.Context(), bucketPath)
+		for _, node := range nodes {
+			served, tryErr := h.clusterManager.TryProxyRead(r.Context(), w, r, node)
+			if served {
+				return
 			}
-			// Replica unreachable — fall through to local read below.
-			logrus.WithError(proxyErr).WithField("node_id", node.ID).
-				Warn("read balancing: replica unavailable, falling back to local")
+			if tryErr != nil {
+				logrus.WithError(tryErr).WithField("node_id", node.ID).
+					Debug("read fallback: replica did not serve, trying next")
+			}
 		}
 	}
 
@@ -1512,6 +1521,11 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 			"object": objectKey,
 		}).Error("PutObject failed")
 
+		if errors.Is(err, cluster.ErrClusterDegraded) {
+			w.Header().Set("Retry-After", "30")
+			h.writeError(w, "ServiceUnavailable", "Cluster degraded — replication quorum unavailable, retry later", objectKey, r)
+			return
+		}
 		if err == object.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
@@ -2935,6 +2949,12 @@ func (h *Handler) getObjectSizeBeforeDeletion(ctx context.Context, bucketPath, o
 func (h *Handler) handleDeleteObjectErrors(w http.ResponseWriter, r *http.Request, err error, bucketName, objectKey string) bool {
 	if err == nil {
 		return false
+	}
+
+	if errors.Is(err, cluster.ErrClusterDegraded) {
+		w.Header().Set("Retry-After", "30")
+		h.writeError(w, "ServiceUnavailable", "Cluster degraded — replication quorum unavailable, retry later", objectKey, r)
+		return true
 	}
 
 	if err == object.ErrBucketNotFound {

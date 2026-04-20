@@ -32,6 +32,21 @@ func isHAReplica(ctx context.Context) bool {
 	return v
 }
 
+// haRollbackKey marks a Manager call that is undoing a quorum-failed write.
+// HAObjectManager checks this to skip re-fanout when deleting the local copy.
+type haRollbackKey struct{}
+
+// WithHARollbackContext returns a child context marked as a quorum-failure rollback.
+// Used internally to suppress fanout while the wrapper undoes a local write.
+func WithHARollbackContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, haRollbackKey{}, true)
+}
+
+func isHARollback(ctx context.Context) bool {
+	v, _ := ctx.Value(haRollbackKey{}).(bool)
+	return v
+}
+
 // fanoutResult holds the outcome of a single replica fanout attempt.
 type fanoutResult struct {
 	nodeID string
@@ -53,40 +68,87 @@ func NewHAObjectManager(m object.Manager, mgr *Manager) object.Manager {
 	return &HAObjectManager{Manager: m, mgr: mgr}
 }
 
-// PutObject writes locally then fans out to replica nodes.
+// PutObject writes locally then synchronously replicates to the quorum.
+// If the cluster cannot satisfy the replication factor, the local write is
+// rolled back and ErrClusterDegraded is returned so the caller can emit 503.
 func (h *HAObjectManager) PutObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (*object.Object, error) {
+	if !isHAReplica(ctx) && !isHARollback(ctx) {
+		if ok, err := h.mgr.ClusterCanAcceptWrites(ctx); err == nil && !ok {
+			return nil, ErrClusterDegraded
+		}
+	}
 	obj, err := h.Manager.PutObject(ctx, bucket, key, data, headers)
 	if err != nil {
 		return nil, err
 	}
-	if !isHAReplica(ctx) {
-		h.fanoutPut(ctx, bucket, key)
+	if isHAReplica(ctx) || isHARollback(ctx) {
+		return obj, nil
+	}
+	if err := h.fanoutPut(ctx, bucket, key); err != nil {
+		h.rollbackLocalPut(ctx, bucket, key, "PutObject")
+		return nil, err
 	}
 	return obj, nil
 }
 
-// DeleteObject deletes locally then fans the deletion out.
+// DeleteObject deletes locally then synchronously fans the deletion out.
+// On quorum failure the local delete is NOT rolled back (delete is a tombstone
+// that anti-entropy will reconcile); ErrClusterDegraded is returned so the
+// client can retry.
 func (h *HAObjectManager) DeleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (string, error) {
+	if !isHAReplica(ctx) && !isHARollback(ctx) {
+		if ok, err := h.mgr.ClusterCanAcceptWrites(ctx); err == nil && !ok {
+			return "", ErrClusterDegraded
+		}
+	}
 	markerID, err := h.Manager.DeleteObject(ctx, bucket, key, bypassGovernance, versionID...)
 	if err != nil {
 		return "", err
 	}
-	if !isHAReplica(ctx) {
-		h.fanoutDelete(ctx, bucket, key)
+	if isHAReplica(ctx) || isHARollback(ctx) {
+		return markerID, nil
+	}
+	if err := h.fanoutDelete(ctx, bucket, key); err != nil {
+		return markerID, err
 	}
 	return markerID, nil
 }
 
-// CompleteMultipartUpload finalises locally then fans the assembled object out.
+// CompleteMultipartUpload finalises locally then synchronously replicates the
+// assembled object. Quorum failure rolls back the local object and returns
+// ErrClusterDegraded.
 func (h *HAObjectManager) CompleteMultipartUpload(ctx context.Context, uploadID string, parts []object.Part) (*object.Object, error) {
+	if !isHAReplica(ctx) && !isHARollback(ctx) {
+		if ok, err := h.mgr.ClusterCanAcceptWrites(ctx); err == nil && !ok {
+			return nil, ErrClusterDegraded
+		}
+	}
 	obj, err := h.Manager.CompleteMultipartUpload(ctx, uploadID, parts)
 	if err != nil {
 		return nil, err
 	}
-	if !isHAReplica(ctx) {
-		h.fanoutPut(ctx, obj.Bucket, obj.Key)
+	if isHAReplica(ctx) || isHARollback(ctx) {
+		return obj, nil
+	}
+	if err := h.fanoutPut(ctx, obj.Bucket, obj.Key); err != nil {
+		h.rollbackLocalPut(ctx, obj.Bucket, obj.Key, "CompleteMultipartUpload")
+		return nil, err
 	}
 	return obj, nil
+}
+
+// rollbackLocalPut deletes the just-written local copy after a quorum failure.
+// Uses WithHARollbackContext to suppress fanout of the rollback delete.
+// Failures are logged but not surfaced — the original ErrClusterDegraded already
+// tells the client to retry, and any leftover local copy will be reconciled by
+// anti-entropy.
+func (h *HAObjectManager) rollbackLocalPut(ctx context.Context, bucket, key, op string) {
+	rbCtx := WithHARollbackContext(ctx)
+	if _, err := h.Manager.DeleteObject(rbCtx, bucket, key, true); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"op": op, "bucket": bucket, "key": key,
+		}).WithError(err).Error("HA quorum rollback: failed to delete local copy")
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -129,10 +191,14 @@ func (h *HAObjectManager) replicaTargets(ctx context.Context) ([]*Node, int, boo
 	return targets, neededReplicas, true
 }
 
-func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key string) {
+// fanoutPut synchronously replicates the just-written object to replica nodes.
+// Returns ErrClusterDegraded when fewer than `needed` replicas confirm.
+// Returns nil when replication is inactive (factor=1, cluster disabled, or
+// factor=2 which needs zero replica confirmations).
+func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key string) error {
 	targets, needed, ok := h.replicaTargets(ctx)
 	if !ok {
-		return
+		return nil
 	}
 	localID, _ := h.mgr.GetLocalNodeID(ctx)
 	client := NewProxyClient(h.mgr.GetTLSConfig())
@@ -190,13 +256,16 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key string) {
 		}(node)
 	}
 
-	h.collectAndLog(ctx, ch, len(targets), needed, "PUT", bucket, key)
+	return h.collectAndCheckQuorum(ctx, ch, len(targets), needed, "PUT", bucket, key)
 }
 
-func (h *HAObjectManager) fanoutDelete(ctx context.Context, bucket, key string) {
+// fanoutDelete synchronously replicates the deletion. Same semantics as
+// fanoutPut: returns ErrClusterDegraded when fewer than `needed` replicas
+// confirm.
+func (h *HAObjectManager) fanoutDelete(ctx context.Context, bucket, key string) error {
 	targets, needed, ok := h.replicaTargets(ctx)
 	if !ok {
-		return
+		return nil
 	}
 	localID, _ := h.mgr.GetLocalNodeID(ctx)
 	client := NewProxyClient(h.mgr.GetTLSConfig())
@@ -227,33 +296,36 @@ func (h *HAObjectManager) fanoutDelete(ctx context.Context, bucket, key string) 
 		}(node)
 	}
 
-	h.collectAndLog(ctx, ch, len(targets), needed, "DELETE", bucket, key)
+	return h.collectAndCheckQuorum(ctx, ch, len(targets), needed, "DELETE", bucket, key)
 }
 
-// collectAndLog drains all results, marks failed nodes unavailable and logs quorum misses.
-func (h *HAObjectManager) collectAndLog(ctx context.Context, ch <-chan fanoutResult, total, needed int, op, bucket, key string) {
+// collectAndCheckQuorum drains all fanout results, marks failed nodes
+// unavailable, and returns ErrClusterDegraded when successes < needed.
+func (h *HAObjectManager) collectAndCheckQuorum(ctx context.Context, ch <-chan fanoutResult, total, needed int, op, bucket, key string) error {
 	success := 0
 	for i := 0; i < total; i++ {
 		r := <-ch
 		if r.err == nil {
 			success++
-		} else {
-			logrus.WithFields(logrus.Fields{
-				"node_id": r.nodeID, "op": op, "bucket": bucket, "key": key,
-			}).WithError(r.err).Warn("HA fanout failed — marking node unavailable")
-			now := time.Now()
-			h.mgr.db.ExecContext(ctx, //nolint:errcheck
-				`UPDATE cluster_nodes SET health_status = ?, updated_at = ? WHERE id = ?`,
-				HealthStatusUnavailable, now, r.nodeID,
-			)
+			continue
 		}
+		logrus.WithFields(logrus.Fields{
+			"node_id": r.nodeID, "op": op, "bucket": bucket, "key": key,
+		}).WithError(r.err).Warn("HA fanout failed — marking node unavailable")
+		now := time.Now()
+		h.mgr.db.ExecContext(ctx, //nolint:errcheck
+			`UPDATE cluster_nodes SET health_status = ?, updated_at = ? WHERE id = ?`,
+			HealthStatusUnavailable, now, r.nodeID,
+		)
 	}
 	if success < needed {
 		logrus.WithFields(logrus.Fields{
 			"op": op, "bucket": bucket, "key": key,
 			"needed": needed, "got": success,
-		}).Error("HA quorum not reached — object written locally only")
+		}).Error("HA quorum not reached — failing write")
+		return ErrClusterDegraded
 	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

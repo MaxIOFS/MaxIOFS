@@ -29,189 +29,260 @@
 
 ---
 
-## 🔵 v1.3.0 — HA Cluster: Quorum Write + Synchronous Replication
+## 🔵 v1.3.0 — HA Cluster: Durability fixes + operations
 
-**Goal**: if a node goes down, all buckets remain accessible and writable. Today any bucket whose primary node dies becomes unavailable.
+**Goal**: close the gaps in the existing N-way replication so the cluster actually tolerates node failures without silent data loss, and add the operational primitives (dead-node redistribution, drain, storage pressure) needed to run it in production.
 
-**Decision (April 5, 2026)**: cluster-level replication factor. Every object is written to N nodes simultaneously (synchronous quorum). No erasure coding — each replica node holds a complete copy of every object. Factor is defined once for the entire cluster and can be changed at any time.
-
----
-
-### Storage model
-
-The replication factor is a **single cluster-wide setting**, not per-bucket or per-node.
-
-| Factor | Copies | Usable (3×500 GB cluster) | Tolerates |
-|--------|--------|---------------------------|-----------|
-| 1 | 1 | 1,500 GB | 0 nodes |
-| 2 | 2 | 750 GB | 1 node |
-| 3 | 3 | 500 GB | 2 nodes |
-
-With 5 nodes and factor 3: data lives on 3 of the 5 nodes — cluster tolerates 2 simultaneous failures.
-
-**Quota is always counted once** regardless of factor — replicas are invisible to quota calculations.
+**Decision (April 20, 2026)**: the previous v1.3.0 plan ("N copies of every object") was implemented partially via `HAObjectManager` but the critical guarantees were never closed — `fanoutPut` returns 200 to the client based on the local write alone, `collectAndLog` only logs quorum misses, there is no read fallback, and no anti-entropy. v1.3.0 now ships those fixes on the existing replication model. Erasure coding moves to v1.4.0 as a separate, larger effort to address the disk-overhead problem (3× with `factor=3`).
 
 ---
 
-### Core architecture
+### Reality check — what is already built
 
-**Factor is cluster-wide.** One setting, stored in cluster global config. All buckets on all nodes replicate according to this factor. Buckets have no replication configuration of their own.
+`internal/cluster/ha_object_manager.go` exists and wraps `object.Manager`. PUT/DELETE/CompleteMultipart fan out to `factor-1` healthy nodes. Metadata-only operations (tagging, ACL, retention, legal hold, restore status) fan out via `POST /api/internal/ha/metadata-op`. `HASyncWorker` resumes initial sync jobs from Pebble checkpoints. Read load balancing exists in `manager.go:SelectReadNode`.
 
-**Nodes always join empty.** A new node entering the cluster must have no data. This prevents data inconsistency. After joining, the cluster distributes objects and metadata to the new node in background.
+What is **missing** vs. the original v1.3.0 plan:
 
-**Factor change is always validated first.** Before applying a new factor, the system calculates whether all target nodes have enough free space to hold the full dataset. If not, the change is rejected with a clear error — production is never affected.
-
-**Space recalculation on node add/remove.** When the number of nodes changes, the cluster recalculates usable capacity and (if factor > 1) redistributes data to include or exclude the changed node.
-
-**Bucket appears exactly once.** Each bucket has a `PrimaryNodeID` (the node where it was created) — internal tracking only. The `BucketAggregator` shows a bucket only from its primary. Replica nodes hold data silently. No duplicate listings, no duplicate quota.
-
-**Any node can serve reads.** Once a replica reaches `ready` status it serves reads directly without proxy. The router distributes reads round-robin across primary + ready replicas. Reads for objects not yet synced fall back to a node that has them.
-
-**Any node can accept writes.** The receiving node fans out to all replica nodes in parallel. Header `X-MaxIOFS-HA-Replica: true` prevents re-fanout (anti-loop). Quorum = `ceil(factor/2)` confirmations required before returning 200 to client. Partial failure marks failed nodes `stale`. Full quorum failure returns 503.
-
-**Initial sync is visible and resumable.** When factor increases or a new node joins, background sync starts. Admin sees per-node progress in the cluster HA page. Cluster stays fully operational during sync. Progress checkpointed in Pebble — restart resumes from last checkpoint.
-
----
-
-### Internal tracking data structures (not user-configurable)
-
-```go
-// BucketMetadata in internal/metadata/types.go — internal tracking only
-type BucketHA struct {
-    PrimaryNodeID string          // node that owns this bucket's listing and quota
-    ReplicaNodes  []HAReplicaNode // current state of each replica
-}
-
-type HAReplicaNode struct {
-    NodeID   string
-    Status   string    // "syncing" | "ready" | "stale" | "pending_removal" | "storage_pressure"
-    Progress int       // 0-100, only meaningful during "syncing"
-    SyncedAt time.Time
-}
-```
-
-The cluster replication factor is stored in cluster global config (key `ha.replication_factor`), not in bucket metadata.
-
----
-
-### What already exists (do NOT re-implement)
-- `ProxyClient` — sends authenticated HTTP requests to any cluster node (`internal/cluster/proxy.go`)
-- `stale_reconciler.go` — reconciles diverged state when a node rejoins
-- `GetGlobalConfig` / `SetGlobalConfig` — cluster-wide key/value store (`internal/cluster/sync_schema.go`)
-- Circuit breaker, health checks, inter-node TLS
-- `PUT /api/internal/cluster/objects/` — already streams objects between nodes (used by migration)
+| Original item | Current state | Gap |
+|---|---|---|
+| C — Write quorum | `collectAndLog` only logs (`ha_object_manager.go:251`) | Client gets 200 with only local write done; if local node dies before fanout, data is lost silently |
+| F — Read fallback | `SelectReadNode` returns one node, no retry | If the chosen replica errors, the client sees the error even though the object exists elsewhere |
+| G — Stale catch-up | Only runs on factor-change/new-node | A node that was down comes back stale forever until next factor change |
+| (new) Anti-entropy | Not implemented | Bit rot and silent drift accumulate undetected |
+| (new) Dead-node redistribution | Not implemented | Permanent node loss leaves objects at N-1 copies forever |
 
 ---
 
 ### Work items
 
-#### ~~1. Remove cluster-level async replication~~ ✅ Done
+#### 1. Write quorum — make it actually synchronous ✅ (April 20, 2026)
 
-#### A. Cluster HA types + configuration API (~2 days)
+`fanoutPut`/`fanoutDelete` are now synchronous. Quorum threshold = `ceil(factor/2)` confirmations (local counts as 1, so replica confirmations needed = `ceil(factor/2)-1`).
 
-Internal tracking structs (already added to codebase):
-- `internal/metadata/types.go` — `BucketHA` / `HAReplicaNode` structs + `HA *BucketHA` on `BucketMetadata` ✅
-- `internal/bucket/interface.go` — `HA *metadata.BucketHA` on `Bucket` struct + status constants ✅
-- `internal/bucket/adapter.go` — wire `HA` through `toMetadataBucket` / `fromMetadataBucket` ✅
-- `internal/server/console_api.go` `handleCreateBucket` — assign `PrimaryNodeID = localNodeID` on creation ✅
+Behavioral changes:
+- New `cluster.ErrClusterDegraded` error, mapped by S3 handler to 503 + `Retry-After: 30` (PutObject, DeleteObject, CompleteMultipartUpload).
+- New `Manager.ClusterCanAcceptWrites(ctx)` early-rejects writes when factor>1 and not enough healthy non-local nodes are present (saves a local write+rollback cycle).
+- After fanout, `collectAndCheckQuorum` returns `ErrClusterDegraded` when successes < needed; PUT/CompleteMultipartUpload then roll the local write back via `Manager.DeleteObject` with `WithHARollbackContext(ctx)` so the rollback delete is not itself fanned out.
+- DELETE on quorum failure does **not** rollback (delete is a tombstone — anti-entropy item 3 will reconcile); client sees 503 and retries.
+- factor=2 special-case: needed replica confirmations = 0, so factor=2 keeps best-effort 2nd-copy semantics. Strict 2-copy is achieved by picking factor=3.
 
-Cluster-level HA config API (to implement):
-- `GET /cluster/ha` — return current factor, usable capacity, per-node status
-- `PUT /cluster/ha` — change factor (1/2/3); validate space on all nodes first, reject with clear error if insufficient; kick off background sync if factor increases
-- `internal/cluster/manager.go` — `GetReplicationFactor()`, `SetReplicationFactor()` using `GetGlobalConfig`/`SetGlobalConfig`
+Files touched: `internal/cluster/manager.go` (ErrClusterDegraded, ClusterCanAcceptWrites), `internal/cluster/ha_object_manager.go` (synchronous fanout, rollback context, collectAndCheckQuorum), `pkg/s3compat/handler.go` + `pkg/s3compat/multipart.go` (503 mapping). Tests in `internal/cluster/ha_quorum_test.go`.
 
-Node join validation:
-- `internal/cluster/manager.go` `JoinCluster()` — reject if joining node has any existing objects or metadata (must be empty)
+#### 2. Read fallback with ordered retry ✅ (April 20, 2026)
 
-#### B. Space validation before factor change (~1 day)
+New `Manager.SelectReadNodes` returns an ordered list of ready replicas sorted by `latency_ms` asc → `priority` asc → `name`, then rotated by `readCounter % N` to preserve round-robin balance while giving the caller a deterministic retry path. The old `SelectReadNode` is kept as a deprecated thin wrapper.
 
-Before applying `PUT /cluster/ha`:
-- Sum total data size across all buckets on primary nodes
-- For each node that will receive new replicas: verify `freeSpace >= totalDataSize × 1.2` (20% headroom)
-- Reject with HTTP 400 and per-node detail if any node fails the check
-- If a write would push any replica over 90% disk: flag that node `storage_pressure` + SSE alert to admin
-- Files: `internal/cluster/manager.go`, `internal/cluster/health.go`
+New `Manager.TryProxyRead(ctx, w, r, node) (served bool, err error)` peeks the replica's response status before writing anything to `w`:
+- 2xx / 3xx / non-404 client errors (401/403/412/416) → stream to `w`, `served=true`. Caller stops.
+- 404 → close response, `served=false`. Object not synced on this replica yet — try next. Node stays Healthy.
+- 5xx or transport failure → close response, `served=false`, node flipped to `Unavailable` via new `markNodeUnavailable` helper.
 
-#### C. Write fanout — PutObject / DeleteObject / CompleteMultipart (~2 weeks)
+S3 `GetObject` handler (`pkg/s3compat/handler.go`) now iterates the candidate list and falls through to the local read on full miss. Mid-stream failures (200 then connection death) surface as truncated responses — by then bytes are committed.
 
-In `internal/object/manager.go`:
-- After writing locally, read cluster replication factor and `bucket.HA.ReplicaNodes` filtered to `ready` + `syncing`
-- Fan out in parallel via new `ProxyClient.FanoutWrite(ctx, nodes, req)` method
-- Add header `X-MaxIOFS-HA-Replica: true` to all fanout requests
-- Receiving node detects header: writes locally, does NOT fan out further (anti-loop)
-- Quorum: wait for `ceil(factor/2)` confirmations. Partial failure: mark failed nodes `stale`. Full quorum failure: return 503
-- Files: `internal/object/manager.go`, `internal/cluster/proxy.go`, `internal/api/handler.go`
+Files touched: `internal/cluster/manager.go` (SelectReadNodes, TryProxyRead, markNodeUnavailable), `pkg/s3compat/handler.go` (interface + GetObject loop), `pkg/s3compat/handler_coverage_test.go` (mock). Tests in `internal/cluster/ha_read_test.go` (8 cases: ordering, rotation, factor=1/disabled/no-replicas; 2xx/404/5xx/403/transport-failure for TryProxyRead).
 
-#### D. Metadata fanout — Pebble sync (~1 week)
+#### 3. Anti-entropy scrubber ✅
 
-- New internal endpoint `POST /api/internal/ha/metadata/sync` — accepts `[]{ key, value }`, writes to local Pebble (cluster node token auth)
-- After every `PutObject` / `DeleteObject` local Pebble write, fan out metadata batch to ready replicas in background goroutine (non-blocking)
-- Files: `internal/metadata/pebble_store.go`, `internal/server/console_api.go`, `internal/cluster/proxy.go`
+Implemented in `internal/cluster/anti_entropy.go` as `AntiEntropyScrubber`. One goroutine per node, scheduler with 5-60 min jittered first run then `ha.scrub_interval_hours` (default 24h) between cycles. Each cycle scans **all** buckets in randomized order so divergences across the entire keyspace are detected within one interval rather than over months.
 
-#### E. Initial sync worker (~2 days)
+Per batch (default 500 keys), the scrubber calls `POST /api/internal/ha/checksum-batch` on every healthy peer and reconciles via LWW:
+- **Peer missing → push** (re-uses existing `PUT /api/internal/ha/objects/{key}` endpoint with `WithHAReplicaContext`).
+- **ETags differ, local newer → push.**
+- **ETags differ, peer newer → pull** (GET from peer, local PUT under replica context).
+- **Multipart objects** (ETag has `<md5>-N` suffix) skip ETag compare and rely on existence + size + 1s mtime tolerance to avoid expensive whole-file recompute.
+- **Same timestamp + different ETag** is logged but not auto-fixed (rare; manual triage).
 
-- Background goroutine triggered when factor increases or a new node joins
-- Iterates all objects across all buckets, streams each to new replica nodes via `PUT /api/internal/cluster/objects/`
-- Updates `HAReplicaNode.Progress` in bucket metadata as it progresses
-- On completion: sets replica status to `ready` — router starts using it for reads immediately
-- Crash-safe: checkpoints last synced object key in Pebble — restart resumes from checkpoint
-- Files: `internal/server/ha_sync_worker.go` (new), `internal/server/server.go`
+Throttled to `ha.scrub_rate_limit` (default 50 obj/sec) via `time.Sleep` between compares, no extra dep. Crash-safe checkpoint is JSON-serialized into Pebble at key `ha:scrub:checkpoint` after every batch — a restart resumes the same cycle from the same `(bucket_idx, last_key)`. New `ha_scrub_runs` SQLite table records the last 30 cycles (insert at start, update progress each batch, prune oldest on completion). New global config keys (`ha.scrub_enabled`, `ha.scrub_interval_hours`, `ha.scrub_rate_limit`, `ha.scrub_batch_size`) are seeded with defaults in `cluster_global_config`.
 
-#### F. Read load balancing across replicas (~1 day)
+Status surfaces via `GET /cluster/ha/scrub-status` (global admin only): last 10 runs + in-progress checkpoint snapshot.
 
-- `Router.RouteRequest()`: if cluster factor > 1 and bucket has ready replicas, select node round-robin
-- If object not yet present on selected replica (metadata check): fall back transparently to a node that has it
-- Files: `internal/cluster/router.go`
+Files: `internal/cluster/anti_entropy.go` (new), `internal/cluster/sync_schema.go` (table + config defaults), `internal/server/cluster_object_handlers.go` (`handleHAChecksumBatch`), `internal/server/cluster_ha_handlers.go` (`handleGetHAScrubStatus`), `internal/server/server.go` (wire + start + route registration), `internal/server/console_api.go` (status route). Tests in `internal/cluster/anti_entropy_test.go` (20 cases: classifyDivergence push/pull/tie/multipart, multipart ETag detection, checkpoint save/load/delete/JSON round-trip, config defaults vs overrides, runCycle no-ops on disabled/factor=1, ListRecentRuns ordering, pruneRuns retention, urlEscapeBucket).
 
-#### G. Stale replica catch-up on node rejoin (~2 days)
+#### 4. Dead-node redistribution (~3 days)
 
-- Extend `stale_reconciler.go`: on node rejoin, find all buckets where this node is a `stale` replica
-- Re-trigger sync worker (item E) for missing/outdated objects only (delta sync, not full resync)
-- Use `deletion_log.go` to replay deletes that happened during downtime
-- On catch-up complete: replica status → `ready`
-- Files: `internal/cluster/stale_reconciler.go`
+Extend `stale_reconciler.go`. Today a node that goes `unavailable` stays that way. Add:
 
-#### H. Bucket aggregator — no duplicates, no double quota (~1 day)
+- After `ha.dead_node_threshold_hours` (default 24h) of continuous `unavailable`, mark the node `dead`.
+- For every bucket where the dead node was a replica, pick a new target from healthy nodes with enough free space and rebuild the replica there using the same logic as `HASyncWorker`.
+- Admin can short-circuit the timer with a manual `POST /cluster/nodes/{id}/drain` (immediate `dead` + redistribution).
 
-- `internal/cluster/bucket_aggregator.go`: skip buckets where local node is NOT the `PrimaryNodeID`
-- Quota aggregation: only sum bucket size from primary node — replicas do not contribute
-- Files: `internal/cluster/bucket_aggregator.go`
+Edge case: if there isn't enough space cluster-wide to maintain the factor, the system enters `degraded` state. SSE alert + UI banner. New writes still succeed at quorum but with a lower-than-configured replica count. Admin must add capacity or lower the factor.
 
-#### I. Cluster HA admin page (~2 days)
+Files: `internal/cluster/stale_reconciler.go`, `internal/cluster/manager.go`, `internal/server/cluster_node_handlers.go` (drain endpoint).
 
-Frontend: `web/frontend/src/pages/cluster/HA.tsx` — new page at `/cluster/ha`
-- Current cluster replication factor display with selector (1 / 2 / 3)
-- Live usable capacity estimate based on factor + cluster total storage
-- Nodes that would be tolerated to fail with current factor
-- Space validation warning before confirming a factor change
-- Per-node sync status table: node name, status badge (ready/syncing/stale/storage_pressure), progress bar during sync, last synced timestamp
-- Confirmation dialog for any factor change (especially downgrade)
-- StoragePressure warning banner when any node exceeds 80% disk
-- Link from cluster Overview page
+#### 5. Storage-pressure feedback loop (~2 days)
+
+`BucketHA.Status` already has a `storage_pressure` value but nothing produces it. Wire it:
+
+- Health checker (`internal/cluster/health.go`) already tracks per-node disk usage. When a node crosses 90%, mark it `storage_pressure` and exclude it from new-write target selection in `replicaTargets`.
+- When it falls back below 85% (hysteresis), restore it.
+- SSE alert through the existing disk-alert channel.
+
+Files: `internal/cluster/health.go`, `internal/cluster/ha_object_manager.go`.
+
+#### 6. Frontend — HA admin page polish (~2 days)
+
+The page at `web/frontend/src/pages/cluster/HA.tsx` exists but doesn't surface the new states. Add:
+
+- Quorum status indicator per bucket (full / degraded / lost).
+- Dead-node and drain controls.
+- Anti-entropy scrubber progress (current bucket, throughput, last completed scan timestamp).
+- Storage-pressure badge on nodes ≥ 90% disk.
+
+Files: `web/frontend/src/pages/cluster/HA.tsx`, `web/frontend/src/lib/api.ts`.
 
 ---
 
-### Two replication systems — how they coexist
+### Estimated effort
+- Total: ~2.5 weeks focused engineering
+- Critical path: 1 (write quorum) → 2 (read fallback) → 3 (anti-entropy)
+- 4, 5, 6 can ship in parallel after item 3
 
-| System | Config | Mode | Failover | Purpose |
-|--------|--------|------|----------|---------|
-| Bucket-level replication (bucket settings) | Per-bucket | Async | Manual | Replicate to external S3 (AWS, MinIO, another MaxIOFS) |
-| HA Quorum Write (this feature) | Cluster-wide factor | Synchronous | Automatic | All buckets on N nodes, transparent failover |
-
----
-
-### Consistency model
+### Consistency model (unchanged)
 - AP (availability over consistency): write succeeds if quorum is reached, even if some replicas lag.
 - Strict CP ruled out — write latency becomes unacceptable with any network hiccup.
 
 ### Upgrade path
-- Single-node: no change. Factor defaults to 1. Behavior identical to today.
-- Existing cluster: admin sets factor > 1. System validates space, then syncs all existing data in background. Cluster stays operational throughout.
+- Single-node: no change. `factor` defaults to 1.
+- Existing cluster on `factor > 1`: behavior changes for writes — they now block on quorum. Latency for PUT goes up by one inter-node RTT. Operators should be informed in the release notes.
+
+---
+
+## 🟣 v1.4.0 — Erasure Coding (replace N-way replication for large objects)
+
+**Goal**: cut disk overhead from `N×` (N-way replication) to `~1.5×` while preserving the same failure tolerance. Today a 1 GB object with `factor=3` consumes 3 GB cluster-wide; with EC `4+2` it consumes 1.5 GB and tolerates the same 2 node failures.
+
+**Decision (April 20, 2026)**: erasure coding deserves its own release. It changes the on-disk layout, the metadata schema, and the read/write paths. v1.3.0 must ship first to give us the durability primitives (quorum, read fallback, anti-entropy) that EC depends on — without them, EC just multiplies the existing data-loss windows across more shards.
+
+---
+
+### Storage model
+
+Reed-Solomon `K + M`:
+- `K` data shards: the object split into K equal parts.
+- `M` parity shards: computed from the K data shards.
+- Object reconstructible from **any K of the K+M shards**.
+- Tolerates loss of `M` nodes simultaneously.
+- Disk overhead: `(K+M)/K`.
+
+| Scheme | Nodes needed | Overhead | Tolerates |
+|--------|--------------|----------|-----------|
+| `4+2` | 6 | 1.5× | 2 nodes |
+| `6+3` | 9 | 1.5× | 3 nodes |
+| `8+4` | 12 | 1.5× | 4 nodes |
+
+For comparison, current `factor=3` replication is 3× overhead and tolerates 2 nodes — EC `4+2` is the same tolerance at half the disk cost.
+
+**Hybrid model**: small objects (< `ec.min_object_size`, default 1 MB) keep using N-way replication. Reed-Solomon has fixed per-object overhead (shard headers, metadata) that dominates for small files. MinIO does the same.
+
+---
+
+### Work items
+
+#### 1. EC config + library integration (~3 days)
+
+- New cluster global config: `ec.enabled`, `ec.data_shards` (K, default 4), `ec.parity_shards` (M, default 2), `ec.min_object_size` (default 1 MB).
+- Validate at config-set time: `K + M ≤ healthy_node_count`.
+- Add dependency: `github.com/klauspost/reedsolomon` (the canonical Go EC library, well-maintained, used by MinIO, SeaweedFS, etc.).
+- Files: `internal/cluster/sync_schema.go`, `internal/cluster/manager.go`, `go.mod`.
+
+#### 2. EC writer (~1 week)
+
+New module `internal/storage/ec/writer.go`:
+
+- Buffer the input stream into chunks (configurable, default 4 MB per stripe).
+- For each stripe: split into K data shards, compute M parity shards via reedsolomon library, send each shard to a different cluster node in parallel.
+- Same quorum semantics as v1.3.0 item 1: client gets 200 only when all `K+M` shards are written. Tolerate up to `M` failures (we still have K to reconstruct), but mark failed nodes `stale` for repair.
+- Anti-loop: same `X-MaxIOFS-HA-Replica` header pattern.
+
+Edge cases:
+- Object size not a multiple of stripe size: pad the last stripe, store the original size in metadata so reads truncate correctly.
+- Multipart upload: each part goes through its own EC encoding. Part metadata records the shard layout per part.
+- Concurrent writes to the same key: same versioning rules as today, but each version is its own EC layout.
+
+Files: `internal/storage/ec/writer.go` (new), `internal/object/manager.go` (route to EC for `size >= ec.min_object_size`), `internal/server/cluster_object_handlers.go` (shard receiver endpoint).
+
+#### 3. EC reader (~1 week)
+
+New module `internal/storage/ec/reader.go`:
+
+- Read object metadata to learn the shard layout `[(NodeID, ShardIdx, Size)]`.
+- Request K shards in parallel (try data shards first; fall back to parity shards if any data shard node is unavailable).
+- Reconstruct the original stream via `reedsolomon.Reconstruct`.
+- Streaming: produce output as soon as the first K shards arrive — don't buffer the whole object.
+
+Edge cases:
+- More than M nodes down → object unrecoverable, return 503 with which shards are missing (admin needs to know what to repair).
+- Partial shard corruption (checksum mismatch on a shard): treat that shard as missing, fall back to another.
+- Range requests: compute which stripes are needed, fetch only those shards. Saves bandwidth on large objects with small ranges.
+
+Files: `internal/storage/ec/reader.go` (new), `internal/object/manager.go`.
+
+#### 4. EC metadata in Pebble (~3 days)
+
+Extend object metadata to store EC layout. New fields on `metadata.Object`:
+
+```go
+EncodingType  string  // "replication" | "ec"
+ECDataShards  int     // K
+ECParityShards int    // M
+ECStripeSize  int     // bytes per stripe
+ECShards      []ECShardLocation  // per-shard: NodeID, ShardIdx, Checksum
+```
+
+Existing replicated objects keep `EncodingType = "replication"` and the new fields stay zero-valued. Reader picks the path based on `EncodingType`.
+
+Files: `internal/metadata/types.go`, `internal/metadata/pebble_objects.go`, `internal/object/adapter.go`.
+
+#### 5. EC-aware anti-entropy and repair (~3 days)
+
+Extend the v1.3.0 scrubber to also check shard health:
+
+- For EC objects, check each shard's existence and checksum on its assigned node.
+- If a shard is missing or corrupted: read K healthy shards, reconstruct the missing/bad one, write it to a healthy node (the original or a new one if the original is dead).
+- If `M` shards are missing simultaneously, the object is on the edge of unrecoverable — escalate to a critical SSE alert immediately.
+
+Files: `internal/cluster/anti_entropy.go`.
+
+#### 6. Migration: replication → EC (~1 week)
+
+Background worker that converts existing replicated objects (size ≥ `ec.min_object_size`) to EC layout:
+
+- Reads the object once from any replica.
+- Writes new EC shards to K+M nodes via the new EC writer.
+- Updates Pebble metadata atomically (`EncodingType` flips from `replication` → `ec`, `ECShards` populated).
+- Deletes the old replica copies only after the EC layout is verified readable.
+- Crash-safe: checkpoint last-migrated key in Pebble.
+- Throttled and pausable from the admin UI.
+
+Reverse migration (EC → replication) supported for the same case the user wants to roll back. Same worker, opposite direction.
+
+Files: `internal/cluster/ec_migration_worker.go` (new), `internal/server/cluster_ha_handlers.go`.
+
+#### 7. Frontend — EC controls (~3 days)
+
+`web/frontend/src/pages/cluster/HA.tsx`:
+
+- New section "Storage encoding" with Replication / Erasure Coding toggle.
+- K and M sliders, with live disk-overhead and tolerance preview.
+- Migration progress bar (per-bucket: how many objects migrated).
+- Per-object inspector: show shard layout for debugging.
+
+---
 
 ### Estimated effort
-- Total: 4–5 weeks focused engineering
-- Critical path: A → C → D (types + config API, then write fanout, then metadata fanout)
-- B, E, F, G, H, I can ship incrementally after C is working
+- Total: ~4 weeks focused engineering
+- Critical path: 1 → 2+3 (writer/reader in parallel) → 4 → 5
+- 6 (migration) and 7 (UI) ship after the core path is stable
+
+### Consistency model
+- Same as v1.3.0: AP, quorum-based.
+- EC writes require all K+M shards to be acked or the write fails — there is no "EC quorum" partial-write mode (you cannot reconstruct without K shards, period).
+
+### Upgrade path
+- v1.4.0 ships with `ec.enabled = false` by default. Existing deployments behave like v1.3.0.
+- Admin enables EC → migration worker starts converting objects in background. Cluster stays operational throughout.
+- Rollback: set `ec.enabled = false` and run reverse migration.
 
 ---
 

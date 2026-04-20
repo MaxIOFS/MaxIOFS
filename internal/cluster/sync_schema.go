@@ -39,8 +39,31 @@ func InitReplicationSchema(db *sql.DB) error {
 	if err := createClusterDeletionLogTable(ctx, db); err != nil {
 		return fmt.Errorf("failed to create cluster_deletion_log table: %w", err)
 	}
+	if err := createHAScrubRunsTable(ctx, db); err != nil {
+		return fmt.Errorf("failed to create ha_scrub_runs table: %w", err)
+	}
 
 	return nil
+}
+
+func createHAScrubRunsTable(ctx context.Context, db *sql.DB) error {
+	query := `
+	CREATE TABLE IF NOT EXISTS ha_scrub_runs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		cycle_id TEXT NOT NULL,
+		started_at TIMESTAMP NOT NULL,
+		completed_at TIMESTAMP,
+		status TEXT NOT NULL,
+		buckets_scanned INTEGER NOT NULL DEFAULT 0,
+		objects_compared INTEGER NOT NULL DEFAULT 0,
+		divergences_found INTEGER NOT NULL DEFAULT 0,
+		divergences_fixed INTEGER NOT NULL DEFAULT 0,
+		error_message TEXT
+	);
+	CREATE INDEX IF NOT EXISTS idx_ha_scrub_runs_started ON ha_scrub_runs(started_at DESC);
+	`
+	_, err := db.ExecContext(ctx, query)
+	return err
 }
 
 func createClusterTenantSyncTable(ctx context.Context, db *sql.DB) error {
@@ -212,6 +235,22 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 		"ha.replication_factor": {
 			value:       "1",
 			description: "Cluster-wide replication factor: 1 = no replication, 2 = mirror (tolerates 1 node failure), 3 = triple copy (tolerates 2 node failures)",
+		},
+		"ha.scrub_enabled": {
+			value:       "true",
+			description: "Enable the anti-entropy scrubber that detects and repairs replica divergences",
+		},
+		"ha.scrub_interval_hours": {
+			value:       "24",
+			description: "How often the anti-entropy scrubber runs a full cycle, in hours",
+		},
+		"ha.scrub_rate_limit": {
+			value:       "50",
+			description: "Maximum objects per second compared by the anti-entropy scrubber (per node)",
+		},
+		"ha.scrub_batch_size": {
+			value:       "500",
+			description: "Number of object keys compared per checksum-batch request",
 		},
 	}
 

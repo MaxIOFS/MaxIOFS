@@ -6,8 +6,10 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -16,6 +18,12 @@ import (
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 )
+
+// ErrClusterDegraded is returned when a write cannot satisfy the configured
+// replication quorum: either no healthy replica is available, or fanout fell
+// short of ceil(factor/2) confirmations. S3 handlers map this to
+// 503 ServiceUnavailable + Retry-After.
+var ErrClusterDegraded = errors.New("cluster degraded — write quorum unavailable")
 
 // Manager handles cluster operations
 type Manager struct {
@@ -601,11 +609,27 @@ func (m *Manager) GetReadyReplicaNodes(ctx context.Context) ([]*Node, error) {
 	return nodes, rows.Err()
 }
 
-// SelectReadNode selects the best node to serve a read request for the given bucket.
-// Returns nil when the local node should handle the request.
-// With factor > 1 and ready replicas, the local node and all ready replicas participate
-// in round-robin to distribute read load evenly.
+// SelectReadNode selects a single replica for a read request.
+//
+// Deprecated: use SelectReadNodes for ordered fallback. Kept as a thin shim
+// for callers that only need one candidate.
 func (m *Manager) SelectReadNode(ctx context.Context, bucket string) (*Node, error) {
+	nodes, err := m.SelectReadNodes(ctx, bucket)
+	if err != nil || len(nodes) == 0 {
+		return nil, err
+	}
+	return nodes[0], nil
+}
+
+// SelectReadNodes returns an ordered list of replica candidates for a read.
+// The list is sorted by latency_ms ascending (primary), priority ascending,
+// then name for determinism. The list is then rotated by an atomic counter so
+// successive calls start at a different node — preserving round-robin load
+// distribution while still giving the caller a deterministic retry path.
+//
+// An empty slice means the caller should serve the read locally (cluster
+// disabled, factor=1, or no ready replicas yet).
+func (m *Manager) SelectReadNodes(ctx context.Context, bucket string) ([]*Node, error) {
 	if !m.IsClusterEnabled() {
 		return nil, nil
 	}
@@ -615,19 +639,32 @@ func (m *Manager) SelectReadNode(ctx context.Context, bucket string) (*Node, err
 	}
 	replicas, err := m.GetReadyReplicaNodes(ctx)
 	if err != nil || len(replicas) == 0 {
-		return nil, nil
+		return nil, err
 	}
-	// Slot 0 = local node; slots 1..N = replicas.
-	total := uint64(1 + len(replicas))
-	idx := atomic.AddUint64(&m.readCounter, 1) % total
-	if idx == 0 {
-		return nil, nil // local node's turn
+	sort.SliceStable(replicas, func(i, j int) bool {
+		if replicas[i].LatencyMs != replicas[j].LatencyMs {
+			return replicas[i].LatencyMs < replicas[j].LatencyMs
+		}
+		if replicas[i].Priority != replicas[j].Priority {
+			return replicas[i].Priority < replicas[j].Priority
+		}
+		return replicas[i].Name < replicas[j].Name
+	})
+	n := len(replicas)
+	rot := int(atomic.AddUint64(&m.readCounter, 1) % uint64(n))
+	rotated := make([]*Node, n)
+	for i := 0; i < n; i++ {
+		rotated[i] = replicas[(i+rot)%n]
 	}
-	return replicas[idx-1], nil
+	return rotated, nil
 }
 
-// ProxyRead forwards a client read request to the given replica node and copies the
-// response back.  If the replica returns 404 the caller should retry locally.
+// ProxyRead forwards a client read request to the given replica and streams
+// the response straight back to the caller.
+//
+// Deprecated: use TryProxyRead, which inspects the response status before
+// writing so callers can retry on 404/5xx without committing bytes to the
+// client.
 func (m *Manager) ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *Node) error {
 	client := NewProxyClient(m.GetTLSConfig())
 	resp, err := client.ProxyRequest(ctx, node, r)
@@ -636,6 +673,55 @@ func (m *Manager) ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.
 	}
 	defer resp.Body.Close()
 	return client.CopyResponseToWriter(w, resp)
+}
+
+// TryProxyRead forwards a read to the given replica and only writes to w when
+// the replica's response is "definitive" — 2xx, 3xx, or a non-404 client
+// error (401/403/412/416). On 404, 5xx, or transport failure, w is left
+// untouched and served=false is returned so the caller can try the next
+// candidate. 5xx and transport failures also flip the node to Unavailable.
+//
+// Mid-stream failures (replica returned 200 then the connection died) are
+// surfaced as truncated responses to the client — by then bytes are already
+// committed to the wire and we cannot retry.
+func (m *Manager) TryProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *Node) (served bool, err error) {
+	client := NewProxyClient(m.GetTLSConfig())
+	resp, err := client.ProxyRequest(ctx, node, r)
+	if err != nil {
+		m.markNodeUnavailable(ctx, node.ID, "read proxy transport error")
+		return false, err
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		resp.Body.Close()
+		return false, fmt.Errorf("replica %s: %d Not Found", node.ID, resp.StatusCode)
+	}
+	if resp.StatusCode >= 500 {
+		resp.Body.Close()
+		m.markNodeUnavailable(ctx, node.ID, fmt.Sprintf("read proxy %d", resp.StatusCode))
+		return false, fmt.Errorf("replica %s: %d", node.ID, resp.StatusCode)
+	}
+	defer resp.Body.Close()
+	if copyErr := client.CopyResponseToWriter(w, resp); copyErr != nil {
+		// Bytes already on the wire — surface the error but mark as served so
+		// the caller does not also write a fallback response on top.
+		return true, copyErr
+	}
+	return true, nil
+}
+
+// markNodeUnavailable flips a node's health_status to unavailable, mirroring
+// the side-effect of the write-fanout path. Errors are logged, not returned —
+// the caller is mid-request and cannot do anything useful with a DB failure.
+func (m *Manager) markNodeUnavailable(ctx context.Context, nodeID, reason string) {
+	now := time.Now()
+	if _, err := m.db.ExecContext(ctx,
+		`UPDATE cluster_nodes SET health_status = ?, updated_at = ? WHERE id = ?`,
+		HealthStatusUnavailable, now, nodeID,
+	); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"node_id": nodeID, "reason": reason,
+		}).Warn("failed to mark node unavailable")
+	}
 }
 
 // GetClusterStatus returns overall cluster status
@@ -962,4 +1048,47 @@ func (m *Manager) SetReplicationFactor(ctx context.Context, factor int) error {
 		return fmt.Errorf("invalid replication factor %d: must be 1, 2, or 3", factor)
 	}
 	return SetGlobalConfig(ctx, m.db, "ha.replication_factor", fmt.Sprintf("%d", factor))
+}
+
+// ClusterCanAcceptWrites reports whether the cluster has enough healthy
+// non-local replicas to satisfy the configured replication quorum.
+//
+// Quorum math: needed = ceil(factor/2). The local write counts as 1, so the
+// number of replica confirmations required is ceil(factor/2)-1.
+//   - factor=1: always returns true (no replication).
+//   - factor=2: needs 0 replicas (best-effort 2nd copy).
+//   - factor=3: needs at least 1 healthy non-local node.
+//
+// Cluster disabled returns true (single-node mode).
+func (m *Manager) ClusterCanAcceptWrites(ctx context.Context) (bool, error) {
+	if !m.IsClusterEnabled() {
+		return true, nil
+	}
+	factor, err := m.GetReplicationFactor(ctx)
+	if err != nil {
+		return false, fmt.Errorf("get replication factor: %w", err)
+	}
+	if factor <= 1 {
+		return true, nil
+	}
+	neededReplicas := (factor+1)/2 - 1
+	if neededReplicas == 0 {
+		return true, nil
+	}
+	localID, err := m.GetLocalNodeID(ctx)
+	if err != nil {
+		return false, fmt.Errorf("get local node id: %w", err)
+	}
+	healthy, err := m.GetHealthyNodes(ctx)
+	if err != nil {
+		return false, fmt.Errorf("get healthy nodes: %w", err)
+	}
+	available := 0
+	for _, n := range healthy {
+		if n.ID == localID {
+			continue
+		}
+		available++
+	}
+	return available >= neededReplicas, nil
 }
