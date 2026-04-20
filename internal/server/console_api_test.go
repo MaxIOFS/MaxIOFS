@@ -425,29 +425,25 @@ func TestHandleCreateBucket(t *testing.T) {
 	assert.True(t, response.Success)
 }
 
-// TestHandleAPIHealth tests the /health endpoint
+// TestHandleAPIHealth tests the /health endpoint.
+// The handler intentionally returns a flat JSON payload (NOT wrapped in
+// APIResponse) because the cluster health checker parses it directly to
+// extract capacity_total / capacity_used / bucket_count.
 func TestHandleAPIHealth(t *testing.T) {
 	server, _, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	// Create request
 	req := httptest.NewRequest("GET", "/api/v1/health", nil)
 	rr := httptest.NewRecorder()
 
-	// Call handler
 	server.handleAPIHealth(rr, req)
 
-	// Check status code
 	assert.Equal(t, http.StatusOK, rr.Code)
 
-	// Check response
-	var response APIResponse
-	err := json.NewDecoder(rr.Body).Decode(&response)
+	var body map[string]interface{}
+	err := json.NewDecoder(rr.Body).Decode(&body)
 	assert.NoError(t, err)
-	assert.True(t, response.Success)
-
-	data := response.Data.(map[string]interface{})
-	assert.Equal(t, "healthy", data["status"])
+	assert.Equal(t, "healthy", body["status"])
 }
 
 // TestHandleGetMetrics tests the /metrics endpoint

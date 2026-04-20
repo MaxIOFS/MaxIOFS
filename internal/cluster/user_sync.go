@@ -434,6 +434,12 @@ func (m *UserSyncManager) Stop() {
 	close(m.stopChan)
 }
 
+// TriggerSync immediately runs a full user sync to all healthy nodes without
+// waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
+func (m *UserSyncManager) TriggerSync(ctx context.Context) {
+	go m.syncAllUsers(ctx)
+}
+
 // SyncToNode immediately pushes all local users to the given node.
 // Used to bootstrap a newly-joined node without waiting for the periodic ticker.
 func (m *UserSyncManager) SyncToNode(ctx context.Context, node *Node) {

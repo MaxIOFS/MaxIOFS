@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/cluster"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/sirupsen/logrus"
 )
 
@@ -737,17 +738,20 @@ func (s *Server) handleBucketExists(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["name"]
 
-	exists, err := s.bucketManager.BucketExists(r.Context(), "", bucketName)
+	// Inter-node lookups don't know the tenant, so scan all buckets by name.
+	// BucketExists with empty tenant only matches global (untenanted) buckets and
+	// would falsely report tenant-scoped buckets as missing.
+	bucketMeta, err := s.metadataStore.GetBucketByName(r.Context(), bucketName)
 	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
 		logrus.WithError(err).WithField("bucket", bucketName).Error("Failed to check bucket existence")
 		s.writeError(w, "Failed to check bucket: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	if !exists {
-		s.writeError(w, "Bucket not found", http.StatusNotFound)
-		return
-	}
+	_ = bucketMeta
 
 	s.writeClusterJSON(w, map[string]interface{}{
 		"exists": true,
@@ -1016,6 +1020,11 @@ func (s *Server) kickstartNewNodeSync(newNode *cluster.Node) {
 	// Push all access keys so that S3 API calls work from both nodes immediately.
 	if s.accessKeySyncMgr != nil {
 		s.accessKeySyncMgr.SyncToNode(ctx, newNode)
+	}
+
+	// Push all groups + memberships so that group-based bucket permissions resolve immediately.
+	if s.groupSyncMgr != nil {
+		s.groupSyncMgr.SyncToNode(ctx, newNode)
 	}
 
 	logrus.WithFields(logrus.Fields{

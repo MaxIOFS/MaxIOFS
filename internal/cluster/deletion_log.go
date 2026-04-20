@@ -24,6 +24,7 @@ const (
 	EntityTypeBucketPermission = "bucket_permission"
 	EntityTypeIDPProvider      = "idp_provider"
 	EntityTypeGroupMapping     = "group_mapping"
+	EntityTypeGroup            = "group"
 )
 
 // DeletionEntry represents a tombstone in the cluster deletion log
@@ -147,6 +148,13 @@ func EntityIsNewerThanTombstone(ctx context.Context, db *sql.DB, entityType, ent
 	case EntityTypeGroupMapping:
 		var updatedAt int64
 		if err := db.QueryRowContext(ctx, `SELECT updated_at FROM idp_group_mappings WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
+			return false
+		}
+		return updatedAt > deletedAt
+
+	case EntityTypeGroup:
+		var updatedAt int64
+		if err := db.QueryRowContext(ctx, `SELECT updated_at FROM groups WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
 			return false
 		}
 		return updatedAt > deletedAt

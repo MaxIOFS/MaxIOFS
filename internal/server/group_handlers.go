@@ -8,6 +8,8 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/cluster"
+	"github.com/sirupsen/logrus"
 )
 
 // handleListGroups lists all groups visible to the current user.
@@ -108,6 +110,9 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.touchLocalWriteAt(r.Context())
+	if s.groupSyncMgr != nil {
+		s.groupSyncMgr.TriggerSync(r.Context())
+	}
 	w.WriteHeader(http.StatusCreated)
 	s.writeJSON(w, group)
 }
@@ -175,6 +180,9 @@ func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.touchLocalWriteAt(r.Context())
+	if s.groupSyncMgr != nil {
+		s.groupSyncMgr.TriggerSync(r.Context())
+	}
 	s.writeJSON(w, group)
 }
 
@@ -204,6 +212,18 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.touchLocalWriteAt(r.Context())
+
+	// Record tombstone + trigger sync so other nodes also drop the group.
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		localNodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
+		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeGroup, groupID, localNodeID); err != nil {
+			logrus.WithError(err).WithField("group_id", groupID).Warn("Failed to record group deletion tombstone")
+		}
+	}
+	if s.groupSyncMgr != nil {
+		s.groupSyncMgr.TriggerSync(r.Context())
+	}
+
 	s.writeJSON(w, map[string]string{"message": "Group deleted successfully"})
 }
 
@@ -278,6 +298,9 @@ func (s *Server) handleAddGroupMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.touchLocalWriteAt(r.Context())
+	if s.groupSyncMgr != nil {
+		s.groupSyncMgr.TriggerSync(r.Context())
+	}
 	s.writeJSON(w, map[string]string{"message": "Member added successfully"})
 }
 
@@ -310,6 +333,9 @@ func (s *Server) handleRemoveGroupMember(w http.ResponseWriter, r *http.Request)
 	}
 
 	s.touchLocalWriteAt(r.Context())
+	if s.groupSyncMgr != nil {
+		s.groupSyncMgr.TriggerSync(r.Context())
+	}
 	s.writeJSON(w, map[string]string{"message": "Member removed successfully"})
 }
 

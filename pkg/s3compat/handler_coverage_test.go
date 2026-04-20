@@ -3,6 +3,7 @@ package s3compat
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/xml"
 	"errors"
 	"io"
@@ -795,6 +796,10 @@ func (m *mockClusterManager) GetLocalNodeID(_ context.Context) (string, error) {
 
 func (m *mockClusterManager) GetLocalNodeToken(_ context.Context) (string, error) {
 	return "test-cluster-token", nil
+}
+
+func (m *mockClusterManager) GetTLSConfig() *tls.Config {
+	return nil
 }
 
 type mockBucketAggregator struct{}

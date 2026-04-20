@@ -30,6 +30,9 @@ func InitReplicationSchema(db *sql.DB) error {
 	if err := createClusterGroupMappingSyncTable(ctx, db); err != nil {
 		return fmt.Errorf("failed to create cluster_group_mapping_sync table: %w", err)
 	}
+	if err := createClusterGroupSyncTable(ctx, db); err != nil {
+		return fmt.Errorf("failed to create cluster_group_sync table: %w", err)
+	}
 	if err := createClusterGlobalConfigTable(ctx, db); err != nil {
 		return fmt.Errorf("failed to create cluster_global_config table: %w", err)
 	}
@@ -198,6 +201,14 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 			value:       "30",
 			description: "Interval for IDP group mapping synchronization checks in seconds",
 		},
+		"auto_group_sync_enabled": {
+			value:       "true",
+			description: "Enable automatic group and group-membership synchronization between all nodes",
+		},
+		"group_sync_interval_seconds": {
+			value:       "30",
+			description: "Interval for group synchronization checks in seconds",
+		},
 		"ha.replication_factor": {
 			value:       "1",
 			description: "Cluster-wide replication factor: 1 = no replication, 2 = mirror (tolerates 1 node failure), 3 = triple copy (tolerates 2 node failures)",
@@ -260,6 +271,29 @@ func createClusterGroupMappingSyncTable(ctx context.Context, db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_cluster_group_mapping_sync_mapping ON cluster_group_mapping_sync(mapping_id);
 	CREATE INDEX IF NOT EXISTS idx_cluster_group_mapping_sync_dest ON cluster_group_mapping_sync(destination_node_id);
 	CREATE INDEX IF NOT EXISTS idx_cluster_group_mapping_sync_status ON cluster_group_mapping_sync(status);
+	`
+	_, err := db.ExecContext(ctx, query)
+	return err
+}
+
+func createClusterGroupSyncTable(ctx context.Context, db *sql.DB) error {
+	query := `
+	CREATE TABLE IF NOT EXISTS cluster_group_sync (
+		id TEXT PRIMARY KEY,
+		group_id TEXT NOT NULL,
+		source_node_id TEXT NOT NULL,
+		destination_node_id TEXT NOT NULL,
+		group_checksum TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		last_sync_at TIMESTAMP,
+		last_error TEXT,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL,
+		UNIQUE(group_id, destination_node_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_cluster_group_sync_group ON cluster_group_sync(group_id);
+	CREATE INDEX IF NOT EXISTS idx_cluster_group_sync_dest ON cluster_group_sync(destination_node_id);
+	CREATE INDEX IF NOT EXISTS idx_cluster_group_sync_status ON cluster_group_sync(status);
 	`
 	_, err := db.ExecContext(ctx, query)
 	return err

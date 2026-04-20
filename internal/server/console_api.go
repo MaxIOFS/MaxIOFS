@@ -4008,6 +4008,12 @@ func (s *Server) handleUpdateUserPreferences(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Trigger immediate cluster sync so other nodes see the new preferences
+	// without waiting for the 30-second periodic sync.
+	if s.userSyncMgr != nil {
+		s.userSyncMgr.TriggerSync(r.Context())
+	}
+
 	// Get updated user to return in response
 	user, err := s.authManager.GetUser(r.Context(), userID)
 	if err != nil {

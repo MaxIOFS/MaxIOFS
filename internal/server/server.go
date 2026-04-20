@@ -76,6 +76,7 @@ type Server struct {
 	bucketPermissionSyncMgr *cluster.BucketPermissionSyncManager
 	idpProviderSyncMgr      *cluster.IDPProviderSyncManager
 	groupMappingSyncMgr     *cluster.GroupMappingSyncManager
+	groupSyncMgr            *cluster.GroupSyncManager
 	deletionLogSyncMgr      *cluster.DeletionLogSyncManager
 	globalConfigSyncMgr     *cluster.GlobalConfigSyncManager
 	staleReconciler         *cluster.StaleReconciler
@@ -353,7 +354,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Create adapters for cluster router
-	bucketManagerAdapter := &clusterBucketManagerAdapter{mgr: bucketManager}
+	bucketManagerAdapter := &clusterBucketManagerAdapter{mgr: bucketManager, metaStore: metadataStore}
 	replicationManagerAdapter := &clusterReplicationManagerAdapter{mgr: replicationManager}
 
 	// Initialize cluster router with adapters
@@ -404,6 +405,9 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize group mapping synchronization manager
 	groupMappingSyncMgr := cluster.NewGroupMappingSyncManager(db, clusterManager)
+
+	// Initialize internal group synchronization manager (groups + group_members)
+	groupSyncMgr := cluster.NewGroupSyncManager(db, clusterManager)
 
 	// Initialize deletion log synchronization manager
 	deletionLogSyncMgr := cluster.NewDeletionLogSyncManager(db, clusterManager)
@@ -479,6 +483,7 @@ func New(cfg *config.Config) (*Server, error) {
 		bucketPermissionSyncMgr: bucketPermissionSyncMgr,
 		idpProviderSyncMgr:      idpProviderSyncMgr,
 		groupMappingSyncMgr:     groupMappingSyncMgr,
+		groupSyncMgr:            groupSyncMgr,
 		deletionLogSyncMgr:      deletionLogSyncMgr,
 		globalConfigSyncMgr:     globalConfigSyncMgr,
 		staleReconciler:         staleReconciler,
@@ -749,6 +754,10 @@ func (s *Server) startClusterBackgroundServices(ctx context.Context) {
 			s.groupMappingSyncMgr.Start(ctx)
 			logrus.Info("Group mapping synchronization manager started")
 		}
+		if s.groupSyncMgr != nil {
+			s.groupSyncMgr.Start(ctx)
+			logrus.Info("Group synchronization manager started")
+		}
 		if s.deletionLogSyncMgr != nil {
 			s.deletionLogSyncMgr.Start(ctx)
 			logrus.Info("Deletion log synchronization manager started")
@@ -910,20 +919,34 @@ func (sma *shareManagerAdapter) GetShareByObject(ctx context.Context, bucketName
 
 // clusterBucketManagerAdapter adapts bucket.Manager to cluster.BucketManager interface
 type clusterBucketManagerAdapter struct {
-	mgr bucket.Manager
+	mgr       bucket.Manager
+	metaStore metadata.Store
 }
 
 func (a *clusterBucketManagerAdapter) GetBucketTenant(ctx context.Context, bucket string) (string, error) {
-	// Try to get bucket info with empty tenant (will search across all tenants)
-	bucketInfo, err := a.mgr.GetBucketInfo(ctx, "", bucket)
+	// We don't know the tenant up-front (cluster lookups only have the bucket name),
+	// so scan all buckets across tenants. Direct GetBucket("", bucket) only matches
+	// global (untenanted) buckets and would miss tenant-scoped buckets entirely.
+	bucketMeta, err := a.metaStore.GetBucketByName(ctx, bucket)
 	if err != nil {
 		return "", err
 	}
-	return bucketInfo.TenantID, nil
+	return bucketMeta.TenantID, nil
 }
 
 func (a *clusterBucketManagerAdapter) BucketExists(ctx context.Context, tenant, bucket string) (bool, error) {
-	return a.mgr.BucketExists(ctx, tenant, bucket)
+	if tenant != "" {
+		return a.mgr.BucketExists(ctx, tenant, bucket)
+	}
+	// Empty tenant means "look across all tenants" — required by inter-node existence
+	// checks where the caller doesn't know the tenant. Scan via GetBucketByName.
+	if _, err := a.metaStore.GetBucketByName(ctx, bucket); err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // clusterReplicationManagerAdapter adapts replication.Manager to cluster.ReplicationManager interface
@@ -1218,6 +1241,8 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/idp-provider-delete-sync", s.handleReceiveIDPProviderDeleteSync).Methods("POST")
 	hmac.HandleFunc("/group-mapping-sync", s.handleReceiveGroupMappingSync).Methods("POST")
 	hmac.HandleFunc("/group-mapping-delete-sync", s.handleReceiveGroupMappingDeleteSync).Methods("POST")
+	hmac.HandleFunc("/group-sync", s.handleReceiveGroupSync).Methods("POST")
+	hmac.HandleFunc("/group-delete-sync", s.handleReceiveGroupDeleteSync).Methods("POST")
 	hmac.HandleFunc("/global-config-sync", s.handleReceiveGlobalConfigSync).Methods("POST")
 	hmac.HandleFunc("/node-list-sync", s.handleReceiveNodeListSync).Methods("POST")
 	hmac.HandleFunc("/deletion-log-sync", s.handleReceiveDeletionLogSync).Methods("POST")
