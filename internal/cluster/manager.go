@@ -40,6 +40,28 @@ type Manager struct {
 	clusterHTTPClient   *http.Client
 	currentCert         atomic.Pointer[tls.Certificate]
 	readCounter         uint64 // atomic — round-robin read balancing
+	storagePressureFn   StoragePressureEmitter
+}
+
+// StoragePressureEvent is emitted when a node crosses the storage-pressure
+// threshold in either direction.
+type StoragePressureEvent struct {
+	NodeID           string
+	NodeName         string
+	Kind             string  // "node_storage_pressure" | "node_storage_pressure_resolved"
+	UsagePercent     float64 // current disk usage at the time of the transition
+	ThresholdPercent float64
+}
+
+// StoragePressureEmitter is invoked on healthy↔storage_pressure transitions.
+// Implementations must not block (they run inside the health-check loop).
+type StoragePressureEmitter func(ev StoragePressureEvent)
+
+// SetStoragePressureEmitter installs (or clears) the emitter callback.
+// Called from server.New after the server struct is built so the SSE bridge
+// can be wired without an import cycle.
+func (m *Manager) SetStoragePressureEmitter(fn StoragePressureEmitter) {
+	m.storagePressureFn = fn
 }
 
 // bucketManagerForMigration is the minimal bucket.Manager interface needed for source deletion.
@@ -397,20 +419,20 @@ func (m *Manager) AddNode(ctx context.Context, node *Node) error {
 // GetNode retrieves a node by ID
 func (m *Manager) GetNode(ctx context.Context, nodeID string) (*Node, error) {
 	var node Node
-	var lastHealthCheck, lastSeen, lastLocalWriteAt sql.NullTime
+	var lastHealthCheck, lastSeen, lastLocalWriteAt, unavailableSince sql.NullTime
 
 	err := m.db.QueryRowContext(ctx, `
 		SELECT id, name, endpoint, api_url, node_token, region, priority,
 		       health_status, last_health_check, last_seen, latency_ms,
 		       capacity_total, capacity_used, bucket_count, metadata,
-		       created_at, updated_at, is_stale, last_local_write_at
+		       created_at, updated_at, is_stale, last_local_write_at, unavailable_since
 		FROM cluster_nodes
 		WHERE id = ?
 	`, nodeID).Scan(
 		&node.ID, &node.Name, &node.Endpoint, &node.APIURL, &node.NodeToken, &node.Region, &node.Priority,
 		&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
 		&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
-		&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt,
+		&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt, &unavailableSince,
 	)
 
 	if err == sql.ErrNoRows {
@@ -429,6 +451,9 @@ func (m *Manager) GetNode(ctx context.Context, nodeID string) (*Node, error) {
 	if lastLocalWriteAt.Valid {
 		node.LastLocalWriteAt = &lastLocalWriteAt.Time
 	}
+	if unavailableSince.Valid {
+		node.UnavailableSince = &unavailableSince.Time
+	}
 
 	return &node, nil
 }
@@ -439,7 +464,7 @@ func (m *Manager) ListNodes(ctx context.Context) ([]*Node, error) {
 		SELECT id, name, endpoint, api_url, node_token, region, priority,
 		       health_status, last_health_check, last_seen, latency_ms,
 		       capacity_total, capacity_used, bucket_count, metadata,
-		       created_at, updated_at, is_stale, last_local_write_at
+		       created_at, updated_at, is_stale, last_local_write_at, unavailable_since
 		FROM cluster_nodes
 		ORDER BY priority ASC, name ASC
 	`)
@@ -451,13 +476,13 @@ func (m *Manager) ListNodes(ctx context.Context) ([]*Node, error) {
 	var nodes []*Node
 	for rows.Next() {
 		var node Node
-		var lastHealthCheck, lastSeen, lastLocalWriteAt sql.NullTime
+		var lastHealthCheck, lastSeen, lastLocalWriteAt, unavailableSince sql.NullTime
 
 		err := rows.Scan(
 			&node.ID, &node.Name, &node.Endpoint, &node.APIURL, &node.NodeToken, &node.Region, &node.Priority,
 			&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
 			&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
-			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt,
+			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt, &unavailableSince,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan node: %w", err)
@@ -471,6 +496,9 @@ func (m *Manager) ListNodes(ctx context.Context) ([]*Node, error) {
 		}
 		if lastLocalWriteAt.Valid {
 			node.LastLocalWriteAt = &lastLocalWriteAt.Time
+		}
+		if unavailableSince.Valid {
+			node.UnavailableSince = &unavailableSince.Time
 		}
 
 		nodes = append(nodes, &node)
@@ -519,7 +547,7 @@ func (m *Manager) GetHealthyNodes(ctx context.Context) ([]*Node, error) {
 		SELECT id, name, endpoint, api_url, node_token, region, priority,
 		       health_status, last_health_check, last_seen, latency_ms,
 		       capacity_total, capacity_used, bucket_count, metadata,
-		       created_at, updated_at, is_stale, last_local_write_at
+		       created_at, updated_at, is_stale, last_local_write_at, unavailable_since
 		FROM cluster_nodes
 		WHERE health_status = ?
 		ORDER BY priority ASC, name ASC
@@ -532,13 +560,13 @@ func (m *Manager) GetHealthyNodes(ctx context.Context) ([]*Node, error) {
 	var nodes []*Node
 	for rows.Next() {
 		var node Node
-		var lastHealthCheck, lastSeen, lastLocalWriteAt sql.NullTime
+		var lastHealthCheck, lastSeen, lastLocalWriteAt, unavailableSince sql.NullTime
 
 		err := rows.Scan(
 			&node.ID, &node.Name, &node.Endpoint, &node.APIURL, &node.NodeToken, &node.Region, &node.Priority,
 			&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
 			&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
-			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt,
+			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt, &unavailableSince,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan node: %w", err)
@@ -552,6 +580,9 @@ func (m *Manager) GetHealthyNodes(ctx context.Context) ([]*Node, error) {
 		}
 		if lastLocalWriteAt.Valid {
 			node.LastLocalWriteAt = &lastLocalWriteAt.Time
+		}
+		if unavailableSince.Valid {
+			node.UnavailableSince = &unavailableSince.Time
 		}
 
 		nodes = append(nodes, &node)
@@ -567,16 +598,19 @@ func (m *Manager) GetReadyReplicaNodes(ctx context.Context) ([]*Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Read path: include storage_pressure nodes — they still hold valid data and
+	// should serve reads. Only writes are diverted away (via GetHealthyNodes /
+	// replicaTargets, which keep the strict =healthy filter).
 	rows, err := m.db.QueryContext(ctx, `
 		SELECT DISTINCT cn.id, cn.name, cn.endpoint, cn.api_url, cn.node_token, cn.region, cn.priority,
 		       cn.health_status, cn.last_health_check, cn.last_seen, cn.latency_ms,
 		       cn.capacity_total, cn.capacity_used, cn.bucket_count, cn.metadata,
-		       cn.created_at, cn.updated_at, cn.is_stale, cn.last_local_write_at
+		       cn.created_at, cn.updated_at, cn.is_stale, cn.last_local_write_at, cn.unavailable_since
 		FROM cluster_nodes cn
 		INNER JOIN ha_sync_jobs hsj ON hsj.target_node_id = cn.id
-		WHERE cn.id != ? AND cn.health_status = ? AND hsj.status = ?
+		WHERE cn.id != ? AND cn.health_status IN (?, ?) AND hsj.status = ?
 		ORDER BY cn.priority ASC, cn.name ASC
-	`, localID, HealthStatusHealthy, SyncJobDone)
+	`, localID, HealthStatusHealthy, HealthStatusStoragePressure, SyncJobDone)
 	if err != nil {
 		return nil, fmt.Errorf("get ready replica nodes: %w", err)
 	}
@@ -585,12 +619,12 @@ func (m *Manager) GetReadyReplicaNodes(ctx context.Context) ([]*Node, error) {
 	var nodes []*Node
 	for rows.Next() {
 		var node Node
-		var lastHealthCheck, lastSeen, lastLocalWriteAt sql.NullTime
+		var lastHealthCheck, lastSeen, lastLocalWriteAt, unavailableSince sql.NullTime
 		err := rows.Scan(
 			&node.ID, &node.Name, &node.Endpoint, &node.APIURL, &node.NodeToken, &node.Region, &node.Priority,
 			&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
 			&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
-			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt,
+			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt, &unavailableSince,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan ready replica node: %w", err)
@@ -603,6 +637,9 @@ func (m *Manager) GetReadyReplicaNodes(ctx context.Context) ([]*Node, error) {
 		}
 		if lastLocalWriteAt.Valid {
 			node.LastLocalWriteAt = &lastLocalWriteAt.Time
+		}
+		if unavailableSince.Valid {
+			node.UnavailableSince = &unavailableSince.Time
 		}
 		nodes = append(nodes, &node)
 	}
@@ -712,11 +749,21 @@ func (m *Manager) TryProxyRead(ctx context.Context, w http.ResponseWriter, r *ht
 // markNodeUnavailable flips a node's health_status to unavailable, mirroring
 // the side-effect of the write-fanout path. Errors are logged, not returned —
 // the caller is mid-request and cannot do anything useful with a DB failure.
+//
+// Dead nodes are skipped: once a node is dead, only the dead-node reconciler
+// (or an explicit re-add by the operator) can change its lifecycle state.
+//
+// unavailable_since is set only on transition; subsequent fanout failures
+// leave the original outage start intact so the dead-node reconciler can
+// measure continuous unavailability.
 func (m *Manager) markNodeUnavailable(ctx context.Context, nodeID, reason string) {
 	now := time.Now()
 	if _, err := m.db.ExecContext(ctx,
-		`UPDATE cluster_nodes SET health_status = ?, updated_at = ? WHERE id = ?`,
-		HealthStatusUnavailable, now, nodeID,
+		`UPDATE cluster_nodes
+		 SET health_status = ?, updated_at = ?,
+		     unavailable_since = COALESCE(unavailable_since, ?)
+		 WHERE id = ? AND health_status != ?`,
+		HealthStatusUnavailable, now, now, nodeID, HealthStatusDead,
 	); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"node_id": nodeID, "reason": reason,

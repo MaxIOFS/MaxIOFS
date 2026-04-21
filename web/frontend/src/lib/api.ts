@@ -1763,6 +1763,7 @@ export class APIClient {
     tolerated_failures: number;
     total_bytes: number;
     usable_bytes: number;
+    local_node_id: string;
     nodes: Array<{
       id: string;
       name: string;
@@ -1795,6 +1796,46 @@ export class APIClient {
     }>;
   }> {
     const response = await apiClient.get('/cluster/ha/sync-jobs');
+    return response.data.data;
+  }
+
+  static async getClusterDegradedState(): Promise<{ degraded: boolean; reason: string }> {
+    const response = await apiClient.get('/cluster/ha/degraded-state');
+    return response.data.data;
+  }
+
+  static async getHAScrubStatus(): Promise<{
+    runs: Array<{
+      id: number;
+      cycle_id: string;
+      started_at: string;
+      completed_at: string | null;
+      status: string;
+      buckets_scanned: number;
+      objects_compared: number;
+      divergences_found: number;
+      divergences_fixed: number;
+      error_message: string;
+    }>;
+    current: {
+      cycle_id: string;
+      started_at: string;
+      bucket_order: string[];
+      current_bucket_idx: number;
+      last_key: string;
+      buckets_scanned: number;
+      objects_compared: number;
+      divergences_found: number;
+      divergences_fixed: number;
+      run_id: number;
+    } | null;
+  }> {
+    const response = await apiClient.get('/cluster/ha/scrub-status');
+    return response.data.data;
+  }
+
+  static async drainClusterNode(nodeId: string, reason?: string): Promise<{ message: string; node_id: string; reason: string }> {
+    const response = await apiClient.post(`/cluster/nodes/${nodeId}/drain`, reason ? { reason } : {});
     return response.data.data;
   }
 

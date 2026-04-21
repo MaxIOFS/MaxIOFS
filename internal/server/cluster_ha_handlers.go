@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/sirupsen/logrus"
@@ -82,12 +83,20 @@ func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Surface the local node ID so the frontend can hide self-mutating
+	// controls (e.g. Drain) on the row representing this very server.
+	var localNodeID string
+	if cfg, cfgErr := s.clusterManager.GetConfig(r.Context()); cfgErr == nil {
+		localNodeID = cfg.NodeID
+	}
+
 	s.writeJSON(w, map[string]interface{}{
 		"replication_factor": factor,
 		"node_count":         len(nodes),
 		"tolerated_failures": toleratedFailures,
 		"total_bytes":        totalBytes,
 		"usable_bytes":       usableBytes,
+		"local_node_id":      localNodeID,
 		"nodes":              nodeStatuses,
 	})
 }
@@ -140,6 +149,82 @@ func (s *Server) handleGetHAScrubStatus(w http.ResponseWriter, r *http.Request) 
 	s.writeJSON(w, map[string]interface{}{
 		"runs":    runs,
 		"current": current,
+	})
+}
+
+// handleDrainClusterNode immediately marks a node dead and triggers
+// redistribution of its replicas to remaining healthy nodes.
+// POST /cluster/nodes/{nodeId}/drain
+//
+// Body (optional): { "reason": "scheduled hardware decommission" }
+//
+// The local node cannot be drained via this endpoint — admins must run drain
+// from a different node, otherwise the very server processing the request
+// would be flipped to dead mid-call.
+func (s *Server) handleDrainClusterNode(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
+
+	if !s.clusterManager.IsClusterEnabled() {
+		s.writeError(w, "Cluster is not enabled", http.StatusBadRequest)
+		return
+	}
+	if s.deadNodeReconciler == nil {
+		s.writeError(w, "Dead-node reconciler is not running", http.StatusServiceUnavailable)
+		return
+	}
+
+	vars := mux.Vars(r)
+	nodeID := vars["nodeId"]
+	if nodeID == "" {
+		s.writeError(w, "Node ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Reject draining the local node — running drain on the very server
+	// processing the request would flip the responder to dead mid-call.
+	config, err := s.clusterManager.GetConfig(r.Context())
+	if err == nil && config.NodeID == nodeID {
+		s.writeError(w, "Cannot drain the local node. Run drain from a different cluster node.", http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	// Body is optional — ignore decode errors when no body is supplied.
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body.Reason == "" {
+		body.Reason = "manual drain"
+	}
+
+	if err := s.deadNodeReconciler.DrainNode(r.Context(), nodeID, body.Reason); err != nil {
+		logrus.WithError(err).WithField("node_id", nodeID).Error("Drain failed")
+		s.writeError(w, "Drain failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"message": "Node drained and redistribution triggered",
+		"node_id": nodeID,
+		"reason":  body.Reason,
+	})
+}
+
+// handleGetClusterDegradedState returns the cluster-wide degraded reason ("" when healthy).
+// Used by the UI to render the degraded banner.
+// GET /cluster/ha/degraded-state
+func (s *Server) handleGetClusterDegradedState(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
+	reason := cluster.ClusterDegradedReason(r.Context(), s.db)
+	s.writeJSON(w, map[string]interface{}{
+		"degraded": reason != "",
+		"reason":   reason,
 	})
 }
 

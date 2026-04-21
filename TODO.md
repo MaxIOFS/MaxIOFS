@@ -49,7 +49,7 @@ What is **missing** vs. the original v1.3.0 plan:
 | F — Read fallback | `SelectReadNode` returns one node, no retry | If the chosen replica errors, the client sees the error even though the object exists elsewhere |
 | G — Stale catch-up | Only runs on factor-change/new-node | A node that was down comes back stale forever until next factor change |
 | (new) Anti-entropy | Not implemented | Bit rot and silent drift accumulate undetected |
-| (new) Dead-node redistribution | Not implemented | Permanent node loss leaves objects at N-1 copies forever |
+| (new) Dead-node redistribution | ✅ Implemented (`dead_node_reconciler.go`) | — |
 
 ---
 
@@ -98,38 +98,36 @@ Status surfaces via `GET /cluster/ha/scrub-status` (global admin only): last 10 
 
 Files: `internal/cluster/anti_entropy.go` (new), `internal/cluster/sync_schema.go` (table + config defaults), `internal/server/cluster_object_handlers.go` (`handleHAChecksumBatch`), `internal/server/cluster_ha_handlers.go` (`handleGetHAScrubStatus`), `internal/server/server.go` (wire + start + route registration), `internal/server/console_api.go` (status route). Tests in `internal/cluster/anti_entropy_test.go` (20 cases: classifyDivergence push/pull/tie/multipart, multipart ETag detection, checkpoint save/load/delete/JSON round-trip, config defaults vs overrides, runCycle no-ops on disabled/factor=1, ListRecentRuns ordering, pruneRuns retention, urlEscapeBucket).
 
-#### 4. Dead-node redistribution (~3 days)
+#### 4. Dead-node redistribution (~3 days) ✅
 
-Extend `stale_reconciler.go`. Today a node that goes `unavailable` stays that way. Add:
+`HealthStatusDead` is a new terminal state added alongside `unknown / healthy / unavailable`. `cluster_nodes.unavailable_since` (new TIMESTAMP column, applied via idempotent `applyDeadNodeMigration`) records the start of a continuous outage; `markNodeUnavailable` and `CheckNodeHealth` use `COALESCE(unavailable_since, ?)` so the timestamp is preserved across repeated probes and cleared on the first healthy transition. Once the gap exceeds `ha.dead_node_threshold_hours` (default 24h, live-reloadable from `cluster_global_config`), the new `internal/cluster/dead_node_reconciler.go` flips the node to `dead` and calls `HASyncWorker.Trigger()` — because HA replication is symmetric (every healthy node holds every bucket), the existing initial-sync catch-up is the redistribution mechanism, no per-bucket replica reassignment needed. Loop runs every `ha.redistribution_check_interval_minutes` (default 5m) with a 30s jittered first pass and `ticker.Reset` on config change; kill switch is `ha.redistribution_enabled`.
 
-- After `ha.dead_node_threshold_hours` (default 24h) of continuous `unavailable`, mark the node `dead`.
-- For every bucket where the dead node was a replica, pick a new target from healthy nodes with enough free space and rebuild the replica there using the same logic as `HASyncWorker`.
-- Admin can short-circuit the timer with a manual `POST /cluster/nodes/{id}/drain` (immediate `dead` + redistribution).
+Last-survivor protection: if marking a node dead would drop the count of non-dead nodes below the replication factor, the reconciler refuses and writes the reason into `ha.cluster_degraded_reason`, which is exposed via `GET /cluster/ha/degraded-state` and broadcast over SSE (`cluster_degraded` / `cluster_degraded_resolved` events). Admin short-circuit: `POST /cluster/nodes/{id}/drain` with optional `{"reason"}` body — rejects the local node so the responding server doesn't flip itself to dead mid-call. SSE bridge lives in `internal/server/dead_node_events.go` (decouples cluster from server via `EventEmitter` callback).
 
-Edge case: if there isn't enough space cluster-wide to maintain the factor, the system enters `degraded` state. SSE alert + UI banner. New writes still succeed at quorum but with a lower-than-configured replica count. Admin must add capacity or lower the factor.
+Files: `internal/cluster/types.go` (HealthStatusDead + UnavailableSince), `internal/cluster/schema.go` (migration), `internal/cluster/sync_schema.go` (4 new global config keys), `internal/cluster/manager.go` (4 SELECTs + markNodeUnavailable), `internal/cluster/health.go` (transition handling), `internal/cluster/dead_node_reconciler.go` (new), `internal/server/dead_node_events.go` (new SSE bridge), `internal/server/cluster_ha_handlers.go` (drain + degraded-state handlers), `internal/server/server.go` (wiring + Start), `internal/server/console_api.go` (route registration). Tests in `internal/cluster/dead_node_reconciler_test.go` (13 cases: cluster-disabled no-op, kill-switch, mark-dead-past-threshold + sync trigger, skip before threshold, last-survivor protection, degraded-resolved transition, drain success, drain-already-dead, unavailable_since preservation, dead-node skip in markNodeUnavailable, threshold defaults/overrides, check-interval override, ClusterDegradedReason round-trip).
 
-Files: `internal/cluster/stale_reconciler.go`, `internal/cluster/manager.go`, `internal/server/cluster_node_handlers.go` (drain endpoint).
+#### 5. Storage-pressure feedback loop (~2 days) ✅
 
-#### 5. Storage-pressure feedback loop (~2 days)
+New node-level health state `HealthStatusStoragePressure` lives between `healthy` and `degraded`. The existing health checker (`/health` endpoint already returns `capacity_total` / `capacity_used`) computes `usage% = used/total*100` per probe. Two new live-reloadable global config keys drive the transition: `ha.storage_pressure_threshold_percent` (default 90) flips a healthy node to `storage_pressure`; `ha.storage_pressure_release_percent` (default 85) restores it. Hysteresis is sticky in `CheckNodeHealth`: while in `storage_pressure`, the node only returns to `healthy` once usage drops below release. A misconfiguration where `release ≥ threshold` is auto-clamped to `threshold-5` so the loop is never disabled.
 
-`BucketHA.Status` already has a `storage_pressure` value but nothing produces it. Wire it:
+Read vs write split: writes use `GetHealthyNodes` (strict `=healthy` filter), so `replicaTargets` and the dead-node reconciler's non-dead count both naturally exclude SP nodes from new-write target selection. Reads via `GetReadyReplicaNodes` were extended to `IN (healthy, storage_pressure)` — SP nodes still hold valid data and must keep serving reads. SP transitions never override `dead`, `unavailable`, or `degraded` (high latency); the branch only runs for reachable, low-latency nodes.
 
-- Health checker (`internal/cluster/health.go`) already tracks per-node disk usage. When a node crosses 90%, mark it `storage_pressure` and exclude it from new-write target selection in `replicaTargets`.
-- When it falls back below 85% (hysteresis), restore it.
-- SSE alert through the existing disk-alert channel.
+SSE: new events `node_storage_pressure` and `node_storage_pressure_resolved` carry `usage_percent` + `threshold_percent`. Wired via `cluster.StoragePressureEmitter` callback set by `Manager.SetStoragePressureEmitter`, with the SSE bridge in `internal/server/storage_pressure_events.go` (mirrors `dead_node_events.go`, decoupling cluster from server). Emission fires only when the transition crosses the SP boundary (alert one-shot on entry, resolved one-shot on exit).
 
-Files: `internal/cluster/health.go`, `internal/cluster/ha_object_manager.go`.
+Files: `internal/cluster/types.go` (HealthStatusStoragePressure constant), `internal/cluster/sync_schema.go` (2 config defaults), `internal/cluster/manager.go` (emitter field/setter, StoragePressureEvent type, GetReadyReplicaNodes filter), `internal/cluster/health.go` (loadStoragePressureThresholds + CheckNodeHealth state machine + emit), `internal/server/storage_pressure_events.go` (new SSE bridge), `internal/server/server.go` (wires emitter). Tests in `internal/cluster/storage_pressure_test.go` (10 cases: threshold defaults/overrides, inverted-config clamp, cross-threshold flip + emit, hysteresis sticky between release and threshold, resolved emission, dead-node skip, unreachable skip, GetReadyReplicaNodes includes SP, GetHealthyNodes excludes SP).
 
-#### 6. Frontend — HA admin page polish (~2 days)
+#### 6. Frontend — HA admin page polish (~2 days) ✅
 
-The page at `web/frontend/src/pages/cluster/HA.tsx` exists but doesn't surface the new states. Add:
+`HealthBadge` in `HA.tsx` now renders all six node states (`healthy`, `storage_pressure`, `degraded`, `unavailable`, `dead`, `unknown`) with distinct colors and Lucide icons (Gauge for storage_pressure, Skull for dead). Backend status is authoritative — the existing 80%-usage row tint is kept only as a quick visual hint, but the badge itself follows what the cluster reports.
 
-- Quorum status indicator per bucket (full / degraded / lost).
-- Dead-node and drain controls.
-- Anti-entropy scrubber progress (current bucket, throughput, last completed scan timestamp).
-- Storage-pressure badge on nodes ≥ 90% disk.
+Three new admin surfaces wired through React Query polling:
+- **Cluster degraded banner** (red, top of page, polled every 10 s) reads `GET /cluster/ha/degraded-state` and shows the reason set by the dead-node reconciler when last-survivor protection refuses to mark a node dead. Falls back to a generic message when the backend reason is empty.
+- **Drain control per node** in the storage table: a `PowerOff` button that calls `POST /cluster/nodes/{id}/drain` after a confirm modal. Disabled with tooltips for the local node (the backend would otherwise flip the responding server to dead mid-call) and for already-dead nodes. Success toast + invalidates the HA, sync-jobs, and degraded-state queries.
+- **Anti-entropy scrubber section** (new `ScrubberSection` component): when `current` is non-null, shows progress bar (`current_bucket_idx/total`), objects compared, divergences found, divergences fixed, buckets scanned. When idle, shows last completed run with status, completed-at, and the same metrics. Polled every 15 s via `GET /cluster/ha/scrub-status`.
 
-Files: `web/frontend/src/pages/cluster/HA.tsx`, `web/frontend/src/lib/api.ts`.
+Backend addition: `/cluster/ha` now returns `local_node_id` so the frontend can identify the local row without a second round-trip. API client (`api.ts`) extended with `getClusterDegradedState`, `getHAScrubStatus`, `drainClusterNode`, plus `dead` and `storage_pressure` added to the health-status type. i18n keys (en + es) for all new surfaces (`statusDead`, `statusStoragePressure`, `clusterDegradedTitle`, `drainNode*`, `scrubber*`).
+
+Files: `web/frontend/src/pages/cluster/HA.tsx`, `web/frontend/src/lib/api.ts`, `web/frontend/src/locales/{en,es}/cluster.json`, `internal/server/cluster_ha_handlers.go` (`local_node_id` in response). Verified clean: `go build ./...`, `npx tsc -b`, JSON parse of both locale files, full cluster Go suite (151 s) green.
 
 ---
 

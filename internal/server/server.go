@@ -82,6 +82,7 @@ type Server struct {
 	staleReconciler         *cluster.StaleReconciler
 	haSyncWorker            *cluster.HASyncWorker
 	antiEntropyScrubber     *cluster.AntiEntropyScrubber
+	deadNodeReconciler      *cluster.DeadNodeReconciler
 	notificationHub         *NotificationHub
 	quotaAlerts             *quotaAlertTracker
 	systemMetrics           *metrics.SystemMetricsTracker
@@ -433,6 +434,10 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize anti-entropy scrubber (PebbleStore implements RawKVStore for crash-safe checkpoints).
 	antiEntropyScrubber := cluster.NewAntiEntropyScrubber(objectManager, bucketManager, clusterManager, metadataStore)
 
+	// Dead-node reconciler is wired below after the Server struct is built so
+	// it can capture the notification hub for SSE emission.
+	var deadNodeReconciler *cluster.DeadNodeReconciler
+
 	// Create HTTP servers
 	httpServer := &http.Server{
 		Addr:              cfg.Listen,
@@ -478,6 +483,7 @@ func New(cfg *config.Config) (*Server, error) {
 		clusterServer:           clusterServer,
 		haSyncWorker:            haSyncWorker,
 		antiEntropyScrubber:     antiEntropyScrubber,
+		deadNodeReconciler:      deadNodeReconciler,
 		bucketAggregator:        bucketAggregator,
 		quotaAggregator:         quotaAggregator,
 		rateLimiter:             rateLimiter,
@@ -501,6 +507,23 @@ func New(cfg *config.Config) (*Server, error) {
 		idpManager:              idpManager,
 		startTime:               time.Now(), // Record server start time
 	}
+
+	// Wire the dead-node reconciler now that the Server is built — the
+	// emitter closure relays events to SSE clients via the notification hub.
+	server.deadNodeReconciler = cluster.NewDeadNodeReconciler(
+		clusterManager,
+		haSyncWorker,
+		func(ev cluster.DeadNodeEvent) {
+			server.broadcastDeadNodeEvent(ev)
+		},
+	)
+
+	// Wire the storage-pressure emitter onto the cluster Manager. Triggered
+	// inline by the existing health-check loop on healthy↔storage_pressure
+	// transitions; the bridge dispatches an SSE notification to admin clients.
+	clusterManager.SetStoragePressureEmitter(func(ev cluster.StoragePressureEvent) {
+		server.broadcastStoragePressureEvent(ev)
+	})
 
 	// Connect user locked callback to send SSE notifications
 	logrus.Info("Setting up user locked callback for SSE notifications")
@@ -780,6 +803,10 @@ func (s *Server) startClusterBackgroundServices(ctx context.Context) {
 		if s.antiEntropyScrubber != nil {
 			s.antiEntropyScrubber.Start(ctx)
 			logrus.Info("Anti-entropy scrubber started")
+		}
+		if s.deadNodeReconciler != nil {
+			s.deadNodeReconciler.Start(ctx)
+			logrus.Info("Dead-node reconciler started")
 		}
 		s.startClusterNodeAlertMonitor(ctx)
 		logrus.Info("Cluster node alert monitor started")

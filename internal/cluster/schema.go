@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS cluster_nodes (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_stale BOOLEAN NOT NULL DEFAULT 0,
-    last_local_write_at TIMESTAMP
+    last_local_write_at TIMESTAMP,
+    unavailable_since TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_cluster_nodes_region ON cluster_nodes(region);
@@ -106,7 +107,43 @@ func InitSchema(db *sql.DB) error {
 	if err := applyAPIURLMigration(db); err != nil {
 		return err
 	}
-	return applySyncJobsMigration(db)
+	if err := applySyncJobsMigration(db); err != nil {
+		return err
+	}
+	return applyDeadNodeMigration(db)
+}
+
+// applyDeadNodeMigration adds the unavailable_since column needed for the
+// dead-node redistribution loop on existing databases.
+func applyDeadNodeMigration(db *sql.DB) error {
+	var exists bool
+	rows, err := db.Query("PRAGMA table_info(cluster_nodes)")
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dfltValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "unavailable_since" {
+			exists = true
+			break
+		}
+	}
+	rows.Close()
+
+	if !exists {
+		if _, err := db.Exec("ALTER TABLE cluster_nodes ADD COLUMN unavailable_since TIMESTAMP"); err != nil {
+			return fmt.Errorf("failed to add column unavailable_since: %w", err)
+		}
+	}
+	return nil
 }
 
 // applySyncJobsMigration creates the ha_sync_jobs table for tracking initial sync state.

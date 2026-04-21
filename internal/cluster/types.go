@@ -23,6 +23,7 @@ type Node struct {
 	UpdatedAt          time.Time  `json:"updated_at"`
 	IsStale            bool       `json:"is_stale"`
 	LastLocalWriteAt   *time.Time `json:"last_local_write_at,omitempty"`
+	UnavailableSince   *time.Time `json:"unavailable_since,omitempty"`
 }
 
 // HealthStatus represents node health status
@@ -80,4 +81,14 @@ const (
 	HealthStatusDegraded    = "degraded"
 	HealthStatusUnavailable = "unavailable"
 	HealthStatusUnknown     = "unknown"
+	// HealthStatusDead is a terminal state: the node has been unavailable for
+	// more than ha.dead_node_threshold_hours and its replicas have been (or are
+	// being) redistributed to other healthy nodes.
+	HealthStatusDead = "dead"
+	// HealthStatusStoragePressure means the node is reachable and responsive
+	// but its disk usage has crossed ha.storage_pressure_threshold_percent.
+	// The node is excluded from new-write target selection (replicaTargets)
+	// but still serves reads. Hysteresis: it returns to healthy only after
+	// usage drops below ha.storage_pressure_release_percent.
+	HealthStatusStoragePressure = "storage_pressure"
 )

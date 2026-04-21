@@ -14,13 +14,16 @@ import {
   Database,
   RefreshCw,
   Clock,
+  PowerOff,
+  Skull,
+  Gauge,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import APIClient from '@/lib/api';
 import ModalManager from '@/lib/modals';
 import { formatBytes } from '@/lib/utils';
 
-type HealthStatus = 'healthy' | 'degraded' | 'unavailable' | 'unknown';
+type HealthStatus = 'healthy' | 'degraded' | 'unavailable' | 'unknown' | 'dead' | 'storage_pressure';
 type SyncStatus = 'running' | 'done' | 'failed';
 
 function HealthBadge({ status }: { status: string }) {
@@ -30,6 +33,12 @@ function HealthBadge({ status }: { status: string }) {
     return (
       <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-sm font-medium">
         <CheckCircle className="h-4 w-4" /> {t('statusHealthy')}
+      </span>
+    );
+  if (s === 'storage_pressure')
+    return (
+      <span className="inline-flex items-center gap-1 text-orange-600 dark:text-orange-400 text-sm font-medium">
+        <Gauge className="h-4 w-4" /> {t('statusStoragePressure')}
       </span>
     );
   if (s === 'degraded')
@@ -42,6 +51,12 @@ function HealthBadge({ status }: { status: string }) {
     return (
       <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 text-sm font-medium">
         <XCircle className="h-4 w-4" /> {t('statusUnavailable')}
+      </span>
+    );
+  if (s === 'dead')
+    return (
+      <span className="inline-flex items-center gap-1 text-red-700 dark:text-red-500 text-sm font-semibold">
+        <Skull className="h-4 w-4" /> {t('statusDead')}
       </span>
     );
   return (
@@ -104,6 +119,18 @@ export default function ClusterHA() {
     refetchInterval: 5000,
   });
 
+  const { data: degraded } = useQuery({
+    queryKey: ['cluster-degraded-state'],
+    queryFn: APIClient.getClusterDegradedState,
+    refetchInterval: 10000,
+  });
+
+  const { data: scrubStatus } = useQuery({
+    queryKey: ['cluster-ha-scrub-status'],
+    queryFn: APIClient.getHAScrubStatus,
+    refetchInterval: 15000,
+  });
+
   const setFactorMutation = useMutation({
     mutationFn: (factor: number) => APIClient.setClusterHA(factor),
     onSuccess: (result) => {
@@ -116,6 +143,28 @@ export default function ClusterHA() {
       ModalManager.apiError(error);
     },
   });
+
+  const drainMutation = useMutation({
+    mutationFn: (vars: { nodeId: string; reason: string }) =>
+      APIClient.drainClusterNode(vars.nodeId, vars.reason),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['cluster-ha'] });
+      queryClient.invalidateQueries({ queryKey: ['cluster-ha-sync-jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['cluster-degraded-state'] });
+      ModalManager.toast('success', t('drainNodeSuccess', { node: result.node_id }));
+    },
+    onError: (error: any) => {
+      ModalManager.apiError(error);
+    },
+  });
+
+  const handleDrainNode = (nodeId: string, nodeName: string) => {
+    ModalManager.confirm(
+      t('drainNodeConfirmTitle'),
+      t('drainNodeConfirmBody', { node: nodeName }),
+      () => drainMutation.mutate({ nodeId, reason: 'manual drain from HA admin page' }),
+    );
+  };
 
   const handleApplyFactor = () => {
     if (selectedFactor === null || !data) return;
@@ -185,6 +234,19 @@ export default function ClusterHA() {
           </p>
         </div>
       </div>
+
+      {/* Cluster degraded banner — set by the dead-node reconciler when it
+          refuses to mark a node dead because doing so would drop the count
+          of non-dead nodes below the configured replication factor. */}
+      {degraded?.degraded && (
+        <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800 rounded-lg">
+          <XCircle className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+          <div className="text-sm text-red-800 dark:text-red-300">
+            <p className="font-semibold mb-1">{t('clusterDegradedTitle')}</p>
+            <p>{degraded.reason || t('clusterDegradedFallback')}</p>
+          </div>
+        </div>
+      )}
 
       {/* Storage pressure warning */}
       {pressureNodes.length > 0 && (
@@ -396,6 +458,7 @@ export default function ClusterHA() {
                 <th className="text-left px-6 py-3 font-medium text-muted-foreground">{t('colFree')}</th>
                 <th className="text-left px-6 py-3 font-medium text-muted-foreground">{t('colTotal')}</th>
                 <th className="text-left px-6 py-3 font-medium text-muted-foreground">{t('colUsage')}</th>
+                <th className="text-right px-6 py-3 font-medium text-muted-foreground">{t('colActions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -405,6 +468,9 @@ export default function ClusterHA() {
                     ? Math.round((node.capacity_used / node.capacity_total) * 100)
                     : 0;
                 const isPressure = usagePct >= 80;
+                const isLocal = node.id === data.local_node_id;
+                const isDead = node.health_status === 'dead';
+                const drainDisabled = isLocal || isDead || drainMutation.isPending;
 
                 return (
                   <tr key={node.id} className="border-b border-border last:border-0 hover:bg-muted/20">
@@ -412,6 +478,9 @@ export default function ClusterHA() {
                       <div className="flex items-center gap-2">
                         <Database className="h-4 w-4 text-muted-foreground" />
                         {node.name}
+                        {isLocal && (
+                          <span className="text-xs text-muted-foreground font-normal">{t('thisNode')}</span>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4">
@@ -439,12 +508,145 @@ export default function ClusterHA() {
                         </span>
                       </div>
                     </td>
+                    <td className="px-6 py-4 text-right">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={drainDisabled}
+                        onClick={() => handleDrainNode(node.id, node.name)}
+                        title={isLocal ? t('drainLocalDisabled') : isDead ? t('drainDeadDisabled') : t('drainNode')}
+                      >
+                        <PowerOff className="h-3.5 w-3.5 mr-1" />
+                        {t('drainNode')}
+                      </Button>
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Anti-entropy scrubber */}
+      <ScrubberSection scrubStatus={scrubStatus} />
+    </div>
+  );
+}
+
+function ScrubberSection({
+  scrubStatus,
+}: {
+  scrubStatus:
+    | Awaited<ReturnType<typeof APIClient.getHAScrubStatus>>
+    | undefined;
+}) {
+  const { t } = useTranslation('cluster');
+  if (!scrubStatus) return null;
+
+  const current = scrubStatus.current;
+  const lastRun = scrubStatus.runs?.[0];
+  const totalBuckets = current?.bucket_order?.length ?? 0;
+  const progressPct =
+    current && totalBuckets > 0
+      ? Math.min(100, Math.round((current.current_bucket_idx / totalBuckets) * 100))
+      : 0;
+
+  return (
+    <div className="bg-card border border-border rounded-lg shadow-sm">
+      <div className="px-6 py-4 border-b border-border">
+        <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
+          <RefreshCw className="h-4 w-4" />
+          {t('scrubberTitle')}
+        </h2>
+        <p className="text-xs text-muted-foreground mt-0.5">{t('scrubberDesc')}</p>
+      </div>
+
+      <div className="p-6 space-y-4">
+        {current ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium text-foreground">{t('scrubberCurrentCycle')}</span>
+              <span className="text-xs text-muted-foreground">
+                {t('scrubberStartedAt', { time: new Date(current.started_at).toLocaleString() })}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                <div
+                  className="h-2 bg-blue-500 rounded-full transition-all"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+              <span className="text-xs text-muted-foreground tabular-nums w-24 text-right">
+                {t('scrubberBucketsProgress', { current: current.current_bucket_idx, total: totalBuckets })}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('scrubberObjectsCompared')}</p>
+                <p className="font-medium text-foreground tabular-nums">{current.objects_compared.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('scrubberDivergencesFound')}</p>
+                <p className="font-medium text-amber-600 dark:text-amber-400 tabular-nums">
+                  {current.divergences_found.toLocaleString()}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('scrubberDivergencesFixed')}</p>
+                <p className="font-medium text-green-600 dark:text-green-400 tabular-nums">
+                  {current.divergences_fixed.toLocaleString()}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('scrubberBucketsScanned')}</p>
+                <p className="font-medium text-foreground tabular-nums">{current.buckets_scanned.toLocaleString()}</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4" />
+            {t('scrubberIdle')}
+          </div>
+        )}
+
+        {lastRun && (
+          <div className="border-t border-border pt-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">{t('scrubberLastRun')}</p>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">{t('scrubberStatus')}</p>
+                <p className="font-medium text-foreground capitalize">{lastRun.status}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t('scrubberCompletedAt')}</p>
+                <p className="font-medium text-foreground text-xs">
+                  {lastRun.completed_at ? new Date(lastRun.completed_at).toLocaleString() : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t('scrubberObjectsCompared')}</p>
+                <p className="font-medium text-foreground tabular-nums">
+                  {lastRun.objects_compared.toLocaleString()}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t('scrubberDivergencesFound')}</p>
+                <p className="font-medium text-foreground tabular-nums">
+                  {lastRun.divergences_found.toLocaleString()}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t('scrubberDivergencesFixed')}</p>
+                <p className="font-medium text-foreground tabular-nums">
+                  {lastRun.divergences_fixed.toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

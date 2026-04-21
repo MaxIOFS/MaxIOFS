@@ -252,6 +252,30 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 			value:       "500",
 			description: "Number of object keys compared per checksum-batch request",
 		},
+		"ha.dead_node_threshold_hours": {
+			value:       "24",
+			description: "Hours a node must remain continuously 'unavailable' before being marked 'dead' and its replicas redistributed",
+		},
+		"ha.redistribution_check_interval_minutes": {
+			value:       "5",
+			description: "How often the dead-node reconciler scans for unavailable nodes that crossed the dead threshold",
+		},
+		"ha.redistribution_enabled": {
+			value:       "true",
+			description: "Enable automatic redistribution of replicas from dead nodes to healthy nodes (kill-switch)",
+		},
+		"ha.cluster_degraded_reason": {
+			value:       "",
+			description: "Non-empty string indicates the cluster cannot maintain the configured replication factor (e.g. insufficient capacity). Cleared automatically when capacity is restored",
+		},
+		"ha.storage_pressure_threshold_percent": {
+			value:       "90",
+			description: "Disk-usage percentage at which a healthy node is flipped to 'storage_pressure' and excluded from new-write target selection",
+		},
+		"ha.storage_pressure_release_percent": {
+			value:       "85",
+			description: "Disk-usage percentage at which a node in 'storage_pressure' is restored to 'healthy' (must be lower than threshold to provide hysteresis)",
+		},
 	}
 
 	now := time.Now()
