@@ -1,6 +1,6 @@
 # Multi-Node Cluster Management
 
-**Version**: 1.2.0
+**Version**: 1.3.0
 **Status**: Production-Ready
 **Last Updated**: April 12, 2026
 
@@ -1368,7 +1368,7 @@ CREATE INDEX idx_cluster_migrations_tenant ON cluster_migrations(tenant_id);
 
 ---
 
-**Version**: 1.2.0
+**Version**: 1.3.0
 **Last Updated**: April 2, 2026
 **Documentation Status**: Complete
 

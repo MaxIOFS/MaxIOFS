@@ -326,111 +326,118 @@ export default function AboutPage() {
           </h2>
           <div className="space-y-4">
 
-            <div className="border-l-4 border-red-600 pl-4">
+            <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Critical Fix: Metadata Lost on Shutdown
+                HA Write Quorum — Synchronous Replication
               </h3>
               <p className="text-sm text-muted-foreground">
-                Pebble buffers all writes in-memory and only flushes to disk on{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">db.Close()</code>.
-                The server shutdown sequence was missing this call, so every metadata change since the last
-                background compaction — object deletes, renames, tag updates, version promotions, bucket config
-                changes — was silently discarded on process exit. Objects could reappear after restart.
-                Fixed by adding the close call after all workers stop.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-blue-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Pebble v2 Metadata Engine with Auto-Migration
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                The embedded metadata engine was upgraded from Pebble v1.1.5 to v2.1.4. Because the on-disk
-                formats are incompatible, the server performs an automatic one-time migration on first start:
-                v1 data is streamed into a new v2 directory, directories are swapped atomically, and the
-                original is preserved as a timestamped backup. A new{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">storage.metadata_cache_size_mb</code>{' '}
-                option (default 256 MB) controls the block cache — increase to 1024 MB or more for Veeam B&R
-                deployments with 20 000+ objects per bucket. The engine is also pre-tuned with 64 MB MemTables,
-                bloom filters on L1–L6, and 2–4 compaction goroutines.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-purple-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                S3 Select — SQL on Object Data
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">POST /{'{bucket}/{object}'}?select</code>{' '}
-                implements the S3 Select API. Queries are executed via in-memory SQLite, giving full SQL support
-                (SELECT, WHERE, GROUP BY, ORDER BY, aggregates). Supports CSV and JSON Lines input, CSV and
-                JSON output, streams results using the Amazon Event Stream binary protocol (CRC32-framed records).
+                Writes now block until <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ceil(factor/2)</code> replicas
+                acknowledge. If quorum is not reached the local write is rolled back and the client receives{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">503 ServiceUnavailable</code> with{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Retry-After: 30</code>.
+                A pre-check (<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ClusterCanAcceptWrites</code>) rejects
+                writes early when the cluster is already degraded, saving a write-then-rollback cycle.
+                <strong> factor=2</strong> keeps best-effort semantics; strict two-copy requires factor=3.
               </p>
             </div>
 
             <div className="border-l-4 border-indigo-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                RestoreObject, OwnershipControls, BucketNotifications, BucketLogging, BucketInventory
+                HA Read Fallback with Ordered Retry
               </h3>
               <p className="text-sm text-muted-foreground">
-                Five new S3 API surfaces implemented:{' '}
-                <strong>RestoreObject</strong> (Glacier-compatible; returns{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-restore</code> header on HEAD/GET),{' '}
-                <strong>OwnershipControls</strong> (required by AWS SDK v2 on bucket creation),{' '}
-                <strong>BucketNotifications</strong> (real async webhook delivery with prefix/suffix/event-type filtering),{' '}
-                <strong>BucketLogging</strong> (access log middleware writing S3-format log objects to target bucket),{' '}
-                <strong>BucketInventory</strong> (full S3 Inventory Configuration API — GET/PUT/DELETE).
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetObject</code> now
+                iterates an ordered replica list (sorted by latency, rotated for round-robin balance).{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">TryProxyRead</code> peeks the replica's status
+                before committing to the response writer: 404 → try next replica; 5xx / transport error → mark
+                node unavailable and try next. Eliminates spurious 404s when an object exists on other replicas
+                but not the first one selected.
               </p>
             </div>
 
-            <div className="border-l-4 border-teal-500 pl-4">
+            <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Version Browser in Bucket UI
+                Anti-Entropy Scrubber
               </h3>
               <p className="text-sm text-muted-foreground">
-                A <strong>Show Versions</strong> toggle in the bucket browser replaces the object list with a
-                flat view of every version and delete marker across the bucket (or current prefix). Actions per
-                row: restore old versions with one click, remove delete markers to recover deleted files, and
-                permanently delete specific old versions.
+                A background goroutine scans all buckets every 24 hours (configurable), comparing object checksums
+                across all healthy replicas via{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">POST /api/internal/ha/checksum-batch</code>.
+                Divergences are reconciled with Last-Writer-Wins: missing or stale objects are pushed or pulled
+                automatically. Progress is checkpointed to Pebble after every batch so a restart resumes the
+                same cycle. Scrub runs are visible in the HA admin page.
               </p>
             </div>
 
-            <div className="border-l-4 border-cyan-500 pl-4">
+            <div className="border-l-4 border-red-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Session & Auth Fixes
+                Dead-Node Redistribution & Drain
               </h3>
               <p className="text-sm text-muted-foreground">
-                Three session bugs fixed: sliding-window sessions (fixed 15-min expiry now resets on every API
-                call), idle timer no longer logs out during active file uploads, and background token refresh
-                no longer triggers logout on transient network failures. Stale notifications from a previous
-                server instance are cleared on first login to a fresh deployment.
+                Nodes unreachable for more than <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ha.dead_node_threshold_hours</code>{' '}
+                (default 24 h) are automatically flipped to the new <strong>dead</strong> state and excluded
+                from all write targets. Last-survivor protection prevents marking a node dead if it would drop
+                the non-dead count below the replication factor. Admins can also drain a node immediately via{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">POST /cluster/nodes/{'{id}'}/drain</code>.
+                SSE events notify the console when the cluster becomes degraded or recovers.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Bucket & Object Lock Fixes
+                Storage-Pressure Health State
               </h3>
               <p className="text-sm text-muted-foreground">
-                COMPLIANCE Object Lock now blocks bucket deletion even for global admins and force-delete.
-                GOVERNANCE bypass flag ({' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-bypass-governance-retention</code>)
-                now correctly applies when deleting a specific version. The UI blocks deletion of locked objects
-                before the confirmation dialog. Bucket encryption is now correctly displayed in the dashboard
-                and persisted on creation when global encryption is enabled.
+                A new <strong>storage_pressure</strong> node state triggers when disk usage exceeds{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ha.storage_pressure_threshold_percent</code>{' '}
+                (default 90 %). Nodes in this state are excluded from new writes but still serve reads, since
+                they hold valid data. Hysteresis prevents oscillation: the node only returns to healthy once
+                usage drops below the release threshold (default 85 %). SSE events{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">node_storage_pressure</code> and{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">node_storage_pressure_resolved</code> are emitted on transitions.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-teal-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Stale-Node Reconciler
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                When a node rejoins after being offline or partitioned, a reconciler runs once at startup.
+                In <strong>offline</strong> mode only tombstones are propagated immediately; periodic sync
+                delivers the rest. In <strong>partition</strong> mode (node accepted writes while isolated)
+                a full LWW push of locally-newer entities is performed before the stale flag is cleared.
+                If the node was previously an HA replica, a delta sync pulls all objects modified while it
+                was offline before returning to service.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-cyan-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Inter-Node S3 Proxy with HMAC Auth
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                S3 requests that arrive at a node which does not own the target bucket are transparently
+                proxied to the correct node using internal IPs (derived from{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">node.Endpoint</code>, not the public URL).
+                The original <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Authorization</code> header is replaced
+                with cluster HMAC auth (<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">X-MaxIOFS-Node-Hmac</code>)
+                and forwarded user context. Loop prevention rejects requests already carrying{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">X-MaxIOFS-Proxied: true</code>.
               </p>
             </div>
 
             <div className="border-l-4 border-yellow-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Docker Multi-Arch + 10+ More Fixes
+                Cluster Join & Sync Fixes (7 Critical)
               </h3>
               <p className="text-sm text-muted-foreground">
-                Multi-architecture Docker images (linux/amd64 + linux/arm64) now published to DockerHub on
-                every version tag. Additional fixes: ListMultipartUploads routing conflict, inventory ETag
-                computed as size hex instead of MD5, panic on graceful shutdown, cleanupEmptyDirectories
-                path comparison bug, inventory settings always appearing disabled, 2FA HTTP 500 on NULL
-                tenant, and Vite absolute asset paths causing blank pages behind reverse proxies.
+                Seven critical cluster fixes: sync tables never created (all inter-node sync was permanently
+                disabled), cluster join broken (primary sent console URL instead of cluster port to joining
+                nodes), TLS verification failed in real deployments (SANs hardcoded to localhost), inter-node
+                sync rejected with TLS errors (clients built before CA loaded), new nodes had no data for
+                30 s after join, <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">public_console_url</code> broke
+                direct node access, and remote nodes always showed 0 GB disk capacity.
               </p>
             </div>
 

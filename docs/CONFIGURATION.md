@@ -1,6 +1,6 @@
 # MaxIOFS Configuration Guide
 
-**Version**: 1.2.0 | **Last Updated**: April 12, 2026
+**Version**: 1.3.0 | **Last Updated**: April 21, 2026
 
 ## Configuration Architecture
 

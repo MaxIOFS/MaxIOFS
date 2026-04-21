@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.2.0}
+%{!?version: %define version 1.3.0}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -266,6 +266,25 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Tue Apr 21 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.3.0-1
+- Version 1.3.0 — HA cluster: write quorum, read fallback, anti-entropy scrubber, dead-node redistribution,
+  storage-pressure health state, stale-node reconciler, inter-node S3 proxy with HMAC auth
+- CLUSTER: Synchronous write quorum (ceil(factor/2)); 503 ErrClusterDegraded on quorum miss with rollback
+- CLUSTER: Read fallback across ordered replica list; TryProxyRead with 404/5xx retry and markNodeUnavailable
+- CLUSTER: Anti-entropy scrubber — LWW reconciliation, Pebble checkpoint, ha_scrub_runs table, 24h cycle
+- CLUSTER: Dead-node redistribution — HealthStatusDead, DeadNodeReconciler, drain endpoint, last-survivor guard
+- CLUSTER: Storage-pressure health state — threshold/release hysteresis, excluded from writes, SSE events
+- CLUSTER: Stale-node reconciler — ModeOffline/ModePartition, bidirectional tombstone sync, HA object delta sync
+- CLUSTER: Inter-node S3 proxy — NewDynamicProxyClient, HMAC auth, loop prevention, buildInternalS3URL
+- CLUSTER FIX: Sync tables never created; all inter-node synchronization was permanently disabled
+- CLUSTER FIX: Cluster join broken; primary sent console URL instead of cluster port URL to joining nodes
+- CLUSTER FIX: TLS verification failed in real multi-node deployments (SANs hardcoded to localhost only)
+- CLUSTER FIX: Inter-node sync rejected with TLS errors (clients built before CA was loaded)
+- CLUSTER FIX: Access keys unavailable on new nodes for 30 s after join; kickstartNewNodeSync added
+- CLUSTER FIX: public_console_url broke inter-node communication and direct node access
+- CLUSTER FIX: Remote nodes always showed 0 GB disk capacity (health endpoint wrapped in APIResponse envelope)
+- Plus all cluster and session bug fixes from the [Unreleased] changelog
+
 * Thu Apr 02 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.2.0-1
 - Version 1.2.0 — Pebble v2, S3 Select, RestoreObject, OwnershipControls, BucketNotifications delivery,
   BucketLogging middleware, BucketInventory S3 API, version browser UI, Docker multi-arch, 30+ bug fixes
