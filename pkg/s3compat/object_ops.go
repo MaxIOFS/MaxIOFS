@@ -407,6 +407,11 @@ func (h *Handler) PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: PutObjectTagging")
 
+	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectManageTags) {
+		h.writeError(w, "AccessDenied", "You do not have permission to manage object tags", objectKey, r)
+		return
+	}
+
 	// Parse the XML tagging configuration
 	var xmlTagging Tagging
 	if err := xml.NewDecoder(r.Body).Decode(&xmlTagging); err != nil {
@@ -456,6 +461,11 @@ func (h *Handler) DeleteObjectTagging(w http.ResponseWriter, r *http.Request) {
 		"bucket": bucketName,
 		"object": objectKey,
 	}).Debug("S3 API: DeleteObjectTagging")
+
+	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectManageTags) {
+		h.writeError(w, "AccessDenied", "You do not have permission to manage object tags", objectKey, r)
+		return
+	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
 

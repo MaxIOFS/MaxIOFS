@@ -12,5 +12,6 @@
   "accessKeys": "Claves de Acceso",
   "identityProviders": "Proveedores de Identidad",
   "cluster": "Clúster",
-  "groups": "Grupos"
+  "groups": "Grupos",
+  "roleCapabilities": "Capacidades de Roles"
 }

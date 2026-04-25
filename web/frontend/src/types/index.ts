@@ -1299,5 +1299,21 @@ export interface LastIntegrityScan {
   source: 'manual' | 'scrubber';
 }
 
+// Capability system
+export interface EffectiveCapability {
+  capability: string;
+  granted: boolean;
+  source: 'override' | 'role';
+}
+
+export interface CapabilityOverride {
+  id: string;
+  userID: string;
+  capability: string;
+  granted: boolean;
+  grantedBy: string;
+  createdAt: number;
+}
+
 // Re-export common types
 export type { FC, ReactNode, ComponentProps } from 'react';

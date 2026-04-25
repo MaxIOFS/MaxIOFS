@@ -74,6 +74,7 @@ import type {
   LoggingTargetsResponse,
   BucketIntegrityReport,
   LastIntegrityScan,
+  EffectiveCapability,
 } from '@/types';
 
 // API Configuration
@@ -1068,6 +1069,29 @@ export class APIClient {
   static async updateUserPermissions(userId: string, permissions: any[]): Promise<APIResponse<any>> {
     const response = await apiClient.put<APIResponse<any>>(`/users/${userId}/permissions`, { permissions });
     return response.data;
+  }
+
+  // Capabilities
+  static async getUserCapabilities(userId: string): Promise<EffectiveCapability[]> {
+    const response = await apiClient.get<{ success: boolean; capabilities: EffectiveCapability[] }>(`/users/${userId}/capabilities`);
+    return response.data.capabilities || [];
+  }
+
+  static async setUserCapability(userId: string, capability: string, granted: boolean): Promise<void> {
+    await apiClient.put(`/users/${userId}/capabilities/${encodeURIComponent(capability)}`, { granted });
+  }
+
+  static async deleteUserCapability(userId: string, capability: string): Promise<void> {
+    await apiClient.delete(`/users/${userId}/capabilities/${encodeURIComponent(capability)}`);
+  }
+
+  static async getAllRoleCapabilities(): Promise<{ role_capabilities: Record<string, string[]>; all_capabilities: string[] }> {
+    const response = await apiClient.get<{ success: boolean; role_capabilities: Record<string, string[]>; all_capabilities: string[] }>('/roles/capabilities');
+    return { role_capabilities: response.data.role_capabilities || {}, all_capabilities: response.data.all_capabilities || [] };
+  }
+
+  static async setRoleCapabilities(role: string, capabilities: string[]): Promise<void> {
+    await apiClient.put(`/roles/${encodeURIComponent(role)}/capabilities`, { capabilities });
   }
 
   // Access Keys

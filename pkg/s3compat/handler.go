@@ -723,6 +723,12 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Capability check: only users with bucket:create may create new buckets.
+	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketCreate) {
+		h.writeError(w, "AccessDenied", "You do not have permission to create buckets", bucketName, r)
+		return
+	}
+
 	// Determine tenantID - use user's tenantID
 	// Global admins (TenantID="") can create global buckets
 	// Tenant users/admins create buckets within their tenant
@@ -806,6 +812,11 @@ func (h *Handler) DeleteBucket(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: DeleteBucket")
+
+	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketDelete) {
+		h.writeError(w, "AccessDenied", "You do not have permission to delete buckets", bucketName, r)
+		return
+	}
 
 	tenantID := h.getTenantIDFromRequest(r)
 	if err := h.bucketManager.DeleteBucket(r.Context(), tenantID, bucketName); err != nil {
@@ -1237,6 +1248,15 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	// Check if user is authenticated
 	user, userExists := auth.GetUserFromContext(r.Context())
 
+	// Capability check: authenticated users need object:download capability.
+	// Presigned URL access is not subject to the capability check.
+	if h.authManager != nil && userExists && r.Header.Get("Authorization") != "" {
+		if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectDownload) {
+			h.writeError(w, "AccessDenied", "You do not have permission to download objects", objectKey, r)
+			return
+		}
+	}
+
 	logrus.WithFields(logrus.Fields{
 		"bucket":     bucketName,
 		"object":     objectKey,
@@ -1457,6 +1477,11 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.getTenantIDFromRequest(r)
 
+	if h.authManager != nil && userExists && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectUpload) {
+		h.writeError(w, "AccessDenied", "You do not have permission to upload objects", objectKey, r)
+		return
+	}
+
 	// Check tenant storage quota before accepting upload
 	if err := h.validateTenantQuota(r, user, userExists, bucketName, objectKey, decodedContentLength); err != nil {
 		h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
@@ -1604,6 +1629,11 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.getTenantIDFromRequest(r)
 	bucketPath := h.getBucketPath(r, bucketName)
+
+	if h.authManager != nil && userExists && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectDelete) {
+		h.writeError(w, "AccessDenied", "You do not have permission to delete objects", objectKey, r)
+		return
+	}
 
 	hasPermission := h.checkDeleteObjectPermission(r.Context(), user, userExists, tenantID, bucketName, bucketPath, objectKey)
 	if !hasPermission {
@@ -1847,6 +1877,11 @@ func (h *Handler) PutBucketVersioning(w http.ResponseWriter, r *http.Request) {
 
 	// Cluster routing: proxy to the node that owns this bucket if not local
 	if h.proxyBucketRequest(w, r, bucketName) {
+		return
+	}
+
+	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketConfigure) {
+		h.writeError(w, "AccessDenied", "You do not have permission to configure buckets", bucketName, r)
 		return
 	}
 

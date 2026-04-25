@@ -375,6 +375,13 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Account lockout management
 	router.HandleFunc("/users/{user}/unlock", s.handleUnlockAccount).Methods("POST", "OPTIONS")
 
+	// Capability management
+	router.HandleFunc("/users/{id}/capabilities", s.handleGetUserCapabilities).Methods("GET", "OPTIONS")
+	router.HandleFunc("/users/{id}/capabilities/{capability}", s.handleSetUserCapability).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/users/{id}/capabilities/{capability}", s.handleDeleteUserCapability).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/roles/capabilities", s.handleGetRoleCapabilities).Methods("GET", "OPTIONS")
+	router.HandleFunc("/roles/{role}/capabilities", s.handleSetRoleCapabilities).Methods("PUT", "OPTIONS")
+
 	// Metrics endpoints
 	router.HandleFunc("/metrics", s.handleGetMetrics).Methods("GET", "OPTIONS")
 	router.HandleFunc("/metrics/system", s.handleGetSystemMetrics).Methods("GET", "OPTIONS")
@@ -729,6 +736,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		s.writeError(w, "Unknown authentication provider", http.StatusInternalServerError)
+		return
+	}
+
+	// Step 4.5: Check console:access capability before proceeding.
+	allowed, capErr := s.authManager.HasCapability(r.Context(), user.ID, user.Roles, auth.CapConsoleAccess)
+	if capErr != nil {
+		logrus.WithError(capErr).Error("Failed to check console:access capability")
+		s.writeError(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
+		s.writeError(w, "Your account does not have access to the console", http.StatusForbidden)
 		return
 	}
 
@@ -1403,6 +1422,11 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	user, userExists := auth.GetUserFromContext(r.Context())
 	if !userExists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	if !auth.CheckCapabilityInContext(r.Context(), s.authManager, auth.CapBucketCreate) {
+		s.writeError(w, "You do not have permission to create buckets", http.StatusForbidden)
 		return
 	}
 
@@ -3661,6 +3685,14 @@ func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 	if currentUser == nil || (!s.isAdmin(currentUser) && !isSelf) {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
+	}
+
+	// Non-admin users creating keys for themselves need keys:manage_own capability.
+	if isSelf && !s.isAdmin(currentUser) {
+		if !auth.CheckCapabilityInContext(r.Context(), s.authManager, auth.CapKeysManageOwn) {
+			s.writeError(w, "You do not have permission to manage API keys", http.StatusForbidden)
+			return
+		}
 	}
 
 	// Get user to check tenant and quota

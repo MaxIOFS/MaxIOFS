@@ -173,5 +173,18 @@
   "selectGroupPlaceholder": "— Select a group —",
   "alreadyInAllGroups": "This user is already in all available groups.",
   "addingToGroup": "Adding...",
-  "groupMembership": "group membership"
+  "groupMembership": "group membership",
+  "manageCapabilities": "Manage Permissions",
+  "capabilitiesTitle": "User Permissions",
+  "capabilitiesDesc": "Service-level permissions for this user. Toggles set an explicit override on top of the role defaults.",
+  "capSourceOverride": "override",
+  "capResetToRole": "Reset to role default",
+  "capabilitySaved": "Permission updated",
+  "roleCapabilitiesTitle": "Role Capabilities",
+  "roleCapabilitiesDesc": "Configure which capabilities each role grants by default. Changes apply to all users with that role immediately.",
+  "roleCapabilitiesGlobalWarning": "These settings apply globally to all tenants. Per-user overrides set by tenant admins take precedence over role defaults.",
+  "roleCapabilitiesCapabilityCol": "Capability",
+  "roleCapabilitiesSave": "Save",
+  "roleCapabilitiesRoleSaved": "Capabilities saved for role \"{{role}}\"",
+  "roleCapabilitiesAdminNote": "The admin role always has all capabilities and cannot be restricted here."
 }

@@ -18,25 +18,35 @@ import (
 
 // UserData represents user information to be synchronized
 type UserData struct {
-	ID                  string `json:"id"`
-	Username            string `json:"username"`
-	PasswordHash        string `json:"password_hash"`
-	DisplayName         string `json:"display_name"`
-	Email               string `json:"email"`
-	Status              string `json:"status"`
-	TenantID            string `json:"tenant_id"`
-	Roles               string `json:"roles"`
-	Policies            string `json:"policies"`
-	Metadata            string `json:"metadata"`
-	FailedLoginAttempts int    `json:"failed_login_attempts"`
-	LockedUntil         int64  `json:"locked_until"`
-	LastFailedLogin     int64  `json:"last_failed_login"`
-	ThemePreference     string `json:"theme_preference"`
-	LanguagePreference  string `json:"language_preference"`
-	AuthProvider        string `json:"auth_provider"`
-	ExternalID          string `json:"external_id"`
-	CreatedAt           int64  `json:"created_at"`
-	UpdatedAt           int64  `json:"updated_at"`
+	ID                  string                  `json:"id"`
+	Username            string                  `json:"username"`
+	PasswordHash        string                  `json:"password_hash"`
+	DisplayName         string                  `json:"display_name"`
+	Email               string                  `json:"email"`
+	Status              string                  `json:"status"`
+	TenantID            string                  `json:"tenant_id"`
+	Roles               string                  `json:"roles"`
+	Policies            string                  `json:"policies"`
+	Metadata            string                  `json:"metadata"`
+	FailedLoginAttempts int                     `json:"failed_login_attempts"`
+	LockedUntil         int64                   `json:"locked_until"`
+	LastFailedLogin     int64                   `json:"last_failed_login"`
+	ThemePreference     string                  `json:"theme_preference"`
+	LanguagePreference  string                  `json:"language_preference"`
+	AuthProvider        string                  `json:"auth_provider"`
+	ExternalID          string                  `json:"external_id"`
+	CreatedAt           int64                   `json:"created_at"`
+	UpdatedAt           int64                   `json:"updated_at"`
+	// CapabilityOverrides carries per-user capability overrides along with the user record.
+	CapabilityOverrides []CapabilityOverrideData `json:"capability_overrides,omitempty"`
+}
+
+// CapabilityOverrideData is the wire format for a single capability override inside UserData.
+type CapabilityOverrideData struct {
+	Capability string `json:"capability"`
+	Granted    bool   `json:"granted"`
+	GrantedBy  string `json:"granted_by"`
+	CreatedAt  int64  `json:"created_at"`
 }
 
 // UserSyncManager handles automatic user synchronization between cluster nodes
@@ -302,6 +312,27 @@ func (m *UserSyncManager) listLocalUsers(ctx context.Context) ([]*UserData, erro
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
+
+		// Load capability overrides for this user.
+		orows, err := m.db.QueryContext(ctx,
+			`SELECT capability, granted, granted_by, created_at FROM user_capability_overrides WHERE user_id = ? ORDER BY capability`,
+			user.ID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query capability overrides for user %s: %w", user.ID, err)
+		}
+		for orows.Next() {
+			var o CapabilityOverrideData
+			var granted int
+			if err := orows.Scan(&o.Capability, &granted, &o.GrantedBy, &o.CreatedAt); err != nil {
+				orows.Close()
+				return nil, err
+			}
+			o.Granted = granted == 1
+			user.CapabilityOverrides = append(user.CapabilityOverrides, o)
+		}
+		orows.Close()
+
 		users = append(users, user)
 	}
 
@@ -310,8 +341,15 @@ func (m *UserSyncManager) listLocalUsers(ctx context.Context) ([]*UserData, erro
 
 // computeUserChecksum computes a checksum for user data to detect changes
 func (m *UserSyncManager) computeUserChecksum(user *UserData) string {
-	// Create a string representation of relevant user fields
-	data := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%d|%d|%s|%s|%s|%s|%d",
+	overrideSig := ""
+	for _, o := range user.CapabilityOverrides {
+		g := 0
+		if o.Granted {
+			g = 1
+		}
+		overrideSig += fmt.Sprintf("%s:%d,", o.Capability, g)
+	}
+	data := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%d|%d|%s|%s|%s|%s|%d|%s",
 		user.Username,
 		user.PasswordHash,
 		user.DisplayName,
@@ -328,6 +366,7 @@ func (m *UserSyncManager) computeUserChecksum(user *UserData) string {
 		user.AuthProvider,
 		user.ExternalID,
 		user.UpdatedAt,
+		overrideSig,
 	)
 
 	hash := sha256.Sum256([]byte(data))

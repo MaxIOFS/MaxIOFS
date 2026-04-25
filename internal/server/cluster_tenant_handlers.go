@@ -240,25 +240,26 @@ func (s *Server) handleReceiveUserSync(w http.ResponseWriter, r *http.Request) {
 
 	// Parse user data from request body
 	var userData struct {
-		ID                  string `json:"id"`
-		Username            string `json:"username"`
-		PasswordHash        string `json:"password_hash"`
-		DisplayName         string `json:"display_name"`
-		Email               string `json:"email"`
-		Status              string `json:"status"`
-		TenantID            string `json:"tenant_id"`
-		Roles               string `json:"roles"`
-		Policies            string `json:"policies"`
-		Metadata            string `json:"metadata"`
-		FailedLoginAttempts int    `json:"failed_login_attempts"`
-		LockedUntil         int64  `json:"locked_until"`
-		LastFailedLogin     int64  `json:"last_failed_login"`
-		ThemePreference     string `json:"theme_preference"`
-		LanguagePreference  string `json:"language_preference"`
-		AuthProvider        string `json:"auth_provider"`
-		ExternalID          string `json:"external_id"`
-		CreatedAt           int64  `json:"created_at"`
-		UpdatedAt           int64  `json:"updated_at"`
+		ID                  string                           `json:"id"`
+		Username            string                           `json:"username"`
+		PasswordHash        string                           `json:"password_hash"`
+		DisplayName         string                           `json:"display_name"`
+		Email               string                           `json:"email"`
+		Status              string                           `json:"status"`
+		TenantID            string                           `json:"tenant_id"`
+		Roles               string                           `json:"roles"`
+		Policies            string                           `json:"policies"`
+		Metadata            string                           `json:"metadata"`
+		FailedLoginAttempts int                              `json:"failed_login_attempts"`
+		LockedUntil         int64                            `json:"locked_until"`
+		LastFailedLogin     int64                            `json:"last_failed_login"`
+		ThemePreference     string                           `json:"theme_preference"`
+		LanguagePreference  string                           `json:"language_preference"`
+		AuthProvider        string                           `json:"auth_provider"`
+		ExternalID          string                           `json:"external_id"`
+		CreatedAt           int64                            `json:"created_at"`
+		UpdatedAt           int64                            `json:"updated_at"`
+		CapabilityOverrides []cluster.CapabilityOverrideData `json:"capability_overrides,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&userData); err != nil {
@@ -303,25 +304,26 @@ func (s *Server) handleReceiveUserSync(w http.ResponseWriter, r *http.Request) {
 
 // upsertUser creates or updates a user in the local database
 func (s *Server) upsertUser(ctx context.Context, user *struct {
-	ID                  string `json:"id"`
-	Username            string `json:"username"`
-	PasswordHash        string `json:"password_hash"`
-	DisplayName         string `json:"display_name"`
-	Email               string `json:"email"`
-	Status              string `json:"status"`
-	TenantID            string `json:"tenant_id"`
-	Roles               string `json:"roles"`
-	Policies            string `json:"policies"`
-	Metadata            string `json:"metadata"`
-	FailedLoginAttempts int    `json:"failed_login_attempts"`
-	LockedUntil         int64  `json:"locked_until"`
-	LastFailedLogin     int64  `json:"last_failed_login"`
-	ThemePreference     string `json:"theme_preference"`
-	LanguagePreference  string `json:"language_preference"`
-	AuthProvider        string `json:"auth_provider"`
-	ExternalID          string `json:"external_id"`
-	CreatedAt           int64  `json:"created_at"`
-	UpdatedAt           int64  `json:"updated_at"`
+	ID                  string                           `json:"id"`
+	Username            string                           `json:"username"`
+	PasswordHash        string                           `json:"password_hash"`
+	DisplayName         string                           `json:"display_name"`
+	Email               string                           `json:"email"`
+	Status              string                           `json:"status"`
+	TenantID            string                           `json:"tenant_id"`
+	Roles               string                           `json:"roles"`
+	Policies            string                           `json:"policies"`
+	Metadata            string                           `json:"metadata"`
+	FailedLoginAttempts int                              `json:"failed_login_attempts"`
+	LockedUntil         int64                            `json:"locked_until"`
+	LastFailedLogin     int64                            `json:"last_failed_login"`
+	ThemePreference     string                           `json:"theme_preference"`
+	LanguagePreference  string                           `json:"language_preference"`
+	AuthProvider        string                           `json:"auth_provider"`
+	ExternalID          string                           `json:"external_id"`
+	CreatedAt           int64                            `json:"created_at"`
+	UpdatedAt           int64                            `json:"updated_at"`
+	CapabilityOverrides []cluster.CapabilityOverrideData `json:"capability_overrides,omitempty"`
 }) error {
 	// Handle NULL values for tenant_id
 	var tenantID sql.NullString
@@ -464,6 +466,34 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 		}
 
 		logrus.WithField("user_id", user.ID).Debug("Inserted new user")
+	}
+
+	// Apply capability overrides: replace all local overrides for this user atomically.
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM user_capability_overrides WHERE user_id = ?`, user.ID,
+	); err != nil {
+		logrus.WithError(err).WithField("user_id", user.ID).Warn("Failed to clear capability overrides during sync")
+	} else {
+		for _, o := range user.CapabilityOverrides {
+			grantedInt := 0
+			if o.Granted {
+				grantedInt = 1
+			}
+			if _, err := s.db.ExecContext(ctx, `
+				INSERT INTO user_capability_overrides (id, user_id, capability, granted, granted_by, created_at)
+				VALUES (?, ?, ?, ?, ?, ?)
+				ON CONFLICT(user_id, capability) DO UPDATE SET
+					granted    = excluded.granted,
+					granted_by = excluded.granted_by,
+					created_at = excluded.created_at
+			`, fmt.Sprintf("cap-%s-%s", user.ID, o.Capability), user.ID, o.Capability, grantedInt, o.GrantedBy, o.CreatedAt,
+			); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"user_id":    user.ID,
+					"capability": o.Capability,
+				}).Warn("Failed to sync capability override")
+			}
+		}
 	}
 
 	return nil

@@ -173,5 +173,18 @@
   "selectGroupPlaceholder": "— Selecciona un grupo —",
   "alreadyInAllGroups": "Este usuario ya pertenece a todos los grupos disponibles.",
   "addingToGroup": "Agregando...",
-  "groupMembership": "membresía de grupo"
+  "groupMembership": "membresía de grupo",
+  "manageCapabilities": "Gestionar Permisos",
+  "capabilitiesTitle": "Permisos de Usuario",
+  "capabilitiesDesc": "Permisos a nivel de servicio para este usuario. Los toggles establecen una sobreescritura explícita sobre los valores del rol.",
+  "capSourceOverride": "sobreescritura",
+  "capResetToRole": "Restaurar valor del rol",
+  "capabilitySaved": "Permiso actualizado",
+  "roleCapabilitiesTitle": "Capacidades de Roles",
+  "roleCapabilitiesDesc": "Configura qué capacidades otorga cada rol por defecto. Los cambios se aplican inmediatamente a todos los usuarios con ese rol.",
+  "roleCapabilitiesGlobalWarning": "Esta configuración aplica globalmente a todos los tenants. Las sobreescrituras por usuario establecidas por admins de tenant tienen prioridad sobre los valores del rol.",
+  "roleCapabilitiesCapabilityCol": "Capacidad",
+  "roleCapabilitiesSave": "Guardar",
+  "roleCapabilitiesRoleSaved": "Capacidades guardadas para el rol \"{{role}}\"",
+  "roleCapabilitiesAdminNote": "El rol admin siempre tiene todas las capacidades y no puede ser restringido aquí."
 }

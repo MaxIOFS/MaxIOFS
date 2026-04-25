@@ -38,6 +38,7 @@ const Security       = React.lazy(() => import('@/pages/security/index'));
 const Settings       = React.lazy(() => import('@/pages/settings/index'));
 const About          = React.lazy(() => import('@/pages/about/index'));
 const IdentityProviders  = React.lazy(() => import('@/pages/identity-providers/index'));
+const RoleCapabilities   = React.lazy(() => import('@/pages/roles/capabilities'));
 // Cluster pages grouped in a single chunk — always visited together
 const ClusterOverview    = React.lazy(() => import('@/pages/cluster/Overview'));
 const ClusterNodes       = React.lazy(() => import('@/pages/cluster/Nodes'));
@@ -319,6 +320,16 @@ function App() {
                 <ProtectedRoute>
                   <AppLayout>
                     <Settings />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/roles/capabilities"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <RoleCapabilities />
                   </AppLayout>
                 </ProtectedRoute>
               }

@@ -125,6 +125,16 @@ type Manager interface {
 	RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error)
 	Get2FAStatus(ctx context.Context, userID string) (bool, int64, error)
 
+	// Capability management
+	HasCapability(ctx context.Context, userID string, roles []string, capability string) (bool, error)
+	GetEffectiveCapabilities(ctx context.Context, userID string, roles []string) ([]EffectiveCapability, error)
+	SetCapabilityOverride(ctx context.Context, userID, capability, grantedBy string, granted bool) error
+	DeleteCapabilityOverride(ctx context.Context, userID, capability string) error
+	ListUserCapabilityOverrides(ctx context.Context, userID string) ([]*CapabilityOverride, error)
+	GetAllRoleCapabilities(ctx context.Context) (map[string][]string, error)
+	GetRoleCapabilities(ctx context.Context, role string) ([]string, error)
+	SetRoleCapabilities(ctx context.Context, role string, capabilities []string) error
+
 	// Health check
 	IsReady() bool
 
@@ -2385,4 +2395,52 @@ func (m *authManager) Get2FAStatus(ctx context.Context, userID string) (bool, in
 	}
 
 	return user.TwoFactorEnabled, user.TwoFactorSetupAt, nil
+}
+
+// --- Capability management (authManager wrappers) ---
+
+func (m *authManager) HasCapability(_ context.Context, userID string, roles []string, capability string) (bool, error) {
+	return m.store.HasCapability(userID, roles, capability)
+}
+
+func (m *authManager) GetEffectiveCapabilities(_ context.Context, userID string, roles []string) ([]EffectiveCapability, error) {
+	return m.store.GetEffectiveCapabilities(userID, roles)
+}
+
+func (m *authManager) SetCapabilityOverride(_ context.Context, userID, capability, grantedBy string, granted bool) error {
+	return m.store.SetCapabilityOverride(userID, capability, grantedBy, granted)
+}
+
+func (m *authManager) DeleteCapabilityOverride(_ context.Context, userID, capability string) error {
+	return m.store.DeleteCapabilityOverride(userID, capability)
+}
+
+func (m *authManager) ListUserCapabilityOverrides(_ context.Context, userID string) ([]*CapabilityOverride, error) {
+	return m.store.ListUserCapabilityOverrides(userID)
+}
+
+func (m *authManager) GetAllRoleCapabilities(_ context.Context) (map[string][]string, error) {
+	return m.store.GetAllRoleCapabilities()
+}
+
+func (m *authManager) GetRoleCapabilities(_ context.Context, role string) ([]string, error) {
+	return m.store.GetRoleCapabilities(role)
+}
+
+func (m *authManager) SetRoleCapabilities(_ context.Context, role string, capabilities []string) error {
+	return m.store.SetRoleCapabilities(role, capabilities)
+}
+
+// CheckCapabilityInContext is a convenience helper for handlers — returns true when the
+// user in ctx has the given capability. Admin role always returns true.
+func CheckCapabilityInContext(ctx context.Context, am Manager, capability string) bool {
+	user, ok := GetUserFromContext(ctx)
+	if !ok {
+		return false
+	}
+	allowed, err := am.HasCapability(ctx, user.ID, user.Roles, capability)
+	if err != nil {
+		return false
+	}
+	return allowed
 }

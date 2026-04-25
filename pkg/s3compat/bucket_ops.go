@@ -65,6 +65,11 @@ func (h *Handler) PutBucketPolicy(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: PutBucketPolicy")
 
+	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketManagePolicy) {
+		h.writeError(w, "AccessDenied", "You do not have permission to manage bucket policies", bucketName, r)
+		return
+	}
+
 	// Read the policy document from request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -118,6 +123,11 @@ func (h *Handler) DeleteBucketPolicy(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: DeleteBucketPolicy")
+
+	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketManagePolicy) {
+		h.writeError(w, "AccessDenied", "You do not have permission to manage bucket policies", bucketName, r)
+		return
+	}
 
 	// Delete the policy by setting it to nil
 	tenantID := h.getTenantIDFromRequest(r)
@@ -269,6 +279,11 @@ func (h *Handler) PutBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: PutBucketLifecycle")
+
+	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketConfigure) {
+		h.writeError(w, "AccessDenied", "You do not have permission to configure buckets", bucketName, r)
+		return
+	}
 
 	// Parse the XML lifecycle configuration
 	var xmlConfig LifecycleConfiguration
@@ -444,6 +459,11 @@ func (h *Handler) PutBucketCORS(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: PutBucketCORS")
 
+	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketConfigure) {
+		h.writeError(w, "AccessDenied", "You do not have permission to configure buckets", bucketName, r)
+		return
+	}
+
 	// Parse the XML CORS configuration
 	var xmlConfig CORSConfiguration
 	if err := xml.NewDecoder(r.Body).Decode(&xmlConfig); err != nil {
@@ -580,6 +600,11 @@ func (h *Handler) PutBucketTagging(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: PutBucketTagging")
+
+	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketConfigure) {
+		h.writeError(w, "AccessDenied", "You do not have permission to configure buckets", bucketName, r)
+		return
+	}
 
 	// Read the tagging XML from request body
 	body, err := io.ReadAll(r.Body)
@@ -1211,6 +1236,11 @@ func (h *Handler) PutBucketEncryption(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	tenantID := h.getTenantIDFromRequest(r)
+
+	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketConfigure) {
+		h.writeError(w, "AccessDenied", "You do not have permission to configure buckets", bucketName, r)
+		return
+	}
 
 	var xmlCfg sseConfiguration
 	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {

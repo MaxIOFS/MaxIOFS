@@ -20,6 +20,7 @@ func getAllMigrations() []Migration {
 		migration10_v091_ClusterDeletionLog(),
 		migration11_v092_LoggingTargets(),
 		migration12_v100_Groups(),
+		migration13_v140_Capabilities(),
 	}
 }
 
