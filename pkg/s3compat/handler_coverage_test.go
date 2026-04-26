@@ -290,7 +290,7 @@ func TestDeleteBucket_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create user for context
-	user := &auth.User{ID: env.userID, TenantID: env.tenantID}
+	user := &auth.User{ID: env.userID, TenantID: env.tenantID, Roles: []string{"user"}}
 
 	// Create request
 	req := httptest.NewRequest(http.MethodDelete, "/delete-test-bucket", nil)
@@ -310,7 +310,7 @@ func TestDeleteBucket_NotFound(t *testing.T) {
 	defer env.cleanup()
 
 	// Create user for context
-	user := &auth.User{ID: env.userID, TenantID: env.tenantID}
+	user := &auth.User{ID: env.userID, TenantID: env.tenantID, Roles: []string{"user"}}
 
 	// Create request for non-existent bucket
 	req := httptest.NewRequest(http.MethodDelete, "/nonexistent-bucket", nil)
@@ -342,7 +342,7 @@ func TestDeleteBucket_NotEmpty(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create user for context
-	user := &auth.User{ID: env.userID, TenantID: env.tenantID}
+	user := &auth.User{ID: env.userID, TenantID: env.tenantID, Roles: []string{"user"}}
 
 	// Try to delete non-empty bucket
 	req := httptest.NewRequest(http.MethodDelete, "/bucket-with-objects", nil)

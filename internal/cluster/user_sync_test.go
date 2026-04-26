@@ -402,6 +402,19 @@ func TestUserSyncManager_SyncLoop(t *testing.T) {
 	`)
 	require.NoError(t, err)
 
+	_, err = db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS user_capability_overrides (
+			id         TEXT PRIMARY KEY,
+			user_id    TEXT NOT NULL,
+			capability TEXT NOT NULL,
+			granted    INTEGER NOT NULL DEFAULT 1,
+			granted_by TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			UNIQUE (user_id, capability)
+		)
+	`)
+	require.NoError(t, err)
+
 	now := time.Now().Unix()
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO users (id, username, password_hash, status, created_at, updated_at)
