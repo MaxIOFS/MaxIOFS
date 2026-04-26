@@ -226,6 +226,30 @@ func (m *mockAuthManager) ListUserGroups(ctx context.Context, userID string) ([]
 	return nil, nil
 }
 func (m *mockAuthManager) ListAllGroups(ctx context.Context) ([]*auth.Group, error) { return nil, nil }
+func (m *mockAuthManager) HasCapability(_ context.Context, userID string, roles []string, capability string) (bool, error) {
+	return false, nil
+}
+func (m *mockAuthManager) GetEffectiveCapabilities(_ context.Context, userID string, roles []string) ([]auth.EffectiveCapability, error) {
+	return nil, nil
+}
+func (m *mockAuthManager) SetCapabilityOverride(_ context.Context, userID, capability, grantedBy string, granted bool) error {
+	return nil
+}
+func (m *mockAuthManager) DeleteCapabilityOverride(_ context.Context, userID, capability string) error {
+	return nil
+}
+func (m *mockAuthManager) ListUserCapabilityOverrides(_ context.Context, userID string) ([]*auth.CapabilityOverride, error) {
+	return nil, nil
+}
+func (m *mockAuthManager) GetAllRoleCapabilities(_ context.Context) (map[string][]string, error) {
+	return nil, nil
+}
+func (m *mockAuthManager) GetRoleCapabilities(_ context.Context, role string) ([]string, error) {
+	return nil, nil
+}
+func (m *mockAuthManager) SetRoleCapabilities(_ context.Context, role string, capabilities []string) error {
+	return nil
+}
 
 // TestGeneratePresignedURLV4_Success tests successful V4 presigned URL generation
 func TestGeneratePresignedURLV4_Success(t *testing.T) {

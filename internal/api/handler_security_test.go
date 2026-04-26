@@ -845,6 +845,30 @@ func (m *MockAuthManager) ListUserGroups(ctx context.Context, userID string) ([]
 	return nil, nil
 }
 func (m *MockAuthManager) ListAllGroups(ctx context.Context) ([]*auth.Group, error) { return nil, nil }
+func (m *MockAuthManager) HasCapability(_ context.Context, userID string, roles []string, capability string) (bool, error) {
+	return false, nil
+}
+func (m *MockAuthManager) GetEffectiveCapabilities(_ context.Context, userID string, roles []string) ([]auth.EffectiveCapability, error) {
+	return nil, nil
+}
+func (m *MockAuthManager) SetCapabilityOverride(_ context.Context, userID, capability, grantedBy string, granted bool) error {
+	return nil
+}
+func (m *MockAuthManager) DeleteCapabilityOverride(_ context.Context, userID, capability string) error {
+	return nil
+}
+func (m *MockAuthManager) ListUserCapabilityOverrides(_ context.Context, userID string) ([]*auth.CapabilityOverride, error) {
+	return nil, nil
+}
+func (m *MockAuthManager) GetAllRoleCapabilities(_ context.Context) (map[string][]string, error) {
+	return nil, nil
+}
+func (m *MockAuthManager) GetRoleCapabilities(_ context.Context, role string) ([]string, error) {
+	return nil, nil
+}
+func (m *MockAuthManager) SetRoleCapabilities(_ context.Context, role string, capabilities []string) error {
+	return nil
+}
 
 type MockMetricsManager struct {
 	mock.Mock
