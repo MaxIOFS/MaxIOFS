@@ -3,7 +3,6 @@ package bucket
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
 
@@ -96,22 +95,16 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 	// Solo crear ACL por defecto si no existe uno explícito
 	// AWS S3 compatible: Owner is the user who created the bucket (Canonical User ID)
 	if bm.aclManager != nil {
-		aclActual, err := bm.aclManager.GetBucketACL(ctx, tenantID, name)
 		defaultACL := acl.CreateDefaultACL(ownerID, "Bucket Owner")
-		if err != nil {
-			// Si hay error inesperado, loguear pero no fallar bucket creation
-			fmt.Printf("Warning: Error al consultar ACL para bucket %s: %v\n", name, err)
-		} else {
-			// Compara owner y cannedACL para saber si es el default
-			esDefault := reflect.DeepEqual(aclActual.Owner, defaultACL.Owner) && aclActual.CannedACL == defaultACL.CannedACL && len(aclActual.Grants) == len(defaultACL.Grants)
-			if esDefault {
-				if err := bm.aclManager.SetBucketACL(ctx, tenantID, name, defaultACL); err != nil {
-					fmt.Printf("Warning: Failed to set default ACL for bucket %s: %v\n", name, err)
-				}
-			}
+		if err := bm.aclManager.SetBucketACL(ctx, tenantID, name, defaultACL); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"tenant_id": tenantID,
+				"bucket":    name,
+				"owner_id":  ownerID,
+			}).Warn("Failed to persist default bucket ACL")
 		}
 	} else {
-		fmt.Printf("Warning: ACL manager not initialized for bucket %s\n", name)
+		logrus.WithField("bucket", name).Warn("ACL manager not initialized during bucket creation")
 	}
 
 	// Create bucket directory in storage

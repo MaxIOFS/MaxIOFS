@@ -141,14 +141,19 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 	metadata["etag"] = hex.EncodeToString(hasher.Sum(nil))
 	metadata["last_modified"] = fmt.Sprintf("%d", time.Now().Unix())
 
-	// Save metadata
-	if err := fs.saveMetadata(path, metadata); err != nil {
+	metadataTempPath, err := fs.prepareMetadataTemp(path, metadata)
+	if err != nil {
 		return err
 	}
+	defer os.Remove(metadataTempPath)
 
 	// Atomic move
 	if err := os.Rename(tempFile.Name(), fullPath); err != nil {
 		return NewErrorWithCause("AtomicMove", "Failed to move file to final location", err)
+	}
+
+	if err := os.Rename(metadataTempPath, fs.getMetadataPath(path)); err != nil {
+		return NewErrorWithCause("AtomicMetadataMove", "Failed to move metadata file to final location", err)
 	}
 
 	return nil
@@ -448,24 +453,49 @@ func (fs *FilesystemBackend) getMetadataPath(path string) string {
 func (fs *FilesystemBackend) saveMetadata(path string, metadata map[string]string) error {
 	metadataPath := fs.getMetadataPath(path)
 
+	tempPath, err := fs.prepareMetadataTemp(path, metadata)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tempPath)
+
+	if err := os.Rename(tempPath, metadataPath); err != nil {
+		return NewErrorWithCause("AtomicMetadataMove", "Failed to move metadata file to final location", err)
+	}
+
+	return nil
+}
+
+func (fs *FilesystemBackend) prepareMetadataTemp(path string, metadata map[string]string) (string, error) {
+	metadataPath := fs.getMetadataPath(path)
+
 	// Create directory for metadata file
 	dir := filepath.Dir(metadataPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return NewErrorWithCause("CreateMetadataDirectory", "Failed to create metadata directory", err)
+		return "", NewErrorWithCause("CreateMetadataDirectory", "Failed to create metadata directory", err)
 	}
 
 	// Marshal metadata
 	data, err := json.Marshal(metadata)
 	if err != nil {
-		return NewErrorWithCause("MarshalMetadata", "Failed to marshal metadata", err)
+		return "", NewErrorWithCause("MarshalMetadata", "Failed to marshal metadata", err)
 	}
 
-	// Write metadata file
-	if err := os.WriteFile(metadataPath, data, 0644); err != nil {
-		return NewErrorWithCause("WriteMetadata", "Failed to write metadata file", err)
+	tempFile, err := os.CreateTemp(dir, ".metadata-tmp-*")
+	if err != nil {
+		return "", NewErrorWithCause("CreateMetadataTempFile", "Failed to create temporary metadata file", err)
+	}
+	tempPath := tempFile.Name()
+
+	if _, err := tempFile.Write(data); err != nil {
+		tempFile.Close()
+		return "", NewErrorWithCause("WriteMetadata", "Failed to write metadata file", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		return "", NewErrorWithCause("CloseMetadataTempFile", "Failed to close temporary metadata file", err)
 	}
 
-	return nil
+	return tempPath, nil
 }
 
 // generateBasicMetadata generates basic metadata from file stats

@@ -147,6 +147,17 @@ func TestPutAndGet(t *testing.T) {
 		assert.Error(t, err)
 		assert.Equal(t, ErrInvalidPath, err)
 	})
+
+	t.Run("Put cleans up prepared metadata on rename failure", func(t *testing.T) {
+		conflictPath := filepath.Join(tmpDir, "conflict")
+		require.NoError(t, os.MkdirAll(conflictPath, 0755))
+
+		err := backend.Put(ctx, "conflict", bytes.NewReader([]byte("data")), map[string]string{"content-type": "text/plain"})
+		require.Error(t, err)
+
+		_, statErr := os.Stat(filepath.Join(tmpDir, "conflict.metadata"))
+		assert.True(t, os.IsNotExist(statErr), "metadata file should not remain after failed put")
+	})
 }
 
 // TestPutDirectoryMarker tests directory marker creation

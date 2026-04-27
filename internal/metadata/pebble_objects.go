@@ -784,6 +784,7 @@ func (s *PebbleStore) ListObjectsByTags(ctx context.Context, bucket string, tags
 	}
 
 	idxPrefix := tagIndexPrefix(bucket, firstTagKey, firstTagValue)
+	idxPrefixStr := string(idxPrefix)
 	iter, err := s.pebbleIter(idxPrefix)
 	if err != nil {
 		return nil, err
@@ -792,10 +793,8 @@ func (s *PebbleStore) ListObjectsByTags(ctx context.Context, bucket string, tags
 	var candidateKeys []string
 	for iter.First(); iter.Valid(); iter.Next() {
 		k := string(iter.Key())
-		// tag_idx:{bucket}:{tagKey}:{tagValue}:{objectKey}
-		parts := strings.SplitN(k, ":", 5)
-		if len(parts) == 5 {
-			candidateKeys = append(candidateKeys, parts[4])
+		if strings.HasPrefix(k, idxPrefixStr) {
+			candidateKeys = append(candidateKeys, strings.TrimPrefix(k, idxPrefixStr))
 		}
 	}
 	iterErr := iter.Error()
@@ -915,6 +914,7 @@ func (s *PebbleStore) searchObjectsWithTags(ctx context.Context, bucket, prefix,
 	}
 
 	idxPrefix := tagIndexPrefix(bucket, firstTagKey, firstTagValue)
+	idxPrefixStr := string(idxPrefix)
 	iter, err := s.pebbleIter(idxPrefix)
 	if err != nil {
 		return nil, "", err
@@ -923,9 +923,8 @@ func (s *PebbleStore) searchObjectsWithTags(ctx context.Context, bucket, prefix,
 	var candidateKeys []string
 	for iter.First(); iter.Valid(); iter.Next() {
 		k := string(iter.Key())
-		parts := strings.SplitN(k, ":", 5)
-		if len(parts) == 5 {
-			objKey := parts[4]
+		if strings.HasPrefix(k, idxPrefixStr) {
+			objKey := strings.TrimPrefix(k, idxPrefixStr)
 			if prefix != "" && !strings.HasPrefix(objKey, prefix) {
 				continue
 			}

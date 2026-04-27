@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/storage"
@@ -138,6 +139,19 @@ func TestCreateBucket(t *testing.T) {
 		exists, err := manager.BucketExists(ctx, "", "global-bucket")
 		assert.NoError(t, err)
 		assert.True(t, exists)
+	})
+
+	t.Run("Persist default ACL owner for created bucket", func(t *testing.T) {
+		err := manager.CreateBucket(ctx, "tenant-acl", "acl-owner-bucket", "user-123")
+		require.NoError(t, err)
+
+		bucketACL, err := manager.GetBucketACL(ctx, "tenant-acl", "acl-owner-bucket")
+		require.NoError(t, err)
+
+		aclData, ok := bucketACL.(*acl.ACL)
+		require.True(t, ok)
+		assert.Equal(t, "user-123", aclData.Owner.ID)
+		assert.Equal(t, "Bucket Owner", aclData.Owner.DisplayName)
 	})
 }
 

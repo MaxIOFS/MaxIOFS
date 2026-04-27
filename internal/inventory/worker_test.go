@@ -77,7 +77,7 @@ func TestWorker_ProcessInventoryConfig_Success(t *testing.T) {
 	}, nil).Twice()
 
 	// Mock objects in source bucket
-	mockMetadata.On("ListObjects", ctx, "source-bucket", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/source-bucket", "", "", 10000).Return(
 		[]*metadata.ObjectMetadata{
 			{
 				TenantID:     "tenant1",
@@ -293,7 +293,7 @@ func TestWorker_ProcessInventoryConfig_GenerationFailure(t *testing.T) {
 	}, nil).Twice()
 
 	// Mock objects in source bucket
-	mockMetadata.On("ListObjects", ctx, "source-bucket", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/source-bucket", "", "", 10000).Return(
 		[]*metadata.ObjectMetadata{
 			{
 				TenantID: "tenant1",
@@ -305,9 +305,6 @@ func TestWorker_ProcessInventoryConfig_GenerationFailure(t *testing.T) {
 		"",
 		nil,
 	).Once()
-
-	// Mock metadata write succeeds
-	mockMetadata.On("PutObject", ctx, mock.AnythingOfType("*metadata.ObjectMetadata")).Return(nil).Once()
 
 	// Mock storage failure
 	mockStorage.On("Put", ctx, mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("map[string]string")).Return(
@@ -417,14 +414,14 @@ func TestWorker_ProcessInventories_MultipleConfigs(t *testing.T) {
 		Name:     "dest-1",
 		TenantID: "tenant1",
 	}, nil).Twice()
-	mockMetadata.On("ListObjects", ctx, "bucket-1", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/bucket-1", "", "", 10000).Return(
 		[]*metadata.ObjectMetadata{
 			{TenantID: "tenant1", Bucket: "bucket-1", Key: "file1.txt", Size: 100, LastModified: now},
 		},
 		"", nil,
 	).Once()
 	mockMetadata.On("PutObject", ctx, mock.MatchedBy(func(obj *metadata.ObjectMetadata) bool {
-		return obj.Bucket == "dest-1"
+		return obj.Bucket == "tenant1/dest-1"
 	})).Return(nil).Once()
 	mockStorage.On("Put", ctx, mock.MatchedBy(func(path string) bool {
 		return true
@@ -439,14 +436,14 @@ func TestWorker_ProcessInventories_MultipleConfigs(t *testing.T) {
 		Name:     "dest-2",
 		TenantID: "tenant1",
 	}, nil).Twice()
-	mockMetadata.On("ListObjects", ctx, "bucket-2", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/bucket-2", "", "", 10000).Return(
 		[]*metadata.ObjectMetadata{
 			{TenantID: "tenant1", Bucket: "bucket-2", Key: "file2.txt", Size: 200, LastModified: now},
 		},
 		"", nil,
 	).Once()
 	mockMetadata.On("PutObject", ctx, mock.MatchedBy(func(obj *metadata.ObjectMetadata) bool {
-		return obj.Bucket == "dest-2"
+		return obj.Bucket == "tenant1/dest-2"
 	})).Return(nil).Once()
 	mockStorage.On("Put", ctx, mock.MatchedBy(func(path string) bool {
 		return true

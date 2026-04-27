@@ -59,6 +59,9 @@ func NewManager(store metadata.RawKVStore) *Manager {
 			if err != nil {
 				return nil, fmt.Errorf("webhook SSRF guard: DNS lookup failed for %q: %w", host, err)
 			}
+			if len(ips) == 0 {
+				return nil, fmt.Errorf("webhook SSRF guard: DNS lookup returned no addresses for %q", host)
+			}
 
 			for _, ipStr := range ips {
 				ip := net.ParseIP(ipStr)
@@ -348,9 +351,9 @@ func (m *Manager) sendWebhook(rule NotificationRule, event Event) {
 			}).Warn("Failed to send webhook")
 			continue
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			_ = resp.Body.Close()
 			logrus.WithFields(logrus.Fields{
 				"url":        rule.WebhookURL,
 				"event":      event.EventName,
@@ -362,6 +365,7 @@ func (m *Manager) sendWebhook(rule NotificationRule, event Event) {
 		}
 
 		lastErr = fmt.Errorf("webhook returned status %d", resp.StatusCode)
+		_ = resp.Body.Close()
 		logrus.WithFields(logrus.Fields{
 			"url":        rule.WebhookURL,
 			"statusCode": resp.StatusCode,

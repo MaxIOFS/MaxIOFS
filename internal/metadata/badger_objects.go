@@ -737,6 +737,7 @@ func (s *BadgerStore) ListObjectsByTags(ctx context.Context, bucket string, tags
 	err := s.db.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
 		opts.Prefix = tagIndexPrefix(bucket, firstTagKey, firstTagValue)
+		idxPrefixStr := string(opts.Prefix)
 
 		it := txn.NewIterator(opts)
 		defer it.Close()
@@ -745,10 +746,8 @@ func (s *BadgerStore) ListObjectsByTags(ctx context.Context, bucket string, tags
 			item := it.Item()
 			k := string(item.Key())
 
-			// Extract object key from tag index key: tag_idx:{bucket}:{tagKey}:{tagValue}:{objectKey}
-			parts := strings.SplitN(k, ":", 5)
-			if len(parts) == 5 {
-				candidateKeys = append(candidateKeys, parts[4])
+			if strings.HasPrefix(k, idxPrefixStr) {
+				candidateKeys = append(candidateKeys, strings.TrimPrefix(k, idxPrefixStr))
 			}
 		}
 
@@ -939,6 +938,7 @@ func (s *BadgerStore) searchObjectsWithTags(ctx context.Context, bucket, prefix,
 	err := s.db.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
 		opts.Prefix = tagIndexPrefix(bucket, firstTagKey, firstTagValue)
+		idxPrefixStr := string(opts.Prefix)
 
 		it := txn.NewIterator(opts)
 		defer it.Close()
@@ -946,19 +946,19 @@ func (s *BadgerStore) searchObjectsWithTags(ctx context.Context, bucket, prefix,
 		for it.Rewind(); it.Valid(); it.Next() {
 			item := it.Item()
 			k := string(item.Key())
-			parts := strings.SplitN(k, ":", 5)
-			if len(parts) == 5 {
-				objKey := parts[4]
-				// Apply prefix filter
-				if prefix != "" && !strings.HasPrefix(objKey, prefix) {
-					continue
-				}
-				// Apply marker filter
-				if marker != "" && objKey <= marker {
-					continue
-				}
-				candidateKeys = append(candidateKeys, objKey)
+			if !strings.HasPrefix(k, idxPrefixStr) {
+				continue
 			}
+			objKey := strings.TrimPrefix(k, idxPrefixStr)
+			// Apply prefix filter
+			if prefix != "" && !strings.HasPrefix(objKey, prefix) {
+				continue
+			}
+			// Apply marker filter
+			if marker != "" && objKey <= marker {
+				continue
+			}
+			candidateKeys = append(candidateKeys, objKey)
 		}
 		return nil
 	})

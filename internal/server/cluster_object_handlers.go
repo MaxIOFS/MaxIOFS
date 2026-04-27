@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -17,6 +18,34 @@ import (
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
+
+func buildClusterBucketPath(tenantID, bucket string) string {
+	if tenantID == "" {
+		return bucket
+	}
+	return tenantID + "/" + bucket
+}
+
+func applyReplicatedUserMetadata(headers http.Header, metadataJSON string) error {
+	if strings.TrimSpace(metadataJSON) == "" || metadataJSON == "{}" {
+		return nil
+	}
+
+	var metadataMap map[string]string
+	if err := json.Unmarshal([]byte(metadataJSON), &metadataMap); err != nil {
+		return fmt.Errorf("failed to parse replicated metadata: %w", err)
+	}
+
+	for key, value := range metadataMap {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		headers.Set("x-amz-meta-"+trimmedKey, value)
+	}
+
+	return nil
+}
 
 // handleReceiveObjectReplication handles incoming object replication from other nodes
 // This endpoint is authenticated with HMAC signatures
@@ -64,17 +93,19 @@ func (s *Server) handleReceiveObjectReplication(w http.ResponseWriter, r *http.R
 	// Store object using ObjectManager.PutObject()
 	// This will automatically encrypt the object with this node's encryption key
 	if s.objectManager != nil {
+		bucketPath := buildClusterBucketPath(tenantID, bucket)
+
 		// Create HTTP headers with metadata
 		headers := http.Header{}
 		headers.Set("Content-Type", contentType)
 
-		if metadata != "" {
-			// Metadata is already stored as JSON string in header
-			// The object manager will handle it
-			headers.Set("X-Amz-Meta-Original", metadata)
+		if err := applyReplicatedUserMetadata(headers, metadata); err != nil {
+			logrus.WithError(err).Error("Failed to parse replicated object metadata")
+			http.Error(w, "Invalid object metadata", http.StatusBadRequest)
+			return
 		}
 
-		_, err := s.objectManager.PutObject(ctx, bucket, key, r.Body, headers)
+		_, err := s.objectManager.PutObject(ctx, bucketPath, key, r.Body, headers)
 		if err != nil {
 			logrus.WithError(err).Error("Failed to store replicated object")
 			http.Error(w, fmt.Sprintf("Failed to store object: %v", err), http.StatusInternalServerError)
@@ -152,7 +183,8 @@ func (s *Server) handleReceiveObjectDeletion(w http.ResponseWriter, r *http.Requ
 
 	// Delete object using ObjectManager.DeleteObject()
 	if s.objectManager != nil {
-		_, err := s.objectManager.DeleteObject(ctx, bucket, key, false)
+		bucketPath := buildClusterBucketPath(tenantID, bucket)
+		_, err := s.objectManager.DeleteObject(ctx, bucketPath, key, false)
 		if err != nil {
 			// Object not found is acceptable (idempotent delete)
 			logrus.WithError(err).Warn("Failed to delete replicated object (may already be deleted)")
@@ -189,6 +221,50 @@ func (s *Server) handleReceiveObjectDeletion(w http.ResponseWriter, r *http.Requ
 		"success": true,
 		"message": "Object deleted successfully",
 	})
+}
+
+// handleHeadReplicatedObject returns metadata for a replicated object so migration
+// verification can confirm existence and ETag on the target node.
+func (s *Server) handleHeadReplicatedObject(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
+	if !ok {
+		logrus.Warn("Cluster node ID not found in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(r)
+	tenantID := vars["tenantID"]
+	bucket := vars["bucket"]
+	key := vars["key"]
+	bucketPath := buildClusterBucketPath(tenantID, bucket)
+
+	obj, err := s.objectManager.GetObjectMetadata(ctx, bucketPath, key)
+	if err != nil {
+		if err == object.ErrObjectNotFound {
+			http.Error(w, "Object not found", http.StatusNotFound)
+			return
+		}
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"tenant_id":      tenantID,
+			"bucket":         bucket,
+			"key":            key,
+			"source_node_id": sourceNodeID,
+		}).Error("Failed to load replicated object metadata")
+		http.Error(w, "Failed to load object metadata", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("X-Object-ETag", obj.ETag)
+	w.Header().Set("ETag", obj.ETag)
+	w.Header().Set("Content-Type", obj.ContentType)
+	w.Header().Set("X-Object-Size", strconv.FormatInt(obj.Size, 10))
+	if !obj.LastModified.IsZero() {
+		w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 // storeReplicatedObjectMetadata stores metadata for a replicated object

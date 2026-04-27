@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	_ "modernc.org/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 )
 
 // MockObjectAdapter for testing
@@ -496,22 +496,22 @@ func TestCreateRule_WithAllFields(t *testing.T) {
 	ctx := context.Background()
 
 	rule := &ReplicationRule{
-		ID:                    "custom-id",
-		TenantID:              "tenant-1",
-		SourceBucket:          "source-bucket",
-		DestinationEndpoint:   "https://s3.us-west-2.amazonaws.com",
-		DestinationBucket:     "dest-bucket",
-		DestinationAccessKey:  "AKIAIOSFODNN7EXAMPLE",
-		DestinationSecretKey:  "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-		DestinationRegion:     "us-west-2",
-		Prefix:                "logs/",
-		Enabled:               true,
-		Priority:              15,
-		Mode:                  ModeScheduled,
-		ScheduleInterval:      60,
-		ConflictResolution:    ConflictVersionBased,
-		ReplicateDeletes:      false,
-		ReplicateMetadata:     true,
+		ID:                   "custom-id",
+		TenantID:             "tenant-1",
+		SourceBucket:         "source-bucket",
+		DestinationEndpoint:  "https://s3.us-west-2.amazonaws.com",
+		DestinationBucket:    "dest-bucket",
+		DestinationAccessKey: "AKIAIOSFODNN7EXAMPLE",
+		DestinationSecretKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+		DestinationRegion:    "us-west-2",
+		Prefix:               "logs/",
+		Enabled:              true,
+		Priority:             15,
+		Mode:                 ModeScheduled,
+		ScheduleInterval:     60,
+		ConflictResolution:   ConflictVersionBased,
+		ReplicateDeletes:     false,
+		ReplicateMetadata:    true,
 	}
 
 	err := manager.CreateRule(ctx, rule)
@@ -571,4 +571,60 @@ func TestQueueObject_MultipleRules(t *testing.T) {
 	err = manager.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM replication_queue").Scan(&count)
 	require.NoError(t, err)
 	assert.Equal(t, 2, count)
+}
+
+func TestLoadPendingItems_ClaimsItemsOnce(t *testing.T) {
+	manager, _ := setupTestManager(t)
+	ctx := context.Background()
+
+	rule := &ReplicationRule{
+		TenantID:          "tenant-1",
+		SourceBucket:      "source-bucket",
+		DestinationBucket: "dest-bucket",
+		Enabled:           true,
+		Mode:              ModeRealTime,
+	}
+	err := manager.CreateRule(ctx, rule)
+	require.NoError(t, err)
+
+	err = manager.QueueObject(ctx, "tenant-1", "source-bucket", "file.txt", "PUT")
+	require.NoError(t, err)
+
+	manager.loadPendingItems(ctx)
+	manager.loadPendingItems(ctx)
+
+	assert.Len(t, manager.queue, 1)
+
+	var status string
+	err = manager.db.QueryRowContext(ctx, "SELECT status FROM replication_queue LIMIT 1").Scan(&status)
+	require.NoError(t, err)
+	assert.Equal(t, string(StatusRetrying), status)
+}
+
+func TestResetClaimedQueueItems(t *testing.T) {
+	manager, _ := setupTestManager(t)
+	ctx := context.Background()
+
+	_, err := manager.db.ExecContext(ctx, `
+		INSERT INTO replication_queue (rule_id, tenant_id, bucket, object_key, action, status, max_retries, scheduled_at)
+		VALUES ('rule-1', 'tenant-1', 'bucket', 'key-1', 'PUT', 'retrying', 3, ?),
+		       ('rule-2', 'tenant-1', 'bucket', 'key-2', 'PUT', 'in_progress', 3, ?)
+	`, time.Now(), time.Now())
+	require.NoError(t, err)
+
+	err = manager.resetClaimedQueueItems(ctx)
+	require.NoError(t, err)
+
+	rows, err := manager.db.QueryContext(ctx, "SELECT status FROM replication_queue ORDER BY id")
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var statuses []string
+	for rows.Next() {
+		var status string
+		require.NoError(t, rows.Scan(&status))
+		statuses = append(statuses, status)
+	}
+
+	assert.Equal(t, []string{string(StatusPending), string(StatusPending)}, statuses)
 }

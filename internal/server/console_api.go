@@ -4121,9 +4121,21 @@ func (s *Server) handleGetSecurityStatus(w http.ResponseWriter, r *http.Request)
 	}
 
 	activeUsers := 0
-	for _, user := range allUsers {
-		if user.Status == "active" {
+	mfaEnabled := false
+	nowUnix := time.Now().Unix()
+	failedLogins24h := 0
+	for _, listedUser := range allUsers {
+		if tenantID != "" && listedUser.TenantID != tenantID {
+			continue
+		}
+		if listedUser.Status == "active" {
 			activeUsers++
+		}
+		if listedUser.TwoFactorEnabled {
+			mfaEnabled = true
+		}
+		if listedUser.LastFailedLogin >= nowUnix-(24*60*60) {
+			failedLogins24h += listedUser.FailedLoginAttempts
 		}
 	}
 
@@ -4138,12 +4150,39 @@ func (s *Server) handleGetSecurityStatus(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	auditEnabled := s.config.Audit.Enable && s.auditManager != nil
+	totalAuditEvents := 0
+	auditEventsToday := 0
+	if auditEnabled {
+		baseFilters := &audit.AuditLogFilters{Page: 1, PageSize: 1}
+		todayStart := time.Now().UTC().Truncate(24 * time.Hour).Unix()
+		todayFilters := &audit.AuditLogFilters{Page: 1, PageSize: 1, StartDate: todayStart}
+
+		if tenantID == "" {
+			_, totalAuditEvents, err = s.auditManager.GetLogs(r.Context(), baseFilters)
+			if err == nil {
+				_, auditEventsToday, _ = s.auditManager.GetLogs(r.Context(), todayFilters)
+			}
+		} else {
+			_, totalAuditEvents, err = s.auditManager.GetLogsByTenant(r.Context(), tenantID, baseFilters)
+			if err == nil {
+				_, auditEventsToday, _ = s.auditManager.GetLogsByTenant(r.Context(), tenantID, todayFilters)
+			}
+		}
+		if err != nil {
+			logrus.WithError(err).WithField("tenant_id", tenantID).Warn("Failed to query audit statistics for security status")
+			totalAuditEvents = 0
+			auditEventsToday = 0
+		}
+	}
+
 	securityStatus := map[string]interface{}{
 		"encryption": map[string]interface{}{
 			"enabled":      encryptionEnabled,
 			"algorithm":    algorithm,
-			"keyRotation":  true,
-			"lastRotation": time.Now().Add(-30 * 24 * time.Hour).Format(time.RFC3339),
+			"keyRotation":  false,
+			"lastRotation": nil,
+			"tracked":      false,
 		},
 		"objectLock": map[string]interface{}{
 			"enabled":            bucketsWithLock > 0,
@@ -4154,22 +4193,29 @@ func (s *Server) handleGetSecurityStatus(w http.ResponseWriter, r *http.Request)
 		},
 		"authentication": map[string]interface{}{
 			"requireAuth":     true,
-			"mfaEnabled":      false,
+			"mfaEnabled":      mfaEnabled,
 			"activeUsers":     activeUsers,
-			"activeSessions":  0, // TODO: Track sessions
-			"failedLogins24h": 0, // TODO: Track failed logins
+			"activeSessions":  nil,
+			"failedLogins24h": failedLogins24h,
+			"tracked": map[string]bool{
+				"activeSessions":  false,
+				"failedLogins24h": true,
+			},
 		},
 		"policies": map[string]interface{}{
 			"totalPolicies":  totalPolicies,
 			"bucketPolicies": bucketPolicies,
-			"userPolicies":   0, // TODO: Implement user policies
+			"userPolicies":   nil,
 			"lastUpdate":     time.Now().Format(time.RFC3339),
+			"tracked": map[string]bool{
+				"userPolicies": false,
+			},
 		},
 		"audit": map[string]interface{}{
-			"enabled":      false, // TODO: Implement audit logging
-			"logRetention": 90,
-			"totalEvents":  0,
-			"eventsToday":  0,
+			"enabled":      auditEnabled,
+			"logRetention": s.config.Audit.RetentionDays,
+			"totalEvents":  totalAuditEvents,
+			"eventsToday":  auditEventsToday,
 		},
 	}
 

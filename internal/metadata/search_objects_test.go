@@ -187,6 +187,39 @@ func TestSearchObjects_TagFilterMultiple(t *testing.T) {
 	assert.Len(t, objects, 2) // photo.jpg, logo.png
 }
 
+func TestSearchObjects_TagFilterHandlesColonInTagValues(t *testing.T) {
+	store, cleanup := setupObjectTestStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	err := store.CreateBucket(ctx, &BucketMetadata{
+		Name:     "search-colon-bucket",
+		TenantID: "tenant-1",
+	})
+	require.NoError(t, err)
+
+	err = store.PutObject(ctx, &ObjectMetadata{
+		Bucket:      "search-colon-bucket",
+		Key:         "reports/2026:04/summary.json",
+		Size:        512,
+		ContentType: "application/json",
+		ETag:        "etag-colon",
+		Tags: map[string]string{
+			"env:type": "prod:blue",
+		},
+	})
+	require.NoError(t, err)
+
+	filter := &ObjectFilter{
+		Tags: map[string]string{"env:type": "prod:blue"},
+	}
+
+	objects, _, err := store.SearchObjects(ctx, "search-colon-bucket", "", "", 100, filter)
+	require.NoError(t, err)
+	require.Len(t, objects, 1)
+	assert.Equal(t, "reports/2026:04/summary.json", objects[0].Key)
+}
+
 func TestSearchObjects_CombinedFilters(t *testing.T) {
 	store, cleanup := setupSearchTestData(t)
 	defer cleanup()

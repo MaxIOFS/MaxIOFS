@@ -19,10 +19,10 @@ import (
 
 // ReportGenerator generates inventory reports
 type ReportGenerator struct {
-	bucketManager bucket.Manager
-	metadataStore metadata.Store
+	bucketManager  bucket.Manager
+	metadataStore  metadata.Store
 	storageBackend storage.Backend
-	log           *logrus.Entry
+	log            *logrus.Entry
 }
 
 // NewReportGenerator creates a new report generator
@@ -37,6 +37,13 @@ func NewReportGenerator(
 		storageBackend: storageBackend,
 		log:            logrus.WithField("component", "inventory_generator"),
 	}
+}
+
+func inventoryBucketPath(tenantID, bucketName string) string {
+	if tenantID != "" {
+		return tenantID + "/" + bucketName
+	}
+	return bucketName
 }
 
 // GenerateReport generates an inventory report for a bucket
@@ -102,8 +109,10 @@ func (g *ReportGenerator) GenerateReport(ctx context.Context, config *InventoryC
 
 // collectInventoryItems collects all objects from the bucket
 func (g *ReportGenerator) collectInventoryItems(ctx context.Context, config *InventoryConfig) ([]*ObjectInventoryItem, int64, error) {
+	sourceBucketPath := inventoryBucketPath(config.TenantID, config.BucketName)
+
 	// List all objects in the bucket
-	objects, _, err := g.metadataStore.ListObjects(ctx, config.BucketName, "", "", 10000)
+	objects, _, err := g.metadataStore.ListObjects(ctx, sourceBucketPath, "", "", 10000)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list objects: %w", err)
 	}
@@ -316,8 +325,9 @@ func (g *ReportGenerator) uploadReport(ctx context.Context, config *InventoryCon
 	objMetadata["x-amz-meta-generated-by"] = "maxiofs-inventory"
 	objMetadata["x-amz-meta-source-bucket"] = config.BucketName
 
+	destinationBucketPath := inventoryBucketPath(config.TenantID, config.DestinationBucket)
 	obj := &metadata.ObjectMetadata{
-		Bucket:       config.DestinationBucket,
+		Bucket:       destinationBucketPath,
 		Key:          reportPath,
 		Size:         int64(len(content)),
 		ContentType:  g.getContentType(config.Format),
@@ -327,17 +337,21 @@ func (g *ReportGenerator) uploadReport(ctx context.Context, config *InventoryCon
 		Metadata:     objMetadata,
 	}
 
-	// Save metadata
-	if err := g.metadataStore.PutObject(ctx, obj); err != nil {
-		return fmt.Errorf("failed to save report metadata: %w", err)
-	}
-
 	// Upload to storage
-	storagePath := fmt.Sprintf("%s/%s", config.DestinationBucket, reportPath)
+	storagePath := fmt.Sprintf("%s/%s", destinationBucketPath, reportPath)
 	reader := bytes.NewReader(content)
 
 	if err := g.storageBackend.Put(ctx, storagePath, reader, objMetadata); err != nil {
 		return fmt.Errorf("failed to upload report to storage: %w", err)
+	}
+
+	// Save metadata after the object is durable. If metadata persistence fails,
+	// remove the uploaded object to avoid orphaned inventory reports.
+	if err := g.metadataStore.PutObject(ctx, obj); err != nil {
+		if deleteErr := g.storageBackend.Delete(ctx, storagePath); deleteErr != nil {
+			g.log.WithError(deleteErr).WithField("path", storagePath).Warn("Failed to remove uploaded inventory report after metadata error")
+		}
+		return fmt.Errorf("failed to save report metadata: %w", err)
 	}
 
 	return nil

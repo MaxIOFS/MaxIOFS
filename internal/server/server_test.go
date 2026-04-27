@@ -17,6 +17,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/config"
+	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -4581,13 +4582,36 @@ func TestHandleReceiveObjectReplication(t *testing.T) {
 		req.Header.Set("Content-Type", "application/octet-stream")
 		req.Header.Set("X-Object-Size", "12")
 		req.Header.Set("X-Object-ETag", "abc123")
-		req.Header.Set("X-Object-Metadata", "{}")
+		req.Header.Set("X-Object-Metadata", `{"source":"migration","owner":"tenant-test"}`)
 
 		rr := httptest.NewRecorder()
 		server.handleReceiveObjectReplication(rr, req)
 
-		// May succeed or fail depending on storage state
-		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError}, rr.Code)
+		require.Equal(t, http.StatusOK, rr.Code)
+
+		obj, err := server.objectManager.GetObjectMetadata(testCtx, tenantID+"/"+bucketName, "test.txt")
+		require.NoError(t, err)
+		require.NotNil(t, obj)
+		assert.Equal(t, "migration", obj.Metadata["source"])
+		assert.Equal(t, "tenant-test", obj.Metadata["owner"])
+	})
+
+	t.Run("should support keys with slashes", func(t *testing.T) {
+		req := createClusterAuthenticatedRequest("PUT", "/api/internal/cluster/objects/"+tenantID+"/"+bucketName+"/nested/path/test.txt", strings.NewReader("nested content"), "node-1")
+		req = mux.SetURLVars(req, map[string]string{"tenantID": tenantID, "bucket": bucketName, "key": "nested/path/test.txt"})
+		req.Header.Set("Content-Type", "application/octet-stream")
+		req.Header.Set("X-Object-Size", "14")
+		req.Header.Set("X-Object-ETag", "etag-nested")
+		req.Header.Set("X-Object-Metadata", `{"path":"nested/path/test.txt"}`)
+
+		rr := httptest.NewRecorder()
+		server.handleReceiveObjectReplication(rr, req)
+
+		require.Equal(t, http.StatusOK, rr.Code)
+		obj, err := server.objectManager.GetObjectMetadata(testCtx, tenantID+"/"+bucketName, "nested/path/test.txt")
+		require.NoError(t, err)
+		require.NotNil(t, obj)
+		assert.Equal(t, "nested/path/test.txt", obj.Metadata["path"])
 	})
 }
 
@@ -4623,14 +4647,39 @@ func TestHandleReceiveObjectDeletion(t *testing.T) {
 	})
 
 	t.Run("should handle delete with valid node ID", func(t *testing.T) {
+		_, putErr := server.objectManager.PutObject(testCtx, tenantID+"/"+bucketName, "test.txt", strings.NewReader("test content"), http.Header{
+			"Content-Type": []string{"application/octet-stream"},
+		})
+		require.NoError(t, putErr)
+
 		req := createClusterAuthenticatedRequest("DELETE", "/api/internal/cluster/objects/"+tenantID+"/"+bucketName+"/test.txt", nil, "node-1")
 		req = mux.SetURLVars(req, map[string]string{"tenantID": tenantID, "bucket": bucketName, "key": "test.txt"})
 
 		rr := httptest.NewRecorder()
 		server.handleReceiveObjectDeletion(rr, req)
 
-		// May succeed or fail depending on object existence
-		assert.Contains(t, []int{http.StatusOK, http.StatusNotFound, http.StatusInternalServerError}, rr.Code)
+		require.Equal(t, http.StatusOK, rr.Code)
+		_, err := server.objectManager.GetObjectMetadata(testCtx, tenantID+"/"+bucketName, "test.txt")
+		assert.ErrorIs(t, err, object.ErrObjectNotFound)
+	})
+
+	t.Run("should return object metadata for HEAD verification", func(t *testing.T) {
+		_, putErr := server.objectManager.PutObject(testCtx, tenantID+"/"+bucketName, "head-check.txt", strings.NewReader("head body"), http.Header{
+			"Content-Type": []string{"text/plain"},
+		})
+		require.NoError(t, putErr)
+		obj, err := server.objectManager.GetObjectMetadata(testCtx, tenantID+"/"+bucketName, "head-check.txt")
+		require.NoError(t, err)
+
+		req := createClusterAuthenticatedRequest("HEAD", "/api/internal/cluster/objects/"+tenantID+"/"+bucketName+"/head-check.txt", nil, "node-1")
+		req = mux.SetURLVars(req, map[string]string{"tenantID": tenantID, "bucket": bucketName, "key": "head-check.txt"})
+
+		rr := httptest.NewRecorder()
+		server.handleHeadReplicatedObject(rr, req)
+
+		require.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, obj.ETag, rr.Header().Get("X-Object-ETag"))
+		assert.Equal(t, "text/plain", rr.Header().Get("Content-Type"))
 	})
 }
 
@@ -6716,7 +6765,6 @@ func TestHandleUpdateClusterNodeEdgeCases(t *testing.T) {
 		assert.Contains(t, []int{http.StatusNotFound, http.StatusOK, http.StatusUnauthorized, http.StatusInternalServerError, http.StatusBadRequest}, rr.Code)
 	})
 }
-
 
 // Test handleShareObject edge cases
 func TestHandleShareObjectEdgeCases(t *testing.T) {

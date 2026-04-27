@@ -581,7 +581,7 @@ func TestGenerateReport_DestinationBucketNotFound(t *testing.T) {
 	now := time.Now()
 
 	// Mock objects in source bucket
-	mockMetadata.On("ListObjects", ctx, "source-bucket", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/source-bucket", "", "", 10000).Return(
 		[]*metadata.ObjectMetadata{
 			{
 				TenantID:     "tenant1",
@@ -637,7 +637,7 @@ func TestGenerateReport_DestinationBucketNoWritePermission(t *testing.T) {
 	now := time.Now()
 
 	// Mock objects in source bucket
-	mockMetadata.On("ListObjects", ctx, "source-bucket", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/source-bucket", "", "", 10000).Return(
 		[]*metadata.ObjectMetadata{
 			{
 				TenantID:     "tenant1",
@@ -657,9 +657,6 @@ func TestGenerateReport_DestinationBucketNoWritePermission(t *testing.T) {
 		Name:     "readonly-bucket",
 		TenantID: "tenant1",
 	}, nil).Once()
-
-	// Mock metadata write succeeds
-	mockMetadata.On("PutObject", ctx, mock.AnythingOfType("*metadata.ObjectMetadata")).Return(nil).Once()
 
 	// Mock write permission denied (storage backend returns permission error)
 	mockStorage.On("Put", ctx, mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("map[string]string")).Return(
@@ -703,7 +700,7 @@ func TestGenerateReport_CSV_Success(t *testing.T) {
 	now := time.Now()
 
 	// Mock objects in source bucket
-	mockMetadata.On("ListObjects", ctx, "source-bucket", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/source-bucket", "", "", 10000).Return(
 		[]*metadata.ObjectMetadata{
 			{
 				TenantID:     "tenant1",
@@ -797,7 +794,7 @@ func TestGenerateReport_JSON_Success(t *testing.T) {
 	now := time.Now()
 
 	// Mock objects in source bucket
-	mockMetadata.On("ListObjects", ctx, "source-bucket", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/source-bucket", "", "", 10000).Return(
 		[]*metadata.ObjectMetadata{
 			{
 				TenantID:     "tenant1",
@@ -878,7 +875,7 @@ func TestGenerateReport_EmptyBucket(t *testing.T) {
 	ctx := context.Background()
 
 	// Mock empty objects list
-	mockMetadata.On("ListObjects", ctx, "empty-bucket", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/empty-bucket", "", "", 10000).Return(
 		[]*metadata.ObjectMetadata{},
 		"",
 		nil,
@@ -944,7 +941,7 @@ func TestGenerateReport_InvalidFormat(t *testing.T) {
 	ctx := context.Background()
 
 	// Mock objects
-	mockMetadata.On("ListObjects", ctx, "source-bucket", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/source-bucket", "", "", 10000).Return(
 		[]*metadata.ObjectMetadata{
 			{
 				TenantID: "tenant1",
@@ -991,7 +988,7 @@ func TestGenerateReport_WithEncryptionStatus(t *testing.T) {
 	ctx := context.Background()
 
 	// Mock objects with encryption metadata
-	mockMetadata.On("ListObjects", ctx, "source-bucket", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/source-bucket", "", "", 10000).Return(
 		[]*metadata.ObjectMetadata{
 			{
 				TenantID: "tenant1",
@@ -1078,7 +1075,7 @@ func TestGenerateReport_MetadataUpdateFailure(t *testing.T) {
 	ctx := context.Background()
 
 	// Mock objects
-	mockMetadata.On("ListObjects", ctx, "source-bucket", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/source-bucket", "", "", 10000).Return(
 		[]*metadata.ObjectMetadata{
 			{
 				TenantID: "tenant1",
@@ -1096,13 +1093,20 @@ func TestGenerateReport_MetadataUpdateFailure(t *testing.T) {
 		TenantID: "tenant1",
 	}, nil).Once()
 
-	// Mock metadata update failure
-	mockMetadata.On("PutObject", ctx, mock.AnythingOfType("*metadata.ObjectMetadata")).Return(
-		errors.New("database error"),
-	).Once()
+	mockStorage.On("Put", ctx, mock.MatchedBy(func(path string) bool {
+		return strings.HasPrefix(path, "tenant1/dest-bucket/reports/inventory-") && strings.HasSuffix(path, ".csv")
+	}), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
 
-	// Storage Put should NOT be called since metadata fails first
-	// No mockStorage.On() call here
+	mockMetadata.On("PutObject", ctx, mock.MatchedBy(func(obj *metadata.ObjectMetadata) bool {
+		return obj != nil &&
+			obj.Bucket == "tenant1/dest-bucket" &&
+			strings.HasPrefix(obj.Key, "reports/inventory-") &&
+			strings.HasSuffix(obj.Key, ".csv")
+	})).Return(errors.New("database error")).Once()
+
+	mockStorage.On("Delete", ctx, mock.MatchedBy(func(path string) bool {
+		return strings.HasPrefix(path, "tenant1/dest-bucket/reports/inventory-") && strings.HasSuffix(path, ".csv")
+	})).Return(nil).Once()
 
 	// Execute
 	_, err := generator.GenerateReport(ctx, config)
@@ -1110,6 +1114,115 @@ func TestGenerateReport_MetadataUpdateFailure(t *testing.T) {
 	// Verify - should fail because metadata update failed
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "database error")
+
+	mockBucketMgr.AssertExpectations(t)
+	mockMetadata.AssertExpectations(t)
+	mockStorage.AssertExpectations(t)
+}
+
+func TestGenerateReport_UsesTenantScopedPaths(t *testing.T) {
+	mockBucketMgr := new(MockBucketManager)
+	mockMetadata := new(MockMetadataStore)
+	mockStorage := new(MockStorageBackend)
+
+	generator := NewReportGenerator(mockBucketMgr, mockMetadata, mockStorage)
+
+	config := &InventoryConfig{
+		ID:                "test-inventory-tenant-paths",
+		BucketName:        "source-bucket",
+		TenantID:          "tenant1",
+		Enabled:           true,
+		Frequency:         "daily",
+		Format:            "csv",
+		DestinationBucket: "dest-bucket",
+		DestinationPrefix: "reports/",
+		IncludedFields:    []string{"object_key"},
+	}
+
+	ctx := context.Background()
+
+	mockMetadata.On("ListObjects", ctx, "tenant1/source-bucket", "", "", 10000).Return(
+		[]*metadata.ObjectMetadata{
+			{TenantID: "tenant1", Bucket: "tenant1/source-bucket", Key: "test.txt"},
+		},
+		"",
+		nil,
+	).Once()
+
+	mockBucketMgr.On("GetBucketInfo", ctx, "tenant1", "dest-bucket").Return(&bucket.Bucket{
+		Name:     "dest-bucket",
+		TenantID: "tenant1",
+	}, nil).Once()
+
+	mockStorage.On("Put", ctx, mock.MatchedBy(func(path string) bool {
+		return strings.HasPrefix(path, "tenant1/dest-bucket/reports/inventory-") && strings.HasSuffix(path, ".csv")
+	}), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
+
+	mockMetadata.On("PutObject", ctx, mock.MatchedBy(func(obj *metadata.ObjectMetadata) bool {
+		return obj != nil &&
+			obj.Bucket == "tenant1/dest-bucket" &&
+			strings.HasPrefix(obj.Key, "reports/inventory-") &&
+			strings.HasSuffix(obj.Key, ".csv")
+	})).Return(nil).Once()
+
+	report, err := generator.GenerateReport(ctx, config)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, report)
+
+	mockBucketMgr.AssertExpectations(t)
+	mockMetadata.AssertExpectations(t)
+	mockStorage.AssertExpectations(t)
+}
+
+func TestGenerateReport_GlobalBucketPathsRemainUnscoped(t *testing.T) {
+	mockBucketMgr := new(MockBucketManager)
+	mockMetadata := new(MockMetadataStore)
+	mockStorage := new(MockStorageBackend)
+
+	generator := NewReportGenerator(mockBucketMgr, mockMetadata, mockStorage)
+
+	config := &InventoryConfig{
+		ID:                "test-inventory-global-paths",
+		BucketName:        "source-bucket",
+		TenantID:          "",
+		Enabled:           true,
+		Frequency:         "daily",
+		Format:            "csv",
+		DestinationBucket: "dest-bucket",
+		DestinationPrefix: "reports/",
+		IncludedFields:    []string{"object_key"},
+	}
+
+	ctx := context.Background()
+
+	mockMetadata.On("ListObjects", ctx, "source-bucket", "", "", 10000).Return(
+		[]*metadata.ObjectMetadata{
+			{Bucket: "source-bucket", Key: "test.txt"},
+		},
+		"",
+		nil,
+	).Once()
+
+	mockBucketMgr.On("GetBucketInfo", ctx, "", "dest-bucket").Return(&bucket.Bucket{
+		Name: "dest-bucket",
+	}, nil).Once()
+
+	mockStorage.On("Put", ctx, mock.MatchedBy(func(path string) bool {
+		return strings.HasPrefix(path, "dest-bucket/reports/inventory-") && strings.HasSuffix(path, ".csv")
+	}), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
+
+	mockMetadata.On("PutObject", ctx, mock.MatchedBy(func(obj *metadata.ObjectMetadata) bool {
+		return obj != nil &&
+			obj.Bucket == "dest-bucket" &&
+			strings.HasPrefix(obj.Key, "reports/inventory-") &&
+			strings.HasSuffix(obj.Key, ".csv")
+	})).Return(nil).Once()
+
+	report, err := generator.GenerateReport(ctx, config)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, report)
 
 	mockBucketMgr.AssertExpectations(t)
 	mockMetadata.AssertExpectations(t)
@@ -1133,7 +1246,7 @@ func TestCollectInventoryItems_Pagination(t *testing.T) {
 
 	// Mock objects list - implementation doesn't support pagination in collectInventoryItems
 	// It only fetches one batch
-	mockMetadata.On("ListObjects", ctx, "large-bucket", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/large-bucket", "", "", 10000).Return(
 		[]*metadata.ObjectMetadata{
 			{Key: "file1.txt", Size: 100},
 			{Key: "file2.txt", Size: 200},
@@ -1173,7 +1286,7 @@ func TestCollectInventoryItems_ListError(t *testing.T) {
 	ctx := context.Background()
 
 	// Mock list error
-	mockMetadata.On("ListObjects", ctx, "error-bucket", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/error-bucket", "", "", 10000).Return(
 		nil, "", errors.New("storage backend failure"),
 	).Once()
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -419,9 +420,9 @@ func (m *Manager) executeMigration(ctx context.Context, locationMgr *BucketLocat
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"migration_id":   job.ID,
-		"object_count":   objectCount,
-		"total_size_mb":  totalSize / 1024 / 1024,
+		"migration_id":  job.ID,
+		"object_count":  objectCount,
+		"total_size_mb": totalSize / 1024 / 1024,
 	}).Info("Object counting completed")
 
 	// Step 2: Copy all objects from source to target
@@ -637,8 +638,8 @@ func (m *Manager) copyObject(ctx context.Context, proxyClient *ProxyClient, targ
 	// Build URL for internal cluster API
 	url := fmt.Sprintf("%s/api/internal/cluster/objects/%s/%s/%s",
 		targetEndpoint,
-		tenantID,
-		bucket,
+		url.PathEscape(tenantID),
+		url.PathEscape(bucket),
 		key,
 	)
 
@@ -754,7 +755,7 @@ func (m *Manager) migrateBucketPermissions(ctx context.Context, tenantID string,
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"migration_id":       job.ID,
+		"migration_id":      job.ID,
 		"permissions_count": permissionCount,
 	}).Info("Bucket permissions migration completed")
 
@@ -1126,8 +1127,8 @@ func (m *Manager) verifyObjectOnTarget(ctx context.Context, proxyClient *ProxyCl
 	// Build URL for HEAD request
 	url := fmt.Sprintf("%s/api/internal/cluster/objects/%s/%s/%s",
 		targetEndpoint,
-		tenantID,
-		bucket,
+		url.PathEscape(tenantID),
+		url.PathEscape(bucket),
 		key,
 	)
 

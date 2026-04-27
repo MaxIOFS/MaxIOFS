@@ -109,6 +109,10 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("manager already running")
 	}
 
+	if err := m.resetClaimedQueueItems(ctx); err != nil {
+		return fmt.Errorf("failed to reset claimed replication queue items: %w", err)
+	}
+
 	// Start workers
 	m.workers = make([]*Worker, m.config.WorkerCount)
 	for i := 0; i < m.config.WorkerCount; i++ {
@@ -537,9 +541,8 @@ func (m *Manager) loadPendingItems(ctx context.Context) {
 		logrus.WithError(err).Error("Failed to query pending items from database")
 		return
 	}
-	defer rows.Close()
 
-	itemCount := 0
+	var items []*QueueItem
 	for rows.Next() {
 		item := &QueueItem{}
 		err := rows.Scan(
@@ -552,6 +555,33 @@ func (m *Manager) loadPendingItems(ctx context.Context) {
 			continue
 		}
 
+		items = append(items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		logrus.WithError(err).Error("Failed while iterating pending replication items")
+		return
+	}
+
+	if err := rows.Close(); err != nil {
+		logrus.WithError(err).Error("Failed to close pending replication item rows")
+		return
+	}
+
+	itemCount := 0
+	for _, item := range items {
+		claimed, err := m.claimQueueItem(ctx, item.ID)
+		if err != nil {
+			logrus.WithFields(logrus.Fields{
+				"item_id": item.ID,
+			}).WithError(err).Error("Failed to claim replication queue item")
+			continue
+		}
+		if !claimed {
+			continue
+		}
+
 		itemCount++
 
 		// Try to queue item (non-blocking)
@@ -560,12 +590,54 @@ func (m *Manager) loadPendingItems(ctx context.Context) {
 			// Successfully queued
 		default:
 			logrus.Warn("Replication queue is full, item will be retried later")
+			if err := m.releaseClaimedQueueItem(ctx, item.ID, item.Status); err != nil {
+				logrus.WithFields(logrus.Fields{
+					"item_id": item.ID,
+				}).WithError(err).Error("Failed to release claimed replication queue item")
+			}
 		}
 	}
 
 	if itemCount > 0 {
 		logrus.WithField("count", itemCount).Debug("Loaded pending replication items")
 	}
+}
+
+func (m *Manager) claimQueueItem(ctx context.Context, itemID int64) (bool, error) {
+	query := `
+		UPDATE replication_queue
+		SET status = ?
+		WHERE id = ?
+		  AND (status = 'pending' OR (status = 'failed' AND attempts < max_retries))
+	`
+
+	result, err := m.db.ExecContext(ctx, query, StatusRetrying, itemID)
+	if err != nil {
+		return false, err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+
+	return rows > 0, nil
+}
+
+func (m *Manager) releaseClaimedQueueItem(ctx context.Context, itemID int64, previousStatus ReplicationStatus) error {
+	query := `UPDATE replication_queue SET status = ? WHERE id = ? AND status = ?`
+	_, err := m.db.ExecContext(ctx, query, previousStatus, itemID, StatusRetrying)
+	return err
+}
+
+func (m *Manager) resetClaimedQueueItems(ctx context.Context) error {
+	query := `
+		UPDATE replication_queue
+		SET status = 'pending'
+		WHERE status = 'retrying' OR status = 'in_progress'
+	`
+	_, err := m.db.ExecContext(ctx, query)
+	return err
 }
 
 // cleanupRoutine periodically cleans up old completed items
