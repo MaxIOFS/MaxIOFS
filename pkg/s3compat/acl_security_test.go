@@ -143,12 +143,12 @@ func TestCheckBucketACLPermission_DefaultACL(t *testing.T) {
 	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "test-bucket", env.userID)
 	require.NoError(t, err, "Should create bucket")
 
-	// Check permission for owner "maxiofs" - should have FULL_CONTROL
-	hasPermission := env.handler.checkBucketACLPermission(ctx, env.tenantID, "test-bucket", "maxiofs", acl.PermissionFullControl)
-	assert.True(t, hasPermission, "Owner 'maxiofs' should have FULL_CONTROL on bucket with default ACL")
+	// Check permission for actual owner (env.userID) - should have FULL_CONTROL
+	hasPermission := env.handler.checkBucketACLPermission(ctx, env.tenantID, "test-bucket", env.userID, acl.PermissionFullControl)
+	assert.True(t, hasPermission, "Owner should have FULL_CONTROL on bucket with default ACL")
 
 	// Check permission for different user - should be denied (private ACL)
-	hasPermissionOther := env.handler.checkBucketACLPermission(ctx, env.tenantID, "test-bucket", env.userID, acl.PermissionRead)
+	hasPermissionOther := env.handler.checkBucketACLPermission(ctx, env.tenantID, "test-bucket", "some-other-user", acl.PermissionRead)
 	assert.False(t, hasPermissionOther, "Non-owner should NOT have access to bucket with default private ACL")
 }
 
@@ -313,7 +313,7 @@ func TestCheckBucketACLPermission_ACLManagerNotAvailable(t *testing.T) {
 	// Testing the "ACL manager not available" path would require mocking
 	// For now, verify that with a properly initialized ACL manager,
 	// the owner has access
-	hasPermission := env.handler.checkBucketACLPermission(ctx, env.tenantID, "test-bucket", "maxiofs", acl.PermissionRead)
+	hasPermission := env.handler.checkBucketACLPermission(ctx, env.tenantID, "test-bucket", env.userID, acl.PermissionRead)
 
 	assert.True(t, hasPermission, "Owner should have access when ACL manager is available")
 }
