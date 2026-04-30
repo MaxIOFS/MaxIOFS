@@ -631,6 +631,8 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, b
 		return "", err
 	}
 
+	key = om.resolveFolderDeleteKey(ctx, bucket, key)
+
 	versioningEnabled := om.isBucketVersioningEnabled(ctx, bucket)
 
 	// Determine if we're deleting a specific version or creating a delete marker
@@ -649,6 +651,23 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, b
 		// DELETE without versioning → Legacy behavior (permanent delete)
 		return "", om.deletePermanently(ctx, bucket, key, bypassGovernance)
 	}
+}
+
+func (om *objectManager) resolveFolderDeleteKey(ctx context.Context, bucket, key string) string {
+	if strings.HasSuffix(key, "/") {
+		return key
+	}
+
+	if _, err := om.metadataStore.GetObject(ctx, bucket, key); err == nil {
+		return key
+	}
+
+	folderKey := key + "/"
+	if _, err := om.metadataStore.GetObject(ctx, bucket, folderKey); err == nil {
+		return folderKey
+	}
+
+	return key
 }
 
 // createDeleteMarker creates a delete marker for a versioned object

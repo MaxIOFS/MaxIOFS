@@ -240,6 +240,18 @@ func TestDelete(t *testing.T) {
 		assert.True(t, os.IsNotExist(err))
 	})
 
+	t.Run("Delete directory marker without trailing slash", func(t *testing.T) {
+		err := backend.Put(ctx, "delete-folder-no-slash/", nil, nil)
+		require.NoError(t, err)
+
+		err = backend.Delete(ctx, "delete-folder-no-slash")
+		assert.NoError(t, err)
+
+		fullPath := filepath.Join(tmpDir, "delete-folder-no-slash")
+		_, err = os.Stat(fullPath)
+		assert.True(t, os.IsNotExist(err))
+	})
+
 	t.Run("Delete non-existent object", func(t *testing.T) {
 		err := backend.Delete(ctx, "does-not-exist.txt")
 		assert.Error(t, err)

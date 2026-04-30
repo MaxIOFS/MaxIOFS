@@ -1,8 +1,10 @@
 package object
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,7 +24,7 @@ func (n *nonFSBackend) Put(_ context.Context, _ string, _ io.Reader, _ map[strin
 func (n *nonFSBackend) Get(_ context.Context, _ string) (io.ReadCloser, map[string]string, error) {
 	return nil, nil, nil
 }
-func (n *nonFSBackend) Delete(_ context.Context, _ string) error        { return nil }
+func (n *nonFSBackend) Delete(_ context.Context, _ string) error         { return nil }
 func (n *nonFSBackend) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
 func (n *nonFSBackend) List(_ context.Context, _ string, _ bool) ([]storage.ObjectInfo, error) {
 	return nil, nil
@@ -194,4 +196,29 @@ func TestCleanupEmptyDirectories_DoesNotRemoveRoot(t *testing.T) {
 	om.cleanupEmptyDirectories("bucket", "file.txt")
 
 	assert.True(t, dirExists(root), "root path must never be removed")
+}
+
+func TestDeleteObject_FolderAliasWithoutTrailingSlash(t *testing.T) {
+	ctx := context.Background()
+	om, metaStore, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+
+	bucket := "bucket"
+	folderKey := "s3-browser-folder/"
+
+	_, err := om.PutObject(ctx, bucket, folderKey, bytes.NewReader(nil), http.Header{
+		"Content-Type": []string{"application/x-directory"},
+	})
+	require.NoError(t, err)
+
+	root := om.storage.(interface{ GetRootPath() string }).GetRootPath()
+	folderPath := filepath.Join(root, bucket, "s3-browser-folder")
+	require.True(t, dirExists(folderPath))
+
+	_, err = om.DeleteObject(ctx, bucket, "s3-browser-folder", false)
+	require.NoError(t, err)
+
+	assert.False(t, dirExists(folderPath), "folder should be removed when S3 client deletes it without trailing slash")
+	_, err = metaStore.GetObject(ctx, bucket, folderKey)
+	assert.Error(t, err, "folder metadata alias should be removed")
 }

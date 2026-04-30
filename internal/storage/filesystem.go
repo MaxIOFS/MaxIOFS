@@ -199,19 +199,19 @@ func (fs *FilesystemBackend) Delete(ctx context.Context, path string) error {
 	fullPath := fs.getFullPath(path)
 
 	// Check if file exists
-	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+	info, err := os.Stat(fullPath)
+	if os.IsNotExist(err) {
 		return ErrObjectNotFound
+	} else if err != nil {
+		return NewErrorWithCause("StatFile", "Failed to stat file", err)
 	}
 
 	// Delete file or directory
-	// Check if it's a directory (ends with /)
-	if strings.HasSuffix(path, "/") {
-		// For directories, use RemoveAll to remove directory and all contents
+	if info.IsDir() {
 		if err := os.RemoveAll(fullPath); err != nil {
 			return NewErrorWithCause("DeleteDirectory", "Failed to delete directory", err)
 		}
 	} else {
-		// For files, use Remove
 		if err := os.Remove(fullPath); err != nil {
 			return NewErrorWithCause("DeleteFile", "Failed to delete file", err)
 		}

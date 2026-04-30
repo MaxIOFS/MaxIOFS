@@ -1078,6 +1078,28 @@ func TestS3DeleteObjects(t *testing.T) {
 		assert.Contains(t, w.Body.String(), "non-existent-file.txt", "Response should contain key")
 	})
 
+	t.Run("Delete folder marker without trailing slash", func(t *testing.T) {
+		headers := http.Header{"Content-Type": []string{"application/x-directory"}}
+		_, err := env.objectManager.PutObject(ctx, bucketPath, "s3-browser-folder/", bytes.NewReader(nil), headers)
+		require.NoError(t, err)
+
+		folderPath := filepath.Join(env.tempDir, bucketPath, "s3-browser-folder")
+		require.DirExists(t, folderPath)
+
+		deleteXML := `<Delete>
+			<Object><Key>s3-browser-folder</Key></Object>
+		</Delete>`
+
+		req, w := env.makeS3Request("POST", "/"+bucketName+"?delete", []byte(deleteXML))
+		req.Header.Set("Content-Type", "application/xml")
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, "Should delete folder marker sent without trailing slash")
+		assert.NoDirExists(t, folderPath)
+		_, _, err = env.objectManager.GetObject(ctx, bucketPath, "s3-browser-folder/")
+		assert.Error(t, err, "Folder marker metadata should be removed")
+	})
+
 	t.Run("Quiet mode (no response body for successful deletes)", func(t *testing.T) {
 		// Create a new object to delete
 		headers := http.Header{}
