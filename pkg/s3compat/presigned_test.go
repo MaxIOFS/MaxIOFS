@@ -208,8 +208,8 @@ func (m *mockAuthManager) GetGroup(ctx context.Context, groupID string) (*auth.G
 func (m *mockAuthManager) GetGroupByName(ctx context.Context, name, tenantID string) (*auth.Group, error) {
 	return nil, auth.ErrGroupNotFound
 }
-func (m *mockAuthManager) UpdateGroup(ctx context.Context, group *auth.Group) error  { return nil }
-func (m *mockAuthManager) DeleteGroup(ctx context.Context, groupID string) error     { return nil }
+func (m *mockAuthManager) UpdateGroup(ctx context.Context, group *auth.Group) error { return nil }
+func (m *mockAuthManager) DeleteGroup(ctx context.Context, groupID string) error    { return nil }
 func (m *mockAuthManager) ListGroups(ctx context.Context, tenantID string) ([]*auth.Group, error) {
 	return nil, nil
 }
@@ -294,6 +294,32 @@ func TestGeneratePresignedURLV4_Success(t *testing.T) {
 	assert.Equal(t, int64(900), expiresInt, "Should expire in 900 seconds (15 minutes)")
 
 	t.Logf("Generated V4 presigned URL: %s", presignedURL)
+}
+
+func TestGeneratePresignedURLV4_EncodesObjectKey(t *testing.T) {
+	handler := &Handler{
+		publicAPIURL: "http://localhost:8080",
+		authManager:  &mockAuthManager{},
+	}
+
+	config := PresignedURLConfig{
+		AccessKey:  "AKIAIOSFODNN7EXAMPLE",
+		SecretKey:  "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+		BucketName: "test-bucket",
+		ObjectKey:  "folder name/a+b c.txt",
+		Method:     "GET",
+		Expiration: 15 * time.Minute,
+	}
+
+	presignedURL, err := handler.GeneratePresignedURL(config)
+	require.NoError(t, err)
+
+	assert.Contains(t, presignedURL, "/test-bucket/folder%20name/a%2Bb%20c.txt")
+
+	req, err := http.NewRequest("GET", presignedURL, nil)
+	require.NoError(t, err)
+	err = handler.ValidatePresignedURL(nil, req)
+	require.NoError(t, err)
 }
 
 // TestGeneratePresignedURLV4_DefaultExpiration tests default expiration
@@ -609,6 +635,32 @@ func TestGeneratePresignedURLV2_Success(t *testing.T) {
 	assert.Greater(t, expiresAt, time.Now().Unix(), "Expiration should be in future")
 
 	t.Logf("Generated V2 presigned URL: %s", presignedURL)
+}
+
+func TestGeneratePresignedURLV2_EncodesObjectKey(t *testing.T) {
+	handler := &Handler{
+		publicAPIURL: "http://localhost:8080",
+	}
+
+	config := PresignedURLConfig{
+		AccessKey:  "AKIAIOSFODNN7EXAMPLE",
+		SecretKey:  "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+		BucketName: "test-bucket",
+		ObjectKey:  "folder name/a+b c.txt",
+		Method:     "GET",
+		Expiration: 15 * time.Minute,
+	}
+
+	presignedURL, err := handler.generatePresignedURLV2(config)
+	require.NoError(t, err)
+
+	assert.Contains(t, presignedURL, "/test-bucket/folder%20name/a%2Bb%20c.txt")
+
+	req, err := http.NewRequest("GET", presignedURL, nil)
+	require.NoError(t, err)
+	handler.authManager = &mockAuthManager{}
+	err = handler.ValidatePresignedURL(nil, req)
+	require.NoError(t, err)
 }
 
 // TestValidatePresignedURLV2_Expired tests V2 expired URL detection

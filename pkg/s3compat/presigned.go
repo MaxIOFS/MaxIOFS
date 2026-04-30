@@ -66,7 +66,7 @@ func (h *Handler) generatePresignedURLV4(config PresignedURLConfig) (string, err
 	service := "s3"
 
 	// Build URL path
-	path := fmt.Sprintf("/%s/%s", config.BucketName, config.ObjectKey)
+	path := s3URLEncode(fmt.Sprintf("/%s/%s", config.BucketName, config.ObjectKey))
 
 	// Build query parameters for V4
 	queryParams := url.Values{}
@@ -123,7 +123,7 @@ func (h *Handler) generatePresignedURLV2(config PresignedURLConfig) (string, err
 	expires := expiresAt.Unix()
 
 	// Build string to sign for V2
-	path := fmt.Sprintf("/%s/%s", config.BucketName, config.ObjectKey)
+	path := s3URLEncode(fmt.Sprintf("/%s/%s", config.BucketName, config.ObjectKey))
 	stringToSign := fmt.Sprintf("%s\n\n\n%d\n%s", config.Method, expires, path)
 
 	// Calculate signature
@@ -292,7 +292,7 @@ func (h *Handler) validatePresignedURLV4(r *http.Request) error {
 	payloadHash := "UNSIGNED-PAYLOAD"
 	canonicalRequest := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s",
 		r.Method,
-		r.URL.Path,
+		s3URLEncode(r.URL.Path),
 		canonicalQueryString,
 		canonicalHeaders,
 		signedHeaders,
@@ -400,7 +400,7 @@ func (h *Handler) validatePresignedURLV2(r *http.Request) error {
 	//   Expires\n
 	//   CanonicalizedAmzHeaders  (empty — presigned V2 URLs carry no x-amz-* headers)
 	//   CanonicalizedResource    (path + recognized sub-resources, sorted)
-	canonResource := canonicalizedResourceV2(r.URL.Path, query)
+	canonResource := canonicalizedResourceV2(s3URLEncode(r.URL.Path), query)
 	stringToSign := fmt.Sprintf("%s\n\n\n%s\n%s", r.Method, expires, canonResource)
 
 	// Calculate expected signature
@@ -668,7 +668,7 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 						h.writeError(w, "AccessDenied", "Content-Type condition does not match", bucketName, r)
 						return
 					}
-				// x-amz-* fields are informational — already validated via signature.
+					// x-amz-* fields are informational — already validated via signature.
 				}
 			}
 			continue

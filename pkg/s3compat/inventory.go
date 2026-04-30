@@ -22,14 +22,14 @@ import (
 // ============================================================================
 
 type inventoryConfigXML struct {
-	XMLName                xml.Name                      `xml:"InventoryConfiguration"`
-	Xmlns                  string                        `xml:"xmlns,attr,omitempty"`
-	ID                     string                        `xml:"Id"`
-	IsEnabled              bool                          `xml:"IsEnabled"`
-	Destination            inventoryDestinationXML       `xml:"Destination"`
-	Schedule               inventoryScheduleXML          `xml:"Schedule"`
-	IncludedObjectVersions string                        `xml:"IncludedObjectVersions"`
-	OptionalFields         *inventoryOptionalFieldsXML   `xml:"OptionalFields,omitempty"`
+	XMLName                xml.Name                    `xml:"InventoryConfiguration"`
+	Xmlns                  string                      `xml:"xmlns,attr,omitempty"`
+	ID                     string                      `xml:"Id"`
+	IsEnabled              bool                        `xml:"IsEnabled"`
+	Destination            inventoryDestinationXML     `xml:"Destination"`
+	Schedule               inventoryScheduleXML        `xml:"Schedule"`
+	IncludedObjectVersions string                      `xml:"IncludedObjectVersions"`
+	OptionalFields         *inventoryOptionalFieldsXML `xml:"OptionalFields,omitempty"`
 }
 
 type inventoryDestinationXML struct {
@@ -51,10 +51,10 @@ type inventoryOptionalFieldsXML struct {
 }
 
 type listInventoryConfigurationsResultXML struct {
-	XMLName              xml.Name             `xml:"ListInventoryConfigurationsResult"`
-	Xmlns                string               `xml:"xmlns,attr,omitempty"`
-	InventoryConfigs     []inventoryConfigXML `xml:"InventoryConfiguration"`
-	IsTruncated          bool                 `xml:"IsTruncated"`
+	XMLName          xml.Name             `xml:"ListInventoryConfigurationsResult"`
+	Xmlns            string               `xml:"xmlns,attr,omitempty"`
+	InventoryConfigs []inventoryConfigXML `xml:"InventoryConfiguration"`
+	IsTruncated      bool                 `xml:"IsTruncated"`
 }
 
 // ============================================================================
@@ -63,14 +63,14 @@ type listInventoryConfigurationsResultXML struct {
 
 // s3FieldToInternal maps S3 OptionalFields names to our internal field constants.
 var s3FieldToInternal = map[string]string{
-	"Size":                  inventory.FieldSize,
-	"LastModifiedDate":      inventory.FieldLastModified,
-	"ETag":                  inventory.FieldETag,
-	"StorageClass":          inventory.FieldStorageClass,
-	"IsMultipartUploaded":   inventory.FieldIsMultipartUploaded,
-	"EncryptionStatus":      inventory.FieldEncryptionStatus,
-	"ReplicationStatus":     inventory.FieldReplicationStatus,
-	"ObjectACL":             inventory.FieldObjectACL,
+	"Size":                inventory.FieldSize,
+	"LastModifiedDate":    inventory.FieldLastModified,
+	"ETag":                inventory.FieldETag,
+	"StorageClass":        inventory.FieldStorageClass,
+	"IsMultipartUploaded": inventory.FieldIsMultipartUploaded,
+	"EncryptionStatus":    inventory.FieldEncryptionStatus,
+	"ReplicationStatus":   inventory.FieldReplicationStatus,
+	"ObjectACL":           inventory.FieldObjectACL,
 	// version-related fields come from IncludedObjectVersions, not OptionalFields,
 	// but accept them here too for forward compatibility
 	"VersionId": inventory.FieldVersionID,
@@ -78,16 +78,16 @@ var s3FieldToInternal = map[string]string{
 }
 
 var internalFieldToS3 = map[string]string{
-	inventory.FieldSize:                 "Size",
-	inventory.FieldLastModified:         "LastModifiedDate",
-	inventory.FieldETag:                 "ETag",
-	inventory.FieldStorageClass:         "StorageClass",
-	inventory.FieldIsMultipartUploaded:  "IsMultipartUploaded",
-	inventory.FieldEncryptionStatus:     "EncryptionStatus",
-	inventory.FieldReplicationStatus:    "ReplicationStatus",
-	inventory.FieldObjectACL:            "ObjectACL",
-	inventory.FieldVersionID:            "VersionId",
-	inventory.FieldIsLatest:             "IsLatest",
+	inventory.FieldSize:                "Size",
+	inventory.FieldLastModified:        "LastModifiedDate",
+	inventory.FieldETag:                "ETag",
+	inventory.FieldStorageClass:        "StorageClass",
+	inventory.FieldIsMultipartUploaded: "IsMultipartUploaded",
+	inventory.FieldEncryptionStatus:    "EncryptionStatus",
+	inventory.FieldReplicationStatus:   "ReplicationStatus",
+	inventory.FieldObjectACL:           "ObjectACL",
+	inventory.FieldVersionID:           "VersionId",
+	inventory.FieldIsLatest:            "IsLatest",
 }
 
 // internalToXML converts an InventoryConfig to the S3 XML representation.
@@ -95,9 +95,13 @@ func internalToXML(cfg *inventory.InventoryConfig) inventoryConfigXML {
 	// Format: lowercase internal → uppercase S3
 	format := strings.ToUpper(cfg.Format) // csv→CSV, json→JSON
 
-	// Frequency: daily→Daily, weekly→Weekly
-	freqLower := strings.ToLower(cfg.Frequency)
-	freq := strings.ToUpper(freqLower[:1]) + freqLower[1:]
+	// Frequency: daily→Daily, weekly→Weekly.
+	// Guard against empty or malformed data so a bad record doesn't panic the handler.
+	freq := ""
+	if cfg.Frequency != "" {
+		freqLower := strings.ToLower(cfg.Frequency)
+		freq = strings.ToUpper(freqLower[:1]) + freqLower[1:]
+	}
 
 	// Bucket ARN
 	bucketARN := "arn:aws:s3:::" + cfg.DestinationBucket
