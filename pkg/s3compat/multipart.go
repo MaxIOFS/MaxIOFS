@@ -161,49 +161,7 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Filter and paginate results.
-	// isTruncated must only be true when the maxUploads limit was hit,
-	// NOT simply because marker-based filtering skipped some uploads.
-	var filteredUploads []MultipartUpload
-	isTruncated := false
-	for _, upload := range uploads {
-		// Apply marker filtering
-		if keyMarker != "" && upload.Key < keyMarker {
-			continue
-		}
-		if uploadIdMarker != "" && upload.Key == keyMarker && upload.UploadID <= uploadIdMarker {
-			continue
-		}
-
-		filteredUploads = append(filteredUploads, MultipartUpload{
-			Key:      upload.Key,
-			UploadId: upload.UploadID,
-			Initiator: Initiator{
-				ID:          "maxiofs",
-				DisplayName: "MaxIOFS",
-			},
-			Owner: Owner{
-				ID:          "maxiofs",
-				DisplayName: "MaxIOFS",
-			},
-			StorageClass: storageClassOrStandard(upload.StorageClass),
-			Initiated:    upload.Initiated,
-		})
-
-		if len(filteredUploads) >= maxUploads {
-			isTruncated = true
-			break
-		}
-	}
-
-	// isTruncated is already set correctly in the loop above
-	nextKeyMarker := ""
-	nextUploadIdMarker := ""
-	if isTruncated && len(filteredUploads) > 0 {
-		lastUpload := filteredUploads[len(filteredUploads)-1]
-		nextKeyMarker = lastUpload.Key
-		nextUploadIdMarker = lastUpload.UploadId
-	}
+	filteredUploads, isTruncated, nextKeyMarker, nextUploadIdMarker := paginateMultipartUploads(uploads, keyMarker, uploadIdMarker, maxUploads)
 
 	result := ListMultipartUploadsResult{
 		Bucket:             bucketName,
@@ -334,9 +292,12 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 	// Parse query parameters
 	partNumberMarker := 0
 	if markerStr := r.URL.Query().Get("part-number-marker"); markerStr != "" {
-		if parsed, err := strconv.Atoi(markerStr); err == nil {
-			partNumberMarker = parsed
+		parsed, err := strconv.Atoi(markerStr)
+		if err != nil || parsed < 0 {
+			h.writeError(w, "InvalidArgument", "Argument part-number-marker must be a non-negative integer", uploadID, r)
+			return
 		}
+		partNumberMarker = parsed
 	}
 
 	maxParts := 1000
@@ -371,36 +332,7 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sort parts by part number
-	sort.Slice(parts, func(i, j int) bool {
-		return parts[i].PartNumber < parts[j].PartNumber
-	})
-
-	// Filter and paginate results
-	var filteredParts []Part
-	for _, part := range parts {
-		if part.PartNumber <= partNumberMarker {
-			continue
-		}
-
-		filteredParts = append(filteredParts, Part{
-			PartNumber:   part.PartNumber,
-			LastModified: part.LastModified,
-			ETag:         part.ETag,
-			Size:         part.Size,
-		})
-
-		if len(filteredParts) >= maxParts {
-			break
-		}
-	}
-
-	// Determine if truncated
-	isTruncated := len(parts) > len(filteredParts)+partNumberMarker
-	nextPartNumberMarker := 0
-	if isTruncated && len(filteredParts) > 0 {
-		nextPartNumberMarker = filteredParts[len(filteredParts)-1].PartNumber
-	}
+	filteredParts, isTruncated, nextPartNumberMarker := paginateMultipartParts(parts, partNumberMarker, maxParts)
 
 	result := ListPartsResult{
 		Bucket:   bucketName,
@@ -423,6 +355,94 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeXMLResponse(w, http.StatusOK, result)
+}
+
+func paginateMultipartUploads(uploads []object.MultipartUpload, keyMarker, uploadIDMarker string, maxUploads int) ([]MultipartUpload, bool, string, string) {
+	sort.Slice(uploads, func(i, j int) bool {
+		if uploads[i].Key == uploads[j].Key {
+			return uploads[i].UploadID < uploads[j].UploadID
+		}
+		return uploads[i].Key < uploads[j].Key
+	})
+
+	filteredUploads := make([]MultipartUpload, 0, maxUploads)
+	isTruncated := false
+
+	for _, upload := range uploads {
+		if keyMarker != "" {
+			if upload.Key < keyMarker {
+				continue
+			}
+			if upload.Key == keyMarker {
+				if uploadIDMarker == "" || upload.UploadID <= uploadIDMarker {
+					continue
+				}
+			}
+		}
+
+		if len(filteredUploads) >= maxUploads {
+			isTruncated = true
+			break
+		}
+
+		filteredUploads = append(filteredUploads, MultipartUpload{
+			Key:      upload.Key,
+			UploadId: upload.UploadID,
+			Initiator: Initiator{
+				ID:          "maxiofs",
+				DisplayName: "MaxIOFS",
+			},
+			Owner: Owner{
+				ID:          "maxiofs",
+				DisplayName: "MaxIOFS",
+			},
+			StorageClass: storageClassOrStandard(upload.StorageClass),
+			Initiated:    upload.Initiated,
+		})
+	}
+
+	nextKeyMarker := ""
+	nextUploadIDMarker := ""
+	if isTruncated && len(filteredUploads) > 0 {
+		lastUpload := filteredUploads[len(filteredUploads)-1]
+		nextKeyMarker = lastUpload.Key
+		nextUploadIDMarker = lastUpload.UploadId
+	}
+
+	return filteredUploads, isTruncated, nextKeyMarker, nextUploadIDMarker
+}
+
+func paginateMultipartParts(parts []object.Part, partNumberMarker, maxParts int) ([]Part, bool, int) {
+	sort.Slice(parts, func(i, j int) bool {
+		return parts[i].PartNumber < parts[j].PartNumber
+	})
+
+	filteredParts := make([]Part, 0, maxParts)
+	isTruncated := false
+
+	for _, part := range parts {
+		if part.PartNumber <= partNumberMarker {
+			continue
+		}
+		if len(filteredParts) >= maxParts {
+			isTruncated = true
+			break
+		}
+
+		filteredParts = append(filteredParts, Part{
+			PartNumber:   part.PartNumber,
+			LastModified: part.LastModified,
+			ETag:         part.ETag,
+			Size:         part.Size,
+		})
+	}
+
+	nextPartNumberMarker := 0
+	if isTruncated && len(filteredParts) > 0 {
+		nextPartNumberMarker = filteredParts[len(filteredParts)-1].PartNumber
+	}
+
+	return filteredParts, isTruncated, nextPartNumberMarker
 }
 
 // CompleteMultipartUpload completes a multipart upload
@@ -621,24 +641,9 @@ func (h *Handler) AbortMultipartUpload(w http.ResponseWriter, r *http.Request) {
 // UploadPartCopy implements S3 UploadPartCopy for copying parts of large files
 // This is used by AWS CLI when copying files > 5MB between buckets
 func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadID string, partNumber int, copySource, copySourceRange string) {
-	// Parse source bucket and key from copy source
-	// Format can be: "/source-bucket/source-key" OR "source-bucket/source-key"
-	// AWS CLI may send with or without leading slash
-	if len(copySource) > 0 && copySource[0] == '/' {
-		copySource = copySource[1:] // Remove leading slash if present
-	}
-
-	slashIdx := strings.Index(copySource, "/")
-	if slashIdx == -1 {
+	sourceBucket, sourceKey, copySourceVersionID, err := parseCopySourceHeader(copySource)
+	if err != nil {
 		h.writeError(w, "InvalidArgument", "Invalid copy source format", uploadID, r)
-		return
-	}
-
-	sourceBucket := copySource[:slashIdx]
-	sourceKey := copySource[slashIdx+1:]
-
-	if sourceBucket == "" || sourceKey == "" {
-		h.writeError(w, "InvalidArgument", "Invalid copy source: empty bucket or key", uploadID, r)
 		return
 	}
 
@@ -652,7 +657,13 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 
 	sourceBucketPath := h.getBucketPath(r, sourceBucket)
 	// Get source object
-	sourceObj, reader, err := h.objectManager.GetObject(r.Context(), sourceBucketPath, sourceKey)
+	var sourceObj *object.Object
+	var reader io.ReadCloser
+	if copySourceVersionID != "" {
+		sourceObj, reader, err = h.objectManager.GetObject(r.Context(), sourceBucketPath, sourceKey, copySourceVersionID)
+	} else {
+		sourceObj, reader, err = h.objectManager.GetObject(r.Context(), sourceBucketPath, sourceKey)
+	}
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified source key does not exist", sourceKey, r)

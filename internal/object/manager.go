@@ -241,6 +241,20 @@ func (om *objectManager) parseBucketPath(bucketPath string) (tenantID, bucketNam
 	return "", parts[0] // "", "backups" (global bucket)
 }
 
+func isMetadataDeleteMarker(obj *metadata.ObjectMetadata) bool {
+	return obj != nil && obj.Size == 0 && obj.ETag == ""
+}
+
+func isVersionDeleteMarker(ver *metadata.ObjectVersion) bool {
+	return ver != nil && ver.Size == 0 && ver.ETag == ""
+}
+
+func (om *objectManager) isBucketVersioningEnabled(ctx context.Context, bucket string) bool {
+	tenantID, bucketName := om.parseBucketPath(bucket)
+	bucketMeta, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
+	return err == nil && bucketMeta != nil && bucketMeta.Versioning != nil && bucketMeta.Versioning.Status == "Enabled"
+}
+
 // generateVersionID generates a unique version ID for object versioning
 // Format: timestamp (nanoseconds) + random hex (8 chars)
 func generateVersionID() string {
@@ -422,11 +436,7 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 
 	// Check if versioning is enabled for this bucket
 	tenantID, bucketName := om.parseBucketPath(bucket)
-	bucketMeta, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
-	versioningEnabled := false
-	if err == nil && bucketMeta != nil && bucketMeta.Versioning != nil {
-		versioningEnabled = bucketMeta.Versioning.Status == "Enabled"
-	}
+	versioningEnabled := om.isBucketVersioningEnabled(ctx, bucket)
 
 	// Generate versionID if versioning is enabled
 	var versionID string
@@ -571,10 +581,7 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 
 	// CRITICAL: Get existing object BEFORE overwriting in metadata store
 	// This is needed for correct size calculations in metrics and quotas
-	var existingObjBeforeSave *metadata.ObjectMetadata
-	if !versioningEnabled {
-		existingObjBeforeSave, _ = om.metadataStore.GetObject(ctx, bucket, key)
-	}
+	existingObjBeforeSave, _ := om.metadataStore.GetObject(ctx, bucket, key)
 
 	// If versioning is enabled, store as version
 	if versioningEnabled {
@@ -624,13 +631,7 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, b
 		return "", err
 	}
 
-	// Check if versioning is enabled
-	tenantID, bucketName := om.parseBucketPath(bucket)
-	bucketMeta, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
-	versioningEnabled := false
-	if err == nil && bucketMeta != nil && bucketMeta.Versioning != nil {
-		versioningEnabled = bucketMeta.Versioning.Status == "Enabled"
-	}
+	versioningEnabled := om.isBucketVersioningEnabled(ctx, bucket)
 
 	// Determine if we're deleting a specific version or creating a delete marker
 	var specificVersionID string
@@ -652,6 +653,9 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, b
 
 // createDeleteMarker creates a delete marker for a versioned object
 func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key string) (string, error) {
+	existingLatest, _ := om.metadataStore.GetObject(ctx, bucket, key)
+	wasVisible := existingLatest != nil && !isMetadataDeleteMarker(existingLatest)
+
 	// Generate delete marker versionID
 	deleteMarkerVersionID := generateVersionID()
 
@@ -685,10 +689,10 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key str
 		return "", fmt.Errorf("failed to create delete marker: %w", err)
 	}
 
-	// Decrement object count: the object is now logically deleted (hidden by the
-	// delete marker). We pass size=0 because no physical data is removed yet —
-	// all previous versions remain on disk.
-	if om.bucketManager != nil {
+	// Decrement object count only when a visible object was hidden by this
+	// marker. Repeated DELETE requests over an existing delete marker should
+	// create another marker but must not decrement visible object count again.
+	if om.bucketManager != nil && wasVisible {
 		tenantID, bucketName := om.parseBucketPath(bucket)
 		if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, 0); err != nil {
 			logrus.WithFields(logrus.Fields{
@@ -833,21 +837,22 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 	//   • Deleted the last remaining version (real object)            → DecrementObjectCount
 	//   • Deleted non-latest, or dm→dm, or real→real transitions      → no change
 	if om.bucketManager != nil && deletingLatest {
-		deletedIsDeleteMarker := objMetadata.Size == 0 && objMetadata.ETag == ""
+		deletedIsDeleteMarker := isMetadataDeleteMarker(metaObj)
 
 		// Find what becomes the new latest (if any)
-		var nextIsDeleteMarker bool
-		var nextSize int64
-		hasNextVersion := len(allVersions) > 1
-		if hasNextVersion {
+		var nextLatestForMetrics *metadata.ObjectVersion
+		if len(allVersions) > 1 {
 			for _, ver := range allVersions {
-				if ver.VersionID != versionID {
-					nextIsDeleteMarker = ver.Size == 0 && ver.ETag == ""
-					nextSize = ver.Size
-					break
+				if ver.VersionID == versionID {
+					continue
+				}
+				if nextLatestForMetrics == nil || ver.LastModified.After(nextLatestForMetrics.LastModified) {
+					nextLatestForMetrics = ver
 				}
 			}
 		}
+		hasNextVersion := nextLatestForMetrics != nil
+		nextIsDeleteMarker := isVersionDeleteMarker(nextLatestForMetrics)
 
 		tenantID, bucketName := om.parseBucketPath(bucket)
 		switch {
@@ -858,7 +863,7 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 			}
 		case hasNextVersion && deletedIsDeleteMarker && !nextIsDeleteMarker:
 			// Delete marker removed → real object underneath resurfaces
-			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, nextSize); err != nil {
+			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, 0); err != nil {
 				logrus.WithError(err).Warn("Failed to increment object count after removing delete marker")
 			}
 		case hasNextVersion && !deletedIsDeleteMarker && nextIsDeleteMarker:
@@ -1850,6 +1855,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		return nil, err
 	}
 	multipart := fromMetadataMultipartUpload(metaMU)
+	versioningEnabled := om.isBucketVersioningEnabled(ctx, multipart.Bucket)
 
 	// Validate parts list and calculate total size
 	totalSize, err := om.validateAndCalculatePartsSize(ctx, uploadID, parts)
@@ -1862,7 +1868,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	isNewObject := existingObj == nil
 
 	// Validate tenant storage quota BEFORE combining parts (early rejection to avoid wasted work)
-	if err := om.checkMultipartQuotaBeforeComplete(ctx, multipart.Bucket, uploadID, totalSize, existingObj); err != nil {
+	if err := om.checkMultipartQuotaBeforeComplete(ctx, multipart.Bucket, uploadID, totalSize, existingObj, versioningEnabled); err != nil {
 		return nil, err
 	}
 
@@ -1876,7 +1882,14 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	// Combine parts into final object.
 	// storage.Put inside combineMultipartParts already computes etag+size and writes them
 	// to the .metadata sidecar — no need to re-read the data file for MD5.
-	objectPath := om.getObjectPath(multipart.Bucket, multipart.Key)
+	var versionID string
+	var objectPath string
+	if versioningEnabled {
+		versionID = generateVersionID()
+		objectPath = om.getVersionedObjectPath(multipart.Bucket, multipart.Key, versionID)
+	} else {
+		objectPath = om.getObjectPath(multipart.Bucket, multipart.Key)
+	}
 	if err := om.combineMultipartParts(ctx, uploadID, parts, objectPath); err != nil {
 		return nil, fmt.Errorf("failed to combine parts: %w", err)
 	}
@@ -1934,11 +1947,27 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		ContentType:  multipart.Metadata["content-type"],
 		Metadata:     multipart.Metadata,
 		StorageClass: multipart.StorageClass,
+		VersionID:    versionID,
 	}
 
 	metaObj := toMetadataObject(object)
-	if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
-		logrus.WithError(err).Warn("Failed to save final object metadata")
+	if versioningEnabled {
+		version := &metadata.ObjectVersion{
+			VersionID:    versionID,
+			IsLatest:     true,
+			Key:          multipart.Key,
+			Size:         originalSize,
+			ETag:         multipartETag,
+			LastModified: object.LastModified,
+			StorageClass: multipart.StorageClass,
+		}
+		if err := om.metadataStore.PutObjectVersion(ctx, metaObj, version); err != nil {
+			logrus.WithError(err).Warn("Failed to save final multipart object version metadata")
+			return nil, fmt.Errorf("failed to save final multipart object version metadata: %w", err)
+		}
+	} else if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
+		logrus.WithError(err).Warn("Failed to save final multipart object metadata")
+		return nil, fmt.Errorf("failed to save final multipart object metadata: %w", err)
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -1948,7 +1977,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	}).Info("Multipart upload completed successfully")
 
 	// Update bucket metrics and clean up multipart data
-	om.updateMetricsAndCleanupMultipart(ctx, multipart.Bucket, uploadID, originalSize, isNewObject, existingObj, parts)
+	om.updateMetricsAndCleanupMultipart(ctx, multipart.Bucket, uploadID, originalSize, isNewObject, existingObj, parts, versioningEnabled)
 
 	return object, nil
 }
@@ -2502,15 +2531,22 @@ func (om *objectManager) updateBucketMetricsAfterPut(ctx context.Context, tenant
 			}
 		}
 	} else {
-		// Versioned bucket - only increment count on first version
-		existingVersions, err := om.metadataStore.GetObjectVersions(ctx, bucket, key)
-		if err != nil || len(existingVersions) == 1 {
-			// First version - increment count
+		// Versioned bucket: every new real version adds physical bytes. The
+		// visible object count changes only when there was no visible latest
+		// object before this PUT (new key, or a delete marker was latest).
+		wasVisible := existingObjBeforeSave != nil && !isMetadataDeleteMarker(existingObjBeforeSave)
+		if existingObjBeforeSave == nil {
+			// Backward-compatible fallback for direct helper callers that did
+			// not capture the previous latest object before saving.
+			if existingVersions, err := om.metadataStore.GetObjectVersions(ctx, bucket, key); err == nil && len(existingVersions) > 1 {
+				wasVisible = true
+			}
+		}
+		if !wasVisible {
 			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
-				logrus.WithError(err).Warn("Failed to increment bucket object count for first version")
+				logrus.WithError(err).Warn("Failed to increment bucket object count for versioned put")
 			}
 		} else {
-			// Additional version - only adjust size, do NOT increment object count
 			if err := om.bucketManager.AdjustBucketSize(ctx, tenantID, bucketName, size); err != nil {
 				logrus.WithError(err).Warn("Failed to adjust bucket size for additional version")
 			}
@@ -2628,7 +2664,7 @@ func (om *objectManager) computeMultipartETag(ctx context.Context, uploadID stri
 }
 
 // checkMultipartQuotaBeforeComplete validates tenant quota before combining parts
-func (om *objectManager) checkMultipartQuotaBeforeComplete(ctx context.Context, bucket, uploadID string, totalSize int64, existingObj *metadata.ObjectMetadata) error {
+func (om *objectManager) checkMultipartQuotaBeforeComplete(ctx context.Context, bucket, uploadID string, totalSize int64, existingObj *metadata.ObjectMetadata, versioningEnabled bool) error {
 	if om.authManager == nil {
 		return nil
 	}
@@ -2638,9 +2674,8 @@ func (om *objectManager) checkMultipartQuotaBeforeComplete(ctx context.Context, 
 		return nil
 	}
 
-	isNewObject := existingObj == nil
 	var sizeIncrement int64
-	if isNewObject {
+	if versioningEnabled || existingObj == nil {
 		sizeIncrement = totalSize
 	} else {
 		sizeIncrement = totalSize - existingObj.Size
@@ -2815,12 +2850,22 @@ func (om *objectManager) storeUnencryptedMultipartObject(ctx context.Context, ob
 }
 
 // updateMetricsAndCleanupMultipart updates bucket/tenant metrics and cleans up multipart data
-func (om *objectManager) updateMetricsAndCleanupMultipart(ctx context.Context, bucket, uploadID string, originalSize int64, isNewObject bool, existingObj *metadata.ObjectMetadata, parts []Part) {
+func (om *objectManager) updateMetricsAndCleanupMultipart(ctx context.Context, bucket, uploadID string, originalSize int64, isNewObject bool, existingObj *metadata.ObjectMetadata, parts []Part, versioningEnabledArg ...bool) {
+	versioningEnabled := len(versioningEnabledArg) > 0 && versioningEnabledArg[0]
 	tenantID, bucketName := om.parseBucketPath(bucket)
 
 	// Update bucket metrics
 	if om.bucketManager != nil {
-		if isNewObject {
+		if versioningEnabled {
+			wasVisible := existingObj != nil && !isMetadataDeleteMarker(existingObj)
+			if !wasVisible {
+				if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, originalSize); err != nil {
+					logrus.WithError(err).Warn("Failed to increment bucket metrics after versioned multipart upload")
+				}
+			} else if err := om.bucketManager.AdjustBucketSize(ctx, tenantID, bucketName, originalSize); err != nil {
+				logrus.WithError(err).Warn("Failed to adjust bucket size after versioned multipart upload")
+			}
+		} else if isNewObject {
 			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, originalSize); err != nil {
 				logrus.WithError(err).Warn("Failed to increment bucket metrics after multipart upload")
 			}
@@ -2837,7 +2882,7 @@ func (om *objectManager) updateMetricsAndCleanupMultipart(ctx context.Context, b
 		// Update tenant storage quota
 		if om.authManager != nil && tenantID != "" {
 			var sizeToAdd int64
-			if isNewObject {
+			if versioningEnabled || isNewObject {
 				sizeToAdd = originalSize
 			} else {
 				sizeToAdd = originalSize - existingObj.Size

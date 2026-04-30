@@ -321,10 +321,13 @@ func loadJSONLines(db *sql.DB, r io.Reader) (cols []string, scanned int64, err e
 	dec := json.NewDecoder(counter)
 
 	var allMaps []map[string]interface{}
-	for dec.More() {
+	for {
 		var obj map[string]interface{}
 		if decErr := dec.Decode(&obj); decErr != nil {
-			break // stop on parse error, use what we have
+			if decErr == io.EOF {
+				break
+			}
+			return nil, counter.n, fmt.Errorf("parsing JSON lines: %w", decErr)
 		}
 		allMaps = append(allMaps, obj)
 	}
@@ -535,6 +538,13 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 	if req.InputSerialization.CSV == nil && req.InputSerialization.JSON == nil {
 		h.writeError(w, "InvalidRequest", "InputSerialization must specify CSV or JSON", bucketName, r)
 		return
+	}
+	if req.InputSerialization.JSON != nil {
+		jsonType := strings.ToUpper(req.InputSerialization.JSON.Type)
+		if jsonType != "" && jsonType != "LINES" {
+			h.writeError(w, "InvalidRequest", "JSON InputSerialization Type must be LINES", bucketName, r)
+			return
+		}
 	}
 	if req.OutputSerialization.CSV == nil && req.OutputSerialization.JSON == nil {
 		h.writeError(w, "InvalidRequest", "OutputSerialization must specify CSV or JSON", bucketName, r)

@@ -238,12 +238,12 @@ type Tag struct {
 
 // getObjectAttributesResponse is the AWS XML response for GetObjectAttributes.
 type getObjectAttributesResponse struct {
-	XMLName      xml.Name             `xml:"GetObjectAttributesResponse"`
-	ETag         string               `xml:"ETag,omitempty"`
-	StorageClass string               `xml:"StorageClass,omitempty"`
-	ObjectSize   *int64               `xml:"ObjectSize,omitempty"`
-	Checksum     *objectAttributesCksum  `xml:"Checksum,omitempty"`
-	ObjectParts  *objectAttributesParts  `xml:"ObjectParts,omitempty"`
+	XMLName      xml.Name               `xml:"GetObjectAttributesResponse"`
+	ETag         string                 `xml:"ETag,omitempty"`
+	StorageClass string                 `xml:"StorageClass,omitempty"`
+	ObjectSize   *int64                 `xml:"ObjectSize,omitempty"`
+	Checksum     *objectAttributesCksum `xml:"Checksum,omitempty"`
+	ObjectParts  *objectAttributesParts `xml:"ObjectParts,omitempty"`
 }
 
 type objectAttributesCksum struct {
@@ -689,43 +689,14 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		"dest_key":    destKey,
 	}).Info("S3 API: CopyObject - received request")
 
-	// Parse source bucket and key from copy source
-	// Format can be: "/source-bucket/source-key" OR "source-bucket/source-key"
-	// AWS CLI may send with or without leading slash
-	if copySource[0] == '/' {
-		copySource = copySource[1:] // Remove leading slash if present
-	}
-
-	// Find first slash to separate bucket from key
-	slashIdx := strings.Index(copySource, "/")
-	if slashIdx == -1 {
-		logrus.WithFields(logrus.Fields{
-			"copySource": copySource,
-		}).Error("CopyObject: No slash found in copy source")
-		h.writeError(w, "InvalidArgument", fmt.Sprintf("Invalid copy source format: %s", copySource), destKey, r)
-		return
-	}
-
-	sourceBucket := copySource[:slashIdx]
-	sourceKey := copySource[slashIdx+1:]
-
-	// URL decode the source key (it comes encoded in the header)
-	sourceKey, err := url.PathUnescape(sourceKey)
+	sourceBucket, sourceKey, copySourceVersionID, err := parseCopySourceHeader(copySource)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
-			"sourceKey": sourceKey,
-			"error":     err,
-		}).Error("CopyObject: Failed to decode source key")
-		h.writeError(w, "InvalidArgument", "Invalid source key encoding", destKey, r)
+			"copySource": copySource,
+			"error":      err,
+		}).Error("CopyObject: invalid copy source")
+		h.writeError(w, "InvalidArgument", fmt.Sprintf("Invalid copy source format: %s", copySource), destKey, r)
 		return
-	}
-
-	// Parse optional ?versionId=xxx from the source key.
-	// The header format can be: "bucket/key?versionId=ABC123"
-	var copySourceVersionID string
-	if vIdx := strings.Index(sourceKey, "?versionId="); vIdx != -1 {
-		copySourceVersionID = sourceKey[vIdx+len("?versionId="):]
-		sourceKey = sourceKey[:vIdx]
 	}
 
 	if sourceBucket == "" || sourceKey == "" {
@@ -908,4 +879,44 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	// Fire s3:ObjectCreated:Copy notification asynchronously.
 	destTenantID := h.getTenantIDFromRequest(r)
 	h.fireNotifications(r.Context(), destBucket, destTenantID, destKey, "s3:ObjectCreated:Copy", destObj.ETag, destObj.Size)
+}
+
+func parseCopySourceHeader(copySource string) (bucketName, objectKey, versionID string, err error) {
+	if copySource == "" {
+		return "", "", "", fmt.Errorf("copy source is empty")
+	}
+	if copySource[0] == '/' {
+		copySource = copySource[1:]
+	}
+
+	slashIdx := strings.Index(copySource, "/")
+	if slashIdx == -1 {
+		return "", "", "", fmt.Errorf("missing bucket/key separator")
+	}
+
+	bucketName = copySource[:slashIdx]
+	keyAndQuery := copySource[slashIdx+1:]
+	if bucketName == "" || keyAndQuery == "" {
+		return "", "", "", fmt.Errorf("empty bucket or key")
+	}
+
+	keyRaw := keyAndQuery
+	if qIdx := strings.Index(keyAndQuery, "?"); qIdx >= 0 {
+		keyRaw = keyAndQuery[:qIdx]
+		queryValues, parseErr := url.ParseQuery(keyAndQuery[qIdx+1:])
+		if parseErr != nil {
+			return "", "", "", fmt.Errorf("invalid copy source query: %w", parseErr)
+		}
+		versionID = queryValues.Get("versionId")
+	}
+
+	objectKey, err = url.PathUnescape(keyRaw)
+	if err != nil {
+		return "", "", "", fmt.Errorf("invalid source key encoding: %w", err)
+	}
+	if objectKey == "" {
+		return "", "", "", fmt.Errorf("empty object key")
+	}
+
+	return bucketName, objectKey, versionID, nil
 }

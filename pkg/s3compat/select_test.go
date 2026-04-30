@@ -278,6 +278,20 @@ func TestLoadJSONLines_SparseFields(t *testing.T) {
 	assert.Contains(t, cols, "c")
 }
 
+func TestLoadJSONLines_MalformedInputReturnsError(t *testing.T) {
+	lines := `{"name":"Alice","age":"30"}
+not-json
+{"name":"Bob","age":"25"}
+`
+	db := openTestDB(t)
+
+	cols, _, err := loadJSONLines(db, strings.NewReader(lines))
+
+	assert.Error(t, err)
+	assert.Nil(t, cols)
+	assert.Contains(t, err.Error(), "parsing JSON lines")
+}
+
 // ============================================================================
 // streamSelectResults unit tests
 // ============================================================================

@@ -90,3 +90,4 @@ build/
 scripts/
 SECURITY_AUDIT.md
 config.yaml
+.gocache
