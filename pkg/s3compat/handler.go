@@ -1191,7 +1191,7 @@ func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 		Prefix:            encodeStrV2(prefix),
 		Delimiter:         encodeStrV2(delimiter),
 		MaxKeys:           maxKeys,
-		KeyCount:          len(listResult.Objects),
+		KeyCount:          len(listResult.Objects) + len(commonPrefixes),
 		IsTruncated:       listResult.IsTruncated,
 		ContinuationToken: continuationToken,
 		StartAfter:        encodeStrV2(startAfter),
@@ -1372,6 +1372,9 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	obj, reader, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
+			if h.handleVersionedObjectNotFound(w, r, bucketPath, objectKey, versionID) {
+				return
+			}
 			// Objeto no existe - devolver 404 (comportamiento correcto de S3)
 			// VEEAM usa esto para detectar si smart-entity-status.xml existe (primer backup)
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -1539,6 +1542,12 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	// Detect and decode AWS chunked encoding
 	bodyReader := h.detectAndDecodeAwsChunked(r, bucketName, objectKey, contentEncoding, decodedContentLength)
 
+	requestTags, tagErr := parseS3TaggingHeader(r.Header.Get("x-amz-tagging"))
+	if tagErr != nil {
+		h.writeError(w, "InvalidTag", tagErr.Error(), objectKey, r)
+		return
+	}
+
 	logrus.WithFields(logrus.Fields{
 		"bucket":     bucketName,
 		"object":     objectKey,
@@ -1584,6 +1593,13 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	// Must be done after object is stored so SetObjectACL has something to act on.
 	if cannedACL := r.Header.Get("x-amz-acl"); cannedACL != "" {
 		h.applyObjectCannedACLHeader(r.Context(), bucketPath, objectKey, cannedACL)
+	}
+
+	if requestTags != nil {
+		if err := h.objectManager.SetObjectTagging(r.Context(), bucketPath, objectKey, requestTags); err != nil {
+			h.writeError(w, "InternalError", err.Error(), objectKey, r)
+			return
+		}
 	}
 
 	// Note: Bucket metrics and tenant storage are updated by objectManager.PutObject()
@@ -1665,7 +1681,7 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	objectSize := h.getObjectSizeBeforeDeletion(r.Context(), bucketPath, objectKey, versionID)
 
 	deleteMarkerVersionID, err := h.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, bypassGovernance, versionID)
-	if h.handleDeleteObjectErrors(w, r, err, bucketName, objectKey) {
+	if h.handleDeleteObjectErrors(w, r, err, bucketName, objectKey, versionID) {
 		return
 	}
 
@@ -1765,6 +1781,9 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		if err == object.ErrObjectNotFound {
+			if h.handleVersionedObjectNotFound(w, r, bucketPath, objectKey, versionID) {
+				return
+			}
 			// Object doesn't exist - return 404 (VEEAM uses this to detect missing files)
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
@@ -2251,7 +2270,10 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	statusCode := http.StatusInternalServerError
 	switch code {
 	// 400 Bad Request (AWS S3 standard)
-	case "InvalidArgument", "InvalidBucketName", "InvalidRequest", "MalformedXML", "MalformedPolicy", "InvalidTag", "InvalidPart", "IllegalVersioningConfigurationException", "BadDigest", "EntityTooSmall", "EntityTooLarge", "InvalidDigest":
+	case "InvalidArgument", "InvalidBucketName", "InvalidRequest", "MalformedXML", "MalformedPolicy",
+		"MalformedPOSTRequest", "InvalidPolicyDocument", "InvalidTag", "InvalidPart",
+		"IllegalVersioningConfigurationException", "BadDigest", "EntityTooSmall", "EntityTooLarge",
+		"InvalidDigest":
 		statusCode = http.StatusBadRequest
 	// 401 Unauthorized
 	case "Unauthorized":
@@ -2265,7 +2287,7 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 		"NoSuchBucketPolicy", "NoSuchObjectLockConfiguration", "NoSuchLifecycleConfiguration",
 		"NoSuchCORSConfiguration", "NoSuchWebsiteConfiguration",
 		"ServerSideEncryptionConfigurationNotFoundError", "NoSuchPublicAccessBlockConfiguration",
-		"NoSuchConfiguration", "ReplicationConfigurationNotFoundError":
+		"NoSuchConfiguration", "ReplicationConfigurationNotFoundError", "NoSuchVersion":
 		statusCode = http.StatusNotFound
 	// 405 Method Not Allowed
 	case "MethodNotAllowed":
@@ -2328,7 +2350,7 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 
 	// Use correct field based on error type (AWS S3 compatibility)
 	switch code {
-	case "NoSuchKey", "ObjectNotInActiveTierError", "NoSuchObjectLockConfiguration":
+	case "NoSuchKey", "NoSuchVersion", "ObjectNotInActiveTierError", "NoSuchObjectLockConfiguration":
 		errorResponse.Key = resource
 	case "NoSuchBucket", "BucketAlreadyExists", "BucketNotEmpty", "NoSuchLifecycleConfiguration",
 		"NoSuchCORSConfiguration", "NoSuchBucketPolicy", "NoSuchWebsiteConfiguration",
@@ -2992,7 +3014,7 @@ func (h *Handler) getObjectSizeBeforeDeletion(ctx context.Context, bucketPath, o
 }
 
 // handleDeleteObjectErrors handles specific delete errors and writes appropriate response
-func (h *Handler) handleDeleteObjectErrors(w http.ResponseWriter, r *http.Request, err error, bucketName, objectKey string) bool {
+func (h *Handler) handleDeleteObjectErrors(w http.ResponseWriter, r *http.Request, err error, bucketName, objectKey, versionID string) bool {
 	if err == nil {
 		return false
 	}
@@ -3008,7 +3030,12 @@ func (h *Handler) handleDeleteObjectErrors(w http.ResponseWriter, r *http.Reques
 		return true
 	}
 
-	// S3 spec: DELETE on non-existent object should return success (idempotent)
+	if versionID != "" && err == object.ErrObjectNotFound {
+		h.writeError(w, "NoSuchVersion", "The specified version does not exist", objectKey, r)
+		return true
+	}
+
+	// S3 spec: DELETE on non-existent current object should return success (idempotent)
 	if err == object.ErrObjectNotFound {
 		logrus.WithFields(logrus.Fields{
 			"bucket": bucketName,
@@ -3070,6 +3097,95 @@ func (h *Handler) setDeleteResponseHeaders(w http.ResponseWriter, deleteMarkerVe
 		w.Header().Set("x-amz-version-id", versionID)
 		w.Header().Set("x-amz-delete-marker", "false")
 	}
+}
+
+func (h *Handler) handleVersionedObjectNotFound(w http.ResponseWriter, r *http.Request, bucketPath, objectKey, versionID string) bool {
+	version, found := h.findExactObjectVersion(r.Context(), bucketPath, objectKey, versionID)
+	if versionID != "" && !found {
+		h.writeError(w, "NoSuchVersion", "The specified version does not exist", objectKey, r)
+		return true
+	}
+	if !isS3DeleteMarkerVersion(version) {
+		return false
+	}
+
+	w.Header().Set("x-amz-delete-marker", "true")
+	if version.VersionID != "" {
+		w.Header().Set("x-amz-version-id", version.VersionID)
+	}
+	if !version.LastModified.IsZero() {
+		w.Header().Set("Last-Modified", version.LastModified.UTC().Format(http.TimeFormat))
+	}
+
+	if versionID != "" {
+		h.writeError(w, "MethodNotAllowed", "The specified method is not allowed against this resource", objectKey, r)
+		return true
+	}
+
+	h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
+	return true
+}
+
+func (h *Handler) findExactObjectVersion(ctx context.Context, bucketPath, objectKey, versionID string) (*metadata.ObjectVersion, bool) {
+	if h.metadataStore == nil {
+		return nil, false
+	}
+	versions, err := h.metadataStore.ListAllObjectVersions(ctx, bucketPath, objectKey, 0)
+	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"bucket":    bucketPath,
+			"object":    objectKey,
+			"versionID": versionID,
+		}).Debug("failed to inspect object versions for S3 delete-marker response")
+		return nil, false
+	}
+	for _, version := range versions {
+		if version == nil || version.Key != objectKey {
+			continue
+		}
+		if versionID != "" {
+			if version.VersionID == versionID {
+				return version, true
+			}
+			continue
+		}
+		if version.IsLatest {
+			return version, true
+		}
+	}
+	return nil, false
+}
+
+func isS3DeleteMarkerVersion(version *metadata.ObjectVersion) bool {
+	return version != nil && version.Size == 0 && version.ETag == ""
+}
+
+func parseS3TaggingHeader(raw string) (*object.TagSet, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	values, err := url.ParseQuery(raw)
+	if err != nil {
+		return nil, fmt.Errorf("tagging header is not valid URL-encoded form data")
+	}
+	if len(values) > 10 {
+		return nil, fmt.Errorf("object cannot have more than 10 tags")
+	}
+	tags := &object.TagSet{Tags: make([]object.Tag, 0, len(values))}
+	for key, vals := range values {
+		if key == "" {
+			return nil, fmt.Errorf("tag key cannot be empty")
+		}
+		if len(vals) > 1 {
+			return nil, fmt.Errorf("duplicate tag key %q", key)
+		}
+		value := ""
+		if len(vals) == 1 {
+			value = vals[0]
+		}
+		tags.Tags = append(tags.Tags, object.Tag{Key: key, Value: value})
+	}
+	return tags, nil
 }
 
 // handlePresignedURLError writes appropriate error response based on presigned URL validation error
@@ -3754,6 +3870,10 @@ func (h *Handler) setHeadObjectResponseHeaders(w http.ResponseWriter, obj *objec
 	// Tag count — returned when object has tags
 	if obj.Tags != nil && len(obj.Tags.Tags) > 0 {
 		w.Header().Set("x-amz-tag-count", strconv.Itoa(len(obj.Tags.Tags)))
+	}
+
+	if obj.VersionID != "" {
+		w.Header().Set("x-amz-version-id", obj.VersionID)
 	}
 
 	// Object Lock headers (Veeam compatibility)

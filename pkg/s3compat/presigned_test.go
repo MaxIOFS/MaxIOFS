@@ -397,6 +397,51 @@ func TestValidatePresignedURLV4_ValidSignature(t *testing.T) {
 	assert.NoError(t, err, "Valid presigned URL should pass validation")
 }
 
+func TestValidatePresignedURLV4_SignedHeadersAreEnforced(t *testing.T) {
+	handler := &Handler{
+		publicAPIURL: "http://localhost:8080",
+		authManager:  &mockAuthManager{},
+	}
+
+	config := PresignedURLConfig{
+		AccessKey:  "AKIAIOSFODNN7EXAMPLE",
+		SecretKey:  "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+		BucketName: "test-bucket",
+		ObjectKey:  "test-object.txt",
+		Method:     "GET",
+		Expiration: 15 * time.Minute,
+		Headers: map[string]string{
+			"x-amz-meta-client": "backup-01",
+		},
+	}
+
+	presignedURL, err := handler.GeneratePresignedURL(config)
+	require.NoError(t, err)
+
+	parsedURL, err := url.Parse(presignedURL)
+	require.NoError(t, err)
+	assert.Equal(t, "host;x-amz-meta-client", parsedURL.Query().Get("X-Amz-SignedHeaders"))
+
+	req, err := http.NewRequest("GET", presignedURL, nil)
+	require.NoError(t, err)
+	req.Header.Set("x-amz-meta-client", "backup-01")
+	require.NoError(t, handler.ValidatePresignedURL(nil, req))
+
+	missingHeaderReq, err := http.NewRequest("GET", presignedURL, nil)
+	require.NoError(t, err)
+	err = handler.ValidatePresignedURL(nil, missingHeaderReq)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "signed header")
+
+	tamperedHeaderReq, err := http.NewRequest("GET", presignedURL, nil)
+	require.NoError(t, err)
+	tamperedHeaderReq.Header.Set("x-amz-meta-client", "backup-02")
+	err = handler.ValidatePresignedURL(nil, tamperedHeaderReq)
+	require.Error(t, err)
+	assert.IsType(t, &presignedValidationError{}, err)
+	assert.Contains(t, err.Error(), "signature")
+}
+
 // TestValidatePresignedURLV4_InvalidSignature tests detection of invalid signature
 func TestValidatePresignedURLV4_InvalidSignature(t *testing.T) {
 	handler := &Handler{
@@ -465,6 +510,33 @@ func TestValidatePresignedURLV4_Expired(t *testing.T) {
 	err = handler.ValidatePresignedURL(nil, req)
 	require.Error(t, err, "Expired URL should be rejected")
 	assert.Contains(t, err.Error(), "expired", "Error should mention expiration")
+}
+
+func TestValidatePresignedURLV4_RejectsExpirationBeyondSevenDays(t *testing.T) {
+	handler := &Handler{
+		publicAPIURL: "http://localhost:8080",
+		authManager:  &mockAuthManager{},
+	}
+
+	now := time.Now().UTC()
+	dateStamp := now.Format("20060102")
+	amzDate := now.Format("20060102T150405Z")
+	queryParams := url.Values{}
+	queryParams.Set("X-Amz-Algorithm", "AWS4-HMAC-SHA256")
+	queryParams.Set("X-Amz-Credential", fmt.Sprintf("AKIAIOSFODNN7EXAMPLE/%s/us-east-1/s3/aws4_request", dateStamp))
+	queryParams.Set("X-Amz-Date", amzDate)
+	queryParams.Set("X-Amz-Expires", strconv.FormatInt(int64((8*24*time.Hour).Seconds()), 10))
+	queryParams.Set("X-Amz-SignedHeaders", "host")
+	queryParams.Set("X-Amz-Signature", "00")
+
+	req, err := http.NewRequest("GET", "http://localhost:8080/test-bucket/test-object.txt?"+queryParams.Encode(), nil)
+	require.NoError(t, err)
+
+	err = handler.ValidatePresignedURL(nil, req)
+	require.Error(t, err)
+	var pe *presignedValidationError
+	require.ErrorAs(t, err, &pe)
+	assert.Equal(t, "InvalidArgument", pe.code)
 }
 
 // TestValidatePresignedURLV4_MissingParameters tests missing parameter detection

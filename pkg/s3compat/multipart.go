@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/cluster"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
@@ -102,6 +104,15 @@ func (h *Handler) CreateMultipartUpload(w http.ResponseWriter, r *http.Request) 
 		"bucket": bucketName,
 		"object": objectKey,
 	}).Debug("S3 API: CreateMultipartUpload")
+
+	if h.authManager != nil {
+		if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil {
+			if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectUpload) {
+				h.writeError(w, "AccessDenied", "You do not have permission to upload objects", objectKey, r)
+				return
+			}
+		}
+	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
 	// Create multipart upload
@@ -203,6 +214,15 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 		"uploadId":   uploadID,
 		"partNumber": partNumber,
 	}).Debug("S3 API: UploadPart")
+
+	if h.authManager != nil {
+		if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil {
+			if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectUpload) {
+				h.writeError(w, "AccessDenied", "You do not have permission to upload objects", objectKey, r)
+				return
+			}
+		}
+	}
 
 	// IMPORTANT: Detect UploadPartCopy operation
 	// AWS CLI uses this for copying large files (>5MB) between buckets
@@ -463,6 +483,15 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		"uploadId": uploadID,
 	}).Debug("S3 API: CompleteMultipartUpload")
 
+	if h.authManager != nil {
+		if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil {
+			if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectUpload) {
+				h.writeError(w, "AccessDenied", "You do not have permission to upload objects", objectKey, r)
+				return
+			}
+		}
+	}
+
 	// Parse the complete multipart upload request
 	var completeRequest CompleteMultipartUploadRequest
 	if err := xml.NewDecoder(r.Body).Decode(&completeRequest); err != nil {
@@ -569,10 +598,18 @@ done:
 			"uploadId": uploadID,
 			"code":     code,
 		}).WithError(res.err).Error("CompleteMultipartUpload failed after 200 OK was sent")
-		errResp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+"\n"+
-			`<Error><Code>%s</Code><Message>%s</Message><Resource>%s</Resource></Error>`,
-			code, res.err.Error(), objectKey)
-		w.Write([]byte(errResp)) //nolint:errcheck
+		w.Write([]byte(xml.Header)) //nolint:errcheck
+		errResp := struct {
+			XMLName  xml.Name `xml:"Error"`
+			Code     string   `xml:"Code"`
+			Message  string   `xml:"Message"`
+			Resource string   `xml:"Resource"`
+		}{
+			Code:     code,
+			Message:  res.err.Error(),
+			Resource: objectKey,
+		}
+		xml.NewEncoder(w).Encode(errResp) //nolint:errcheck
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
@@ -643,6 +680,10 @@ func (h *Handler) AbortMultipartUpload(w http.ResponseWriter, r *http.Request) {
 // UploadPartCopy implements S3 UploadPartCopy for copying parts of large files
 // This is used by AWS CLI when copying files > 5MB between buckets
 func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadID string, partNumber int, copySource, copySourceRange string) {
+	vars := mux.Vars(r)
+	destBucket := vars["bucket"]
+	destKey := vars["object"]
+
 	sourceBucket, sourceKey, copySourceVersionID, err := parseCopySourceHeader(copySource)
 	if err != nil {
 		h.writeError(w, "InvalidArgument", "Invalid copy source format", uploadID, r)
@@ -657,7 +698,39 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 		"sourceRange":  copySourceRange,
 	}).Info("UploadPartCopy: Processing copy part")
 
+	user, userExists := auth.GetUserFromContext(r.Context())
+	sourceTenantID := h.resolveBucketTenantID(r, sourceBucket)
 	sourceBucketPath := h.getBucketPath(r, sourceBucket)
+	destTenantID := h.resolveBucketTenantID(r, destBucket)
+
+	if h.authManager != nil && userExists {
+		if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectDownload) {
+			h.writeError(w, "AccessDenied", "You do not have permission to download objects", sourceKey, r)
+			return
+		}
+		if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectUpload) {
+			h.writeError(w, "AccessDenied", "You do not have permission to upload objects", destKey, r)
+			return
+		}
+	}
+	if !h.validateBucketReadPermission(w, r, user, userExists, false, false, "", sourceTenantID, sourceBucket, sourceKey) {
+		return
+	}
+	if !h.validateBucketWritePermission(r, user, userExists, destTenantID, destBucket) {
+		h.writeError(w, "AccessDenied", "Access Denied", destKey, r)
+		return
+	}
+	if h.metadataStore != nil {
+		if _, uploadErr := h.metadataStore.GetMultipartUpload(r.Context(), uploadID); uploadErr != nil {
+			if uploadErr == metadata.ErrUploadNotFound {
+				h.writeError(w, "NoSuchUpload", "The specified multipart upload does not exist", uploadID, r)
+				return
+			}
+			h.writeError(w, "InternalError", uploadErr.Error(), uploadID, r)
+			return
+		}
+	}
+
 	// Get source object
 	var sourceObj *object.Object
 	var reader io.ReadCloser
@@ -668,6 +741,10 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 	}
 	if err != nil {
 		if err == object.ErrObjectNotFound {
+			if copySourceVersionID != "" {
+				h.writeError(w, "NoSuchVersion", "The specified version does not exist", sourceKey, r)
+				return
+			}
 			h.writeError(w, "NoSuchKey", "The specified source key does not exist", sourceKey, r)
 			return
 		}
@@ -675,6 +752,13 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 		return
 	}
 	defer reader.Close()
+
+	if !h.validateObjectReadPermission(w, r, user, userExists, false, "", sourceTenantID, sourceBucketPath, sourceBucket, sourceKey) {
+		return
+	}
+	if !h.validateCopySourceConditionals(w, r, sourceObj, sourceKey) {
+		return
+	}
 
 	// Parse range if specified
 	var partReader io.Reader

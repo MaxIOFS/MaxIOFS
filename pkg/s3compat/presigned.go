@@ -75,7 +75,8 @@ func (h *Handler) generatePresignedURLV4(config PresignedURLConfig) (string, err
 		config.AccessKey, dateStamp, region, service))
 	queryParams.Set("X-Amz-Date", amzDate)
 	queryParams.Set("X-Amz-Expires", strconv.FormatInt(expiresInSeconds, 10))
-	queryParams.Set("X-Amz-SignedHeaders", "host")
+	signedHeaders := signedHeadersV4(config.Headers)
+	queryParams.Set("X-Amz-SignedHeaders", signedHeaders)
 
 	// Extract host from public API URL (remove protocol)
 	host := strings.TrimPrefix(h.publicAPIURL, "http://")
@@ -83,8 +84,7 @@ func (h *Handler) generatePresignedURLV4(config PresignedURLConfig) (string, err
 
 	// Create canonical request
 	canonicalQueryString := canonicalQueryStringV4(queryParams, true)
-	canonicalHeaders := fmt.Sprintf("host:%s\n", host)
-	signedHeaders := "host"
+	canonicalHeaders := canonicalHeadersForPresignV4(host, config.Headers, signedHeaders)
 	payloadHash := "UNSIGNED-PAYLOAD"
 
 	canonicalRequest := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s",
@@ -240,6 +240,9 @@ func (h *Handler) validatePresignedURLV4(r *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("invalid expires parameter: %v", err)
 	}
+	if expiresIn <= 0 || expiresIn > int64((7*24*time.Hour).Seconds()) {
+		return &presignedValidationError{"InvalidArgument", "X-Amz-Expires must be between 1 and 604800 seconds."}
+	}
 
 	// Parse date
 	requestTime, err := time.Parse("20060102T150405Z", date)
@@ -285,8 +288,12 @@ func (h *Handler) validatePresignedURLV4(r *http.Request) error {
 	}
 	canonicalQueryString := canonicalQueryStringV4(canonicalQuery, false)
 
-	// Build canonical headers
-	canonicalHeaders := fmt.Sprintf("host:%s\n", host)
+	// Build canonical headers from X-Amz-SignedHeaders and require every signed
+	// non-host header to be present in the actual request.
+	canonicalHeaders, err := canonicalHeadersFromRequestV4(r, signedHeaders, host)
+	if err != nil {
+		return &presignedValidationError{"SignatureDoesNotMatch", err.Error()}
+	}
 
 	// Build canonical request
 	payloadHash := "UNSIGNED-PAYLOAD"
@@ -360,6 +367,83 @@ func awsQueryEscapeV4(s string) string {
 	escaped = strings.ReplaceAll(escaped, "+", "%20")
 	escaped = strings.ReplaceAll(escaped, "%7E", "~")
 	return escaped
+}
+
+func signedHeadersV4(headers map[string]string) string {
+	set := map[string]bool{"host": true}
+	for k := range headers {
+		name := strings.ToLower(strings.TrimSpace(k))
+		if name != "" {
+			set[name] = true
+		}
+	}
+	names := make([]string, 0, len(set))
+	for name := range set {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ";")
+}
+
+func canonicalHeadersForPresignV4(host string, headers map[string]string, signedHeaders string) string {
+	values := make(map[string]string)
+	values["host"] = strings.TrimSpace(host)
+	for k, v := range headers {
+		name := strings.ToLower(strings.TrimSpace(k))
+		if name != "" {
+			values[name] = normalizeHeaderValueV4(v)
+		}
+	}
+	var b strings.Builder
+	for _, name := range strings.Split(signedHeaders, ";") {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			continue
+		}
+		b.WriteString(name)
+		b.WriteByte(':')
+		b.WriteString(values[name])
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func canonicalHeadersFromRequestV4(r *http.Request, signedHeaders, host string) (string, error) {
+	names := strings.Split(signedHeaders, ";")
+	if len(names) == 0 {
+		return "", fmt.Errorf("missing signed headers")
+	}
+	var b strings.Builder
+	seenHost := false
+	for _, rawName := range names {
+		name := strings.ToLower(strings.TrimSpace(rawName))
+		if name == "" {
+			return "", fmt.Errorf("invalid signed header list")
+		}
+		var value string
+		if name == "host" {
+			seenHost = true
+			value = strings.TrimSpace(host)
+		} else {
+			vals, ok := r.Header[http.CanonicalHeaderKey(name)]
+			if !ok || len(vals) == 0 {
+				return "", fmt.Errorf("signed header %q is missing from the request", name)
+			}
+			value = normalizeHeaderValueV4(strings.Join(vals, ","))
+		}
+		b.WriteString(name)
+		b.WriteByte(':')
+		b.WriteString(value)
+		b.WriteByte('\n')
+	}
+	if !seenHost {
+		return "", fmt.Errorf("host must be included in X-Amz-SignedHeaders")
+	}
+	return b.String(), nil
+}
+
+func normalizeHeaderValueV4(v string) string {
+	return strings.Join(strings.Fields(v), " ")
 }
 
 // validatePresignedURLV2 validates AWS Signature V2 presigned URL

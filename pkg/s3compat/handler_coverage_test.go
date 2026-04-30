@@ -1047,8 +1047,11 @@ func TestWriteError_VariousCodes(t *testing.T) {
 		{"InvalidBucketName", "Invalid name", http.StatusBadRequest},
 		{"MalformedXML", "Bad XML", http.StatusBadRequest},
 		{"MalformedPolicy", "Bad policy", http.StatusBadRequest},
+		{"MalformedPOSTRequest", "Bad POST form", http.StatusBadRequest},
+		{"InvalidPolicyDocument", "Bad POST policy", http.StatusBadRequest},
 		{"InvalidTag", "Invalid tag", http.StatusBadRequest},
 		{"InvalidPart", "Invalid part", http.StatusBadRequest},
+		{"NoSuchVersion", "Version not found", http.StatusNotFound},
 		{"IllegalVersioningConfigurationException", "Invalid versioning", http.StatusBadRequest},
 		// 500, 405
 		{"InternalError", "Server error", http.StatusInternalServerError},
@@ -1238,7 +1241,6 @@ func TestDeleteObjectsRequest_XMLUnmarshal(t *testing.T) {
 	assert.Equal(t, "file2.txt", req.Objects[1].Key)
 	assert.Equal(t, "v123", req.Objects[1].VersionId)
 }
-
 
 // ============================================
 // Tests for DeleteObjectVersion (0% coverage)

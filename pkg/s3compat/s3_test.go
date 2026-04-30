@@ -1177,6 +1177,47 @@ func TestS3CopyObject(t *testing.T) {
 		assert.Contains(t, w.Body.String(), "CopyObjectResult", "Response should contain CopyObjectResult")
 	})
 
+	t.Run("Copy object copies tags by default", func(t *testing.T) {
+		taggedSourceKey := "tagged-source.txt"
+		req, w := env.makeS3Request("PUT", "/"+sourceBucket+"/"+taggedSourceKey, []byte("tagged"))
+		req.Header.Set("x-amz-tagging", "env=prod&team=backup")
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		destKey := "tagged-copy.txt"
+		req, w = env.makeS3Request("PUT", "/"+destBucket+"/"+destKey, nil)
+		req.Header.Set("x-amz-copy-source", "/"+sourceBucket+"/"+taggedSourceKey)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		req, w = env.makeS3Request("GET", "/"+destBucket+"/"+destKey+"?tagging", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, "<Key>env</Key>")
+		assert.Contains(t, body, "<Value>prod</Value>")
+		assert.Contains(t, body, "<Key>team</Key>")
+		assert.Contains(t, body, "<Value>backup</Value>")
+	})
+
+	t.Run("Copy object replaces tags when requested", func(t *testing.T) {
+		destKey := "tag-replace-copy.txt"
+		req, w := env.makeS3Request("PUT", "/"+destBucket+"/"+destKey, nil)
+		req.Header.Set("x-amz-copy-source", "/"+sourceBucket+"/"+sourceKey)
+		req.Header.Set("x-amz-tagging-directive", "REPLACE")
+		req.Header.Set("x-amz-tagging", "class=archive")
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		req, w = env.makeS3Request("GET", "/"+destBucket+"/"+destKey+"?tagging", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, "<Key>class</Key>")
+		assert.Contains(t, body, "<Value>archive</Value>")
+		assert.NotContains(t, body, "<Key>env</Key>")
+	})
+
 	t.Run("Copy object without leading slash in source", func(t *testing.T) {
 		destKey := "no-slash-copy.txt"
 
@@ -1213,6 +1254,17 @@ func TestS3CopyObject(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code, "Should get copied object")
 		assert.Equal(t, sourceContent, w.Body.Bytes(), "Copied content should match source")
+	})
+
+	t.Run("Copy object requires upload capability", func(t *testing.T) {
+		require.NoError(t, env.authManager.SetCapabilityOverride(ctx, env.userID, auth.CapObjectUpload, "test-admin", false))
+		defer env.authManager.DeleteCapabilityOverride(ctx, env.userID, auth.CapObjectUpload) //nolint:errcheck
+
+		req, w := env.makeS3Request("PUT", "/"+destBucket+"/denied-copy.txt", nil)
+		req.Header.Set("x-amz-copy-source", "/"+sourceBucket+"/"+sourceKey)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusForbidden, w.Code)
+		assert.Contains(t, w.Body.String(), "<Code>AccessDenied</Code>")
 	})
 }
 
@@ -1783,6 +1835,53 @@ func TestUploadPartCopy(t *testing.T) {
 	var copyResult CopyPartResult
 	xml.Unmarshal(w.Body.Bytes(), &copyResult)
 	assert.NotEmpty(t, copyResult.ETag, "ETag should be present in response")
+
+	t.Run("UploadPartCopy honors source conditionals", func(t *testing.T) {
+		req, w := env.makeS3Request("POST", "/"+bucketName+"/conditional-copy.bin?uploads", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var init InitResult
+		require.NoError(t, xml.Unmarshal(w.Body.Bytes(), &init))
+		require.NotEmpty(t, init.UploadId)
+
+		req, w = env.makeS3Request("PUT",
+			fmt.Sprintf("/%s/%s?uploadId=%s&partNumber=1", bucketName, "conditional-copy.bin", init.UploadId), nil)
+		req.Header.Set("x-amz-copy-source", copySource)
+		req.Header.Set("x-amz-copy-source-if-match", `"wrong-etag"`)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusPreconditionFailed, w.Code)
+		assert.Contains(t, w.Body.String(), "<Code>PreconditionFailed</Code>")
+	})
+
+	t.Run("UploadPartCopy invalid upload returns NoSuchUpload before copying source", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT",
+			fmt.Sprintf("/%s/%s?uploadId=%s&partNumber=1", bucketName, "missing-upload.bin", "missing-upload-id"), nil)
+		req.Header.Set("x-amz-copy-source", copySource)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code)
+		assert.Contains(t, w.Body.String(), "<Code>NoSuchUpload</Code>")
+	})
+
+	t.Run("UploadPartCopy requires source download capability", func(t *testing.T) {
+		req, w := env.makeS3Request("POST", "/"+bucketName+"/denied-copy.bin?uploads", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var init InitResult
+		require.NoError(t, xml.Unmarshal(w.Body.Bytes(), &init))
+		require.NotEmpty(t, init.UploadId)
+
+		require.NoError(t, env.authManager.SetCapabilityOverride(ctx, env.userID, auth.CapObjectDownload, "test-admin", false))
+		defer env.authManager.DeleteCapabilityOverride(ctx, env.userID, auth.CapObjectDownload) //nolint:errcheck
+
+		req, w = env.makeS3Request("PUT",
+			fmt.Sprintf("/%s/%s?uploadId=%s&partNumber=1", bucketName, "denied-copy.bin", init.UploadId), nil)
+		req.Header.Set("x-amz-copy-source", copySource)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusForbidden, w.Code)
+		assert.Contains(t, w.Body.String(), "<Code>AccessDenied</Code>")
+	})
 }
 
 // TestBucketTagging tests bucket tagging operations (Get/Put/Delete)
@@ -2076,12 +2175,16 @@ func TestObjectVersioning(t *testing.T) {
 	req, w = env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey, content1)
 	env.router.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code, "Should upload version 1")
+	version1ID := w.Header().Get("x-amz-version-id")
+	require.NotEmpty(t, version1ID, "versioned PUT should return x-amz-version-id")
 
 	// Upload object version 2
 	content2 := []byte("Version 2 content")
 	req, w = env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey, content2)
 	env.router.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code, "Should upload version 2")
+	version2ID := w.Header().Get("x-amz-version-id")
+	require.NotEmpty(t, version2ID, "versioned PUT should return x-amz-version-id")
 
 	t.Run("ListObjectVersions", func(t *testing.T) {
 		req, w := env.makeS3Request("GET", "/"+bucketName+"?versions", nil)
@@ -2091,6 +2194,99 @@ func TestObjectVersioning(t *testing.T) {
 		// Verify response contains version information
 		body := w.Body.String()
 		assert.Contains(t, body, "ListVersionsResult", "Response should contain ListVersionsResult")
+	})
+
+	t.Run("HeadObject returns requested version ID", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucketName+"/"+objectKey+"?versionId="+url.QueryEscape(version1ID), nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, version1ID, w.Header().Get("x-amz-version-id"))
+
+		req, w = env.makeS3Request("HEAD", "/"+bucketName+"/"+objectKey, nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, version2ID, w.Header().Get("x-amz-version-id"))
+	})
+}
+
+func TestS3VersionedDeleteMarkerResponses(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "test-delete-marker-responses"
+	objectKey := "marker-object.txt"
+
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+
+	versioningXML := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<VersioningConfiguration>
+  <Status>Enabled</Status>
+</VersioningConfiguration>`)
+	req, w := env.makeS3Request("PUT", "/"+bucketName+"?versioning", versioningXML)
+	req.Header.Set("Content-Type", "application/xml")
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	req, w = env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey, []byte("versioned content"))
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	req, w = env.makeS3Request("DELETE", "/"+bucketName+"/"+objectKey, nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNoContent, w.Code)
+	deleteMarkerVersionID := w.Header().Get("x-amz-version-id")
+	require.NotEmpty(t, deleteMarkerVersionID)
+	require.Equal(t, "true", w.Header().Get("x-amz-delete-marker"))
+
+	t.Run("GET latest delete marker returns NoSuchKey with marker headers", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code)
+		assert.Equal(t, "true", w.Header().Get("x-amz-delete-marker"))
+		assert.Equal(t, deleteMarkerVersionID, w.Header().Get("x-amz-version-id"))
+		assert.Contains(t, w.Body.String(), "<Code>NoSuchKey</Code>")
+	})
+
+	t.Run("HEAD latest delete marker returns headers without body", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucketName+"/"+objectKey, nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code)
+		assert.Equal(t, "true", w.Header().Get("x-amz-delete-marker"))
+		assert.Equal(t, deleteMarkerVersionID, w.Header().Get("x-amz-version-id"))
+		assert.Empty(t, w.Body.String())
+	})
+
+	t.Run("GET explicit delete marker returns MethodNotAllowed", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?versionId="+url.QueryEscape(deleteMarkerVersionID), nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusMethodNotAllowed, w.Code)
+		assert.Equal(t, "true", w.Header().Get("x-amz-delete-marker"))
+		assert.Equal(t, deleteMarkerVersionID, w.Header().Get("x-amz-version-id"))
+		assert.Contains(t, w.Body.String(), "<Code>MethodNotAllowed</Code>")
+	})
+
+	t.Run("HEAD explicit delete marker returns MethodNotAllowed without body", func(t *testing.T) {
+		req, w := env.makeS3Request("HEAD", "/"+bucketName+"/"+objectKey+"?versionId="+url.QueryEscape(deleteMarkerVersionID), nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusMethodNotAllowed, w.Code)
+		assert.Equal(t, "true", w.Header().Get("x-amz-delete-marker"))
+		assert.Equal(t, deleteMarkerVersionID, w.Header().Get("x-amz-version-id"))
+		assert.Empty(t, w.Body.String())
+	})
+
+	t.Run("GET missing explicit version returns NoSuchVersion", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?versionId=missing-version", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code)
+		assert.Contains(t, w.Body.String(), "<Code>NoSuchVersion</Code>")
+	})
+
+	t.Run("DELETE missing explicit version returns NoSuchVersion", func(t *testing.T) {
+		req, w := env.makeS3Request("DELETE", "/"+bucketName+"/"+objectKey+"?versionId=missing-version", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code)
+		assert.Contains(t, w.Body.String(), "<Code>NoSuchVersion</Code>")
 	})
 }
 
@@ -2332,16 +2528,17 @@ func TestDeleteObjectErrorCases(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, w.Code, "Should return 204 (idempotent behavior)")
 	})
 
-	t.Run("Delete object with versionId parameter", func(t *testing.T) {
+	t.Run("Delete object with missing versionId parameter returns NoSuchVersion", func(t *testing.T) {
 		// Upload another object
 		req, w := env.makeS3Request("PUT", "/"+bucketName+"/versioned-object.txt", []byte("version 1"))
 		env.router.ServeHTTP(w, req)
 		require.Equal(t, http.StatusOK, w.Code)
 
-		// Delete with versionId parameter (will be ignored if versioning not enabled)
+		// A concrete versionId must refer to an existing version; random IDs are not idempotent deletes.
 		req, w = env.makeS3Request("DELETE", "/"+bucketName+"/versioned-object.txt?versionId=12345", nil)
 		env.router.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusNoContent, w.Code, "Should delete with versionId parameter")
+		assert.Equal(t, http.StatusNotFound, w.Code)
+		assert.Contains(t, w.Body.String(), "<Code>NoSuchVersion</Code>")
 	})
 
 	t.Run("Bypass governance retention header", func(t *testing.T) {
@@ -2422,6 +2619,22 @@ func TestPutObjectErrorCases(t *testing.T) {
 		env.router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code, "Should upload with metadata")
 		assert.NotEmpty(t, w.Header().Get("ETag"), "Should return ETag")
+	})
+
+	t.Run("PutObject with tagging header", func(t *testing.T) {
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"/tagged-object.txt", []byte("tagged content"))
+		req.Header.Set("x-amz-tagging", "env=prod&team=backup")
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		req, w = env.makeS3Request("GET", "/"+bucketName+"/tagged-object.txt?tagging", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, "<Key>env</Key>")
+		assert.Contains(t, body, "<Value>prod</Value>")
+		assert.Contains(t, body, "<Key>team</Key>")
+		assert.Contains(t, body, "<Value>backup</Value>")
 	})
 
 	t.Run("PutObject with Content-Type", func(t *testing.T) {
@@ -2623,6 +2836,15 @@ func TestS3ListObjectsV2(t *testing.T) {
 		body := w.Body.String()
 		assert.Contains(t, body, "<CommonPrefixes>", "Should have CommonPrefixes when delimiter is set")
 		assert.Contains(t, body, "dir/", "Common prefix dir/ should appear")
+	})
+
+	t.Run("KeyCount includes CommonPrefixes", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2&delimiter=/", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		body := w.Body.String()
+		assert.Contains(t, body, "<KeyCount>4</KeyCount>", "a.txt, b.txt, c.txt, and dir/ common prefix count as four results")
 	})
 }
 

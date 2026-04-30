@@ -720,6 +720,29 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user, userExists := auth.GetUserFromContext(r.Context())
+	sourceTenantID := h.resolveBucketTenantID(r, sourceBucket)
+	destTenantID := h.resolveBucketTenantID(r, destBucket)
+
+	if h.authManager != nil && userExists && r.Header.Get("Authorization") != "" {
+		if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectDownload) {
+			h.writeError(w, "AccessDenied", "You do not have permission to download objects", sourceKey, r)
+			return
+		}
+		if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectUpload) {
+			h.writeError(w, "AccessDenied", "You do not have permission to upload objects", destKey, r)
+			return
+		}
+	}
+
+	if !h.validateBucketReadPermission(w, r, user, userExists, false, false, "", sourceTenantID, sourceBucket, sourceKey) {
+		return
+	}
+	if !h.validateBucketWritePermission(r, user, userExists, destTenantID, destBucket) {
+		h.writeError(w, "AccessDenied", "Access Denied", destKey, r)
+		return
+	}
+
 	sourceBucketPath := h.getBucketPath(r, sourceBucket)
 	// Get source object, requesting a specific version if indicated in the copy source.
 	var sourceObj *object.Object
@@ -749,6 +772,10 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer reader.Close()
 
+	if !h.validateObjectReadPermission(w, r, user, userExists, false, "", sourceTenantID, sourceBucketPath, sourceBucket, sourceKey) {
+		return
+	}
+
 	logrus.WithFields(logrus.Fields{
 		"source_bucket": sourceBucket,
 		"source_key":    sourceKey,
@@ -758,39 +785,8 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		"source_etag":   sourceObj.ETag,
 	}).Info("CopyObject: Starting copy operation")
 
-	// Evaluate copy-source conditional headers (AWS S3 spec §CopyObject).
-	// All conditions are checked against the SOURCE object's ETag / LastModified.
-	if ifMatch := r.Header.Get("x-amz-copy-source-if-match"); ifMatch != "" {
-		want := strings.Trim(ifMatch, "\"")
-		got := strings.Trim(sourceObj.ETag, "\"")
-		if want != got {
-			h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", sourceKey, r)
-			return
-		}
-	}
-	if ifNoneMatch := r.Header.Get("x-amz-copy-source-if-none-match"); ifNoneMatch != "" {
-		want := strings.Trim(ifNoneMatch, "\"")
-		got := strings.Trim(sourceObj.ETag, "\"")
-		if want == got {
-			h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", sourceKey, r)
-			return
-		}
-	}
-	if ifModifiedSince := r.Header.Get("x-amz-copy-source-if-modified-since"); ifModifiedSince != "" {
-		t, parseErr := http.ParseTime(ifModifiedSince)
-		if parseErr == nil && !sourceObj.LastModified.After(t) {
-			// Not modified since the given time — condition fails (412)
-			h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", sourceKey, r)
-			return
-		}
-	}
-	if ifUnmodifiedSince := r.Header.Get("x-amz-copy-source-if-unmodified-since"); ifUnmodifiedSince != "" {
-		t, parseErr := http.ParseTime(ifUnmodifiedSince)
-		if parseErr == nil && sourceObj.LastModified.After(t) {
-			// Modified since the given time — condition fails (412)
-			h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", sourceKey, r)
-			return
-		}
+	if !h.validateCopySourceConditionals(w, r, sourceObj, sourceKey) {
+		return
 	}
 
 	// Build destination metadata based on x-amz-metadata-directive (default: COPY).
@@ -800,6 +796,20 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	}
 	if directive != "COPY" && directive != "REPLACE" {
 		h.writeError(w, "InvalidArgument", "x-amz-metadata-directive must be COPY or REPLACE", destKey, r)
+		return
+	}
+
+	taggingDirective := strings.ToUpper(r.Header.Get("x-amz-tagging-directive"))
+	if taggingDirective == "" {
+		taggingDirective = "COPY"
+	}
+	if taggingDirective != "COPY" && taggingDirective != "REPLACE" {
+		h.writeError(w, "InvalidArgument", "x-amz-tagging-directive must be COPY or REPLACE", destKey, r)
+		return
+	}
+	replacementTags, err := parseS3TaggingHeader(r.Header.Get("x-amz-tagging"))
+	if err != nil {
+		h.writeError(w, "InvalidTag", err.Error(), destKey, r)
 		return
 	}
 
@@ -864,6 +874,23 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		h.applyObjectCannedACLHeader(r.Context(), destBucketPath, destKey, cannedACL)
 	}
 
+	switch taggingDirective {
+	case "COPY":
+		if sourceTags, tagErr := h.objectManager.GetObjectTagging(r.Context(), sourceBucketPath, sourceKey, copySourceVersionID); tagErr == nil && sourceTags != nil && len(sourceTags.Tags) > 0 {
+			if setErr := h.objectManager.SetObjectTagging(r.Context(), destBucketPath, destKey, sourceTags); setErr != nil {
+				h.writeError(w, "InternalError", setErr.Error(), destKey, r)
+				return
+			}
+		}
+	case "REPLACE":
+		if replacementTags != nil {
+			if setErr := h.objectManager.SetObjectTagging(r.Context(), destBucketPath, destKey, replacementTags); setErr != nil {
+				h.writeError(w, "InternalError", setErr.Error(), destKey, r)
+				return
+			}
+		}
+	}
+
 	// Set version ID response headers before writing XML body
 	// x-amz-version-id: version ID of the newly created destination object
 	if destObj.VersionID != "" {
@@ -889,7 +916,6 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	h.writeXMLResponse(w, http.StatusOK, result)
 
 	// Fire s3:ObjectCreated:Copy notification asynchronously.
-	destTenantID := h.getTenantIDFromRequest(r)
 	h.fireNotifications(r.Context(), destBucket, destTenantID, destKey, "s3:ObjectCreated:Copy", destObj.ETag, destObj.Size)
 }
 
@@ -931,4 +957,40 @@ func parseCopySourceHeader(copySource string) (bucketName, objectKey, versionID 
 	}
 
 	return bucketName, objectKey, versionID, nil
+}
+
+func (h *Handler) validateCopySourceConditionals(w http.ResponseWriter, r *http.Request, sourceObj *object.Object, sourceKey string) bool {
+	// Evaluate copy-source conditional headers (AWS S3 spec §CopyObject).
+	// All conditions are checked against the SOURCE object's ETag / LastModified.
+	if ifMatch := r.Header.Get("x-amz-copy-source-if-match"); ifMatch != "" {
+		want := strings.Trim(ifMatch, "\"")
+		got := strings.Trim(sourceObj.ETag, "\"")
+		if want != got {
+			h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", sourceKey, r)
+			return false
+		}
+	}
+	if ifNoneMatch := r.Header.Get("x-amz-copy-source-if-none-match"); ifNoneMatch != "" {
+		want := strings.Trim(ifNoneMatch, "\"")
+		got := strings.Trim(sourceObj.ETag, "\"")
+		if want == got {
+			h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", sourceKey, r)
+			return false
+		}
+	}
+	if ifModifiedSince := r.Header.Get("x-amz-copy-source-if-modified-since"); ifModifiedSince != "" {
+		t, parseErr := http.ParseTime(ifModifiedSince)
+		if parseErr == nil && !sourceObj.LastModified.After(t) {
+			h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", sourceKey, r)
+			return false
+		}
+	}
+	if ifUnmodifiedSince := r.Header.Get("x-amz-copy-source-if-unmodified-since"); ifUnmodifiedSince != "" {
+		t, parseErr := http.ParseTime(ifUnmodifiedSince)
+		if parseErr == nil && sourceObj.LastModified.After(t) {
+			h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", sourceKey, r)
+			return false
+		}
+	}
+	return true
 }
