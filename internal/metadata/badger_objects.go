@@ -34,6 +34,22 @@ func (s *BadgerStore) PutObject(ctx context.Context, obj *ObjectMetadata) error 
 		obj.UpdatedAt = now
 		obj.LastModified = now
 
+		if item, err := txn.Get(key); err == nil {
+			var existing ObjectMetadata
+			if err := item.Value(func(val []byte) error {
+				return json.Unmarshal(val, &existing)
+			}); err == nil {
+				for tagKey, tagValue := range existing.Tags {
+					tagIdxKey := tagIndexKey(obj.Bucket, tagKey, tagValue, obj.Key)
+					if err := txn.Delete(tagIdxKey); err != nil && err != badger.ErrKeyNotFound {
+						return fmt.Errorf("failed to delete old tag index: %w", err)
+					}
+				}
+			}
+		} else if err != badger.ErrKeyNotFound {
+			return fmt.Errorf("failed to get existing object: %w", err)
+		}
+
 		// Marshal and store
 		data, err := json.Marshal(obj)
 		if err != nil {
@@ -368,19 +384,22 @@ func (s *BadgerStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata,
 
 			for it.Rewind(); it.Valid(); it.Next() {
 				item := it.Item()
-				var existingVersion ObjectVersion
+				var existing ObjectMetadata
 
 				err := item.Value(func(val []byte) error {
-					return json.Unmarshal(val, &existingVersion)
+					return json.Unmarshal(val, &existing)
 				})
 				if err != nil {
 					continue
 				}
+				if existing.Key != obj.Key {
+					continue
+				}
 
 				// Mark as not latest
-				if existingVersion.IsLatest {
-					existingVersion.IsLatest = false
-					updatedData, err := json.Marshal(&existingVersion)
+				if existing.IsLatest {
+					existing.IsLatest = false
+					updatedData, err := json.Marshal(&existing)
 					if err != nil {
 						continue
 					}
@@ -391,9 +410,12 @@ func (s *BadgerStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata,
 			}
 		}
 
-		// Store the new version
+		// Store the new version as full ObjectMetadata so per-version Object
+		// Lock, ACL, checksum and user metadata survive a specific-version read.
+		obj.VersionID = version.VersionID
+		obj.IsLatest = version.IsLatest
 		versionKey := objectVersionKey(obj.Bucket, obj.Key, version.VersionID)
-		versionData, err := json.Marshal(version)
+		versionData, err := json.Marshal(obj)
 		if err != nil {
 			return fmt.Errorf("failed to marshal version: %w", err)
 		}
@@ -405,12 +427,7 @@ func (s *BadgerStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata,
 		// Update the main object if this is the latest version
 		if version.IsLatest {
 			objKey := objectKey(obj.Bucket, obj.Key)
-			objData, err := json.Marshal(obj)
-			if err != nil {
-				return fmt.Errorf("failed to marshal object: %w", err)
-			}
-
-			if err := txn.Set(objKey, objData); err != nil {
+			if err := txn.Set(objKey, versionData); err != nil {
 				return fmt.Errorf("failed to store object: %w", err)
 			}
 		}
@@ -434,16 +451,27 @@ func (s *BadgerStore) GetObjectVersions(ctx context.Context, bucket, key string)
 		for it.Rewind(); it.Valid(); it.Next() {
 			item := it.Item()
 
-			var version ObjectVersion
+			var obj ObjectMetadata
 			err := item.Value(func(val []byte) error {
-				return json.Unmarshal(val, &version)
+				return json.Unmarshal(val, &obj)
 			})
 			if err != nil {
 				s.logger.WithError(err).Warn("Failed to unmarshal version metadata")
 				continue
 			}
+			if obj.Key != key {
+				continue
+			}
 
-			versions = append(versions, &version)
+			versions = append(versions, &ObjectVersion{
+				VersionID:    obj.VersionID,
+				IsLatest:     obj.IsLatest,
+				Key:          obj.Key,
+				Size:         obj.Size,
+				ETag:         obj.ETag,
+				LastModified: obj.LastModified,
+				StorageClass: obj.StorageClass,
+			})
 		}
 
 		return nil

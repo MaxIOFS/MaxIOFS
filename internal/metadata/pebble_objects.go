@@ -38,6 +38,23 @@ func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) error 
 	batch := s.db.NewBatch()
 	defer batch.Close() //nolint:errcheck
 
+	// Remove tag indices from the object currently stored at this key. Without
+	// this, overwriting an object with a different tag set leaves stale tag_idx
+	// entries that make tag searches return objects that no longer match.
+	if existingData, err := s.pebbleGet(objectKey(obj.Bucket, obj.Key)); err == nil {
+		var existing ObjectMetadata
+		if err := json.Unmarshal(existingData, &existing); err == nil {
+			for tagKey, tagValue := range existing.Tags {
+				idxKey := tagIndexKey(obj.Bucket, tagKey, tagValue, obj.Key)
+				if err := batch.Delete(idxKey, nil); err != nil {
+					return fmt.Errorf("failed to delete old tag index: %w", err)
+				}
+			}
+		}
+	} else if err != pebble.ErrNotFound {
+		return fmt.Errorf("failed to get existing object: %w", err)
+	}
+
 	// When the object has a VersionID, write to the versioned key so that
 	// SetObjectRetention / SetObjectLegalHold updates the per-version entry that
 	// deleteSpecificVersion reads.  Also write to the plain objectKey when this
@@ -428,6 +445,9 @@ func (s *PebbleStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata,
 			if err := json.Unmarshal(iter.Value(), &existing); err != nil {
 				continue
 			}
+			if existing.Key != obj.Key {
+				continue
+			}
 			if existing.IsLatest {
 				existing.IsLatest = false
 				updatedData, err := json.Marshal(&existing)
@@ -498,6 +518,9 @@ func (s *PebbleStore) GetObjectVersions(ctx context.Context, bucket, key string)
 		var obj ObjectMetadata
 		if err := json.Unmarshal(valCopy, &obj); err != nil {
 			s.logger.WithError(err).Warn("Failed to unmarshal version metadata")
+			continue
+		}
+		if obj.Key != key {
 			continue
 		}
 		versions = append(versions, &ObjectVersion{
