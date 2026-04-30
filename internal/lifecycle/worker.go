@@ -138,29 +138,21 @@ func (w *Worker) processNoncurrentVersionExpiration(ctx context.Context, bucketP
 	cutoffTime := time.Now().AddDate(0, 0, -noncurrentDays)
 
 	logrus.WithFields(logrus.Fields{
-		"bucket":        bucketPath,
-		"rule":          rule.ID,
+		"bucket":         bucketPath,
+		"rule":           rule.ID,
 		"noncurrentDays": noncurrentDays,
-		"cutoffTime":    cutoffTime,
+		"cutoffTime":     cutoffTime,
 	}).Debug("Processing noncurrent version expiration")
 
-	// List all objects in bucket
-	result, err := w.objectManager.ListObjects(ctx, bucketPath, rule.Filter.Prefix, "", "", 10000)
+	versionsByKey, err := w.listLifecycleVersionsByKey(ctx, bucketPath, rule.Filter.Prefix)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to list objects for lifecycle")
+		logrus.WithError(err).Error("Failed to list object versions for lifecycle")
 		return
 	}
 
 	deletedCount := 0
 
-	// For each object, check its versions
-	for _, obj := range result.Objects {
-		versions, err := w.objectManager.GetObjectVersions(ctx, bucketPath, obj.Key)
-		if err != nil {
-			logrus.WithError(err).WithField("key", obj.Key).Warn("Failed to get object versions")
-			continue
-		}
-
+	for key, versions := range versionsByKey {
 		// Delete noncurrent versions older than cutoff
 		for _, version := range versions {
 			// Skip latest version
@@ -175,16 +167,16 @@ func (w *Worker) processNoncurrentVersionExpiration(ctx context.Context, bucketP
 
 			// Delete this noncurrent version
 			// Lifecycle rules don't support bypass governance
-			_, err := w.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false, version.VersionID)
+			_, err := w.objectManager.DeleteObject(ctx, bucketPath, key, false, version.VersionID)
 			if err != nil {
 				logrus.WithError(err).WithFields(logrus.Fields{
-					"key":       obj.Key,
+					"key":       key,
 					"versionID": version.VersionID,
 				}).Warn("Failed to delete noncurrent version")
 			} else {
 				deletedCount++
 				logrus.WithFields(logrus.Fields{
-					"key":       obj.Key,
+					"key":       key,
 					"versionID": version.VersionID,
 					"age":       time.Since(version.LastModified).Hours() / 24,
 				}).Debug("Deleted noncurrent version")
@@ -209,40 +201,33 @@ func (w *Worker) processExpiredDeleteMarkers(ctx context.Context, bucketPath str
 		"rule":   rule.ID,
 	}).Debug("Processing expired delete markers")
 
-	// List all objects in bucket
-	result, err := w.objectManager.ListObjects(ctx, bucketPath, rule.Filter.Prefix, "", "", 10000)
+	versionsByKey, err := w.listLifecycleVersionsByKey(ctx, bucketPath, rule.Filter.Prefix)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to list objects for expired delete marker cleanup")
+		logrus.WithError(err).Error("Failed to list object versions for expired delete marker cleanup")
 		return
 	}
 
 	deletedCount := 0
 
-	// For each object, check if it only has a delete marker
-	for _, obj := range result.Objects {
-		versions, err := w.objectManager.GetObjectVersions(ctx, bucketPath, obj.Key)
-		if err != nil {
-			logrus.WithError(err).WithField("key", obj.Key).Warn("Failed to get object versions for delete marker check")
-			continue
-		}
-
+	// For each key, check if it only has a delete marker
+	for key, versions := range versionsByKey {
 		// An expired delete marker exists when:
 		// 1. There is only one version
 		// 2. That version is a delete marker
 		// 3. It is the latest version
-		if len(versions) == 1 && versions[0].IsDeleteMarker && versions[0].IsLatest {
+		if len(versions) == 1 && isLifecycleDeleteMarker(versions[0]) && versions[0].IsLatest {
 			// Delete this expired delete marker
 			// Use the versionID to delete it permanently
-			_, err := w.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false, versions[0].VersionID)
+			_, err := w.objectManager.DeleteObject(ctx, bucketPath, key, false, versions[0].VersionID)
 			if err != nil {
 				logrus.WithError(err).WithFields(logrus.Fields{
-					"key":       obj.Key,
+					"key":       key,
 					"versionID": versions[0].VersionID,
 				}).Warn("Failed to delete expired delete marker")
 			} else {
 				deletedCount++
 				logrus.WithFields(logrus.Fields{
-					"key":       obj.Key,
+					"key":       key,
 					"versionID": versions[0].VersionID,
 				}).Debug("Deleted expired delete marker")
 			}
@@ -258,6 +243,26 @@ func (w *Worker) processExpiredDeleteMarkers(ctx context.Context, bucketPath str
 	}
 }
 
+func (w *Worker) listLifecycleVersionsByKey(ctx context.Context, bucketPath, prefix string) (map[string][]*metadata.ObjectVersion, error) {
+	versions, err := w.metadataStore.ListAllObjectVersions(ctx, bucketPath, prefix, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	byKey := make(map[string][]*metadata.ObjectVersion)
+	for _, version := range versions {
+		if version == nil {
+			continue
+		}
+		byKey[version.Key] = append(byKey[version.Key], version)
+	}
+	return byKey, nil
+}
+
+func isLifecycleDeleteMarker(version *metadata.ObjectVersion) bool {
+	return version != nil && version.VersionID != "" && version.Size == 0 && version.ETag == ""
+}
+
 // processObjectExpiration deletes objects that have exceeded their expiration age or date.
 // On versioned buckets, DeleteObject without a versionId creates a delete marker (correct S3 behavior).
 func (w *Worker) processObjectExpiration(ctx context.Context, bucketPath string, rule bucket.LifecycleRule) {
@@ -269,9 +274,9 @@ func (w *Worker) processObjectExpiration(ctx context.Context, bucketPath string,
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"bucket":  bucketPath,
-		"rule":    rule.ID,
-		"cutoff":  cutoff,
+		"bucket": bucketPath,
+		"rule":   rule.ID,
+		"cutoff": cutoff,
 	}).Debug("Processing object expiration")
 
 	prefix := rule.Filter.Prefix

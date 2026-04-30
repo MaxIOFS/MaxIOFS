@@ -43,22 +43,22 @@ type Manager interface {
 	UpdateObjectMetadata(ctx context.Context, bucket, key string, metadata map[string]string) error
 
 	// Object Lock operations
-	GetObjectRetention(ctx context.Context, bucket, key string) (*RetentionConfig, error)
+	GetObjectRetention(ctx context.Context, bucket, key string, versionID ...string) (*RetentionConfig, error)
 	SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig, versionID ...string) error
-	GetObjectLegalHold(ctx context.Context, bucket, key string) (*LegalHoldConfig, error)
+	GetObjectLegalHold(ctx context.Context, bucket, key string, versionID ...string) (*LegalHoldConfig, error)
 	SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig, versionID ...string) error
 
 	// Restore operations (S3 Glacier restore)
-	SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time) error
+	SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time, versionID ...string) error
 
 	// Versioning operations
 	GetObjectVersions(ctx context.Context, bucket, key string) ([]ObjectVersion, error)
 	DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error
 
 	// Tagging operations
-	GetObjectTagging(ctx context.Context, bucket, key string) (*TagSet, error)
-	SetObjectTagging(ctx context.Context, bucket, key string, tags *TagSet) error
-	DeleteObjectTagging(ctx context.Context, bucket, key string) error
+	GetObjectTagging(ctx context.Context, bucket, key string, versionID ...string) (*TagSet, error)
+	SetObjectTagging(ctx context.Context, bucket, key string, tags *TagSet, versionID ...string) error
+	DeleteObjectTagging(ctx context.Context, bucket, key string, versionID ...string) error
 
 	// ACL operations
 	GetObjectACL(ctx context.Context, bucket, key string) (*ACL, error)
@@ -1387,9 +1387,8 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 
 // Object Lock operations implementations
 
-func (om *objectManager) GetObjectRetention(ctx context.Context, bucket, key string) (*RetentionConfig, error) {
-	// Get object metadata
-	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+func (om *objectManager) GetObjectRetention(ctx context.Context, bucket, key string, versionID ...string) (*RetentionConfig, error) {
+	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
 	if err != nil {
 		return nil, err
 	}
@@ -1425,7 +1424,8 @@ func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key str
 
 	// Check if object is locked and retention is being shortened
 	if obj.Retention != nil {
-		if config == nil || config.RetainUntilDate.Before(obj.Retention.RetainUntilDate) {
+		retentionActive := obj.Retention.RetainUntilDate.After(time.Now())
+		if retentionActive && (config == nil || config.RetainUntilDate.Before(obj.Retention.RetainUntilDate)) {
 			// Cannot shorten retention
 			if obj.Retention.Mode == "COMPLIANCE" {
 				return ErrCannotShortenCompliance
@@ -1443,9 +1443,8 @@ func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key str
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
 
-func (om *objectManager) GetObjectLegalHold(ctx context.Context, bucket, key string) (*LegalHoldConfig, error) {
-	// Get object metadata
-	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+func (om *objectManager) GetObjectLegalHold(ctx context.Context, bucket, key string, versionID ...string) (*LegalHoldConfig, error) {
+	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
 	if err != nil {
 		return nil, err
 	}
@@ -1486,11 +1485,26 @@ func (om *objectManager) SetObjectLegalHold(ctx context.Context, bucket, key str
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
 
+func (om *objectManager) getObjectMetadataForVersion(ctx context.Context, bucket, key string, versionID ...string) (*Object, error) {
+	if len(versionID) > 0 && versionID[0] != "" {
+		metaObj, err := om.metadataStore.GetObject(ctx, bucket, key, versionID[0])
+		if err != nil {
+			if err == metadata.ErrObjectNotFound {
+				return nil, ErrObjectNotFound
+			}
+			return nil, err
+		}
+		return fromMetadataObject(metaObj), nil
+	}
+
+	return om.GetObjectMetadata(ctx, bucket, key)
+}
+
 // SetRestoreStatus updates the restore status and optional expiry for an object.
 // status must be "ongoing" (restore in progress) or "restored" (copy available).
 // expiresAt is the time when the restored copy will expire; pass nil for ongoing restores.
-func (om *objectManager) SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time) error {
-	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+func (om *objectManager) SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time, versionID ...string) error {
+	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
 	if err != nil {
 		return err
 	}
@@ -1547,9 +1561,8 @@ func (om *objectManager) DeleteObjectVersion(ctx context.Context, bucket, key, v
 
 // Tagging operations implementations
 
-func (om *objectManager) GetObjectTagging(ctx context.Context, bucket, key string) (*TagSet, error) {
-	// Get object metadata
-	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+func (om *objectManager) GetObjectTagging(ctx context.Context, bucket, key string, versionID ...string) (*TagSet, error) {
+	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
 	if err != nil {
 		return nil, err
 	}
@@ -1562,9 +1575,8 @@ func (om *objectManager) GetObjectTagging(ctx context.Context, bucket, key strin
 	return obj.Tags, nil
 }
 
-func (om *objectManager) SetObjectTagging(ctx context.Context, bucket, key string, tags *TagSet) error {
-	// Get object metadata
-	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+func (om *objectManager) SetObjectTagging(ctx context.Context, bucket, key string, tags *TagSet, versionID ...string) error {
+	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
 	if err != nil {
 		return err
 	}
@@ -1582,9 +1594,8 @@ func (om *objectManager) SetObjectTagging(ctx context.Context, bucket, key strin
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
 
-func (om *objectManager) DeleteObjectTagging(ctx context.Context, bucket, key string) error {
-	// Get object metadata
-	obj, err := om.GetObjectMetadata(ctx, bucket, key)
+func (om *objectManager) DeleteObjectTagging(ctx context.Context, bucket, key string, versionID ...string) error {
+	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
 	if err != nil {
 		return err
 	}

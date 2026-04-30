@@ -41,12 +41,12 @@ func (m *mockBucketMgr) GetBucketInfo(ctx context.Context, tenantID, name string
 // mockObjectMgr embeds the real interface
 type mockObjectMgr struct {
 	object.Manager
-	listResult   *object.ListObjectsResult
-	listErr      error
-	versions     []object.ObjectVersion
-	versionsErr  error
-	deleteErr    error
-	deleteCount  int
+	listResult  *object.ListObjectsResult
+	listErr     error
+	versions    []object.ObjectVersion
+	versionsErr error
+	deleteErr   error
+	deleteCount int
 }
 
 func (m *mockObjectMgr) ListObjects(ctx context.Context, bucketPath, prefix, delimiter, marker string, maxKeys int) (*object.ListObjectsResult, error) {
@@ -84,6 +84,25 @@ func (m *mockObjectMgr) IsReady() bool {
 // mockMetaStore embeds the real interface
 type mockMetaStore struct {
 	metadata.Store
+	versions    []*metadata.ObjectVersion
+	versionsErr error
+}
+
+func (m *mockMetaStore) ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error) {
+	if m.versionsErr != nil {
+		return nil, m.versionsErr
+	}
+	var result []*metadata.ObjectVersion
+	for _, version := range m.versions {
+		if prefix != "" && version != nil && len(version.Key) >= len(prefix) && version.Key[:len(prefix)] != prefix {
+			continue
+		}
+		if prefix != "" && (version == nil || len(version.Key) < len(prefix)) {
+			continue
+		}
+		result = append(result, version)
+	}
+	return result, nil
 }
 
 // TestNewWorker tests worker creation
@@ -236,21 +255,15 @@ func TestProcessLifecyclePolicies_DisabledRule(t *testing.T) {
 // TestProcessNoncurrentVersionExpiration_SkipLatestVersion tests that latest versions are never deleted
 func TestProcessNoncurrentVersionExpiration_SkipLatestVersion(t *testing.T) {
 	bucketMgr := &mockBucketMgr{}
-	objMgr := &mockObjectMgr{
-		listResult: &object.ListObjectsResult{
-			Objects: []object.Object{{Key: "file.txt"}},
+	objMgr := &mockObjectMgr{}
+	metaStore := &mockMetaStore{versions: []*metadata.ObjectVersion{
+		{
+			Key:          "file.txt",
+			VersionID:    "v1",
+			LastModified: time.Now().AddDate(0, 0, -60), // 60 days old but latest
+			IsLatest:     true,
 		},
-		versions: []object.ObjectVersion{
-			{
-				Object: object.Object{
-					VersionID:    "v1",
-					LastModified: time.Now().AddDate(0, 0, -60), // 60 days old but latest
-				},
-				IsLatest: true,
-			},
-		},
-	}
-	metaStore := &mockMetaStore{}
+	}}
 
 	worker := NewWorker(bucketMgr, objMgr, metaStore)
 	ctx := context.Background()
@@ -273,10 +286,8 @@ func TestProcessNoncurrentVersionExpiration_SkipLatestVersion(t *testing.T) {
 // TestProcessNoncurrentVersionExpiration_HandleError tests error handling
 func TestProcessNoncurrentVersionExpiration_HandleError(t *testing.T) {
 	bucketMgr := &mockBucketMgr{}
-	objMgr := &mockObjectMgr{
-		listErr: errors.New("failed to list objects"),
-	}
-	metaStore := &mockMetaStore{}
+	objMgr := &mockObjectMgr{}
+	metaStore := &mockMetaStore{versionsErr: errors.New("failed to list object versions")}
 
 	worker := NewWorker(bucketMgr, objMgr, metaStore)
 	ctx := context.Background()
@@ -297,23 +308,14 @@ func TestProcessNoncurrentVersionExpiration_HandleError(t *testing.T) {
 // TestProcessExpiredDeleteMarkers_DeleteExpiredMarker tests deletion of expired delete markers
 func TestProcessExpiredDeleteMarkers_DeleteExpiredMarker(t *testing.T) {
 	bucketMgr := &mockBucketMgr{}
-	objMgr := &mockObjectMgr{
-		listResult: &object.ListObjectsResult{
-			Objects: []object.Object{
-				{Key: "deleted-file.txt"},
-			},
+	objMgr := &mockObjectMgr{}
+	metaStore := &mockMetaStore{versions: []*metadata.ObjectVersion{
+		{
+			Key:       "deleted-file.txt",
+			VersionID: "dm1",
+			IsLatest:  true,
 		},
-		versions: []object.ObjectVersion{
-			{
-				Object: object.Object{
-					VersionID: "dm1",
-				},
-				IsLatest:       true,
-				IsDeleteMarker: true, // Only a delete marker remains
-			},
-		},
-	}
-	metaStore := &mockMetaStore{}
+	}}
 
 	worker := NewWorker(bucketMgr, objMgr, metaStore)
 	ctx := context.Background()
@@ -337,28 +339,20 @@ func TestProcessExpiredDeleteMarkers_DeleteExpiredMarker(t *testing.T) {
 // TestProcessExpiredDeleteMarkers_KeepMarkerWithVersions tests that markers with other versions are kept
 func TestProcessExpiredDeleteMarkers_KeepMarkerWithVersions(t *testing.T) {
 	bucketMgr := &mockBucketMgr{}
-	objMgr := &mockObjectMgr{
-		listResult: &object.ListObjectsResult{
-			Objects: []object.Object{{Key: "file.txt"}},
+	objMgr := &mockObjectMgr{}
+	metaStore := &mockMetaStore{versions: []*metadata.ObjectVersion{
+		{
+			Key:       "file.txt",
+			VersionID: "dm1",
+			IsLatest:  true,
 		},
-		versions: []object.ObjectVersion{
-			{
-				Object: object.Object{
-					VersionID: "dm1",
-				},
-				IsLatest:       true,
-				IsDeleteMarker: true,
-			},
-			{
-				Object: object.Object{
-					VersionID: "v1",
-				},
-				IsLatest:       false,
-				IsDeleteMarker: false, // There's a real version underneath
-			},
+		{
+			Key:       "file.txt",
+			VersionID: "v1",
+			ETag:      "etag",
+			Size:      10,
 		},
-	}
-	metaStore := &mockMetaStore{}
+	}}
 
 	worker := NewWorker(bucketMgr, objMgr, metaStore)
 	ctx := context.Background()
@@ -382,21 +376,16 @@ func TestProcessExpiredDeleteMarkers_KeepMarkerWithVersions(t *testing.T) {
 // TestProcessExpiredDeleteMarkers_KeepNonDeleteMarker tests that regular objects are not deleted
 func TestProcessExpiredDeleteMarkers_KeepNonDeleteMarker(t *testing.T) {
 	bucketMgr := &mockBucketMgr{}
-	objMgr := &mockObjectMgr{
-		listResult: &object.ListObjectsResult{
-			Objects: []object.Object{{Key: "file.txt"}},
+	objMgr := &mockObjectMgr{}
+	metaStore := &mockMetaStore{versions: []*metadata.ObjectVersion{
+		{
+			Key:       "file.txt",
+			VersionID: "v1",
+			IsLatest:  true,
+			ETag:      "etag",
+			Size:      10,
 		},
-		versions: []object.ObjectVersion{
-			{
-				Object: object.Object{
-					VersionID: "v1",
-				},
-				IsLatest:       true,
-				IsDeleteMarker: false, // Not a delete marker
-			},
-		},
-	}
-	metaStore := &mockMetaStore{}
+	}}
 
 	worker := NewWorker(bucketMgr, objMgr, metaStore)
 	ctx := context.Background()

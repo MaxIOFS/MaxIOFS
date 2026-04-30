@@ -56,7 +56,8 @@ func (h *Handler) GetObjectRetention(w http.ResponseWriter, r *http.Request) {
 	}).Debug("S3 API: GetObjectRetention")
 
 	bucketPath := h.getBucketPath(r, bucketName)
-	retention, err := h.objectManager.GetObjectRetention(r.Context(), bucketPath, objectKey)
+	versionID := r.URL.Query().Get("versionId")
+	retention, err := h.objectManager.GetObjectRetention(r.Context(), bucketPath, objectKey, versionID)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -155,7 +156,8 @@ func (h *Handler) GetObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 	}).Debug("S3 API: GetObjectLegalHold")
 
 	bucketPath := h.getBucketPath(r, bucketName)
-	legalHold, err := h.objectManager.GetObjectLegalHold(r.Context(), bucketPath, objectKey)
+	versionID := r.URL.Query().Get("versionId")
+	legalHold, err := h.objectManager.GetObjectLegalHold(r.Context(), bucketPath, objectKey, versionID)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -208,8 +210,9 @@ func (h *Handler) PutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
-	// Set the legal hold
-	if err := h.objectManager.SetObjectLegalHold(r.Context(), bucketPath, objectKey, legalHold); err != nil {
+	versionID := r.URL.Query().Get("versionId")
+	// Set the legal hold, targeting a specific version if versionId is provided
+	if err := h.objectManager.SetObjectLegalHold(r.Context(), bucketPath, objectKey, legalHold, versionID); err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
@@ -264,7 +267,7 @@ func (h *Handler) GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey := getObjectKey(r)
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	bucketPath := h.getBucketPath(r, bucketName)
 
 	user, userExists := auth.GetUserFromContext(r.Context())
@@ -278,7 +281,11 @@ func (h *Handler) GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
 	var obj *object.Object
 	var err error
 	if versionID != "" {
-		obj, err = h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
+		var reader io.ReadCloser
+		obj, reader, err = h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
+		if reader != nil {
+			reader.Close()
+		}
 	} else {
 		obj, err = h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
 	}
@@ -365,9 +372,10 @@ func (h *Handler) GetObjectTagging(w http.ResponseWriter, r *http.Request) {
 	}).Debug("S3 API: GetObjectTagging")
 
 	bucketPath := h.getBucketPath(r, bucketName)
+	versionID := r.URL.Query().Get("versionId")
 
 	// Use GetObjectTagging for consistency and clarity
-	tags, err := h.objectManager.GetObjectTagging(r.Context(), bucketPath, objectKey)
+	tags, err := h.objectManager.GetObjectTagging(r.Context(), bucketPath, objectKey, versionID)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -436,10 +444,11 @@ func (h *Handler) PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
+	versionID := r.URL.Query().Get("versionId")
 
 	// FIX: Use SetObjectTagging instead of UpdateObjectMetadata
 	// SetObjectTagging properly saves tags to the metadata store
-	if err := h.objectManager.SetObjectTagging(r.Context(), bucketPath, objectKey, tags); err != nil {
+	if err := h.objectManager.SetObjectTagging(r.Context(), bucketPath, objectKey, tags, versionID); err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
@@ -468,9 +477,10 @@ func (h *Handler) DeleteObjectTagging(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
+	versionID := r.URL.Query().Get("versionId")
 
 	// FIX: Use DeleteObjectTagging instead of UpdateObjectMetadata
-	if err := h.objectManager.DeleteObjectTagging(r.Context(), bucketPath, objectKey); err != nil {
+	if err := h.objectManager.DeleteObjectTagging(r.Context(), bucketPath, objectKey, versionID); err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return

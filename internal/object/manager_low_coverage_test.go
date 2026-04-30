@@ -72,10 +72,16 @@ func TestCleanupExpiredRetentions_WithExpiredObjects(t *testing.T) {
 	cleaned, err := rpm.CleanupExpiredRetentions(ctx, bucket)
 	require.NoError(t, err)
 
-	// Should have cleaned at least the expired one
-	// (Note: cleanup might succeed even if it can't remove governance retention without bypass)
-	t.Logf("Cleaned %d expired retentions", cleaned)
-	assert.GreaterOrEqual(t, cleaned, 0, "Should attempt cleanup")
+	assert.Equal(t, 1, cleaned, "Should clean the expired retention only")
+
+	obj1, err := om.GetObjectMetadata(ctx, bucket, key1)
+	require.NoError(t, err)
+	assert.Nil(t, obj1.Retention, "Expired retention should be removed")
+
+	obj2, err := om.GetObjectMetadata(ctx, bucket, key2)
+	require.NoError(t, err)
+	require.NotNil(t, obj2.Retention, "Active retention should remain")
+	assert.Equal(t, retention2.RetainUntilDate.Unix(), obj2.Retention.RetainUntilDate.Unix())
 }
 
 // mockAuthManager for quota tests

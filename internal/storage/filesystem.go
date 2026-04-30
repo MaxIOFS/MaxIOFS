@@ -416,14 +416,27 @@ func (fs *FilesystemBackend) validatePath(path string) error {
 		return ErrInvalidPath
 	}
 
-	// Prevent directory traversal attacks (catches ../, ..\, etc.)
-	if strings.Contains(path, "..") {
+	// Backslashes are native separators on Windows. Accepting them in object
+	// keys would make "a/b" and "a\b" resolve to the same physical file.
+	if strings.Contains(path, "\\") {
 		return ErrInvalidPath
 	}
 
 	// Ensure path doesn't start with a Unix absolute prefix (/) or
 	// a Windows volume-relative prefix (\), preventing absolute path injection.
 	if strings.HasPrefix(path, "/") || strings.HasPrefix(path, "\\") {
+		return ErrInvalidPath
+	}
+
+	// Prevent directory traversal while still allowing valid S3 keys such as
+	// "file..txt" or "folder/.../file.txt".
+	for _, segment := range strings.Split(path, "/") {
+		if segment == ".." {
+			return ErrInvalidPath
+		}
+	}
+
+	if filepath.VolumeName(filepath.FromSlash(path)) != "" {
 		return ErrInvalidPath
 	}
 

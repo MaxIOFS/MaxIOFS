@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -3489,4 +3490,217 @@ func TestS3ETagConditionalHeaders(t *testing.T) {
 		env.router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code, "If-None-Match on different ETag should return 200")
 	})
+}
+
+func TestS3GlobalBucketPathForTenantUser(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "global-owned-bucket"
+	objectKey := "global-object.txt"
+	body := []byte("global bucket object")
+
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, "", bucketName, env.userID))
+	_, err := env.objectManager.PutObject(ctx, bucketName, objectKey, bytes.NewReader(body), http.Header{
+		"Content-Type": []string{"text/plain"},
+	})
+	require.NoError(t, err)
+
+	req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+	env.router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, string(body), w.Body.String())
+	assert.Equal(t, bucketName, env.handler.getBucketPath(req, bucketName))
+}
+
+func TestGetObjectAttributesHonorsVersionID(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "attrs-version-bucket"
+	objectKey := "versioned.txt"
+	bucketPath := env.tenantID + "/" + bucketName
+
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
+	require.NoError(t, env.bucketManager.SetVersioning(ctx, env.tenantID, bucketName, &bucket.VersioningConfig{Status: "Enabled"}))
+
+	first, err := env.objectManager.PutObject(ctx, bucketPath, objectKey, bytes.NewReader([]byte("first")), http.Header{
+		"Content-Type": []string{"text/plain"},
+	})
+	require.NoError(t, err)
+	second, err := env.objectManager.PutObject(ctx, bucketPath, objectKey, bytes.NewReader([]byte("second-version")), http.Header{
+		"Content-Type": []string{"text/plain"},
+	})
+	require.NoError(t, err)
+	require.NotEqual(t, first.VersionID, second.VersionID)
+
+	req := httptest.NewRequest("GET", "/"+bucketName+"/"+objectKey+"?attributes&versionId="+url.QueryEscape(first.VersionID), nil)
+	req = mux.SetURLVars(req, map[string]string{"bucket": bucketName, "object": objectKey})
+	req = req.WithContext(context.WithValue(req.Context(), "user", &auth.User{
+		ID:       env.userID,
+		TenantID: env.tenantID,
+		Roles:    []string{"admin"},
+	}))
+	req.Header.Set("x-amz-object-attributes", "ETag,ObjectSize")
+	w := httptest.NewRecorder()
+
+	env.handler.GetObjectAttributes(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, first.VersionID, w.Header().Get("x-amz-version-id"))
+	assert.Contains(t, w.Body.String(), "<ObjectSize>5</ObjectSize>")
+	assert.Contains(t, w.Body.String(), "<ETag>"+first.ETag+"</ETag>")
+}
+
+func TestObjectLockOperationsHonorVersionID(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "lock-version-bucket"
+	objectKey := "versioned-lock.txt"
+	bucketPath := env.tenantID + "/" + bucketName
+
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
+	require.NoError(t, env.bucketManager.SetVersioning(ctx, env.tenantID, bucketName, &bucket.VersioningConfig{Status: "Enabled"}))
+
+	first, err := env.objectManager.PutObject(ctx, bucketPath, objectKey, bytes.NewReader([]byte("first")), http.Header{
+		"Content-Type": []string{"text/plain"},
+	})
+	require.NoError(t, err)
+	second, err := env.objectManager.PutObject(ctx, bucketPath, objectKey, bytes.NewReader([]byte("second")), http.Header{
+		"Content-Type": []string{"text/plain"},
+	})
+	require.NoError(t, err)
+	require.NotEqual(t, first.VersionID, second.VersionID)
+
+	retainUntil := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339)
+	retentionXML := []byte(`<Retention><Mode>GOVERNANCE</Mode><RetainUntilDate>` + retainUntil + `</RetainUntilDate></Retention>`)
+	req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey+"?retention=&versionId="+url.QueryEscape(first.VersionID), retentionXML)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	req, w = env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?retention=&versionId="+url.QueryEscape(first.VersionID), nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), "<Mode>GOVERNANCE</Mode>")
+
+	req, w = env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?retention=", nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound, w.Code, "retention without versionId must read the latest version")
+	assert.Contains(t, w.Body.String(), "NoSuchObjectLockConfiguration")
+
+	legalHoldXML := []byte(`<LegalHold><Status>ON</Status></LegalHold>`)
+	req, w = env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey+"?legal-hold=&versionId="+url.QueryEscape(first.VersionID), legalHoldXML)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	req, w = env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?legal-hold=&versionId="+url.QueryEscape(first.VersionID), nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), "<Status>ON</Status>")
+
+	req, w = env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?legal-hold=", nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), "<Status>OFF</Status>", "legal hold without versionId must read the latest version")
+}
+
+func TestObjectTaggingHonorsVersionID(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "tagging-version-bucket"
+	objectKey := "versioned-tags.txt"
+	bucketPath := env.tenantID + "/" + bucketName
+
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
+	require.NoError(t, env.bucketManager.SetVersioning(ctx, env.tenantID, bucketName, &bucket.VersioningConfig{Status: "Enabled"}))
+
+	first, err := env.objectManager.PutObject(ctx, bucketPath, objectKey, bytes.NewReader([]byte("first")), http.Header{
+		"Content-Type": []string{"text/plain"},
+	})
+	require.NoError(t, err)
+	second, err := env.objectManager.PutObject(ctx, bucketPath, objectKey, bytes.NewReader([]byte("second")), http.Header{
+		"Content-Type": []string{"text/plain"},
+	})
+	require.NoError(t, err)
+	require.NotEqual(t, first.VersionID, second.VersionID)
+
+	taggingXML := []byte(`<Tagging><TagSet><Tag><Key>backup</Key><Value>v1</Value></Tag></TagSet></Tagging>`)
+	req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey+"?tagging=&versionId="+url.QueryEscape(first.VersionID), taggingXML)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	req, w = env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?tagging=&versionId="+url.QueryEscape(first.VersionID), nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), "<Key>backup</Key>")
+	assert.Contains(t, w.Body.String(), "<Value>v1</Value>")
+
+	req, w = env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?tagging=", nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.NotContains(t, w.Body.String(), "<Key>backup</Key>", "tagging without versionId must read latest version")
+
+	req, w = env.makeS3Request("DELETE", "/"+bucketName+"/"+objectKey+"?tagging=&versionId="+url.QueryEscape(first.VersionID), nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+
+	req, w = env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?tagging=&versionId="+url.QueryEscape(first.VersionID), nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.NotContains(t, w.Body.String(), "<Key>backup</Key>")
+}
+
+func TestRestoreObjectHonorsVersionID(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "restore-version-bucket"
+	objectKey := "versioned-restore.txt"
+	bucketPath := env.tenantID + "/" + bucketName
+
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
+	require.NoError(t, env.bucketManager.SetVersioning(ctx, env.tenantID, bucketName, &bucket.VersioningConfig{Status: "Enabled"}))
+
+	first, err := env.objectManager.PutObject(ctx, bucketPath, objectKey, bytes.NewReader([]byte("first")), http.Header{
+		"Content-Type": []string{"text/plain"},
+	})
+	require.NoError(t, err)
+	second, err := env.objectManager.PutObject(ctx, bucketPath, objectKey, bytes.NewReader([]byte("second")), http.Header{
+		"Content-Type": []string{"text/plain"},
+	})
+	require.NoError(t, err)
+	require.NotEqual(t, first.VersionID, second.VersionID)
+
+	body := []byte(`<RestoreRequest><Days>2</Days></RestoreRequest>`)
+	req := httptest.NewRequest("POST", "/"+bucketName+"/"+objectKey+"?restore=&versionId="+url.QueryEscape(first.VersionID), bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"bucket": bucketName, "object": objectKey})
+	req = req.WithContext(context.WithValue(req.Context(), "user", &auth.User{
+		ID:       env.userID,
+		TenantID: env.tenantID,
+		Roles:    []string{"admin"},
+	}))
+	w := httptest.NewRecorder()
+
+	env.handler.RestoreObject(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	restored, reader, err := env.objectManager.GetObject(ctx, bucketPath, objectKey, first.VersionID)
+	require.NoError(t, err)
+	if reader != nil {
+		reader.Close()
+	}
+	assert.Equal(t, "restored", restored.RestoreStatus)
+	require.NotNil(t, restored.RestoreExpiresAt)
+
+	latest, err := env.objectManager.GetObjectMetadata(ctx, bucketPath, objectKey)
+	require.NoError(t, err)
+	assert.Empty(t, latest.RestoreStatus, "restore without matching versionId must not update latest version")
 }

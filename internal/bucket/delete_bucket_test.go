@@ -271,6 +271,139 @@ func TestForceDeleteBucket_CleansMetadata(t *testing.T) {
 	}
 }
 
+func TestDeleteBucket_FailsWhenOnlyObjectMetadataExists(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "maxiofs-delete-metadata-only-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	storageBackend, err := storage.NewBackend(config.StorageConfig{
+		Backend: "filesystem",
+		Root:    filepath.Join(tempDir, "storage"),
+	})
+	require.NoError(t, err)
+
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: filepath.Join(tempDir, "metadata"),
+		Logger:  logrus.StandardLogger(),
+	})
+	require.NoError(t, err)
+	defer metadataStore.Close()
+
+	manager := NewManager(storageBackend, metadataStore)
+	ctx := context.Background()
+
+	require.NoError(t, manager.CreateBucket(ctx, "tenant-1", "metadata-only-bucket", ""))
+	require.NoError(t, metadataStore.PutObject(ctx, &metadata.ObjectMetadata{
+		Bucket:       "tenant-1/metadata-only-bucket",
+		Key:          "lost-physical-file.txt",
+		Size:         10,
+		ETag:         "etag",
+		ContentType:  "text/plain",
+		LastModified: time.Now(),
+	}))
+
+	err = manager.DeleteBucket(ctx, "tenant-1", "metadata-only-bucket")
+	assert.ErrorIs(t, err, ErrBucketNotEmpty)
+}
+
+func TestDeleteBucket_FailsWhenOnlyDeleteMarkerVersionExists(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "maxiofs-delete-marker-only-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	storageBackend, err := storage.NewBackend(config.StorageConfig{
+		Backend: "filesystem",
+		Root:    filepath.Join(tempDir, "storage"),
+	})
+	require.NoError(t, err)
+
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: filepath.Join(tempDir, "metadata"),
+		Logger:  logrus.StandardLogger(),
+	})
+	require.NoError(t, err)
+	defer metadataStore.Close()
+
+	manager := NewManager(storageBackend, metadataStore)
+	ctx := context.Background()
+
+	require.NoError(t, manager.CreateBucket(ctx, "tenant-1", "delete-marker-only-bucket", ""))
+	require.NoError(t, metadataStore.PutObjectVersion(ctx, &metadata.ObjectMetadata{
+		Bucket:       "tenant-1/delete-marker-only-bucket",
+		Key:          "deleted.txt",
+		VersionID:    "dm-1",
+		IsLatest:     true,
+		Size:         0,
+		ETag:         "",
+		LastModified: time.Now(),
+	}, &metadata.ObjectVersion{
+		VersionID:    "dm-1",
+		IsLatest:     true,
+		Key:          "deleted.txt",
+		Size:         0,
+		ETag:         "",
+		LastModified: time.Now(),
+	}))
+
+	err = manager.DeleteBucket(ctx, "tenant-1", "delete-marker-only-bucket")
+	assert.ErrorIs(t, err, ErrBucketNotEmpty)
+}
+
+func TestForceDeleteBucket_CleansNestedObjectAndVersionMetadata(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "maxiofs-force-delete-nested-metadata-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	storageBackend, err := storage.NewBackend(config.StorageConfig{
+		Backend: "filesystem",
+		Root:    filepath.Join(tempDir, "storage"),
+	})
+	require.NoError(t, err)
+
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: filepath.Join(tempDir, "metadata"),
+		Logger:  logrus.StandardLogger(),
+	})
+	require.NoError(t, err)
+	defer metadataStore.Close()
+
+	manager := NewManager(storageBackend, metadataStore)
+	ctx := context.Background()
+	bucketPath := "tenant-1/force-clean-nested-bucket"
+
+	require.NoError(t, manager.CreateBucket(ctx, "tenant-1", "force-clean-nested-bucket", ""))
+	require.NoError(t, metadataStore.PutObject(ctx, &metadata.ObjectMetadata{
+		Bucket:       bucketPath,
+		Key:          "nested/path/object.txt",
+		Size:         10,
+		ETag:         "etag",
+		LastModified: time.Now(),
+	}))
+	require.NoError(t, metadataStore.PutObjectVersion(ctx, &metadata.ObjectMetadata{
+		Bucket:       bucketPath,
+		Key:          "versioned/path/object.txt",
+		VersionID:    "v1",
+		IsLatest:     true,
+		Size:         20,
+		ETag:         "etag-v1",
+		LastModified: time.Now(),
+	}, &metadata.ObjectVersion{
+		VersionID:    "v1",
+		IsLatest:     true,
+		Key:          "versioned/path/object.txt",
+		Size:         20,
+		ETag:         "etag-v1",
+		LastModified: time.Now(),
+	}))
+
+	require.NoError(t, manager.ForceDeleteBucket(ctx, "tenant-1", "force-clean-nested-bucket"))
+
+	_, err = metadataStore.GetObject(ctx, bucketPath, "nested/path/object.txt")
+	assert.ErrorIs(t, err, metadata.ErrObjectNotFound)
+	_, err = metadataStore.GetObject(ctx, bucketPath, "versioned/path/object.txt", "v1")
+	assert.ErrorIs(t, err, metadata.ErrObjectNotFound)
+}
+
 // TestForceDeleteBucket_NonExistent tests ForceDeleteBucket on non-existent bucket
 func TestForceDeleteBucket_NonExistent(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "maxiofs-force-delete-nonexistent-test-*")

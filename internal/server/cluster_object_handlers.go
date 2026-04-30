@@ -1612,9 +1612,15 @@ func (s *Server) applyHAMetadataOp(ctx context.Context, bucket string, op cluste
 		if err := json.Unmarshal(op.Data, &tags); err != nil {
 			return err
 		}
+		if op.VersionID != "" {
+			return om.SetObjectTagging(ctx, bucket, op.Key, &tags, op.VersionID)
+		}
 		return om.SetObjectTagging(ctx, bucket, op.Key, &tags)
 
 	case "delete-tagging":
+		if op.VersionID != "" {
+			return om.DeleteObjectTagging(ctx, bucket, op.Key, op.VersionID)
+		}
 		return om.DeleteObjectTagging(ctx, bucket, op.Key)
 
 	case "set-acl":
@@ -1651,6 +1657,9 @@ func (s *Server) applyHAMetadataOp(ctx context.Context, bucket string, op cluste
 		}
 		if err := json.Unmarshal(op.Data, &p); err != nil {
 			return err
+		}
+		if op.VersionID != "" {
+			return om.SetRestoreStatus(ctx, bucket, op.Key, p.Status, p.ExpiresAt, op.VersionID)
 		}
 		return om.SetRestoreStatus(ctx, bucket, op.Key, p.Status, p.ExpiresAt)
 

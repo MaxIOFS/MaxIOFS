@@ -409,24 +409,32 @@ func (h *HAObjectManager) UpdateObjectMetadata(ctx context.Context, bucket, key 
 }
 
 // SetObjectTagging fans out tag writes.
-func (h *HAObjectManager) SetObjectTagging(ctx context.Context, bucket, key string, tags *object.TagSet) error {
-	if err := h.Manager.SetObjectTagging(ctx, bucket, key, tags); err != nil {
+func (h *HAObjectManager) SetObjectTagging(ctx context.Context, bucket, key string, tags *object.TagSet, versionID ...string) error {
+	if err := h.Manager.SetObjectTagging(ctx, bucket, key, tags, versionID...); err != nil {
 		return err
 	}
 	if !isHAReplica(ctx) {
+		vid := ""
+		if len(versionID) > 0 {
+			vid = versionID[0]
+		}
 		data, _ := json.Marshal(tags)
-		h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-tagging", Key: key, Data: data})
+		h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-tagging", Key: key, VersionID: vid, Data: data})
 	}
 	return nil
 }
 
 // DeleteObjectTagging fans out tag deletions.
-func (h *HAObjectManager) DeleteObjectTagging(ctx context.Context, bucket, key string) error {
-	if err := h.Manager.DeleteObjectTagging(ctx, bucket, key); err != nil {
+func (h *HAObjectManager) DeleteObjectTagging(ctx context.Context, bucket, key string, versionID ...string) error {
+	if err := h.Manager.DeleteObjectTagging(ctx, bucket, key, versionID...); err != nil {
 		return err
 	}
 	if !isHAReplica(ctx) {
-		h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "delete-tagging", Key: key})
+		vid := ""
+		if len(versionID) > 0 {
+			vid = versionID[0]
+		}
+		h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "delete-tagging", Key: key, VersionID: vid})
 	}
 	return nil
 }
@@ -476,17 +484,21 @@ func (h *HAObjectManager) SetObjectLegalHold(ctx context.Context, bucket, key st
 }
 
 // SetRestoreStatus fans out restore-status writes.
-func (h *HAObjectManager) SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time) error {
-	if err := h.Manager.SetRestoreStatus(ctx, bucket, key, status, expiresAt); err != nil {
+func (h *HAObjectManager) SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time, versionID ...string) error {
+	if err := h.Manager.SetRestoreStatus(ctx, bucket, key, status, expiresAt, versionID...); err != nil {
 		return err
 	}
 	if !isHAReplica(ctx) {
+		vid := ""
+		if len(versionID) > 0 {
+			vid = versionID[0]
+		}
 		type payload struct {
 			Status    string     `json:"status"`
 			ExpiresAt *time.Time `json:"expires_at,omitempty"`
 		}
 		data, _ := json.Marshal(payload{Status: status, ExpiresAt: expiresAt})
-		h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-restore-status", Key: key, Data: data})
+		h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-restore-status", Key: key, VersionID: vid, Data: data})
 	}
 	return nil
 }

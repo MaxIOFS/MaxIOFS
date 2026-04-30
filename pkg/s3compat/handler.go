@@ -1274,8 +1274,9 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	// Track if access is allowed via presigned URL
 	allowedByPresignedURL := false
 
-	// Extract tenant ID for permission checking
-	tenantID := h.getTenantIDFromRequest(r)
+	// Extract actual bucket tenant ID for permission checking. Global buckets
+	// keep an empty tenant even when the requester is tenant-scoped.
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	// If NOT authenticated, check if this is a presigned URL request
 	if !userExists && presigned.IsPresignedURL(r) {
@@ -1475,7 +1476,7 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 
 	// Permission check: Verify user has WRITE permission via ACL
 	user, userExists := auth.GetUserFromContext(r.Context())
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	if h.authManager != nil && userExists && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectUpload) {
 		h.writeError(w, "AccessDenied", "You do not have permission to upload objects", objectKey, r)
@@ -1495,8 +1496,13 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 			"object":        objectKey,
 			"userID":        getUserIDOrAnonymous(user),
 			"authenticated": userExists,
-			"userTenantID":  user.TenantID,
-			"bucketTenant":  tenantID,
+			"userTenantID": func() string {
+				if user != nil {
+					return user.TenantID
+				}
+				return ""
+			}(),
+			"bucketTenant": tenantID,
 		}).Warn("ACL permission denied for PutObject - cross-tenant access")
 		h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
 		return
@@ -1627,7 +1633,7 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 
 	// Permission check: Verify user has WRITE permission via ACL
 	user, userExists := auth.GetUserFromContext(r.Context())
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	bucketPath := h.getBucketPath(r, bucketName)
 
 	if h.authManager != nil && userExists && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectDelete) {
@@ -1708,7 +1714,7 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 
 	// Permission check: Verify user has READ permission on BUCKET (not object yet)
 	user, userExists := auth.GetUserFromContext(r.Context())
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	bucketPath := h.getBucketPath(r, bucketName)
 
 	// Check if this is a VEEAM SOSAPI virtual object (handle early, no ACL needed)
@@ -2213,20 +2219,25 @@ func (h *Handler) getTenantIDFromRequest(r *http.Request) string {
 	return user.TenantID
 }
 
+// resolveBucketTenantID returns the tenant that actually owns the bucket.
+// Authenticated tenant users may access global buckets through ACLs; in that
+// case the bucket path must remain unprefixed instead of using user.TenantID.
+func (h *Handler) resolveBucketTenantID(r *http.Request, bucketName string) string {
+	if h.metadataStore != nil {
+		bucketMeta, err := h.metadataStore.GetBucketByName(r.Context(), bucketName)
+		if err == nil && bucketMeta != nil {
+			return bucketMeta.TenantID
+		}
+	}
+
+	return h.getTenantIDFromRequest(r)
+}
+
 // getBucketPath constructs the full bucket path with tenant prefix for object manager
 // Format: "tenantID/bucketName" for tenant buckets, or "bucketName" for global buckets
 // This is transparent to S3 clients - they only see "bucketName"
 func (h *Handler) getBucketPath(r *http.Request, bucketName string) string {
-	// First, try to get tenant from authenticated user
-	tenantID := h.getTenantIDFromRequest(r)
-
-	// If no user context (e.g., presigned URL), look up the bucket to find its tenant
-	if tenantID == "" && h.metadataStore != nil {
-		bucketMeta, err := h.metadataStore.GetBucketByName(r.Context(), bucketName)
-		if err == nil && bucketMeta != nil {
-			tenantID = bucketMeta.TenantID
-		}
-	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	if tenantID == "" {
 		return bucketName // Global bucket
@@ -3314,6 +3325,11 @@ func (h *Handler) validateTenantQuota(
 		return nil
 	}
 
+	bucketTenantID := h.resolveBucketTenantID(r, bucketName)
+	if bucketTenantID != user.TenantID {
+		return nil
+	}
+
 	// Get content length for quota check
 	contentLength := r.ContentLength
 	if decodedContentLength != "" {
@@ -3882,6 +3898,7 @@ func (h *Handler) RestoreObject(w http.ResponseWriter, r *http.Request) {
 	tenantID := h.getTenantIDFromRequest(r)
 
 	bucketPath := h.resolveBucketPath(r, bucketName, "")
+	versionID := r.URL.Query().Get("versionId")
 
 	// Parse the RestoreRequest XML (Days field is what matters)
 	type glacierJobParams struct {
@@ -3903,7 +3920,17 @@ func (h *Handler) RestoreObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify the object exists
-	obj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
+	var obj *object.Object
+	var err error
+	if versionID != "" {
+		var reader io.ReadCloser
+		obj, reader, err = h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
+		if reader != nil {
+			reader.Close()
+		}
+	} else {
+		obj, err = h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
+	}
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -3923,7 +3950,7 @@ func (h *Handler) RestoreObject(w http.ResponseWriter, r *http.Request) {
 
 	// Mark as restored with expiry = now + days
 	expiresAt := time.Now().UTC().AddDate(0, 0, days)
-	if setErr := h.objectManager.SetRestoreStatus(r.Context(), bucketPath, objectKey, "restored", &expiresAt); setErr != nil {
+	if setErr := h.objectManager.SetRestoreStatus(r.Context(), bucketPath, objectKey, "restored", &expiresAt, versionID); setErr != nil {
 		h.writeError(w, "InternalError", setErr.Error(), objectKey, r)
 		return
 	}

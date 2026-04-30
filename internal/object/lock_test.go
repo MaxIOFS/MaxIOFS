@@ -529,7 +529,7 @@ type mockManager struct {
 	legalHold *LegalHoldConfig
 }
 
-func (m *mockManager) GetObjectRetention(ctx context.Context, bucket, key string) (*RetentionConfig, error) {
+func (m *mockManager) GetObjectRetention(ctx context.Context, bucket, key string, versionID ...string) (*RetentionConfig, error) {
 	if m.retention == nil {
 		return nil, ErrNoRetentionConfiguration
 	}
@@ -541,7 +541,7 @@ func (m *mockManager) SetObjectRetention(ctx context.Context, bucket, key string
 	return nil
 }
 
-func (m *mockManager) GetObjectLegalHold(ctx context.Context, bucket, key string) (*LegalHoldConfig, error) {
+func (m *mockManager) GetObjectLegalHold(ctx context.Context, bucket, key string, versionID ...string) (*LegalHoldConfig, error) {
 	// Return (nil, nil) for non-existent legal hold - the wrapper will convert to OFF status
 	return m.legalHold, nil
 }
@@ -551,7 +551,7 @@ func (m *mockManager) SetObjectLegalHold(ctx context.Context, bucket, key string
 	return nil
 }
 
-func (m *mockManager) SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time) error {
+func (m *mockManager) SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time, versionID ...string) error {
 	return nil
 }
 
@@ -592,15 +592,15 @@ func (m *mockManager) DeleteObjectVersion(ctx context.Context, bucket, key, vers
 	return nil
 }
 
-func (m *mockManager) GetObjectTagging(ctx context.Context, bucket, key string) (*TagSet, error) {
+func (m *mockManager) GetObjectTagging(ctx context.Context, bucket, key string, versionID ...string) (*TagSet, error) {
 	return nil, nil
 }
 
-func (m *mockManager) SetObjectTagging(ctx context.Context, bucket, key string, tags *TagSet) error {
+func (m *mockManager) SetObjectTagging(ctx context.Context, bucket, key string, tags *TagSet, versionID ...string) error {
 	return nil
 }
 
-func (m *mockManager) DeleteObjectTagging(ctx context.Context, bucket, key string) error {
+func (m *mockManager) DeleteObjectTagging(ctx context.Context, bucket, key string, versionID ...string) error {
 	return nil
 }
 

@@ -221,6 +221,11 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 				return
 			}
 
+			if !s.userHasConsoleAccess(r.Context(), user) {
+				s.writeError(w, "Your account does not have access to the console", http.StatusForbidden)
+				return
+			}
+
 			// Add user to context
 			ctx := context.WithValue(r.Context(), "user", user)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -740,13 +745,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 4.5: Check console:access capability before proceeding.
-	allowed, capErr := s.authManager.HasCapability(r.Context(), user.ID, user.Roles, auth.CapConsoleAccess)
-	if capErr != nil {
-		logrus.WithError(capErr).Error("Failed to check console:access capability")
-		s.writeError(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	if !allowed {
+	if !s.userHasConsoleAccess(r.Context(), user) {
 		s.writeError(w, "Your account does not have access to the console", http.StatusForbidden)
 		return
 	}
@@ -862,6 +861,19 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) userHasConsoleAccess(ctx context.Context, user *auth.User) bool {
+	if user == nil || s.authManager == nil {
+		return false
+	}
+
+	allowed, err := s.authManager.HasCapability(ctx, user.ID, user.Roles, auth.CapConsoleAccess)
+	if err != nil {
+		logrus.WithError(err).WithField("user_id", user.ID).Error("Failed to check console:access capability")
+		return false
+	}
+	return allowed
+}
+
 // handleRefreshToken exchanges a valid refresh token for a new token pair.
 // The endpoint is public (no Authorization header required) so the frontend
 // can silently renew the session when the access token is about to expire.
@@ -882,6 +894,11 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 		default:
 			s.writeError(w, "Invalid refresh token", http.StatusUnauthorized)
 		}
+		return
+	}
+
+	if !s.userHasConsoleAccess(r.Context(), user) {
+		s.writeError(w, "Your account does not have access to the console", http.StatusForbidden)
 		return
 	}
 

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
-	badger "github.com/dgraph-io/badger/v4"
 	"github.com/cockroachdb/pebble/v2"
+	badger "github.com/dgraph-io/badger/v4"
 	"github.com/sirupsen/logrus"
 )
 
@@ -34,6 +34,24 @@ const (
 func MigrateFromBadgerIfNeeded(dataDir string, logger *logrus.Logger) error {
 	metaDir := filepath.Join(dataDir, "metadata")
 	keyRegistry := filepath.Join(metaDir, badgerKeyRegistry)
+	pebbleTmpDir := filepath.Join(dataDir, "metadata_pebble")
+
+	// Recovery path: a previous run may have renamed metadata/ to a Badger
+	// backup and crashed before metadata_pebble/ was promoted. In that state,
+	// do not let NewPebbleStore create a fresh empty metadata directory.
+	if _, err := os.Stat(pebbleTmpDir); err == nil {
+		if _, err := os.Stat(metaDir); os.IsNotExist(err) {
+			logger.Info("Recovering incomplete BadgerDB→Pebble migration: promoting tmp directory…")
+			if err := os.Rename(pebbleTmpDir, metaDir); err != nil {
+				return fmt.Errorf("failed to recover BadgerDB→Pebble migration: %w", err)
+			}
+			if err := os.WriteFile(filepath.Join(metaDir, PebbleV2SentinelFile), []byte("v2\n"), 0644); err != nil {
+				logger.Warnf("Failed to write Pebble v2 sentinel during BadgerDB migration recovery: %v", err)
+			}
+			logger.Info("BadgerDB→Pebble migration recovery complete")
+			return nil
+		}
+	}
 
 	// Check whether this is a BadgerDB directory
 	if _, err := os.Stat(keyRegistry); os.IsNotExist(err) {
@@ -43,8 +61,6 @@ func MigrateFromBadgerIfNeeded(dataDir string, logger *logrus.Logger) error {
 	}
 
 	logger.Info("BadgerDB metadata detected; starting migration to Pebble…")
-
-	pebbleTmpDir := filepath.Join(dataDir, "metadata_pebble")
 
 	// Clean up any leftover temp dir from a previous failed attempt
 	if err := os.RemoveAll(pebbleTmpDir); err != nil {

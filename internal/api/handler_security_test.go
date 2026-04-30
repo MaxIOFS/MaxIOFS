@@ -305,7 +305,7 @@ func (m *MockObjectManager) UpdateObjectMetadata(ctx context.Context, bucket, ke
 	return args.Error(0)
 }
 
-func (m *MockObjectManager) GetObjectRetention(ctx context.Context, bucket, key string) (*object.RetentionConfig, error) {
+func (m *MockObjectManager) GetObjectRetention(ctx context.Context, bucket, key string, versionID ...string) (*object.RetentionConfig, error) {
 	args := m.Called(ctx, bucket, key)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -318,7 +318,7 @@ func (m *MockObjectManager) SetObjectRetention(ctx context.Context, bucket, key 
 	return args.Error(0)
 }
 
-func (m *MockObjectManager) GetObjectLegalHold(ctx context.Context, bucket, key string) (*object.LegalHoldConfig, error) {
+func (m *MockObjectManager) GetObjectLegalHold(ctx context.Context, bucket, key string, versionID ...string) (*object.LegalHoldConfig, error) {
 	args := m.Called(ctx, bucket, key)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -344,7 +344,7 @@ func (m *MockObjectManager) DeleteObjectVersion(ctx context.Context, bucket, key
 	return args.Error(0)
 }
 
-func (m *MockObjectManager) GetObjectTagging(ctx context.Context, bucket, key string) (*object.TagSet, error) {
+func (m *MockObjectManager) GetObjectTagging(ctx context.Context, bucket, key string, versionID ...string) (*object.TagSet, error) {
 	args := m.Called(ctx, bucket, key)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -352,12 +352,12 @@ func (m *MockObjectManager) GetObjectTagging(ctx context.Context, bucket, key st
 	return args.Get(0).(*object.TagSet), args.Error(1)
 }
 
-func (m *MockObjectManager) SetObjectTagging(ctx context.Context, bucket, key string, tags *object.TagSet) error {
+func (m *MockObjectManager) SetObjectTagging(ctx context.Context, bucket, key string, tags *object.TagSet, versionID ...string) error {
 	args := m.Called(ctx, bucket, key, tags)
 	return args.Error(0)
 }
 
-func (m *MockObjectManager) DeleteObjectTagging(ctx context.Context, bucket, key string) error {
+func (m *MockObjectManager) DeleteObjectTagging(ctx context.Context, bucket, key string, versionID ...string) error {
 	args := m.Called(ctx, bucket, key)
 	return args.Error(0)
 }
@@ -457,7 +457,7 @@ func (m *MockObjectManager) VerifyBucketIntegrity(ctx context.Context, bucket, p
 	return args.Get(0).(*object.BucketIntegrityReport), args.Error(1)
 }
 
-func (m *MockObjectManager) SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time) error {
+func (m *MockObjectManager) SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time, versionID ...string) error {
 	return nil
 }
 

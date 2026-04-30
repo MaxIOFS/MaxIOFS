@@ -115,6 +115,12 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 			"tenant-id":      tenantID,
 		})
 	if err != nil {
+		if delErr := bm.metadataStore.DeleteBucket(ctx, tenantID, name); delErr != nil && delErr != metadata.ErrBucketNotFound {
+			logrus.WithError(delErr).WithFields(logrus.Fields{
+				"tenant_id": tenantID,
+				"bucket":    name,
+			}).Warn("Failed to roll back bucket metadata after storage marker creation failed")
+		}
 		return err
 	}
 
@@ -231,6 +237,8 @@ func (bm *badgerBucketManager) ForceDeleteBucket(ctx context.Context, tenantID, 
 		"bucket": name,
 	}).Warn("Force deleting bucket and all its objects")
 
+	deletedMetadataCount := bm.deleteAllObjectMetadataForBucket(ctx, bucketPath)
+
 	// List all objects in the bucket
 	prefix := bucketPath + "/"
 	objects, err := bm.storage.List(ctx, prefix, false)
@@ -276,9 +284,10 @@ func (bm *badgerBucketManager) ForceDeleteBucket(ctx context.Context, tenantID, 
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"tenant":       tenantID,
-		"bucket":       name,
-		"deletedCount": deletedCount,
+		"tenant":               tenantID,
+		"bucket":               name,
+		"deletedCount":         deletedCount,
+		"deletedMetadataCount": deletedMetadataCount,
 	}).Info("Deleted all objects from bucket")
 
 	// Now delete the bucket itself using the standard method (which will succeed since it's now empty)
@@ -828,13 +837,28 @@ func (bm *badgerBucketManager) IsReady() bool {
 
 // isBucketEmpty checks if a bucket contains no objects
 func (bm *badgerBucketManager) isBucketEmpty(ctx context.Context, tenantID, name string) (bool, error) {
+	if _, err := bm.metadataStore.GetBucket(ctx, tenantID, name); err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return false, ErrBucketNotFound
+		}
+		return false, err
+	}
+
+	bucketPath := bm.getTenantBucketPath(tenantID, name)
+	versions, err := bm.metadataStore.ListAllObjectVersions(ctx, bucketPath, "", 1)
+	if err != nil {
+		return false, err
+	}
+	if len(versions) > 0 {
+		return false, nil
+	}
+
 	prefix := bm.getTenantBucketPath(tenantID, name) + "/"
 	objects, err := bm.storage.List(ctx, prefix, false)
 	if err != nil {
 		return false, err
 	}
 
-	bucketPath := bm.getTenantBucketPath(tenantID, name)
 	hasValidObjects := false
 
 	// Check each physical file
@@ -925,6 +949,51 @@ func (bm *badgerBucketManager) isBucketEmpty(ctx context.Context, tenantID, name
 	}
 
 	return !hasValidObjects, nil
+}
+
+func (bm *badgerBucketManager) deleteAllObjectMetadataForBucket(ctx context.Context, bucketPath string) int {
+	versions, err := bm.metadataStore.ListAllObjectVersions(ctx, bucketPath, "", 0)
+	if err != nil {
+		logrus.WithError(err).WithField("bucket", bucketPath).Warn("Failed to list object metadata during force delete")
+		return 0
+	}
+
+	deleted := 0
+	seenKeys := make(map[string]bool)
+	for _, version := range versions {
+		if version.Key == "" {
+			continue
+		}
+		seenKeys[version.Key] = true
+		if version.VersionID != "" {
+			if err := bm.metadataStore.DeleteObjectVersion(ctx, bucketPath, version.Key, version.VersionID); err != nil {
+				if err != metadata.ErrVersionNotFound {
+					logrus.WithError(err).WithFields(logrus.Fields{
+						"bucket":    bucketPath,
+						"key":       version.Key,
+						"versionID": version.VersionID,
+					}).Warn("Failed to delete object version metadata during force delete")
+				}
+				continue
+			}
+			deleted++
+		}
+	}
+
+	for key := range seenKeys {
+		if err := bm.metadataStore.DeleteObject(ctx, bucketPath, key); err != nil {
+			if err != metadata.ErrObjectNotFound {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"bucket": bucketPath,
+					"key":    key,
+				}).Warn("Failed to delete object metadata during force delete")
+			}
+			continue
+		}
+		deleted++
+	}
+
+	return deleted
 }
 
 // getTenantBucketPath returns the storage path for a tenant's bucket

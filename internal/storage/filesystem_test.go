@@ -422,10 +422,15 @@ func TestValidatePath(t *testing.T) {
 		{"Valid simple path", "file.txt", false},
 		{"Valid nested path", "folder/file.txt", false},
 		{"Valid deep nested", "a/b/c/d/file.txt", false},
+		{"Valid dots in filename", "folder/file..txt", false},
+		{"Valid triple-dot segment", "folder/.../file.txt", false},
 		{"Empty path", "", true},
 		{"Path traversal dots", "../file.txt", true},
 		{"Path traversal in middle", "folder/../file.txt", true},
 		{"Absolute path", "/file.txt", true},
+		{"Windows separator", "folder\\file.txt", true},
+		{"Windows traversal", "folder\\..\\file.txt", true},
+		{"Windows drive absolute", "C:/tmp/file.txt", true},
 	}
 
 	for _, tt := range tests {
@@ -497,7 +502,7 @@ func TestConcurrentOperations(t *testing.T) {
 
 		for i := 0; i < 10; i++ {
 			go func(n int) {
-				path := filepath.Join("concurrent", string(rune('a'+n))+".txt")
+				path := "concurrent/" + string(rune('a'+n)) + ".txt"
 				data := []byte(strings.Repeat("x", n*100))
 				err := backend.Put(ctx, path, bytes.NewReader(data), nil)
 				assert.NoError(t, err)
