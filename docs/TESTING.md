@@ -1,13 +1,13 @@
 # Testing
 
 **Version**: 1.3.0
-**Last Updated**: April 2, 2026
+**Last Updated**: April 30, 2026
 
 ---
 
 ## Overview
 
-MaxIOFS has **115 Go test files**, **5 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **138 Go test files**, **8 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -129,21 +129,25 @@ npx vitest run --coverage
 | `manager_test.go` | Bucket manager core operations |
 | `policy_evaluation_test.go` | S3 bucket policy evaluation |
 
-### `internal/cluster/` — 26 test files
+### `internal/cluster/` — 28 test files
 
 | File | Description |
 |------|-------------|
 | `access_key_sync_test.go` | Cross-node access key synchronization |
+| `anti_entropy_test.go` | HA anti-entropy worker and reconciliation |
 | `bucket_aggregator_test.go` | Multi-node bucket list aggregation |
 | `bucket_location_test.go` | Bucket location cache and routing |
 | `bucket_permission_sync_test.go` | Bucket permission replication |
 | `cache_test.go` | Cluster cache invalidation |
 | `circuit_breaker_test.go` | Circuit breaker for unhealthy nodes |
+| `dead_node_reconciler_test.go` | Dead-node replica redistribution |
 | `deletion_log_test.go` | Tombstone-based deletion sync |
 | `group_mapping_sync_test.go` | IDP group mapping synchronization |
+| `ha_quorum_test.go` | HA write quorum behavior |
+| `ha_read_test.go` | HA read fallback and ordered retry |
+| `ha_url_test.go` | Cluster HA endpoint URL handling |
 | `health_test.go` | Node health checks (30s intervals) |
 | `idp_provider_sync_test.go` | IDP provider configuration sync |
-| `join_cluster_test.go` | Node join/leave workflow |
 | `manager_test.go` | Cluster manager core operations |
 | `metrics_test.go` | Cluster-wide metrics aggregation |
 | `migration_integration_test.go` | Bucket migration end-to-end |
@@ -153,10 +157,9 @@ npx vitest run --coverage
 | `quota_integration_test.go` | Quota enforcement in cluster |
 | `rate_limiter_test.go` | Cluster-wide rate limiting |
 | `replication_integration_test.go` | Replication end-to-end |
-| `replication_manager_test.go` | Replication manager logic |
-| `replication_worker_test.go` | Replication worker operations |
 | `router_test.go` | Request routing to bucket owner |
 | `stale_reconciler_test.go` | Stale node reconciliation (offline/partition modes) |
+| `storage_pressure_test.go` | Storage-pressure health state |
 | `tenant_sync_test.go` | Tenant sync across nodes |
 | `user_sync_test.go` | User sync across nodes |
 
@@ -190,30 +193,35 @@ npx vitest run --coverage
 | `manager_test.go` | Inventory schedule management |
 | `worker_test.go` | Background inventory worker |
 
-### `internal/lifecycle/` — 1 test file
+### `internal/lifecycle/` — 2 test files
 
 | File | Description |
 |------|-------------|
+| `expiration_test.go` | Lifecycle expiration behavior |
 | `worker_test.go` | Lifecycle rule evaluation and object expiration |
 
-### `internal/logging/` — 3 test files
+### `internal/logging/` — 5 test files
 
 | File | Description |
 |------|-------------|
+| `helpers_test.go` | Logging helper functions |
 | `http_test.go` | HTTP log target delivery with WaitGroup-tracked goroutines |
 | `manager_test.go` | Log manager routing, multi-target dispatch |
+| `store_test.go` | Log target persistence |
 | `syslog_test.go` | Syslog target output |
 
-### `internal/metadata/` — 7 test files
+### `internal/metadata/` — 10 test files
 
 | File | Description |
 |------|-------------|
 | `badger_comprehensive_test.go` | BadgerDB operations (kept for migration testing) |
 | `badger_test.go` | BadgerDB core CRUD (kept for migration testing) |
-| `pebble_test.go` | Pebble store: object CRUD, migration from BadgerDB |
+| `migration_recovery_test.go` | Migration recovery and backup handling |
 | `multipart_comprehensive_test.go` | Multipart upload metadata tracking |
 | `objects_test.go` | Object metadata storage and retrieval |
+| `pebble_test.go` | Pebble store: object CRUD, migration from BadgerDB |
 | `search_objects_test.go` | Object search by prefix, delimiter, pagination |
+| `store_consistency_test.go` | Metadata consistency and counter reconciliation |
 | `tags_comprehensive_test.go` | Object and bucket tag operations |
 | `versioning_test.go` | Version ID generation, version listing |
 
@@ -236,13 +244,14 @@ npx vitest run --coverage
 | `middleware_test.go` | Auth, CORS, rate limit middleware chain |
 | `tracing_test.go` | Request tracing and request ID propagation |
 
-### `internal/notifications/` — 1 test file
+### `internal/notifications/` — 2 test files
 
 | File | Description |
 |------|-------------|
+| `helpers_test.go` | Notification helper functions |
 | `manager_test.go` | SSE notification delivery, client management |
 
-### `internal/object/` — 16 test files
+### `internal/object/` — 19 test files
 
 | File | Description |
 |------|-------------|
@@ -259,10 +268,12 @@ npx vitest run --coverage
 | `manager_low_coverage_test.go` | Low-coverage path tests |
 | `manager_versioning_acl_test.go` | Versioning + ACL interaction |
 | `multipart_race_test.go` | Concurrent multipart upload race conditions |
+| `multipart_validation_test.go` | Multipart validation and failure handling |
 | `retention_comprehensive_test.go` | Retention policy comprehensive coverage |
 | `retention_test.go` | Basic retention tests |
 | `search_objects_test.go` | Object search and listing |
 | `versioning_delete_test.go` | Version-aware delete operations |
+| `versioning_multipart_metrics_test.go` | Versioning, multipart, and metric counter interaction |
 
 ### `internal/presigned/` — 1 test file
 
@@ -270,7 +281,7 @@ npx vitest run --coverage
 |------|-------------|
 | `presigned_test.go` | Pre-signed URL generation and validation |
 
-### `internal/replication/` — 6 test files
+### `internal/replication/` — 7 test files
 
 | File | Description |
 |------|-------------|
@@ -279,13 +290,15 @@ npx vitest run --coverage
 | `manager_sync_test.go` | `SyncBucket`, `SyncRule` (lock contention), `processScheduledRules`, `cleanup` |
 | `manager_test.go` | Replication rule management |
 | `replication_e2e_test.go` | End-to-end replication with `require.Eventually` |
+| `s3client_test.go` | S3 replication client behavior |
 | `worker_test.go` | `processItem` (PUT/COPY/DELETE), `handleError`, `completeItem`, `updateReplicationStatus` |
 
-### `internal/server/` — 6 test files
+### `internal/server/` — 7 test files
 
 | File | Description |
 |------|-------------|
 | `bucket_aggregation_test.go` | Multi-node bucket aggregation API |
+| `console_access_test.go` | Console access and capability checks |
 | `console_api_test.go` | Console REST API endpoint tests |
 | `console_idp_test.go` | Console IDP management endpoints |
 | `route_ordering_test.go` | Route priority and matching order |
@@ -318,14 +331,17 @@ npx vitest run --coverage
 | `encryption_test.go` | AES-256-GCM encrypt/decrypt roundtrip (legacy CTR backward-compat) |
 | `encryption_bench_test.go` | Encryption throughput benchmarks |
 
-### `pkg/s3compat/` — 9 test files
+### `pkg/s3compat/` — 12 test files
 
 | File | Description |
 |------|-------------|
 | `acl_debug_test.go` | ACL compatibility debugging |
 | `acl_security_test.go` | ACL security edge cases |
 | `checksum_test.go` | `x-amz-checksum-*` header validation (CRC32, CRC32C, SHA1, SHA256) |
+| `copy_source_test.go` | Copy source parsing, version IDs, and encoded source keys |
 | `handler_coverage_test.go` | S3 handler comprehensive coverage |
+| `inventory_test.go` | S3 inventory API compatibility |
+| `multipart_pagination_test.go` | Multipart upload listing and parts pagination |
 | `notifications_test.go` | Bucket notification webhook dispatch |
 | `post_presigned_test.go` | POST presigned URL (HTML form upload + policy validation) |
 | `presigned_test.go` | S3 pre-signed request handling (SigV2 + SigV4) |
@@ -352,9 +368,12 @@ Located in `web/frontend/src/__tests__/`, using **Vitest 4** with **jsdom** envi
 
 | File | Description |
 |------|-------------|
+| `api-token.test.ts` | JWT payload decoding for refresh scheduling |
 | `Buckets.test.tsx` | Bucket list, creation, deletion UI |
+| `AppLayout.test.tsx` | App shell layout and navigation behavior |
 | `Dashboard.test.tsx` | Dashboard metrics rendering, storage distribution |
 | `IdentityProviders.test.tsx` | IDP management UI flows |
+| `LanguageContext.test.tsx` | Language context and locale switching |
 | `Login.test.tsx` | Login form, OAuth redirect, 2FA prompt |
 | `Users.test.tsx` | User management CRUD UI |
 
@@ -562,22 +581,22 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 
 | Area | Files | Key Packages |
 |------|-------|-------------|
-| Cluster | 25 | Sync, replication, routing, migration, health |
-| Object | 15 | CRUD, versioning, locking, retention, multipart |
+| Cluster | 28 | Sync, replication, routing, HA, migration, health |
+| Object | 19 | CRUD, versioning, locking, retention, multipart |
 | Auth | 11 | Users, keys, JWT, S3 sig, TOTP, rate limiting |
-| Metadata | 8 | Pebble store, BadgerDB migration, search, tags, versioning, multipart |
+| Metadata | 10 | Pebble store, BadgerDB migration, search, tags, versioning, multipart |
 | Metrics | 6 | Prometheus, history, system, performance |
-| Server | 6 | Routes, console API, IDP endpoints, search |
+| Server | 7 | Routes, console API, IDP endpoints, search |
 | IDP | 5 | LDAP, OAuth, crypto, storage |
-| S3 Compat | 5 | Protocol compliance, ACL, pre-signed, handlers |
+| S3 Compat | 12 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers |
 | Bucket | 4 | CRUD, deletion, policy, integration |
-| Logging | 3 | HTTP targets, syslog, manager |
+| Logging | 5 | HTTP targets, syslog, manager, persistence |
 | Middleware | 3 | Auth, CORS, tracing |
 | Inventory | 3 | Report generation, scheduling |
 | Storage | 2 | Filesystem, benchmarks |
 | Encryption | 2 | AES-256-GCM, benchmarks |
-| Replication | 2 | Manager, end-to-end |
-| Other | 9 | Config, migrations, lifecycle, notifications, presigned, settings, share, cmd, embed |
-| **Total Go** | **112** | |
-| Frontend | 5 | Dashboard, Login, Users, Buckets, IDP |
+| Replication | 7 | Manager, worker, S3 client, end-to-end |
+| Other | 14 | ACL, API, audit, config, migrations, lifecycle, notifications, presigned, settings, share, cmd, embed |
+| **Total Go** | **138** | |
+| Frontend | 8 | Dashboard, Login, Users, Buckets, IDP, layout, i18n, token handling |
 | Performance | 4 | Upload, download, mixed, common |

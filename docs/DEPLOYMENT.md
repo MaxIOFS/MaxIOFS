@@ -1,6 +1,6 @@
 # MaxIOFS Deployment Guide
 
-**Version**: 1.3.0 | **Last Updated**: April 21, 2026
+**Version**: 1.3.0 | **Last Updated**: April 30, 2026
 
 > Suitable for production use — always backup your data and change default credentials before deploying.
 
@@ -16,7 +16,7 @@
 
 ### Build Requirements (source only)
 
-- **Go** 1.25+ (with toolchain 1.25.8+)
+- **Go** 1.26+
 - **Node.js** 24+ (for frontend build)
 
 The compiled binary is self-contained and requires neither Go nor Node at runtime.
@@ -29,10 +29,10 @@ The compiled binary is self-contained and requires neither Go nor Node at runtim
 
 ```bash
 # Build from source
-git clone https://github.com/yourusername/maxiofs.git
-cd maxiofs
+git clone https://github.com/MaxioFS/MaxioFS.git
+cd MaxIOFS
 make build
-# Binary: ./build/maxiofs-{os}-{arch}-v{version}
+# Binary: ./build/maxiofs
 
 # Or use pre-built binary
 chmod +x maxiofs
@@ -150,11 +150,11 @@ Pre-built packages are available for Debian/Ubuntu and RHEL/Rocky:
 
 ```bash
 # Debian/Ubuntu
-sudo dpkg -i maxiofs_1.0.0_amd64.deb
+sudo dpkg -i maxiofs_1.3.0_amd64.deb
 sudo systemctl enable --now maxiofs
 
 # RHEL/Rocky
-sudo rpm -i maxiofs-1.0.0-1.x86_64.rpm
+sudo rpm -i maxiofs-1.3.0-1.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 

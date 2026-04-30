@@ -1,6 +1,6 @@
 # MaxIOFS Architecture
 
-**Version**: 1.3.0 | **Last Updated**: April 21, 2026
+**Version**: 1.3.0 | **Last Updated**: April 30, 2026
 
 ## Overview
 
@@ -219,6 +219,7 @@ Bucket names are **globally unique** across all tenants (AWS S3 compatible):
 - Tenant B tries to create "backups" → **Rejected** (name already taken)
 - S3 clients see standard URLs: `http://endpoint/backups/file.txt`
 - Backend transparently resolves: `access_key → user → tenant_id → tenant-{hash}/backups/file.txt`
+- Buckets created by a global admin can be global buckets with no tenant owner; these are stored without a tenant path prefix and remain visible to global admins.
 
 ### Quota Enforcement
 
@@ -233,7 +234,7 @@ Bucket names are **globally unique** across all tenants (AWS S3 compatible):
 - Each tenant has isolated filesystem directories
 - API responses automatically filtered by tenant
 - Zero cross-tenant visibility
-- Global admins can access all tenants
+- Global admins can access all tenants and global buckets
 
 ---
 
@@ -290,7 +291,7 @@ MaxIOFS supports **four authentication methods**:
 
 | Component | Technology | Version |
 |-----------|-----------|---------|
-| **Language** | Go | 1.25+ |
+| **Language** | Go | 1.26+ |
 | **Frontend** | React + TypeScript | React 19, Vite 7 |
 | **CSS** | TailwindCSS | 4 (Oxide) |
 | **State Management** | TanStack Query | v5 |

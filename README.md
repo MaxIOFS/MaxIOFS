@@ -58,13 +58,13 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 | **Prometheus metrics** | ✅ `/metrics` + pre-built Grafana dashboard | ✅ |
 | **Maintenance mode** | ✅ Read-only mode via console toggle | ❌ |
 | **SMTP alerting** | ✅ Disk + quota threshold alerts via email | ❌ (external alertmanager needed) |
-| **Metadata engine** | Pebble (CockroachDB LSM-tree, pure Go, crash-safe WAL) | Custom (etcd-based in distributed) |
+| **Metadata engine** | Pebble (CockroachDB LSM-tree, pure Go, crash-safe WAL) | Distributed object metadata on storage layer; no external metadata DB |
 | **License** | MIT | AGPL-3.0 (open source) / commercial |
 | **Target scale** | Small to mid-range (single node to 5-node cluster) | Petabyte-scale distributed |
 
 **Use MaxIOFS when:** you need multi-tenancy, built-in SSO, and a full web console without running multiple services, and your scale fits on a few nodes.
 
-**Use MinIO when:** you need erasure coding, petabyte-scale distributed storage, S3 Select, or cloud tiering.
+**Use MinIO when:** you need erasure coding, petabyte/exabyte-scale distributed storage, mature cloud tiering, or the broadest production-proven S3 ecosystem.
 
 ---
 
@@ -229,10 +229,16 @@ chmod +x maxiofs
 
 ### Test with AWS CLI
 
+First create an S3 access key in the Web Console:
+
+1. Open http://localhost:8081 and log in with `admin` / `admin`
+2. Go to the user/access keys section
+3. Create a new access key and secret key for S3 clients
+
 ```bash
 aws configure --profile maxiofs
-# AWS Access Key ID: admin
-# AWS Secret Access Key: admin
+# AWS Access Key ID: <your-created-access-key>
+# AWS Secret Access Key: <your-created-secret-key>
 # Default region: us-east-1
 
 aws --profile maxiofs --endpoint-url http://localhost:8080 s3 mb s3://my-bucket

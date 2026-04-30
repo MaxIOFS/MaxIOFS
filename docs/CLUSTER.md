@@ -2,7 +2,7 @@
 
 **Version**: 1.3.0
 **Status**: Production-Ready
-**Last Updated**: April 12, 2026
+**Last Updated**: April 30, 2026
 
 ---
 
@@ -20,7 +20,6 @@
 10. [Security](#security)
 11. [Monitoring & Health](#monitoring--health)
 12. [Troubleshooting](#troubleshooting)
-13. [Testing](#testing)
 
 ---
 
@@ -768,15 +767,15 @@ curl -X GET "http://source-node:8081/api/v1/buckets/{bucket}" \
   -H "Authorization: Bearer $TOKEN"
 
 # Check migration job status
-sqlite3 /data/auth.db "SELECT * FROM cluster_migrations WHERE id=1;"
+sqlite3 /data/db/maxiofs.db "SELECT * FROM cluster_migrations WHERE id=1;"
 ```
 
 **Migration Failed with HMAC Errors:**
 
 ```bash
 # Verify cluster tokens match
-sqlite3 /data/node1/auth.db "SELECT cluster_token FROM cluster_config;"
-sqlite3 /data/node2/auth.db "SELECT cluster_token FROM cluster_config;"
+sqlite3 /data/node1/db/maxiofs.db "SELECT cluster_token FROM cluster_config;"
+sqlite3 /data/node2/db/maxiofs.db "SELECT cluster_token FROM cluster_config;"
 
 # Ensure clocks are synchronized (NTP)
 ssh node1 "date -u"
@@ -841,91 +840,13 @@ ssh target-node "top -bn1 | grep maxiofs"
 **Base URL**: `http://localhost:8081/api/v1`
 **Authentication**: JWT token required in `Authorization: Bearer <token>` header
 
-### Cluster Management Endpoints
+This document explains cluster behavior and operations. The canonical endpoint list lives in [API.md](API.md#cluster-management); keep endpoint additions there to avoid drift.
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/cluster/initialize` | Initialize cluster, generates token |
-| GET | `/api/v1/cluster/config` | Get cluster configuration |
-| GET | `/api/v1/cluster/nodes` | List all cluster nodes |
-| POST | `/api/v1/cluster/nodes` | Add node to cluster |
-| GET | `/api/v1/cluster/nodes/{nodeId}` | Get node details |
-| PUT | `/api/v1/cluster/nodes/{nodeId}` | Update node (name, region, priority, metadata) |
-| DELETE | `/api/v1/cluster/nodes/{nodeId}` | Remove node from cluster |
-| GET | `/api/v1/cluster/health` | Get cluster health summary |
-| POST | `/api/v1/cluster/health/refresh` | Trigger manual health check |
-| GET | `/api/v1/cluster/cache/stats` | Get cache statistics (hits, misses, ratio) |
-| DELETE | `/api/v1/cluster/cache` | Clear bucket location cache |
-| GET | `/api/v1/cluster/buckets` | List cluster buckets with replication status |
-| GET | `/api/v1/cluster/buckets/{bucketName}/nodes` | Get primary and replica nodes for bucket |
+Primary endpoint groups:
 
-### Cluster Replication Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/cluster/replication` | Create replication rule |
-| GET | `/api/v1/cluster/replication` | List replication rules (filter by tenant, bucket) |
-| PUT | `/api/v1/cluster/replication/{ruleId}` | Update replication rule |
-| DELETE | `/api/v1/cluster/replication/{ruleId}` | Delete replication rule |
-| POST | `/api/v1/cluster/replication/bulk` | Bulk replicate all buckets node-to-node |
-
-### Bucket Migration Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/cluster/buckets/{bucket}/migrate` | Migrate bucket to different node |
-| GET | `/api/v1/cluster/migrations` | List all migration jobs (optional filter: ?bucket=name) |
-| GET | `/api/v1/cluster/migrations/{id}` | Get specific migration job details |
-
-### Example Requests
-
-**Initialize Cluster:**
-```json
-POST /api/v1/cluster/initialize
-{
-  "node_name": "node-east-1",
-  "region": "us-east-1"
-}
-// Returns: node_id, cluster_token, is_cluster_enabled
-```
-
-**Add Node:**
-```json
-POST /api/v1/cluster/nodes
-{
-  "name": "node-west-1",
-  "endpoint": "http://10.0.1.20:8080",
-  "node_token": "eyJhbGciOi...",
-  "region": "us-west-1",
-  "priority": 100
-}
-```
-
-**Create Replication Rule:**
-```json
-POST /api/v1/cluster/replication
-{
-  "source_bucket": "my-bucket",
-  "destination_node_id": "uuid-5678",
-  "destination_bucket": "my-bucket",
-  "sync_interval_seconds": 60,
-  "enabled": true,
-  "replicate_deletes": true,
-  "replicate_metadata": true,
-  "prefix": ""
-}
-```
-
-**Migrate Bucket:**
-```json
-POST /api/v1/cluster/buckets/my-bucket/migrate
-{
-  "target_node_id": "uuid-target-node",
-  "verify_data": true,
-  "delete_source": false
-}
-// Returns HTTP 202 Accepted with migration job details
-```
+- Cluster management: initialize, join, status, nodes, health, cache.
+- Cluster replication: rules, bulk replication, status.
+- Bucket migration: start migration, list jobs, inspect job details.
 
 ---
 
@@ -1059,7 +980,7 @@ curl http://10.0.1.20:8080/health
 ssh node2 "systemctl status maxiofs"
 
 # Verify endpoint URL in database
-sqlite3 /data/node1/auth.db "SELECT id, name, endpoint FROM cluster_nodes;"
+sqlite3 /data/node1/db/maxiofs.db "SELECT id, name, endpoint FROM cluster_nodes;"
 ```
 
 **Fixes:**
@@ -1080,7 +1001,7 @@ curl -X GET "http://localhost:8081/api/v1/cluster/replication?bucket=my-bucket" 
 # Verify: enabled=true, last_error=null, reasonable sync_interval
 
 # Check replication queue
-sqlite3 /data/node1/auth.db "SELECT COUNT(*) FROM cluster_replication_queue WHERE status='pending';"
+sqlite3 /data/node1/db/maxiofs.db "SELECT COUNT(*) FROM cluster_replication_queue WHERE status='pending';"
 
 # Check tenant sync
 curl -X GET "http://node2:8081/api/v1/tenants" \
@@ -1099,8 +1020,8 @@ curl -X GET "http://node2:8081/api/v1/tenants" \
 **Diagnosis:**
 ```bash
 # Verify cluster tokens match
-sqlite3 /data/node1/auth.db "SELECT cluster_token FROM cluster_config;"
-sqlite3 /data/node2/auth.db "SELECT cluster_token FROM cluster_config;"
+sqlite3 /data/node1/db/maxiofs.db "SELECT cluster_token FROM cluster_config;"
+sqlite3 /data/node2/db/maxiofs.db "SELECT cluster_token FROM cluster_config;"
 
 # Check timestamp skew (clocks must be synchronized)
 ssh node1 "date -u"
@@ -1196,180 +1117,12 @@ docker logs -f maxiofs-node1
 
 ---
 
-## Testing
-
-### Integration Tests
-
-**Location:** `internal/cluster/replication_integration_test.go`
-
-**Infrastructure:** SimulatedNode (in-memory SQLite, HTTP server using `httptest.Server`, HMAC verification)
-
-### Running Tests
-
-```bash
-# All cluster tests
-go test ./internal/cluster -v
-
-# Specific test
-go test ./internal/cluster -v -run TestHMACAuthentication
-
-# With coverage
-go test ./internal/cluster -v -coverprofile=coverage.out
-go tool cover -html=coverage.out
-```
-
-### Test Cases
-
-| Test | Purpose | Coverage |
-|------|---------|----------|
-| TestHMACAuthentication | Verify HMAC signature validation | Valid/invalid signatures, missing headers, expired timestamp |
-| TestTenantSynchronization | Verify tenant sync between nodes | Checksum validation, create/update |
-| TestObjectReplication | Verify object replication with HMAC | PUT operations, content verification |
-| TestDeleteReplication | Verify delete operations replicate | DELETE operations across nodes |
-| TestSelfReplicationPrevention | Verify nodes can't replicate to self | HTTP 400 error validation |
-
-**Test Results:**
-- 90+ total cluster tests (management, replication, sync managers, deletion log)
-- 100% pass rate
-- Pure Go (no CGO dependencies)
-
----
-
-## SQLite Schema Reference
-
-### cluster_config Table
-
-```sql
-CREATE TABLE cluster_config (
-    node_id TEXT PRIMARY KEY,
-    node_name TEXT NOT NULL,
-    cluster_token TEXT NOT NULL,
-    is_cluster_enabled INTEGER NOT NULL DEFAULT 0,
-    region TEXT,
-    created_at INTEGER NOT NULL
-);
-```
-
-### cluster_nodes Table
-
-```sql
-CREATE TABLE cluster_nodes (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    endpoint TEXT NOT NULL,
-    node_token TEXT NOT NULL,
-    region TEXT,
-    priority INTEGER NOT NULL DEFAULT 100,
-    health_status TEXT NOT NULL DEFAULT 'unknown',
-    last_health_check INTEGER,
-    last_seen INTEGER,
-    latency_ms INTEGER DEFAULT 0,
-    capacity_total INTEGER DEFAULT 0,
-    capacity_used INTEGER DEFAULT 0,
-    bucket_count INTEGER DEFAULT 0,
-    metadata TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-);
-```
-
-### cluster_bucket_replication Table
-
-```sql
-CREATE TABLE cluster_bucket_replication (
-    id TEXT PRIMARY KEY,
-    tenant_id TEXT NOT NULL DEFAULT '',
-    source_bucket TEXT NOT NULL,
-    destination_node_id TEXT NOT NULL,
-    destination_bucket TEXT NOT NULL,
-    sync_interval_seconds INTEGER NOT NULL DEFAULT 10,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    replicate_deletes INTEGER NOT NULL DEFAULT 1,
-    replicate_metadata INTEGER NOT NULL DEFAULT 1,
-    prefix TEXT DEFAULT '',
-    priority INTEGER NOT NULL DEFAULT 0,
-    last_sync_at INTEGER,
-    last_error TEXT,
-    objects_replicated INTEGER NOT NULL DEFAULT 0,
-    bytes_replicated INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (destination_node_id) REFERENCES cluster_nodes(id) ON DELETE CASCADE
-);
-```
-
-### cluster_replication_queue Table
-
-```sql
-CREATE TABLE cluster_replication_queue (
-    id TEXT PRIMARY KEY,
-    replication_rule_id TEXT NOT NULL,
-    tenant_id TEXT NOT NULL DEFAULT '',
-    source_bucket TEXT NOT NULL,
-    object_key TEXT NOT NULL,
-    destination_node_id TEXT NOT NULL,
-    destination_bucket TEXT NOT NULL,
-    operation TEXT NOT NULL DEFAULT 'PUT',
-    status TEXT NOT NULL DEFAULT 'pending',
-    attempts INTEGER NOT NULL DEFAULT 0,
-    max_attempts INTEGER NOT NULL DEFAULT 3,
-    last_error TEXT,
-    priority INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (replication_rule_id) REFERENCES cluster_bucket_replication(id) ON DELETE CASCADE
-);
-```
-
-### cluster_deletion_log Table (v0.9.0-beta)
-
-```sql
-CREATE TABLE cluster_deletion_log (
-    id TEXT PRIMARY KEY,
-    entity_type TEXT NOT NULL,       -- 'user', 'tenant', 'access_key', 'bucket_permission', 'idp_provider', 'group_mapping'
-    entity_id TEXT NOT NULL,
-    deleted_by_node_id TEXT NOT NULL,
-    deleted_at INTEGER NOT NULL,
-    UNIQUE(entity_type, entity_id)
-);
-CREATE INDEX idx_deletion_log_type ON cluster_deletion_log(entity_type);
-CREATE INDEX idx_deletion_log_deleted_at ON cluster_deletion_log(deleted_at);
-```
-
-### cluster_migrations Table
-
-```sql
-CREATE TABLE cluster_migrations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tenant_id TEXT NOT NULL DEFAULT '',
-    bucket_name TEXT NOT NULL,
-    source_node_id TEXT NOT NULL,
-    target_node_id TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    objects_total INTEGER NOT NULL DEFAULT 0,
-    objects_migrated INTEGER NOT NULL DEFAULT 0,
-    bytes_total INTEGER NOT NULL DEFAULT 0,
-    bytes_migrated INTEGER NOT NULL DEFAULT 0,
-    delete_source INTEGER NOT NULL DEFAULT 0,
-    verify_data INTEGER NOT NULL DEFAULT 1,
-    error_message TEXT,
-    started_at INTEGER,
-    completed_at INTEGER,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (source_node_id) REFERENCES cluster_nodes(id),
-    FOREIGN KEY (target_node_id) REFERENCES cluster_nodes(id)
-);
-
-CREATE INDEX idx_cluster_migrations_bucket ON cluster_migrations(bucket_name);
-CREATE INDEX idx_cluster_migrations_status ON cluster_migrations(status);
-CREATE INDEX idx_cluster_migrations_tenant ON cluster_migrations(tenant_id);
-```
+For cluster test coverage and commands, see [TESTING.md](TESTING.md#internalcluster--28-test-files). The live SQLite schema is maintained by `internal/db/migrations`; avoid duplicating full schema definitions in this guide.
 
 ---
 
 **Version**: 1.3.0
-**Last Updated**: April 2, 2026
+**Last Updated**: April 30, 2026
 **Documentation Status**: Complete
 
 For questions or issues, see [README.md](../README.md).

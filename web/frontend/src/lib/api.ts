@@ -108,6 +108,19 @@ const s3Client: AxiosInstance = axios.create({
   withCredentials: false, // CORS support for development
 });
 
+export function decodeJWTPayload(token: string): Record<string, any> | null {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
 // Token management
 class TokenManager {
   private static instance: TokenManager;
@@ -224,9 +237,8 @@ class TokenManager {
     }
 
     try {
-      const parts = token.split('.');
-      if (parts.length !== 3) return;
-      const payload = JSON.parse(atob(parts[1]));
+      const payload = decodeJWTPayload(token);
+      if (!payload) return;
       const exp: number = payload.exp;
       if (!exp) return;
 

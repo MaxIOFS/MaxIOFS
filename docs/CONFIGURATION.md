@@ -1,6 +1,6 @@
 # MaxIOFS Configuration Guide
 
-**Version**: 1.3.0 | **Last Updated**: April 21, 2026
+**Version**: 1.3.0 | **Last Updated**: April 30, 2026
 
 ## Configuration Architecture
 
@@ -151,15 +151,18 @@ Runtime-configurable settings via Web Console (`/settings`) or API. Changes take
 
 | Key | Default | Description |
 |-----|---------|-------------|
+| `security.session_timeout` | 86400 | Refresh-token lifetime / inactivity timeout in seconds |
+| `security.access_token_lifetime` | 900 | Access-token lifetime in seconds |
+| `security.ratelimit_enabled` | true | Enable rate limiting |
 | `security.ratelimit_login_per_minute` | 5 | IP-based login rate limit |
+| `security.ratelimit_api_per_second` | 100 | Per-user API rate limit |
 | `security.max_failed_attempts` | 5 | Failed logins before account lockout |
 | `security.lockout_duration` | 900 | Lockout duration (seconds) |
-| `security.session_timeout` | 86400 | JWT session lifetime (seconds) |
 | `security.password_min_length` | 8 | Minimum password length |
-| `security.require_2fa_admins` | false | Force 2FA for admin accounts |
-| `security.cors_allowed_origins` | * | CORS allowed origins |
-| `security.idle_timeout` | 3600 | Session idle timeout (seconds) |
-| `security.max_sessions_per_user` | 5 | Maximum concurrent sessions |
+| `security.password_require_uppercase` | true | Require uppercase letters in passwords |
+| `security.password_require_numbers` | true | Require numbers in passwords |
+| `security.password_require_special` | false | Require special characters in passwords |
+| `security.require_2fa_admin` | false | Force 2FA for admin accounts |
 
 ### Audit Settings
 
@@ -167,32 +170,29 @@ Runtime-configurable settings via Web Console (`/settings`) or API. Changes take
 |-----|---------|-------------|
 | `audit.enabled` | true | Enable audit logging |
 | `audit.retention_days` | 90 | Log retention period (days) |
-| `audit.log_read_operations` | false | Log object read events |
-| `audit.log_list_operations` | false | Log list events |
+| `audit.log_s3_operations` | true | Log S3 API operations |
+| `audit.log_console_operations` | true | Log Console API operations |
 
 ### Storage Settings
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `storage.max_multipart_parts` | 10000 | Max parts per multipart upload |
-| `storage.multipart_part_size_min` | 5242880 | Minimum part size (bytes, 5MB) |
-| `storage.max_object_size` | 5368709120 | Max object size (bytes, 5GB) |
-| `storage.temp_cleanup_interval` | 3600 | Temp file cleanup interval (seconds) |
+| `storage.default_bucket_versioning` | false | Enable versioning by default for new buckets |
+| `storage.default_object_lock_days` | 7 | Default object lock retention period in days |
 
 ### Metrics Settings
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `metrics.enabled` | true | Enable Prometheus metrics |
-| `metrics.retention_hours` | 24 | Metrics history retention |
+| `metrics.collection_interval` | 10 | Metrics collection interval in seconds |
 
 ### System Settings
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `system.log_level` | info | Runtime log level |
-| `system.max_concurrent_uploads` | 100 | Upload concurrency limit |
 | `system.maintenance_mode` | false | Read-only mode (blocks S3 writes, mutating Console API) |
+| `system.max_upload_size_mb` | 5120 | Maximum upload size in MB |
 | `system.disk_warning_threshold` | 80 | Disk usage % that triggers warning alert (0 = disabled) |
 | `system.disk_critical_threshold` | 90 | Disk usage % that triggers critical alert (0 = disabled) |
 
@@ -206,7 +206,7 @@ Runtime-configurable settings via Web Console (`/settings`) or API. Changes take
 | `email.smtp_user` | — | SMTP username (optional) |
 | `email.smtp_password` | — | SMTP password (optional) |
 | `email.from_address` | — | Sender address |
-| `email.tls_mode` | starttls | TLS mode: none, starttls, tls |
+| `email.tls_mode` | none | TLS mode: none, starttls, ssl |
 | `email.skip_tls_verify` | false | Skip TLS certificate verification (not recommended) |
 
 ### Logging Configuration (multiple targets)

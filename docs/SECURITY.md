@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 1.3.0 | **Last Updated**: April 21, 2026
+**Version**: 1.3.0 | **Last Updated**: April 30, 2026
 
 > A comprehensive 169-file security audit was completed for v1.1.0. All identified vulnerabilities have been fixed and verified with a full test suite (29/29 packages passing).
 
@@ -41,9 +41,8 @@
 5. Included in all API requests via `Authorization: Bearer <token>`
 
 **Session settings** (configurable at runtime):
-- `security.session_timeout` — Token lifetime (default: 24h)
-- `security.idle_timeout` — Idle session timeout (default: 1h)
-- `security.max_sessions_per_user` — Concurrent session limit (default: 5)
+- `security.session_timeout` — Refresh-token lifetime / inactivity timeout (default: 24h)
+- `security.access_token_lifetime` — Access-token lifetime before refresh (default: 15 minutes)
 
 ### S3 API Authentication
 
@@ -56,7 +55,7 @@ aws configure set aws_secret_access_key YOUR_SECRET_KEY
 aws --endpoint-url=http://localhost:8080 s3 ls
 ```
 
-Access keys are generated via Web Console (Users → Access Keys) or API.
+Access keys are generated via Web Console (Users → Access Keys) or API. The default `admin / admin` credentials are only for the initial Web Console login; no S3 access key is created by default.
 
 ### OAuth2/OIDC SSO
 
