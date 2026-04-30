@@ -618,7 +618,7 @@ func (s *AntiEntropyScrubber) pushObjectToPeer(
 	}
 	defer reader.Close()
 
-	url := fmt.Sprintf("%s/api/internal/ha/objects/%s", peer.Endpoint, key)
+	url := fmt.Sprintf("%s/api/internal/ha/objects/%s", peer.Endpoint, escapeHAObjectKey(key))
 	req, err := client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, peer.NodeToken)
 	if err != nil {
 		return err
@@ -665,7 +665,7 @@ func (s *AntiEntropyScrubber) pullObjectFromPeer(
 	peer *Node,
 	localID, bucketPath, key string,
 ) error {
-	url := fmt.Sprintf("%s/api/internal/ha/objects/%s?bucket=%s", peer.Endpoint, key, urlEscapeBucket(bucketPath))
+	url := fmt.Sprintf("%s/api/internal/ha/objects/%s?bucket=%s", peer.Endpoint, escapeHAObjectKey(key), urlEscapeBucket(bucketPath))
 	req, err := client.CreateAuthenticatedRequest(ctx, "GET", url, nil, localID, peer.NodeToken)
 	if err != nil {
 		return err

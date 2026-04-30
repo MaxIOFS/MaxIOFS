@@ -604,11 +604,11 @@ func (m *mockManager) DeleteObjectTagging(ctx context.Context, bucket, key strin
 	return nil
 }
 
-func (m *mockManager) GetObjectACL(ctx context.Context, bucket, key string) (*ACL, error) {
+func (m *mockManager) GetObjectACL(ctx context.Context, bucket, key string, versionID ...string) (*ACL, error) {
 	return nil, nil
 }
 
-func (m *mockManager) SetObjectACL(ctx context.Context, bucket, key string, acl *ACL) error {
+func (m *mockManager) SetObjectACL(ctx context.Context, bucket, key string, acl *ACL, versionID ...string) error {
 	return nil
 }
 

@@ -1628,6 +1628,9 @@ func (s *Server) applyHAMetadataOp(ctx context.Context, bucket string, op cluste
 		if err := json.Unmarshal(op.Data, &acl); err != nil {
 			return err
 		}
+		if op.VersionID != "" {
+			return om.SetObjectACL(ctx, bucket, op.Key, &acl, op.VersionID)
+		}
 		return om.SetObjectACL(ctx, bucket, op.Key, &acl)
 
 	case "set-retention":

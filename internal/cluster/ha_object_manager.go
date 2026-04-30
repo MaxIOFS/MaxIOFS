@@ -213,7 +213,7 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key string) err
 			}
 			defer reader.Close()
 
-			url := fmt.Sprintf("%s/api/internal/ha/objects/%s", n.Endpoint, key)
+			url := fmt.Sprintf("%s/api/internal/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
 			req, err := client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, n.NodeToken)
 			if err != nil {
 				ch <- fanoutResult{n.ID, err}
@@ -273,7 +273,7 @@ func (h *HAObjectManager) fanoutDelete(ctx context.Context, bucket, key string) 
 
 	for _, node := range targets {
 		go func(n *Node) {
-			url := fmt.Sprintf("%s/api/internal/ha/objects/%s", n.Endpoint, key)
+			url := fmt.Sprintf("%s/api/internal/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
 			req, err := client.CreateAuthenticatedRequest(ctx, "DELETE", url, nil, localID, n.NodeToken)
 			if err != nil {
 				ch <- fanoutResult{n.ID, err}
@@ -440,13 +440,17 @@ func (h *HAObjectManager) DeleteObjectTagging(ctx context.Context, bucket, key s
 }
 
 // SetObjectACL fans out ACL writes.
-func (h *HAObjectManager) SetObjectACL(ctx context.Context, bucket, key string, acl *object.ACL) error {
-	if err := h.Manager.SetObjectACL(ctx, bucket, key, acl); err != nil {
+func (h *HAObjectManager) SetObjectACL(ctx context.Context, bucket, key string, acl *object.ACL, versionID ...string) error {
+	if err := h.Manager.SetObjectACL(ctx, bucket, key, acl, versionID...); err != nil {
 		return err
 	}
 	if !isHAReplica(ctx) {
+		vid := ""
+		if len(versionID) > 0 {
+			vid = versionID[0]
+		}
 		data, _ := json.Marshal(acl)
-		h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-acl", Key: key, Data: data})
+		h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-acl", Key: key, VersionID: vid, Data: data})
 	}
 	return nil
 }

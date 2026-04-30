@@ -3704,3 +3704,42 @@ func TestRestoreObjectHonorsVersionID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, latest.RestoreStatus, "restore without matching versionId must not update latest version")
 }
+
+func TestObjectACLHonorsVersionID(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "acl-version-bucket"
+	objectKey := "versioned-acl.txt"
+	bucketPath := env.tenantID + "/" + bucketName
+
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
+	require.NoError(t, env.bucketManager.SetVersioning(ctx, env.tenantID, bucketName, &bucket.VersioningConfig{Status: "Enabled"}))
+
+	first, err := env.objectManager.PutObject(ctx, bucketPath, objectKey, bytes.NewReader([]byte("first")), http.Header{
+		"Content-Type": []string{"text/plain"},
+	})
+	require.NoError(t, err)
+	second, err := env.objectManager.PutObject(ctx, bucketPath, objectKey, bytes.NewReader([]byte("second")), http.Header{
+		"Content-Type": []string{"text/plain"},
+	})
+	require.NoError(t, err)
+	require.NotEqual(t, first.VersionID, second.VersionID)
+
+	req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey+"?acl=&versionId="+url.QueryEscape(first.VersionID), nil)
+	req.Header.Set("x-amz-acl", "public-read")
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	req, w = env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?acl=&versionId="+url.QueryEscape(first.VersionID), nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), "<URI>http://acs.amazonaws.com/groups/global/AllUsers</URI>")
+
+	req, w = env.makeS3Request("GET", "/"+bucketName+"/"+objectKey+"?acl=", nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.NotContains(t, w.Body.String(), "<URI>http://acs.amazonaws.com/groups/global/AllUsers</URI>",
+		"ACL without versionId must read latest version")
+}

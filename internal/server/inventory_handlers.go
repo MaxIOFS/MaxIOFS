@@ -25,6 +25,9 @@ func (s *Server) handlePutBucketInventory(w http.ResponseWriter, r *http.Request
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+		return
+	}
 
 	// Check if tenantId is provided in query params (for global admins)
 	queryTenantID := r.URL.Query().Get("tenantId")
@@ -201,6 +204,9 @@ func (s *Server) handleDeleteBucketInventory(w http.ResponseWriter, r *http.Requ
 	currentUser, ok := auth.GetUserFromContext(ctx)
 	if !ok {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
 		return
 	}
 

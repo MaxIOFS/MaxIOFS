@@ -67,6 +67,9 @@ func (s *Server) handlePutBucketWebsite(w http.ResponseWriter, r *http.Request) 
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+		return
+	}
 
 	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := currentUser.TenantID
@@ -132,6 +135,9 @@ func (s *Server) handleDeleteBucketWebsite(w http.ResponseWriter, r *http.Reques
 	currentUser, ok := auth.GetUserFromContext(ctx)
 	if !ok {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
 		return
 	}
 

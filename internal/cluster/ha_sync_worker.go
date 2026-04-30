@@ -18,7 +18,7 @@ const (
 	SyncJobDone    = "done"
 	SyncJobFailed  = "failed"
 
-	syncPageSize      = 500
+	syncPageSize        = 500
 	syncCheckpointEvery = 100
 )
 
@@ -336,7 +336,7 @@ func (w *HASyncWorker) syncObject(
 	}
 	defer reader.Close()
 
-	url := fmt.Sprintf("%s/api/internal/ha/objects/%s", node.Endpoint, key)
+	url := fmt.Sprintf("%s/api/internal/ha/objects/%s", node.Endpoint, escapeHAObjectKey(key))
 	req, err := client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, node.NodeToken)
 	if err != nil {
 		return err

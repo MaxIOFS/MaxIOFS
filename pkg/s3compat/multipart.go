@@ -556,6 +556,8 @@ done:
 			code = "NoSuchUpload"
 		} else if res.err == object.ErrInvalidPart {
 			code = "InvalidPart"
+		} else if res.err == object.ErrInvalidPartOrder {
+			code = "InvalidPartOrder"
 		} else if errors.Is(res.err, cluster.ErrClusterDegraded) {
 			code = "ServiceUnavailable"
 		} else if strings.Contains(res.err.Error(), "storage quota exceeded") || strings.Contains(res.err.Error(), "quota exceeded") {

@@ -1793,6 +1793,9 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapBucketDelete, "You do not have permission to delete buckets") {
+		return
+	}
 
 	// Check if force delete is requested (only for global admins)
 	forceParam := r.URL.Query().Get("force")
@@ -2247,6 +2250,9 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapObjectUpload, "You do not have permission to upload objects") {
+		return
+	}
 
 	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
 	queryTenantID := r.URL.Query().Get("tenantId")
@@ -2559,6 +2565,9 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapObjectDelete, "You do not have permission to delete objects") {
 		return
 	}
 
@@ -5321,6 +5330,9 @@ func (s *Server) handlePutBucketLifecycle(w http.ResponseWriter, r *http.Request
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+		return
+	}
 
 	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
 	queryTenantID := r.URL.Query().Get("tenantId")
@@ -5418,6 +5430,9 @@ func (s *Server) handleDeleteBucketLifecycle(w http.ResponseWriter, r *http.Requ
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
 		return
 	}
 
@@ -5518,6 +5533,9 @@ func (s *Server) handlePutBucketTagging(w http.ResponseWriter, r *http.Request) 
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+		return
+	}
 
 	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
 	queryTenantID := r.URL.Query().Get("tenantId")
@@ -5584,6 +5602,9 @@ func (s *Server) handleDeleteBucketTagging(w http.ResponseWriter, r *http.Reques
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
 		return
 	}
 
@@ -5703,6 +5724,9 @@ func (s *Server) handlePutBucketCors(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+		return
+	}
 
 	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
 	queryTenantID := r.URL.Query().Get("tenantId")
@@ -5801,6 +5825,9 @@ func (s *Server) handleDeleteBucketCors(w http.ResponseWriter, r *http.Request) 
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+		return
+	}
 
 	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
 	queryTenantID := r.URL.Query().Get("tenantId")
@@ -5866,6 +5893,9 @@ func (s *Server) handlePutBucketACL(w http.ResponseWriter, r *http.Request) {
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
 		return
 	}
 
@@ -5964,6 +5994,9 @@ func (s *Server) handlePutObjectACL(w http.ResponseWriter, r *http.Request) {
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
 		return
 	}
 
@@ -6094,6 +6127,9 @@ func (s *Server) handlePutBucketPolicy(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapBucketManagePolicy, "You do not have permission to manage bucket policies") {
+		return
+	}
 
 	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
 	queryTenantID := r.URL.Query().Get("tenantId")
@@ -6157,6 +6193,9 @@ func (s *Server) handleDeleteBucketPolicy(w http.ResponseWriter, r *http.Request
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapBucketManagePolicy, "You do not have permission to manage bucket policies") {
 		return
 	}
 
@@ -6228,6 +6267,9 @@ func (s *Server) handlePutBucketVersioning(w http.ResponseWriter, r *http.Reques
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+		return
+	}
 
 	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
 	queryTenantID := r.URL.Query().Get("tenantId")
@@ -6292,6 +6334,9 @@ func (s *Server) handlePutObjectLockConfiguration(w http.ResponseWriter, r *http
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
 		return
 	}
 
@@ -6453,6 +6498,9 @@ func (s *Server) handlePutObjectLegalHold(w http.ResponseWriter, r *http.Request
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapObjectManageVersions, "You do not have permission to manage object versions") {
 		return
 	}
 
@@ -7442,6 +7490,9 @@ func (s *Server) handlePutBucketNotification(w http.ResponseWriter, r *http.Requ
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+		return
+	}
 
 	// Determine tenant context
 	tenantID := user.TenantID
@@ -7499,6 +7550,9 @@ func (s *Server) handleDeleteBucketNotification(w http.ResponseWriter, r *http.R
 	user, ok := r.Context().Value("user").(*auth.User)
 	if !ok {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
 		return
 	}
 
@@ -7605,6 +7659,9 @@ func (s *Server) handlePutBucketEncryption(w http.ResponseWriter, r *http.Reques
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+		return
+	}
 
 	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
@@ -7682,6 +7739,9 @@ func (s *Server) handleDeleteBucketEncryption(w http.ResponseWriter, r *http.Req
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
 		return
 	}
 
@@ -7807,6 +7867,9 @@ func (s *Server) handlePutPublicAccessBlock(w http.ResponseWriter, r *http.Reque
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+		return
+	}
 
 	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
@@ -7865,6 +7928,9 @@ func (s *Server) handleDeletePublicAccessBlock(w http.ResponseWriter, r *http.Re
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
 		return
 	}
 

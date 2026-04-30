@@ -52,8 +52,8 @@ type StaleReconciler struct {
 	proxyClient    *ProxyClient
 	log            *logrus.Entry
 
-	objMgr    object.Manager  // optional; set via SetObjectManagers
-	bucketMgr bucket.Manager  // optional; set via SetObjectManagers
+	objMgr    object.Manager // optional; set via SetObjectManagers
+	bucketMgr bucket.Manager // optional; set via SetObjectManagers
 }
 
 // NewStaleReconciler creates a StaleReconciler bound to the given db and manager.
@@ -305,12 +305,24 @@ func buildStampIndex(snap *StateSnapshot) map[string]map[string]int64 {
 		"idp_providers":      {},
 		"group_mappings":     {},
 	}
-	for _, s := range snap.Tenants           { idx["tenants"][s.ID]            = s.UpdatedAt }
-	for _, s := range snap.Users             { idx["users"][s.ID]              = s.UpdatedAt }
-	for _, s := range snap.AccessKeys        { idx["access_keys"][s.ID]        = s.UpdatedAt }
-	for _, s := range snap.BucketPermissions { idx["bucket_permissions"][s.ID] = s.UpdatedAt }
-	for _, s := range snap.IDPProviders      { idx["idp_providers"][s.ID]      = s.UpdatedAt }
-	for _, s := range snap.GroupMappings     { idx["group_mappings"][s.ID]     = s.UpdatedAt }
+	for _, s := range snap.Tenants {
+		idx["tenants"][s.ID] = s.UpdatedAt
+	}
+	for _, s := range snap.Users {
+		idx["users"][s.ID] = s.UpdatedAt
+	}
+	for _, s := range snap.AccessKeys {
+		idx["access_keys"][s.ID] = s.UpdatedAt
+	}
+	for _, s := range snap.BucketPermissions {
+		idx["bucket_permissions"][s.ID] = s.UpdatedAt
+	}
+	for _, s := range snap.IDPProviders {
+		idx["idp_providers"][s.ID] = s.UpdatedAt
+	}
+	for _, s := range snap.GroupMappings {
+		idx["group_mappings"][s.ID] = s.UpdatedAt
+	}
 	return idx
 }
 
@@ -523,9 +535,15 @@ func (r *StaleReconciler) pushBucketPermission(ctx context.Context, id string, p
 	if err != nil {
 		return fmt.Errorf("query bucket permission %s: %w", id, err)
 	}
-	if userID.Valid   { p.UserID   = &userID.String   }
-	if tenantID.Valid { p.TenantID = &tenantID.String }
-	if expiresAt.Valid { p.ExpiresAt = &expiresAt.Int64 }
+	if userID.Valid {
+		p.UserID = &userID.String
+	}
+	if tenantID.Valid {
+		p.TenantID = &tenantID.String
+	}
+	if expiresAt.Valid {
+		p.ExpiresAt = &expiresAt.Int64
+	}
 	return r.postToNode(ctx, peer, "/api/internal/cluster/bucket-permission-sync", &p, localNodeID, nodeToken)
 }
 
@@ -721,7 +739,7 @@ func (r *StaleReconciler) pullObject(
 ) error {
 	q := url.Values{}
 	q.Set("bucket", bucketPath)
-	endpoint := fmt.Sprintf("%s/api/internal/ha/objects/%s?%s", peer.Endpoint, key, q.Encode())
+	endpoint := fmt.Sprintf("%s/api/internal/ha/objects/%s?%s", peer.Endpoint, escapeHAObjectKey(key), q.Encode())
 	req, err := r.proxyClient.CreateAuthenticatedRequest(ctx, "GET", endpoint, nil, localNodeID, localToken)
 	if err != nil {
 		return err

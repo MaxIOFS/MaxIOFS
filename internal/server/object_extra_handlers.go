@@ -33,6 +33,12 @@ func (s *Server) handleRenameObject(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapObjectUpload, "You do not have permission to upload objects") {
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapObjectDelete, "You do not have permission to delete objects") {
+		return
+	}
 
 	var req struct {
 		NewKey string `json:"newKey"`
@@ -132,9 +138,9 @@ func (s *Server) handleRenameObject(w http.ResponseWriter, r *http.Request) {
 		IPAddress:    getClientIP(r, s.config.TrustedProxies),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
-			"bucket":   bucketName,
-			"old_key":  objectKey,
-			"new_key":  req.NewKey,
+			"bucket":  bucketName,
+			"old_key": objectKey,
+			"new_key": req.NewKey,
 		},
 	})
 
@@ -154,7 +160,6 @@ func (s *Server) handleGetObjectTags(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-
 	tenantID := s.resolveTenantID(r)
 	bucketPath := buildBucketPath(tenantID, bucketName)
 
@@ -183,6 +188,9 @@ func (s *Server) handleSetObjectTags(w http.ResponseWriter, r *http.Request) {
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireCapability(w, r, auth.CapObjectManageTags, "You do not have permission to manage object tags") {
 		return
 	}
 
@@ -352,6 +360,9 @@ func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Reque
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireCapability(w, r, auth.CapObjectManageVersions, "You do not have permission to manage object versions") {
+		return
+	}
 
 	var req struct {
 		VersionID      string `json:"versionId"`
@@ -387,9 +398,9 @@ func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Reque
 			IPAddress:    getClientIP(r, s.config.TrustedProxies),
 			UserAgent:    r.Header.Get("User-Agent"),
 			Details: map[string]interface{}{
-				"bucket":            bucketName,
-				"key":               objectKey,
-				"removed_marker":    req.VersionID,
+				"bucket":         bucketName,
+				"key":            objectKey,
+				"removed_marker": req.VersionID,
 			},
 		})
 		s.writeJSON(w, map[string]string{"status": "delete marker removed"})

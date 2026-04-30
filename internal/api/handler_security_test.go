@@ -362,7 +362,7 @@ func (m *MockObjectManager) DeleteObjectTagging(ctx context.Context, bucket, key
 	return args.Error(0)
 }
 
-func (m *MockObjectManager) GetObjectACL(ctx context.Context, bucket, key string) (*object.ACL, error) {
+func (m *MockObjectManager) GetObjectACL(ctx context.Context, bucket, key string, versionID ...string) (*object.ACL, error) {
 	args := m.Called(ctx, bucket, key)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -370,7 +370,7 @@ func (m *MockObjectManager) GetObjectACL(ctx context.Context, bucket, key string
 	return args.Get(0).(*object.ACL), args.Error(1)
 }
 
-func (m *MockObjectManager) SetObjectACL(ctx context.Context, bucket, key string, acl *object.ACL) error {
+func (m *MockObjectManager) SetObjectACL(ctx context.Context, bucket, key string, acl *object.ACL, versionID ...string) error {
 	args := m.Called(ctx, bucket, key, acl)
 	return args.Error(0)
 }

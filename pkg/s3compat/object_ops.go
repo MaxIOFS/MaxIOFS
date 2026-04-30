@@ -528,9 +528,10 @@ func (h *Handler) GetObjectACL(w http.ResponseWriter, r *http.Request) {
 	}).Debug("S3 API: GetObjectACL")
 
 	bucketPath := h.getBucketPath(r, bucketName)
+	versionID := r.URL.Query().Get("versionId")
 
 	// Get ACL from object manager
-	aclData, err := h.objectManager.GetObjectACL(r.Context(), bucketPath, objectKey)
+	aclData, err := h.objectManager.GetObjectACL(r.Context(), bucketPath, objectKey, versionID)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -580,6 +581,7 @@ func (h *Handler) PutObjectACL(w http.ResponseWriter, r *http.Request) {
 	}).Debug("S3 API: PutObjectACL")
 
 	bucketPath := h.getBucketPath(r, bucketName)
+	versionID := r.URL.Query().Get("versionId")
 
 	// Check for canned ACL header
 	cannedACL := r.Header.Get("x-amz-acl")
@@ -668,7 +670,7 @@ func (h *Handler) PutObjectACL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set ACL using object manager
-	if err := h.objectManager.SetObjectACL(r.Context(), bucketPath, objectKey, aclData); err != nil {
+	if err := h.objectManager.SetObjectACL(r.Context(), bucketPath, objectKey, aclData, versionID); err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return

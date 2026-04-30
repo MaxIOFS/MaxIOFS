@@ -61,8 +61,8 @@ type Manager interface {
 	DeleteObjectTagging(ctx context.Context, bucket, key string, versionID ...string) error
 
 	// ACL operations
-	GetObjectACL(ctx context.Context, bucket, key string) (*ACL, error)
-	SetObjectACL(ctx context.Context, bucket, key string, acl *ACL) error
+	GetObjectACL(ctx context.Context, bucket, key string, versionID ...string) (*ACL, error)
+	SetObjectACL(ctx context.Context, bucket, key string, acl *ACL, versionID ...string) error
 
 	// Multipart upload operations
 	CreateMultipartUpload(ctx context.Context, bucket, key string, headers http.Header) (*MultipartUpload, error)
@@ -1610,11 +1610,17 @@ func (om *objectManager) DeleteObjectTagging(ctx context.Context, bucket, key st
 
 // ACL operations implementations
 
-func (om *objectManager) GetObjectACL(ctx context.Context, bucket, key string) (*ACL, error) {
-	// Get object metadata to ensure it exists
-	_, err := om.GetObjectMetadata(ctx, bucket, key)
+func (om *objectManager) GetObjectACL(ctx context.Context, bucket, key string, versionID ...string) (*ACL, error) {
+	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
 	if err != nil {
 		return nil, err
+	}
+	if obj.ACL != nil {
+		return obj.ACL, nil
+	}
+
+	if len(versionID) > 0 && versionID[0] != "" {
+		return om.convertFromACLManagerType(acl.CreateDefaultACL("maxiofs", "MaxIOFS")), nil
 	}
 
 	// Parse bucket path to extract tenantID and bucketName
@@ -1630,18 +1636,26 @@ func (om *objectManager) GetObjectACL(ctx context.Context, bucket, key string) (
 	return om.convertFromACLManagerType(aclData), nil
 }
 
-func (om *objectManager) SetObjectACL(ctx context.Context, bucket, key string, acl *ACL) error {
-	// Get object metadata to ensure it exists
-	_, err := om.GetObjectMetadata(ctx, bucket, key)
+func (om *objectManager) SetObjectACL(ctx context.Context, bucket, key string, objectACL *ACL, versionID ...string) error {
+	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
 	if err != nil {
 		return err
+	}
+
+	obj.ACL = objectACL
+	if err := om.metadataStore.PutObject(ctx, toMetadataObject(obj)); err != nil {
+		return err
+	}
+
+	if len(versionID) > 0 && versionID[0] != "" {
+		return nil
 	}
 
 	// Parse bucket path to extract tenantID and bucketName
 	tenantID, bucketName := om.parseBucketPath(bucket)
 
 	// Convert from object.ACL to acl.ACL
-	aclData := om.convertToACLManagerType(acl)
+	aclData := om.convertToACLManagerType(objectACL)
 
 	// Set ACL using ACL manager
 	return om.aclManager.SetObjectACL(ctx, tenantID, bucketName, key, aclData)
@@ -1755,6 +1769,12 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 	if partNumber < 1 || partNumber > 10000 {
 		return nil, fmt.Errorf("part number must be between 1 and 10000")
 	}
+	if _, err := om.metadataStore.GetMultipartUpload(ctx, uploadID); err != nil {
+		if err == metadata.ErrUploadNotFound {
+			return nil, ErrUploadNotFound
+		}
+		return nil, err
+	}
 
 	// Create part path
 	partPath := om.getMultipartPartPath(uploadID, partNumber)
@@ -1789,6 +1809,10 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 
 	// Store part metadata in BadgerDB
 	if err := om.metadataStore.PutPart(ctx, partMeta); err != nil {
+		_ = om.storage.Delete(ctx, partPath)
+		if err == metadata.ErrUploadNotFound {
+			return nil, ErrUploadNotFound
+		}
 		return nil, fmt.Errorf("failed to save part metadata: %w", err)
 	}
 
@@ -1803,6 +1827,13 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 }
 
 func (om *objectManager) ListParts(ctx context.Context, uploadID string) ([]Part, error) {
+	if _, err := om.metadataStore.GetMultipartUpload(ctx, uploadID); err != nil {
+		if err == metadata.ErrUploadNotFound {
+			return nil, ErrUploadNotFound
+		}
+		return nil, err
+	}
+
 	// List parts from BadgerDB
 	metaParts, err := om.metadataStore.ListParts(ctx, uploadID)
 	if err != nil {
@@ -2214,6 +2245,19 @@ func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID str
 
 // abortMultipartUpload cleans up a multipart upload
 func (om *objectManager) abortMultipartUpload(ctx context.Context, uploadID string, returnError bool) error {
+	if _, err := om.metadataStore.GetMultipartUpload(ctx, uploadID); err != nil {
+		if err == metadata.ErrUploadNotFound {
+			if returnError {
+				return ErrUploadNotFound
+			}
+			return nil
+		}
+		if returnError {
+			return err
+		}
+		return nil
+	}
+
 	// Get parts list from BadgerDB before deleting
 	metaParts, err := om.metadataStore.ListParts(ctx, uploadID)
 	if err != nil {
@@ -2622,27 +2666,33 @@ func (om *objectManager) validateAndCalculatePartsSize(ctx context.Context, uplo
 		return 0, fmt.Errorf("no parts provided")
 	}
 
-	// Sort parts by part number
-	sort.Slice(parts, func(i, j int) bool {
-		return parts[i].PartNumber < parts[j].PartNumber
-	})
-
-	// Validate parts exist in storage and calculate total size
+	// Validate requested order, part metadata, ETags, and storage presence.
 	var totalSize int64
+	previousPartNumber := 0
 	for _, part := range parts {
+		if part.PartNumber <= previousPartNumber {
+			return 0, ErrInvalidPartOrder
+		}
+		previousPartNumber = part.PartNumber
+
+		partMeta, err := om.metadataStore.GetPart(ctx, uploadID, part.PartNumber)
+		if err != nil {
+			if err == metadata.ErrPartNotFound {
+				return 0, ErrInvalidPart
+			}
+			return 0, fmt.Errorf("failed to get part %d metadata: %w", part.PartNumber, err)
+		}
+		if part.ETag != "" && strings.Trim(part.ETag, "\"") != strings.Trim(partMeta.ETag, "\"") {
+			return 0, ErrInvalidPart
+		}
+
 		partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
 		exists, err := om.storage.Exists(ctx, partPath)
 		if err != nil {
 			return 0, fmt.Errorf("failed to check part %d existence: %w", part.PartNumber, err)
 		}
 		if !exists {
-			return 0, fmt.Errorf("part %d not found", part.PartNumber)
-		}
-
-		// Get part metadata to get the actual size
-		partMeta, err := om.metadataStore.GetPart(ctx, uploadID, part.PartNumber)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get part %d metadata: %w", part.PartNumber, err)
+			return 0, ErrInvalidPart
 		}
 		totalSize += partMeta.Size
 	}
