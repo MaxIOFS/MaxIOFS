@@ -1061,11 +1061,12 @@ func TestHealthEndpoint_NoAuthenticationRequired(t *testing.T) {
 
 // TestReadyEndpoint_NoAuthenticationRequired tests that ready endpoint doesn't require auth
 func TestReadyEndpoint_NoAuthenticationRequired(t *testing.T) {
-	handler, mockBucket, mockObject, _ := setupTestHandler()
+	handler, mockBucket, mockObject, mockAuth := setupTestHandler()
 
 	// Mock manager ready checks
 	mockBucket.On("IsReady").Return(true)
 	mockObject.On("IsReady").Return(true)
+	mockAuth.On("IsReady").Return(true)
 
 	router := mux.NewRouter()
 	handler.RegisterRoutes(router)
@@ -1077,6 +1078,25 @@ func TestReadyEndpoint_NoAuthenticationRequired(t *testing.T) {
 
 	// Ready endpoint should be accessible without authentication
 	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestReadyEndpoint_ChecksAuthReadiness(t *testing.T) {
+	handler, mockBucket, mockObject, mockAuth := setupTestHandler()
+
+	mockBucket.On("IsReady").Return(true)
+	mockObject.On("IsReady").Return(true)
+	mockAuth.On("IsReady").Return(false)
+
+	router := mux.NewRouter()
+	handler.RegisterRoutes(router)
+
+	req := httptest.NewRequest("GET", "/ready", nil)
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
+	assert.Contains(t, rr.Body.String(), "not ready")
 }
 
 // ============================================================================

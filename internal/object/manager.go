@@ -2129,7 +2129,25 @@ func (om *objectManager) ListMultipartUploads(ctx context.Context, bucket string
 // Placeholder implementation for copy operations
 // IsReady checks if the object manager is ready
 func (om *objectManager) IsReady() bool {
-	// TODO: Implement readiness check
+	if om == nil || om.storage == nil || om.metadataStore == nil {
+		return false
+	}
+	if !om.metadataStore.IsReady() {
+		return false
+	}
+	if fs, ok := om.storage.(interface{ GetRootPath() string }); ok {
+		root := fs.GetRootPath()
+		if root == "" {
+			return false
+		}
+		info, err := os.Stat(root)
+		if err != nil || !info.IsDir() {
+			return false
+		}
+	}
+	if om.config.EnableEncryption && om.encryptionService == nil {
+		return false
+	}
 	return true
 }
 

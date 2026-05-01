@@ -173,6 +173,13 @@ func TestIsReady(t *testing.T) {
 	if !ready {
 		t.Error("IsReady() = false, want true")
 	}
+
+	if err := am.store.Close(); err != nil {
+		t.Fatalf("failed to close auth store: %v", err)
+	}
+	if am.IsReady() {
+		t.Error("IsReady() = true after store close, want false")
+	}
 }
 
 // ========================================

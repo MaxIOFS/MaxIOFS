@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -148,6 +149,33 @@ func TestSet_InvalidValue(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestSet_JSONValidation(t *testing.T) {
+	db, _ := setupTestDB(t)
+	defer db.Close()
+
+	manager, err := NewManager(db, logrus.New())
+	require.NoError(t, err)
+
+	now := time.Now().Unix()
+	_, err = db.Exec(`
+		INSERT INTO system_settings (key, value, type, category, description, editable, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, "test.json", `{"enabled":true}`, string(TypeJSON), string(CategorySystem), "Test JSON setting", true, now, now)
+	require.NoError(t, err)
+
+	require.NoError(t, manager.Set("test.json", `{"enabled":false,"items":[1,2,3]}`))
+	value, err := manager.Get("test.json")
+	require.NoError(t, err)
+	assert.Equal(t, `{"enabled":false,"items":[1,2,3]}`, value)
+
+	err = manager.Set("test.json", `{"enabled":`)
+	assert.Error(t, err)
+
+	value, err = manager.Get("test.json")
+	require.NoError(t, err)
+	assert.Equal(t, `{"enabled":false,"items":[1,2,3]}`, value)
+}
+
 func TestListAll(t *testing.T) {
 	db, _ := setupTestDB(t)
 	defer db.Close()
@@ -232,6 +260,35 @@ func TestBulkUpdate_PartialFailure(t *testing.T) {
 
 	err = manager.BulkUpdate(updates)
 	assert.Error(t, err)
+}
+
+func TestBulkUpdate_JSONValidationRollsBack(t *testing.T) {
+	db, _ := setupTestDB(t)
+	defer db.Close()
+
+	manager, err := NewManager(db, logrus.New())
+	require.NoError(t, err)
+
+	now := time.Now().Unix()
+	_, err = db.Exec(`
+		INSERT INTO system_settings (key, value, type, category, description, editable, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, "test.json", `{"enabled":true}`, string(TypeJSON), string(CategorySystem), "Test JSON setting", true, now, now)
+	require.NoError(t, err)
+
+	err = manager.BulkUpdate(map[string]string{
+		"security.session_timeout": "7200",
+		"test.json":                `{"enabled":`,
+	})
+	assert.Error(t, err)
+
+	value, err := manager.Get("security.session_timeout")
+	require.NoError(t, err)
+	assert.Equal(t, "86400", value, "bulk update should roll back earlier valid changes")
+
+	value, err = manager.Get("test.json")
+	require.NoError(t, err)
+	assert.Equal(t, `{"enabled":true}`, value)
 }
 
 func TestGetCategories(t *testing.T) {

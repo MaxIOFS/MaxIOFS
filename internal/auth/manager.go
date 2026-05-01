@@ -223,12 +223,12 @@ type Group struct {
 
 // GroupMember represents a user's membership in a group
 type GroupMember struct {
-	GroupID   string `json:"groupId"`
-	UserID    string `json:"userId"`
-	Username  string `json:"username,omitempty"`
-	Email     string `json:"email,omitempty"`
-	AddedAt   int64  `json:"addedAt"`
-	AddedBy   string `json:"addedBy"`
+	GroupID  string `json:"groupId"`
+	UserID   string `json:"userId"`
+	Username string `json:"username,omitempty"`
+	Email    string `json:"email,omitempty"`
+	AddedAt  int64  `json:"addedAt"`
+	AddedBy  string `json:"addedBy"`
 }
 
 // AccessKey represents an access key pair
@@ -1160,8 +1160,12 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 
 // IsReady checks if the auth manager is ready
 func (am *authManager) IsReady() bool {
-	// TODO: Implement readiness check
-	return true
+	if am == nil || am.store == nil || am.store.db == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	return am.store.db.PingContext(ctx) == nil
 }
 
 // SetAuditManager sets the audit manager for logging events

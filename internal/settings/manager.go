@@ -2,6 +2,7 @@ package settings
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -605,7 +606,13 @@ func (m *Manager) validateValue(value, settingType string) error {
 	case string(TypeString):
 		// Any string is valid
 	case string(TypeJSON):
-		// TODO: Validate JSON format
+		var raw json.RawMessage
+		if err := json.Unmarshal([]byte(value), &raw); err != nil {
+			return fmt.Errorf("value must be valid JSON: %w", err)
+		}
+		if len(raw) == 0 {
+			return fmt.Errorf("value must be valid JSON")
+		}
 	default:
 		return fmt.Errorf("unknown type: %s", settingType)
 	}

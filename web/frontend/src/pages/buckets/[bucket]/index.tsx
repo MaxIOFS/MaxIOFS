@@ -544,7 +544,7 @@ export default function BucketDetailsPage() {
   };
 
   const handleDeleteObject = async (key: string, isFolder: boolean) => {
-    const itemType = isFolder ? 'folder' : 'file';
+    const itemTypeLabel = isFolder ? t('folderType') : t('fileType', 'file');
 
     // Block deletion if the object is under active retention or legal hold
     if (!isFolder) {
@@ -561,20 +561,20 @@ export default function BucketDetailsPage() {
     try {
       const result = await ModalManager.fire({
         icon: 'warning',
-        title: `Delete ${itemType}?`,
+        title: isFolder ? t('deleteFolderTitle') : t('deleteFileTitle'),
         html: isFolder
-          ? `<p>You are about to delete the folder <strong>"${escapeHtml(key)}"</strong></p>
-             <p class="text-orange-600 mt-2">This will fail if folder contains objects</p>`
-          : `<p>You are about to delete <strong>"${escapeHtml(key)}"</strong></p>
-             <p class="text-red-600 mt-2">This action cannot be undone</p>`,
+          ? `<p>${t('deleteFolderConfirm', { key: escapeHtml(key) })}</p>
+             <p class="text-red-600 mt-2">${t('deleteFolderRecursiveWarning')}</p>`
+          : `<p>${t('deleteFileConfirm', { key: escapeHtml(key) })}</p>
+             <p class="text-red-600 mt-2">${t('deleteIrreversibleWarning')}</p>`,
         showCancelButton: true,
-        confirmButtonText: 'Yes, delete',
-        cancelButtonText: 'Cancel',
+        confirmButtonText: t('confirmDelete'),
+        cancelButtonText: t('cancel'),
         confirmButtonColor: '#dc2626',
       });
 
       if (result.isConfirmed) {
-        ModalManager.loading(`Deleting ${itemType}...`, `Deleting "${key}"`);
+        ModalManager.loading(t('deletingItem', { itemType: itemTypeLabel }), t('deletingKey', { key }));
         deleteObjectMutation.mutate({ bucket: bucketName, key });
       }
     } catch (error) {

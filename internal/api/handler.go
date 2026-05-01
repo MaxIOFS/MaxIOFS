@@ -541,7 +541,7 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 	// Check if all components are ready
-	if !h.bucketManager.IsReady() || !h.objectManager.IsReady() {
+	if !h.bucketManager.IsReady() || !h.objectManager.IsReady() || !h.authManager.IsReady() {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		w.Write([]byte(`{"status": "not ready"}`))
 		return

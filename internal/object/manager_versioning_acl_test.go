@@ -27,8 +27,8 @@ func setupTestManagerWithStore(t *testing.T) (*objectManager, metadata.Store, fu
 	require.NoError(t, err)
 
 	dbPath := filepath.Join(tempDir, "metadata")
-	metaStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: dbPath,
-		Logger:  logrus.StandardLogger(),})
+	metaStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{DataDir: dbPath,
+		Logger: logrus.StandardLogger()})
 	require.NoError(t, err)
 
 	cfg := config.StorageConfig{
@@ -335,12 +335,14 @@ func TestCopyObject_UsingGetPut(t *testing.T) {
 
 // TestIsReady tests the IsReady method
 func TestIsReady(t *testing.T) {
-	om, _, cleanup := setupTestManagerWithStore(t)
-	defer cleanup()
+	om, metaStore, _ := setupTestManagerWithStore(t)
 
 	// Test IsReady
 	ready := om.IsReady()
 	assert.True(t, ready, "Object manager should be ready")
+
+	require.NoError(t, metaStore.Close())
+	assert.False(t, om.IsReady(), "Object manager should not be ready after metadata store closes")
 }
 
 // TestCanModifyObject tests the CanModifyObject method
