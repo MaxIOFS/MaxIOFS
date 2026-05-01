@@ -94,3 +94,48 @@ func TestVersionedDeleteMarkerMetricsAreOnlyAdjustedOnVisibilityChanges(t *testi
 	assert.True(t, metrics.incrementCalled, "PUT over latest delete marker should make the object visible again")
 	assert.False(t, metrics.adjustCalled, "restoring visibility should not be treated as a plain additional version")
 }
+
+func TestReplicatedVersionIDIsPreservedForVersionedPut(t *testing.T) {
+	ctx := context.Background()
+	om, metaStore, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+
+	bucket := createVersionedTestBucket(t, ctx, metaStore, "tenant-1", "replicated-version-bucket")
+	replicatedVersionID := "1234567890.abcdef12"
+
+	obj, err := om.PutObject(
+		WithReplicatedVersionID(ctx, replicatedVersionID),
+		bucket,
+		"object.txt",
+		bytes.NewReader([]byte("replicated content")),
+		http.Header{"Content-Type": []string{"text/plain"}},
+	)
+	require.NoError(t, err)
+	require.Equal(t, replicatedVersionID, obj.VersionID)
+
+	got, reader, err := om.GetObject(ctx, bucket, "object.txt", replicatedVersionID)
+	require.NoError(t, err)
+	require.NoError(t, reader.Close())
+	assert.Equal(t, replicatedVersionID, got.VersionID)
+}
+
+func TestReplicatedVersionIDIsPreservedForDeleteMarker(t *testing.T) {
+	ctx := context.Background()
+	om, metaStore, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+
+	bucket := createVersionedTestBucket(t, ctx, metaStore, "tenant-1", "replicated-delete-marker-bucket")
+	_, err := om.PutObject(ctx, bucket, "object.txt", bytes.NewReader([]byte("visible")), http.Header{"Content-Type": []string{"text/plain"}})
+	require.NoError(t, err)
+
+	replicatedMarkerID := "1234567890.delete01"
+	markerID, err := om.DeleteObject(WithReplicatedVersionID(ctx, replicatedMarkerID), bucket, "object.txt", false)
+	require.NoError(t, err)
+	assert.Equal(t, replicatedMarkerID, markerID)
+
+	versions, err := om.GetObjectVersions(ctx, bucket, "object.txt")
+	require.NoError(t, err)
+	require.NotEmpty(t, versions)
+	assert.Equal(t, replicatedMarkerID, versions[0].VersionID)
+	assert.True(t, versions[0].IsDeleteMarker)
+}

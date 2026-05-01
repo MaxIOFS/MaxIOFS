@@ -1538,6 +1538,9 @@ func (s *Server) handleHAReceivePut(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx = cluster.WithHAReplicaContext(ctx)
+	if versionID := r.Header.Get(cluster.HAObjectVersionHeader); versionID != "" {
+		ctx = object.WithReplicatedVersionID(ctx, versionID)
+	}
 	headers := r.Header.Clone()
 	if _, err := s.objectManager.PutObject(ctx, bucketPath, key, r.Body, headers); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketPath, "key": key}).
@@ -1561,7 +1564,23 @@ func (s *Server) handleHAReceiveDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx = cluster.WithHAReplicaContext(ctx)
-	if _, err := s.objectManager.DeleteObject(ctx, bucketPath, key, false); err != nil {
+	specificVersionID := r.Header.Get(cluster.HAObjectVersionHeader)
+	deleteMarkerVersionID := r.Header.Get(cluster.HADeleteMarkerVersionHeader)
+	if specificVersionID != "" && deleteMarkerVersionID != "" {
+		http.Error(w, "conflicting version headers", http.StatusBadRequest)
+		return
+	}
+	if deleteMarkerVersionID != "" {
+		ctx = object.WithReplicatedVersionID(ctx, deleteMarkerVersionID)
+	}
+
+	var err error
+	if specificVersionID != "" {
+		_, err = s.objectManager.DeleteObject(ctx, bucketPath, key, false, specificVersionID)
+	} else {
+		_, err = s.objectManager.DeleteObject(ctx, bucketPath, key, false)
+	}
+	if err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketPath, "key": key}).
 			Warn("HA receive DELETE failed (may already be deleted)")
 	}
@@ -1717,6 +1736,10 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 	}
 	if obj.StorageClass != "" {
 		w.Header().Set("x-amz-storage-class", obj.StorageClass)
+	}
+	if obj.VersionID != "" {
+		w.Header().Set(cluster.HAObjectVersionHeader, obj.VersionID)
+		w.Header().Set("x-amz-version-id", obj.VersionID)
 	}
 	for k, v := range obj.Metadata {
 		w.Header().Set("x-amz-meta-"+k, v)

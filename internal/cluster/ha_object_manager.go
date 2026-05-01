@@ -16,6 +16,8 @@ import (
 // HABucketHeader is the HTTP header used to pass the full bucket path
 // (e.g. "tenant/bucket" or "bucket") on HA fanout requests.
 const HABucketHeader = "X-HA-Bucket"
+const HAObjectVersionHeader = "X-HA-Version-ID"
+const HADeleteMarkerVersionHeader = "X-HA-Delete-Marker-Version-ID"
 
 // haReplicaKey is the unexported context key that marks a request as an HA replica write.
 type haReplicaKey struct{}
@@ -108,7 +110,11 @@ func (h *HAObjectManager) DeleteObject(ctx context.Context, bucket, key string, 
 	if isHAReplica(ctx) || isHARollback(ctx) {
 		return markerID, nil
 	}
-	if err := h.fanoutDelete(ctx, bucket, key); err != nil {
+	specificVersionID := ""
+	if len(versionID) > 0 {
+		specificVersionID = versionID[0]
+	}
+	if err := h.fanoutDelete(ctx, bucket, key, specificVersionID, markerID); err != nil {
 		return markerID, err
 	}
 	return markerID, nil
@@ -221,6 +227,9 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key string) err
 			}
 			req.Header.Set("X-MaxIOFS-HA-Replica", "true")
 			req.Header.Set(HABucketHeader, bucket)
+			if obj.VersionID != "" {
+				req.Header.Set(HAObjectVersionHeader, obj.VersionID)
+			}
 			req.Header.Set("Content-Type", obj.ContentType)
 			if obj.ContentDisposition != "" {
 				req.Header.Set("Content-Disposition", obj.ContentDisposition)
@@ -262,7 +271,7 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key string) err
 // fanoutDelete synchronously replicates the deletion. Same semantics as
 // fanoutPut: returns ErrClusterDegraded when fewer than `needed` replicas
 // confirm.
-func (h *HAObjectManager) fanoutDelete(ctx context.Context, bucket, key string) error {
+func (h *HAObjectManager) fanoutDelete(ctx context.Context, bucket, key, specificVersionID, deleteMarkerVersionID string) error {
 	targets, needed, ok := h.replicaTargets(ctx)
 	if !ok {
 		return nil
@@ -281,6 +290,12 @@ func (h *HAObjectManager) fanoutDelete(ctx context.Context, bucket, key string) 
 			}
 			req.Header.Set("X-MaxIOFS-HA-Replica", "true")
 			req.Header.Set(HABucketHeader, bucket)
+			if specificVersionID != "" {
+				req.Header.Set(HAObjectVersionHeader, specificVersionID)
+			}
+			if deleteMarkerVersionID != "" {
+				req.Header.Set(HADeleteMarkerVersionHeader, deleteMarkerVersionID)
+			}
 
 			resp, err := client.DoAuthenticatedRequest(req)
 			if err != nil {

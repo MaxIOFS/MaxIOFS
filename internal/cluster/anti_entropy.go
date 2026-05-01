@@ -625,6 +625,9 @@ func (s *AntiEntropyScrubber) pushObjectToPeer(
 	}
 	req.Header.Set("X-MaxIOFS-HA-Replica", "true")
 	req.Header.Set(HABucketHeader, bucketPath)
+	if obj.VersionID != "" {
+		req.Header.Set(HAObjectVersionHeader, obj.VersionID)
+	}
 	req.Header.Set("Content-Type", obj.ContentType)
 	if obj.ContentDisposition != "" {
 		req.Header.Set("Content-Disposition", obj.ContentDisposition)
@@ -685,6 +688,9 @@ func (s *AntiEntropyScrubber) pullObjectFromPeer(
 	}
 
 	repCtx := WithHAReplicaContext(ctx)
+	if versionID := resp.Header.Get(HAObjectVersionHeader); versionID != "" {
+		repCtx = object.WithReplicatedVersionID(repCtx, versionID)
+	}
 	_, err = s.objMgr.PutObject(repCtx, bucketPath, key, resp.Body, resp.Header.Clone())
 	return err
 }

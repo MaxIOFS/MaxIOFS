@@ -16,7 +16,9 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/config"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -4681,6 +4683,85 @@ func TestHandleReceiveObjectDeletion(t *testing.T) {
 		assert.Equal(t, obj.ETag, rr.Header().Get("X-Object-ETag"))
 		assert.Equal(t, "text/plain", rr.Header().Get("Content-Type"))
 	})
+}
+
+func TestHandleHAReceivePutPreservesVersionID(t *testing.T) {
+	server := getSharedServer()
+
+	ctx := context.Background()
+	tenantID := "test-tenant-ha-version"
+	bucketName := "test-bucket-ha-version"
+	bucketPath := tenantID + "/" + bucketName
+	key := "versioned-object.txt"
+	versionID := "1234567890.haabc123"
+
+	require.NoError(t, server.authManager.CreateTenant(ctx, &auth.Tenant{
+		ID:              tenantID,
+		Name:            "Test Tenant HA Version",
+		Status:          "active",
+		MaxStorageBytes: 1000000000,
+	}))
+	require.NoError(t, server.bucketManager.CreateBucket(ctx, tenantID, bucketName, ""))
+	bucketMeta, err := server.metadataStore.GetBucket(ctx, tenantID, bucketName)
+	require.NoError(t, err)
+	bucketMeta.Versioning = &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"}
+	require.NoError(t, server.metadataStore.UpdateBucket(ctx, bucketMeta))
+
+	req := httptest.NewRequest("PUT", "/api/internal/ha/objects/"+key, strings.NewReader("replicated body"))
+	req = mux.SetURLVars(req, map[string]string{"key": key})
+	req.Header.Set(cluster.HABucketHeader, bucketPath)
+	req.Header.Set(cluster.HAObjectVersionHeader, versionID)
+	req.Header.Set("Content-Type", "text/plain")
+
+	rr := httptest.NewRecorder()
+	server.handleHAReceivePut(rr, req)
+
+	require.Equal(t, http.StatusNoContent, rr.Code)
+	obj, reader, err := server.objectManager.GetObject(ctx, bucketPath, key, versionID)
+	require.NoError(t, err)
+	require.NoError(t, reader.Close())
+	assert.Equal(t, versionID, obj.VersionID)
+}
+
+func TestHandleHAReceiveDeletePreservesDeleteMarkerVersionID(t *testing.T) {
+	server := getSharedServer()
+
+	ctx := context.Background()
+	tenantID := "test-tenant-ha-delete-marker"
+	bucketName := "test-bucket-ha-delete-marker"
+	bucketPath := tenantID + "/" + bucketName
+	key := "deleted-object.txt"
+	deleteMarkerVersionID := "1234567890.hadel123"
+
+	require.NoError(t, server.authManager.CreateTenant(ctx, &auth.Tenant{
+		ID:              tenantID,
+		Name:            "Test Tenant HA Delete Marker",
+		Status:          "active",
+		MaxStorageBytes: 1000000000,
+	}))
+	require.NoError(t, server.bucketManager.CreateBucket(ctx, tenantID, bucketName, ""))
+	bucketMeta, err := server.metadataStore.GetBucket(ctx, tenantID, bucketName)
+	require.NoError(t, err)
+	bucketMeta.Versioning = &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"}
+	require.NoError(t, server.metadataStore.UpdateBucket(ctx, bucketMeta))
+
+	_, err = server.objectManager.PutObject(ctx, bucketPath, key, strings.NewReader("visible"), http.Header{"Content-Type": []string{"text/plain"}})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest("DELETE", "/api/internal/ha/objects/"+key, nil)
+	req = mux.SetURLVars(req, map[string]string{"key": key})
+	req.Header.Set(cluster.HABucketHeader, bucketPath)
+	req.Header.Set(cluster.HADeleteMarkerVersionHeader, deleteMarkerVersionID)
+
+	rr := httptest.NewRecorder()
+	server.handleHAReceiveDelete(rr, req)
+
+	require.Equal(t, http.StatusNoContent, rr.Code)
+	versions, err := server.objectManager.GetObjectVersions(ctx, bucketPath, key)
+	require.NoError(t, err)
+	require.NotEmpty(t, versions)
+	assert.Equal(t, deleteMarkerVersionID, versions[0].VersionID)
+	assert.True(t, versions[0].IsDeleteMarker)
 }
 
 // TestHandleReceiveTenantSync tests receiving tenant synchronization

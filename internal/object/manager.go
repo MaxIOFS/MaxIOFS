@@ -268,6 +268,32 @@ func generateVersionID() string {
 	return fmt.Sprintf("%d.%s", timestamp, randomHex)
 }
 
+type replicatedVersionIDKey struct{}
+
+// WithReplicatedVersionID pins the next versioned write/delete marker to an
+// existing version ID received through trusted internal replication paths.
+func WithReplicatedVersionID(ctx context.Context, versionID string) context.Context {
+	return context.WithValue(ctx, replicatedVersionIDKey{}, versionID)
+}
+
+func replicatedVersionIDFromContext(ctx context.Context) (string, bool) {
+	versionID, ok := ctx.Value(replicatedVersionIDKey{}).(string)
+	if !ok || versionID == "" {
+		return "", false
+	}
+	return versionID, true
+}
+
+func validateReplicatedVersionID(versionID string) error {
+	if versionID == "" ||
+		strings.Contains(versionID, "/") ||
+		strings.Contains(versionID, "\\") ||
+		strings.Contains(versionID, "..") {
+		return ErrInvalidPath
+	}
+	return nil
+}
+
 // GetObject retrieves an object (optionally a specific version)
 func (om *objectManager) GetObject(ctx context.Context, bucket, key string, versionID ...string) (*Object, io.ReadCloser, error) {
 	if err := om.validateObjectName(key); err != nil {
@@ -442,7 +468,14 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	var versionID string
 	var objectPath string
 	if versioningEnabled {
-		versionID = generateVersionID()
+		if replicatedVersionID, ok := replicatedVersionIDFromContext(ctx); ok {
+			if err := validateReplicatedVersionID(replicatedVersionID); err != nil {
+				return nil, err
+			}
+			versionID = replicatedVersionID
+		} else {
+			versionID = generateVersionID()
+		}
 		objectPath = om.getVersionedObjectPath(bucket, key, versionID)
 	} else {
 		objectPath = om.getObjectPath(bucket, key)
@@ -677,6 +710,12 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key str
 
 	// Generate delete marker versionID
 	deleteMarkerVersionID := generateVersionID()
+	if replicatedVersionID, ok := replicatedVersionIDFromContext(ctx); ok {
+		if err := validateReplicatedVersionID(replicatedVersionID); err != nil {
+			return "", err
+		}
+		deleteMarkerVersionID = replicatedVersionID
+	}
 
 	// Create delete marker version entry
 	deleteMarker := &metadata.ObjectVersion{
