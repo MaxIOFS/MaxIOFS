@@ -18,13 +18,13 @@ export default function OAuthCompletePage() {
 
     if (token) {
       const refreshToken = params.get('refresh_token');
+      const secureFlag = window.location.protocol === 'https:' ? '; Secure' : '';
       localStorage.setItem('auth_token', token);
       if (refreshToken) {
         localStorage.setItem('refresh_token', refreshToken);
-        document.cookie = `refresh_token=${refreshToken}; path=/; max-age=${24 * 60 * 60}; Secure; SameSite=Strict`;
+        document.cookie = `refresh_token=${refreshToken}; path=/; max-age=${24 * 60 * 60}${secureFlag}; SameSite=Strict`;
       }
-      // Secure: never sent over HTTP · SameSite=Strict: CSRF protection
-      document.cookie = `auth_token=${token}; path=/; max-age=${24 * 60 * 60}; Secure; SameSite=Strict`;
+      document.cookie = `auth_token=${token}; path=/; max-age=${24 * 60 * 60}${secureFlag}; SameSite=Strict`;
       window.location.href = getBasePath() || '/';
     } else {
       setError('No authentication token received');

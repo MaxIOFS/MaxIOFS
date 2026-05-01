@@ -21,12 +21,6 @@ export function Setup2FAModal({ isOpen, onClose, onSuccess }: Setup2FAModalProps
   const [error, setError] = useState<string | null>(null);
   const [secretCopied, setSecretCopied] = useState(false);
 
-  useEffect(() => {
-    if (isOpen) {
-      setupTwoFactor();
-    }
-  }, [isOpen]);
-
   const setupTwoFactor = async () => {
     setStep('loading');
     setError(null);
@@ -42,6 +36,12 @@ export function Setup2FAModal({ isOpen, onClose, onSuccess }: Setup2FAModalProps
       setStep('scan');
     }
   };
+
+  useEffect(() => {
+    if (isOpen) {
+      setupTwoFactor();
+    }
+  }, [isOpen]);
 
   const handleVerifyAndEnable = async () => {
     if (!verificationCode || verificationCode.length !== 6) {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -12,6 +12,7 @@ interface ObjectLockConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
   bucketName: string;
+  tenantId?: string;
   currentMode: string; // GOVERNANCE or COMPLIANCE
   currentDays?: number;
   currentYears?: number;
@@ -21,6 +22,7 @@ export function ObjectLockConfigModal({
   isOpen,
   onClose,
   bucketName,
+  tenantId,
   currentMode,
   currentDays,
   currentYears,
@@ -35,6 +37,12 @@ export function ObjectLockConfigModal({
   const [retentionUnit, setRetentionUnit] = useState<'days' | 'years'>(initialUnit);
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    if (!isOpen) return;
+    setRetentionValue(currentYears ? currentYears.toString() : (currentDays?.toString() || ''));
+    setRetentionUnit(currentYears ? 'years' : 'days');
+  }, [isOpen, currentDays, currentYears]);
+
   // Calcular días totales actuales
   const currentTotalDays = currentYears ? currentYears * 365 : (currentDays || 0);
 
@@ -43,10 +51,10 @@ export function ObjectLockConfigModal({
       APIClient.updateObjectLockConfiguration(bucketName, {
         mode: currentMode,
         [retentionUnit]: parseInt(retentionValue),
-      }),
+      }, tenantId),
     onSuccess: () => {
       ModalManager.toast('success', t('objectLock.configModal.successMsg'));
-      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       onClose();
     },
     onError: (error: Error) => {

@@ -38,9 +38,11 @@ function sanitizeHtml(html: string): string {
       // getAttribute() already decodes HTML entities, so &#106;avascript: → javascript:
       if (URL_ATTRS.has(attrName)) {
         // Collapse all ASCII whitespace / control chars before comparing schemes
+        /* eslint-disable no-control-regex */
         const normalised = (el.getAttribute(attr.name) ?? '')
           .replace(/[\s\u0000-\u001f\u007f]+/g, '')
           .toLowerCase();
+        /* eslint-enable no-control-regex */
         const isSafe =
           normalised === '' ||
           normalised.startsWith('#') ||
@@ -698,7 +700,7 @@ class ModalManager {
       confirmButtonText = 'OK',
       cancelButtonText = 'Cancel',
       input,
-      inputPlaceholder,
+      inputPlaceholder: _inputPlaceholder,
       preConfirm,
     } = options;
 

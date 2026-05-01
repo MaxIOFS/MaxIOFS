@@ -9,7 +9,6 @@ import {
   User,
   Users,
   Globe,
-  Lock,
   Eye,
   Edit,
   Folder,

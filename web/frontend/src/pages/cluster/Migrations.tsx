@@ -23,7 +23,7 @@ interface MigrationsTabProps {
   onRefresh: () => void;
 }
 
-export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDetails, onRefresh }: MigrationsTabProps) {
+export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDetails, onRefresh: _onRefresh }: MigrationsTabProps) {
   const { t } = useTranslation('cluster');
   const [showMigrateDialog, setShowMigrateDialog] = useState(false);
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
@@ -400,10 +400,6 @@ export default function ClusterMigrations() {
   const [nodes, setNodes] = useState<ClusterNode[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
   const loadData = async () => {
     try {
       setLoading(true);
@@ -421,6 +417,10 @@ export default function ClusterMigrations() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const handleMigrateBucket = async (bucket: string, request: MigrateBucketRequest) => {
     try {

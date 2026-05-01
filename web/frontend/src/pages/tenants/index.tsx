@@ -153,7 +153,7 @@ export default function TenantsPage() {
   const handleUpdateTenant = (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedTenant) {
-      const { id, name, createdAt, ...updateData } = selectedTenant;
+      const { id, name: _name, createdAt: _createdAt, ...updateData } = selectedTenant;
       updateTenantMutation.mutate({
         tenantId: id,
         data: updateData as UpdateTenantRequest

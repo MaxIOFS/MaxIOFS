@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useMutation } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import {
   Table,
   TableBody,
@@ -12,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/Table';
-import { ArrowLeft, Search, Download, Check, Users } from 'lucide-react';
+import { ArrowLeft, Search, Download, Users } from 'lucide-react';
 import type { IdentityProvider, ExternalUser } from '@/types';
 import ModalManager from '@/lib/modals';
 

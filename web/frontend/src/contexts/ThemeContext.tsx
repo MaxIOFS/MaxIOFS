@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -28,20 +28,20 @@ export function ThemeProvider({ children, initialTheme = 'system' }: ThemeProvid
   const [effectiveTheme, setEffectiveTheme] = useState<'light' | 'dark'>('light');
 
   // Detect system theme
-  const getSystemTheme = (): 'light' | 'dark' => {
+  const getSystemTheme = useCallback((): 'light' | 'dark' => {
     if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
       return 'dark';
     }
     return 'light';
-  };
+  }, []);
 
   // Calculate effective theme based on user preference
-  const calculateEffectiveTheme = (userTheme: Theme): 'light' | 'dark' => {
+  const calculateEffectiveTheme = useCallback((userTheme: Theme): 'light' | 'dark' => {
     if (userTheme === 'system') {
       return getSystemTheme();
     }
     return userTheme;
-  };
+  }, [getSystemTheme]);
 
   // Update theme
   const setTheme = (newTheme: Theme) => {
@@ -57,7 +57,7 @@ export function ThemeProvider({ children, initialTheme = 'system' }: ThemeProvid
     // Apply theme class to document
     document.documentElement.classList.remove('light', 'dark');
     document.documentElement.classList.add(effective);
-  }, [theme]);
+  }, [theme, calculateEffectiveTheme]);
 
   // Listen to system theme changes when in system mode
   useEffect(() => {
@@ -73,7 +73,7 @@ export function ThemeProvider({ children, initialTheme = 'system' }: ThemeProvid
 
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
-  }, [theme]);
+  }, [theme, calculateEffectiveTheme]);
 
   const value: ThemeContextType = {
     theme,

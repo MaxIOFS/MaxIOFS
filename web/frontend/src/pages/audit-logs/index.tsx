@@ -37,7 +37,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import ModalManager from '@/lib/modals';
 
 // Event type badges color mapping - gray for all events
-const getEventTypeColor = (eventType: string | undefined): string => {
+const getEventTypeColor = (_eventType: string | undefined): string => {
   // All events use gray color for professional appearance
   return 'bg-secondary text-foreground';
 };
@@ -175,11 +175,12 @@ export default function AuditLogsPage() {
     let startDate: number | undefined;
 
     switch (range) {
-      case 'today':
+      case 'today': {
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
         startDate = Math.floor(todayStart.getTime() / 1000);
         break;
+      }
       case 'week':
         startDate = now - (7 * 24 * 60 * 60);
         break;

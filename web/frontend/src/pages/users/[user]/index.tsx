@@ -58,8 +58,8 @@ export default function UserDetailsPage() {
     status: 'active',
     tenantId: undefined,
   });
-  const [newKeyName, setNewKeyName] = useState('');
-  const [showSecretKeys, setShowSecretKeys] = useState<Record<string, boolean>>({});
+  const [_newKeyName, setNewKeyName] = useState('');
+  const [_showSecretKeys, _setShowSecretKeys] = useState<Record<string, boolean>>({});
   const [createdKey, setCreatedKey] = useState<AccessKey | null>(null);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [passwordForm, setPasswordForm] = useState({

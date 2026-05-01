@@ -53,7 +53,7 @@ export function useNotifications(enabled = true) {
         try {
           const parsed = JSON.parse(stored);
           setNotifications(parsed);
-        } catch (e) {
+        } catch {
           // Ignore parse errors
         }
       }
@@ -191,14 +191,14 @@ export function useNotifications(enabled = true) {
                     localStorage.setItem('notifications', JSON.stringify(trimmed));
                     return trimmed;
                   });
-                } catch (error) {
+                } catch {
                   // Ignore parse errors
                 }
               }
             }
           }
         }
-      } catch (error) {
+      } catch {
         if (!aborted) {
           setConnected(false);
         }

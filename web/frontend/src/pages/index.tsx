@@ -60,7 +60,7 @@ export default function Dashboard() {
   const basePath = useBasePath();
 
   // Queries already filtered by tenant on backend
-  const { data: metrics, isLoading: metricsLoading } = useQuery({
+  const { isLoading: metricsLoading } = useQuery({
     queryKey: ['metrics'],
     queryFn: APIClient.getStorageMetrics,
     refetchInterval: 30000,
@@ -106,7 +106,7 @@ export default function Dashboard() {
   const isLoading = metricsLoading || bucketsLoading;
 
   // Data is already tenant-filtered by backend
-  const buckets: Bucket[] = bucketsResponse || [];
+  const buckets: Bucket[] = useMemo(() => bucketsResponse || [], [bucketsResponse]);
   const users = usersResponse || [];
   const totalBuckets = buckets.length;
   const totalObjects = buckets.reduce((sum, bucket) => sum + (bucket.object_count || 0), 0);
@@ -152,7 +152,7 @@ export default function Dashboard() {
 
   // Calculate metrics
   const encryptedBucketsCount = buckets.filter((b: any) => b.encryption).length;
-  const encryptedPercentage = totalBuckets > 0 ? ((encryptedBucketsCount / totalBuckets) * 100).toFixed(0) : 0;
+  const _encryptedPercentage = totalBuckets > 0 ? ((encryptedBucketsCount / totalBuckets) * 100).toFixed(0) : 0;
 
   // In cluster mode use aggregated capacity; in standalone use the local disk stats
   const isClusterMode = systemMetrics?.isClusterEnabled === true;
@@ -160,7 +160,7 @@ export default function Dashboard() {
     ? (systemMetrics?.clusterDiskTotalBytes || systemMetrics?.diskTotalBytes || 0)
     : (systemMetrics?.diskTotalBytes || 0);
   const clusterNodeCount = systemMetrics?.clusterNodeCount || 0;
-  const storagePercentage = diskTotal > 0 ? ((totalSize / diskTotal) * 100) : 0;
+  const _storagePercentage = diskTotal > 0 ? ((totalSize / diskTotal) * 100) : 0;
 
   return (
     <div className="space-y-6">

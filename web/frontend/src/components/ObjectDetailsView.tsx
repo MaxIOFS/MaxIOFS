@@ -233,7 +233,7 @@ function ActionsMenu({
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function ObjectDetailsView({
-  bucketName, bucketPath, currentPrefix, objectKey,
+  bucketName, bucketPath: _bucketPath, currentPrefix, objectKey,
   objectData, bucketData, isReadOnly, objectLockEnabled, tenantId, onBack,
   onDownload, onCopyUrl, onCopyS3Uri, onShare, onPresignedUrl,
   onRename, onEditTags, onDelete, onToggleLegalHold, onNavigateToPrefix,

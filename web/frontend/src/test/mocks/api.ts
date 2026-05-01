@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import type { LoginResponse, User, Bucket, APIResponse } from '@/types';
+import type { LoginResponse, User, Bucket } from '@/types';
 
 // Mock successful login response
 export const mockLoginSuccess: LoginResponse = {

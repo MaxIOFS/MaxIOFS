@@ -54,7 +54,7 @@ export default function RoleCapabilitiesPage() {
   const toggleCap = (role: string, cap: string) => {
     setEdits((prev) => {
       const roleSet = new Set(prev[role] || []);
-      roleSet.has(cap) ? roleSet.delete(cap) : roleSet.add(cap);
+      if (roleSet.has(cap)) { roleSet.delete(cap); } else { roleSet.add(cap); }
       return { ...prev, [role]: roleSet };
     });
     setDirty((prev) => new Set(prev).add(role));

@@ -17,11 +17,9 @@ import {
   Cpu,
   MemoryStick,
   Server,
-  FolderOpen,
   CheckCircle,
   XCircle,
   ArrowUp,
-  ArrowDown,
   Gauge,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';

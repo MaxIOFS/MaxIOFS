@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -16,7 +15,6 @@ import type { ServerConfig } from '@/types';
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation('layout');
-  const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { effectiveTheme, setTheme } = useTheme();
   const { language, setLanguage } = useLanguage();
@@ -164,12 +162,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     const newTheme = effectiveTheme === 'dark' ? 'light' : 'dark';
     setTheme(newTheme);
     if (user?.id) savePreferencesMutation.mutate({ theme: newTheme, lang: language });
-  }, [effectiveTheme, setTheme, user?.id, language]);
+  }, [effectiveTheme, setTheme, user?.id, language, savePreferencesMutation]);
 
   const handleLanguageChange = useCallback((lang: 'en' | 'es') => {
     setLanguage(lang);
     if (user?.id) savePreferencesMutation.mutate({ theme: effectiveTheme, lang });
-  }, [setLanguage, user?.id, effectiveTheme]);
+  }, [setLanguage, user?.id, effectiveTheme, savePreferencesMutation]);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -182,7 +180,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     } catch {
       ModalManager.close();
     }
-  }, [logout]);
+  }, [logout, t]);
 
   return (
     <div className="flex h-screen bg-background overflow-hidden p-3 gap-3">

@@ -179,7 +179,7 @@ export default function BucketsPage() {
   }, [integrityHistory, integrityBucketKey]);
 
   // Rate limit: compute when the next manual scan is allowed based on history.
-  const getRateLimitUntil = (bucketKey: string): Date | null => {
+  const getRateLimitUntil = (_bucketKey: string): Date | null => {
     const lastManual = integrityHistory.find(h => h.source === 'manual');
     if (!lastManual) return null;
     const nextAt = new Date(new Date(lastManual.scannedAt).getTime() + 60 * 60 * 1000);

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import ModalManager from '@/lib/modals';
 import {
@@ -116,8 +115,6 @@ export default function CreateBucketPage() {
   // When cluster nodes load, auto-select the node with the most free space
   useEffect(() => {
     if (!isClusterMode || !clusterNodes || clusterNodes.length === 0) return;
-    // Already selected — don't override user choice
-    if (config.nodeId) return;
     const best = [...clusterNodes].sort((a, b) => {
       const freeA = (a.capacity_total || 0) - (a.capacity_used || 0);
       const freeB = (b.capacity_total || 0) - (b.capacity_used || 0);
@@ -125,8 +122,10 @@ export default function CreateBucketPage() {
       if (freeA === freeB) return a.is_local ? -1 : 1;
       return freeB - freeA;
     })[0];
-    if (best) setConfig(prev => ({ ...prev, nodeId: best.id }));
-  }, [isClusterMode, clusterNodes]); // intentionally omit config.nodeId to only run on first load
+    if (best) {
+      setConfig(prev => prev.nodeId ? prev : { ...prev, nodeId: best.id });
+    }
+  }, [isClusterMode, clusterNodes]);
 
   // When server config loads and encryption is globally active, auto-enable it for the new bucket
   useEffect(() => {

@@ -313,7 +313,7 @@ describe('Users Page', () => {
     });
 
     it('should create new user with valid data', async () => {
-      const user = userEvent.setup();
+      const _user = userEvent.setup();
       vi.mocked(APIClient.createUser).mockResolvedValue({
         id: '4',
         username: 'newuser',
@@ -377,7 +377,7 @@ describe('Users Page', () => {
     });
 
     it('should not delete user if confirmation is cancelled', async () => {
-      const user = userEvent.setup();
+      const _user = userEvent.setup();
       vi.mocked(ModalManager.confirmDelete).mockResolvedValue({ isConfirmed: false, isDenied: false, isDismissed: true });
 
       render(<UsersPage />);

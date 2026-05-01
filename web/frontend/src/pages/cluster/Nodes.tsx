@@ -41,11 +41,7 @@ export default function ClusterNodes() {
   const [showAddNodeDialog, setShowAddNodeDialog] = useState(false);
   const [editingNode, setEditingNode] = useState<ClusterNode | null>(null);
 const [localNodeId, setLocalNodeId] = useState<string | null>(null);
-  const [availableNodes, setAvailableNodes] = useState<ClusterNode[]>([]);
-
-  useEffect(() => {
-    loadNodes();
-  }, []);
+  const [_availableNodes, setAvailableNodes] = useState<ClusterNode[]>([]);
 
   const loadNodes = async () => {
     try {
@@ -63,6 +59,10 @@ const [localNodeId, setLocalNodeId] = useState<string | null>(null);
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadNodes();
+  }, []);
 
   const handleAddNode = async (request: AddNodeRequest) => {
     try {

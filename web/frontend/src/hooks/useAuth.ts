@@ -137,7 +137,7 @@ export function useAuthProvider(): AuthContextType {
     } finally {
       setIsLoading(false);
     }
-  }, [navigate]);
+  }, [applyUserPreferences]);
 
   const logout = useCallback(async () => {
     try {

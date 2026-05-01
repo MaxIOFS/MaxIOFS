@@ -5,7 +5,7 @@ import { APIClient } from '@/lib/api';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Globe, Shield, X } from 'lucide-react';
+import { Globe, Shield } from 'lucide-react';
 import type { IdentityProvider, IDPType, LDAPConfig, OAuth2Config, Tenant } from '@/types';
 import ModalManager from '@/lib/modals';
 import { useCurrentUser } from '@/hooks/useCurrentUser';

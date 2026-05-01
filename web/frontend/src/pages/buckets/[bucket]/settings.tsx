@@ -29,7 +29,6 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import ModalManager from '@/lib/modals';
-import { getErrorStatus } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import type { NotificationConfiguration, NotificationRule, ReplicationRule, CreateReplicationRuleRequest } from '@/types';
 
@@ -112,7 +111,7 @@ export default function BucketSettingsPage() {
   const [isLifecycleModalOpen, setIsLifecycleModalOpen] = useState(false);
   const [policyText, setPolicyText] = useState('');
   const [corsText, setCorsText] = useState('');
-  const [lifecycleText, setLifecycleText] = useState('');
+  const [_lifecycleText, setLifecycleText] = useState('');
   const [noncurrentDays, setNoncurrentDays] = useState<number>(30);
   const [deleteExpiredMarkers, setDeleteExpiredMarkers] = useState<boolean>(true);
   const [policyTab, setPolicyTab] = useState<'editor' | 'templates'>('editor');
@@ -127,7 +126,7 @@ export default function BucketSettingsPage() {
   const [isACLModalOpen, setIsACLModalOpen] = useState(false);
   const [selectedCannedACL, setSelectedCannedACL] = useState<string>('private');
   const [currentACL, setCurrentACL] = useState<string>('private');
-  const [aclViewMode, setAclViewMode] = useState<'simple' | 'advanced'>('simple');
+  const [_aclViewMode, _setAclViewMode] = useState<'simple' | 'advanced'>('simple');
 
   // Object Lock state
   const [isObjectLockModalOpen, setIsObjectLockModalOpen] = useState(false);
@@ -563,7 +562,7 @@ export default function BucketSettingsPage() {
         setCurrentPolicy(null);
         setPolicyStatementCount(0);
       }
-    } catch (error: unknown) {
+    } catch {
       // Policy not found or error - this is normal if no policy is set
       setCurrentPolicy(null);
       setPolicyStatementCount(0);
@@ -671,7 +670,7 @@ export default function BucketSettingsPage() {
       setPolicyText(JSON.stringify(policyJson, null, 2));
       setPolicyTab('editor');
       setIsPolicyModalOpen(true);
-    } catch (error) {
+    } catch {
       // No policy set, start with empty
       setPolicyText('');
       setPolicyTab('templates');
@@ -714,7 +713,7 @@ export default function BucketSettingsPage() {
 
       setCorsRules(parsedRules);
       setIsCORSModalOpen(true);
-    } catch (error) {
+    } catch {
       setCorsText('');
       setCorsRules([]);
       setIsCORSModalOpen(true);
@@ -909,7 +908,7 @@ export default function BucketSettingsPage() {
       }
       setTags(loadedTags);
       setIsTagsModalOpen(true);
-    } catch (error) {
+    } catch {
       // No tags set, start with empty
       setTags({});
       setIsTagsModalOpen(true);
@@ -1259,7 +1258,7 @@ export default function BucketSettingsPage() {
       // Validate JSON
       JSON.parse(policyText);
       savePolicyMutation.mutate(policyText);
-    } catch (error) {
+    } catch {
       ModalManager.error(t('policy.invalidJson'), t('policy.invalidJsonMsg'));
     }
   };
@@ -3691,6 +3690,7 @@ export default function BucketSettingsPage() {
         isOpen={isObjectLockModalOpen}
         onClose={() => setIsObjectLockModalOpen(false)}
         bucketName={bucketName}
+        tenantId={tenantId}
         currentMode={bucketData?.objectLock?.rule?.defaultRetention?.mode || 'GOVERNANCE'}
         currentDays={bucketData?.objectLock?.rule?.defaultRetention?.days}
         currentYears={bucketData?.objectLock?.rule?.defaultRetention?.years}

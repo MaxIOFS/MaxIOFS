@@ -39,10 +39,6 @@ export default function ClusterOverview() {
   const [joinLoading, setJoinLoading] = useState(false);
   const [nodeIP, setNodeIP] = useState('');
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
   const loadData = async () => {
     try {
       setLoading(true);
@@ -63,6 +59,10 @@ export default function ClusterOverview() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const handleInitializeCluster = async (nodeName: string, region: string) => {
     try {

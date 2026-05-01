@@ -33,7 +33,7 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
     auto_sync: false,
   });
 
-  const { data: mappings, isLoading } = useQuery({
+  const { data: mappings } = useQuery({
     queryKey: ['group-mappings', provider.id],
     queryFn: () => APIClient.listGroupMappings(provider.id),
   });

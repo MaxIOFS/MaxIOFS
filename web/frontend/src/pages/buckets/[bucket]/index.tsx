@@ -26,7 +26,6 @@ import { Calendar as CalendarIcon } from 'lucide-react';
 import { HardDrive as HardDriveIcon } from 'lucide-react';
 import { Lock as LockIcon } from 'lucide-react';
 import { Shield as ShieldIcon } from 'lucide-react';
-import { Clock as ClockIcon } from 'lucide-react';
 import { Share2 as Share2Icon } from 'lucide-react';
 import { History as HistoryIcon } from 'lucide-react';
 import { Link as LinkIcon } from 'lucide-react';
@@ -40,9 +39,9 @@ import { Sigma as SigmaIcon } from 'lucide-react';
 import { ExternalLink as ExternalLinkIcon } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient, s3Client } from '@/lib/api';
-import { UploadRequest, ObjectSearchFilter } from '@/types';
+import { ObjectSearchFilter } from '@/types';
 import ModalManager from '@/lib/modals';
-import { isHttpStatus, getErrorMessage, escapeHtml } from '@/lib/utils';
+import { isHttpStatus, escapeHtml } from '@/lib/utils';
 import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 import { ObjectVersionsModal } from '@/components/ObjectVersionsModal';
 import { PresignedURLModal } from '@/components/PresignedURLModal';
@@ -341,7 +340,7 @@ export default function BucketDetailsPage() {
 
   const toggleLegalHoldMutation = useMutation({
     mutationFn: ({ key, enabled }: { key: string; enabled: boolean }) =>
-      APIClient.putObjectLegalHold(bucketName, key, enabled),
+      APIClient.putObjectLegalHold(bucketName, key, enabled, tenantId),
     onSuccess: (_, variables) => {
       // Invalidate objects to refresh Legal Hold status
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
@@ -1131,7 +1130,7 @@ export default function BucketDetailsPage() {
     const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
 
-    let text = '';
+    let text: string;
     if (diffDays > 0) {
       text = `${diffDays}d ${diffHours}h`;
     } else if (diffHours > 0) {

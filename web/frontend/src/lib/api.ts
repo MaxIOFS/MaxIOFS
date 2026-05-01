@@ -192,14 +192,9 @@ class TokenManager {
     // Schedule a proactive refresh 2 min before the access token expires
     this.scheduleProactiveRefresh(token);
 
-    // Signal the idle timer that the session is still alive (e.g. after a
-    // proactive or sliding-window token refresh while the user is idle).
-    // Without this, the idle timer fires at 15 min and kills the session
-    // even though the token was just refreshed.
-    if (typeof window !== 'undefined') {
-      try { localStorage.setItem('last_activity', String(Date.now())); } catch { /* ignore */ }
-      window.dispatchEvent(new CustomEvent('session-keep-alive'));
-    }
+    // Token refresh must not update last_activity. The inactivity timer is
+    // driven only by real browser interaction events, otherwise a background
+    // refresh loop would keep an idle console session alive forever.
   }
 
   clearTokens(): void {
@@ -755,7 +750,7 @@ export class APIClient {
     if (tenantId) params.set('tenantId', tenantId);
     if (versionId) params.set('versionId', versionId);
     const qs = params.toString();
-    const url = `/buckets/${bucket}/objects/${key}${qs ? `?${qs}` : ''}`;
+    const url = `/buckets/${bucket}/objects/${encodeURIComponent(key)}${qs ? `?${qs}` : ''}`;
     const response = await apiClient.get<APIResponse<S3Object>>(url);
     return response.data.data!;
   }
@@ -820,10 +815,11 @@ export class APIClient {
         'Accept': '*/*',
       },
       onDownloadProgress: request.onProgress ? (progressEvent: any) => {
+        const total = progressEvent.total ?? 0;
         const progress = {
           loaded: progressEvent.loaded,
-          total: progressEvent.total,
-          percentage: Math.round((progressEvent.loaded * 100) / progressEvent.total),
+          total,
+          percentage: total > 0 ? Math.round((progressEvent.loaded * 100) / total) : 0,
           speed: 0, // TODO: Calculate speed
         };
         request.onProgress!(progress);
@@ -850,26 +846,26 @@ export class APIClient {
   }
 
   static async renameObject(bucket: string, key: string, newKey: string, tenantId?: string): Promise<{ newKey: string }> {
-    const params = tenantId ? `?tenantId=${tenantId}` : '';
+    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
     const response = await apiClient.post<{ newKey: string }>(
-      `/buckets/${bucket}/objects/${key}/rename${params}`,
+      `/buckets/${bucket}/objects/${encodeURIComponent(key)}/rename${params}`,
       { newKey }
     );
     return response.data;
   }
 
   static async getObjectTags(bucket: string, key: string, tenantId?: string): Promise<{ tags: Array<{ key: string; value: string }> }> {
-    const params = tenantId ? `?tenantId=${tenantId}` : '';
+    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
     const response = await apiClient.get<{ tags: Array<{ key: string; value: string }> }>(
-      `/buckets/${bucket}/objects/${key}/tags${params}`
+      `/buckets/${bucket}/objects/${encodeURIComponent(key)}/tags${params}`
     );
     return response.data;
   }
 
   static async setObjectTags(bucket: string, key: string, tags: Array<{ key: string; value: string }>, tenantId?: string): Promise<void> {
-    const params = tenantId ? `?tenantId=${tenantId}` : '';
+    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
     await apiClient.put(
-      `/buckets/${bucket}/objects/${key}/tags${params}`,
+      `/buckets/${bucket}/objects/${encodeURIComponent(key)}/tags${params}`,
       { tags }
     );
   }
@@ -884,7 +880,7 @@ export class APIClient {
   }
 
   static async deleteObject(bucket: string, key: string, tenantId?: string, versionId?: string): Promise<void> {
-    let url = `/buckets/${bucket}/objects/${key}`;
+    let url = `/buckets/${bucket}/objects/${encodeURIComponent(key)}`;
     const params = new URLSearchParams();
 
     if (tenantId) {
@@ -903,7 +899,7 @@ export class APIClient {
 
   static async shareObject(bucket: string, key: string, expiresIn: number | null = 3600, tenantId?: string): Promise<{ id: string; url: string; expiresAt?: string; createdAt: string; isExpired: boolean; existing: boolean }> {
     const url = tenantId 
-      ? `/buckets/${bucket}/objects/${encodeURIComponent(key)}/share?tenantId=${tenantId}`
+      ? `/buckets/${bucket}/objects/${encodeURIComponent(key)}/share?tenantId=${encodeURIComponent(tenantId)}`
       : `/buckets/${bucket}/objects/${encodeURIComponent(key)}/share`;
     const response = await apiClient.post<APIResponse<{ id: string; url: string; expiresAt?: string; createdAt: string; isExpired: boolean; existing: boolean }>>(
       url,
@@ -914,7 +910,7 @@ export class APIClient {
 
   static async getBucketShares(bucket: string, tenantId?: string): Promise<Record<string, any>> {
     const url = tenantId
-      ? `/buckets/${bucket}/shares?tenantId=${tenantId}`
+      ? `/buckets/${bucket}/shares?tenantId=${encodeURIComponent(tenantId)}`
       : `/buckets/${bucket}/shares`;
     const response = await apiClient.get<APIResponse<Record<string, any>>>(url);
     return response.data.data || {};
@@ -922,7 +918,7 @@ export class APIClient {
 
   static async deleteShare(bucket: string, key: string, tenantId?: string): Promise<void> {
     const url = tenantId
-      ? `/buckets/${bucket}/objects/${encodeURIComponent(key)}/share?tenantId=${tenantId}`
+      ? `/buckets/${bucket}/objects/${encodeURIComponent(key)}/share?tenantId=${encodeURIComponent(tenantId)}`
       : `/buckets/${bucket}/objects/${encodeURIComponent(key)}/share`;
     await apiClient.delete(url);
   }
@@ -930,7 +926,7 @@ export class APIClient {
   // Object Versioning
   static async listObjectVersions(bucket: string, key: string, tenantId?: string): Promise<ListObjectVersionsResponse> {
     const url = tenantId
-      ? `/buckets/${bucket}/objects/${encodeURIComponent(key)}/versions?tenantId=${tenantId}`
+      ? `/buckets/${bucket}/objects/${encodeURIComponent(key)}/versions?tenantId=${encodeURIComponent(tenantId)}`
       : `/buckets/${bucket}/objects/${encodeURIComponent(key)}/versions`;
 
     const response = await apiClient.get<APIResponse<ListObjectVersionsResponse>>(url);
@@ -955,7 +951,7 @@ export class APIClient {
     tenantId?: string
   ): Promise<void> {
     const url = tenantId
-      ? `/buckets/${bucket}/objects/${encodeURIComponent(key)}/restore?tenantId=${tenantId}`
+      ? `/buckets/${bucket}/objects/${encodeURIComponent(key)}/restore?tenantId=${encodeURIComponent(tenantId)}`
       : `/buckets/${bucket}/objects/${encodeURIComponent(key)}/restore`;
     await apiClient.post(url, { versionId, isDeleteMarker });
   }
@@ -969,7 +965,7 @@ export class APIClient {
   // Presigned URLs
   static async generatePresignedURL(request: GeneratePresignedURLRequest): Promise<GeneratePresignedURLResponse> {
     const url = request.tenantId
-      ? `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}/presigned-url?tenantId=${request.tenantId}`
+      ? `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}/presigned-url?tenantId=${encodeURIComponent(request.tenantId)}`
       : `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}/presigned-url`;
 
     const response = await apiClient.post<APIResponse<GeneratePresignedURLResponse>>(url, {
@@ -1120,50 +1116,56 @@ export class APIClient {
 
   // Bucket Versioning
   static async getBucketVersioning(bucketName: string, tenantId?: string): Promise<any> {
-    const url = tenantId ? `/buckets/${bucketName}/versioning?tenantId=${tenantId}` : `/buckets/${bucketName}/versioning`;
+    const url = tenantId ? `/buckets/${bucketName}/versioning?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/versioning`;
     const response = await apiClient.get(url);
     return response.data;
   }
 
   static async putBucketVersioning(bucketName: string, enabled: boolean, tenantId?: string): Promise<void> {
     const status = enabled ? 'Enabled' : 'Suspended';
-    const url = tenantId ? `/buckets/${bucketName}/versioning?tenantId=${tenantId}` : `/buckets/${bucketName}/versioning`;
+    const url = tenantId ? `/buckets/${bucketName}/versioning?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/versioning`;
     await apiClient.put(url, { status });
   }
 
   // Object Legal Hold
-  static async getObjectLegalHold(bucketName: string, objectKey: string): Promise<{ status: string }> {
-    const response = await apiClient.get(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/legal-hold`);
+  static async getObjectLegalHold(bucketName: string, objectKey: string, tenantId?: string): Promise<{ status: string }> {
+    const params = new URLSearchParams();
+    if (tenantId) params.set('tenantId', tenantId);
+    const query = params.toString();
+    const response = await apiClient.get(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/legal-hold${query ? `?${query}` : ''}`);
     return response.data;
   }
 
-  static async putObjectLegalHold(bucketName: string, objectKey: string, enabled: boolean): Promise<void> {
+  static async putObjectLegalHold(bucketName: string, objectKey: string, enabled: boolean, tenantId?: string): Promise<void> {
     const status = enabled ? 'ON' : 'OFF';
-    await apiClient.put(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/legal-hold`, { status });
+    const params = new URLSearchParams();
+    if (tenantId) params.set('tenantId', tenantId);
+    const query = params.toString();
+    await apiClient.put(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/legal-hold${query ? `?${query}` : ''}`, { status });
   }
 
   // Bucket Policy
   static async getBucketPolicy(bucketName: string, tenantId?: string): Promise<any> {
-    const url = tenantId ? `/buckets/${bucketName}/policy?tenantId=${tenantId}` : `/buckets/${bucketName}/policy`;
+    const url = tenantId ? `/buckets/${bucketName}/policy?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/policy`;
     const response = await apiClient.get(url);
     return response.data;
   }
 
   static async putBucketPolicy(bucketName: string, policy: string, tenantId?: string): Promise<void> {
-    const url = tenantId ? `/buckets/${bucketName}/policy?tenantId=${tenantId}` : `/buckets/${bucketName}/policy`;
+    const url = tenantId ? `/buckets/${bucketName}/policy?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/policy`;
     await apiClient.put(url, policy, {
       headers: { 'Content-Type': 'application/json' }
     });
   }
 
   static async deleteBucketPolicy(bucketName: string, tenantId?: string): Promise<void> {
-    const url = tenantId ? `/buckets/${bucketName}/policy?tenantId=${tenantId}` : `/buckets/${bucketName}/policy`;
+    const url = tenantId ? `/buckets/${bucketName}/policy?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/policy`;
     await apiClient.delete(url);
   }
 
   // Bucket CORS
   static async getBucketCORS(bucketName: string, tenantId?: string): Promise<string> {
-    const url = tenantId ? `/buckets/${bucketName}/cors?tenantId=${tenantId}` : `/buckets/${bucketName}/cors`;
+    const url = tenantId ? `/buckets/${bucketName}/cors?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/cors`;
     const response = await apiClient.get(url, {
       // Force plain text so the XML is not parsed by axios into an object
       responseType: 'text',
@@ -1173,46 +1175,46 @@ export class APIClient {
   }
 
   static async putBucketCORS(bucketName: string, cors: string, tenantId?: string): Promise<void> {
-    const url = tenantId ? `/buckets/${bucketName}/cors?tenantId=${tenantId}` : `/buckets/${bucketName}/cors`;
+    const url = tenantId ? `/buckets/${bucketName}/cors?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/cors`;
     await apiClient.put(url, cors, {
       headers: { 'Content-Type': 'application/xml' }
     });
   }
 
   static async deleteBucketCORS(bucketName: string, tenantId?: string): Promise<void> {
-    const url = tenantId ? `/buckets/${bucketName}/cors?tenantId=${tenantId}` : `/buckets/${bucketName}/cors`;
+    const url = tenantId ? `/buckets/${bucketName}/cors?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/cors`;
     await apiClient.delete(url);
   }
 
   // Bucket Tagging
   static async getBucketTagging(bucketName: string, tenantId?: string): Promise<any> {
-    const url = tenantId ? `/buckets/${bucketName}/tagging?tenantId=${tenantId}` : `/buckets/${bucketName}/tagging`;
+    const url = tenantId ? `/buckets/${bucketName}/tagging?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/tagging`;
     const response = await apiClient.get(url);
     return response.data;
   }
 
   static async putBucketTagging(bucketName: string, tagging: string, tenantId?: string): Promise<void> {
-    const url = tenantId ? `/buckets/${bucketName}/tagging?tenantId=${tenantId}` : `/buckets/${bucketName}/tagging`;
+    const url = tenantId ? `/buckets/${bucketName}/tagging?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/tagging`;
     await apiClient.put(url, tagging, {
       headers: { 'Content-Type': 'application/xml' }
     });
   }
 
   static async deleteBucketTagging(bucketName: string, tenantId?: string): Promise<void> {
-    const url = tenantId ? `/buckets/${bucketName}/tagging?tenantId=${tenantId}` : `/buckets/${bucketName}/tagging`;
+    const url = tenantId ? `/buckets/${bucketName}/tagging?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/tagging`;
     await apiClient.delete(url);
   }
 
   // Bucket ACL
   static async getBucketACL(bucketName: string, tenantId?: string): Promise<any> {
-    const url = tenantId ? `/buckets/${bucketName}/acl?tenantId=${tenantId}` : `/buckets/${bucketName}/acl`;
+    const url = tenantId ? `/buckets/${bucketName}/acl?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/acl`;
     const response = await apiClient.get(url);
     return response.data;
   }
 
   static async putBucketACL(bucketName: string, acl: string | object, cannedACL?: string, tenantId?: string): Promise<void> {
     const headers: any = {};
-    const url = tenantId ? `/buckets/${bucketName}/acl?tenantId=${tenantId}` : `/buckets/${bucketName}/acl`;
+    const url = tenantId ? `/buckets/${bucketName}/acl?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/acl`;
 
     if (cannedACL) {
       // Use canned ACL via header
@@ -1228,23 +1230,24 @@ export class APIClient {
 
   // Object ACL
   static async getObjectACL(bucketName: string, objectKey: string, tenantId?: string): Promise<any> {
-    const params = tenantId ? `?tenantId=${tenantId}` : '';
+    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
     const response = await apiClient.get(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/acl${params}`);
     return response.data;
   }
 
-  static async putObjectACL(bucketName: string, objectKey: string, acl: string | object, cannedACL?: string): Promise<void> {
+  static async putObjectACL(bucketName: string, objectKey: string, acl: string | object, cannedACL?: string, tenantId?: string): Promise<void> {
     const headers: any = {};
+    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
 
     if (cannedACL) {
       // Use canned ACL via header
       headers['x-amz-acl'] = cannedACL;
-      await apiClient.put(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/acl`, '', { headers });
+      await apiClient.put(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/acl${params}`, '', { headers });
     } else {
       // Use custom ACL via XML body
       const aclXml = typeof acl === 'string' ? acl : this.convertACLToXML(acl);
       headers['Content-Type'] = 'application/xml';
-      await apiClient.put(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/acl`, aclXml, { headers });
+      await apiClient.put(`/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}/acl${params}`, aclXml, { headers });
     }
   }
 
@@ -1294,43 +1297,43 @@ export class APIClient {
 
   // Bucket Lifecycle
   static async getBucketLifecycle(bucketName: string, tenantId?: string): Promise<any> {
-    const url = tenantId ? `/buckets/${bucketName}/lifecycle?tenantId=${tenantId}` : `/buckets/${bucketName}/lifecycle`;
+    const url = tenantId ? `/buckets/${bucketName}/lifecycle?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/lifecycle`;
     const response = await apiClient.get(url);
     return response.data;
   }
 
   static async putBucketLifecycle(bucketName: string, lifecycle: string, tenantId?: string): Promise<void> {
-    const url = tenantId ? `/buckets/${bucketName}/lifecycle?tenantId=${tenantId}` : `/buckets/${bucketName}/lifecycle`;
+    const url = tenantId ? `/buckets/${bucketName}/lifecycle?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/lifecycle`;
     await apiClient.put(url, lifecycle, {
       headers: { 'Content-Type': 'application/xml' }
     });
   }
 
   static async deleteBucketLifecycle(bucketName: string, tenantId?: string): Promise<void> {
-    const url = tenantId ? `/buckets/${bucketName}/lifecycle?tenantId=${tenantId}` : `/buckets/${bucketName}/lifecycle`;
+    const url = tenantId ? `/buckets/${bucketName}/lifecycle?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/lifecycle`;
     await apiClient.delete(url);
   }
 
   // Bucket Notification Configuration
   static async getBucketNotification(bucketName: string, tenantId?: string): Promise<any> {
-    const url = tenantId ? `/buckets/${bucketName}/notification?tenantId=${tenantId}` : `/buckets/${bucketName}/notification`;
+    const url = tenantId ? `/buckets/${bucketName}/notification?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/notification`;
     const response = await apiClient.get(url);
     return response.data;
   }
 
   static async putBucketNotification(bucketName: string, config: any, tenantId?: string): Promise<void> {
-    const url = tenantId ? `/buckets/${bucketName}/notification?tenantId=${tenantId}` : `/buckets/${bucketName}/notification`;
+    const url = tenantId ? `/buckets/${bucketName}/notification?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/notification`;
     await apiClient.put(url, config);
   }
 
   static async deleteBucketNotification(bucketName: string, tenantId?: string): Promise<void> {
-    const url = tenantId ? `/buckets/${bucketName}/notification?tenantId=${tenantId}` : `/buckets/${bucketName}/notification`;
+    const url = tenantId ? `/buckets/${bucketName}/notification?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/notification`;
     await apiClient.delete(url);
   }
 
   // Bucket Inventory Configuration
   static async getBucketInventory(bucketName: string, tenantId?: string): Promise<any> {
-    const url = tenantId ? `/buckets/${bucketName}/inventory?tenantId=${tenantId}` : `/buckets/${bucketName}/inventory`;
+    const url = tenantId ? `/buckets/${bucketName}/inventory?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/inventory`;
     try {
       const response = await apiClient.get(url);
       return response.data?.data ?? response.data;
@@ -1341,18 +1344,18 @@ export class APIClient {
   }
 
   static async putBucketInventory(bucketName: string, config: any, tenantId?: string): Promise<void> {
-    const url = tenantId ? `/buckets/${bucketName}/inventory?tenantId=${tenantId}` : `/buckets/${bucketName}/inventory`;
+    const url = tenantId ? `/buckets/${bucketName}/inventory?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/inventory`;
     await apiClient.put(url, config);
   }
 
   static async deleteBucketInventory(bucketName: string, tenantId?: string): Promise<void> {
-    const url = tenantId ? `/buckets/${bucketName}/inventory?tenantId=${tenantId}` : `/buckets/${bucketName}/inventory`;
+    const url = tenantId ? `/buckets/${bucketName}/inventory?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/inventory`;
     await apiClient.delete(url);
   }
 
   // Bucket Website Hosting
   static async getBucketWebsite(bucketName: string, tenantId?: string): Promise<any> {
-    const url = tenantId ? `/buckets/${bucketName}/website?tenantId=${tenantId}` : `/buckets/${bucketName}/website`;
+    const url = tenantId ? `/buckets/${bucketName}/website?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/website`;
     try {
       const response = await apiClient.get(url);
       return response.data.data ?? null;
@@ -1363,12 +1366,12 @@ export class APIClient {
   }
 
   static async putBucketWebsite(bucketName: string, config: { indexDocument: string; errorDocument?: string }, tenantId?: string): Promise<void> {
-    const url = tenantId ? `/buckets/${bucketName}/website?tenantId=${tenantId}` : `/buckets/${bucketName}/website`;
+    const url = tenantId ? `/buckets/${bucketName}/website?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/website`;
     await apiClient.put(url, config);
   }
 
   static async deleteBucketWebsite(bucketName: string, tenantId?: string): Promise<void> {
-    const url = tenantId ? `/buckets/${bucketName}/website?tenantId=${tenantId}` : `/buckets/${bucketName}/website`;
+    const url = tenantId ? `/buckets/${bucketName}/website?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/website`;
     await apiClient.delete(url);
   }
 
@@ -1386,23 +1389,26 @@ export class APIClient {
 
   // Object Lock Configuration
   static async getObjectLockConfiguration(bucketName: string, tenantId?: string): Promise<any> {
-    const url = tenantId ? `/buckets/${bucketName}/object-lock?tenantId=${tenantId}` : `/buckets/${bucketName}/object-lock`;
+    const url = tenantId ? `/buckets/${bucketName}/object-lock?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/object-lock`;
     const response = await apiClient.get(url);
     return response.data;
   }
 
-  static async putObjectLockConfiguration(bucketName: string, config: string): Promise<void> {
-    await apiClient.put(`/buckets/${bucketName}/object-lock`, config, {
+  static async putObjectLockConfiguration(bucketName: string, config: string, tenantId?: string): Promise<void> {
+    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+    await apiClient.put(`/buckets/${bucketName}/object-lock${params}`, config, {
       headers: { 'Content-Type': 'application/xml' }
     });
   }
 
   static async updateObjectLockConfiguration(
     bucketName: string,
-    config: { mode: string; days?: number; years?: number }
+    config: { mode: string; days?: number; years?: number },
+    tenantId?: string
   ): Promise<void> {
     // Enviar JSON directamente a la Console API
-    await apiClient.put(`/buckets/${bucketName}/object-lock`, config);
+    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+    await apiClient.put(`/buckets/${bucketName}/object-lock${params}`, config);
   }
 
   // Tenant Management
@@ -1469,13 +1475,13 @@ export class APIClient {
 
   // Bucket Permissions
   static async getBucketPermissions(bucketName: string, tenantId?: string): Promise<BucketPermission[]> {
-    const url = tenantId ? `/buckets/${bucketName}/permissions?tenantId=${tenantId}` : `/buckets/${bucketName}/permissions`;
+    const url = tenantId ? `/buckets/${bucketName}/permissions?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/permissions`;
     const response = await apiClient.get<APIResponse<BucketPermission[]>>(url);
     return response.data.data || [];
   }
 
   static async grantBucketPermission(bucketName: string, data: GrantPermissionRequest, bucketTenantId?: string): Promise<void> {
-    const url = bucketTenantId ? `/buckets/${bucketName}/permissions?tenantId=${bucketTenantId}` : `/buckets/${bucketName}/permissions`;
+    const url = bucketTenantId ? `/buckets/${bucketName}/permissions?tenantId=${encodeURIComponent(bucketTenantId)}` : `/buckets/${bucketName}/permissions`;
     await apiClient.post(url, data);
   }
 
@@ -1495,7 +1501,7 @@ export class APIClient {
   // Groups
   static async listGroups(tenantId?: string, scopeGlobal?: boolean): Promise<Group[]> {
     let url = '/groups';
-    if (tenantId) url += `?tenantId=${tenantId}`;
+    if (tenantId) url += `?tenantId=${encodeURIComponent(tenantId)}`;
     else if (scopeGlobal) url += '?scope=global';
     const response = await apiClient.get<{ groups: Group[]; total: number }>(url);
     return response.data.groups || [];

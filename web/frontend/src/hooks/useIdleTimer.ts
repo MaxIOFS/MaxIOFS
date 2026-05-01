@@ -60,11 +60,6 @@ export function useIdleTimer({
       window.addEventListener(event, resetTimer, { passive: true });
     });
 
-    // Also reset when a background token refresh succeeds — this keeps the
-    // idle timer in sync with the proactive refresh so the session isn't
-    // killed right after the token was silently renewed.
-    window.addEventListener('session-keep-alive', resetTimer);
-
     return () => {
       if (timeoutId.current) {
         clearTimeout(timeoutId.current);
@@ -72,7 +67,6 @@ export function useIdleTimer({
       events.forEach((event) => {
         window.removeEventListener(event, resetTimer);
       });
-      window.removeEventListener('session-keep-alive', resetTimer);
     };
   }, [resetTimer, events]);
 
