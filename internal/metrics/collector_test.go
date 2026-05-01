@@ -195,6 +195,25 @@ func TestCollector_StopBackgroundCollection(t *testing.T) {
 	assert.True(t, collector.IsHealthy())
 }
 
+func TestCollector_CanRestartAfterStop(t *testing.T) {
+	collector := NewCollector(os.TempDir())
+	manager := NewManager(testMetricsConfig())
+
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	defer cancel1()
+	collector.StartBackgroundCollection(ctx1, manager, 50*time.Millisecond)
+	time.Sleep(25 * time.Millisecond)
+	collector.StopBackgroundCollection()
+
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+	collector.StartBackgroundCollection(ctx2, manager, 50*time.Millisecond)
+	time.Sleep(25 * time.Millisecond)
+	collector.StopBackgroundCollection()
+
+	assert.True(t, collector.IsHealthy())
+}
+
 func TestCollector_StopBackgroundCollection_NotRunning(t *testing.T) {
 	collector := NewCollector(os.TempDir())
 

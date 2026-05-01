@@ -2,7 +2,9 @@ package metrics
 
 import (
 	"context"
+	"os"
 	"runtime"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -10,6 +12,8 @@ import (
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
+	netio "github.com/shirou/gopsutil/v3/net"
+	"github.com/shirou/gopsutil/v3/process"
 )
 
 // Collector handles collection of system and custom metrics
@@ -108,6 +112,7 @@ type S3Metrics struct {
 // collector implements the Collector interface
 type collector struct {
 	running   atomic.Bool
+	runID     atomic.Uint64
 	stopChan  chan struct{}
 	interval  time.Duration
 	lastTime  time.Time
@@ -233,9 +238,16 @@ func (c *collector) StartBackgroundCollection(ctx context.Context, manager Manag
 	}
 
 	c.interval = interval
+	runID := c.runID.Add(1)
+	stopChan := make(chan struct{})
+	c.stopChan = stopChan
 
 	go func() {
-		defer c.running.Store(false)
+		defer func() {
+			if c.runID.Load() == runID {
+				c.running.Store(false)
+			}
+		}()
 
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -244,7 +256,7 @@ func (c *collector) StartBackgroundCollection(ctx context.Context, manager Manag
 			select {
 			case <-ctx.Done():
 				return
-			case <-c.stopChan:
+			case <-stopChan:
 				return
 			case <-ticker.C:
 				c.collectAndReport(ctx, manager)
@@ -255,7 +267,7 @@ func (c *collector) StartBackgroundCollection(ctx context.Context, manager Manag
 
 // StopBackgroundCollection stops background collection
 func (c *collector) StopBackgroundCollection() {
-	if !c.running.Load() {
+	if !c.running.CompareAndSwap(true, false) {
 		return
 	}
 
@@ -283,8 +295,8 @@ func (c *collector) collectAndReport(ctx context.Context, manager Manager) {
 	if err == nil {
 		// Report runtime metrics as custom events
 		manager.RecordSystemEvent("runtime_stats", map[string]string{
-			"goroutines": string(rune(runtimeMetrics.GoRoutines)),
-			"gc_pauses":  string(rune(runtimeMetrics.GCPauses)),
+			"goroutines": strconv.Itoa(runtimeMetrics.GoRoutines),
+			"gc_pauses":  strconv.FormatInt(runtimeMetrics.GCPauses, 10),
 		})
 	}
 
@@ -357,21 +369,31 @@ func (c *collector) getDiskTotal() int64 {
 }
 
 func (c *collector) getOpenFileDescriptors() int64 {
-	// Get number of open file descriptors
-	// In production, this would use system calls
-	return 100 // Placeholder
+	proc, err := process.NewProcess(int32(os.Getpid()))
+	if err != nil {
+		return 0
+	}
+	fds, err := proc.NumFDs()
+	if err != nil {
+		return 0
+	}
+	return int64(fds)
 }
 
 func (c *collector) getNetworkBytesIn() int64 {
-	// Get network bytes received
-	// In production, this would use system calls or gopsutil
-	return 1024 * 1024 * 1024 // 1GB placeholder
+	counters, err := netio.IOCounters(false)
+	if err != nil || len(counters) == 0 {
+		return 0
+	}
+	return int64(counters[0].BytesRecv)
 }
 
 func (c *collector) getNetworkBytesOut() int64 {
-	// Get network bytes sent
-	// In production, this would use system calls or gopsutil
-	return 512 * 1024 * 1024 // 512MB placeholder
+	counters, err := netio.IOCounters(false)
+	if err != nil || len(counters) == 0 {
+		return 0
+	}
+	return int64(counters[0].BytesSent)
 }
 
 // Custom Prometheus Collector implementation
