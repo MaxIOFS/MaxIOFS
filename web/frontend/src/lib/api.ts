@@ -1683,38 +1683,47 @@ export class APIClient {
   }
 
   // Replication API
-  static async listReplicationRules(bucketName: string): Promise<ReplicationRule[]> {
-    const response = await apiClient.get<ListReplicationRulesResponse>(`/buckets/${bucketName}/replication/rules`);
-    return response.data.rules;
+  static async listReplicationRules(bucketName: string, tenantId?: string): Promise<ReplicationRule[]> {
+    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+    const response = await apiClient.get<APIResponse<ListReplicationRulesResponse> | ListReplicationRulesResponse>(`/buckets/${bucketName}/replication/rules${params}`);
+    const data = 'success' in response.data ? response.data.data : response.data;
+    return data?.rules || [];
   }
 
-  static async getReplicationRule(bucketName: string, ruleId: string): Promise<ReplicationRule> {
-    const response = await apiClient.get<ReplicationRule>(`/buckets/${bucketName}/replication/rules/${ruleId}`);
-    return response.data;
+  static async getReplicationRule(bucketName: string, ruleId: string, tenantId?: string): Promise<ReplicationRule> {
+    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+    const response = await apiClient.get<APIResponse<ReplicationRule> | ReplicationRule>(`/buckets/${bucketName}/replication/rules/${ruleId}${params}`);
+    return ('success' in response.data ? response.data.data : response.data) as ReplicationRule;
   }
 
-  static async createReplicationRule(bucketName: string, request: CreateReplicationRuleRequest): Promise<ReplicationRule> {
-    const response = await apiClient.post<ReplicationRule>(`/buckets/${bucketName}/replication/rules`, request);
-    return response.data;
+  static async createReplicationRule(bucketName: string, request: CreateReplicationRuleRequest, tenantId?: string): Promise<ReplicationRule> {
+    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+    const response = await apiClient.post<APIResponse<ReplicationRule> | ReplicationRule>(`/buckets/${bucketName}/replication/rules${params}`, request);
+    return ('success' in response.data ? response.data.data : response.data) as ReplicationRule;
   }
 
-  static async updateReplicationRule(bucketName: string, ruleId: string, request: CreateReplicationRuleRequest): Promise<ReplicationRule> {
-    const response = await apiClient.put<ReplicationRule>(`/buckets/${bucketName}/replication/rules/${ruleId}`, request);
-    return response.data;
+  static async updateReplicationRule(bucketName: string, ruleId: string, request: CreateReplicationRuleRequest, tenantId?: string): Promise<ReplicationRule> {
+    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+    const response = await apiClient.put<APIResponse<ReplicationRule> | ReplicationRule>(`/buckets/${bucketName}/replication/rules/${ruleId}${params}`, request);
+    return ('success' in response.data ? response.data.data : response.data) as ReplicationRule;
   }
 
-  static async deleteReplicationRule(bucketName: string, ruleId: string): Promise<void> {
-    await apiClient.delete(`/buckets/${bucketName}/replication/rules/${ruleId}`);
+  static async deleteReplicationRule(bucketName: string, ruleId: string, tenantId?: string): Promise<void> {
+    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+    await apiClient.delete(`/buckets/${bucketName}/replication/rules/${ruleId}${params}`);
   }
 
-  static async getReplicationMetrics(bucketName: string, ruleId: string): Promise<ReplicationMetrics> {
-    const response = await apiClient.get<ReplicationMetrics>(`/buckets/${bucketName}/replication/rules/${ruleId}/metrics`);
-    return response.data;
+  static async getReplicationMetrics(bucketName: string, ruleId: string, tenantId?: string): Promise<ReplicationMetrics> {
+    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+    const response = await apiClient.get<APIResponse<ReplicationMetrics> | ReplicationMetrics>(`/buckets/${bucketName}/replication/rules/${ruleId}/metrics${params}`);
+    return ('success' in response.data ? response.data.data : response.data) as ReplicationMetrics;
   }
 
-  static async triggerReplicationSync(bucketName: string, ruleId: string): Promise<{ success: boolean; message: string; queued_count: number; rule_id: string }> {
-    const response = await apiClient.post<{ success: boolean; message: string; queued_count: number; rule_id: string }>(`/buckets/${bucketName}/replication/rules/${ruleId}/sync`);
-    return response.data;
+  static async triggerReplicationSync(bucketName: string, ruleId: string, tenantId?: string): Promise<{ success: boolean; message: string; queued_count: number; rule_id: string }> {
+    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+    type TriggerReplicationSyncResponse = { success: boolean; message: string; queued_count: number; rule_id: string };
+    const response = await apiClient.post<APIResponse<TriggerReplicationSyncResponse> | TriggerReplicationSyncResponse>(`/buckets/${bucketName}/replication/rules/${ruleId}/sync${params}`);
+    return ('success' in response.data && 'data' in response.data ? response.data.data : response.data) as TriggerReplicationSyncResponse;
   }
 
   // Cluster API

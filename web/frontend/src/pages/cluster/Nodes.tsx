@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
@@ -43,7 +43,7 @@ export default function ClusterNodes() {
 const [localNodeId, setLocalNodeId] = useState<string | null>(null);
   const [_availableNodes, setAvailableNodes] = useState<ClusterNode[]>([]);
 
-  const loadNodes = async () => {
+  const loadNodes = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -58,11 +58,11 @@ const [localNodeId, setLocalNodeId] = useState<string | null>(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, [t]);
 
   useEffect(() => {
     loadNodes();
-  }, []);
+  }, [loadNodes]);
 
   const handleAddNode = async (request: AddNodeRequest) => {
     try {

@@ -103,10 +103,10 @@ export default function BucketsPage() {
   // ── Load integrity history for all buckets (admins only) ────────────────────
   useEffect(() => {
     if (!buckets || !isAnyAdmin) return;
+    let cancelled = false;
 
     buckets.forEach(async (bucket) => {
       const key = getBucketKey(bucket);
-      if (scanStates[key]) return; // Skip if already loaded
 
       try {
         const history = await APIClient.getIntegrityHistory(
@@ -115,9 +115,10 @@ export default function BucketsPage() {
         );
 
         if (history.length > 0) {
+          if (cancelled) return;
           const latest = history[0];
           const scannedAt = new Date(latest.scannedAt);
-          setScanStates((prev) => ({
+          setScanStates((prev) => prev[key] ? prev : ({
             ...prev,
             [key]: {
               phase: 'done',
@@ -138,7 +139,11 @@ export default function BucketsPage() {
         // 400/404 is expected when a bucket has never been scanned — ignore silently
       }
     });
-  }, [buckets, scanStates]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [buckets, isAnyAdmin]);
 
   // Fetch the persisted scan history whenever the modal is open.
   const integrityBucketKey = integrityBucket ? getBucketKey(integrityBucket) : null;

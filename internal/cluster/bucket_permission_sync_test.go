@@ -800,10 +800,18 @@ func TestBucketPermissionSyncManager_Start(t *testing.T) {
 			t.Fatalf("Failed to insert cluster config: %v", err)
 		}
 
+		_, err = db.ExecContext(ctx, `
+			INSERT OR REPLACE INTO cluster_global_config (key, value, created_at, updated_at)
+			VALUES ('auto_bucket_permission_sync_enabled', 'false', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		`)
+		if err != nil {
+			t.Fatalf("Failed to disable auto sync: %v", err)
+		}
+
 		clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 		syncManager := NewBucketPermissionSyncManager(db, clusterManager)
 
-		// Don't enable auto sync - Start() should return immediately
+		// Explicitly disabled auto sync - Start() should return immediately
 		syncManager.Start(ctx)
 
 		// If we get here, it means Start() returned (didn't block forever)

@@ -3680,6 +3680,36 @@ func TestHandleListReplicationRules(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, rr.Code)
 	})
+
+	t.Run("should create and list tenant bucket rules for global admin with tenant query", func(t *testing.T) {
+		body := `{"destination_endpoint":"https://s3.amazonaws.com","destination_bucket":"remote-bucket","destination_access_key":"key","destination_secret_key":"secret","enabled":false,"priority":1,"mode":"realtime","conflict_resolution":"last_write_wins","replicate_deletes":true,"replicate_metadata":true}`
+		createReq := createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/replication/rules?tenantId="+tenantID, strings.NewReader(body), "", "admin-1", true)
+		createReq = mux.SetURLVars(createReq, map[string]string{"bucket": bucketName})
+		createReq.Header.Set("Content-Type", "application/json")
+
+		createRR := httptest.NewRecorder()
+		server.handleCreateReplicationRule(createRR, createReq)
+
+		require.Equal(t, http.StatusCreated, createRR.Code)
+
+		req := createAuthenticatedRequest("GET", "/api/v1/buckets/"+bucketName+"/replication/rules?tenantId="+tenantID, nil, "", "admin-1", true)
+		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
+
+		rr := httptest.NewRecorder()
+		server.handleListReplicationRules(rr, req)
+
+		require.Equal(t, http.StatusOK, rr.Code)
+		var response struct {
+			Data struct {
+				Rules []ReplicationRuleResponse `json:"rules"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
+		require.NotEmpty(t, response.Data.Rules)
+		assert.Equal(t, tenantID, response.Data.Rules[0].TenantID)
+		assert.Equal(t, bucketName, response.Data.Rules[0].SourceBucket)
+		assert.False(t, response.Data.Rules[0].Enabled)
+	})
 }
 
 // TestHandleGetReplicationRule tests getting a specific replication rule

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
@@ -39,7 +39,7 @@ export default function ClusterOverview() {
   const [joinLoading, setJoinLoading] = useState(false);
   const [nodeIP, setNodeIP] = useState('');
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -58,11 +58,11 @@ export default function ClusterOverview() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [t]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const handleInitializeCluster = async (nodeName: string, region: string) => {
     try {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,41 +15,41 @@ import (
 
 // ReplicationRuleRequest represents the request body for creating/updating a replication rule
 type ReplicationRuleRequest struct {
-	DestinationEndpoint   string                        `json:"destination_endpoint"`
-	DestinationBucket     string                        `json:"destination_bucket"`
-	DestinationAccessKey  string                        `json:"destination_access_key"`
-	DestinationSecretKey  string                        `json:"destination_secret_key"`
-	DestinationRegion     string                        `json:"destination_region,omitempty"`
-	Prefix                string                        `json:"prefix,omitempty"`
-	Enabled               bool                          `json:"enabled"`
-	Priority              int                           `json:"priority"`
-	Mode                  replication.ReplicationMode   `json:"mode"`
-	ScheduleInterval      int                           `json:"schedule_interval,omitempty"`
-	ConflictResolution    replication.ConflictResolution `json:"conflict_resolution"`
-	ReplicateDeletes      bool                          `json:"replicate_deletes"`
-	ReplicateMetadata     bool                          `json:"replicate_metadata"`
+	DestinationEndpoint  string                         `json:"destination_endpoint"`
+	DestinationBucket    string                         `json:"destination_bucket"`
+	DestinationAccessKey string                         `json:"destination_access_key"`
+	DestinationSecretKey string                         `json:"destination_secret_key"`
+	DestinationRegion    string                         `json:"destination_region,omitempty"`
+	Prefix               string                         `json:"prefix,omitempty"`
+	Enabled              bool                           `json:"enabled"`
+	Priority             int                            `json:"priority"`
+	Mode                 replication.ReplicationMode    `json:"mode"`
+	ScheduleInterval     int                            `json:"schedule_interval,omitempty"`
+	ConflictResolution   replication.ConflictResolution `json:"conflict_resolution"`
+	ReplicateDeletes     bool                           `json:"replicate_deletes"`
+	ReplicateMetadata    bool                           `json:"replicate_metadata"`
 }
 
 // ReplicationRuleResponse represents the response for a replication rule
 type ReplicationRuleResponse struct {
-	ID                    string                        `json:"id"`
-	TenantID              string                        `json:"tenant_id"`
-	SourceBucket          string                        `json:"source_bucket"`
-	DestinationEndpoint   string                        `json:"destination_endpoint"`
-	DestinationBucket     string                        `json:"destination_bucket"`
-	DestinationAccessKey  string                        `json:"destination_access_key"`
-	DestinationSecretKey  string                        `json:"destination_secret_key"`
-	DestinationRegion     string                        `json:"destination_region,omitempty"`
-	Prefix                string                        `json:"prefix,omitempty"`
-	Enabled               bool                          `json:"enabled"`
-	Priority              int                           `json:"priority"`
-	Mode                  replication.ReplicationMode   `json:"mode"`
-	ScheduleInterval      int                           `json:"schedule_interval,omitempty"`
-	ConflictResolution    replication.ConflictResolution `json:"conflict_resolution"`
-	ReplicateDeletes      bool                          `json:"replicate_deletes"`
-	ReplicateMetadata     bool                          `json:"replicate_metadata"`
-	CreatedAt             string                        `json:"created_at"`
-	UpdatedAt             string                        `json:"updated_at"`
+	ID                   string                         `json:"id"`
+	TenantID             string                         `json:"tenant_id"`
+	SourceBucket         string                         `json:"source_bucket"`
+	DestinationEndpoint  string                         `json:"destination_endpoint"`
+	DestinationBucket    string                         `json:"destination_bucket"`
+	DestinationAccessKey string                         `json:"destination_access_key"`
+	DestinationSecretKey string                         `json:"destination_secret_key"`
+	DestinationRegion    string                         `json:"destination_region,omitempty"`
+	Prefix               string                         `json:"prefix,omitempty"`
+	Enabled              bool                           `json:"enabled"`
+	Priority             int                            `json:"priority"`
+	Mode                 replication.ReplicationMode    `json:"mode"`
+	ScheduleInterval     int                            `json:"schedule_interval,omitempty"`
+	ConflictResolution   replication.ConflictResolution `json:"conflict_resolution"`
+	ReplicateDeletes     bool                           `json:"replicate_deletes"`
+	ReplicateMetadata    bool                           `json:"replicate_metadata"`
+	CreatedAt            string                         `json:"created_at"`
+	UpdatedAt            string                         `json:"updated_at"`
 }
 
 // ReplicationMetricsResponse represents the response for replication metrics
@@ -63,6 +64,14 @@ type ReplicationMetricsResponse struct {
 	LastFailure      *string `json:"last_failure,omitempty"`
 }
 
+func replicationTenantIDFromRequest(ctx context.Context, r *http.Request, user *auth.User) string {
+	tenantID := user.TenantID
+	if queryTenantID := r.URL.Query().Get("tenantId"); queryTenantID != "" && auth.IsAdminUser(ctx) && user.TenantID == "" {
+		tenantID = queryTenantID
+	}
+	return tenantID
+}
+
 func (s *Server) handleCreateReplicationRule(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
@@ -74,7 +83,7 @@ func (s *Server) handleCreateReplicationRule(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	tenantID := user.TenantID
+	tenantID := replicationTenantIDFromRequest(ctx, r, user)
 
 	// Check if bucket exists
 	_, err := s.bucketManager.GetBucketInfo(ctx, tenantID, bucketName)
@@ -100,21 +109,21 @@ func (s *Server) handleCreateReplicationRule(w http.ResponseWriter, r *http.Requ
 	}
 
 	rule := &replication.ReplicationRule{
-		TenantID:              tenantID,
-		SourceBucket:          bucketName,
-		DestinationEndpoint:   req.DestinationEndpoint,
-		DestinationBucket:     req.DestinationBucket,
-		DestinationAccessKey:  req.DestinationAccessKey,
-		DestinationSecretKey:  req.DestinationSecretKey,
-		DestinationRegion:     req.DestinationRegion,
-		Prefix:                req.Prefix,
-		Enabled:               req.Enabled,
-		Priority:              req.Priority,
-		Mode:                  req.Mode,
-		ScheduleInterval:      req.ScheduleInterval,
-		ConflictResolution:    req.ConflictResolution,
-		ReplicateDeletes:      req.ReplicateDeletes,
-		ReplicateMetadata:     req.ReplicateMetadata,
+		TenantID:             tenantID,
+		SourceBucket:         bucketName,
+		DestinationEndpoint:  req.DestinationEndpoint,
+		DestinationBucket:    req.DestinationBucket,
+		DestinationAccessKey: req.DestinationAccessKey,
+		DestinationSecretKey: req.DestinationSecretKey,
+		DestinationRegion:    req.DestinationRegion,
+		Prefix:               req.Prefix,
+		Enabled:              req.Enabled,
+		Priority:             req.Priority,
+		Mode:                 req.Mode,
+		ScheduleInterval:     req.ScheduleInterval,
+		ConflictResolution:   req.ConflictResolution,
+		ReplicateDeletes:     req.ReplicateDeletes,
+		ReplicateMetadata:    req.ReplicateMetadata,
 	}
 
 	if err := s.replicationManager.CreateRule(ctx, rule); err != nil {
@@ -143,24 +152,24 @@ func (s *Server) handleCreateReplicationRule(w http.ResponseWriter, r *http.Requ
 	}
 
 	response := ReplicationRuleResponse{
-		ID:                    rule.ID,
-		TenantID:              rule.TenantID,
-		SourceBucket:          rule.SourceBucket,
-		DestinationEndpoint:   rule.DestinationEndpoint,
-		DestinationBucket:     rule.DestinationBucket,
-		DestinationAccessKey:  rule.DestinationAccessKey,
-		DestinationSecretKey:  rule.DestinationSecretKey,
-		DestinationRegion:     rule.DestinationRegion,
-		Prefix:                rule.Prefix,
-		Enabled:               rule.Enabled,
-		Priority:              rule.Priority,
-		Mode:                  rule.Mode,
-		ScheduleInterval:      rule.ScheduleInterval,
-		ConflictResolution:    rule.ConflictResolution,
-		ReplicateDeletes:      rule.ReplicateDeletes,
-		ReplicateMetadata:     rule.ReplicateMetadata,
-		CreatedAt:             rule.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:             rule.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ID:                   rule.ID,
+		TenantID:             rule.TenantID,
+		SourceBucket:         rule.SourceBucket,
+		DestinationEndpoint:  rule.DestinationEndpoint,
+		DestinationBucket:    rule.DestinationBucket,
+		DestinationAccessKey: rule.DestinationAccessKey,
+		DestinationSecretKey: rule.DestinationSecretKey,
+		DestinationRegion:    rule.DestinationRegion,
+		Prefix:               rule.Prefix,
+		Enabled:              rule.Enabled,
+		Priority:             rule.Priority,
+		Mode:                 rule.Mode,
+		ScheduleInterval:     rule.ScheduleInterval,
+		ConflictResolution:   rule.ConflictResolution,
+		ReplicateDeletes:     rule.ReplicateDeletes,
+		ReplicateMetadata:    rule.ReplicateMetadata,
+		CreatedAt:            rule.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:            rule.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 
 	w.WriteHeader(http.StatusCreated)
@@ -178,7 +187,7 @@ func (s *Server) handleListReplicationRules(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	tenantID := user.TenantID
+	tenantID := replicationTenantIDFromRequest(ctx, r, user)
 
 	rules, err := s.replicationManager.ListRules(ctx, tenantID)
 	if err != nil {
@@ -191,24 +200,24 @@ func (s *Server) handleListReplicationRules(w http.ResponseWriter, r *http.Reque
 	for _, rule := range rules {
 		if rule.SourceBucket == bucketName {
 			bucketRules = append(bucketRules, ReplicationRuleResponse{
-				ID:                    rule.ID,
-				TenantID:              rule.TenantID,
-				SourceBucket:          rule.SourceBucket,
-				DestinationEndpoint:   rule.DestinationEndpoint,
-				DestinationBucket:     rule.DestinationBucket,
-				DestinationAccessKey:  rule.DestinationAccessKey,
-				DestinationSecretKey:  rule.DestinationSecretKey,
-				DestinationRegion:     rule.DestinationRegion,
-				Prefix:                rule.Prefix,
-				Enabled:               rule.Enabled,
-				Priority:              rule.Priority,
-				Mode:                  rule.Mode,
-				ScheduleInterval:      rule.ScheduleInterval,
-				ConflictResolution:    rule.ConflictResolution,
-				ReplicateDeletes:      rule.ReplicateDeletes,
-				ReplicateMetadata:     rule.ReplicateMetadata,
-				CreatedAt:             rule.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-				UpdatedAt:             rule.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+				ID:                   rule.ID,
+				TenantID:             rule.TenantID,
+				SourceBucket:         rule.SourceBucket,
+				DestinationEndpoint:  rule.DestinationEndpoint,
+				DestinationBucket:    rule.DestinationBucket,
+				DestinationAccessKey: rule.DestinationAccessKey,
+				DestinationSecretKey: rule.DestinationSecretKey,
+				DestinationRegion:    rule.DestinationRegion,
+				Prefix:               rule.Prefix,
+				Enabled:              rule.Enabled,
+				Priority:             rule.Priority,
+				Mode:                 rule.Mode,
+				ScheduleInterval:     rule.ScheduleInterval,
+				ConflictResolution:   rule.ConflictResolution,
+				ReplicateDeletes:     rule.ReplicateDeletes,
+				ReplicateMetadata:    rule.ReplicateMetadata,
+				CreatedAt:            rule.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+				UpdatedAt:            rule.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			})
 		}
 	}
@@ -229,7 +238,7 @@ func (s *Server) handleGetReplicationRule(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	tenantID := user.TenantID
+	tenantID := replicationTenantIDFromRequest(ctx, r, user)
 
 	rule, err := s.replicationManager.GetRule(ctx, ruleID)
 	if err != nil {
@@ -249,24 +258,24 @@ func (s *Server) handleGetReplicationRule(w http.ResponseWriter, r *http.Request
 	}
 
 	response := ReplicationRuleResponse{
-		ID:                    rule.ID,
-		TenantID:              rule.TenantID,
-		SourceBucket:          rule.SourceBucket,
-		DestinationEndpoint:   rule.DestinationEndpoint,
-		DestinationBucket:     rule.DestinationBucket,
-		DestinationAccessKey:  rule.DestinationAccessKey,
-		DestinationSecretKey:  rule.DestinationSecretKey,
-		DestinationRegion:     rule.DestinationRegion,
-		Prefix:                rule.Prefix,
-		Enabled:               rule.Enabled,
-		Priority:              rule.Priority,
-		Mode:                  rule.Mode,
-		ScheduleInterval:      rule.ScheduleInterval,
-		ConflictResolution:    rule.ConflictResolution,
-		ReplicateDeletes:      rule.ReplicateDeletes,
-		ReplicateMetadata:     rule.ReplicateMetadata,
-		CreatedAt:             rule.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:             rule.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ID:                   rule.ID,
+		TenantID:             rule.TenantID,
+		SourceBucket:         rule.SourceBucket,
+		DestinationEndpoint:  rule.DestinationEndpoint,
+		DestinationBucket:    rule.DestinationBucket,
+		DestinationAccessKey: rule.DestinationAccessKey,
+		DestinationSecretKey: rule.DestinationSecretKey,
+		DestinationRegion:    rule.DestinationRegion,
+		Prefix:               rule.Prefix,
+		Enabled:              rule.Enabled,
+		Priority:             rule.Priority,
+		Mode:                 rule.Mode,
+		ScheduleInterval:     rule.ScheduleInterval,
+		ConflictResolution:   rule.ConflictResolution,
+		ReplicateDeletes:     rule.ReplicateDeletes,
+		ReplicateMetadata:    rule.ReplicateMetadata,
+		CreatedAt:            rule.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:            rule.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 
 	s.writeJSON(w, response)
@@ -283,7 +292,7 @@ func (s *Server) handleUpdateReplicationRule(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	tenantID := user.TenantID
+	tenantID := replicationTenantIDFromRequest(ctx, r, user)
 
 	existingRule, err := s.replicationManager.GetRule(ctx, ruleID)
 	if err != nil {
@@ -347,24 +356,24 @@ func (s *Server) handleUpdateReplicationRule(w http.ResponseWriter, r *http.Requ
 	}
 
 	response := ReplicationRuleResponse{
-		ID:                    existingRule.ID,
-		TenantID:              existingRule.TenantID,
-		SourceBucket:          existingRule.SourceBucket,
-		DestinationEndpoint:   existingRule.DestinationEndpoint,
-		DestinationBucket:     existingRule.DestinationBucket,
-		DestinationAccessKey:  existingRule.DestinationAccessKey,
-		DestinationSecretKey:  existingRule.DestinationSecretKey,
-		DestinationRegion:     existingRule.DestinationRegion,
-		Prefix:                existingRule.Prefix,
-		Enabled:               existingRule.Enabled,
-		Priority:              existingRule.Priority,
-		Mode:                  existingRule.Mode,
-		ScheduleInterval:      existingRule.ScheduleInterval,
-		ConflictResolution:    existingRule.ConflictResolution,
-		ReplicateDeletes:      existingRule.ReplicateDeletes,
-		ReplicateMetadata:     existingRule.ReplicateMetadata,
-		CreatedAt:             existingRule.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:          existingRule.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ID:                   existingRule.ID,
+		TenantID:             existingRule.TenantID,
+		SourceBucket:         existingRule.SourceBucket,
+		DestinationEndpoint:  existingRule.DestinationEndpoint,
+		DestinationBucket:    existingRule.DestinationBucket,
+		DestinationAccessKey: existingRule.DestinationAccessKey,
+		DestinationSecretKey: existingRule.DestinationSecretKey,
+		DestinationRegion:    existingRule.DestinationRegion,
+		Prefix:               existingRule.Prefix,
+		Enabled:              existingRule.Enabled,
+		Priority:             existingRule.Priority,
+		Mode:                 existingRule.Mode,
+		ScheduleInterval:     existingRule.ScheduleInterval,
+		ConflictResolution:   existingRule.ConflictResolution,
+		ReplicateDeletes:     existingRule.ReplicateDeletes,
+		ReplicateMetadata:    existingRule.ReplicateMetadata,
+		CreatedAt:            existingRule.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:            existingRule.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 
 	s.writeJSON(w, response)
@@ -381,7 +390,7 @@ func (s *Server) handleDeleteReplicationRule(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	tenantID := user.TenantID
+	tenantID := replicationTenantIDFromRequest(ctx, r, user)
 
 	existingRule, err := s.replicationManager.GetRule(ctx, ruleID)
 	if err != nil {
@@ -437,7 +446,7 @@ func (s *Server) handleGetReplicationMetrics(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	tenantID := user.TenantID
+	tenantID := replicationTenantIDFromRequest(ctx, r, user)
 
 	rule, err := s.replicationManager.GetRule(ctx, ruleID)
 	if err != nil {
@@ -497,7 +506,7 @@ func (s *Server) handleTriggerReplicationSync(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	tenantID := user.TenantID
+	tenantID := replicationTenantIDFromRequest(ctx, r, user)
 
 	// Get rule to verify tenant ownership
 	rule, err := s.replicationManager.GetRule(ctx, ruleID)

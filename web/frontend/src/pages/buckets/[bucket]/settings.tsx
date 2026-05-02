@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
@@ -309,8 +309,8 @@ export default function BucketSettingsPage() {
 
   // Replication query
   const { data: replicationRules, refetch: refetchReplicationRules } = useQuery({
-    queryKey: ['bucket-replication-rules', bucketName],
-    queryFn: () => APIClient.listReplicationRules(bucketName),
+    queryKey: ['bucket-replication-rules', bucketName, tenantId],
+    queryFn: () => APIClient.listReplicationRules(bucketName, tenantId),
     enabled: activeTab === 'replication',
   });
 
@@ -343,9 +343,9 @@ export default function BucketSettingsPage() {
   // Replication mutations
   const createReplicationRuleMutation = useMutation({
     mutationFn: (request: CreateReplicationRuleRequest) =>
-      APIClient.createReplicationRule(bucketName, request),
+      APIClient.createReplicationRule(bucketName, request, tenantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName, tenantId] });
       refetchReplicationRules();
       setIsReplicationModalOpen(false);
       setReplicationRuleForm({
@@ -372,9 +372,9 @@ export default function BucketSettingsPage() {
 
   const updateReplicationRuleMutation = useMutation({
     mutationFn: ({ ruleId, request }: { ruleId: string; request: CreateReplicationRuleRequest }) =>
-      APIClient.updateReplicationRule(bucketName, ruleId, request),
+      APIClient.updateReplicationRule(bucketName, ruleId, request, tenantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName, tenantId] });
       refetchReplicationRules();
       setIsReplicationModalOpen(false);
       setEditingReplicationRule(null);
@@ -386,9 +386,9 @@ export default function BucketSettingsPage() {
   });
 
   const deleteReplicationRuleMutation = useMutation({
-    mutationFn: (ruleId: string) => APIClient.deleteReplicationRule(bucketName, ruleId),
+    mutationFn: (ruleId: string) => APIClient.deleteReplicationRule(bucketName, ruleId, tenantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName, tenantId] });
       refetchReplicationRules();
       ModalManager.toast('success', t('replication.deletedSuccess'));
     },
@@ -398,9 +398,9 @@ export default function BucketSettingsPage() {
   });
 
   const triggerReplicationSyncMutation = useMutation({
-    mutationFn: (ruleId: string) => APIClient.triggerReplicationSync(bucketName, ruleId),
+    mutationFn: (ruleId: string) => APIClient.triggerReplicationSync(bucketName, ruleId, tenantId),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName] });
+      queryClient.invalidateQueries({ queryKey: ['bucket-replication-rules', bucketName, tenantId] });
       ModalManager.toast('success', t('replication.syncTriggered', { count: data.queued_count }));
     },
     onError: (error: Error) => {
@@ -448,6 +448,34 @@ export default function BucketSettingsPage() {
       ModalManager.apiError(error);
     },
   });
+
+  // Helper function to detect canned ACL from grants
+  function detectCannedACL(grants: any[]): string {
+    const hasAllUsersRead = grants.some((g: any) =>
+      (g.Grantee?.URI?.includes('AllUsers') || g.Grantee?.uri?.includes('AllUsers')) &&
+      (g.Permission === 'READ' || g.permission === 'READ')
+    );
+
+    const hasAllUsersWrite = grants.some((g: any) =>
+      (g.Grantee?.URI?.includes('AllUsers') || g.Grantee?.uri?.includes('AllUsers')) &&
+      (g.Permission === 'WRITE' || g.permission === 'WRITE')
+    );
+
+    const hasAuthenticatedUsersRead = grants.some((g: any) =>
+      (g.Grantee?.URI?.includes('AuthenticatedUsers') || g.Grantee?.uri?.includes('AuthenticatedUsers')) &&
+      (g.Permission === 'READ' || g.permission === 'READ')
+    );
+
+    if (hasAllUsersRead && hasAllUsersWrite) {
+      return 'public-read-write';
+    } else if (hasAllUsersRead) {
+      return 'public-read';
+    } else if (hasAuthenticatedUsersRead) {
+      return 'authenticated-read';
+    } else {
+      return 'private';
+    }
+  }
 
   // Website state
   const [websiteEnabled, setWebsiteEnabled] = useState<boolean>(false);
@@ -525,7 +553,7 @@ export default function BucketSettingsPage() {
 
 
   // Load current ACL
-  const loadCurrentACL = async () => {
+  const loadCurrentACL = useCallback(async () => {
     try {
       const response = await APIClient.getBucketACL(bucketName, tenantId);
 
@@ -546,10 +574,10 @@ export default function BucketSettingsPage() {
       console.error('Error loading bucket ACL:', error);
       setCurrentACL('private');
     }
-  };
+  }, [bucketName, tenantId]);
 
   // Load current Policy
-  const loadCurrentPolicy = async () => {
+  const loadCurrentPolicy = useCallback(async () => {
     try {
       const response = await APIClient.getBucketPolicy(bucketName, tenantId);
 
@@ -567,21 +595,21 @@ export default function BucketSettingsPage() {
       setCurrentPolicy(null);
       setPolicyStatementCount(0);
     }
-  };
+  }, [bucketName, tenantId]);
 
 
   // Load current ACL and Policy on component mount
   useEffect(() => {
     loadCurrentACL();
     loadCurrentPolicy();
-  }, [bucketName, tenantId]);
+  }, [loadCurrentACL, loadCurrentPolicy]);
 
   // Refetch inventory config every time the user opens the inventory tab
   useEffect(() => {
     if (activeTab === 'inventory') {
       refetchInventory();
     }
-  }, [activeTab]);
+  }, [activeTab, refetchInventory]);
 
   // When server data changes (save/delete/refetch), discard local edits so the form
   // reflects the fresh server state immediately on the next render.
@@ -613,34 +641,6 @@ export default function BucketSettingsPage() {
       }
     : inventoryFormDefaults);
   const setInventoryForm = (newForm: any) => setLocalInventoryEdits(newForm);
-
-  // Helper function to detect canned ACL from grants
-  const detectCannedACL = (grants: any[]): string => {
-    const hasAllUsersRead = grants.some((g: any) =>
-      (g.Grantee?.URI?.includes('AllUsers') || g.Grantee?.uri?.includes('AllUsers')) &&
-      (g.Permission === 'READ' || g.permission === 'READ')
-    );
-
-    const hasAllUsersWrite = grants.some((g: any) =>
-      (g.Grantee?.URI?.includes('AllUsers') || g.Grantee?.uri?.includes('AllUsers')) &&
-      (g.Permission === 'WRITE' || g.permission === 'WRITE')
-    );
-
-    const hasAuthenticatedUsersRead = grants.some((g: any) =>
-      (g.Grantee?.URI?.includes('AuthenticatedUsers') || g.Grantee?.uri?.includes('AuthenticatedUsers')) &&
-      (g.Permission === 'READ' || g.permission === 'READ')
-    );
-
-    if (hasAllUsersRead && hasAllUsersWrite) {
-      return 'public-read-write';
-    } else if (hasAllUsersRead) {
-      return 'public-read';
-    } else if (hasAuthenticatedUsersRead) {
-      return 'authenticated-read';
-    } else {
-      return 'private';
-    }
-  };
 
   // Handlers
   const isObjectLockEnabled = bucketData?.objectLock?.objectLockEnabled === true;
@@ -1129,7 +1129,7 @@ export default function BucketSettingsPage() {
       destination_secret_key: replicationRuleForm.destination_secret_key || '',
       destination_region: replicationRuleForm.destination_region,
       prefix: replicationRuleForm.prefix,
-      enabled: replicationRuleForm.enabled || true,
+      enabled: replicationRuleForm.enabled ?? true,
       priority: replicationRuleForm.priority || 1,
       mode: replicationRuleForm.mode || 'realtime',
       schedule_interval: replicationRuleForm.schedule_interval,
