@@ -76,3 +76,56 @@ func TestCompleteMultipartUploadValidatesETagAndOrder(t *testing.T) {
 	_, err = om.metadataStore.GetMultipartUpload(ctx, upload.UploadID)
 	assert.True(t, errors.Is(err, metadata.ErrUploadNotFound), "successful completion should remove upload metadata")
 }
+
+func TestMultipartUploadFiltersRequestHeadersFromFinalUserMetadata(t *testing.T) {
+	ctx := context.Background()
+	om, metaStore, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+
+	bucket := "multipart-metadata-bucket"
+	key := "object.bin"
+	require.NoError(t, metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name:     bucket,
+		TenantID: "tenant-1",
+		OwnerID:  "user-1",
+	}))
+
+	headers := http.Header{
+		"Authorization": []string{"AWS4-HMAC-SHA256 Credential=should-not-persist"},
+		"User-Agent":    []string{"aws-cli/test"},
+		"X-Amz-Date":    []string{"20260503T120000Z"},
+		"Host":          []string{"localhost:8080"},
+		"Content-Type":  []string{"text/plain"},
+		"X-Amz-Acl":     []string{"public-read"},
+		"X-Amz-Meta-Owner": []string{
+			"release-test",
+		},
+	}
+
+	upload, err := om.CreateMultipartUpload(ctx, bucket, key, headers)
+	require.NoError(t, err)
+	require.Equal(t, "public-read", upload.Metadata["x-amz-acl"], "multipart state must preserve canned ACL for S3 handler")
+	require.NotContains(t, upload.Metadata, "authorization")
+	require.NotContains(t, upload.Metadata, "user-agent")
+	require.NotContains(t, upload.Metadata, "x-amz-date")
+	require.NotContains(t, upload.Metadata, "host")
+
+	part, err := om.UploadPart(ctx, upload.UploadID, 1, bytes.NewReader([]byte("multipart metadata payload")))
+	require.NoError(t, err)
+
+	obj, err := om.CompleteMultipartUpload(ctx, upload.UploadID, []Part{*part})
+	require.NoError(t, err)
+	require.NotNil(t, obj)
+	require.Equal(t, "text/plain", obj.ContentType)
+	require.Equal(t, map[string]string{"owner": "release-test"}, obj.Metadata)
+
+	stored, err := om.GetObjectMetadata(ctx, bucket, key)
+	require.NoError(t, err)
+	require.Equal(t, "text/plain", stored.ContentType)
+	require.Equal(t, map[string]string{"owner": "release-test"}, stored.Metadata)
+	assert.NotContains(t, stored.Metadata, "authorization")
+	assert.NotContains(t, stored.Metadata, "user-agent")
+	assert.NotContains(t, stored.Metadata, "x-amz-date")
+	assert.NotContains(t, stored.Metadata, "content-type")
+	assert.NotContains(t, stored.Metadata, "x-amz-acl")
+}

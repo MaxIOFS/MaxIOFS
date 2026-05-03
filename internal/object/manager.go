@@ -1789,18 +1789,19 @@ func (om *objectManager) CreateMultipartUpload(ctx context.Context, bucket, key 
 		return nil, fmt.Errorf("failed to generate upload ID: %w", err)
 	}
 
-	// Extract metadata from headers
-	metadata := make(map[string]string)
-	for headerKey, values := range headers {
-		if len(values) > 0 {
-			key := strings.ToLower(headerKey)
-			metadata[key] = values[0]
-		}
+	// Extract metadata from headers (storage fields + x-amz-meta-* only)
+	storageMetadata, userMetadata := om.extractMetadataFromHeaders(headers)
+	metadata := make(map[string]string, len(storageMetadata)+len(userMetadata))
+	for k, v := range storageMetadata {
+		metadata[k] = v
 	}
-
-	// Set default content type if not provided
-	if _, exists := metadata["content-type"]; !exists {
-		metadata["content-type"] = "application/octet-stream"
+	for k, v := range userMetadata {
+		metadata[k] = v
+	}
+	// Preserve x-amz-acl as internal multipart state so CompleteMultipartUpload
+	// can apply the canned ACL after the object is written.
+	if acl := headers.Get("x-amz-acl"); acl != "" {
+		metadata["x-amz-acl"] = acl
 	}
 
 	// Create multipart upload metadata
@@ -2045,7 +2046,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		LastModified: time.Unix(lastModified, 0),
 		ETag:         multipartETag,
 		ContentType:  multipart.Metadata["content-type"],
-		Metadata:     multipart.Metadata,
+		Metadata:     filterStorageMetadataKeys(multipart.Metadata),
 		StorageClass: multipart.StorageClass,
 		VersionID:    versionID,
 	}
@@ -2536,6 +2537,24 @@ func storageClassOrDefault(sc string) string {
 		return StorageClassStandard
 	}
 	return sc
+}
+
+// filterStorageMetadataKeys returns a copy of m without system/storage keys that
+// should not appear as user metadata (x-amz-meta-*) in S3 responses.
+func filterStorageMetadataKeys(m map[string]string) map[string]string {
+	storageKeys := map[string]bool{
+		"content-type": true, "content-disposition": true,
+		"content-encoding": true, "cache-control": true,
+		"content-language": true, "storage-class": true,
+		"x-amz-acl": true,
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		if !storageKeys[k] {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // shouldEncryptObject determines if an object should be encrypted based on server and bucket configuration
