@@ -443,6 +443,8 @@ func TestValidatePath(t *testing.T) {
 		{"Windows separator", "folder\\file.txt", true},
 		{"Windows traversal", "folder\\..\\file.txt", true},
 		{"Windows drive absolute", "C:/tmp/file.txt", true},
+		{"Drive qualified relative", "C:tmp/file.txt", true},
+		{"Colon outside drive prefix", "folder/file:name.txt", false},
 	}
 
 	for _, tt := range tests {

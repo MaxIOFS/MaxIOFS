@@ -128,7 +128,7 @@ jobs:
       - name: Run backend tests
         run: |
           echo "Running backend tests..."
-          PKGS=$(go list ./... | grep -v '^github.com/maxiofs/maxiofs/web$')
+          PKGS=$(go list ./... | grep -v '/node_modules/')
           echo "Testing packages:" $PKGS
           go test $PKGS -v
           echo "✅ All backend tests passed"

@@ -428,6 +428,10 @@ func (fs *FilesystemBackend) validatePath(path string) error {
 		return ErrInvalidPath
 	}
 
+	if isDriveQualifiedPath(path) {
+		return ErrInvalidPath
+	}
+
 	// Prevent directory traversal while still allowing valid S3 keys such as
 	// "file..txt" or "folder/.../file.txt".
 	for _, segment := range strings.Split(path, "/") {
@@ -450,6 +454,14 @@ func (fs *FilesystemBackend) validatePath(path string) error {
 	}
 
 	return nil
+}
+
+func isDriveQualifiedPath(path string) bool {
+	if len(path) < 2 || path[1] != ':' {
+		return false
+	}
+	first := path[0]
+	return (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z')
 }
 
 // getFullPath returns the full filesystem path for a given object path
