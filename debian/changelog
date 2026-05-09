@@ -1,3 +1,140 @@
+maxiofs (1:1.4.0) stable; urgency=high
+
+  * Release v1.4.0 — Role capabilities system, security fixes, S3 compatibility, HA fixes
+
+  * [SECURITY] Multipart uploads leaked SigV4 Authorization and internal HTTP headers into object
+    user metadata — visible via HeadObject to any reader; present since multipart was introduced.
+    Fixed by applying the same header whitelist used by PutObject. Upgrade strongly recommended.
+  * [SECURITY] CopyObject bypassed object capabilities and bucket ACL checks before this release.
+    Now requires source object:download + destination object:upload authorization.
+  * [SECURITY] S3 presigned V4 URLs did not enforce signed headers or reject out-of-range expiration.
+  * [SECURITY] GET /api/v1/security/status returned fabricated data (hardcoded zeros for active
+    sessions, failed logins, audit state). Now derived from real server state.
+  * [NEW] Role capabilities system — 11 service-level capabilities (bucket:create, bucket:delete,
+    bucket:configure, bucket:manage_policy, object:upload, object:download, object:delete,
+    object:manage_tags, object:manage_versions, console:access, keys:manage_own). Two-layer model:
+    role defaults (stored in role_capabilities table, editable at runtime) + per-user overrides.
+    admin role always has all capabilities and cannot be locked out.
+  * [NEW] Database migration 13: role_capabilities and user_capability_overrides tables. Seeded with
+    opinionated defaults: admin=all; user=all except bucket:manage_policy; read=download+console+keys;
+    readonly=download+console; guest=download only.
+  * [NEW] Five new capability management API endpoints (GET/PUT/DELETE per-user, GET/PUT per-role).
+  * [NEW] Capability enforcement wired into S3 API and console API handlers.
+  * [NEW] console:access revocation takes effect on existing sessions and refresh tokens immediately.
+  * [NEW] Capability overrides replicated across cluster nodes on every PUT/DELETE override.
+  * [NEW] "Manage Permissions" modal in user detail page — toggle matrix with per-capability override
+    badges and one-click reset to role default.
+  * [NEW] Role Capabilities page at /roles/capabilities (global admin only) — interactive matrix table.
+  * [NEW] Cluster inter-node capability sync: CapabilityOverrides travel in user-sync payload.
+  * [FIX] versionId now honored by GetObjectRetention, PutObjectLegalHold, GetObjectLegalHold,
+    GetObjectAttributes, GetObjectTagging, PutObjectTagging, DeleteObjectTagging, RestoreObject,
+    GetObjectACL, and PutObjectACL — all previously operated on latest version only.
+  * [FIX] DELETE marker and HEAD semantics now match AWS: x-amz-delete-marker header on current
+    markers, MethodNotAllowed for delete-marker versionId requests, NoSuchVersion for missing versions.
+  * [FIX] ListObjectsV2 KeyCount now includes common prefixes (previously undercounted).
+  * [FIX] x-amz-tagging and CopyObject tag directives (COPY/REPLACE) now honored.
+  * [FIX] CopyObject authorization now requires source read + destination write permissions.
+  * [FIX] UploadPartCopy validates upload existence, copy-source preconditions, and capabilities.
+  * [FIX] x-amz-copy-source parser no longer corrupts keys containing encoded query characters.
+  * [FIX] S3 Select JSON Lines no longer silently drops malformed records (returns InvalidRequest).
+  * [FIX] Multipart listing pagination: IsTruncated and markers now correct in ListMultipartUploads
+    and ListParts.
+  * [FIX] S3 object operations resolve bucket's actual tenant instead of request user's tenant.
+  * [FIX] Inventory XML no longer panics on empty frequency values.
+  * [FIX] Presigned URL generation and validation now handle keys with spaces and reserved characters.
+  * [FIX] Inventory report generation now preserves tenant-scoped vs global bucket namespace.
+  * [FIX] Inventory report upload is storage-first; metadata committed only after object is written.
+  * [FIX] Replication queue claims rows atomically before enqueueing (prevents duplicate replication).
+  * [FIX] HA replication now preserves version IDs across fanout, stale-node pulls, and anti-entropy.
+  * [FIX] HA internal URLs now escape object keys with reserved characters.
+  * [FIX] Legacy cluster migration: tenant context preserved, keys with / matched correctly, HEAD
+    verification endpoint added (verifyData=true no longer fails with 405).
+  * [FIX] Legacy migration custom object metadata no longer corrupted on receiving node.
+  * [FIX] Legacy migration URLs path-escape tenant and bucket segments.
+  * [FIX] Versioned bucket object count and storage metrics stay consistent across delete markers,
+    PUT over delete markers, and CompleteMultipartUpload in versioned buckets.
+  * [FIX] Expired Object Lock retentions can now be removed.
+  * [FIX] Lifecycle cleanup now scans ListAllObjectVersions (no longer misses delete-marker-only keys).
+  * [FIX] Tag index entries removed atomically on object overwrite (stale tags no longer surface).
+  * [FIX] Version prefix scans no longer bleed between colon-prefixed keys.
+  * [FIX] Filesystem object writes are now atomic (object rename before metadata commit).
+  * [FIX] Filesystem metadata writes use CreateTemp+rename instead of os.WriteFile in place.
+  * [FIX] Filesystem path validation rejects Windows separator collisions; allows valid dotted names.
+  * [FIX] Bucket deletion now treats metadata-only objects and delete markers as real contents.
+  * [FIX] Badger→Pebble migration recovers cleanly from crash between write and promotion.
+  * [FIX] Folder delete confirmation now accurately describes recursive deletion behavior.
+  * [FIX] JSON-typed dynamic settings now reject malformed JSON before committing.
+  * [FIX] Readiness check /ready now reflects real object store and auth DB state.
+  * [FIX] Metrics collector no longer reports fabricated FD and network byte counters.
+  * [FIX] Frontend inactivity timeout no longer resets on background token refresh.
+  * [FIX] Tenant context propagated correctly for Object Lock, legal hold, ACL, and replication.
+  * [FIX] Frontend object console API URLs now encode reserved characters in object keys.
+  * [FIX] OAuth completion cookies now correctly omit Secure flag on HTTP deployments.
+  * [FIX] JWT payload base64url decoding corrected (proactive refresh was silently failing).
+  * [FIX] Notification webhook delivery closes response bodies per attempt; empty DNS handled.
+  * [BUILD] All build targets (binary, Docker, .deb, RPM) now consistently apply -s -w -trimpath
+    CGO_ENABLED=0; undefined FLAGS_RELEASE variable in debian/rules removed.
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Sun, 03 May 2026 12:00:00 +0000
+
+maxiofs (1:1.3.0) stable; urgency=high
+
+  * Release v1.3.0 — HA cluster: write quorum, read fallback, anti-entropy, dead-node redistribution,
+    storage-pressure health state, stale-node reconciler, inter-node S3 proxy, cluster bug fixes
+
+  * [NEW] HA write quorum — writes block until ceil(factor/2) replicas acknowledge. Pre-checks cluster
+    health before local write. Returns HTTP 503 Retry-After:30 on quorum failure. Local write rolled
+    back on PUT/CompleteMultipart quorum failure. factor=2 preserves best-effort semantics.
+  * [NEW] HA read fallback — GetObject retries across all healthy replicas ordered by latency.
+    Flips failing nodes to Unavailable on 5xx or transport error; 404 tries next candidate.
+  * [NEW] Anti-entropy scrubber — continuous background reconciliation. Jittered 5-60 min first run,
+    configurable cycle interval (ha.scrub_interval_hours, default 24h). Processes objects in batches
+    of ha.scrub_batch_size (default 500). LWW reconciliation: push to peers with older ETag, pull
+    from peers with newer ETag. Crash-safe via Pebble checkpoint. Rate-limited at ha.scrub_rate_limit
+    (default 50 obj/s). Status via GET /cluster/ha/scrub-status.
+  * [NEW] Dead-node redistribution — nodes unavailable beyond ha.dead_node_threshold_hours (default
+    24h) are promoted to dead state. HASyncWorker catch-up triggered on remaining nodes. Last-survivor
+    protection prevents dropping below replication factor. POST /cluster/nodes/{id}/drain for
+    immediate admin drain. SSE events: cluster_degraded / cluster_degraded_resolved.
+  * [NEW] Storage-pressure health state — node transitions to storage_pressure above
+    ha.storage_pressure_threshold_percent (default 90%), releases below
+    ha.storage_pressure_release_percent (default 85%). Excluded from write targets, kept for reads.
+    SSE events: node_storage_pressure / node_storage_pressure_resolved.
+  * [NEW] Stale-node reconciler — on startup with is_stale=true, detects ModeOffline vs ModePartition
+    and performs bidirectional entity/tombstone sync + HA object delta sync before clearing stale flag.
+  * [NEW] Inter-node S3 proxy with HMAC authentication — HMAC-SHA256(token, "proxy:{nodeID}:{ts}"),
+    ±5 min replay window, loop prevention via X-MaxIOFS-Proxied header, dynamic TLS config.
+  * [NEW] Dedicated cluster inter-node port 8082 (configurable via cluster_listen). S3=8080,
+    console=8081, cluster=8082.
+  * [NEW] Realtime replication mode now functional — PutObject/DeleteObject enqueue matching
+    mode=realtime rules asynchronously after response is sent.
+  * [NEW] replication.allow_internal_endpoints config option — disables SSRF protection for
+    replication to private/internal IP ranges (Kubernetes, Docker, LAN deployments).
+  * [NEW] Add Node and Join Cluster forms accept plain IP or IP:port (auto-applies default ports).
+  * [FIX] CRITICAL: Cluster sync tables never created — all inter-node sync permanently disabled in
+    all prior versions. InitReplicationSchema never called; cluster_global_config missing; all sync
+    managers silently disabled on every tick.
+  * [FIX] Remote nodes always showed 0 GB disk capacity (fields nested inside API envelope).
+  * [FIX] Inter-node sync requests rejected with TLS errors (proxyClient built before TLS init).
+  * [FIX] Newly-joined nodes unavailable for up to 30s (kickstartNewNodeSync added).
+  * [FIX] Cluster join broken: primary sent console URL (8081) instead of S3 API URL (8080) to joining
+    node; all subsequent inter-node calls failed with 404.
+  * [FIX] Inter-node TLS verification always failed on real IPs (localhost/127.0.0.1 only in SANs).
+  * [FIX] Console access broken after setting public_console_url (routes mounted under subpath).
+  * [FIX] Session always expired at 15 min regardless of activity (refresh_token field name mismatch).
+  * [FIX] Inactivity timeout did not survive tab close/page reload (last_activity now in localStorage).
+  * [FIX] Inactivity timeout was 30 min instead of documented 15 min.
+  * [FIX] Duplicate folders in S3 clients paginating large buckets (advancePastPrefix added).
+  * [FIX] Pebble ListObjects skipped all results when marker key was not in store.
+  * [FIX] handleCreateBucket panicked (nil clusterManager) in server unit tests.
+  * [FIX] Bucket migration allowed when HA replication factor > 1 (data destruction risk).
+  * [FIX] Bucket migration delete_source was a no-op (implemented ForceDeleteBucket after copy).
+  * [FIX] Frontend dependency toolchain upgraded: Vite 8, @vitejs/plugin-react 6, ESLint 10.
+  * [CHANGED] Object Lock bucket creation UI simplified; "No default retention (app-managed)" option
+    added as default (Veeam B&R guidance).
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Tue, 21 Apr 2026 12:00:00 +0000
+
 maxiofs (1:1.2.0) stable; urgency=medium
 
   * Release v1.2.0 - Pebble v2 engine, S3 Select, RestoreObject, OwnershipControls, BucketNotifications
