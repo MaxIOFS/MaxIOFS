@@ -33,7 +33,7 @@ COPY --from=web-builder /app/web/frontend/dist ./web/frontend/dist
 ARG VERSION=docker
 ARG COMMIT=unknown
 ARG BUILD_DATE
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
     -ldflags "-w -s -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${BUILD_DATE}" \
     -o maxiofs ./cmd/maxiofs
 

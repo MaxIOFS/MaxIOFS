@@ -1,6 +1,6 @@
 # Testing
 
-**Version**: 1.3.0
+**Version**: 1.4.0
 **Last Updated**: April 30, 2026
 
 ---

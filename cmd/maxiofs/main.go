@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	version = "v1.3.0" // Default version, overridden by -ldflags during build
+	version = "v1.4.0" // Default version, overridden by -ldflags during build
 	commit  = "develop"
 	date    = "20260421"
 )

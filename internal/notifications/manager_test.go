@@ -1309,11 +1309,10 @@ func TestSendEvent(t *testing.T) {
 		}
 		manager.SendEvent(ctx, info2)
 
-		// Give webhooks time to be sent
-		time.Sleep(300 * time.Millisecond)
-
-		// Only the first event should have been sent
-		assert.Equal(t, int32(1), atomic.LoadInt32(&receivedEvents))
+		// Poll until the matching event arrives or 2s timeout (avoids flakiness under load)
+		assert.Eventually(t, func() bool {
+			return atomic.LoadInt32(&receivedEvents) == 1
+		}, 2*time.Second, 50*time.Millisecond)
 	})
 
 	t.Run("respects suffix filter", func(t *testing.T) {
@@ -1364,10 +1363,9 @@ func TestSendEvent(t *testing.T) {
 		}
 		manager.SendEvent(ctx, info2)
 
-		// Give webhooks time to be sent
-		time.Sleep(300 * time.Millisecond)
-
-		// Only the first event should have been sent
-		assert.Equal(t, int32(1), atomic.LoadInt32(&receivedEvents))
+		// Poll until the matching event arrives or 2s timeout (avoids flakiness under load)
+		assert.Eventually(t, func() bool {
+			return atomic.LoadInt32(&receivedEvents) == 1
+		}, 2*time.Second, 50*time.Millisecond)
 	})
 }

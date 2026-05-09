@@ -328,116 +328,95 @@ export default function AboutPage() {
 
             <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                HA Write Quorum — Synchronous Replication
+                Role Capabilities System
               </h3>
               <p className="text-sm text-muted-foreground">
-                Writes now block until <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ceil(factor/2)</code> replicas
-                acknowledge. If quorum is not reached the local write is rolled back and the client receives{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">503 ServiceUnavailable</code> with{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Retry-After: 30</code>.
-                A pre-check (<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ClusterCanAcceptWrites</code>) rejects
-                writes early when the cluster is already degraded, saving a write-then-rollback cycle.
-                <strong> factor=2</strong> keeps best-effort semantics; strict two-copy requires factor=3.
+                11 service-level capabilities (<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">bucket:create</code>,{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">object:upload</code>,{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">console:access</code>, and more) are now stored in the
+                database and enforced on every S3 and console API request. Each role has configurable defaults;
+                admins can add per-user overrides (grant or deny) that take effect immediately across the cluster.
+                The <strong>admin</strong> role always retains all capabilities regardless of the table,
+                preventing accidental lockout.
               </p>
             </div>
 
-            <div className="border-l-4 border-indigo-500 pl-4">
+            <div className="border-l-4 border-red-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                HA Read Fallback with Ordered Retry
+                Security Fix — Multipart Metadata Leak
               </h3>
               <p className="text-sm text-muted-foreground">
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetObject</code> now
-                iterates an ordered replica list (sorted by latency, rotated for round-robin balance).{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">TryProxyRead</code> peeks the replica's status
-                before committing to the response writer: 404 → try next replica; 5xx / transport error → mark
-                node unavailable and try next. Eliminates spurious 404s when an object exists on other replicas
-                but not the first one selected.
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">CreateMultipartUpload</code> stored every HTTP request
+                header — including <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Authorization</code>,{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">User-Agent</code>, and{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">X-Amz-Date</code> — as permanent object user metadata,
+                exposing the full SigV4 authorization token to any caller with read access via{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">HeadObject</code>.
+                Only <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Content-Type</code>,{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-meta-*</code>, and internal state
+                (e.g. <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-acl</code>) are now stored.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Anti-Entropy Scrubber
+                Object Lock & Tagging Now Honor versionId
               </h3>
               <p className="text-sm text-muted-foreground">
-                A background goroutine scans all buckets every 24 hours (configurable), comparing object checksums
-                across all healthy replicas via{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">POST /api/internal/ha/checksum-batch</code>.
-                Divergences are reconciled with Last-Writer-Wins: missing or stale objects are pushed or pulled
-                automatically. Progress is checkpointed to Pebble after every batch so a restart resumes the
-                same cycle. Scrub runs are visible in the HA admin page.
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetObjectRetention</code>,{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObjectRetention</code>,{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetObjectLegalHold</code>,{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObjectLegalHold</code>,{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetObjectTagging</code>,{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObjectTagging</code>, and{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">RestoreObject</code> previously always operated on the
+                latest version even when a specific <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">versionId</code> was
+                requested. All operations now target the exact requested version.
               </p>
             </div>
 
-            <div className="border-l-4 border-red-500 pl-4">
+            <div className="border-l-4 border-indigo-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Dead-Node Redistribution & Drain
+                CopyObject Tag Directives & x-amz-tagging on PUT
               </h3>
               <p className="text-sm text-muted-foreground">
-                Nodes unreachable for more than <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ha.dead_node_threshold_hours</code>{' '}
-                (default 24 h) are automatically flipped to the new <strong>dead</strong> state and excluded
-                from all write targets. Last-survivor protection prevents marking a node dead if it would drop
-                the non-dead count below the replication factor. Admins can also drain a node immediately via{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">POST /cluster/nodes/{'{id}'}/drain</code>.
-                SSE events notify the console when the cluster becomes degraded or recovers.
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObject</code> now persists the{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-tagging</code> header at upload time.{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">CopyObject</code> defaults to{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-tagging-directive: COPY</code> (source tags
+                propagated to destination) and honours{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">REPLACE</code> to apply a new tag set instead.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Storage-Pressure Health State
+                Versioning, Multipart & Lifecycle Consistency
               </h3>
               <p className="text-sm text-muted-foreground">
-                A new <strong>storage_pressure</strong> node state triggers when disk usage exceeds{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ha.storage_pressure_threshold_percent</code>{' '}
-                (default 90 %). Nodes in this state are excluded from new writes but still serve reads, since
-                they hold valid data. Hysteresis prevents oscillation: the node only returns to healthy once
-                usage drops below the release threshold (default 85 %). SSE events{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">node_storage_pressure</code> and{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">node_storage_pressure_resolved</code> are emitted on transitions.
+                Versioned bucket metrics no longer drift when a delete marker is created over another marker or
+                when a PUT follows a delete marker.{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">CompleteMultipartUpload</code> now generates a proper
+                version ID in versioned buckets. Lifecycle noncurrent-version expiration and expired-delete-marker
+                cleanup now scan{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ListAllObjectVersions</code> instead of{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ListObjects</code>, so keys hidden behind a latest
+                delete marker are correctly eligible for cleanup.
               </p>
             </div>
 
             <div className="border-l-4 border-teal-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Stale-Node Reconciler
+                S3 Compatibility Improvements
               </h3>
               <p className="text-sm text-muted-foreground">
-                When a node rejoins after being offline or partitioned, a reconciler runs once at startup.
-                In <strong>offline</strong> mode only tombstones are propagated immediately; periodic sync
-                delivers the rest. In <strong>partition</strong> mode (node accepted writes while isolated)
-                a full LWW push of locally-newer entities is performed before the stale flag is cleared.
-                If the node was previously an HA replica, a delta sync pulls all objects modified while it
-                was offline before returning to service.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-cyan-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Inter-Node S3 Proxy with HMAC Auth
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                S3 requests that arrive at a node which does not own the target bucket are transparently
-                proxied to the correct node using internal IPs (derived from{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">node.Endpoint</code>, not the public URL).
-                The original <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Authorization</code> header is replaced
-                with cluster HMAC auth (<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">X-MaxIOFS-Node-Hmac</code>)
-                and forwarded user context. Loop prevention rejects requests already carrying{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">X-MaxIOFS-Proxied: true</code>.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-yellow-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Cluster Join & Sync Fixes (7 Critical)
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Seven critical cluster fixes: sync tables never created (all inter-node sync was permanently
-                disabled), cluster join broken (primary sent console URL instead of cluster port to joining
-                nodes), TLS verification failed in real deployments (SANs hardcoded to localhost), inter-node
-                sync rejected with TLS errors (clients built before CA loaded), new nodes had no data for
-                30 s after join, <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">public_console_url</code> broke
-                direct node access, and remote nodes always showed 0 GB disk capacity.
+                Presigned V4 URL generation and validation now encode object keys with reserved characters
+                (spaces, <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">+</code>, <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">%</code>) correctly.
+                S3 Select JSON Lines input no longer silently drops malformed records.{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ListMultipartUploads</code> and{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ListParts</code> pagination now reports truncation and
+                markers correctly. Metadata tag searches no longer return stale results after{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObject</code> overwrites an object's tags.
               </p>
             </div>
 

@@ -15,8 +15,8 @@ COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Build flags for Go
-export GOFLAGS = -mod=readonly -modcacherw
-LDFLAGS = -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_DATE)"
+export GOFLAGS = -mod=readonly -modcacherw -trimpath
+LDFLAGS = -ldflags "-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_DATE)"
 
 %:
 	dh $@
@@ -34,7 +34,7 @@ override_dh_auto_build:
 	cd web/frontend && npm run build
 	# Build backend with version info
 	mkdir -p build
-	go build $(GOFLAGS) $(LDFLAGS) -buildvcs=false -o build/maxiofs ./cmd/maxiofs
+	CGO_ENABLED=0 go build $(GOFLAGS) $(LDFLAGS) -buildvcs=false -o build/maxiofs ./cmd/maxiofs
 
 override_dh_auto_install:
 	# Create directories

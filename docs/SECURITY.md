@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 1.3.0 | **Last Updated**: April 30, 2026
+**Version**: 1.4.0 | **Last Updated**: May 3, 2026
 
 > A comprehensive 169-file security audit was completed for v1.1.0. All identified vulnerabilities have been fixed and verified with a full test suite (29/29 packages passing).
 

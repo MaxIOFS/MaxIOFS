@@ -1,5 +1,5 @@
 # MaxIOFS Docker Compose Configuration
-# Version: 1.3.0
+# Version: 1.4.0
 #
 # Usage:
 #   docker compose up                       # Basic: MaxIOFS only
@@ -24,7 +24,7 @@ services:
     #   context: .
     #   dockerfile: Dockerfile
     #   args:
-    #     VERSION: ${VERSION:-1.3.0}
+    #     VERSION: ${VERSION:-1.4.0}
     #     COMMIT: ${GIT_COMMIT:-dev}
     #     BUILD_DATE: ${BUILD_DATE}
     container_name: maxiofs
@@ -64,7 +64,7 @@ services:
       - maxiofs-network
 
     labels:
-      - "com.maxiofs.version=1.3.0"
+      - "com.maxiofs.version=1.4.0"
       - "com.maxiofs.description=S3-compatible object storage server"
 
   # =============================================================================

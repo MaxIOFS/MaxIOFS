@@ -5,7 +5,7 @@
 **Self-hosted S3-compatible object storage — single binary, batteries included**
 
 [![Build](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml/badge.svg)](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml)
-[![Version](https://img.shields.io/badge/version-1.3.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.3.0)
+[![Version](https://img.shields.io/badge/version-1.4.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.4.0)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go)](https://go.dev)
 [![S3 Compatible](https://img.shields.io/badge/S3-100%25%20compatible-orange)](docs/API.md)
@@ -250,13 +250,13 @@ aws --profile maxiofs --endpoint-url http://localhost:8080 s3 ls s3://my-bucket/
 
 **Debian / Ubuntu**
 ```bash
-sudo dpkg -i maxiofs_1.3.0_amd64.deb
+sudo dpkg -i maxiofs_1.4.0_amd64.deb
 sudo systemctl enable --now maxiofs
 ```
 
 **RHEL / Rocky / Alma / Fedora**
 ```bash
-sudo rpm -i maxiofs-1.3.0-1.x86_64.rpm
+sudo rpm -i maxiofs-1.4.0-1.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 
@@ -330,7 +330,8 @@ cd web/frontend && npm run test        # 95+ frontend tests
 
 | Version | Highlights |
 |---------|-----------|
-| **v1.3.0** *(stable)* | HA cluster: write quorum, read fallback with ordered retry, anti-entropy scrubber, dead-node redistribution, storage-pressure health state, stale-node reconciler, inter-node S3 proxy with HMAC auth; cluster join/sync/TLS fixes, session fixes, Object Lock improvements, 40+ bug fixes |
+| **v1.4.0** *(stable)* | Role capabilities system (11 capabilities, per-role defaults, per-user overrides, S3 + console enforcement); multipart metadata security fix (request headers leaked into object user metadata); Object Lock retention/legal-hold now honor versionId; versioning metrics consistency; CopyObject tag directives; presigned URL improvements; S3 Select JSON Lines fix; multipart pagination; inventory fixes; lifecycle delete-marker cleanup; 50+ bug fixes |
+| **v1.3.0** | HA cluster: write quorum, read fallback with ordered retry, anti-entropy scrubber, dead-node redistribution, storage-pressure health state, stale-node reconciler, inter-node S3 proxy with HMAC auth; cluster join/sync/TLS fixes, session fixes, Object Lock improvements, 40+ bug fixes |
 | **v1.2.0** | Pebble v2 metadata engine (auto-migration, configurable cache, Veeam B&R tuning), S3 Select, RestoreObject, OwnershipControls, BucketNotifications webhook delivery, BucketLogging, BucketInventory S3 API, version browser UI, Docker multi-arch, **critical fix**: metadata written since last compaction was silently lost on shutdown, 30+ additional bug fixes |
 | **v1.1.0** | AWS S3-style Actions toolbar, object detail view, object rename & tags, folder ZIP download, SigV2 fix, bucket policy Condition enforcement, PublicAccessBlock enforcement, DeleteBucket Object Lock bypass fix, encryption applied globally, 3 data races fixed |
 | **v1.0.0** | Complete UI redesign, folder upload, POST presigned URLs, bucket notifications, lifecycle execution, full Veeam B&R compatibility, Object Lock per-version enforcement, 3 security fixes |

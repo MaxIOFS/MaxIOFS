@@ -35,7 +35,7 @@ endif
 # Build variables
 BINARY_NAME=maxiofs$(BINARY_EXT)
 # Default version - update this when releasing new versions
-DEFAULT_VERSION=v1.3.0
+DEFAULT_VERSION=v1.4.0
 # Try to get VERSION from environment, fallback to DEFAULT_VERSION
 ifeq ($(DETECTED_OS),Windows)
 	VERSION?=$(if $(VERSION_ENV),$(VERSION_ENV),$(DEFAULT_VERSION))
@@ -51,13 +51,18 @@ RPM_RELEASE=$(shell \
 	if [ -z "$$PRE" ]; then echo "1"; else echo "0.$$PRE"; fi)
 COMMIT?=$(COMMIT)
 BUILD_DATE?=$(BUILD_DATE)
-LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_DATE)"
-LDFLAGS_RELEASE=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_DATE) -s -w"
-BUILD_FLAGS=-buildvcs=false
+LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_DATE)"
+LDFLAGS_RELEASE=$(LDFLAGS)
+BUILD_FLAGS=-buildvcs=false -trimpath
+ifeq ($(DETECTED_OS),Windows)
+	GO_BUILD_ENV=set CGO_ENABLED=0&&
+else
+	GO_BUILD_ENV=CGO_ENABLED=0
+endif
 
 # Go variables
 GOCMD=go
-GOBUILD=$(GOCMD) build $(BUILD_FLAGS)
+GOBUILD=$(GO_BUILD_ENV) $(GOCMD) build $(BUILD_FLAGS)
 GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
@@ -165,7 +170,7 @@ endif
 .PHONY: dev
 dev:
 	@echo "Building for development..."
-	$(GOBUILD) -race -o $(BUILD_DIR)/$(BINARY_NAME)-dev ./cmd/maxiofs
+	$(GOCMD) build $(BUILD_FLAGS) -race -o $(BUILD_DIR)/$(BINARY_NAME)-dev ./cmd/maxiofs
 
 # Install web dependencies
 .PHONY: install-web
@@ -380,15 +385,15 @@ build-all: kill-processes clean build-web
 ifeq ($(DETECTED_OS),Windows)
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
 	@echo Building Linux AMD64...
-	@set GOOS=linux&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-amd64-$(VERSION) ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=linux&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-amd64-$(VERSION) ./cmd/maxiofs
 	@echo Building Linux ARM64...
-	@set GOOS=linux&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-arm64-$(VERSION) ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=linux&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-arm64-$(VERSION) ./cmd/maxiofs
 	@echo Building Windows AMD64...
-	@set GOOS=windows&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-windows-amd64-$(VERSION).exe ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=windows&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-windows-amd64-$(VERSION).exe ./cmd/maxiofs
 	@echo Building macOS AMD64...
-	@set GOOS=darwin&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-amd64-$(VERSION) ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=darwin&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-amd64-$(VERSION) ./cmd/maxiofs
 	@echo Building macOS ARM64...
-	@set GOOS=darwin&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-arm64-$(VERSION) ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=darwin&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-arm64-$(VERSION) ./cmd/maxiofs
 	@echo.
 	@echo ========================================
 	@echo Multi-platform build complete!
@@ -429,7 +434,7 @@ build-linux:
 	@echo Building for Linux AMD64...
 ifeq ($(DETECTED_OS),Windows)
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
-	@set GOOS=linux&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-amd64-$(VERSION) ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=linux&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-amd64-$(VERSION) ./cmd/maxiofs
 else
 	@mkdir -p $(BUILD_DIR)
 	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-amd64-$(VERSION) ./cmd/maxiofs
@@ -441,7 +446,7 @@ build-linux-arm64:
 	@echo Building for Linux ARM64...
 ifeq ($(DETECTED_OS),Windows)
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
-	@set GOOS=linux&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-arm64-$(VERSION) ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=linux&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-arm64-$(VERSION) ./cmd/maxiofs
 else
 	@mkdir -p $(BUILD_DIR)
 	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-linux-arm64-$(VERSION) ./cmd/maxiofs
@@ -453,7 +458,7 @@ build-windows:
 	@echo Building for Windows AMD64...
 ifeq ($(DETECTED_OS),Windows)
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
-	@set GOOS=windows&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-windows-amd64-$(VERSION).exe ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=windows&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-windows-amd64-$(VERSION).exe ./cmd/maxiofs
 else
 	@mkdir -p $(BUILD_DIR)
 	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-windows-amd64-$(VERSION).exe ./cmd/maxiofs
@@ -465,7 +470,7 @@ build-darwin:
 	@echo Building for macOS AMD64...
 ifeq ($(DETECTED_OS),Windows)
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
-	@set GOOS=darwin&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-amd64-$(VERSION) ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=darwin&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-amd64-$(VERSION) ./cmd/maxiofs
 else
 	@mkdir -p $(BUILD_DIR)
 	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-amd64-$(VERSION) ./cmd/maxiofs
@@ -477,7 +482,7 @@ build-darwin-arm64:
 	@echo Building for macOS ARM64...
 ifeq ($(DETECTED_OS),Windows)
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
-	@set GOOS=darwin&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-arm64-$(VERSION) ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=darwin&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-arm64-$(VERSION) ./cmd/maxiofs
 else
 	@mkdir -p $(BUILD_DIR)
 	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/maxiofs-darwin-arm64-$(VERSION) ./cmd/maxiofs
@@ -509,15 +514,15 @@ release: clean build-web
 ifeq ($(DETECTED_OS),Windows)
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
 	@echo Building Linux AMD64 (optimized)...
-	@set GOOS=linux&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-linux-amd64-$(VERSION) ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=linux&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-linux-amd64-$(VERSION) ./cmd/maxiofs
 	@echo Building Linux ARM64 (optimized)...
-	@set GOOS=linux&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-linux-arm64-$(VERSION) ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=linux&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-linux-arm64-$(VERSION) ./cmd/maxiofs
 	@echo Building Windows AMD64 (optimized)...
-	@set GOOS=windows&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-windows-amd64-$(VERSION).exe ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=windows&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-windows-amd64-$(VERSION).exe ./cmd/maxiofs
 	@echo Building macOS AMD64 (optimized)...
-	@set GOOS=darwin&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-darwin-amd64-$(VERSION) ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=darwin&& set GOARCH=amd64&& go build $(BUILD_FLAGS) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-darwin-amd64-$(VERSION) ./cmd/maxiofs
 	@echo Building macOS ARM64 (optimized)...
-	@set GOOS=darwin&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-darwin-arm64-$(VERSION) ./cmd/maxiofs
+	@set CGO_ENABLED=0&& set GOOS=darwin&& set GOARCH=arm64&& go build $(BUILD_FLAGS) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/maxiofs-darwin-arm64-$(VERSION) ./cmd/maxiofs
 	@echo.
 	@echo ========================================
 	@echo Release build complete!
@@ -571,7 +576,7 @@ ifneq ($(DETECTED_OS),Windows)
 	@mkdir -p $(BUILD_DIR)/debian-package/var/log/maxiofs
 	
 	@echo "Building Linux AMD64 binary..."
-	GOOS=linux GOARCH=amd64 $(GOBUILD) $(FLAGS_RELEASE) -o $(BUILD_DIR)/debian-package/opt/maxiofs/maxiofs ./cmd/maxiofs
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/debian-package/opt/maxiofs/maxiofs ./cmd/maxiofs
 	
 	@echo "Copying files..."
 	@cp config.example.yaml $(BUILD_DIR)/debian-package/etc/maxiofs/config.example.yaml
@@ -642,7 +647,7 @@ ifneq ($(DETECTED_OS),Windows)
 	@mkdir -p $(BUILD_DIR)/debian-package-arm64/var/log/maxiofs
 	
 	@echo "Building Linux ARM64 binary..."
-	GOOS=linux GOARCH=arm64 $(GOBUILD) $(FLAGS_RELEASE) -o $(BUILD_DIR)/debian-package-arm64/opt/maxiofs/maxiofs ./cmd/maxiofs
+	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS_RELEASE) -o $(BUILD_DIR)/debian-package-arm64/opt/maxiofs/maxiofs ./cmd/maxiofs
 	
 	@echo "Copying files..."
 	@cp config.example.yaml $(BUILD_DIR)/debian-package-arm64/etc/maxiofs/config.example.yaml
@@ -1115,4 +1120,3 @@ docker-clean:
 	docker system prune -f
 	docker rmi maxiofs:latest maxiofs:$(VERSION) 2>/dev/null || true
 	@echo "Cleanup complete!"
-

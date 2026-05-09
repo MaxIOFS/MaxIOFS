@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.3.0}
+%{!?version: %define version 1.4.0}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -266,6 +266,11 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Sun May 03 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.4.0-1
+- Version 1.4.0 — Role capabilities system, multipart metadata security fix, Object Lock versionId fixes,
+  versioning/metrics consistency, CopyObject tag directives, presigned URL improvements, S3 Select fixes,
+  multipart pagination, inventory fixes, lifecycle delete-marker cleanup, console access revocation
+
 * Tue Apr 21 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.3.0-1
 - Version 1.3.0 — HA cluster: write quorum, read fallback, anti-entropy scrubber, dead-node redistribution,
   storage-pressure health state, stale-node reconciler, inter-node S3 proxy with HMAC auth

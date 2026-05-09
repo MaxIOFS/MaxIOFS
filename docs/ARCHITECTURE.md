@@ -1,6 +1,6 @@
 # MaxIOFS Architecture
 
-**Version**: 1.3.0 | **Last Updated**: April 30, 2026
+**Version**: 1.4.0 | **Last Updated**: May 3, 2026
 
 ## Overview
 
