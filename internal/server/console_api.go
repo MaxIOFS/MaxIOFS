@@ -348,6 +348,10 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/restore", s.handleRestoreObjectVersion).Methods("POST", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/tags", s.handleGetObjectTags).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/tags", s.handleSetObjectTags).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/acl", s.handleGetObjectACL).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/acl", s.handlePutObjectACL).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/legal-hold", s.handleGetObjectLegalHold).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/legal-hold", s.handlePutObjectLegalHold).Methods("PUT", "OPTIONS")
 
 	// Object search endpoint (advanced filtering)
 	router.HandleFunc("/buckets/{bucket}/objects/search", s.handleSearchObjects).Methods("GET", "OPTIONS")
@@ -485,10 +489,6 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/acl", s.handleGetBucketACL).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/acl", s.handlePutBucketACL).Methods("PUT", "OPTIONS")
 
-	// Object ACL endpoints
-	router.HandleFunc("/buckets/{bucket}/objects/{object}/acl", s.handleGetObjectACL).Methods("GET", "OPTIONS")
-	router.HandleFunc("/buckets/{bucket}/objects/{object}/acl", s.handlePutObjectACL).Methods("PUT", "OPTIONS")
-
 	// Bucket Policy endpoints
 	router.HandleFunc("/buckets/{bucket}/policy", s.handleGetBucketPolicy).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/policy", s.handlePutBucketPolicy).Methods("PUT", "OPTIONS")
@@ -516,10 +516,6 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Bucket Object Lock endpoints
 	router.HandleFunc("/buckets/{bucket}/object-lock", s.handleGetObjectLockConfiguration).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/object-lock", s.handlePutObjectLockConfiguration).Methods("PUT", "OPTIONS")
-
-	// Object Legal Hold endpoints
-	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/legal-hold", s.handleGetObjectLegalHold).Methods("GET", "OPTIONS")
-	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/legal-hold", s.handlePutObjectLegalHold).Methods("PUT", "OPTIONS")
 
 	// Cluster endpoints
 	router.HandleFunc("/cluster/initialize", s.handleInitializeCluster).Methods("POST", "OPTIONS")

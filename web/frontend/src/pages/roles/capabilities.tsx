@@ -14,17 +14,17 @@ const ROLE_ORDER = ['admin', 'user', 'read', 'readonly', 'guest'];
 export default function RoleCapabilitiesPage() {
   const { t } = useTranslation('users');
   const navigate = useNavigate();
-  const { isGlobalAdmin } = useCurrentUser();
+  const { isGlobalAdmin, isLoading: isCurrentUserLoading } = useCurrentUser();
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (isGlobalAdmin === false) navigate('/');
-  }, [isGlobalAdmin, navigate]);
+    if (!isCurrentUserLoading && isGlobalAdmin === false) navigate('/');
+  }, [isCurrentUserLoading, isGlobalAdmin, navigate]);
 
   const { data, isLoading } = useQuery({
     queryKey: ['roleCapabilities'],
     queryFn: APIClient.getAllRoleCapabilities,
-    enabled: isGlobalAdmin === true,
+    enabled: !isCurrentUserLoading && isGlobalAdmin === true,
   });
 
   const [edits, setEdits] = useState<Record<string, Set<string>>>({});
@@ -67,7 +67,7 @@ export default function RoleCapabilitiesPage() {
   const allCaps: string[] = data?.all_capabilities || [];
   const roles = ROLE_ORDER.filter((r) => data?.role_capabilities[r] !== undefined);
 
-  if (isLoading || isGlobalAdmin === undefined) {
+  if (isCurrentUserLoading || isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loading size="lg" />

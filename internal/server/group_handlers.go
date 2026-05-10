@@ -286,9 +286,14 @@ func (s *Server) handleAddGroupMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify user exists
-	if _, err := s.authManager.GetUser(r.Context(), req.UserID); err != nil {
+	// Verify user exists and belongs to the same scope as the group.
+	targetUser, err := s.authManager.GetUser(r.Context(), req.UserID)
+	if err != nil {
 		s.writeError(w, "User not found", http.StatusNotFound)
+		return
+	}
+	if targetUser.TenantID != group.TenantID {
+		s.writeError(w, "User and group must belong to the same tenant scope", http.StatusForbidden)
 		return
 	}
 

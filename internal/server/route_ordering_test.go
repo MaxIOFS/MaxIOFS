@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -151,6 +152,31 @@ func TestRouteOrdering_S3EndpointsStillWork(t *testing.T) {
 
 	assert.NotEqual(t, http.StatusNotFound, resp2.StatusCode,
 		"S3 bucket endpoint should be registered")
+}
+
+func TestRouteOrdering_ConsoleObjectSubresourcesBeforeGenericObject(t *testing.T) {
+	server, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	router := mux.NewRouter()
+	server.setupConsoleAPIRoutes(router)
+
+	tests := []string{
+		"/buckets/test-bucket/objects/dir/file.txt/acl",
+		"/buckets/test-bucket/objects/dir/file.txt/legal-hold",
+	}
+
+	for _, path := range tests {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest("GET", path, nil)
+			match := &mux.RouteMatch{}
+			require.True(t, router.Match(req, match), "object subresource route should match")
+
+			vars := match.Vars
+			assert.Equal(t, "test-bucket", vars["bucket"])
+			assert.Equal(t, "dir/file.txt", vars["object"])
+		})
+	}
 }
 
 // TestRouteOrdering_BugReproduction tests the scenario that caused the original bug.

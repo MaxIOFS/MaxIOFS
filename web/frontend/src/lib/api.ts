@@ -571,7 +571,7 @@ export class APIClient {
     return response.data.data!;
   }
 
-  static async updateUser(userId: string, userData: EditUserForm): Promise<User> {
+  static async updateUser(userId: string, userData: Partial<EditUserForm>): Promise<User> {
     const response = await apiClient.put<APIResponse<User>>(`/users/${userId}`, userData);
     return response.data.data!;
   }

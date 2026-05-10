@@ -110,6 +110,7 @@
   "recommended": "Recommended:",
   "recommendEnable2FA": "Enable 2FA to protect your account from unauthorized access.",
   "only2FAGlobalAdmins": "This user has 2FA enabled. Only global administrators can disable it.",
+  "twoFAStatusRestricted": "Only the user or a global administrator can view this 2FA status.",
   "cannotRemoveAdminRole": "Cannot Remove Admin Role",
   "lastAdminInTenant": "Every tenant must have at least one admin. This is the last admin in the tenant.",
   "deleteAccessKeyQuestion": "Delete access key?",

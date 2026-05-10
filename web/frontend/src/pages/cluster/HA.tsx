@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Loading } from '@/components/ui/Loading';
 import {
   Server,
+  Network,
   ArrowLeft,
   CheckCircle,
   XCircle,
@@ -107,28 +108,39 @@ export default function ClusterHA() {
     3: { labelKey: 'factorTriple',        descKey: 'factorTripleDesc',        color: 'text-green-600 dark:text-green-400' },
   } as const;
 
+  const { data: clusterConfig, isLoading: isConfigLoading, error: configError } = useQuery({
+    queryKey: ['cluster-config'],
+    queryFn: APIClient.getClusterConfig,
+  });
+
+  const isClusterEnabled = clusterConfig?.is_cluster_enabled === true;
+
   const { data, isLoading, error } = useQuery({
     queryKey: ['cluster-ha'],
     queryFn: APIClient.getClusterHA,
     refetchInterval: 10000,
+    enabled: isClusterEnabled,
   });
 
   const { data: syncData } = useQuery({
     queryKey: ['cluster-ha-sync-jobs'],
     queryFn: APIClient.getClusterHASyncJobs,
     refetchInterval: 5000,
+    enabled: isClusterEnabled,
   });
 
   const { data: degraded } = useQuery({
     queryKey: ['cluster-degraded-state'],
     queryFn: APIClient.getClusterDegradedState,
     refetchInterval: 10000,
+    enabled: isClusterEnabled,
   });
 
   const { data: scrubStatus } = useQuery({
     queryKey: ['cluster-ha-scrub-status'],
     queryFn: APIClient.getHAScrubStatus,
     refetchInterval: 15000,
+    enabled: isClusterEnabled,
   });
 
   const setFactorMutation = useMutation({
@@ -182,14 +194,44 @@ export default function ClusterHA() {
     );
   };
 
-  if (isLoading) return <Loading />;
+  if (isConfigLoading || (isClusterEnabled && isLoading)) return <Loading />;
 
-  if (error) {
+  if (configError || error) {
     return (
       <div className="p-6">
         <div className="flex items-center gap-3 text-red-600 dark:text-red-400">
           <XCircle className="h-5 w-5" />
           <span>{t('haLoadError')}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isClusterEnabled) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/cluster')}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <Shield className="h-6 w-6" />
+              {t('haReplication')}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {t('haReplicationDesc')}
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-8 text-center">
+          <Network className="w-16 h-16 text-blue-600 dark:text-blue-400 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-foreground mb-2">{t('clusterNotInitialized')}</h2>
+          <p className="text-muted-foreground mb-6">{t('clusterNotInitializedDesc')}</p>
+          <Button onClick={() => navigate('/cluster')}>
+            {t('clusterManagement')}
+          </Button>
         </div>
       </div>
     );

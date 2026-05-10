@@ -39,7 +39,7 @@ export default function SettingsPage() {
   const { t } = useTranslation('settings');
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { isGlobalAdmin, user: currentUser } = useCurrentUser();
+  const { isGlobalAdmin, user: currentUser, isLoading: currentUserLoading } = useCurrentUser();
 
   const categoryInfo: Record<SettingCategory, { icon: React.ComponentType<any>; title: string; description: string }> = {
     security: { icon: categoryIcons.security, title: t('categorySecurityTitle'), description: t('categorySecurityDesc') },
@@ -233,7 +233,7 @@ export default function SettingsPage() {
     return value;
   };
 
-  if (isLoading) {
+  if (currentUserLoading || isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loading size="lg" />

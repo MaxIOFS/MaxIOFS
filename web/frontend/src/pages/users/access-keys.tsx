@@ -25,12 +25,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { AccessKey } from '@/types';
 import ModalManager from '@/lib/modals';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 export default function AccessKeysPage() {
   const { t } = useTranslation('users');
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
+  const { isGlobalAdmin, isTenantAdmin, user: currentUser, isLoading: currentUserLoading } = useCurrentUser();
+  const isAnyAdmin = isGlobalAdmin || isTenantAdmin;
 
   const { data: accessKeys, isLoading } = useQuery({
     queryKey: ['accessKeys'],
@@ -40,6 +43,7 @@ export default function AccessKeysPage() {
   const { data: users } = useQuery({
     queryKey: ['users'],
     queryFn: APIClient.getUsers,
+    enabled: isAnyAdmin,
   });
 
   const deleteAccessKeyMutation = useMutation({
@@ -70,12 +74,13 @@ export default function AccessKeysPage() {
 
   const handleDeleteKey = async (key: AccessKey) => {
     const user = users?.find((u: any) => u.id === key.userId);
+    const username = user?.username || (currentUser?.id === key.userId ? currentUser.username : t('unknownUser'));
 
     try {
       const result = await ModalManager.fire({
         icon: 'warning',
         title: t('deleteAccessKeyTitle'),
-        html: `<p>${t('deleteAccessKeyMessage', { keyId: key.id, username: user?.username || t('unknownUser') })}</p>
+        html: `<p>${t('deleteAccessKeyMessage', { keyId: key.id, username })}</p>
                <p class="text-red-600 mt-2">${t('actionCannotBeUndone')}</p>`,
         showCancelButton: true,
         confirmButtonText: t('yesDelete'),
@@ -108,7 +113,9 @@ export default function AccessKeysPage() {
 
   const getUserName = (userId: string) => {
     const user = users?.find((u: any) => u.id === userId);
-    return user?.username || t('unknownUser');
+    if (user?.username) return user.username;
+    if (currentUser?.id === userId) return currentUser.username;
+    return t('unknownUser');
   };
 
   const allKeys = accessKeys || [];
@@ -121,7 +128,7 @@ export default function AccessKeysPage() {
     );
   });
 
-  if (isLoading) {
+  if (currentUserLoading || isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loading size="lg" />

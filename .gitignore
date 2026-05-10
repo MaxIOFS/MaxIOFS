@@ -78,6 +78,8 @@ logs/
 web/frontend/node_modules
 web/frontend/dist
 web/frontend/.next
+web/frontend/playwright-report/
+web/frontend/test-results/
 build/
 test-files/
 test-files-s3/
@@ -88,6 +90,8 @@ test*.bin
 *.src.rpm
 build/
 scripts/
+!web/frontend/scripts/
+!web/frontend/scripts/run-playwright-local.ps1
 SECURITY_AUDIT.md
 config.yaml
 .gocache

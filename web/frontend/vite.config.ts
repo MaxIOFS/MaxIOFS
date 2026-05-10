@@ -32,6 +32,9 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    watch: {
+      ignored: ['**/test-results/**', '**/playwright-report/**'],
+    },
     proxy: {
       // Proxy API requests to the Go backend console server
       '/api': {

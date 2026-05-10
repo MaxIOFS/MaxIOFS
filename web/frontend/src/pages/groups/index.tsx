@@ -25,7 +25,7 @@ import { formatRelativeTime } from '@/lib/utils';
 export default function GroupsPage() {
   const { t } = useTranslation('groups');
   const navigate = useNavigate();
-  const { isGlobalAdmin, isTenantAdmin } = useCurrentUser();
+  const { isGlobalAdmin, isTenantAdmin, isLoading: currentUserLoading } = useCurrentUser();
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newGroup, setNewGroup] = useState<Partial<CreateGroupRequest>>({});
@@ -79,6 +79,8 @@ export default function GroupsPage() {
       g.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (g.displayName || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  if (currentUserLoading) return <Loading />;
 
   if (!isAnyAdmin) {
     return (

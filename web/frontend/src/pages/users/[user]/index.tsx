@@ -75,36 +75,40 @@ export default function UserDetailsPage() {
   const queryClient = useQueryClient();
 
   // Fetch current user to check if they're an admin
-  const { data: currentUser } = useQuery({
+  const { data: currentUser, isLoading: currentUserLoading } = useQuery({
     queryKey: ['currentUser'],
     queryFn: APIClient.getCurrentUser,
   });
 
   // Check if user is editing their own profile
   const isEditingSelf = currentUser?.id === userId;
+  const isCurrentUser = isEditingSelf;
+  const isCurrentUserAdmin = currentUser?.roles?.includes('admin') ?? false;
+  const isGlobalAdmin = isCurrentUserAdmin && !currentUser?.tenantId;
+  const canView2FAStatus = !!userId && !currentUserLoading && (isCurrentUser || isGlobalAdmin);
 
   // Fetch user data
   const { data: userData, isLoading: userLoading } = useQuery({
     queryKey: ['user', userId, isEditingSelf ? 'self' : 'admin'],
     queryFn: () => (isEditingSelf ? APIClient.getCurrentUser() : APIClient.getUser(userId)),
-    enabled: !!userId, // Only fetch when userId is available
+    enabled: !!userId && !currentUserLoading,
   });
 
   // Fetch access keys
   const { data: accessKeys, isLoading: keysLoading } = useQuery({
     queryKey: ['accessKeys', userId, isEditingSelf ? 'self' : 'admin'],
     queryFn: () => (isEditingSelf ? APIClient.getAccessKeys() : APIClient.getUserAccessKeys(userId)),
-    enabled: !!userId, // Only fetch when userId is available
+    enabled: !!userId && !currentUserLoading,
   });
 
   // Fetch tenants for assignment
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
     queryFn: APIClient.getTenants,
+    enabled: !!isGlobalAdmin,
   });
 
   // Fetch all users from the same tenant to check if this is the last admin (admins only)
-  const isCurrentUserAdmin = currentUser?.roles?.includes('admin');
   const { data: allUsers } = useQuery({
     queryKey: ['users'],
     queryFn: APIClient.getUsers,
@@ -115,7 +119,7 @@ export default function UserDetailsPage() {
   const { data: twoFactorStatus, isLoading: is2FALoading, refetch: refetch2FAStatus } = useQuery({
     queryKey: ['twoFactorStatus', userId],
     queryFn: () => APIClient.get2FAStatus(userId),
-    enabled: !!userId,
+    enabled: canView2FAStatus,
   });
 
   // Fetch groups this user belongs to (admins see any user; non-admins see their own)
@@ -183,7 +187,22 @@ export default function UserDetailsPage() {
 
   // Update user mutation
   const updateUserMutation = useMutation({
-    mutationFn: (data: EditUserForm) => APIClient.updateUser(userId, data),
+    mutationFn: (data: EditUserForm) => {
+      if (!isCurrentUserAdmin) {
+        return APIClient.updateUser(userId, { email: data.email });
+      }
+
+      const payload: Partial<EditUserForm> = {
+        email: data.email,
+        roles: data.roles,
+        status: data.status,
+      };
+      if (isGlobalAdmin) {
+        payload.tenantId = data.tenantId;
+      }
+
+      return APIClient.updateUser(userId, payload);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user', userId] });
       setIsEditUserModalOpen(false);
@@ -386,10 +405,6 @@ export default function UserDetailsPage() {
   };
 
   // 2FA Handlers
-  // Global admin = admin role AND no tenant assignment
-  const isGlobalAdmin = currentUser?.roles?.includes('admin') && !currentUser?.tenantId;
-  const isCurrentUser = currentUser?.id === userId;
-
   const handleSetup2FASuccess = (codes: string[]) => {
     setBackupCodes(codes);
     setShowBackupCodesModal(true);
@@ -472,7 +487,7 @@ export default function UserDetailsPage() {
     );
   }
 
-  if (userLoading) {
+  if (currentUserLoading || userLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loading size="lg" />
@@ -625,7 +640,11 @@ export default function UserDetailsPage() {
           </div>
 
           <div className="p-4">
-            {is2FALoading ? (
+            {!canView2FAStatus ? (
+              <div className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-2 rounded">
+                <p className="text-xs text-blue-800 dark:text-blue-200">{t('twoFAStatusRestricted')}</p>
+              </div>
+            ) : is2FALoading ? (
               <div className="flex items-center justify-center py-6">
                 <Loading size="sm" />
               </div>
@@ -1065,27 +1084,29 @@ export default function UserDetailsPage() {
             />
           </div>
 
-          <div>
-            <label htmlFor="tenant" className="block text-sm font-medium text-foreground mb-2">
-              {t('tenantOptional')}
-            </label>
-            <select
-              id="tenant"
-              value={editForm.tenantId || ''}
-              onChange={(e) => setEditForm(prev => ({ ...prev, tenantId: e.target.value || undefined }))}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
-            >
-              <option value="">{t('noTenantGlobal')}</option>
-              {tenants?.map((tenant) => (
-                <option key={tenant.id} value={tenant.id}>
-                  {tenant.displayName} ({tenant.name})
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground mt-1">
-              {t('globalUsersInfo')}
-            </p>
-          </div>
+          {isGlobalAdmin && (
+            <div>
+              <label htmlFor="tenant" className="block text-sm font-medium text-foreground mb-2">
+                {t('tenantOptional')}
+              </label>
+              <select
+                id="tenant"
+                value={editForm.tenantId || ''}
+                onChange={(e) => setEditForm(prev => ({ ...prev, tenantId: e.target.value || undefined }))}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="">{t('noTenantGlobal')}</option>
+                {tenants?.map((tenant) => (
+                  <option key={tenant.id} value={tenant.id}>
+                    {tenant.displayName} ({tenant.name})
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground mt-1">
+                {t('globalUsersInfo')}
+              </p>
+            </div>
+          )}
 
           <div>
             <label htmlFor="status" className="block text-sm font-medium text-foreground mb-2">

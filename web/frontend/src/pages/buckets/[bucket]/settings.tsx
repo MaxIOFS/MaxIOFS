@@ -1278,7 +1278,7 @@ export default function BucketSettingsPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => navigate(bucketPath)}
+            onClick={() => navigate(bucketPath, { state: { tenantId } })}
             className="hover:bg-secondary transition-all duration-200"
           >
             <ArrowLeft className="h-5 w-5" />

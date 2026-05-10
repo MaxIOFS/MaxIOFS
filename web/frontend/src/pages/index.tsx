@@ -540,15 +540,13 @@ export default function Dashboard() {
                   .slice(0, 3)
                   .map((bucket: any) => {
                     const tenantId = bucket.tenant_id || bucket.tenantId;
-                    const bucketPath = tenantId
-                      ? `/buckets/${bucket.name}?tenantId=${tenantId}`
-                      : `/buckets/${bucket.name}`;
+                    const bucketPath = `/buckets/${bucket.name}`;
 
                     return (
                       <div
                         key={bucket.name}
                         className="flex items-center justify-between p-4 hover:bg-secondary rounded-button cursor-pointer transition-all duration-200 group"
-                        onClick={() => navigate(bucketPath)}
+                        onClick={() => navigate(bucketPath, { state: { tenantId } })}
                       >
                         <div className="flex items-center gap-3 flex-1 min-w-0">
                           <div className="flex items-center justify-center w-10 h-10 rounded-button bg-gradient-to-br from-blue-500 to-indigo-600 shadow-md flex-shrink-0">

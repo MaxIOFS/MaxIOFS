@@ -25,7 +25,7 @@ import { APIClient } from '@/lib/api';
 export default function SecurityPage() {
   const { t } = useTranslation('security');
   const navigate = useNavigate();
-  const { isGlobalAdmin, user: currentUser } = useCurrentUser();
+  const { isGlobalAdmin, user: currentUser, isLoading: currentUserLoading } = useCurrentUser();
 
   // Only global admins can access security page
   useEffect(() => {
@@ -93,7 +93,7 @@ export default function SecurityPage() {
     return value;
   };
 
-  if (isLoading) {
+  if (currentUserLoading || isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loading size="lg" />

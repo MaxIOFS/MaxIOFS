@@ -390,7 +390,8 @@ export default function BucketsPage() {
       if (result.isConfirmed) {
         ModalManager.loading(t('deletingBucket'), t('deletingBucketMessage', { name: bucketName }));
         const bucket = buckets?.find(b => b.name === bucketName);
-        deleteBucketMutation.mutate({ bucketName, tenantId: bucket?.tenant_id || bucket?.tenantId });
+        const tenantId = bucket?.tenant_id || bucket?.tenantId;
+        deleteBucketMutation.mutate({ bucketName, tenantId });
       }
     } catch (err) {
       ModalManager.close();

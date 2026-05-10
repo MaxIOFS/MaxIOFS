@@ -36,7 +36,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 export default function TenantsPage() {
   const navigate = useNavigate();
   const { t } = useTranslation('tenants');
-  const { isGlobalAdmin, isTenantAdmin, user: currentUser } = useCurrentUser();
+  const { isGlobalAdmin, isTenantAdmin, user: currentUser, isLoading: currentUserLoading } = useCurrentUser();
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -182,7 +182,7 @@ export default function TenantsPage() {
     return Math.round((current / max) * 100);
   };
 
-  if (isLoading) return <Loading />;
+  if (currentUserLoading || isLoading) return <Loading />;
   if (error) return <div className="p-4 text-red-500">{t('errorLoadingTenants')}</div>;
 
   return (
