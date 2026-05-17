@@ -10,6 +10,7 @@ import (
 var (
 	ErrBucketNotFound      = errors.New("bucket not found")
 	ErrBucketAlreadyExists = errors.New("bucket already exists")
+	ErrBucketNotEmpty      = errors.New("bucket not empty")
 	ErrObjectNotFound      = errors.New("object not found")
 	ErrObjectAlreadyExists = errors.New("object already exists")
 	ErrInvalidKey          = errors.New("invalid key")
@@ -42,6 +43,11 @@ type Store interface {
 
 	// DeleteBucket deletes a bucket and all its metadata
 	DeleteBucket(ctx context.Context, tenantID, name string) error
+
+	// DeleteBucketIfEmpty deletes the bucket only when no object keys exist under it.
+	// Returns ErrBucketNotEmpty if objects are found, ErrBucketNotFound if the bucket
+	// does not exist. The check and delete are performed as a single atomic operation.
+	DeleteBucketIfEmpty(ctx context.Context, tenantID, name string) error
 
 	// ListBuckets lists all buckets for a tenant (empty tenantID = global)
 	ListBuckets(ctx context.Context, tenantID string) ([]*BucketMetadata, error)

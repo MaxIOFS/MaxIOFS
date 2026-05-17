@@ -225,8 +225,8 @@ func (m *Manager) GetRule(ctx context.Context, ruleID string) (*ReplicationRule,
 	if err != nil {
 		return rule, err
 	}
-	// Decrypt the destination secret key
-	rule.DestinationSecretKey, err = decryptCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey)
+	// Decrypt and validate the destination secret key.
+	rule.DestinationSecretKey, err = decryptAndValidateCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey)
 	return rule, err
 }
 
@@ -260,8 +260,8 @@ func (m *Manager) ListRules(ctx context.Context, tenantID string) ([]*Replicatio
 		if err != nil {
 			return nil, err
 		}
-		// Decrypt the destination secret key
-		if rule.DestinationSecretKey, err = decryptCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey); err != nil {
+		// Decrypt and validate the destination secret key.
+		if rule.DestinationSecretKey, err = decryptAndValidateCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey); err != nil {
 			return nil, fmt.Errorf("failed to decrypt secret key for rule %s: %w", rule.ID, err)
 		}
 		rules = append(rules, rule)
@@ -299,8 +299,8 @@ func (m *Manager) GetRulesForBucket(ctx context.Context, bucketName string) ([]*
 		if err != nil {
 			return nil, err
 		}
-		// Decrypt the destination secret key
-		if rule.DestinationSecretKey, err = decryptCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey); err != nil {
+		// Decrypt and validate the destination secret key.
+		if rule.DestinationSecretKey, err = decryptAndValidateCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey); err != nil {
 			return nil, fmt.Errorf("failed to decrypt secret key for rule %s: %w", rule.ID, err)
 		}
 		rules = append(rules, rule)
@@ -524,8 +524,26 @@ func (m *Manager) queueLoader(ctx context.Context) {
 	}
 }
 
+// resetStaleClaimedItems resets retrying items that were claimed but never picked up
+// by a worker (processed_at older than 60 seconds) back to pending so they are
+// re-eligible on the next loader tick.
+func (m *Manager) resetStaleClaimedItems(ctx context.Context) {
+	_, err := m.db.ExecContext(ctx, `
+		UPDATE replication_queue
+		SET status = 'pending', processed_at = NULL
+		WHERE status = 'retrying' AND processed_at < datetime('now', '-60 seconds')
+	`)
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to reset stale claimed replication items")
+	}
+}
+
 // loadPendingItems loads pending items from database
 func (m *Manager) loadPendingItems(ctx context.Context) {
+	// Recover items that were claimed but never enqueued (e.g. queue was full
+	// on a previous tick and the claim was kept without releasing).
+	m.resetStaleClaimedItems(ctx)
+
 	query := `
 		SELECT id, rule_id, tenant_id, bucket, object_key, version_id,
 			   action, status, attempts, max_retries, last_error,
@@ -584,17 +602,14 @@ func (m *Manager) loadPendingItems(ctx context.Context) {
 
 		itemCount++
 
-		// Try to queue item (non-blocking)
+		// Try to queue item (non-blocking). If the channel is full, keep the
+		// claim in 'retrying' state — resetStaleClaimedItems will recover it
+		// after 60 s if a worker never picks it up.
 		select {
 		case m.queue <- item:
 			// Successfully queued
 		default:
-			logrus.Warn("Replication queue is full, item will be retried later")
-			if err := m.releaseClaimedQueueItem(ctx, item.ID, item.Status); err != nil {
-				logrus.WithFields(logrus.Fields{
-					"item_id": item.ID,
-				}).WithError(err).Error("Failed to release claimed replication queue item")
-			}
+			logrus.WithField("item_id", item.ID).Warn("Replication channel full, item kept claimed and will self-recover")
 		}
 	}
 
@@ -606,7 +621,7 @@ func (m *Manager) loadPendingItems(ctx context.Context) {
 func (m *Manager) claimQueueItem(ctx context.Context, itemID int64) (bool, error) {
 	query := `
 		UPDATE replication_queue
-		SET status = ?
+		SET status = ?, processed_at = CURRENT_TIMESTAMP
 		WHERE id = ?
 		  AND (status = 'pending' OR (status = 'failed' AND attempts < max_retries))
 	`
@@ -624,11 +639,6 @@ func (m *Manager) claimQueueItem(ctx context.Context, itemID int64) (bool, error
 	return rows > 0, nil
 }
 
-func (m *Manager) releaseClaimedQueueItem(ctx context.Context, itemID int64, previousStatus ReplicationStatus) error {
-	query := `UPDATE replication_queue SET status = ? WHERE id = ? AND status = ?`
-	_, err := m.db.ExecContext(ctx, query, previousStatus, itemID, StatusRetrying)
-	return err
-}
 
 func (m *Manager) resetClaimedQueueItems(ctx context.Context) error {
 	query := `

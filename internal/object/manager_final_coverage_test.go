@@ -371,6 +371,10 @@ func TestUpdateBucketMetricsAfterPut_Versioned_AdditionalVersions(t *testing.T) 
 	obj1, err := om.PutObject(ctx, bucket, key, content1, headers)
 	require.NoError(t, err)
 
+	// Capture state BEFORE put version 2 (required to avoid the TOCTOU race).
+	existingBeforeV2, err := metaStore.GetObject(ctx, bucket, key)
+	require.NoError(t, err)
+
 	// Put version 2
 	content2 := bytes.NewReader([]byte("version 2 - longer content"))
 	obj2, err := om.PutObject(ctx, bucket, key, content2, headers)
@@ -381,8 +385,8 @@ func TestUpdateBucketMetricsAfterPut_Versioned_AdditionalVersions(t *testing.T) 
 	mockBM.adjustCalled = false
 	mockBM.incrementCount = 0
 
-	// Call updateBucketMetricsAfterPut for second version
-	om.updateBucketMetricsAfterPut(ctx, tenantID, bucketName, bucket, key, obj2.Size, true, nil)
+	// Call updateBucketMetricsAfterPut for second version with pre-save state.
+	om.updateBucketMetricsAfterPut(ctx, tenantID, bucketName, bucket, key, obj2.Size, true, existingBeforeV2)
 
 	assert.True(t, mockBM.adjustCalled, "Should call AdjustBucketSize for additional version (size only, not count)")
 	assert.False(t, mockBM.incrementCalled, "Should NOT call IncrementObjectCount for additional version")

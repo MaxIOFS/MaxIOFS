@@ -165,6 +165,9 @@ func (w *Worker) replicateObject(ctx context.Context, rule *ReplicationRule, ite
 		rule.DestinationAccessKey,
 		rule.DestinationSecretKey,
 	)
+	if s3Client == nil {
+		return 0, fmt.Errorf("S3 client factory returned nil for endpoint %s", rule.DestinationEndpoint)
+	}
 
 	// Get object from local storage
 	reader, size, contentType, metadata, err := w.objectManager.GetObject(
@@ -230,6 +233,9 @@ func (w *Worker) replicateDelete(ctx context.Context, rule *ReplicationRule, ite
 		rule.DestinationAccessKey,
 		rule.DestinationSecretKey,
 	)
+	if s3Client == nil {
+		return fmt.Errorf("S3 client factory returned nil for endpoint %s", rule.DestinationEndpoint)
+	}
 
 	// Delete object from remote S3
 	err := s3Client.DeleteObject(ctx, rule.DestinationBucket, destKey)
@@ -269,8 +275,8 @@ func (w *Worker) getRule(ctx context.Context, ruleID string) (*ReplicationRule, 
 	if err != nil {
 		return nil, err
 	}
-	// Decrypt the destination secret key before use
-	rule.DestinationSecretKey, err = decryptCredential(rule.DestinationSecretKey, w.credentialEncryptionKey)
+	// Decrypt and validate the destination secret key before use.
+	rule.DestinationSecretKey, err = decryptAndValidateCredential(rule.DestinationSecretKey, w.credentialEncryptionKey)
 	return rule, err
 }
 

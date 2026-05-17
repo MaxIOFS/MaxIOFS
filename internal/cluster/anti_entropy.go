@@ -493,7 +493,13 @@ func lwwClassify(local *object.Object, peer *ChecksumEntry) (divergenceKind, rec
 	if localTS < peer.LastModified {
 		return divPeerNewer, actPullFromPeer
 	}
-	return divTieDifferentETag, actNone
+	// Same modification timestamp: break the tie deterministically by ETag
+	// lexicographic order so both replicas converge to the same version.
+	// The node with the smaller ETag defers to its peer (pulls the peer's copy).
+	if local.ETag < peer.ETag {
+		return divTieDifferentETag, actPullFromPeer
+	}
+	return divTieDifferentETag, actPushToPeer
 }
 
 func isMultipartETag(etag string) bool {
@@ -549,11 +555,11 @@ func (s *AntiEntropyScrubber) applyAction(
 		return true
 
 	default:
-		// divTieDifferentETag — manual investigation required.
+		// actNone — should not occur in practice (all divergence kinds resolve to an action).
 		logrus.WithFields(logrus.Fields{
 			"peer": peer.ID, "bucket": bucketPath, "key": key,
 			"local_etag": local.ETag, "local_mtime": local.LastModified.Unix(),
-		}).Warn("AntiEntropyScrubber: divergence with identical timestamp, no auto-fix")
+		}).Warn("AntiEntropyScrubber: divergence with no reconcile action (programming error)")
 		return false
 	}
 }
@@ -679,7 +685,12 @@ func (s *AntiEntropyScrubber) pullObjectFromPeer(
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		// Peer deleted it after the checksum was taken — race; skip.
+		// Object was deleted on the peer between the checksum batch and this pull.
+		// Log the event so operators can see it; the next scrub cycle will
+		// classify the object as divPeerMissing and push our copy back.
+		logrus.WithFields(logrus.Fields{
+			"peer": peer.ID, "bucket": bucketPath, "key": key,
+		}).Info("AntiEntropyScrubber: object absent on peer during pull — divergence resolved remotely")
 		return nil
 	}
 	if resp.StatusCode != http.StatusOK {

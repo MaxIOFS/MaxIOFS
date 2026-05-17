@@ -129,19 +129,26 @@ func (w *HASyncWorker) Trigger(ctx context.Context) {
 		}
 		replicas++
 
+		// Atomically check whether a sync is running or already done, and claim
+		// the slot before releasing the lock. Without holding the lock through
+		// the DB check, two concurrent Trigger calls could both see no running
+		// job and start parallel syncs for the same node.
 		w.mu.Lock()
 		_, alreadyRunning := w.running[n.ID]
-		w.mu.Unlock()
-		if alreadyRunning {
-			continue
+		skipBecauseDone := false
+		if !alreadyRunning {
+			var existingStatus string
+			if scanErr := w.mgr.db.QueryRowContext(ctx,
+				`SELECT status FROM ha_sync_jobs WHERE target_node_id = ? ORDER BY id DESC LIMIT 1`, n.ID,
+			).Scan(&existingStatus); scanErr == nil && existingStatus == SyncJobDone {
+				skipBecauseDone = true
+			} else {
+				// Reserve the slot; startJob will overwrite with the real cancel.
+				w.running[n.ID] = func() {}
+			}
 		}
-
-		// Skip if this node already has a completed sync.
-		var existingStatus string
-		scanErr := w.mgr.db.QueryRowContext(ctx,
-			`SELECT status FROM ha_sync_jobs WHERE target_node_id = ? ORDER BY id DESC LIMIT 1`, n.ID,
-		).Scan(&existingStatus)
-		if scanErr == nil && existingStatus == SyncJobDone {
+		w.mu.Unlock()
+		if alreadyRunning || skipBecauseDone {
 			continue
 		}
 
@@ -152,6 +159,9 @@ func (w *HASyncWorker) Trigger(ctx context.Context) {
 			n.ID, SyncJobRunning, time.Now())
 		if insertErr != nil {
 			logrus.WithError(insertErr).WithField("node_id", n.ID).Warn("HASyncWorker: failed to create job")
+			w.mu.Lock()
+			delete(w.running, n.ID)
+			w.mu.Unlock()
 			continue
 		}
 		jobID, _ := result.LastInsertId()

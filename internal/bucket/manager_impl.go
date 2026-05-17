@@ -49,7 +49,9 @@ func (bm *badgerBucketManager) logAuditEvent(ctx context.Context, event *audit.A
 		return
 	}
 
-	_ = bm.auditManager.LogEvent(ctx, event)
+	if err := bm.auditManager.LogEvent(ctx, event); err != nil {
+		logrus.WithError(err).WithField("event_type", event.EventType).Warn("Failed to write audit log event")
+	}
 }
 
 // CreateBucket creates a new bucket
@@ -121,6 +123,14 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 				"bucket":    name,
 			}).Warn("Failed to roll back bucket metadata after storage marker creation failed")
 		}
+		if bm.aclManager != nil {
+			if delErr := bm.aclManager.DeleteBucketACL(ctx, tenantID, name); delErr != nil {
+				logrus.WithError(delErr).WithFields(logrus.Fields{
+					"tenant_id": tenantID,
+					"bucket":    name,
+				}).Warn("Failed to roll back bucket ACL after storage marker creation failed")
+			}
+		}
 		return err
 	}
 
@@ -170,21 +180,17 @@ func (bm *badgerBucketManager) UpdateBucket(ctx context.Context, tenantID, name 
 
 // DeleteBucket deletes a bucket
 func (bm *badgerBucketManager) DeleteBucket(ctx context.Context, tenantID, name string) error {
-	// Check if bucket is empty
-	isEmpty, err := bm.isBucketEmpty(ctx, tenantID, name)
-	if err != nil {
-		return err
-	}
-	if !isEmpty {
-		return ErrBucketNotEmpty
-	}
-
-	// Delete from BadgerDB
-	if err := bm.metadataStore.DeleteBucket(ctx, tenantID, name); err != nil {
-		if err == metadata.ErrBucketNotFound {
+	// Atomically check for objects and delete the metadata entry in a single store call,
+	// eliminating the TOCTOU gap between the old isBucketEmpty + DeleteBucket pair.
+	if err := bm.metadataStore.DeleteBucketIfEmpty(ctx, tenantID, name); err != nil {
+		switch err {
+		case metadata.ErrBucketNotFound:
 			return ErrBucketNotFound
+		case metadata.ErrBucketNotEmpty:
+			return ErrBucketNotEmpty
+		default:
+			return err
 		}
-		return err
 	}
 
 	// Delete bucket marker from storage
@@ -831,124 +837,6 @@ func (bm *badgerBucketManager) RecalculateMetrics(ctx context.Context, tenantID,
 // IsReady checks if the bucket manager is ready
 func (bm *badgerBucketManager) IsReady() bool {
 	return bm.metadataStore.IsReady()
-}
-
-// Helper methods
-
-// isBucketEmpty checks if a bucket contains no objects
-func (bm *badgerBucketManager) isBucketEmpty(ctx context.Context, tenantID, name string) (bool, error) {
-	if _, err := bm.metadataStore.GetBucket(ctx, tenantID, name); err != nil {
-		if err == metadata.ErrBucketNotFound {
-			return false, ErrBucketNotFound
-		}
-		return false, err
-	}
-
-	bucketPath := bm.getTenantBucketPath(tenantID, name)
-	versions, err := bm.metadataStore.ListAllObjectVersions(ctx, bucketPath, "", 1)
-	if err != nil {
-		return false, err
-	}
-	if len(versions) > 0 {
-		return false, nil
-	}
-
-	prefix := bm.getTenantBucketPath(tenantID, name) + "/"
-	objects, err := bm.storage.List(ctx, prefix, false)
-	if err != nil {
-		return false, err
-	}
-
-	hasValidObjects := false
-
-	// Check each physical file
-	for _, obj := range objects {
-		// Skip bucket marker and internal files
-		if strings.HasSuffix(obj.Path, ".maxiofs-bucket") || strings.Contains(obj.Path, "/.maxiofs-") {
-			continue
-		}
-
-		// Versioned objects are stored at prefix/.versions/key/versionID.
-		// These paths do NOT match plain metadata keys (obj:{bucket}:{key}), so we
-		// must extract the real key + versionID and look them up correctly instead of
-		// treating them as orphaned physical files and deleting them (which would bypass
-		// Object Lock retention on non-current versions).
-		if vIdx := strings.Index(obj.Path, "/.versions/"); vIdx >= 0 {
-			remainder := obj.Path[vIdx+len("/.versions/"):]
-			// remainder is "key/versionID" — last path segment is the versionID
-			lastSlash := strings.LastIndex(remainder, "/")
-			if lastSlash < 0 {
-				continue // unexpected path format; skip
-			}
-			key := remainder[:lastSlash]
-			versionID := remainder[lastSlash+1:]
-
-			objMeta, err := bm.metadataStore.GetObject(ctx, bucketPath, key, versionID)
-			if err != nil {
-				if err == metadata.ErrObjectNotFound {
-					// Truly orphaned versioned file (no matching metadata) — clean up
-					logrus.WithFields(logrus.Fields{
-						"bucket":    bucketPath,
-						"key":       key,
-						"versionID": versionID,
-						"path":      obj.Path,
-					}).Warn("Found orphaned versioned physical file without metadata - deleting")
-					if delErr := bm.storage.Delete(ctx, obj.Path); delErr != nil && delErr != storage.ErrObjectNotFound {
-						logrus.WithError(delErr).Error("Failed to delete orphaned versioned file")
-					}
-					continue
-				}
-				// Other error - assume file is valid to be safe
-				return false, err
-			}
-
-			// A delete marker has no content (ETag="" and Size=0); skip it.
-			if objMeta.ETag == "" && objMeta.Size == 0 {
-				continue
-			}
-
-			// A real (data-bearing) versioned object exists — bucket is not empty.
-			hasValidObjects = true
-			continue
-		}
-
-		// Extract object key from path (non-versioned)
-		objectKey := strings.TrimPrefix(obj.Path, prefix)
-		if objectKey == "" {
-			continue
-		}
-
-		// Check if metadata exists
-		objMeta, err := bm.metadataStore.GetObject(ctx, bucketPath, objectKey)
-		if err != nil {
-			if err == metadata.ErrObjectNotFound {
-				// Physical file has no metadata — it is an orphan (e.g., metadata was
-				// deleted first during a previous object deletion and the physical file
-				// cleanup did not complete). Treat it as absent: do NOT delete it here
-				// because isBucketEmpty is a read-only check. DeleteBucket will remove
-				// the entire directory afterwards; a dedicated scrubber can clean orphans.
-				logrus.WithFields(logrus.Fields{
-					"bucket": bucketPath,
-					"key":    objectKey,
-					"path":   obj.Path,
-				}).Debug("Found orphaned physical file without metadata during empty-check; skipping")
-				continue
-			}
-			// Other error - assume file is valid to be safe
-			return false, err
-		}
-
-		// If the current latest metadata is a delete marker (ETag="" Size=0),
-		// the object is logically deleted — don't count it as a valid object.
-		if objMeta.ETag == "" && objMeta.Size == 0 {
-			continue
-		}
-
-		// Valid, non-deleted object with metadata
-		hasValidObjects = true
-	}
-
-	return !hasValidObjects, nil
 }
 
 func (bm *badgerBucketManager) deleteAllObjectMetadataForBucket(ctx context.Context, bucketPath string) int {

@@ -752,8 +752,29 @@ func (s *Server) startClusterBackgroundServices(ctx context.Context) {
 
 		if s.staleReconciler != nil {
 			go func() {
-				if err := s.staleReconciler.Reconcile(ctx); err != nil {
-					logrus.WithError(err).Warn("Stale-node reconciliation encountered an error")
+				// Retry with exponential backoff when no peers are available yet.
+				// Caps at 5 minutes; stops retrying on any other error or when ctx is done.
+				backoff := 5 * time.Second
+				const maxBackoff = 5 * time.Minute
+				for {
+					err := s.staleReconciler.Reconcile(ctx)
+					if err == nil {
+						return
+					}
+					if !errors.Is(err, cluster.ErrNoPeers) {
+						logrus.WithError(err).Warn("Stale-node reconciliation encountered an error")
+						return
+					}
+					logrus.WithField("retry_in", backoff).Warn("No peers for stale reconciliation; retrying")
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(backoff):
+					}
+					backoff *= 2
+					if backoff > maxBackoff {
+						backoff = maxBackoff
+					}
 				}
 			}()
 			logrus.Info("Stale-node reconciler started")

@@ -126,12 +126,20 @@ func TestClassifyDivergence_PeerNewer_Pull(t *testing.T) {
 	assert.Equal(t, actPullFromPeer, act)
 }
 
-func TestClassifyDivergence_TieDifferentETag_NoAutoFix(t *testing.T) {
+func TestClassifyDivergence_TieDifferentETag_ETagTieBreaker(t *testing.T) {
+	// "left" < "right": local ETag sorts lower → local defers to peer (pull)
 	local := &object.Object{ETag: "left", Size: 100, LastModified: time.Unix(1000, 0)}
 	peer := &ChecksumEntry{Key: "k", Found: true, ETag: "right", Size: 100, LastModified: 1000}
 	div, act := classifyDivergence(local, peer)
 	assert.Equal(t, divTieDifferentETag, div)
-	assert.Equal(t, actNone, act)
+	assert.Equal(t, actPullFromPeer, act)
+
+	// "z" > "a": local ETag sorts higher → local wins (push)
+	local2 := &object.Object{ETag: "z", Size: 100, LastModified: time.Unix(1000, 0)}
+	peer2 := &ChecksumEntry{Key: "k", Found: true, ETag: "a", Size: 100, LastModified: 1000}
+	div2, act2 := classifyDivergence(local2, peer2)
+	assert.Equal(t, divTieDifferentETag, div2)
+	assert.Equal(t, actPushToPeer, act2)
 }
 
 func TestClassifyDivergence_Multipart_SizeAndMtimeMatch_NoFix(t *testing.T) {

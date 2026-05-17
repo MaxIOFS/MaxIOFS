@@ -147,13 +147,19 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 	}
 	defer os.Remove(metadataTempPath)
 
-	// Atomic move
-	if err := os.Rename(tempFile.Name(), fullPath); err != nil {
-		return NewErrorWithCause("AtomicMove", "Failed to move file to final location", err)
-	}
-
+	// Rename metadata BEFORE data so that a partial failure is always safe:
+	//   • metadata rename fails  → data is still in the temp file; no change visible to readers.
+	//   • data rename fails      → metadata is at the final path but data is not; Get() does
+	//                               os.Stat on the data path and returns ErrObjectNotFound,
+	//                               so readers see a clean miss instead of stale metadata.
+	// The reverse order (data first) would leave the data file in place with no metadata,
+	// which causes Get() to open the file and then fail on the metadata read — silent corruption.
 	if err := os.Rename(metadataTempPath, fs.getMetadataPath(path)); err != nil {
 		return NewErrorWithCause("AtomicMetadataMove", "Failed to move metadata file to final location", err)
+	}
+
+	if err := os.Rename(tempFile.Name(), fullPath); err != nil {
+		return NewErrorWithCause("AtomicMove", "Failed to move file to final location", err)
 	}
 
 	return nil

@@ -6,9 +6,16 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
+
+	"github.com/sirupsen/logrus"
 )
+
+// ErrDecryptionFailed is returned when a stored credential cannot be decrypted or
+// produces an implausibly short result (indicating a key rotation or data corruption).
+var ErrDecryptionFailed = errors.New("credential decryption failed")
 
 const credentialEncryptionPrefix = "enc1:"
 
@@ -89,6 +96,35 @@ func decryptCredential(stored, encryptionKey string) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+// decryptAndValidateCredential wraps decryptCredential with post-decryption sanity checks.
+// It logs at Error level and returns ErrDecryptionFailed when:
+//   - Decryption of an encrypted (enc1:-prefixed) credential fails (wrong key, corrupt data).
+//   - An encrypted credential decrypts to an implausibly short result (<8 chars), which
+//     could indicate a partial write or key-rotation issue.
+//
+// Legacy plaintext credentials (no enc1: prefix) are returned as-is without a length check,
+// since they may be short in test or development environments.
+func decryptAndValidateCredential(stored, encryptionKey string) (string, error) {
+	isEncrypted := len(stored) >= len(credentialEncryptionPrefix) && stored[:len(credentialEncryptionPrefix)] == credentialEncryptionPrefix
+
+	result, err := decryptCredential(stored, encryptionKey)
+	if err != nil {
+		logrus.WithError(err).Error("Replication credential decryption failed — encryption key may have changed or data is corrupt")
+		return "", ErrDecryptionFailed
+	}
+	// Apply the minimum-length check only to actively-decrypted credentials.
+	// AES-GCM cannot produce garbage on authentication failure (it returns an error),
+	// but a partial plaintext write during encryption could produce a valid ciphertext
+	// that decrypts to an abnormally short string.
+	if isEncrypted && len(result) < 8 {
+		logrus.WithFields(logrus.Fields{
+			"result_length": len(result),
+		}).Error("Decrypted replication credential is empty or too short — encryption key may have rotated")
+		return "", ErrDecryptionFailed
+	}
+	return result, nil
 }
 
 // deriveCredentialKey derives a 32-byte AES-256 key from an arbitrary-length passphrase

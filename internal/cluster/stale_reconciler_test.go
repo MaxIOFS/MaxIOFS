@@ -600,7 +600,7 @@ func TestReconcile_SkipsWhenNoPeers(t *testing.T) {
 	markLocalNodeStale(t, ctx, db, nil)
 
 	err := r.Reconcile(ctx)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrNoPeers, "Reconcile should return ErrNoPeers when no peers are available")
 
 	// is_stale must remain 1 — cannot reconcile without peers
 	var isStale bool

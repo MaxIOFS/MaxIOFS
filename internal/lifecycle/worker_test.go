@@ -10,6 +10,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockBucketMgr embeds the real interface to implement it automatically with defaults
@@ -41,12 +42,13 @@ func (m *mockBucketMgr) GetBucketInfo(ctx context.Context, tenantID, name string
 // mockObjectMgr embeds the real interface
 type mockObjectMgr struct {
 	object.Manager
-	listResult  *object.ListObjectsResult
-	listErr     error
-	versions    []object.ObjectVersion
-	versionsErr error
-	deleteErr   error
-	deleteCount int
+	listResult        *object.ListObjectsResult
+	listErr           error
+	versions          []object.ObjectVersion
+	versionsErr       error
+	deleteErr         error
+	deleteCount       int
+	deletedVersionIDs []string // tracks which versionIDs were passed to DeleteObject
 }
 
 func (m *mockObjectMgr) ListObjects(ctx context.Context, bucketPath, prefix, delimiter, marker string, maxKeys int) (*object.ListObjectsResult, error) {
@@ -71,7 +73,8 @@ func (m *mockObjectMgr) DeleteObject(ctx context.Context, bucketPath, key string
 		return "", m.deleteErr
 	}
 	m.deleteCount++
-	if len(versionID) > 0 {
+	if len(versionID) > 0 && versionID[0] != "" {
+		m.deletedVersionIDs = append(m.deletedVersionIDs, versionID[0])
 		return versionID[0], nil
 	}
 	return "", nil
@@ -404,4 +407,78 @@ func TestProcessExpiredDeleteMarkers_KeepNonDeleteMarker(t *testing.T) {
 
 	// Should not delete - it's not a delete marker
 	assert.Equal(t, 0, objMgr.deleteCount)
+}
+
+// TestProcessExpiredDeleteMarkers_DeletesWithVersionID verifies that expired delete markers
+// are permanently deleted by passing their specific versionID to DeleteObject.
+// An unversioned delete on a versioned bucket would create ANOTHER delete marker,
+// causing an infinite cleanup loop — this test guards against that regression.
+func TestProcessExpiredDeleteMarkers_DeletesWithVersionID(t *testing.T) {
+	bucketMgr := &mockBucketMgr{}
+	objMgr := &mockObjectMgr{}
+	markerVersionID := "dm-marker-abc123"
+	metaStore := &mockMetaStore{versions: []*metadata.ObjectVersion{
+		{
+			Key:      "deleted-file.txt",
+			VersionID: markerVersionID,
+			IsLatest: true,
+			Size:     0,
+			ETag:     "",
+		},
+	}}
+
+	worker := NewWorker(bucketMgr, objMgr, metaStore)
+	ctx := context.Background()
+
+	trueVal := true
+	rule := bucket.LifecycleRule{
+		ID:     "cleanup-delete-markers",
+		Status: "Enabled",
+		Filter: bucket.LifecycleFilter{Prefix: ""},
+		Expiration: &bucket.LifecycleExpiration{
+			ExpiredObjectDeleteMarker: &trueVal,
+		},
+	}
+
+	worker.processExpiredDeleteMarkers(ctx, "test-bucket", rule)
+
+	assert.Equal(t, 1, objMgr.deleteCount, "Expected exactly one delete call")
+	require.Len(t, objMgr.deletedVersionIDs, 1, "Expected delete to carry the marker's versionID")
+	assert.Equal(t, markerVersionID, objMgr.deletedVersionIDs[0],
+		"Must delete with the specific versionID, not an unversioned delete that would create another marker")
+}
+
+// TestProcessExpiredDeleteMarkers_IdempotentOnAlreadyDeleted verifies that the worker
+// handles the case where the delete marker was already removed by the time it processes it.
+// This simulates a race between two lifecycle worker runs or a manual deletion.
+func TestProcessExpiredDeleteMarkers_IdempotentOnAlreadyDeleted(t *testing.T) {
+	bucketMgr := &mockBucketMgr{}
+	objMgr := &mockObjectMgr{deleteErr: object.ErrObjectNotFound}
+	metaStore := &mockMetaStore{versions: []*metadata.ObjectVersion{
+		{
+			Key:      "deleted-file.txt",
+			VersionID: "dm-already-gone",
+			IsLatest: true,
+			Size:     0,
+			ETag:     "",
+		},
+	}}
+
+	worker := NewWorker(bucketMgr, objMgr, metaStore)
+	ctx := context.Background()
+
+	trueVal := true
+	rule := bucket.LifecycleRule{
+		ID:     "cleanup-delete-markers",
+		Status: "Enabled",
+		Filter: bucket.LifecycleFilter{Prefix: ""},
+		Expiration: &bucket.LifecycleExpiration{
+			ExpiredObjectDeleteMarker: &trueVal,
+		},
+	}
+
+	// Should not panic when the delete marker is already gone
+	assert.NotPanics(t, func() {
+		worker.processExpiredDeleteMarkers(ctx, "test-bucket", rule)
+	})
 }

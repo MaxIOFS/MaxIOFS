@@ -281,6 +281,11 @@ func (m *MockMetadataStore) DeleteBucket(ctx context.Context, tenantID, name str
 	return args.Error(0)
 }
 
+func (m *MockMetadataStore) DeleteBucketIfEmpty(ctx context.Context, tenantID, name string) error {
+	args := m.Called(ctx, tenantID, name)
+	return args.Error(0)
+}
+
 func (m *MockMetadataStore) ListBuckets(ctx context.Context, tenantID string) ([]*metadata.BucketMetadata, error) {
 	args := m.Called(ctx, tenantID)
 	if args.Get(0) == nil {

@@ -122,6 +122,16 @@ func (m *aclManager) SetObjectACL(ctx context.Context, tenantID, bucketName, obj
 	return nil
 }
 
+// DeleteBucketACL removes the ACL entry for a bucket.
+// Used during CreateBucket rollback to clean up the ACL when storage marker creation fails.
+func (m *aclManager) DeleteBucketACL(ctx context.Context, tenantID, bucketName string) error {
+	key := m.bucketACLKey(tenantID, bucketName)
+	if err := m.kvStore.DeleteRaw(ctx, key); err != nil && err != metadata.ErrNotFound {
+		return fmt.Errorf("failed to delete bucket ACL: %w", err)
+	}
+	return nil
+}
+
 // GetCannedACL creates an ACL from a canned ACL string
 func (m *aclManager) GetCannedACL(cannedACL string, ownerID, ownerDisplayName string) (*ACL, error) {
 	if !IsValidCannedACL(cannedACL) {

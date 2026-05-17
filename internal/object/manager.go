@@ -270,6 +270,22 @@ func generateVersionID() string {
 
 type replicatedVersionIDKey struct{}
 
+// bypassQuotaEnforcementKey is a context key that skips quota limit checks in PutObject.
+// HA replica writes set this to avoid double-enforcement: the primary already validated
+// the quota; replicas must update their local quota counter but must not reject the write.
+type bypassQuotaEnforcementKey struct{}
+
+// WithBypassQuotaEnforcement returns a context that skips CheckTenantStorageQuota inside
+// PutObject while still updating the local quota counter via IncrementTenantStorage.
+func WithBypassQuotaEnforcement(ctx context.Context) context.Context {
+	return context.WithValue(ctx, bypassQuotaEnforcementKey{}, true)
+}
+
+func isBypassQuotaEnforcement(ctx context.Context) bool {
+	v, _ := ctx.Value(bypassQuotaEnforcementKey{}).(bool)
+	return v
+}
+
 // WithReplicatedVersionID pins the next versioned write/delete marker to an
 // existing version ID received through trusted internal replication paths.
 func WithReplicatedVersionID(ctx context.Context, versionID string) context.Context {
@@ -562,9 +578,10 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	size := originalSize
 	lastModified, _ := strconv.ParseInt(finalStorageMetadata["last_modified"], 10, 64)
 
-	// Validate tenant storage quota before committing
-	// If quota is exceeded, delete the stored object and return error
-	if om.authManager != nil && tenantID != "" && !versioningEnabled {
+	// Validate tenant storage quota before committing.
+	// Skipped for HA replica writes: the primary already validated the quota; replicas
+	// must store the object unconditionally and only update their local counter.
+	if om.authManager != nil && tenantID != "" && !versioningEnabled && !isBypassQuotaEnforcement(ctx) {
 		// Check if overwriting existing object
 		existingObj, _ := om.metadataStore.GetObject(ctx, bucket, key)
 		var sizeIncrement int64
@@ -832,11 +849,14 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 		return fmt.Errorf("failed to delete version metadata: %w", err)
 	}
 
-	// Delete physical file (if not a delete marker)
+	// Delete physical file (if not a delete marker). Track success so bucket
+	// size is only decremented when the bytes are actually freed from disk.
+	physicalDeleteOK := true
 	if objMetadata.Size > 0 {
 		objectPath := om.getVersionedObjectPath(bucket, key, versionID)
 		if err := om.storage.Delete(ctx, objectPath); err != nil && err != storage.ErrObjectNotFound {
-			logrus.WithError(err).Warn("Failed to delete physical versioned file")
+			logrus.WithError(err).Error("Failed to delete physical versioned file; bucket size will not be decremented until the file is cleaned up")
+			physicalDeleteOK = false
 		}
 	}
 
@@ -912,11 +932,20 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 		hasNextVersion := nextLatestForMetrics != nil
 		nextIsDeleteMarker := isVersionDeleteMarker(nextLatestForMetrics)
 
+		// Only credit freed bytes to the bucket when the file was actually
+		// removed from disk. If physicalDeleteOK is false the file is an orphan
+		// (cleaned up by the integrity scrubber); the bucket's size counter must
+		// not be decremented until then.
+		freedBytes := objMetadata.Size
+		if !physicalDeleteOK {
+			freedBytes = 0
+		}
+
 		tenantID, bucketName := om.parseBucketPath(bucket)
 		switch {
 		case !hasNextVersion && !deletedIsDeleteMarker:
 			// Last real version gone
-			if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objMetadata.Size); err != nil {
+			if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, freedBytes); err != nil {
 				logrus.WithError(err).Warn("Failed to decrement object count after deleting last version")
 			}
 		case hasNextVersion && deletedIsDeleteMarker && !nextIsDeleteMarker:
@@ -926,7 +955,7 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 			}
 		case hasNextVersion && !deletedIsDeleteMarker && nextIsDeleteMarker:
 			// Real latest version gone → delete marker on top → object hidden
-			if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objMetadata.Size); err != nil {
+			if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, freedBytes); err != nil {
 				logrus.WithError(err).Warn("Failed to decrement object count after version delete exposed delete marker")
 			}
 		}
@@ -2039,13 +2068,17 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		}
 	}
 
+	contentType := multipart.Metadata["content-type"]
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
 	object := &Object{
 		Key:          multipart.Key,
 		Bucket:       multipart.Bucket,
 		Size:         originalSize,
 		LastModified: time.Unix(lastModified, 0),
 		ETag:         multipartETag,
-		ContentType:  multipart.Metadata["content-type"],
+		ContentType:  contentType,
 		Metadata:     filterStorageMetadataKeys(multipart.Metadata),
 		StorageClass: multipart.StorageClass,
 		VersionID:    versionID,
@@ -2064,10 +2097,17 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		}
 		if err := om.metadataStore.PutObjectVersion(ctx, metaObj, version); err != nil {
 			logrus.WithError(err).Warn("Failed to save final multipart object version metadata")
+			// Remove the orphaned combined file so it does not consume storage indefinitely.
+			if delErr := om.storage.Delete(ctx, objectPath); delErr != nil {
+				logrus.WithError(delErr).Warn("Failed to remove orphaned combined object after metadata write failure")
+			}
 			return nil, fmt.Errorf("failed to save final multipart object version metadata: %w", err)
 		}
 	} else if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
 		logrus.WithError(err).Warn("Failed to save final multipart object metadata")
+		if delErr := om.storage.Delete(ctx, objectPath); delErr != nil {
+			logrus.WithError(delErr).Warn("Failed to remove orphaned combined object after metadata write failure")
+		}
 		return nil, fmt.Errorf("failed to save final multipart object metadata: %w", err)
 	}
 
@@ -2684,14 +2724,9 @@ func (om *objectManager) updateBucketMetricsAfterPut(ctx context.Context, tenant
 		// Versioned bucket: every new real version adds physical bytes. The
 		// visible object count changes only when there was no visible latest
 		// object before this PUT (new key, or a delete marker was latest).
+		// existingObjBeforeSave must always be captured before the save to avoid
+		// a TOCTOU race (see A8 audit fix).
 		wasVisible := existingObjBeforeSave != nil && !isMetadataDeleteMarker(existingObjBeforeSave)
-		if existingObjBeforeSave == nil {
-			// Backward-compatible fallback for direct helper callers that did
-			// not capture the previous latest object before saving.
-			if existingVersions, err := om.metadataStore.GetObjectVersions(ctx, bucket, key); err == nil && len(existingVersions) > 1 {
-				wasVisible = true
-			}
-		}
 		if !wasVisible {
 			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
 				logrus.WithError(err).Warn("Failed to increment bucket object count for versioned put")
@@ -2798,6 +2833,8 @@ func (om *objectManager) validateAndCalculatePartsSize(ctx context.Context, uplo
 // computeMultipartETag computes the S3-spec ETag for a completed multipart upload.
 // Format: hex(MD5(MD5(part1) || MD5(part2) || ... || MD5(partN)))-N
 // where each MD5(partX) is the raw 16-byte binary digest of the part data.
+// Returns an error if any part ETag is not a valid 32-character hex-encoded MD5 digest,
+// since silently hashing invalid ETags would produce incorrect results and mask corruption.
 func (om *objectManager) computeMultipartETag(ctx context.Context, uploadID string, parts []Part) (string, error) {
 	var combined []byte
 	for _, part := range parts {
@@ -2806,12 +2843,12 @@ func (om *objectManager) computeMultipartETag(ctx context.Context, uploadID stri
 			return "", fmt.Errorf("failed to get part %d metadata for ETag: %w", part.PartNumber, err)
 		}
 		etag := strings.Trim(partMeta.ETag, "\"")
+		if len(etag) != 32 {
+			return "", fmt.Errorf("part %d has invalid ETag %q: expected 32-character MD5 hex, got %d characters", part.PartNumber, etag, len(etag))
+		}
 		raw, err := hex.DecodeString(etag)
 		if err != nil {
-			// If the part ETag is not a plain hex MD5 (e.g. already multipart-formatted),
-			// fall back to hashing the string bytes so the ETag is still deterministic.
-			h := md5.Sum([]byte(etag))
-			raw = h[:]
+			return "", fmt.Errorf("part %d has invalid ETag %q: not valid hex: %w", part.PartNumber, etag, err)
 		}
 		combined = append(combined, raw...)
 	}
@@ -2939,6 +2976,10 @@ func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, obje
 		}
 	}()
 
+	encryptedContentType := multipart.Metadata["content-type"]
+	if encryptedContentType == "" {
+		encryptedContentType = "application/octet-stream"
+	}
 	// Store encryption markers in storage metadata
 	encryptionMetadata := map[string]string{
 		"original-size":                          fmt.Sprintf("%d", originalSize),
@@ -2946,7 +2987,7 @@ func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, obje
 		"encrypted":                              "true",
 		"x-amz-server-side-encryption":           "AES256",
 		"x-amz-server-side-encryption-algorithm": "AES-256-GCM-STREAM",
-		"content-type":                           multipart.Metadata["content-type"],
+		"content-type":                           encryptedContentType,
 	}
 
 	// Copy any user metadata from multipart upload
@@ -2971,10 +3012,14 @@ func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, obje
 
 // storeUnencryptedMultipartObject stores multipart object without encryption
 func (om *objectManager) storeUnencryptedMultipartObject(ctx context.Context, objectPath, tempPath string, uploadID string, multipart *MultipartUpload, originalSize int64, originalETag string) error {
+	unencryptedContentType := multipart.Metadata["content-type"]
+	if unencryptedContentType == "" {
+		unencryptedContentType = "application/octet-stream"
+	}
 	unencryptedMetadata := map[string]string{
 		"size":         fmt.Sprintf("%d", originalSize),
 		"etag":         originalETag,
-		"content-type": multipart.Metadata["content-type"],
+		"content-type": unencryptedContentType,
 	}
 
 	// Copy any user metadata from multipart upload

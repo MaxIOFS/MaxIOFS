@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/bucket"
@@ -281,23 +282,38 @@ func (w *Worker) processObjectExpiration(ctx context.Context, bucketPath string,
 
 	prefix := rule.Filter.Prefix
 
-	result, err := w.objectManager.ListObjects(ctx, bucketPath, prefix, "", "", 10000)
-	if err != nil {
-		logrus.WithError(err).WithField("bucket", bucketPath).Error("Failed to list objects for expiration")
-		return
-	}
-
 	deletedCount := 0
-	for _, obj := range result.Objects {
-		if obj.LastModified.UTC().Before(cutoff) {
-			if _, err := w.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false); err != nil {
-				logrus.WithError(err).WithFields(logrus.Fields{
-					"bucket": bucketPath,
-					"key":    obj.Key,
-				}).Warn("Failed to expire object")
-			} else {
-				deletedCount++
+	marker := ""
+	for {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+
+		result, err := w.objectManager.ListObjects(ctx, bucketPath, prefix, "", marker, 1000)
+		if err != nil {
+			logrus.WithError(err).WithField("bucket", bucketPath).Error("Failed to list objects for expiration")
+			return
+		}
+
+		for _, obj := range result.Objects {
+			if obj.LastModified.UTC().Before(cutoff) {
+				if _, err := w.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false); err != nil {
+					logrus.WithError(err).WithFields(logrus.Fields{
+						"bucket": bucketPath,
+						"key":    obj.Key,
+					}).Warn("Failed to expire object")
+				} else {
+					deletedCount++
+				}
 			}
+		}
+
+		if !result.IsTruncated {
+			break
+		}
+		marker = result.NextMarker
+		if marker == "" && len(result.Objects) > 0 {
+			marker = result.Objects[len(result.Objects)-1].Key
 		}
 	}
 
@@ -327,8 +343,12 @@ func (w *Worker) processAbortIncompleteMultipartUploads(ctx context.Context, buc
 		return
 	}
 
+	prefix := rule.Filter.Prefix
 	abortedCount := 0
 	for _, upload := range uploads {
+		if prefix != "" && !strings.HasPrefix(upload.Key, prefix) {
+			continue
+		}
 		if upload.Initiated.UTC().Before(cutoff) {
 			if err := w.objectManager.AbortMultipartUpload(ctx, upload.UploadID); err != nil {
 				logrus.WithError(err).WithFields(logrus.Fields{

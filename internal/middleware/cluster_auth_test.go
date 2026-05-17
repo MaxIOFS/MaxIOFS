@@ -70,7 +70,7 @@ func TestClusterAuth_ValidSignature(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/internal/cluster/test", nil)
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 	nonce := "test-nonce-123"
-	signature := computeSignature(nodeToken, "GET", "/api/internal/cluster/test", timestamp, nonce)
+	signature := computeSignature(nodeToken, "GET", "/api/internal/cluster/test", timestamp, nonce, emptyBodyHash)
 
 	req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 	req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -265,7 +265,7 @@ func TestClusterAuth_TimestampSkew(t *testing.T) {
 			req := httptest.NewRequest("GET", "/test", nil)
 			timestamp := tc.timestampFunc()
 			nonce := "nonce"
-			signature := computeSignature(nodeToken, "GET", "/test", timestamp, nonce)
+			signature := computeSignature(nodeToken, "GET", "/test", timestamp, nonce, emptyBodyHash)
 
 			req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 			req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -328,7 +328,7 @@ func TestClusterAuth_NodeNotFound(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 	nonce := "nonce"
-	signature := computeSignature("some-token", "GET", "/test", timestamp, nonce)
+	signature := computeSignature("some-token", "GET", "/test", timestamp, nonce, emptyBodyHash)
 
 	req.Header.Set("X-MaxIOFS-Node-ID", "non-existent-node")
 	req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -364,7 +364,7 @@ func TestClusterAuth_RemovedNode(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 	nonce := "nonce"
-	signature := computeSignature(nodeToken, "GET", "/test", timestamp, nonce)
+	signature := computeSignature(nodeToken, "GET", "/test", timestamp, nonce, emptyBodyHash)
 
 	req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 	req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -413,7 +413,7 @@ func TestClusterAuth_HealthyNodeStatuses(t *testing.T) {
 			req := httptest.NewRequest("GET", "/test", nil)
 			timestamp := fmt.Sprintf("%d", time.Now().Unix())
 			nonce := "nonce"
-			signature := computeSignature(nodeToken, "GET", "/test", timestamp, nonce)
+			signature := computeSignature(nodeToken, "GET", "/test", timestamp, nonce, emptyBodyHash)
 
 			req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 			req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -459,7 +459,7 @@ func TestClusterAuth_DifferentHTTPMethods(t *testing.T) {
 			req := httptest.NewRequest(method, path, nil)
 			timestamp := fmt.Sprintf("%d", time.Now().Unix())
 			nonce := fmt.Sprintf("nonce-%s", method)
-			signature := computeSignature(nodeToken, method, path, timestamp, nonce)
+			signature := computeSignature(nodeToken, method, path, timestamp, nonce, emptyBodyHash)
 
 			req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 			req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -504,7 +504,7 @@ func TestClusterAuth_DifferentPaths(t *testing.T) {
 			req := httptest.NewRequest("GET", path, nil)
 			timestamp := fmt.Sprintf("%d", time.Now().Unix())
 			nonce := fmt.Sprintf("nonce-%d", time.Now().UnixNano())
-			signature := computeSignature(nodeToken, "GET", path, timestamp, nonce)
+			signature := computeSignature(nodeToken, "GET", path, timestamp, nonce, emptyBodyHash)
 
 			req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 			req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -528,9 +528,11 @@ func TestComputeSignature(t *testing.T) {
 	timestamp := "1234567890"
 	nonce := "random-nonce"
 
+	bodyHash := emptyBodyHash
+
 	// Compute signature twice with same inputs
-	sig1 := computeSignature(token, method, path, timestamp, nonce)
-	sig2 := computeSignature(token, method, path, timestamp, nonce)
+	sig1 := computeSignature(token, method, path, timestamp, nonce, bodyHash)
+	sig2 := computeSignature(token, method, path, timestamp, nonce, bodyHash)
 
 	// Should be deterministic
 	assert.Equal(t, sig1, sig2, "Signature should be deterministic")
@@ -538,17 +540,20 @@ func TestComputeSignature(t *testing.T) {
 	assert.Len(t, sig1, 64, "SHA256 hex signature should be 64 characters")
 
 	// Different inputs should produce different signatures
-	sig3 := computeSignature(token, "GET", path, timestamp, nonce)
+	sig3 := computeSignature(token, "GET", path, timestamp, nonce, bodyHash)
 	assert.NotEqual(t, sig1, sig3, "Different method should produce different signature")
 
-	sig4 := computeSignature(token, method, "/different/path", timestamp, nonce)
+	sig4 := computeSignature(token, method, "/different/path", timestamp, nonce, bodyHash)
 	assert.NotEqual(t, sig1, sig4, "Different path should produce different signature")
 
-	sig5 := computeSignature(token, method, path, "9999999999", nonce)
+	sig5 := computeSignature(token, method, path, "9999999999", nonce, bodyHash)
 	assert.NotEqual(t, sig1, sig5, "Different timestamp should produce different signature")
 
-	sig6 := computeSignature(token, method, path, timestamp, "different-nonce")
+	sig6 := computeSignature(token, method, path, timestamp, "different-nonce", bodyHash)
 	assert.NotEqual(t, sig1, sig6, "Different nonce should produce different signature")
+
+	sig7 := computeSignature(token, method, path, timestamp, nonce, "a"+"b"+bodyHash[:60])
+	assert.NotEqual(t, sig1, sig7, "Different body hash should produce different signature")
 }
 
 func TestSignRequest(t *testing.T) {
@@ -569,7 +574,7 @@ func TestSignRequest(t *testing.T) {
 	nonce := req.Header.Get("X-MaxIOFS-Nonce")
 	signature := req.Header.Get("X-MaxIOFS-Signature")
 
-	expectedSignature := computeSignature(nodeToken, "GET", "/api/internal/cluster/test", timestamp, nonce)
+	expectedSignature := computeSignature(nodeToken, "GET", "/api/internal/cluster/test", timestamp, nonce, emptyBodyHash)
 	assert.Equal(t, expectedSignature, signature, "Signature should match expected value")
 }
 

@@ -218,26 +218,43 @@ func isHopByHopHeader(header string) bool {
 	return false
 }
 
+// clusterBodyHash drains req.Body, restores it, and returns the hex SHA-256.
+// Returns the SHA-256 of an empty string for nil bodies (same constant as middleware.emptyBodyHash).
+func clusterBodyHash(req *http.Request) string {
+	if req.Body == nil {
+		// SHA-256("") — kept inline to avoid importing the middleware package
+		return "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	}
+	data, err := io.ReadAll(req.Body)
+	if err != nil {
+		return "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	}
+	req.Body = io.NopCloser(bytes.NewReader(data))
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
+}
+
 // SignClusterRequest adds HMAC authentication headers to a cluster replication request
 // This is used when making authenticated requests to other nodes for replication
 func (p *ProxyClient) SignClusterRequest(req *http.Request, localNodeID, nodeToken string) {
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
+	bodyHash := clusterBodyHash(req)
 
 	// Generate a cryptographically secure random nonce
 	nonceBytes := make([]byte, 16)
 	if _, err := rand.Read(nonceBytes); err != nil {
 		// Fallback — still better than pure UnixNano due to timestamp addition
 		nonce := fmt.Sprintf("%d-%d", time.Now().UnixNano(), time.Now().UnixMicro())
-		p.signWithNonce(req, localNodeID, nodeToken, timestamp, nonce)
+		p.signWithNonce(req, localNodeID, nodeToken, timestamp, nonce, bodyHash)
 		return
 	}
 	nonce := hex.EncodeToString(nonceBytes)
-	p.signWithNonce(req, localNodeID, nodeToken, timestamp, nonce)
+	p.signWithNonce(req, localNodeID, nodeToken, timestamp, nonce, bodyHash)
 }
 
-func (p *ProxyClient) signWithNonce(req *http.Request, localNodeID, nodeToken, timestamp, nonce string) {
-	// Compute signature: HMAC-SHA256(nodeToken, method + path + timestamp + nonce)
-	payload := fmt.Sprintf("%s\n%s\n%s\n%s", req.Method, req.URL.Path, timestamp, nonce)
+func (p *ProxyClient) signWithNonce(req *http.Request, localNodeID, nodeToken, timestamp, nonce, bodyHash string) {
+	// Compute signature: HMAC-SHA256(nodeToken, method + path + timestamp + nonce + bodyHash)
+	payload := fmt.Sprintf("%s\n%s\n%s\n%s\n%s", req.Method, req.URL.Path, timestamp, nonce, bodyHash)
 	h := hmac.New(sha256.New, []byte(nodeToken))
 	h.Write([]byte(payload))
 	signature := hex.EncodeToString(h.Sum(nil))
@@ -345,7 +362,7 @@ func ValidateClusterProxyAuth(req *http.Request, clusterToken string) (userID, t
 		return "", "", "", false
 	}
 
-	// Validate timestamp (within 5 minutes)
+	// Validate timestamp (within 30 seconds — inter-node clocks are NTP-synced)
 	ts, err := strconv.ParseInt(timestamp, 10, 64)
 	if err != nil {
 		return "", "", "", false
@@ -354,7 +371,7 @@ func ValidateClusterProxyAuth(req *http.Request, clusterToken string) (userID, t
 	if diff < 0 {
 		diff = -diff
 	}
-	if diff > int64(5*time.Minute.Seconds()) {
+	if diff > int64(30*time.Second.Seconds()) {
 		return "", "", "", false
 	}
 

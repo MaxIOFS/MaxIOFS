@@ -267,6 +267,60 @@ func (s *PebbleStore) DeleteBucket(ctx context.Context, tenantID, name string) e
 	return nil
 }
 
+// DeleteBucketIfEmpty deletes the bucket only if it has no object or version metadata.
+// Returns ErrBucketNotFound if the bucket does not exist, ErrBucketNotEmpty if objects remain.
+func (s *PebbleStore) DeleteBucketIfEmpty(ctx context.Context, tenantID, name string) error {
+	key := bucketKey(tenantID, name)
+	if _, closer, err := s.db.Get(key); err == pebble.ErrNotFound {
+		return ErrBucketNotFound
+	} else if err != nil {
+		return fmt.Errorf("failed to check bucket existence: %w", err)
+	} else {
+		_ = closer.Close()
+	}
+
+	// Build the bucket path used as the prefix in object/version keys.
+	var bucketPath string
+	if tenantID == "" {
+		bucketPath = name
+	} else {
+		bucketPath = tenantID + "/" + name
+	}
+
+	objPrefix := []byte(fmt.Sprintf("obj:%s:", bucketPath))
+	objIter, err := s.pebbleIter(objPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to create object iterator: %w", err)
+	}
+	hasObjects := objIter.First()
+	_ = objIter.Close()
+	if hasObjects {
+		return ErrBucketNotEmpty
+	}
+
+	verPrefix := []byte(fmt.Sprintf("version:%s:", bucketPath))
+	verIter, err := s.pebbleIter(verPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to create version iterator: %w", err)
+	}
+	hasVersions := verIter.First()
+	_ = verIter.Close()
+	if hasVersions {
+		return ErrBucketNotEmpty
+	}
+
+	if err := s.db.Delete(key, pebble.NoSync); err != nil {
+		return fmt.Errorf("failed to delete bucket: %w", err)
+	}
+
+	s.logger.WithFields(logrus.Fields{
+		"bucket":    name,
+		"tenant_id": tenantID,
+	}).Debug("Bucket deleted from Pebble metadata store")
+
+	return nil
+}
+
 // ListBuckets lists all buckets for a tenant (empty tenantID = all tenants).
 func (s *PebbleStore) ListBuckets(ctx context.Context, tenantID string) ([]*BucketMetadata, error) {
 	var lower []byte

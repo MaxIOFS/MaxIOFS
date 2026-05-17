@@ -23,10 +23,15 @@ const HADeleteMarkerVersionHeader = "X-HA-Delete-Marker-Version-ID"
 type haReplicaKey struct{}
 
 // WithHAReplicaContext returns a child context marked as a replica write.
+// It also sets the object-layer quota-enforcement bypass so that the
+// underlying PutObject updates the local quota counter without re-enforcing
+// the limit (the primary already validated the quota for this write).
 // HTTP handlers on replica nodes set this before calling any write operation
 // so that HAObjectManager skips re-fanout and avoids infinite loops.
 func WithHAReplicaContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, haReplicaKey{}, true)
+	ctx = context.WithValue(ctx, haReplicaKey{}, true)
+	ctx = object.WithBypassQuotaEnforcement(ctx)
+	return ctx
 }
 
 func isHAReplica(ctx context.Context) bool {
@@ -162,8 +167,20 @@ func (h *HAObjectManager) rollbackLocalPut(ctx context.Context, bucket, key, op 
 // ---------------------------------------------------------------------------
 
 // replicaTargets returns up to factor-1 healthy non-local nodes and the number
-// of replica confirmations needed to satisfy quorum (ceil(factor/2) - 1).
+// of peer confirmations needed to satisfy quorum: neededReplicas = ceil(factor/2) - 1.
 // Returns (nil, 0, false) when replication is inactive.
+//
+// Quorum table (total writes = 1 local + neededReplicas):
+//
+//	factor=2 → neededReplicas=0  (best-effort: local write succeeds even when peer is down)
+//	factor=3 → neededReplicas=1  (2-of-3: tolerates 1 failure)
+//	factor=4 → neededReplicas=1  (2-of-4: tolerates 2 failures)
+//	factor=5 → neededReplicas=2  (3-of-5: tolerates 2 failures)
+//
+// factor=2 deliberately uses neededReplicas=0. Requiring 1 peer confirmation
+// with only 2 cluster nodes would block ALL writes whenever the single peer is
+// unreachable, which is worse than best-effort. The stale-object reconciler
+// catches divergence once the peer recovers.
 func (h *HAObjectManager) replicaTargets(ctx context.Context) ([]*Node, int, bool) {
 	if !h.mgr.IsClusterEnabled() {
 		return nil, 0, false
@@ -387,27 +404,57 @@ func (h *HAObjectManager) fanoutMetadata(ctx context.Context, bucket string, op 
 		if n.ID == localID {
 			continue
 		}
-		go func(node *Node) {
-			url := fmt.Sprintf("%s/api/internal/ha/metadata-op", node.Endpoint)
-			req, err := client.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(body), localID, node.NodeToken)
-			if err != nil {
-				logrus.WithError(err).WithField("node_id", node.ID).Warn("HA metadata fanout: request creation failed")
-				return
-			}
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set(HABucketHeader, bucket)
-			resp, err := client.DoAuthenticatedRequest(req)
-			if err != nil {
-				logrus.WithError(err).WithFields(logrus.Fields{"node_id": node.ID, "op": op.Op}).
-					Warn("HA metadata fanout: request failed")
-				return
-			}
+		go h.fanoutMetadataToNode(client, n, bucket, localID, op, body)
+	}
+}
+
+// fanoutMetadataToNode sends a metadata op to a single replica with up to 3
+// attempts and a 5-second per-attempt timeout. On permanent failure it logs at
+// Error level so the divergence is visible in the operator log.
+func (h *HAObjectManager) fanoutMetadataToNode(client *ProxyClient, node *Node, bucket, localID string, op HAMetadataOp, body []byte) {
+	const maxAttempts = 3
+	const perAttemptTimeout = 5 * time.Second
+	const baseRetryDelay = 200 * time.Millisecond
+
+	url := fmt.Sprintf("%s/api/internal/ha/metadata-op", node.Endpoint)
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		opCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
+		req, err := client.CreateAuthenticatedRequest(opCtx, "POST", url, bytes.NewReader(body), localID, node.NodeToken)
+		if err != nil {
+			cancel()
+			logrus.WithError(err).WithField("node_id", node.ID).Warn("HA metadata fanout: request creation failed")
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(HABucketHeader, bucket)
+		resp, err := client.DoAuthenticatedRequest(req)
+		cancel()
+
+		if err == nil && resp.StatusCode < 300 {
 			resp.Body.Close()
-			if resp.StatusCode >= 300 {
-				logrus.WithFields(logrus.Fields{"node_id": node.ID, "op": op.Op, "status": resp.StatusCode}).
-					Warn("HA metadata fanout: unexpected status")
+			return
+		}
+
+		if err != nil {
+			if attempt < maxAttempts {
+				time.Sleep(baseRetryDelay * time.Duration(attempt))
+				continue
 			}
-		}(n)
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"node_id": node.ID, "op": op.Op, "bucket": bucket, "attempts": attempt,
+			}).Error("HA metadata fanout: all retries exhausted — metadata may be diverged on this replica")
+			return
+		}
+		// Non-2xx response
+		resp.Body.Close()
+		if attempt < maxAttempts {
+			time.Sleep(baseRetryDelay * time.Duration(attempt))
+			continue
+		}
+		logrus.WithFields(logrus.Fields{
+			"node_id": node.ID, "op": op.Op, "bucket": bucket, "status": resp.StatusCode, "attempts": attempt,
+		}).Error("HA metadata fanout: all retries exhausted — metadata may be diverged on this replica")
 	}
 }
 

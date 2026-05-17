@@ -141,25 +141,38 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 	}
 
 	// Emit storage-pressure transitions (cross the storage_pressure boundary
-	// in either direction). The emitter is best-effort and never blocks; if no
-	// callback is wired we silently skip.
+	// in either direction). The emitter is best-effort and must not block the
+	// health check goroutine, so the callback runs in a separate goroutine.
 	if m.storagePressureFn != nil {
 		threshold, _ := m.loadStoragePressureThresholds(ctx)
+		var event *StoragePressureEvent
 		switch {
 		case node.HealthStatus != HealthStatusStoragePressure && status == HealthStatusStoragePressure:
-			m.storagePressureFn(StoragePressureEvent{
+			event = &StoragePressureEvent{
 				NodeID: nodeID, NodeName: node.Name,
 				Kind:             "node_storage_pressure",
 				UsagePercent:     usagePct,
 				ThresholdPercent: threshold,
-			})
+			}
 		case node.HealthStatus == HealthStatusStoragePressure && status != HealthStatusStoragePressure:
-			m.storagePressureFn(StoragePressureEvent{
+			event = &StoragePressureEvent{
 				NodeID: nodeID, NodeName: node.Name,
 				Kind:             "node_storage_pressure_resolved",
 				UsagePercent:     usagePct,
 				ThresholdPercent: threshold,
-			})
+			}
+		}
+		if event != nil {
+			fn := m.storagePressureFn
+			ev := *event
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logrus.WithField("panic", r).Error("storage pressure callback panicked")
+					}
+				}()
+				fn(ev)
+			}()
 		}
 	}
 

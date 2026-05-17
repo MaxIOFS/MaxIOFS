@@ -73,33 +73,34 @@ func (r *StaleReconciler) SetObjectManagers(objMgr object.Manager, bucketMgr buc
 	r.bucketMgr = bucketMgr
 }
 
+// ErrNoPeers is returned by Reconcile when the stale node can find no healthy
+// peers to reconcile against. Callers should retry with backoff.
+var ErrNoPeers = fmt.Errorf("no reachable peers for stale-node reconciliation")
+
 // Reconcile performs the full stale-node reconciliation sequence.
 // It is safe to call even when the node is not stale — it detects that and
 // returns immediately.
+// Returns ErrNoPeers when no healthy peers are reachable so the caller can
+// distinguish a transient condition from a fatal error.
 func (r *StaleReconciler) Reconcile(ctx context.Context) error {
 	localNodeID, err := r.clusterManager.GetLocalNodeID(ctx)
 	if err != nil {
 		return fmt.Errorf("get local node ID: %w", err)
 	}
 
-	stale, err := r.isStale(ctx, localNodeID)
+	// Quick read of is_stale without modifying DB state.
+	// We check for peers BEFORE committing to the snapshotAndClearWriteFlag
+	// transaction so we don't clear last_local_write_at and then find out there
+	// is nobody to reconcile with — that would force a retry into ModeOffline
+	// even if writes occurred during the unavailable window.
+	staleFlag, err := r.readStaleFlag(ctx, localNodeID)
 	if err != nil {
 		return fmt.Errorf("check stale flag: %w", err)
 	}
-	if !stale {
+	if !staleFlag {
 		r.log.Debug("Node is not stale; skipping reconciliation")
 		return nil
 	}
-
-	mode, err := r.detectMode(ctx, localNodeID)
-	if err != nil {
-		return fmt.Errorf("detect reconcile mode: %w", err)
-	}
-
-	r.log.WithFields(logrus.Fields{
-		"node_id": localNodeID,
-		"mode":    mode,
-	}).Info("Starting stale-node reconciliation")
 
 	nodeToken, err := r.clusterManager.GetLocalNodeToken(ctx)
 	if err != nil {
@@ -119,9 +120,22 @@ func (r *StaleReconciler) Reconcile(ctx context.Context) error {
 	}
 
 	if len(peers) == 0 {
-		r.log.Warn("No reachable peers during reconciliation; will retry on next health cycle")
-		return nil
+		r.log.Warn("No reachable peers during reconciliation; caller should retry with backoff")
+		return ErrNoPeers
 	}
+
+	// Peers are available: atomically snapshot last_local_write_at and clear it.
+	// Any write that arrives after this transaction commits starts a fresh window
+	// tracked by the NEXT reconciliation cycle.
+	_, mode, err := r.snapshotAndClearWriteFlag(ctx, localNodeID)
+	if err != nil {
+		return fmt.Errorf("snapshot stale state: %w", err)
+	}
+
+	r.log.WithFields(logrus.Fields{
+		"node_id": localNodeID,
+		"mode":    mode,
+	}).Info("Starting stale-node reconciliation")
 
 	// Build local snapshot once — reused for every peer.
 	local, err := BuildLocalSnapshot(ctx, localNodeID, r.db)
@@ -160,8 +174,9 @@ func (r *StaleReconciler) Reconcile(ctx context.Context) error {
 
 // ── Internal helpers ────────────────────────────────────────────────────────
 
-// isStale checks whether this node is currently marked stale in the DB.
-func (r *StaleReconciler) isStale(ctx context.Context, nodeID string) (bool, error) {
+// readStaleFlag returns whether the node is currently marked stale, without
+// modifying any DB state. Used to short-circuit before peer discovery.
+func (r *StaleReconciler) readStaleFlag(ctx context.Context, nodeID string) (bool, error) {
 	var stale bool
 	err := r.db.QueryRowContext(ctx,
 		"SELECT is_stale FROM cluster_nodes WHERE id = ?", nodeID).Scan(&stale)
@@ -171,8 +186,49 @@ func (r *StaleReconciler) isStale(ctx context.Context, nodeID string) (bool, err
 	return stale, err
 }
 
+// snapshotAndClearWriteFlag reads last_local_write_at inside a serializable
+// transaction and immediately clears it to NULL. Any write arriving after this
+// transaction commits starts a fresh tracking window for the NEXT reconciliation
+// cycle. Callers must verify the node IS stale before calling this function.
+func (r *StaleReconciler) snapshotAndClearWriteFlag(ctx context.Context, nodeID string) (stale bool, mode ReconcileMode, err error) {
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return false, ModeOffline, fmt.Errorf("begin snapshot transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var isStale bool
+	var lastWriteAt sql.NullTime
+	if err := tx.QueryRowContext(ctx,
+		"SELECT is_stale, last_local_write_at FROM cluster_nodes WHERE id = ?", nodeID,
+	).Scan(&isStale, &lastWriteAt); err != nil {
+		return false, ModeOffline, err
+	}
+
+	if !isStale {
+		return false, ModeOffline, nil
+	}
+
+	// Clear the write-flag so the current reconciliation window is well-defined.
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE cluster_nodes SET last_local_write_at = NULL WHERE id = ?", nodeID,
+	); err != nil {
+		return false, ModeOffline, fmt.Errorf("clear write flag: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, ModeOffline, fmt.Errorf("commit snapshot transaction: %w", err)
+	}
+
+	if lastWriteAt.Valid {
+		return true, ModePartition, nil
+	}
+	return true, ModeOffline, nil
+}
+
 // detectMode returns ModePartition when last_local_write_at is set (the node
 // accepted writes during isolation), otherwise ModeOffline.
+// Retained for direct use in tests; production code uses snapshotAndClearWriteFlag.
 func (r *StaleReconciler) detectMode(ctx context.Context, nodeID string) (ReconcileMode, error) {
 	var lastWriteAt sql.NullTime
 	err := r.db.QueryRowContext(ctx,

@@ -239,35 +239,52 @@ func (r *DeadNodeReconciler) findDeadCandidates(ctx context.Context, cutoff time
 	return out, rows.Err()
 }
 
-// markDeadIfSafe marks the node dead unless doing so would drop the count of
-// non-dead nodes below the configured replication factor. When refused, the
-// reconciler emits cluster_degraded with a "last-survivor protection" reason
+// markDeadIfSafe marks the node dead unless doing so would reduce the count of
+// healthy nodes below the configured replication factor. UNAVAILABLE and
+// DEGRADED nodes are excluded from the count because they cannot serve writes;
+// using them would allow the last healthy node to be marked dead. When refused,
+// the reconciler emits cluster_degraded with a "last-survivor protection" reason
 // so the admin sees why the node wasn't transitioned.
+//
+// The count check and the UPDATE execute inside a single BEGIN IMMEDIATE
+// transaction so that no concurrent writer can change the healthy count
+// between the check and the write on this node's SQLite database.
 func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, reason string) error {
 	factor, err := r.mgr.GetReplicationFactor(ctx)
 	if err != nil {
 		factor = 1
 	}
 
-	nonDead, err := r.countNonDeadNodes(ctx)
+	tx, err := r.mgr.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
-		return fmt.Errorf("count non-dead nodes: %w", err)
+		return fmt.Errorf("begin transaction: %w", err)
 	}
-	// nonDead currently INCLUDES the candidate (it's not dead yet). After
-	// marking dead, the cluster would have nonDead-1 non-dead nodes.
-	if nonDead-1 < factor {
+	defer tx.Rollback() //nolint:errcheck // rollback on failure is intentional
+
+	// Count healthy nodes excluding the candidate. UNAVAILABLE/DEGRADED nodes
+	// do not contribute to write capacity and are not counted, so an UNAVAILABLE
+	// node reaching the dead threshold never inflates the safety count.
+	var healthyExcludingCandidate int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM cluster_nodes WHERE health_status = ? AND id != ?`,
+		HealthStatusHealthy, node.ID,
+	).Scan(&healthyExcludingCandidate); err != nil {
+		return fmt.Errorf("count healthy nodes: %w", err)
+	}
+
+	if healthyExcludingCandidate < factor {
 		r.log.WithFields(logrus.Fields{
-			"node_id":           node.ID,
-			"node_name":         node.Name,
-			"non_dead_after":    nonDead - 1,
-			"replication_factor": factor,
+			"node_id":                    node.ID,
+			"node_name":                  node.Name,
+			"healthy_after":              healthyExcludingCandidate,
+			"replication_factor":         factor,
 		}).Warn("Refusing to mark node dead: would drop cluster below replication factor (last-survivor protection)")
 
 		// Surface this to operators via the degraded-state path so the UI
 		// banner explains the situation.
 		r.setClusterDegradedReason(ctx, fmt.Sprintf(
-			"node %q has been unavailable past the dead-node threshold but cannot be transitioned to dead — only %d non-dead node(s) remain and replication factor is %d. Add capacity to the cluster.",
-			node.Name, nonDead-1, factor,
+			"node %q has been unavailable past the dead-node threshold but cannot be transitioned to dead — only %d healthy node(s) remain and replication factor is %d. Add capacity to the cluster.",
+			node.Name, healthyExcludingCandidate, factor,
 		))
 		r.emitEvent(DeadNodeEvent{
 			Kind:         EventClusterDegraded,
@@ -275,18 +292,29 @@ func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, rea
 			NodeName:     node.Name,
 			Reason:       "last-survivor protection: cannot mark dead without dropping below replication factor",
 			Factor:       factor,
-			NonDeadNodes: nonDead - 1,
+			NonDeadNodes: healthyExcludingCandidate,
 		})
 		return nil
 	}
 
 	now := time.Now()
-	if _, err := r.mgr.db.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		UPDATE cluster_nodes
 		SET health_status = ?, updated_at = ?
 		WHERE id = ? AND health_status != ?
-	`, HealthStatusDead, now, node.ID, HealthStatusDead); err != nil {
+	`, HealthStatusDead, now, node.ID, HealthStatusDead)
+	if err != nil {
 		return fmt.Errorf("mark dead: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit mark-dead transaction: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// Node was already dead (concurrent call won the race); skip the SSE event.
+		return nil
 	}
 
 	r.log.WithFields(logrus.Fields{
@@ -313,16 +341,6 @@ func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, rea
 	return nil
 }
 
-// countNonDeadNodes returns the count of nodes whose health_status is anything
-// other than HealthStatusDead. Used by the last-survivor check.
-func (r *DeadNodeReconciler) countNonDeadNodes(ctx context.Context) (int, error) {
-	var n int
-	err := r.mgr.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM cluster_nodes WHERE health_status != ?`,
-		HealthStatusDead,
-	).Scan(&n)
-	return n, err
-}
 
 // recomputeClusterDegradedState compares healthy node count against the
 // replication factor. Sets/clears the degraded reason and emits SSE events on

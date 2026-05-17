@@ -29,6 +29,274 @@
 
 ---
 
+## 🔴 v1.4.1 — Audit Findings (May 17, 2026)
+
+Findings from a full code audit performed on v1.4.0. Items are sorted by severity and are independent — each can be fixed and shipped individually. The BadgerDB removal (deprecation of legacy migration code) is also scheduled for this release.
+
+---
+
+### 🔴 Critical — General Backend
+
+#### A1. Replication queue race condition — duplicate work
+- **File**: `internal/replication/manager.go:528-598` (`loadPendingItems`)
+- **Issue**: when the in-memory queue is full, a claimed item is released back to `pending`. The next loader tick re-claims and re-enqueues it, causing the same object to be replicated twice to the destination.
+- **Fix**: instead of reverting to `pending` when the queue is full, keep the item as `retrying` and retry the enqueue on the next tick. Never release an active claim back to `pending`.
+- [x] Done
+
+#### A2. Orphaned combined file on `CompleteMultipartUpload` metadata failure
+- **File**: `internal/object/manager.go:2065-2075` (`doCompleteMultipartUpload`)
+- **Issue**: if `PutObjectVersion()` or `PutObject()` fails after the parts have been physically combined, the combined file remains on disk indefinitely with no metadata record — an unrecoverable storage leak. (Quota is incremented only inside `updateMetricsAndCleanupMultipart` which is called after the metadata write, so quota is not double-counted, but the file still wastes disk space.)
+- **Fix**: delete `objectPath` via `storage.Delete` before returning the error when either metadata write fails.
+- [x] Done
+
+---
+
+### 🟠 High — General Backend
+
+#### A3. Quota decrement applied even when metadata delete fails
+- **File**: `internal/object/manager.go:830-889` (`deleteSpecificVersion`)
+- **Issue**: `storage.Delete` errors were swallowed (Warn-only); the physical file could remain on disk while bucket size metrics were still decremented as if it were gone, making reported bucket size smaller than actual disk usage. (Note: `DeleteObjectVersion` is called first; if it fails the function returns before touching the file or metrics — the bug is in the physical-delete failure path, not vice versa.)
+- **Fix**: introduce `physicalDeleteOK` flag; pass `freedBytes = 0` to `DecrementObjectCount` when the physical delete failed so the bucket size counter is not decremented until the orphaned file is cleaned up.
+- [x] Done
+
+#### A4. TOCTOU in `DeleteBucket` — orphaned objects
+- **File**: `internal/bucket/manager_impl.go:172-180`
+- **Issue**: between `isBucketEmpty()` and the actual delete, another thread can call `PutObject`. The bucket is deleted leaving objects with metadata but no parent bucket.
+- **Fix**: move the empty check inside the store's delete transaction — check + delete as a single atomic operation.
+- [x] Done
+
+#### A5. Broken atomicity in `FilesystemBackend.Put()` — data without metadata
+- **File**: `internal/storage/filesystem.go:144-159`
+- **Issue**: the data file is renamed first, then the metadata file. If the metadata rename fails (disk full, permission change), the object exists on disk but reads return `ErrObjectNotFound`. Silent corruption.
+- **Fix**: prepare metadata to a temp file, rename metadata first, then rename data. Or use a commit marker.
+- [x] Done
+
+#### A6. Lifecycle without pagination — objects never expired in large buckets
+- **File**: `internal/lifecycle/worker.go:284`
+- **Issue**: `processObjectExpiration()` calls `ListObjects(maxKeys=10000)` without pagination. Buckets with more than 10,000 objects only expire the first 10,000. Objects beyond the first page are never cleaned up.
+- **Fix**: implement a pagination loop with marker until `IsTruncated=false`.
+- [x] Done
+
+#### A7. Replication credentials decrypted without validation
+- **File**: `internal/replication/manager.go:228-266`
+- **Issue**: if the encryption key changes or is corrupted, the decryption result is garbage but is used anyway. Replication fails silently with no alert to the operator.
+- **Fix**: validate the decrypt result (non-empty, minimum length). Return `ErrDecryptionFailed` and log at `Error` level if validation fails.
+- [x] Done
+
+#### A8. Race in visible object count in `updateBucketMetricsAfterPut`
+- **File**: `internal/object/manager.go:2645-2705`
+- **Issue**: the fallback that re-queries `GetObjectVersions()` when `existingObjBeforeSave` is nil runs after the save; the previous state may have changed, producing incorrect bucket metrics.
+- **Fix**: always capture the previous state before the save and pass it explicitly. Remove the fallback path.
+- [x] Done
+
+#### A9. `computeMultipartETag` silently accepts invalid part ETags
+- **File**: `internal/object/manager.go:2798-2819`
+- **Issue**: if a part ETag is not valid hex, it hashes the string instead of returning an error. Masks data corruption and violates S3 compliance.
+- **Fix**: return an error if a part ETag is not a valid 32-character MD5 hex string.
+- [x] Done
+
+#### A10. HA replica quota not updated locally
+- **File**: `internal/cluster/ha_object_manager.go`
+- **Issue**: the primary increments quota locally; replicas store bytes without updating their local quota. If a replica becomes primary, its reported quota is lower than actual stored bytes.
+- **Fix**: replicas must update quota metrics (but must NOT enforce the quota limit — that is the primary's responsibility).
+- [x] Done
+
+#### A11. Deleting a delete marker in lifecycle may create another marker
+- **File**: `internal/lifecycle/worker.go:218-232`
+- **Issue**: if `DeleteObject()` with the versionID of a delete marker creates another marker instead of removing it, lifecycle cleanup becomes an infinite loop. No test covers this semantic.
+- **Fix**: verify that deleting a delete marker removes it permanently. Add an idempotency test.
+- [x] Done
+
+#### A12. `CreateBucket` rollback does not revert the ACL
+- **File**: `internal/bucket/manager_impl.go:112-125`
+- **Issue**: if the storage marker creation fails, bucket metadata is rolled back but the ACL already created is not. The bucket is left in an inconsistent state with an orphaned ACL.
+- **Fix**: if the storage marker fails, also delete the ACL created in the same rollback step.
+- [x] Done
+
+---
+
+### 🟡 Medium — General Backend
+
+#### A13. Decryption goroutine not cancelled when reader is abandoned
+- **File**: `internal/object/manager.go:417-445`
+- **Issue**: if the client disconnects mid-stream, the decryption goroutine continues consuming CPU until the end of the object.
+- **Fix**: use `context.WithCancel` and cancel explicitly when the pipe reader is closed without consuming the full stream.
+- [x] Done (already fixed in code — inner goroutine watches ctx.Done() and calls pipeWriter.CloseWithError; io.Pipe mechanism also unblocks on pipeReader.Close())
+
+#### A14. Lifecycle prefix filter not validated or applied consistently
+- **File**: `internal/lifecycle/worker.go:115-193`
+- **Issue**: `rule.Filter.Prefix` is not validated before use and is not applied consistently between noncurrent and current version cleanup paths.
+- **Fix**: validate the prefix is non-nil at the start of processing; apply the same filter across all lifecycle action paths.
+- [x] Done
+
+#### A15. `CompleteMultipartUpload` leaves `ContentType` empty
+- **File**: `internal/object/manager.go:2048`
+- **Issue**: the final object's `ContentType` is taken from `multipart.Metadata["content-type"]`. If absent, the object is stored without a Content-Type instead of defaulting to `application/octet-stream`.
+- **Fix**: `if contentType == "" { contentType = "application/octet-stream" }`.
+- [x] Done
+
+#### A16. Panic if S3 client factory returns nil in replication worker
+- **File**: `internal/replication/worker.go`
+- **Issue**: without a nil check before using the client, any construction error causes a panic in the worker.
+- **Fix**: add nil check after building the S3 client; return a specific error if construction fails.
+- [x] Done
+
+#### A17. Audit log failures silenced
+- **File**: `internal/bucket/manager_impl.go:52` and others
+- **Issue**: audit logging failures are discarded with `_ = auditManager.LogEvent(...)`. In compliance environments this is a correctness issue.
+- **Fix**: log audit failures at `Warn` level without blocking the main operation.
+- [x] Done
+
+---
+
+### 🔴 Critical — HA Subsystem
+
+#### H1. Quorum factor=2 off-by-one — no replica confirmation required
+- **File**: `internal/cluster/ha_object_manager.go:196`
+- **Issue**: `neededReplicas = ceil(2/2) - 1 = 0`. With factor=2, a write can succeed on the local node alone with no error to the client. The best-effort behavior is not documented as intentional in the code.
+- **Fix**: explicitly document that factor=2 is best-effort, or change the formula to `(factor+1)/2` without subtracting 1 to require at least one replica confirmation with factor=2.
+- **Resolution**: documented as intentional — requiring 1 peer confirmation with only 2 nodes would block all writes whenever the single peer is unreachable, which is worse than best-effort. Added a detailed comment with quorum table in `replicaTargets`.
+- [x] Done
+
+#### H2. Race in stale mode detection (offline vs partition)
+- **File**: `internal/cluster/stale_reconciler.go:174-187`
+- **Issue**: `detectMode` reads `last_local_write_at` without a lock while writes may be in progress. A node can be classified as offline when it was actually in a partition, causing its local writes to be skipped during reconciliation.
+- **Fix**: use a query with FOR UPDATE, or add a sequence number to define the write window before reconciliation begins.
+- [x] Done
+
+#### H3. No retry when all peers are unreachable in stale reconciler
+- **File**: `internal/cluster/stale_reconciler.go:121-124`
+- **Issue**: if no peer responds when `Reconcile` runs, it returns nil without clearing the `is_stale` flag. The node stays stale indefinitely and never rejoins the write path without manual intervention.
+- **Fix**: return an error and implement a bounded retry loop with exponential backoff.
+- [x] Done
+
+#### H4. `countNonDeadNodes` is not atomic — last-survivor protection violation
+- **File**: `internal/cluster/dead_node_reconciler.go:318-325`
+- **Issue**: two threads can both pass the last-survivor check simultaneously and both mark their respective nodes as dead, leaving the cluster below the replication factor.
+- **Fix**: wrap count + check + update in a single serializable SQLite transaction.
+- [x] Done
+
+#### H5. Proxy HMAC does not include the request body
+- **File**: `internal/cluster/proxy.go:240`
+- **Issue**: the HMAC payload only covers method+path+timestamp+nonce. An attacker with internal network access can intercept a PUT, replace the body, and reuse the same signature. Enables arbitrary data writes to replicas.
+- **Fix**: include `SHA256(body)` in the HMAC payload: `"METHOD\nPATH\nTIMESTAMP\nNONCE\nBODY_HASH"`.
+- [x] Done
+
+---
+
+### 🟠 High — HA Subsystem
+
+#### H6. Metadata fanout is fire-and-forget with no confirmation
+- **File**: `internal/cluster/ha_object_manager.go:362-412`
+- **Issue**: tagging, ACL, retention, and legal hold are fanned out to replicas without waiting for an ACK. An immediate read on another replica may return stale metadata.
+- **Fix**: add a confirmation queue for metadata ops, or at minimum a timeout + retry with a divergence log entry.
+- [x] Done
+
+#### H7. `countNonDeadNodes` counts UNAVAILABLE nodes as alive
+- **File**: `internal/cluster/dead_node_reconciler.go:321`
+- **Issue**: the query counts all nodes where `health_status != dead`, including UNAVAILABLE and DEGRADED. There may be fewer useful nodes than the check indicates, blocking the last-survivor protection when the reconciler should be allowed to act.
+- **Fix**: count only nodes with `health_status = healthy` for last-survivor protection.
+- [x] Done
+
+---
+
+### 🟡 Medium — HA Subsystem
+
+#### H8. Anti-entropy TOCTOU — object deleted between checksum-batch and pull
+- **File**: `internal/cluster/anti_entropy.go:680-684`
+- **Issue**: if the peer deletes an object between the checksum batch and the pull, the scrubber returns nil silently. The same divergence is re-detected on every subsequent cycle without ever being resolved.
+- **Fix**: on 404 during the pull, record as "divergence resolved remotely" and continue; do not silently swallow it.
+- [x] Done
+
+#### H9. LWW tie-breaking with equal timestamps and different ETags — never resolved
+- **File**: `internal/cluster/anti_entropy.go:488-496`
+- **Issue**: `classifyDivergence` returns `actNone` when local and peer have the same `LastModified` but different ETags. The divergence is detected but never fixed.
+- **Fix**: use a deterministic secondary key (e.g., lexicographic node ID) to break ties and decide which version wins.
+- [x] Done
+
+#### H10. SSE event emitted even when node was already dead (0 rows affected)
+- **File**: `internal/cluster/dead_node_reconciler.go:287`
+- **Issue**: the UPDATE includes `AND health_status != dead` but does not check `RowsAffected`. If the node was already dead, the UPDATE is a no-op but the SSE transition event is still emitted.
+- **Fix**: check `RowsAffected > 0` before emitting the transition event.
+- [x] Done
+
+#### H11. Storage pressure SSE callback called inline inside health check
+- **File**: `internal/cluster/health.go:146-164`
+- **Issue**: if the callback blocks or panics, the health check goroutine hangs.
+- **Fix**: emit events through a buffered channel so the health check never blocks on external callbacks.
+- [x] Done
+
+#### H12. `EntityIsNewerThanTombstone` check is not transactional
+- **File**: `internal/cluster/stale_reconciler.go:385-389`
+- **Issue**: between the check and `RecordDeletion`, another thread can delete the entity locally. The check passes but the entity no longer exists, leaving state inconsistent.
+- **Fix**: use a delete-only-if-exists pattern with the verification inside the same transaction.
+- [ ] Deferred — requires adding `*sql.Tx` variants of EntityIsNewerThanTombstone and RecordDeletion; impact is limited to a one-cycle delay before the next sync resolves the state. Will revisit in v1.4.2.
+
+#### H13. HASyncWorker can run two concurrent syncs for the same node
+- **File**: `internal/cluster/ha_sync_worker.go:132-137`
+- **Issue**: the lock is released before checking the DB for an existing job. Two threads can both pass the check and run parallel syncs for the same node.
+- **Fix**: hold the lock through the DB existence check.
+- [x] Done
+
+#### H14. HMAC timestamp window of ±5 minutes is too wide
+- **File**: `internal/cluster/proxy.go:348-358`
+- **Issue**: an attacker on the internal network can capture and replay a signed request for up to 5 minutes.
+- **Fix**: reduce to 30–60 seconds for inter-node internal traffic.
+- [x] Done
+
+---
+
+### 🌐 New Languages — Frontend i18n
+
+The i18n system uses `react-i18next` with 20 namespaces. Currently supports English (`en`) and Spanish (`es`). Add French, German, Italian, and Portuguese.
+
+#### I1. Create translation files — French (`fr`)
+- Copy all 20 files from `locales/en/` to `locales/fr/` and translate.
+- Approx. ~2,200 lines of strings.
+- [ ] Open
+
+#### I2. Create translation files — German (`de`)
+- Copy all 20 files from `locales/en/` to `locales/de/` and translate.
+- [ ] Open
+
+#### I3. Create translation files — Italian (`it`)
+- Copy all 20 files from `locales/en/` to `locales/it/` and translate.
+- [ ] Open
+
+#### I4. Create translation files — Portuguese (`pt`)
+- Copy all 20 files from `locales/en/` to `locales/pt/` and translate.
+- [ ] Open
+
+#### I5. Register the 4 new languages in `i18n.ts`
+- **File**: `web/frontend/src/i18n.ts`
+- Add imports for 20 namespaces × 4 languages.
+- Add 4 new blocks to `resources: {}`.
+- Extend the `getSavedLanguage()` type guard from `'en' | 'es'` to all 6 languages.
+- [ ] Open
+
+#### I6. Add the 4 languages to the language selector in Preferences
+- **File**: `web/frontend/src/pages/preferences/index.tsx` (or wherever the language picker lives)
+- Add options: Français, Deutsch, Italiano, Português with their locale codes.
+- [ ] Open
+
+---
+
+### 🗑️ Technical Debt — BadgerDB Removal
+
+#### D1. Delete BadgerDB files from `internal/metadata/`
+- Delete: `badger.go`, `badger_objects.go`, `badger_rawkv.go`, `badger_multipart.go`, `badger_test.go`, `badger_comprehensive_test.go`
+- Edit `store_consistency_test.go`: remove the BadgerStore variant from the `setupStoreVariants` loop.
+- Edit `pebble_test.go`: remove `TestMigrateFromBadger`, `TestMigrateIdempotent`, and the `badger "github.com/dgraph-io/badger/v4"` import.
+- Edit `server.go`: remove the call to `MigrateFromBadgerIfNeeded` and the stale BadgerDB comment at line ~661.
+- Note: **do NOT touch** `internal/metrics/badger_history.go` — it does not import BadgerDB; it uses `metadata.RawKVStore` (Pebble).
+- [ ] Open
+
+#### D2. Remove `github.com/dgraph-io/badger/v4` from `go.mod`
+- After D1, run `go mod tidy` to drop the direct dependency and its transitives (ristretto, etc.).
+- [ ] Open
+
+---
+
 ## 🔵 v1.3.0 — HA Cluster: Durability fixes + operations
 
 **Goal**: close the gaps in the existing N-way replication so the cluster actually tolerates node failures without silent data loss, and add the operational primitives (dead-node redistribution, drain, storage pressure) needed to run it in production.

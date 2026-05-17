@@ -283,6 +283,62 @@ func (s *BadgerStore) DeleteBucket(ctx context.Context, tenantID, name string) e
 	})
 }
 
+// DeleteBucketIfEmpty deletes the bucket inside a single BadgerDB transaction only if empty.
+// Returns ErrBucketNotFound if the bucket does not exist, ErrBucketNotEmpty if objects remain.
+func (s *BadgerStore) DeleteBucketIfEmpty(ctx context.Context, tenantID, name string) error {
+	key := bucketKey(tenantID, name)
+
+	var bucketPath string
+	if tenantID == "" {
+		bucketPath = name
+	} else {
+		bucketPath = tenantID + "/" + name
+	}
+	objPrefix := objectListPrefix(bucketPath)
+	verPrefix := []byte(fmt.Sprintf("version:%s:", bucketPath))
+
+	return s.db.Update(func(txn *badger.Txn) error {
+		if _, err := txn.Get(key); err == badger.ErrKeyNotFound {
+			return ErrBucketNotFound
+		} else if err != nil {
+			return fmt.Errorf("failed to check bucket existence: %w", err)
+		}
+
+		// Check for any object metadata entries.
+		iterOpts := badger.DefaultIteratorOptions
+		iterOpts.PrefetchValues = false
+		iterOpts.Prefix = objPrefix
+		it := txn.NewIterator(iterOpts)
+		it.Seek(objPrefix)
+		hasObjects := it.ValidForPrefix(objPrefix)
+		it.Close()
+		if hasObjects {
+			return ErrBucketNotEmpty
+		}
+
+		// Check for any version metadata entries.
+		iterOpts.Prefix = verPrefix
+		it2 := txn.NewIterator(iterOpts)
+		it2.Seek(verPrefix)
+		hasVersions := it2.ValidForPrefix(verPrefix)
+		it2.Close()
+		if hasVersions {
+			return ErrBucketNotEmpty
+		}
+
+		if err := txn.Delete(key); err != nil {
+			return fmt.Errorf("failed to delete bucket: %w", err)
+		}
+
+		s.logger.WithFields(logrus.Fields{
+			"bucket":    name,
+			"tenant_id": tenantID,
+		}).Debug("Bucket deleted from metadata store")
+
+		return nil
+	})
+}
+
 // ListBuckets lists all buckets for a tenant
 func (s *BadgerStore) ListBuckets(ctx context.Context, tenantID string) ([]*BucketMetadata, error) {
 	var buckets []*BucketMetadata

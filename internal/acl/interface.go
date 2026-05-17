@@ -11,6 +11,7 @@ type Manager interface {
 	// Bucket ACL operations
 	GetBucketACL(ctx context.Context, tenantID, bucketName string) (*ACL, error)
 	SetBucketACL(ctx context.Context, tenantID, bucketName string, acl *ACL) error
+	DeleteBucketACL(ctx context.Context, tenantID, bucketName string) error
 
 	// Object ACL operations
 	GetObjectACL(ctx context.Context, tenantID, bucketName, objectKey string) (*ACL, error)
