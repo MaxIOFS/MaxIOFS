@@ -1,0 +1,17 @@
+{
+  "dashboard": "仪表板",
+  "buckets": "存储桶",
+  "users": "用户",
+  "tenants": "租户",
+  "settings": "设置",
+  "auditLogs": "审计日志",
+  "metrics": "指标",
+  "security": "安全",
+  "about": "关于",
+  "logout": "退出登录",
+  "accessKeys": "访问密钥",
+  "identityProviders": "身份提供商",
+  "cluster": "集群",
+  "groups": "用户组",
+  "roleCapabilities": "角色权限"
+}

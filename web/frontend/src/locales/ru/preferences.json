@@ -1,0 +1,22 @@
+{
+  "title": "Настройки",
+  "theme": "Тема",
+  "language": "Язык",
+  "themeLight": "Светлая",
+  "themeDark": "Тёмная",
+  "themeSystem": "Системная",
+  "languageEnglish": "Английский",
+  "languageSpanish": "Испанский",
+  "languageFrench": "Французский",
+  "languageGerman": "Немецкий",
+  "languageItalian": "Итальянский",
+  "languagePortuguese": "Португальский",
+  "languageChinese": "Китайский",
+  "languageJapanese": "Японский",
+  "languageRussian": "Русский",
+  "savePreferences": "Сохранить настройки",
+  "preferencesUpdated": "Настройки успешно обновлены",
+  "errorTitle": "Ошибка",
+  "ownThemeOnly": "Только сам пользователь может изменить тему.",
+  "ownLanguageOnly": "Только сам пользователь может изменить язык."
+}

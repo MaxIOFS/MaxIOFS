@@ -1,0 +1,17 @@
+{
+  "dashboard": "ダッシュボード",
+  "buckets": "バケット",
+  "users": "ユーザー",
+  "tenants": "テナント",
+  "settings": "設定",
+  "auditLogs": "監査ログ",
+  "metrics": "メトリクス",
+  "security": "セキュリティ",
+  "about": "バージョン情報",
+  "logout": "ログアウト",
+  "accessKeys": "アクセスキー",
+  "identityProviders": "IDプロバイダー",
+  "cluster": "クラスター",
+  "groups": "グループ",
+  "roleCapabilities": "ロール権限"
+}

@@ -1,0 +1,17 @@
+{
+  "dashboard": "Дашборд",
+  "buckets": "Бакеты",
+  "users": "Пользователи",
+  "tenants": "Тенанты",
+  "settings": "Настройки",
+  "auditLogs": "Журнал аудита",
+  "metrics": "Метрики",
+  "security": "Безопасность",
+  "about": "О программе",
+  "logout": "Выйти",
+  "accessKeys": "Ключи доступа",
+  "identityProviders": "Поставщики удостоверений",
+  "cluster": "Кластер",
+  "groups": "Группы",
+  "roleCapabilities": "Возможности ролей"
+}

@@ -1,0 +1,22 @@
+{
+  "title": "偏好设置",
+  "theme": "主题",
+  "language": "语言",
+  "themeLight": "浅色",
+  "themeDark": "深色",
+  "themeSystem": "系统",
+  "languageEnglish": "英语",
+  "languageSpanish": "西班牙语",
+  "languageFrench": "法语",
+  "languageGerman": "德语",
+  "languageItalian": "意大利语",
+  "languagePortuguese": "葡萄牙语",
+  "languageChinese": "中文",
+  "languageJapanese": "日语",
+  "languageRussian": "俄语",
+  "savePreferences": "保存偏好设置",
+  "preferencesUpdated": "偏好设置更新成功",
+  "errorTitle": "错误",
+  "ownThemeOnly": "只有用户本人才能更改其主题偏好。",
+  "ownLanguageOnly": "只有用户本人才能更改其语言偏好。"
+}

@@ -1,0 +1,22 @@
+{
+  "title": "設定",
+  "theme": "テーマ",
+  "language": "言語",
+  "themeLight": "ライト",
+  "themeDark": "ダーク",
+  "themeSystem": "システム",
+  "languageEnglish": "英語",
+  "languageSpanish": "スペイン語",
+  "languageFrench": "フランス語",
+  "languageGerman": "ドイツ語",
+  "languageItalian": "イタリア語",
+  "languagePortuguese": "ポルトガル語",
+  "languageChinese": "中国語",
+  "languageJapanese": "日本語",
+  "languageRussian": "ロシア語",
+  "savePreferences": "設定を保存",
+  "preferencesUpdated": "設定が正常に更新されました",
+  "errorTitle": "エラー",
+  "ownThemeOnly": "テーマ設定を変更できるのはユーザー本人のみです。",
+  "ownLanguageOnly": "言語設定を変更できるのはユーザー本人のみです。"
+}

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import i18n, { loadLanguage } from '../i18n';
 
-type Language = 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt';
+type Language = 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt' | 'zh' | 'ja' | 'ru';
 
 interface LanguageContextType {
   language: Language;
@@ -29,7 +29,7 @@ export function LanguageProvider({ children, initialLanguage = 'en' }: LanguageP
   const [language, setLanguageState] = useState<Language>(() => {
     try {
       const stored = localStorage.getItem('language');
-      return stored === 'en' || stored === 'es' || stored === 'fr' || stored === 'de' || stored === 'it' || stored === 'pt' ? stored : initialLanguage;
+      return stored === 'en' || stored === 'es' || stored === 'fr' || stored === 'de' || stored === 'it' || stored === 'pt' || stored === 'zh' || stored === 'ja' || stored === 'ru' ? stored : initialLanguage;
     } catch {
       return initialLanguage;
     }

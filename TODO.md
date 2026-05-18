@@ -280,6 +280,27 @@ The i18n system uses `react-i18next` with 20 namespaces. Currently supports Engl
 - Added `languageGerman` / `languagePortuguese` / `german` / `portuguese` keys to all 6 locale files.
 - [x] Done
 
+#### I7. Create translation files — Chinese Simplified (`zh`)
+- All 19 namespaces translated. Files in `web/frontend/src/locales/zh/`.
+- "Bucket" → "存储桶".
+- [x] Done
+
+#### I8. Create translation files — Japanese (`ja`)
+- All 19 namespaces translated. Files in `web/frontend/src/locales/ja/`.
+- "Bucket" → "バケット".
+- [x] Done
+
+#### I9. Create translation files — Russian (`ru`)
+- All 19 namespaces translated. Files in `web/frontend/src/locales/ru/`.
+- "Bucket" → "бакет".
+- [x] Done
+
+#### I10. Register zh/ja/ru in TypeScript and fix language name lookup
+- Extended `Language` type, `getSavedLanguage()`, `LanguageContext`, `TopBar`, `UserPreferences`, `AppLayout`, `useAuth` to include `zh | ja | ru`.
+- Added `nameKey` field to `LANGUAGES` array in `TopBar.tsx` to replace the fragile ternary chain that defaulted to "Portuguese" for unknown codes.
+- Added `chinese/japanese/russian` and `languageChinese/languageJapanese/languageRussian` keys to all 6 existing locale files (en, es, fr, de, it, pt).
+- [x] Done
+
 ---
 
 ### 🗑️ Technical Debt — BadgerDB Removal

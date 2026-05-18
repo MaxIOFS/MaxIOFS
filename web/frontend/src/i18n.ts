@@ -67,10 +67,10 @@ export function loadLanguage(lang: string): Promise<void> {
   return promise;
 }
 
-const getSavedLanguage = (): 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt' => {
+const getSavedLanguage = (): 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt' | 'zh' | 'ja' | 'ru' => {
   try {
     const stored = localStorage.getItem('language');
-    return stored === 'en' || stored === 'es' || stored === 'fr' || stored === 'de' || stored === 'it' || stored === 'pt' ? stored : 'en';
+    return stored === 'en' || stored === 'es' || stored === 'fr' || stored === 'de' || stored === 'it' || stored === 'pt' || stored === 'zh' || stored === 'ja' || stored === 'ru' ? stored : 'en';
   } catch {
     return 'en';
   }

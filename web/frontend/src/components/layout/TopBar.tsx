@@ -20,15 +20,18 @@ import { cn } from '@/lib/utils';
 import type { User as UserType } from '@/types';
 import type { Notification } from '@/hooks/useNotifications';
 
-type Language = 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt';
+type Language = 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt' | 'zh' | 'ja' | 'ru';
 
-const LANGUAGES: { code: Language; flag: string; label: string }[] = [
-  { code: 'en', flag: '🇬🇧', label: 'EN' },
-  { code: 'es', flag: '🇪🇸', label: 'ES' },
-  { code: 'fr', flag: '🇫🇷', label: 'FR' },
-  { code: 'de', flag: '🇩🇪', label: 'DE' },
-  { code: 'it', flag: '🇮🇹', label: 'IT' },
-  { code: 'pt', flag: '🇧🇷', label: 'PT' },
+const LANGUAGES: { code: Language; flag: string; label: string; nameKey: string }[] = [
+  { code: 'en', flag: '🇬🇧', label: 'EN', nameKey: 'english' },
+  { code: 'es', flag: '🇪🇸', label: 'ES', nameKey: 'spanish' },
+  { code: 'fr', flag: '🇫🇷', label: 'FR', nameKey: 'french' },
+  { code: 'de', flag: '🇩🇪', label: 'DE', nameKey: 'german' },
+  { code: 'it', flag: '🇮🇹', label: 'IT', nameKey: 'italian' },
+  { code: 'pt', flag: '🇧🇷', label: 'PT', nameKey: 'portuguese' },
+  { code: 'zh', flag: '🇨🇳', label: 'ZH', nameKey: 'chinese' },
+  { code: 'ja', flag: '🇯🇵', label: 'JA', nameKey: 'japanese' },
+  { code: 'ru', flag: '🇷🇺', label: 'RU', nameKey: 'russian' },
 ];
 
 interface TopBarProps {
@@ -142,14 +145,7 @@ export function TopBar({
                       )}
                     >
                       <span className="text-base">{lang.flag}</span>
-                      <span>{
-                        lang.code === 'en' ? t('english') :
-                        lang.code === 'es' ? t('spanish') :
-                        lang.code === 'fr' ? t('french') :
-                        lang.code === 'de' ? t('german') :
-                        lang.code === 'it' ? t('italian') :
-                        t('portuguese')
-                      }</span>
+                      <span>{t(lang.nameKey)}</span>
                     </button>
                   ))}
                 </div>
