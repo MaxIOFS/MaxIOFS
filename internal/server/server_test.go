@@ -3682,7 +3682,7 @@ func TestHandleListReplicationRules(t *testing.T) {
 	})
 
 	t.Run("should create and list tenant bucket rules for global admin with tenant query", func(t *testing.T) {
-		body := `{"destination_endpoint":"https://s3.amazonaws.com","destination_bucket":"remote-bucket","destination_access_key":"key","destination_secret_key":"secret","enabled":false,"priority":1,"mode":"realtime","conflict_resolution":"last_write_wins","replicate_deletes":true,"replicate_metadata":true}`
+		body := `{"destination_endpoint":"https://s3.amazonaws.com","destination_bucket":"remote-bucket","destination_access_key":"AKIAIOSFODNN7EXAMPLE","destination_secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","enabled":false,"priority":1,"mode":"realtime","conflict_resolution":"last_write_wins","replicate_deletes":true,"replicate_metadata":true}`
 		createReq := createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/replication/rules?tenantId="+tenantID, strings.NewReader(body), "", "admin-1", true)
 		createReq = mux.SetURLVars(createReq, map[string]string{"bucket": bucketName})
 		createReq.Header.Set("Content-Type", "application/json")

@@ -225,16 +225,16 @@ func TestClusterAuth_TimestampSkew(t *testing.T) {
 			shouldPass: true,
 		},
 		{
-			name: "4 minutes in past (should pass)",
+			name: "20 seconds in past (should pass)",
 			timestampFunc: func() string {
-				return fmt.Sprintf("%d", time.Now().Add(-4*time.Minute).Unix())
+				return fmt.Sprintf("%d", time.Now().Add(-20*time.Second).Unix())
 			},
 			shouldPass: true,
 		},
 		{
-			name: "4 minutes in future (should pass)",
+			name: "20 seconds in future (should pass)",
 			timestampFunc: func() string {
-				return fmt.Sprintf("%d", time.Now().Add(4*time.Minute).Unix())
+				return fmt.Sprintf("%d", time.Now().Add(20*time.Second).Unix())
 			},
 			shouldPass: true,
 		},

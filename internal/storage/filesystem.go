@@ -159,6 +159,7 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 	}
 
 	if err := os.Rename(tempFile.Name(), fullPath); err != nil {
+		os.Remove(fs.getMetadataPath(path))
 		return NewErrorWithCause("AtomicMove", "Failed to move file to final location", err)
 	}
 
