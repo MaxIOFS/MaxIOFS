@@ -106,7 +106,7 @@ func (s *Server) runIntegrityScrub(ctx context.Context) {
 				}).Error("Integrity scrubber: data corruption detected")
 
 				// Audit event
-				_ = s.auditManager.LogEvent(ctx, &audit.AuditEvent{
+				s.logAuditEvent(ctx, &audit.AuditEvent{
 					TenantID:     tenantID,
 					EventType:    audit.EventTypeDataCorruption,
 					ResourceType: audit.ResourceTypeSystem,

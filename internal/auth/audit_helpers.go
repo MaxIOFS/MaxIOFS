@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/maxiofs/maxiofs/internal/audit"
+	"github.com/sirupsen/logrus"
 )
 
 // logAuditEvent is a helper function to log audit events
@@ -15,7 +16,9 @@ func (am *authManager) logAuditEvent(ctx context.Context, event *audit.AuditEven
 		return
 	}
 
-	_ = am.auditManager.LogEvent(ctx, event)
+	if err := am.auditManager.LogEvent(ctx, event); err != nil {
+		logrus.WithError(err).Warn("Failed to write audit event")
+	}
 }
 
 // extractIPFromRequest extracts the client IP address from HTTP request

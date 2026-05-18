@@ -114,26 +114,24 @@ func (s *Server) checkClusterNodeAlerts(ctx context.Context, states *clusterNode
 				},
 				Timestamp: time.Now().Unix(),
 			})
-			if s.auditManager != nil {
-				_ = s.auditManager.LogEvent(ctx, &audit.AuditEvent{
-					UserID:       "system",
-					Username:     "system",
-					EventType:    audit.EventTypeClusterNodeAlert,
-					ResourceType: audit.ResourceTypeSystem,
-					ResourceID:   node.ID,
-					ResourceName: node.Name,
-					Action:       audit.ActionResolve,
-					Status:       audit.StatusSuccess,
-					Details: map[string]interface{}{
-						"node_id":      node.ID,
-						"node_name":    node.Name,
-						"used_percent": usedPct,
-						"used_gb":      float64(node.CapacityUsed) / 1e9,
-						"total_gb":     float64(node.CapacityTotal) / 1e9,
-						"free_gb":      float64(freeBytes) / 1e9,
-					},
-				})
-			}
+			s.logAuditEvent(ctx, &audit.AuditEvent{
+				UserID:       "system",
+				Username:     "system",
+				EventType:    audit.EventTypeClusterNodeAlert,
+				ResourceType: audit.ResourceTypeSystem,
+				ResourceID:   node.ID,
+				ResourceName: node.Name,
+				Action:       audit.ActionResolve,
+				Status:       audit.StatusSuccess,
+				Details: map[string]interface{}{
+					"node_id":      node.ID,
+					"node_name":    node.Name,
+					"used_percent": usedPct,
+					"used_gb":      float64(node.CapacityUsed) / 1e9,
+					"total_gb":     float64(node.CapacityTotal) / 1e9,
+					"free_gb":      float64(freeBytes) / 1e9,
+				},
+			})
 			continue
 		}
 
@@ -163,29 +161,27 @@ func (s *Server) checkClusterNodeAlerts(ctx context.Context, states *clusterNode
 			"total_gb":  float64(node.CapacityTotal) / 1e9,
 		}).Warn("Cluster node storage alert triggered")
 
-		if s.auditManager != nil {
-			_ = s.auditManager.LogEvent(ctx, &audit.AuditEvent{
-				UserID:       "system",
-				Username:     "system",
-				EventType:    audit.EventTypeClusterNodeAlert,
-				ResourceType: audit.ResourceTypeSystem,
-				ResourceID:   node.ID,
-				ResourceName: node.Name,
-				Action:       audit.ActionAlert,
-				Status:       audit.StatusSuccess,
-				Details: map[string]interface{}{
-					"level":        notifType,
-					"node_id":      node.ID,
-					"node_name":    node.Name,
-					"used_percent": usedPct,
-					"used_gb":      float64(node.CapacityUsed) / 1e9,
-					"total_gb":     float64(node.CapacityTotal) / 1e9,
-					"free_gb":      float64(freeBytes) / 1e9,
-					"warn_at":      warnPct,
-					"critical_at":  critPct,
-				},
-			})
-		}
+		s.logAuditEvent(ctx, &audit.AuditEvent{
+			UserID:       "system",
+			Username:     "system",
+			EventType:    audit.EventTypeClusterNodeAlert,
+			ResourceType: audit.ResourceTypeSystem,
+			ResourceID:   node.ID,
+			ResourceName: node.Name,
+			Action:       audit.ActionAlert,
+			Status:       audit.StatusSuccess,
+			Details: map[string]interface{}{
+				"level":        notifType,
+				"node_id":      node.ID,
+				"node_name":    node.Name,
+				"used_percent": usedPct,
+				"used_gb":      float64(node.CapacityUsed) / 1e9,
+				"total_gb":     float64(node.CapacityTotal) / 1e9,
+				"free_gb":      float64(freeBytes) / 1e9,
+				"warn_at":      warnPct,
+				"critical_at":  critPct,
+			},
+		})
 
 		s.notificationHub.SendNotification(&Notification{
 			Type:    notifType,

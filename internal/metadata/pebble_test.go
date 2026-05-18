@@ -156,6 +156,37 @@ func TestPebbleStoreObjectOperations(t *testing.T) {
 	})
 }
 
+func TestPebbleStoreDeleteBucketIfEmptyRejectsLateObjectWrite(t *testing.T) {
+	store, cleanup := setupPebbleTestStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	bucket := &BucketMetadata{Name: "delete-race-bucket", OwnerID: "u", OwnerType: "user"}
+	require.NoError(t, store.CreateBucket(ctx, bucket))
+	require.NoError(t, store.DeleteBucketIfEmpty(ctx, "", bucket.Name))
+
+	err := store.PutObject(ctx, &ObjectMetadata{
+		Bucket:      bucket.Name,
+		Key:         "late-object.txt",
+		Size:        10,
+		ETag:        "etag",
+		ContentType: "text/plain",
+	})
+	require.ErrorIs(t, err, ErrBucketNotFound)
+
+	_, err = store.GetObject(ctx, bucket.Name, "late-object.txt")
+	require.ErrorIs(t, err, ErrObjectNotFound)
+
+	require.NoError(t, store.CreateBucket(ctx, bucket))
+	require.NoError(t, store.PutObject(ctx, &ObjectMetadata{
+		Bucket:      bucket.Name,
+		Key:         "new-object.txt",
+		Size:        10,
+		ETag:        "etag",
+		ContentType: "text/plain",
+	}))
+}
+
 // ==================== Migration test ====================
 
 // TestMigrateFromBadger verifies that the migration copies all keys from
@@ -189,13 +220,13 @@ func TestMigrateFromBadger(t *testing.T) {
 		UpdatedAt: time.Now(),
 	}
 	seedObject := &ObjectMetadata{
-		Bucket:      "t1/migrated-bucket",
-		Key:         "file.txt",
-		Size:        999,
-		ETag:        "deadbeef",
-		ContentType: "text/plain",
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		Bucket:       "t1/migrated-bucket",
+		Key:          "file.txt",
+		Size:         999,
+		ETag:         "deadbeef",
+		ContentType:  "text/plain",
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 		LastModified: time.Now(),
 	}
 

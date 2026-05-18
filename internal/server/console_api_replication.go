@@ -132,24 +132,22 @@ func (s *Server) handleCreateReplicationRule(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if s.auditManager != nil {
-		_ = s.auditManager.LogEvent(ctx, &audit.AuditEvent{
-			TenantID:     tenantID,
-			UserID:       user.ID,
-			Username:     user.Username,
-			EventType:    "replication.rule.created",
-			ResourceType: "replication_rule",
-			ResourceID:   rule.ID,
-			ResourceName: bucketName,
-			Action:       "create",
-			Status:       "success",
-			Details: map[string]interface{}{
-				"rule_id":       rule.ID,
-				"source_bucket": bucketName,
-				"dest_bucket":   req.DestinationBucket,
-			},
-		})
-	}
+	s.logAuditEvent(ctx, &audit.AuditEvent{
+		TenantID:     tenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    "replication.rule.created",
+		ResourceType: "replication_rule",
+		ResourceID:   rule.ID,
+		ResourceName: bucketName,
+		Action:       "create",
+		Status:       "success",
+		Details: map[string]interface{}{
+			"rule_id":       rule.ID,
+			"source_bucket": bucketName,
+			"dest_bucket":   req.DestinationBucket,
+		},
+	})
 
 	response := ReplicationRuleResponse{
 		ID:                   rule.ID,
@@ -337,23 +335,21 @@ func (s *Server) handleUpdateReplicationRule(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if s.auditManager != nil {
-		_ = s.auditManager.LogEvent(ctx, &audit.AuditEvent{
-			TenantID:     tenantID,
-			UserID:       user.ID,
-			Username:     user.Username,
-			EventType:    "replication.rule.updated",
-			ResourceType: "replication_rule",
-			ResourceID:   ruleID,
-			ResourceName: existingRule.SourceBucket,
-			Action:       "update",
-			Status:       "success",
-			Details: map[string]interface{}{
-				"rule_id": ruleID,
-				"enabled": req.Enabled,
-			},
-		})
-	}
+	s.logAuditEvent(ctx, &audit.AuditEvent{
+		TenantID:     tenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    "replication.rule.updated",
+		ResourceType: "replication_rule",
+		ResourceID:   ruleID,
+		ResourceName: existingRule.SourceBucket,
+		Action:       "update",
+		Status:       "success",
+		Details: map[string]interface{}{
+			"rule_id": ruleID,
+			"enabled": req.Enabled,
+		},
+	})
 
 	response := ReplicationRuleResponse{
 		ID:                   existingRule.ID,
@@ -415,22 +411,20 @@ func (s *Server) handleDeleteReplicationRule(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if s.auditManager != nil {
-		_ = s.auditManager.LogEvent(ctx, &audit.AuditEvent{
-			TenantID:     tenantID,
-			UserID:       user.ID,
-			Username:     user.Username,
-			EventType:    "replication.rule.deleted",
-			ResourceType: "replication_rule",
-			ResourceID:   ruleID,
-			ResourceName: existingRule.SourceBucket,
-			Action:       "delete",
-			Status:       "success",
-			Details: map[string]interface{}{
-				"rule_id": ruleID,
-			},
-		})
-	}
+	s.logAuditEvent(ctx, &audit.AuditEvent{
+		TenantID:     tenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    "replication.rule.deleted",
+		ResourceType: "replication_rule",
+		ResourceID:   ruleID,
+		ResourceName: existingRule.SourceBucket,
+		Action:       "delete",
+		Status:       "success",
+		Details: map[string]interface{}{
+			"rule_id": ruleID,
+		},
+	})
 
 	w.WriteHeader(http.StatusNoContent)
 }

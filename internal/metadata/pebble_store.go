@@ -19,12 +19,14 @@ import (
 // PebbleStore implements the Store interface using Pebble (CockroachDB's LSM engine).
 // Unlike BadgerDB, Pebble's WAL survives crashes without corrupting the MANIFEST.
 type PebbleStore struct {
-	db              *pebble.DB
-	ready           atomic.Bool
-	logger          *logrus.Logger
-	bucketMetricsMu sync.Map   // map[string]*sync.Mutex — one per bucket key
-	bucketCreateMu  sync.Mutex // serializes bucket creation for global uniqueness check
-	stopCh          chan struct{}
+	db               *pebble.DB
+	ready            atomic.Bool
+	logger           *logrus.Logger
+	bucketMetricsMu  sync.Map   // map[string]*sync.Mutex — one per bucket key
+	bucketMutationMu sync.Map   // map[string]*sync.Mutex — serializes object writes with bucket deletion
+	deletedBuckets   sync.Map   // map[string]struct{} — buckets deleted during this process lifetime
+	bucketCreateMu   sync.Mutex // serializes bucket creation for global uniqueness check
+	stopCh           chan struct{}
 }
 
 // PebbleOptions contains configuration options for PebbleStore
@@ -54,10 +56,10 @@ func NewPebbleStore(opts PebbleOptions) (*PebbleStore, error) {
 
 	pebbleOpts := &pebble.Options{
 		Cache:                       cache,
-		MemTableSize:                64 << 20, // 64 MB per memtable
-		MemTableStopWritesThreshold: 12,       // allow more memtables before stalling writes
-		L0CompactionThreshold:       4,        // compact L0 sooner (default 4)
-		L0StopWritesThreshold:       12,       // allow more L0 files before stalling
+		MemTableSize:                64 << 20,                          // 64 MB per memtable
+		MemTableStopWritesThreshold: 12,                                // allow more memtables before stalling writes
+		L0CompactionThreshold:       4,                                 // compact L0 sooner (default 4)
+		L0StopWritesThreshold:       12,                                // allow more L0 files before stalling
 		CompactionConcurrencyRange:  func() (int, int) { return 2, 4 }, // 2–4 parallel compactions
 		Levels: [7]pebble.LevelOptions{
 			// L0: no bloom filter (range scans dominate at L0)
@@ -194,6 +196,7 @@ func (s *PebbleStore) CreateBucket(ctx context.Context, bucket *BucketMetadata) 
 	if err := s.db.Set(key, data, pebble.NoSync); err != nil {
 		return fmt.Errorf("failed to store bucket: %w", err)
 	}
+	s.deletedBuckets.Delete(bucketPathForMutation(bucket.TenantID, bucket.Name))
 
 	s.logger.WithFields(logrus.Fields{
 		"bucket":    bucket.Name,
@@ -241,12 +244,22 @@ func (s *PebbleStore) UpdateBucket(ctx context.Context, bucket *BucketMetadata) 
 	if err != nil {
 		return fmt.Errorf("failed to marshal bucket: %w", err)
 	}
-	return s.db.Set(key, data, pebble.NoSync)
+	if err := s.db.Set(key, data, pebble.NoSync); err != nil {
+		return err
+	}
+	s.deletedBuckets.Delete(bucketPathForMutation(bucket.TenantID, bucket.Name))
+	return nil
 }
 
 // DeleteBucket deletes a bucket from the store.
 func (s *PebbleStore) DeleteBucket(ctx context.Context, tenantID, name string) error {
 	key := bucketKey(tenantID, name)
+	bucketPath := bucketPathForMutation(tenantID, name)
+
+	mu := s.getBucketMutationMutex(bucketPath)
+	mu.Lock()
+	defer mu.Unlock()
+
 	if _, closer, err := s.db.Get(key); err == pebble.ErrNotFound {
 		return ErrBucketNotFound
 	} else if err != nil {
@@ -258,6 +271,7 @@ func (s *PebbleStore) DeleteBucket(ctx context.Context, tenantID, name string) e
 	if err := s.db.Delete(key, pebble.NoSync); err != nil {
 		return fmt.Errorf("failed to delete bucket: %w", err)
 	}
+	s.deletedBuckets.Store(bucketPath, struct{}{})
 
 	s.logger.WithFields(logrus.Fields{
 		"bucket":    name,
@@ -271,20 +285,18 @@ func (s *PebbleStore) DeleteBucket(ctx context.Context, tenantID, name string) e
 // Returns ErrBucketNotFound if the bucket does not exist, ErrBucketNotEmpty if objects remain.
 func (s *PebbleStore) DeleteBucketIfEmpty(ctx context.Context, tenantID, name string) error {
 	key := bucketKey(tenantID, name)
+	bucketPath := bucketPathForMutation(tenantID, name)
+
+	mu := s.getBucketMutationMutex(bucketPath)
+	mu.Lock()
+	defer mu.Unlock()
+
 	if _, closer, err := s.db.Get(key); err == pebble.ErrNotFound {
 		return ErrBucketNotFound
 	} else if err != nil {
 		return fmt.Errorf("failed to check bucket existence: %w", err)
 	} else {
 		_ = closer.Close()
-	}
-
-	// Build the bucket path used as the prefix in object/version keys.
-	var bucketPath string
-	if tenantID == "" {
-		bucketPath = name
-	} else {
-		bucketPath = tenantID + "/" + name
 	}
 
 	objPrefix := []byte(fmt.Sprintf("obj:%s:", bucketPath))
@@ -312,6 +324,7 @@ func (s *PebbleStore) DeleteBucketIfEmpty(ctx context.Context, tenantID, name st
 	if err := s.db.Delete(key, pebble.NoSync); err != nil {
 		return fmt.Errorf("failed to delete bucket: %w", err)
 	}
+	s.deletedBuckets.Store(bucketPath, struct{}{})
 
 	s.logger.WithFields(logrus.Fields{
 		"bucket":    name,
@@ -391,6 +404,28 @@ func (s *PebbleStore) getBucketMetricsMutex(key []byte) *sync.Mutex {
 	keyStr := string(key)
 	mu, _ := s.bucketMetricsMu.LoadOrStore(keyStr, &sync.Mutex{})
 	return mu.(*sync.Mutex)
+}
+
+// getBucketMutationMutex serializes bucket deletion with object metadata writes.
+// Pebble batches make each write atomic, but they do not make a prefix scan plus
+// delete atomic against concurrent writers in the same process.
+func (s *PebbleStore) getBucketMutationMutex(bucket string) *sync.Mutex {
+	mu, _ := s.bucketMutationMu.LoadOrStore(bucket, &sync.Mutex{})
+	return mu.(*sync.Mutex)
+}
+
+func bucketPathForMutation(tenantID, name string) string {
+	if tenantID == "" {
+		return name
+	}
+	return tenantID + "/" + name
+}
+
+func (s *PebbleStore) rejectWriteToDeletedBucket(bucket string) error {
+	if _, deleted := s.deletedBuckets.Load(bucket); deleted {
+		return ErrBucketNotFound
+	}
+	return nil
 }
 
 // UpdateBucketMetrics atomically updates bucket object count and total size.

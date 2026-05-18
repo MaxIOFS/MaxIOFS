@@ -92,22 +92,20 @@ func (s *Server) checkDiskAlerts(state *diskAlertState) {
 			},
 			Timestamp: time.Now().Unix(),
 		})
-		if s.auditManager != nil {
-			_ = s.auditManager.LogEvent(context.Background(), &audit.AuditEvent{
-				UserID:       "system",
-				Username:     "system",
-				EventType:    audit.EventTypeDiskAlert,
-				ResourceType: audit.ResourceTypeSystem,
-				Action:       audit.ActionResolve,
-				Status:       audit.StatusSuccess,
-				Details: map[string]interface{}{
-					"used_percent": used,
-					"used_gb":      float64(stats.UsedBytes) / 1e9,
-					"total_gb":     float64(stats.TotalBytes) / 1e9,
-					"free_gb":      float64(stats.FreeBytes) / 1e9,
-				},
-			})
-		}
+		s.logAuditEvent(context.Background(), &audit.AuditEvent{
+			UserID:       "system",
+			Username:     "system",
+			EventType:    audit.EventTypeDiskAlert,
+			ResourceType: audit.ResourceTypeSystem,
+			Action:       audit.ActionResolve,
+			Status:       audit.StatusSuccess,
+			Details: map[string]interface{}{
+				"used_percent": used,
+				"used_gb":      float64(stats.UsedBytes) / 1e9,
+				"total_gb":     float64(stats.TotalBytes) / 1e9,
+				"free_gb":      float64(stats.FreeBytes) / 1e9,
+			},
+		})
 		return
 	}
 
@@ -136,37 +134,35 @@ func (s *Server) checkDiskAlerts(state *diskAlertState) {
 		"threshold": critPct,
 	}).Warn("Disk space alert triggered")
 
-	if s.auditManager != nil {
-		_ = s.auditManager.LogEvent(context.Background(), &audit.AuditEvent{
-			UserID:       "system",
-			Username:     "system",
-			EventType:    audit.EventTypeDiskAlert,
-			ResourceType: audit.ResourceTypeSystem,
-			Action:       audit.ActionAlert,
-			Status:       audit.StatusSuccess,
-			Details: map[string]interface{}{
-				"level":        notifType,
-				"used_percent": used,
-				"used_gb":      float64(stats.UsedBytes) / 1e9,
-				"total_gb":     float64(stats.TotalBytes) / 1e9,
-				"free_gb":      float64(stats.FreeBytes) / 1e9,
-				"warn_at":      warnPct,
-				"critical_at":  critPct,
-			},
-		})
-	}
+	s.logAuditEvent(context.Background(), &audit.AuditEvent{
+		UserID:       "system",
+		Username:     "system",
+		EventType:    audit.EventTypeDiskAlert,
+		ResourceType: audit.ResourceTypeSystem,
+		Action:       audit.ActionAlert,
+		Status:       audit.StatusSuccess,
+		Details: map[string]interface{}{
+			"level":        notifType,
+			"used_percent": used,
+			"used_gb":      float64(stats.UsedBytes) / 1e9,
+			"total_gb":     float64(stats.TotalBytes) / 1e9,
+			"free_gb":      float64(stats.FreeBytes) / 1e9,
+			"warn_at":      warnPct,
+			"critical_at":  critPct,
+		},
+	})
 
 	// SSE notification (global admins only — no TenantID set)
 	s.notificationHub.SendNotification(&Notification{
 		Type:    notifType,
 		Message: logMsg,
 		Data: map[string]interface{}{
-			"usedPercent":  used,
-			"usedBytes":    stats.UsedBytes,
-			"totalBytes":   stats.TotalBytes,
-			"freeBytes":    stats.FreeBytes,
-			"warnAt":       warnPct,
-			"criticalAt":   critPct,
+			"usedPercent": used,
+			"usedBytes":   stats.UsedBytes,
+			"totalBytes":  stats.TotalBytes,
+			"freeBytes":   stats.FreeBytes,
+			"warnAt":      warnPct,
+			"criticalAt":  critPct,
 		},
 		Timestamp: time.Now().Unix(),
 	})

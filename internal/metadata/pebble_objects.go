@@ -23,6 +23,13 @@ func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) error 
 		return ErrInvalidKey
 	}
 
+	mu := s.getBucketMutationMutex(obj.Bucket)
+	mu.Lock()
+	defer mu.Unlock()
+	if err := s.rejectWriteToDeletedBucket(obj.Bucket); err != nil {
+		return err
+	}
+
 	now := time.Now()
 	if obj.CreatedAt.IsZero() {
 		obj.CreatedAt = now
@@ -419,6 +426,13 @@ func (s *PebbleStore) ObjectExists(ctx context.Context, bucket, key string) (boo
 func (s *PebbleStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata, version *ObjectVersion) error {
 	if obj == nil || version == nil {
 		return fmt.Errorf("object and version metadata cannot be nil")
+	}
+
+	mu := s.getBucketMutationMutex(obj.Bucket)
+	mu.Lock()
+	defer mu.Unlock()
+	if err := s.rejectWriteToDeletedBucket(obj.Bucket); err != nil {
+		return err
 	}
 
 	batch := s.db.NewBatch()

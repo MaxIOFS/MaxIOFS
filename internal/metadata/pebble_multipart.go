@@ -202,6 +202,13 @@ func (s *PebbleStore) CompleteMultipartUpload(ctx context.Context, uploadID stri
 		return fmt.Errorf("failed to marshal completed object: %w", err)
 	}
 
+	mu := s.getBucketMutationMutex(obj.Bucket)
+	mu.Lock()
+	defer mu.Unlock()
+	if err := s.rejectWriteToDeletedBucket(obj.Bucket); err != nil {
+		return err
+	}
+
 	batch := s.db.NewBatch()
 	defer batch.Close() //nolint:errcheck
 

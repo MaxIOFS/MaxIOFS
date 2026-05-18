@@ -93,7 +93,7 @@ func (s *Server) handleVerifyBucketIntegrity(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Audit the check
-	_ = s.auditManager.LogEvent(r.Context(), &audit.AuditEvent{
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		UserID:       user.ID,
 		Username:     user.Username,
 		EventType:    audit.EventTypeDataIntegrityCheck,
