@@ -1,7 +1,7 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
-// EN namespaces
+// EN is always bundled as the fallback language.
 import en_common from './locales/en/common.json';
 import en_navigation from './locales/en/navigation.json';
 import en_auth from './locales/en/auth.json';
@@ -22,39 +22,61 @@ import en_idp from './locales/en/idp.json';
 import en_cluster from './locales/en/cluster.json';
 import en_groups from './locales/en/groups.json';
 
-// ES namespaces
-import es_common from './locales/es/common.json';
-import es_navigation from './locales/es/navigation.json';
-import es_auth from './locales/es/auth.json';
-import es_users from './locales/es/users.json';
-import es_preferences from './locales/es/preferences.json';
-import es_buckets from './locales/es/buckets.json';
-import es_settings from './locales/es/settings.json';
-import es_security from './locales/es/security.json';
-import es_metrics from './locales/es/metrics.json';
-import es_auditLogs from './locales/es/auditLogs.json';
-import es_about from './locales/es/about.json';
-import es_layout from './locales/es/layout.json';
-import es_dashboard from './locales/es/dashboard.json';
-import es_tenants from './locales/es/tenants.json';
-import es_createBucket from './locales/es/createBucket.json';
-import es_bucketSettings from './locales/es/bucketSettings.json';
-import es_idp from './locales/es/idp.json';
-import es_cluster from './locales/es/cluster.json';
-import es_groups from './locales/es/groups.json';
+// All other locales are loaded on demand via dynamic imports.
+// import.meta.glob is resolved statically by Vite at build time.
+// manualChunks in vite.config.ts ensures every file under locales/{lang}/
+// ends up in a single output chunk (lang-fr.js, lang-de.js, etc.),
+// so switching languages triggers exactly one network request.
+const dynamicLocales = import.meta.glob<{ default: Record<string, unknown> }>([
+  './locales/*/*.json',
+  '!./locales/en/*.json',
+]);
 
-// Read the saved language once synchronously at module load time.
-// This avoids LanguageDetector's multi-step async search (localStorage →
-// navigator → htmlTag) which triggers a language-switch cascade before
-// the first React paint when the detected locale differs from the default.
-const getSavedLanguage = (): 'en' | 'es' => {
+const STATIC_LANGS = new Set(['en']);
+
+// In-flight promises — concurrent callers share the same fetch.
+const loadingPromises = new Map<string, Promise<void>>();
+
+export function loadLanguage(lang: string): Promise<void> {
+  if (STATIC_LANGS.has(lang) || i18n.hasResourceBundle(lang, 'common')) {
+    return Promise.resolve();
+  }
+
+  const existing = loadingPromises.get(lang);
+  if (existing) return existing;
+
+  // Collect all glob entries that belong to this language.
+  const entries = Object.entries(dynamicLocales).filter(([path]) =>
+    path.startsWith(`./locales/${lang}/`)
+  );
+
+  if (entries.length === 0) return Promise.resolve();
+
+  const promise = Promise.all(
+    entries.map(async ([path, loader]) => {
+      const ns = path.match(/\/([^/]+)\.json$/)?.[1];
+      if (!ns) return;
+      const mod = await loader();
+      i18n.addResourceBundle(lang, ns, mod.default ?? mod, true, true);
+    })
+  ).then(() => {
+    loadingPromises.delete(lang);
+  });
+
+  loadingPromises.set(lang, promise);
+  return promise;
+}
+
+const getSavedLanguage = (): 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt' => {
   try {
     const stored = localStorage.getItem('language');
-    return stored === 'en' || stored === 'es' ? stored : 'en';
+    return stored === 'en' || stored === 'es' || stored === 'fr' || stored === 'de' || stored === 'it' || stored === 'pt' ? stored : 'en';
   } catch {
     return 'en';
   }
 };
+
+const savedLang = getSavedLanguage();
 
 i18n
   .use(initReactI18next)
@@ -81,43 +103,30 @@ i18n
         cluster: en_cluster,
         groups: en_groups,
       },
-      es: {
-        common: es_common,
-        navigation: es_navigation,
-        auth: es_auth,
-        users: es_users,
-        preferences: es_preferences,
-        buckets: es_buckets,
-        settings: es_settings,
-        security: es_security,
-        metrics: es_metrics,
-        auditLogs: es_auditLogs,
-        about: es_about,
-        layout: es_layout,
-        dashboard: es_dashboard,
-        tenants: es_tenants,
-        createBucket: es_createBucket,
-        bucketSettings: es_bucketSettings,
-        idp: es_idp,
-        cluster: es_cluster,
-        groups: es_groups,
-      },
     },
     ns: ['common', 'navigation', 'auth', 'users', 'preferences', 'buckets', 'settings', 'security', 'metrics', 'auditLogs', 'about', 'layout', 'dashboard', 'tenants', 'createBucket', 'bucketSettings', 'idp', 'cluster', 'groups'],
     defaultNS: 'common',
-    lng: getSavedLanguage(),   // Explicit language — no runtime detection
-    load: 'languageOnly',      // Don't try to load 'en-US', 'en-GB', etc.
+    lng: STATIC_LANGS.has(savedLang) ? savedLang : 'en',
+    load: 'languageOnly',
     fallbackLng: 'en',
     debug: false,
 
     interpolation: {
-      escapeValue: false, // React already escapes values
+      escapeValue: false,
     },
 
     react: {
-      useSuspense: false,           // Prevent Suspense-related freezes
-      bindI18nStore: 'languageChanged', // Only re-render on explicit language switch
+      useSuspense: false,
+      bindI18nStore: 'languageChanged',
     },
   });
+
+// If the user has a dynamic language saved, load its chunk immediately
+// and switch once ready. On a local server this resolves in milliseconds.
+if (!STATIC_LANGS.has(savedLang)) {
+  loadLanguage(savedLang).then(() => {
+    i18n.changeLanguage(savedLang);
+  });
+}
 
 export default i18n;

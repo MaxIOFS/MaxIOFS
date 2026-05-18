@@ -51,7 +51,7 @@ export function useAuthProvider(): AuthContextType {
       setTheme(userData.themePreference as 'light' | 'dark' | 'system');
     }
     if (userData.languagePreference) {
-      setLanguage(userData.languagePreference as 'en' | 'es');
+      setLanguage(userData.languagePreference as 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt');
     }
   }, [setTheme, setLanguage]);
 

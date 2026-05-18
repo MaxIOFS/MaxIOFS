@@ -1,0 +1,19 @@
+{
+  "title": "Preferências",
+  "theme": "Tema",
+  "language": "Idioma",
+  "themeLight": "Claro",
+  "themeDark": "Escuro",
+  "themeSystem": "Sistema",
+  "languageEnglish": "Inglês",
+  "languageSpanish": "Espanhol",
+  "languageFrench": "Francês",
+  "languageGerman": "Alemão",
+  "languageItalian": "Italiano",
+  "languagePortuguese": "Português",
+  "savePreferences": "Salvar Preferências",
+  "preferencesUpdated": "Preferências atualizadas com sucesso",
+  "errorTitle": "Erro",
+  "ownThemeOnly": "Somente o próprio usuário pode alterar sua preferência de tema.",
+  "ownLanguageOnly": "Somente o próprio usuário pode alterar sua preferência de idioma."
+}

@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LanguageProvider, useLanguage } from '@/contexts/LanguageContext';
 
 // Mock i18n so we can spy on changeLanguage without triggering real translation updates
 vi.mock('@/i18n', () => ({
   default: { changeLanguage: vi.fn().mockResolvedValue(undefined) },
+  loadLanguage: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Execute requestAnimationFrame callbacks synchronously so setLanguage's deferred
@@ -71,7 +72,9 @@ describe('LanguageContext', () => {
 
       await user.click(screen.getByText('Switch to ES'));
 
-      expect(screen.getByTestId('language')).toHaveTextContent('es');
+      await waitFor(() => {
+        expect(screen.getByTestId('language')).toHaveTextContent('es');
+      });
     });
 
     it('persists the new language to localStorage', async () => {
@@ -99,7 +102,9 @@ describe('LanguageContext', () => {
 
       await user.click(screen.getByText('Switch to ES'));
 
-      expect(i18n.changeLanguage).toHaveBeenCalledWith('es');
+      await waitFor(() => {
+        expect(i18n.changeLanguage).toHaveBeenCalledWith('es');
+      });
     });
 
     it('can switch back from es to en', async () => {
@@ -116,7 +121,9 @@ describe('LanguageContext', () => {
 
       await user.click(screen.getByText('Switch to EN'));
 
-      expect(screen.getByTestId('language')).toHaveTextContent('en');
+      await waitFor(() => {
+        expect(screen.getByTestId('language')).toHaveTextContent('en');
+      });
       expect(localStorage.setItem).toHaveBeenCalledWith('language', 'en');
     });
   });

@@ -1,0 +1,19 @@
+{
+  "title": "Einstellungen",
+  "theme": "Design",
+  "language": "Sprache",
+  "themeLight": "Hell",
+  "themeDark": "Dunkel",
+  "themeSystem": "System",
+  "languageEnglish": "Englisch",
+  "languageSpanish": "Spanisch",
+  "languageFrench": "Französisch",
+  "languageGerman": "Deutsch",
+  "languageItalian": "Italienisch",
+  "languagePortuguese": "Portugiesisch",
+  "savePreferences": "Einstellungen speichern",
+  "preferencesUpdated": "Einstellungen erfolgreich aktualisiert",
+  "errorTitle": "Fehler",
+  "ownThemeOnly": "Nur der Benutzer selbst kann seine Design-Einstellung ändern.",
+  "ownLanguageOnly": "Nur der Benutzer selbst kann seine Spracheinstellung ändern."
+}

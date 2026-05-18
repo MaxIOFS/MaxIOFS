@@ -253,31 +253,32 @@ The i18n system uses `react-i18next` with 20 namespaces. Currently supports Engl
 #### I1. Create translation files — French (`fr`)
 - Copy all 20 files from `locales/en/` to `locales/fr/` and translate.
 - Approx. ~2,200 lines of strings.
-- [ ] Open
+- [x] Done
 
 #### I2. Create translation files — German (`de`)
 - Copy all 20 files from `locales/en/` to `locales/de/` and translate.
-- [ ] Open
+- [x] Done
 
 #### I3. Create translation files — Italian (`it`)
 - Copy all 20 files from `locales/en/` to `locales/it/` and translate.
-- [ ] Open
+- [x] Done
 
 #### I4. Create translation files — Portuguese (`pt`)
 - Copy all 20 files from `locales/en/` to `locales/pt/` and translate.
-- [ ] Open
+- [x] Done
 
 #### I5. Register the 4 new languages in `i18n.ts`
 - **File**: `web/frontend/src/i18n.ts`
-- Add imports for 20 namespaces × 4 languages.
+- Add imports for 19 namespaces × 4 languages.
 - Add 4 new blocks to `resources: {}`.
-- Extend the `getSavedLanguage()` type guard from `'en' | 'es'` to all 6 languages.
-- [ ] Open
+- Extend the `getSavedLanguage()` type guard to `'en' | 'es' | 'fr' | 'de' | 'it' | 'pt'`.
+- [x] Done
 
 #### I6. Add the 4 languages to the language selector in Preferences
-- **File**: `web/frontend/src/pages/preferences/index.tsx` (or wherever the language picker lives)
-- Add options: Français, Deutsch, Italiano, Português with their locale codes.
-- [ ] Open
+- **File**: `web/frontend/src/components/preferences/UserPreferences.tsx`, `TopBar.tsx`, `AppLayout.tsx`, `LanguageContext.tsx`, `useAuth.ts`
+- Added DE 🇩🇪 and PT 🇧🇷 options alongside FR 🇫🇷 and IT 🇮🇹.
+- Added `languageGerman` / `languagePortuguese` / `german` / `portuguese` keys to all 6 locale files.
+- [x] Done
 
 ---
 

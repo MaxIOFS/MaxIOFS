@@ -164,7 +164,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     if (user?.id) savePreferencesMutation.mutate({ theme: newTheme, lang: language });
   }, [effectiveTheme, setTheme, user?.id, language, savePreferencesMutation]);
 
-  const handleLanguageChange = useCallback((lang: 'en' | 'es') => {
+  const handleLanguageChange = useCallback((lang: 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt') => {
     setLanguage(lang);
     if (user?.id) savePreferencesMutation.mutate({ theme: effectiveTheme, lang });
   }, [setLanguage, user?.id, effectiveTheme, savePreferencesMutation]);

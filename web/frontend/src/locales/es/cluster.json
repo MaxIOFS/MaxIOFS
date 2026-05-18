@@ -285,6 +285,7 @@
   "syncFailed": "Fallido",
   "syncPending": "Pendiente",
 
+  "nodeStorage": "Almacenamiento de nodos",
   "nodeStorage_one": "Almacenamiento de nodos ({{count}} nodo)",
   "nodeStorage_other": "Almacenamiento de nodos ({{count}} nodos)",
   "colUsed": "Usado",

@@ -1,0 +1,17 @@
+{
+  "dashboard": "Painel",
+  "buckets": "Buckets",
+  "users": "Usuários",
+  "tenants": "Tenants",
+  "settings": "Configurações",
+  "auditLogs": "Logs de Auditoria",
+  "metrics": "Métricas",
+  "security": "Segurança",
+  "about": "Sobre",
+  "logout": "Sair",
+  "accessKeys": "Chaves de Acesso",
+  "identityProviders": "Provedores de Identidade",
+  "cluster": "Cluster",
+  "groups": "Grupos",
+  "roleCapabilities": "Capacidades de Função"
+}

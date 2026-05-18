@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
-import i18n from '../i18n';
+import i18n, { loadLanguage } from '../i18n';
 
-type Language = 'en' | 'es';
+type Language = 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt';
 
 interface LanguageContextType {
   language: Language;
@@ -29,20 +29,22 @@ export function LanguageProvider({ children, initialLanguage = 'en' }: LanguageP
   const [language, setLanguageState] = useState<Language>(() => {
     try {
       const stored = localStorage.getItem('language');
-      return stored === 'en' || stored === 'es' ? stored : initialLanguage;
+      return stored === 'en' || stored === 'es' || stored === 'fr' || stored === 'de' || stored === 'it' || stored === 'pt' ? stored : initialLanguage;
     } catch {
       return initialLanguage;
     }
   });
 
   const setLanguage = (newLanguage: Language) => {
-    setLanguageState(newLanguage);
     localStorage.setItem('language', newLanguage);
-    // Defer i18n.changeLanguage so React can commit the current interaction
-    // (e.g. the button click) before the re-render cascade from the language
-    // switch hits all useTranslation() subscribers at once.
-    requestAnimationFrame(() => {
-      i18n.changeLanguage(newLanguage);
+    // Load the language bundle (no-op for en/es which are always bundled),
+    // then switch. requestAnimationFrame defers the re-render cascade until
+    // React has committed the current interaction (e.g. the button click).
+    loadLanguage(newLanguage).then(() => {
+      setLanguageState(newLanguage);
+      requestAnimationFrame(() => {
+        i18n.changeLanguage(newLanguage);
+      });
     });
   };
 

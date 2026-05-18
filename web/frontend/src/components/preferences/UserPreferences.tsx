@@ -9,7 +9,7 @@ import { APIClient } from '@/lib/api';
 import ModalManager from '@/lib/modals';
 
 type Theme = 'light' | 'dark' | 'system';
-type Language = 'en' | 'es';
+type Language = 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt';
 
 interface UserPreferencesProps {
   disabled?: boolean;
@@ -60,6 +60,10 @@ export function UserPreferences({ disabled = false }: UserPreferencesProps) {
   const languageOptions: { value: Language; flag: string; label: string }[] = [
     { value: 'en', flag: '🇬🇧', label: t('languageEnglish') },
     { value: 'es', flag: '🇪🇸', label: t('languageSpanish') },
+    { value: 'fr', flag: '🇫🇷', label: t('languageFrench') },
+    { value: 'de', flag: '🇩🇪', label: t('languageGerman') },
+    { value: 'it', flag: '🇮🇹', label: t('languageItalian') },
+    { value: 'pt', flag: '🇧🇷', label: t('languagePortuguese') },
   ];
 
   return (

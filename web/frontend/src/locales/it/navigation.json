@@ -1,0 +1,17 @@
+{
+  "dashboard": "Dashboard",
+  "buckets": "Bucket",
+  "users": "Utenti",
+  "tenants": "Tenant",
+  "settings": "Impostazioni",
+  "auditLogs": "Registri di controllo",
+  "metrics": "Metriche",
+  "security": "Sicurezza",
+  "about": "Informazioni",
+  "logout": "Disconnetti",
+  "accessKeys": "Chiavi di accesso",
+  "identityProviders": "Provider di identità",
+  "cluster": "Cluster",
+  "groups": "Gruppi",
+  "roleCapabilities": "Capacità del ruolo"
+}
