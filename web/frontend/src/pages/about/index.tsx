@@ -258,7 +258,7 @@ export default function AboutPage() {
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
-                  Go 1.25+
+                  Go 1.26+
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
@@ -294,7 +294,7 @@ export default function AboutPage() {
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
-                  Vite 7 (Build Tool)
+                  Vite 8 (Build Tool)
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
@@ -326,97 +326,78 @@ export default function AboutPage() {
           </h2>
           <div className="space-y-4">
 
-            <div className="border-l-4 border-blue-600 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Role Capabilities System
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                11 service-level capabilities (<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">bucket:create</code>,{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">object:upload</code>,{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">console:access</code>, and more) are now stored in the
-                database and enforced on every S3 and console API request. Each role has configurable defaults;
-                admins can add per-user overrides (grant or deny) that take effect immediately across the cluster.
-                The <strong>admin</strong> role always retains all capabilities regardless of the table,
-                preventing accidental lockout.
-              </p>
-            </div>
-
             <div className="border-l-4 border-red-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Security Fix — Multipart Metadata Leak
+                Security — OAuth Token Exposure Fixed
               </h3>
               <p className="text-sm text-muted-foreground">
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">CreateMultipartUpload</code> stored every HTTP request
-                header — including <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Authorization</code>,{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">User-Agent</code>, and{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">X-Amz-Date</code> — as permanent object user metadata,
-                exposing the full SigV4 authorization token to any caller with read access via{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">HeadObject</code>.
-                Only <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Content-Type</code>,{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-meta-*</code>, and internal state
-                (e.g. <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-acl</code>) are now stored.
+                The OAuth callback previously embedded JWT access and refresh tokens directly in the redirect
+                URL query string, exposing them in server access logs, browser history, and proxy logs
+                (violating RFC 6819 §4.2.2). The callback now issues a short-lived server-side one-time code
+                (TTL 60 s). The browser exchanges it for tokens via a direct API call that is not logged
+                or cached by intermediaries.
               </p>
             </div>
 
-            <div className="border-l-4 border-purple-500 pl-4">
+            <div className="border-l-4 border-red-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Object Lock & Tagging Now Honor versionId
+                Security — Deactivated Users Now Blocked Immediately
               </h3>
               <p className="text-sm text-muted-foreground">
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetObjectRetention</code>,{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObjectRetention</code>,{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetObjectLegalHold</code>,{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObjectLegalHold</code>,{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GetObjectTagging</code>,{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObjectTagging</code>, and{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">RestoreObject</code> previously always operated on the
-                latest version even when a specific <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">versionId</code> was
-                requested. All operations now target the exact requested version.
+                Deactivating a user previously had no immediate effect — their JWT tokens remained valid
+                until natural expiry (up to 15 min for access tokens, 24 h for refresh tokens). JWT
+                validation now checks{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">user.status == active</code>{' '}
+                on every request, so deactivation takes effect on the next API call.
               </p>
             </div>
 
-            <div className="border-l-4 border-indigo-500 pl-4">
+            <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                CopyObject Tag Directives & x-amz-tagging on PUT
+                Multilingual UI — 9 Languages
               </h3>
               <p className="text-sm text-muted-foreground">
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObject</code> now persists the{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-tagging</code> header at upload time.{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">CopyObject</code> defaults to{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-tagging-directive: COPY</code> (source tags
-                propagated to destination) and honours{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">REPLACE</code> to apply a new tag set instead.
+                The web console is now available in English, Spanish, French, German, Italian,
+                Brazilian Portuguese, Simplified Chinese, Japanese, and Russian. Language packs are
+                loaded on demand — switching language triggers a single small network request and the
+                main bundle is unaffected. Language preference is saved per-user and persists across
+                sessions.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-green-600 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Event-Driven Cluster Config Sync
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Cluster configuration changes (tenants, bucket permissions, IDP providers, group mappings)
+                now propagate to peer nodes immediately on success, eliminating the previous up-to-30-second
+                delay. Every sync manager exposes a{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">TriggerSync</code>{' '}
+                method that fans out in a background goroutine without blocking the HTTP response. The
+                periodic reconciliation loop is retained as a safety net.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Versioning, Multipart & Lifecycle Consistency
+                Stability Fixes from Full Code Audit
               </h3>
               <p className="text-sm text-muted-foreground">
-                Versioned bucket metrics no longer drift when a delete marker is created over another marker or
-                when a PUT follows a delete marker.{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">CompleteMultipartUpload</code> now generates a proper
-                version ID in versioned buckets. Lifecycle noncurrent-version expiration and expired-delete-marker
-                cleanup now scan{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ListAllObjectVersions</code> instead of{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ListObjects</code>, so keys hidden behind a latest
-                delete marker are correctly eligible for cleanup.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-teal-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                S3 Compatibility Improvements
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Presigned V4 URL generation and validation now encode object keys with reserved characters
-                (spaces, <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">+</code>, <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">%</code>) correctly.
-                S3 Select JSON Lines input no longer silently drops malformed records.{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ListMultipartUploads</code> and{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ListParts</code> pagination now reports truncation and
-                markers correctly. Metadata tag searches no longer return stale results after{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutObject</code> overwrites an object's tags.
+                A pre-release audit identified and fixed 9 confirmed bugs: tenant quota not enforced on
+                versioned-bucket uploads, a lost-update race in concurrent tag writes, a data race in the
+                replication rule scheduler, silent database error swallowing in replication cleanup, JSON
+                marshal errors silently ignored in HA metadata fanout, and double-call panics in lifecycle
+                and deletion-log managers. See the full{' '}
+                <a
+                  href="https://github.com/MaxioFS/MaxioFS/blob/main/CHANGELOG.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand-600 dark:text-brand-400 hover:underline"
+                >
+                  CHANGELOG
+                </a>{' '}
+                for details.
               </p>
             </div>
 

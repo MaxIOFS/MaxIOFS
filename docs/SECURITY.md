@@ -1,8 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 1.4.0 | **Last Updated**: May 3, 2026
-
-> A comprehensive 169-file security audit was completed for v1.1.0. All identified vulnerabilities have been fixed and verified with a full test suite (29/29 packages passing).
+**Version**: 1.4.1 | **Last Updated**: May 18, 2026
 
 ## Security Overview
 
@@ -339,7 +337,7 @@ aws s3api get-public-access-block \
 
 ## Known Limitations
 
-1. **No SOC 2 / ISO 27001 certification** — a comprehensive internal security audit (169 files, 28 vulnerabilities fixed) was completed for v1.0.0, but no formal third-party certification exists
+1. **No SOC 2 / ISO 27001 certification** — no formal third-party certification exists; internal audits have been performed but are not a substitute for accredited third-party assessment
 2. **Single master encryption key** — no per-tenant keys, no HSM integration
 3. **No SAML SSO** — OAuth2/OIDC recommended instead
 4. **Basic session management** — no device tracking or geographic restrictions

@@ -1,6 +1,6 @@
 # MaxIOFS Performance & SLOs
 
-**Version**: 1.4.0 | **Last Updated**: May 3, 2026
+**Version**: 1.4.1 | **Last Updated**: May 18, 2026
 
 ## Performance Summary
 
@@ -192,7 +192,7 @@ storage:
 
 ### Write-heavy workloads (Veeam Backup & Replication)
 
-Veeam writes thousands of objects in bursts. MaxIOFS v1.2.0 ships with Pebble pre-tuned for this pattern:
+Veeam writes thousands of objects in bursts. MaxIOFS ships with Pebble pre-tuned for this pattern:
 
 | Tuning | Value | Why it matters for Veeam |
 |--------|-------|--------------------------|

@@ -5,7 +5,7 @@
 **Self-hosted S3-compatible object storage — single binary, batteries included**
 
 [![Build](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml/badge.svg)](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml)
-[![Version](https://img.shields.io/badge/version-1.4.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.4.0)
+[![Version](https://img.shields.io/badge/version-1.4.1-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.4.1)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go)](https://go.dev)
 [![S3 Compatible](https://img.shields.io/badge/S3-100%25%20compatible-orange)](docs/API.md)
@@ -111,6 +111,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 - **Sliding-window sessions** — token window resets on every API call, preventing silent logout during active work; idle logout is suspended during active uploads
 - **Object search & filters** — filter by content-type, size range, date range, and tags
 - Responsive layout — works on 1080p through 4K displays
+- **Multilingual UI** — English, Spanish, French, German, Italian, Brazilian Portuguese, Simplified Chinese, Japanese, Russian; language packs loaded on demand, zero impact on initial bundle size
 
 </details>
 

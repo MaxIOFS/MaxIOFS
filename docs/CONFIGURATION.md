@@ -1,6 +1,6 @@
 # MaxIOFS Configuration Guide
 
-**Version**: 1.4.0 | **Last Updated**: May 3, 2026
+**Version**: 1.4.1 | **Last Updated**: May 18, 2026
 
 ## Configuration Architecture
 
@@ -288,7 +288,7 @@ environment:
   MAXIOFS_STORAGE_METADATA_CACHE_SIZE_MB: "1024"
 ```
 
-### What else is tuned automatically (v1.2.0+)
+### What else is tuned automatically
 
 These internal settings are fixed at compile time and cannot be changed via config. They are documented here for transparency:
 
@@ -304,17 +304,7 @@ These internal settings are fixed at compile time and cannot be changed via conf
 
 ### Upgrade path for existing deployments
 
-Starting from **v1.2.0**, the metadata engine uses **Pebble v2** (upgraded from Pebble v1 in that release; the on-disk formats are incompatible). Current releases keep the Pebble v1 -> Pebble v2 upgrade path, but the old BadgerDB backend and its direct migration code have been removed.
-
-| Previous version | On-disk format | What happens on first start |
-|-----------------|---------------|-----------------------------|
-| Pre-v1.0.0-beta | BadgerDB | Direct upgrade is no longer supported. Upgrade first through a release that still contains the BadgerDB -> Pebble migration, then upgrade to the current release. |
-| v1.0.0-beta | Pebble v1 | Data is migrated to Pebble v2. Original data is backed up as `metadata_pebblev1_backup_{timestamp}/`. |
-| v1.2.0+ | Pebble v2 | No migration needed. Sentinel file `metadata/PEBBLE_FORMAT_V2` skips the check immediately. |
-
-Pebble v1 -> Pebble v2 migration is **automatic and transparent** — no manual steps required. The backup directories can be deleted after you verify the server is working correctly on the new version.
-
-> **Important**: Migration runs before the server opens the store. If the server is killed mid-migration, the next start detects the incomplete state and either retries or recovers automatically.
+The metadata engine uses **Pebble v2**. On-disk formats from older installations are migrated automatically on first start — no manual steps required. If the server is killed mid-migration, the next start detects the incomplete state and retries automatically.
 
 ---
 

@@ -566,13 +566,13 @@ export default function SettingsPage() {
                             type={setting.key === 'email.smtp_password' ? 'password' : 'text'}
                             value={currentValue}
                             onChange={(e) => handleValueChange(setting.key, e.target.value, setting.value)}
-                            className="w-full max-w-md px-4 py-2.5 text-sm border border-border rounded-lg bg-card text-foreground focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                            className="w-full px-4 py-2.5 text-sm border border-border rounded-lg bg-card text-foreground focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                           />
                         )}
                       </div>
                     ) : (
                       <div className="mt-3">
-                        <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-900 border border-border rounded-lg text-sm text-foreground max-w-md font-medium">
+                        <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-900 border border-border rounded-lg text-sm text-foreground w-full font-medium overflow-x-auto whitespace-nowrap">
                           {formatValueDisplay(setting)}
                         </div>
                       </div>
@@ -582,7 +582,7 @@ export default function SettingsPage() {
         <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
           <span>{t('key')} <code className="text-muted-foreground bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{setting.key}</code></span>
           {isEdited && (
-            <span className="text-yellow-600 dark:text-yellow-400">
+            <span className="text-yellow-600 dark:text-yellow-400 max-w-xs inline-block overflow-hidden text-ellipsis whitespace-nowrap align-bottom">
               {t('original', { value: formatValueDisplay({ ...setting, value: setting.value } as Setting) })}
             </span>
           )}

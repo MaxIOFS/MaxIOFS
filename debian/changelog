@@ -1,3 +1,41 @@
+maxiofs (1:1.4.1) stable; urgency=high
+
+  * Release v1.4.1 — Security fixes, multilingual UI (9 languages), event-driven cluster sync,
+    BadgerDB removal, and stability fixes from full code audit
+
+  * [SECURITY] OAuth callback previously embedded JWT access and refresh tokens in the redirect
+    URL query string, exposing them in server access logs, browser history, proxy logs, and
+    Referer headers (violates RFC 6819 §4.2.2). The callback now issues a server-side one-time
+    code (TTL 60 s); the frontend exchanges it for tokens via a direct API call that is not
+    logged. Upgrade strongly recommended.
+  * [SECURITY] Deactivated users could continue using valid JWT tokens until natural expiry
+    (up to 15 min for access tokens, 24 h for refresh tokens). ValidateJWT now checks
+    user.Status == active on every request. Deactivating a user now takes immediate effect.
+  * [NEW] Multilingual UI — 9 languages: English, Spanish, French, German, Italian, Brazilian
+    Portuguese, Simplified Chinese, Japanese, Russian. Language chunks loaded on demand;
+    main bundle unaffected.
+  * [NEW] Event-driven cluster config sync — all mutating handlers (tenants, bucket permissions,
+    IDP providers, group mappings) now fan out to healthy peer nodes immediately on success,
+    eliminating the previous 30 s propagation delay.
+  * [REMOVED] BadgerDB fully removed from the codebase. Pebble is the sole metadata engine.
+    Any installation still on BadgerDB must migrate using a v1.x release first.
+  * [FIX] Tenant quota not enforced on versioned-bucket uploads (quota check was skipped when
+    versioning was enabled; now enforced with correct size increment = full new version size).
+  * [FIX] PutObjectTags concurrent update race — concurrent tag updates on the same object could
+    silently discard one set of changes. Now protected by the per-bucket mutation lock.
+  * [FIX] Data race in replication rule scheduler — lastSync map was written from spawned
+    goroutines concurrently with the main scheduler goroutine. Eliminated by recording the
+    start time in the main goroutine only before spawning.
+  * [FIX] Replication queue cleanup silently discarded database errors — now logged at Warn.
+  * [FIX] JSON marshal errors silently ignored in HA metadata fanout — replica nodes could
+    receive empty/nil data for metadata, tag, ACL, retention, legal-hold, and restore-status
+    operations. All six marshal calls now check the error and skip the fanout on failure.
+  * [FIX] Stop() panic on double-call in lifecycle worker and deletion-log sync manager — both
+    now use sync.Once to guard close(stopChan).
+  * [FIX] Numerous additional stability fixes — see CHANGELOG.md for full details.
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Mon, 18 May 2026 00:00:00 +0000
+
 maxiofs (1:1.4.0) stable; urgency=high
 
   * Release v1.4.0 — Role capabilities system, security fixes, S3 compatibility, HA fixes

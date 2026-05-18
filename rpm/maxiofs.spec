@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.4.0}
+%{!?version: %define version 1.4.1}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -266,6 +266,21 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Mon May 18 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.4.1-1
+- Release v1.4.1 — Security fixes, multilingual UI (9 languages), event-driven cluster sync, BadgerDB removal, stability fixes
+- [SECURITY] OAuth callback tokens moved from redirect URL to server-side one-time code exchange (RFC 6819)
+- [SECURITY] Deactivated users can no longer use JWT tokens after deactivation (ValidateJWT now checks user.Status)
+- [NEW] Multilingual UI — EN/ES/FR/DE/IT/PT/ZH/JA/RU; language chunks loaded on demand, main bundle unchanged
+- [NEW] Event-driven cluster config sync — immediate fan-out to all peer nodes on every mutating operation
+- [REMOVED] BadgerDB fully removed; Pebble is now the sole metadata engine
+- [FIX] Quota not enforced on versioned-bucket uploads
+- [FIX] PutObjectTags concurrent update race (per-bucket mutex now applied)
+- [FIX] Data race in replication rule scheduler lastSync map
+- [FIX] Replication cleanup DB errors now logged at Warn level
+- [FIX] HA metadata fanout JSON marshal errors no longer silently ignored
+- [FIX] Stop() double-call panic in lifecycle worker and deletion-log sync manager
+- [FIX] See CHANGELOG.md for complete list of fixes
+
 * Sun May 03 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.4.0-1
 - Version 1.4.0 — Role capabilities system, multipart metadata security fix, Object Lock versionId fixes,
   versioning/metrics consistency, CopyObject tag directives, presigned URL improvements, S3 Select fixes,
