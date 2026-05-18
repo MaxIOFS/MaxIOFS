@@ -96,8 +96,8 @@ export default function UserDetailsPage() {
 
   // Fetch access keys
   const { data: accessKeys, isLoading: keysLoading } = useQuery({
-    queryKey: ['accessKeys', userId, isEditingSelf ? 'self' : 'admin'],
-    queryFn: () => (isEditingSelf ? APIClient.getAccessKeys() : APIClient.getUserAccessKeys(userId)),
+    queryKey: ['accessKeys', userId],
+    queryFn: () => APIClient.getUserAccessKeys(userId),
     enabled: !!userId && !currentUserLoading,
   });
 
