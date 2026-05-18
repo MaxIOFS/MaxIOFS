@@ -394,6 +394,12 @@ func (m *IDPProviderSyncManager) sendDeletionToNode(ctx context.Context, provide
 }
 
 // Stop stops the IDP provider sync manager
+// TriggerSync immediately runs a full IDP provider sync to all healthy nodes without
+// waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
+func (m *IDPProviderSyncManager) TriggerSync(ctx context.Context) {
+	go m.syncAllProviders(ctx)
+}
+
 func (m *IDPProviderSyncManager) Stop() {
 	close(m.stopChan)
 }

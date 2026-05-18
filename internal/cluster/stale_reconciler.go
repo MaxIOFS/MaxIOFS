@@ -438,21 +438,45 @@ func (r *StaleReconciler) applyRemoteTombstones(ctx context.Context, remote, loc
 		if lTS, exists := localTS[key]; exists && e.DeletedAt <= lTS {
 			continue // already have an equal or newer tombstone
 		}
-		if EntityIsNewerThanTombstone(ctx, r.db, e.EntityType, e.EntityID, e.DeletedAt) {
+
+		// Wrap the LWW check and the tombstone insert in a single serializable
+		// transaction so no concurrent writer can delete the entity between the
+		// two operations and cause us to incorrectly skip a tombstone.
+		tx, txErr := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+		if txErr != nil {
+			r.log.WithError(txErr).WithFields(logrus.Fields{
+				"entity_type": e.EntityType,
+				"entity_id":   e.EntityID,
+			}).Warn("Failed to begin transaction for tombstone application")
+			continue
+		}
+
+		if EntityIsNewerThanTombstone(ctx, tx, e.EntityType, e.EntityID, e.DeletedAt) {
+			_ = tx.Rollback()
 			r.log.WithFields(logrus.Fields{
 				"entity_type": e.EntityType,
 				"entity_id":   e.EntityID,
 			}).Debug("Skipping remote tombstone: local entity is newer (LWW)")
 			continue
 		}
-		if err := RecordDeletion(ctx, r.db, e.EntityType, e.EntityID, e.DeletedByNodeID); err != nil {
+
+		if err := RecordDeletion(ctx, tx, e.EntityType, e.EntityID, e.DeletedByNodeID); err != nil {
+			_ = tx.Rollback()
 			r.log.WithError(err).WithFields(logrus.Fields{
 				"entity_type": e.EntityType,
 				"entity_id":   e.EntityID,
 			}).Warn("Failed to record remote tombstone locally")
-		} else {
-			applied++
+			continue
 		}
+
+		if err := tx.Commit(); err != nil {
+			r.log.WithError(err).WithFields(logrus.Fields{
+				"entity_type": e.EntityType,
+				"entity_id":   e.EntityID,
+			}).Warn("Failed to commit tombstone application")
+			continue
+		}
+		applied++
 	}
 
 	if applied > 0 {

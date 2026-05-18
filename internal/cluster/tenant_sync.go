@@ -430,6 +430,12 @@ func (m *TenantSyncManager) sendDeletionToNode(ctx context.Context, tenantID str
 }
 
 // Stop stops the tenant sync manager
+// TriggerSync immediately runs a full tenant sync to all healthy nodes without
+// waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
+func (m *TenantSyncManager) TriggerSync(ctx context.Context) {
+	go m.syncAllTenants(ctx)
+}
+
 func (m *TenantSyncManager) Stop() {
 	close(m.stopChan)
 }

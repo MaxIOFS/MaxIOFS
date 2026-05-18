@@ -36,13 +36,21 @@ type DeletionEntry struct {
 	DeletedAt       int64  `json:"deleted_at"`
 }
 
+// sqlQuerier is satisfied by both *sql.DB and *sql.Tx, allowing the check and
+// the insert to share a single implementation that can run inside a transaction.
+type sqlQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 // RecordDeletion inserts a tombstone into the deletion log.
 // Uses INSERT OR REPLACE so re-recording the same entity is idempotent.
-func RecordDeletion(ctx context.Context, db *sql.DB, entityType, entityID, nodeID string) error {
+// Accepts *sql.DB or *sql.Tx so callers can run it inside a transaction.
+func RecordDeletion(ctx context.Context, q sqlQuerier, entityType, entityID, nodeID string) error {
 	id := uuid.New().String()
 	now := time.Now().Unix()
 
-	_, err := db.ExecContext(ctx, `
+	_, err := q.ExecContext(ctx, `
 		INSERT INTO cluster_deletion_log (id, entity_type, entity_id, deleted_by_node_id, deleted_at)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(entity_type, entity_id) DO UPDATE SET
@@ -122,39 +130,40 @@ func HasDeletion(ctx context.Context, db *sql.DB, entityType, entityID string) (
 //
 // For entity types that have no updated_at column (AccessKey, BucketPermission) the
 // function always returns false so that the tombstone wins by default.
-func EntityIsNewerThanTombstone(ctx context.Context, db *sql.DB, entityType, entityID string, deletedAt int64) bool {
+// Accepts *sql.DB or *sql.Tx so callers can run it inside a transaction.
+func EntityIsNewerThanTombstone(ctx context.Context, q sqlQuerier, entityType, entityID string, deletedAt int64) bool {
 	switch entityType {
 	case EntityTypeTenant:
 		var updatedAt time.Time
-		if err := db.QueryRowContext(ctx, `SELECT updated_at FROM tenants WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT updated_at FROM tenants WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
 			return false // entity not found or error → tombstone wins
 		}
 		return updatedAt.Unix() > deletedAt
 
 	case EntityTypeUser:
 		var updatedAt int64
-		if err := db.QueryRowContext(ctx, `SELECT updated_at FROM users WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT updated_at FROM users WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
 			return false
 		}
 		return updatedAt > deletedAt
 
 	case EntityTypeIDPProvider:
 		var updatedAt int64
-		if err := db.QueryRowContext(ctx, `SELECT updated_at FROM identity_providers WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT updated_at FROM identity_providers WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
 			return false
 		}
 		return updatedAt > deletedAt
 
 	case EntityTypeGroupMapping:
 		var updatedAt int64
-		if err := db.QueryRowContext(ctx, `SELECT updated_at FROM idp_group_mappings WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT updated_at FROM idp_group_mappings WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
 			return false
 		}
 		return updatedAt > deletedAt
 
 	case EntityTypeGroup:
 		var updatedAt int64
-		if err := db.QueryRowContext(ctx, `SELECT updated_at FROM groups WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT updated_at FROM groups WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
 			return false
 		}
 		return updatedAt > deletedAt

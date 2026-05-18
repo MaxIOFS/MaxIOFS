@@ -4409,6 +4409,10 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
+	if s.tenantSyncMgr != nil {
+		s.tenantSyncMgr.TriggerSync(r.Context())
+	}
+
 	s.writeJSON(w, tenant)
 }
 
@@ -4540,6 +4544,10 @@ func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
+	if s.tenantSyncMgr != nil {
+		s.tenantSyncMgr.TriggerSync(r.Context())
+	}
+
 	s.writeJSON(w, tenant)
 }
 
@@ -4646,6 +4654,10 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 		Action:       audit.ActionDelete,
 		Status:       audit.StatusSuccess,
 	})
+
+	if s.tenantSyncMgr != nil {
+		s.tenantSyncMgr.TriggerSync(r.Context())
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -4794,6 +4806,10 @@ func (s *Server) handleGrantBucketPermission(w http.ResponseWriter, r *http.Requ
 
 	s.touchLocalWriteAt(r.Context())
 
+	if s.bucketPermissionSyncMgr != nil {
+		s.bucketPermissionSyncMgr.TriggerSync(r.Context())
+	}
+
 	s.writeJSON(w, map[string]string{"message": "Permission granted successfully"})
 }
 
@@ -4856,6 +4872,10 @@ func (s *Server) handleRevokeBucketPermission(w http.ResponseWriter, r *http.Req
 		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeBucketPermission, permissionID, nodeID); err != nil {
 			logrus.WithError(err).WithField("permission_id", permissionID).Warn("Failed to record bucket permission deletion tombstone")
 		}
+	}
+
+	if s.bucketPermissionSyncMgr != nil {
+		s.bucketPermissionSyncMgr.TriggerSync(r.Context())
 	}
 
 	w.WriteHeader(http.StatusNoContent)

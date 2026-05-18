@@ -400,6 +400,12 @@ func (m *GroupMappingSyncManager) sendDeletionToNode(ctx context.Context, mappin
 }
 
 // Stop stops the group mapping sync manager
+// TriggerSync immediately runs a full group mapping sync to all healthy nodes without
+// waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
+func (m *GroupMappingSyncManager) TriggerSync(ctx context.Context) {
+	go m.syncAllMappings(ctx)
+}
+
 func (m *GroupMappingSyncManager) Stop() {
 	close(m.stopChan)
 }

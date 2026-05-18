@@ -421,6 +421,12 @@ func (m *BucketPermissionSyncManager) sendDeletionToNode(ctx context.Context, pe
 }
 
 // Stop stops the bucket permission sync manager
+// TriggerSync immediately runs a full bucket permission sync to all healthy nodes without
+// waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
+func (m *BucketPermissionSyncManager) TriggerSync(ctx context.Context) {
+	go m.syncAllBucketPermissions(ctx)
+}
+
 func (m *BucketPermissionSyncManager) Stop() {
 	close(m.stopChan)
 }

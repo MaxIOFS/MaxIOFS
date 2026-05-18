@@ -111,6 +111,10 @@ func (s *Server) handleCreateIDP(w http.ResponseWriter, r *http.Request) {
 		UserAgent:    r.Header.Get("User-Agent"),
 	})
 
+	if s.idpProviderSyncMgr != nil {
+		s.idpProviderSyncMgr.TriggerSync(r.Context())
+	}
+
 	s.writeJSONWithStatus(w, http.StatusCreated, APIResponse{Success: true, Data: provider})
 }
 
@@ -192,6 +196,10 @@ func (s *Server) handleUpdateIDP(w http.ResponseWriter, r *http.Request) {
 
 	s.touchLocalWriteAt(r.Context())
 
+	if s.idpProviderSyncMgr != nil {
+		s.idpProviderSyncMgr.TriggerSync(r.Context())
+	}
+
 	s.writeJSON(w, updated)
 }
 
@@ -249,6 +257,10 @@ func (s *Server) handleDeleteIDP(w http.ResponseWriter, r *http.Request) {
 			"linked_users": linkedCount,
 		},
 	})
+
+	if s.idpProviderSyncMgr != nil {
+		s.idpProviderSyncMgr.TriggerSync(r.Context())
+	}
 
 	s.writeJSON(w, map[string]interface{}{
 		"message":      "Identity provider deleted",
@@ -550,6 +562,10 @@ func (s *Server) handleCreateGroupMapping(w http.ResponseWriter, r *http.Request
 
 	s.touchLocalWriteAt(r.Context())
 
+	if s.groupMappingSyncMgr != nil {
+		s.groupMappingSyncMgr.TriggerSync(r.Context())
+	}
+
 	s.writeJSONWithStatus(w, http.StatusCreated, APIResponse{Success: true, Data: mapping})
 }
 
@@ -580,6 +596,10 @@ func (s *Server) handleUpdateGroupMapping(w http.ResponseWriter, r *http.Request
 
 	s.touchLocalWriteAt(r.Context())
 
+	if s.groupMappingSyncMgr != nil {
+		s.groupMappingSyncMgr.TriggerSync(r.Context())
+	}
+
 	s.writeJSON(w, mapping)
 }
 
@@ -605,6 +625,10 @@ func (s *Server) handleDeleteGroupMapping(w http.ResponseWriter, r *http.Request
 		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeGroupMapping, mappingID, nodeID); err != nil {
 			logrus.WithError(err).WithField("mapping_id", mappingID).Warn("Failed to record group mapping deletion tombstone")
 		}
+	}
+
+	if s.groupMappingSyncMgr != nil {
+		s.groupMappingSyncMgr.TriggerSync(r.Context())
 	}
 
 	s.writeJSON(w, map[string]string{"message": "Group mapping deleted"})

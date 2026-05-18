@@ -229,8 +229,8 @@ Findings from a full code audit performed on v1.4.0. Items are sorted by severit
 #### H12. `EntityIsNewerThanTombstone` check is not transactional
 - **File**: `internal/cluster/stale_reconciler.go:385-389`
 - **Issue**: between the check and `RecordDeletion`, another thread can delete the entity locally. The check passes but the entity no longer exists, leaving state inconsistent.
-- **Fix**: use a delete-only-if-exists pattern with the verification inside the same transaction.
-- [ ] Deferred — requires adding `*sql.Tx` variants of EntityIsNewerThanTombstone and RecordDeletion; impact is limited to a one-cycle delay before the next sync resolves the state. Will revisit in v1.4.2.
+- **Fix**: introduced a `sqlQuerier` interface (satisfied by both `*sql.DB` and `*sql.Tx`) and changed `EntityIsNewerThanTombstone` and `RecordDeletion` to accept it. In `applyRemoteTombstones`, each tombstone is now applied inside a single `LevelSerializable` transaction so the LWW check and the insert are atomic.
+- [x] Done
 
 #### H13. HASyncWorker can run two concurrent syncs for the same node
 - **File**: `internal/cluster/ha_sync_worker.go:132-137`
@@ -575,27 +575,15 @@ Files: `internal/cluster/ec_migration_worker.go` (new), `internal/server/cluster
 
 ---
 
-## 🔵 v1.3.0 — Cluster improvements: event-driven config sync
+## ✅ v1.3.0 — Cluster improvements: event-driven config sync
 
-#### 8. Event-driven config sync -- eliminate polling lag between nodes (~1 week)
+#### 8. [x] Done — Event-driven config sync -- eliminate polling lag between nodes
 
-**Problem today**: all sync managers (tenant, user, access key, bucket permission, IDP, group mapping) use a polling timer (default 30s). If a user is created on node A, node B rejects their requests for up to 30 seconds.
+All 6 sync managers now expose `TriggerSync(ctx)` which immediately fans out a full sync to all healthy nodes in a background goroutine without blocking the HTTP response. Every mutating handler (create/update/delete) for users, access keys, tenants, bucket permissions, IDP providers, and group mappings calls `TriggerSync` on success. The polling loop stays as a reconciliation safety net for nodes that were temporarily down.
 
-With HA quorum write this is critical: a client can be routed to any node at any time, so a 30s auth blackout after any config change is unacceptable.
+Managers updated (added `TriggerSync`): `TenantSyncManager`, `BucketPermissionSyncManager`, `IDPProviderSyncManager`, `GroupMappingSyncManager` (user and access key managers already had it).
 
-**Solution**: every write to auth/config data immediately fans out to all healthy nodes in background before returning 200. The polling loop stays as a reconciliation safety net for nodes that were down.
-
-Changes per operation:
-- `POST/PUT/DELETE /users/{id}` -> `UserSyncManager.SyncUserNow(ctx, userID)` -- **highest priority** for S3 access keys
-- `POST/PUT/DELETE /tenants/{id}` -> `TenantSyncManager.SyncTenantNow`
-- `POST/DELETE /access-keys/{id}` -> `AccessKeySyncManager.SyncKeyNow` -- S3 auth breaks without this
-- Bucket permission changes -> `BucketPermissionSyncManager.SyncPermissionNow`
-- IDP provider changes -> `IDPProviderSyncManager.SyncProviderNow`
-- Group mapping changes -> `GroupMappingSyncManager.SyncMappingNow`
-
-Each `SyncXNow` fans out in parallel goroutines, logs failures as warnings, does NOT block the original request. Polling interval raised from 30s to 5 minutes once event-driven sync is in place.
-
-Files: all 6 `*_sync.go` files (add `SyncXNow`), all handler files that mutate users/tenants/keys/permissions/IDPs/mappings.
+Handlers wired: `handleCreateTenant`, `handleUpdateTenant`, `handleDeleteTenant`, `handleGrantBucketPermission`, `handleRevokeBucketPermission`, `handleCreateIDP`, `handleUpdateIDP`, `handleDeleteIDP`, `handleCreateGroupMapping`, `handleUpdateGroupMapping`, `handleDeleteGroupMapping` (plus previously wired user, access key, group, and capability handlers).
 
 ---
 
