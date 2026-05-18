@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/bucket"
@@ -18,6 +19,7 @@ type Worker struct {
 	metadataStore metadata.Store
 	ticker        *time.Ticker
 	stopChan      chan struct{}
+	stopOnce      sync.Once
 }
 
 // NewWorker creates a new lifecycle worker
@@ -59,7 +61,7 @@ func (w *Worker) Start(ctx context.Context, interval time.Duration) {
 
 // Stop stops the lifecycle worker
 func (w *Worker) Stop() {
-	close(w.stopChan)
+	w.stopOnce.Do(func() { close(w.stopChan) })
 }
 
 // processLifecyclePolicies processes all lifecycle policies for all buckets

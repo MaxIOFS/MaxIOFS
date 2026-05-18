@@ -464,8 +464,12 @@ func (h *HAObjectManager) UpdateObjectMetadata(ctx context.Context, bucket, key 
 		return err
 	}
 	if !isHAReplica(ctx) {
-		data, _ := json.Marshal(metadata)
-		h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "update-metadata", Key: key, Data: data})
+		data, err := json.Marshal(metadata)
+		if err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).Warn("HA fanout: failed to marshal metadata, skipping replica sync")
+		} else {
+			h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "update-metadata", Key: key, Data: data})
+		}
 	}
 	return nil
 }
@@ -480,8 +484,12 @@ func (h *HAObjectManager) SetObjectTagging(ctx context.Context, bucket, key stri
 		if len(versionID) > 0 {
 			vid = versionID[0]
 		}
-		data, _ := json.Marshal(tags)
-		h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-tagging", Key: key, VersionID: vid, Data: data})
+		data, err := json.Marshal(tags)
+		if err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).Warn("HA fanout: failed to marshal tags, skipping replica sync")
+		} else {
+			h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-tagging", Key: key, VersionID: vid, Data: data})
+		}
 	}
 	return nil
 }
@@ -511,8 +519,12 @@ func (h *HAObjectManager) SetObjectACL(ctx context.Context, bucket, key string, 
 		if len(versionID) > 0 {
 			vid = versionID[0]
 		}
-		data, _ := json.Marshal(acl)
-		h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-acl", Key: key, VersionID: vid, Data: data})
+		data, err := json.Marshal(acl)
+		if err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).Warn("HA fanout: failed to marshal ACL, skipping replica sync")
+		} else {
+			h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-acl", Key: key, VersionID: vid, Data: data})
+		}
 	}
 	return nil
 }
@@ -527,8 +539,12 @@ func (h *HAObjectManager) SetObjectRetention(ctx context.Context, bucket, key st
 		if len(versionID) > 0 {
 			vid = versionID[0]
 		}
-		data, _ := json.Marshal(config)
-		h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-retention", Key: key, VersionID: vid, Data: data})
+		data, err := json.Marshal(config)
+		if err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).Warn("HA fanout: failed to marshal retention config, skipping replica sync")
+		} else {
+			h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-retention", Key: key, VersionID: vid, Data: data})
+		}
 	}
 	return nil
 }
@@ -543,8 +559,12 @@ func (h *HAObjectManager) SetObjectLegalHold(ctx context.Context, bucket, key st
 		if len(versionID) > 0 {
 			vid = versionID[0]
 		}
-		data, _ := json.Marshal(config)
-		h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-legal-hold", Key: key, VersionID: vid, Data: data})
+		data, err := json.Marshal(config)
+		if err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).Warn("HA fanout: failed to marshal legal-hold config, skipping replica sync")
+		} else {
+			h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-legal-hold", Key: key, VersionID: vid, Data: data})
+		}
 	}
 	return nil
 }
@@ -563,8 +583,12 @@ func (h *HAObjectManager) SetRestoreStatus(ctx context.Context, bucket, key stri
 			Status    string     `json:"status"`
 			ExpiresAt *time.Time `json:"expires_at,omitempty"`
 		}
-		data, _ := json.Marshal(payload{Status: status, ExpiresAt: expiresAt})
-		h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-restore-status", Key: key, VersionID: vid, Data: data})
+		data, err := json.Marshal(payload{Status: status, ExpiresAt: expiresAt})
+		if err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).Warn("HA fanout: failed to marshal restore status, skipping replica sync")
+		} else {
+			h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-restore-status", Key: key, VersionID: vid, Data: data})
+		}
 	}
 	return nil
 }

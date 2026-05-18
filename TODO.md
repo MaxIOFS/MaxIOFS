@@ -2,7 +2,7 @@
 
 **Version**: 1.4.0
 **Last Updated**: May 18, 2026
-**Status**: Stable
+**Status**: Stable — v1.4.1 audit in progress
 
 > Completed work is in [CHANGELOG.md](CHANGELOG.md). This file tracks only pending work.
 
@@ -26,6 +26,90 @@
 | internal/replication | 67.8% | CRUD, worker, credentials, adapter, sync, scheduler all tested. Remaining: `e2e_test` integration flows, `s3client` remote calls requiring live S3 endpoint |
 
 **Conclusion**: All testable business logic is covered. Remaining uncovered code falls into categories that cannot be meaningfully unit-tested: server lifecycle, remote node communication, live S3 endpoints, and encryption pipeline internals.
+
+---
+
+## 🔴 v1.4.1 — Audit Findings (May 18, 2026 — second pass)
+
+Findings from a second full code audit performed by 5 parallel agents covering all subsystems: metadata/storage, object manager/lifecycle, HA cluster, server/auth/IDP, and replication/S3 compat. Items sorted by severity.
+
+---
+
+### 🔴 Critical
+
+#### B1. Quota check bypassed when versioning is enabled
+- **File**: `internal/object/manager.go:584`
+- **Issue**: The condition `!versioningEnabled` completely skips tenant storage quota enforcement for versioned buckets. Tenants can upload unlimited data to versioned buckets regardless of their quota limit. Quota accounting (increment) still happens but the pre-write validation does not.
+- **Fix**: Remove `!versioningEnabled` from the condition. For versioned buckets the size increment is the full new version size (prior versions are preserved, not overwritten).
+- [x] Done
+
+#### B2. `PutObjectTags` race condition — lost update
+- **File**: `internal/metadata/pebble_objects.go:744`
+- **Issue**: Read-modify-write without holding `getBucketMutationMutex`. Two concurrent tag updates on the same object overwrite each other. All other write functions (PutObject, PutObjectVersion) correctly acquire the mutex before the read.
+- **Fix**: Add `mu := s.getBucketMutationMutex(bucket); mu.Lock(); defer mu.Unlock()` at the top of `PutObjectTags`.
+- [x] Done
+
+#### B3. OAuth JWT tokens exposed in redirect URL
+- **File**: `internal/server/console_idp.go:1038-1041`
+- **Issue**: After OAuth callback, access and refresh tokens are placed in URL query parameters and sent via HTTP redirect. Tokens end up in server access logs, browser history, proxy logs, and Referer headers — violating RFC 6819.
+- **Fix**: `handleOAuthCallback` now issues a random 32-byte hex one-time code (TTL 60s, stored in `Server.oauthCodeStore sync.Map`) and redirects with just `?code=<code>`. New `GET /api/v1/auth/oauth/exchange-code` handler atomically consumes the code and returns tokens in the JSON body. Frontend `oauth-complete.tsx` updated to call the exchange endpoint.
+- [x] Done
+
+#### B4. Data race in `ruleScheduler` — `lastSync` map accessed without mutex
+- **File**: `internal/replication/manager.go:723,749,757`
+- **Issue**: The main scheduler goroutine reads and deletes from `lastSync` (lines 723, 757-760) while spawned worker goroutines write to it (line 749) with no synchronization. Classic Go map race → runtime panic in production under concurrent replication activity.
+- **Fix**: `lastSync[ruleID] = now` is now recorded in the main goroutine before spawning; the spawned goroutine no longer writes to the map, eliminating the race without needing an extra mutex.
+- [x] Done
+
+---
+
+### 🟠 High
+
+#### B5. Deactivated users can still use valid JWT tokens
+- **File**: `internal/auth/manager.go:544`
+- **Issue**: `ValidateJWT` fetches the user and returns it without checking `user.Status`. Both `ValidateCredentials` and `ValidateConsoleCredentials` correctly check `user.Status != UserStatusActive` before returning. An admin can deactivate a user but their JWT tokens remain valid until expiry (up to 15 min for access tokens, 24 h for refresh tokens).
+- **Fix**: Added `if user.Status != UserStatusActive { return nil, ErrUserInactive }` after username lookup in `ValidateJWT`.
+- [x] Done
+
+#### B6. Replication cleanup silently ignores database errors
+- **File**: `internal/replication/manager.go:773`
+- **Issue**: `m.db.ExecContext(ctx, query, cutoff)` — error return discarded with no logging. If the DELETE fails, the replication queue grows unbounded with no operator alert.
+- **Fix**: `if _, err := m.db.ExecContext(ctx, query, cutoff); err != nil { m.log.WithError(err).Warn("Failed to cleanup old replication queue items") }`
+- [x] Done
+
+---
+
+### 🟡 Medium
+
+#### B7. JSON marshal errors silently ignored in HA metadata fanout
+- **File**: `internal/cluster/ha_object_manager.go` (lines 467, 483, 514, 530, 546, 566)
+- **Issue**: `data, _ := json.Marshal(metadata)` — if marshal fails, `data` is nil and replicas receive empty metadata while the local node has the correct state. Silent metadata divergence across the cluster.
+- **Fix**: All 6 marshal calls now check the error; log at Warn and skip the fanout call when marshal fails.
+- [x] Done
+
+#### B8. `Stop()` panics on double-call — two managers affected
+- **Files**: `internal/lifecycle/worker.go:62`, `internal/cluster/deletion_log.go:381`
+- **Issue**: Both `Stop()` methods call `close(stopChan)` with no guard. A second call (possible during server shutdown race) causes a panic: "close of closed channel".
+- **Fix**: Added `stopOnce sync.Once` to both structs; both `Stop()` methods now wrap the `close()` in `stopOnce.Do(...)`.
+- [x] Done
+
+#### B9. Orphaned combined file on quota failure in `CompleteMultipartUpload`
+- **File**: `internal/object/manager.go` (~line 2001)
+- **Issue**: If `checkMultipartQuotaBeforeComplete` fails after parts have already been physically combined into the destination file, the combined file is left on disk with no metadata record — an unrecoverable storage leak.
+- **Fix**: Deferred cleanup with `needsCombinedFileCleanup` flag; flag cleared just before PutObjectVersion/PutObject which handle their own cleanup.
+- [x] Done
+
+#### B10. `HASyncWorker` race — duplicate sync jobs for same node
+- **File**: `internal/cluster/ha_sync_worker.go:136`
+- **Issue**: The mutex is released before the sync goroutine is started, leaving a window where a concurrent `Trigger` call sees no running job and starts a second sync goroutine for the same node. Both goroutines then sync to the same node concurrently, corrupting checkpoints.
+- **Outcome**: Verified by code inspection — the mutex IS held through both the DB check and the `w.running[n.ID]` map reservation. No fix needed; false positive.
+- [x] Done
+
+#### B11. `tryLockRule`/`unlockRule` — use-after-delete window on mutex
+- **File**: `internal/replication/manager.go:854-879`
+- **Issue**: Between the `RUnlock()` and the `TryLock()` call in `tryLockRule`, another goroutine can delete the entry from `ruleLocks`. The returned mutex pointer is then used on a potentially freed/reused value.
+- **Outcome**: Verified by code inspection — `tryLockRule` holds `m.locksMu.Lock()` (write lock) through the entire function including `TryLock()`. Go's GC keeps the mutex alive while a reference is held. No race exists; false positive.
+- [x] Done
 
 ---
 

@@ -541,6 +541,10 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 		return nil, err
 	}
 
+	if user.Status != UserStatusActive {
+		return nil, ErrUserInactive
+	}
+
 	return user, nil
 }
 

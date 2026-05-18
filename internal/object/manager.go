@@ -581,14 +581,19 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	// Validate tenant storage quota before committing.
 	// Skipped for HA replica writes: the primary already validated the quota; replicas
 	// must store the object unconditionally and only update their local counter.
-	if om.authManager != nil && tenantID != "" && !versioningEnabled && !isBypassQuotaEnforcement(ctx) {
-		// Check if overwriting existing object
-		existingObj, _ := om.metadataStore.GetObject(ctx, bucket, key)
+	if om.authManager != nil && tenantID != "" && !isBypassQuotaEnforcement(ctx) {
 		var sizeIncrement int64
-		if existingObj == nil {
+		if versioningEnabled {
+			// All previous versions are preserved — the new version adds its full size.
 			sizeIncrement = size
 		} else {
-			sizeIncrement = size - existingObj.Size
+			// Non-versioned: overwriting replaces the old object, so only the delta counts.
+			existingObj, _ := om.metadataStore.GetObject(ctx, bucket, key)
+			if existingObj == nil {
+				sizeIncrement = size
+			} else {
+				sizeIncrement = size - existingObj.Size
+			}
 		}
 
 		// Only validate if adding storage
@@ -2024,6 +2029,17 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		return nil, fmt.Errorf("failed to combine parts: %w", err)
 	}
 
+	// Clean up the combined file on any error between here and the metadata write.
+	// PutObjectVersion/PutObject handle their own cleanup on metadata-write failure.
+	needsCombinedFileCleanup := true
+	defer func() {
+		if needsCombinedFileCleanup {
+			if delErr := om.storage.Delete(ctx, objectPath); delErr != nil {
+				logrus.WithError(delErr).WithField("path", objectPath).Warn("Failed to remove orphaned combined object after error")
+			}
+		}
+	}()
+
 	// Retrieve etag+size+last_modified already written by combineMultipartParts.
 	// This reads only the tiny .metadata sidecar file, not the data.
 	storageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
@@ -2083,6 +2099,9 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		StorageClass: multipart.StorageClass,
 		VersionID:    versionID,
 	}
+
+	// From this point on PutObjectVersion/PutObject handle cleanup on failure.
+	needsCombinedFileCleanup = false
 
 	metaObj := toMetadataObject(object)
 	if versioningEnabled {

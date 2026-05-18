@@ -8,7 +8,6 @@ export default function OAuthCompletePage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
     const errorMsg = params.get('error');
 
     if (errorMsg) {
@@ -16,19 +15,29 @@ export default function OAuthCompletePage() {
       return;
     }
 
-    if (token) {
-      const refreshToken = params.get('refresh_token');
-      const secureFlag = window.location.protocol === 'https:' ? '; Secure' : '';
-      localStorage.setItem('auth_token', token);
-      if (refreshToken) {
-        localStorage.setItem('refresh_token', refreshToken);
-        document.cookie = `refresh_token=${refreshToken}; path=/; max-age=${24 * 60 * 60}${secureFlag}; SameSite=Strict`;
-      }
-      document.cookie = `auth_token=${token}; path=/; max-age=${24 * 60 * 60}${secureFlag}; SameSite=Strict`;
-      window.location.href = getBasePath() || '/';
-    } else {
-      setError('No authentication token received');
+    const code = params.get('code');
+    if (!code) {
+      setError('No authentication code received');
+      return;
     }
+
+    fetch(`${getBasePath()}/api/v1/auth/oauth/exchange-code?code=${encodeURIComponent(code)}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Exchange failed: ${res.status}`);
+        return res.json() as Promise<{ access_token: string; refresh_token: string }>;
+      })
+      .then(({ access_token, refresh_token }) => {
+        const secureFlag = window.location.protocol === 'https:' ? '; Secure' : '';
+        localStorage.setItem('auth_token', access_token);
+        localStorage.setItem('refresh_token', refresh_token);
+        document.cookie = `auth_token=${access_token}; path=/; max-age=${24 * 60 * 60}${secureFlag}; SameSite=Strict`;
+        document.cookie = `refresh_token=${refresh_token}; path=/; max-age=${24 * 60 * 60}${secureFlag}; SameSite=Strict`;
+        window.location.href = getBasePath() || '/';
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'Authentication failed';
+        setError(msg);
+      });
   }, []);
 
   if (error) {

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -20,6 +21,40 @@ import (
 	"github.com/maxiofs/maxiofs/internal/idp"
 	"github.com/sirupsen/logrus"
 )
+
+// oauthCodeEntry holds a one-time token pair issued by handleOAuthCallback.
+// Keeping tokens out of the redirect URL prevents exposure via Referer/History (RFC 6819 §4.2.2).
+type oauthCodeEntry struct {
+	pair      auth.TokenPair
+	expiresAt time.Time
+}
+
+// generateOAuthCode returns a cryptographically random 64-char hex string.
+func generateOAuthCode() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func (s *Server) consoleRelativePath(path string) string {
+	basePath := strings.TrimRight(extractBasePath(s.config.PublicConsoleURL), "/")
+	if basePath == "" {
+		return path
+	}
+	return basePath + path
+}
+
+func (s *Server) pruneExpiredOAuthCodes(now time.Time) {
+	s.oauthCodeStore.Range(func(key, value interface{}) bool {
+		entry, ok := value.(oauthCodeEntry)
+		if ok && now.After(entry.expiresAt) {
+			s.oauthCodeStore.Delete(key)
+		}
+		return true
+	})
+}
 
 // writeJSONWithStatus writes a JSON response with a specific HTTP status code
 func (s *Server) writeJSONWithStatus(w http.ResponseWriter, statusCode int, data interface{}) {
@@ -953,13 +988,13 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	externalUser, err := s.idpManager.HandleOAuthCallback(r.Context(), providerID, code)
 	if err != nil {
 		logrus.WithError(err).Error("OAuth code exchange failed")
-		http.Redirect(w, r, "/login?error=exchange_failed", http.StatusFound)
+		http.Redirect(w, r, s.consoleRelativePath("/login?error=exchange_failed"), http.StatusFound)
 		return
 	}
 
 	if externalUser.Email == "" {
 		logrus.WithField("provider", providerID).Warn("OAuth login: no email from provider")
-		http.Redirect(w, r, "/login?error=missing_email", http.StatusFound)
+		http.Redirect(w, r, s.consoleRelativePath("/login?error=missing_email"), http.StatusFound)
 		return
 	}
 
@@ -971,7 +1006,7 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		var errCode string
 		user, resolvedProviderID, errCode = s.tryAutoProvision(r.Context(), r, externalUser)
 		if user == nil {
-			http.Redirect(w, r, "/login?error="+errCode, http.StatusFound)
+			http.Redirect(w, r, s.consoleRelativePath("/login?error="+url.QueryEscape(errCode)), http.StatusFound)
 			return
 		}
 	}
@@ -985,19 +1020,19 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if user.Status != auth.UserStatusActive {
-		http.Redirect(w, r, "/login?error=account_inactive", http.StatusFound)
+		http.Redirect(w, r, s.consoleRelativePath("/login?error=account_inactive"), http.StatusFound)
 		return
 	}
 
 	isLocked, _, _ := s.authManager.IsAccountLocked(r.Context(), user.ID)
 	if isLocked {
-		http.Redirect(w, r, "/login?error=account_locked", http.StatusFound)
+		http.Redirect(w, r, s.consoleRelativePath("/login?error=account_locked"), http.StatusFound)
 		return
 	}
 
 	twoFactorEnabled, _, _ := s.authManager.Get2FAStatus(r.Context(), user.ID)
 	if twoFactorEnabled {
-		http.Redirect(w, r, fmt.Sprintf("/login?pending_2fa=true&user_id=%s", user.ID), http.StatusFound)
+		http.Redirect(w, r, s.consoleRelativePath(fmt.Sprintf("/login?pending_2fa=true&user_id=%s", url.QueryEscape(user.ID))), http.StatusFound)
 		return
 	}
 
@@ -1006,7 +1041,7 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	pair, err := s.authManager.GenerateTokenPair(r.Context(), user)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to generate JWT after OAuth login")
-		http.Redirect(w, r, "/login?error=token_failed", http.StatusFound)
+		http.Redirect(w, r, s.consoleRelativePath("/login?error=token_failed"), http.StatusFound)
 		return
 	}
 
@@ -1034,11 +1069,49 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		"provider": providerID,
 	}).Info("Successful OAuth login")
 
-	q := url.Values{}
-	q.Set("token", pair.AccessToken) // backward-compat key
-	q.Set("access_token", pair.AccessToken)
-	q.Set("refresh_token", pair.RefreshToken)
-	http.Redirect(w, r, "/auth/oauth/complete?"+q.Encode(), http.StatusFound)
+	exchangeCode, err := generateOAuthCode()
+	if err != nil {
+		logrus.WithError(err).Error("Failed to generate OAuth exchange code")
+		http.Redirect(w, r, s.consoleRelativePath("/login?error=token_failed"), http.StatusFound)
+		return
+	}
+	now := time.Now()
+	s.pruneExpiredOAuthCodes(now)
+	s.oauthCodeStore.Store(exchangeCode, oauthCodeEntry{pair: *pair, expiresAt: now.Add(60 * time.Second)})
+	http.Redirect(w, r, s.consoleRelativePath("/auth/oauth/complete?code="+url.QueryEscape(exchangeCode)), http.StatusFound)
+}
+
+// handleOAuthExchangeCode exchanges a one-time code (issued by handleOAuthCallback) for JWT tokens.
+// The code is consumed atomically on first use and expires after 60 seconds.
+func (s *Server) handleOAuthExchangeCode(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
+	s.pruneExpiredOAuthCodes(now)
+
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		s.writeError(w, "missing code parameter", http.StatusBadRequest)
+		return
+	}
+
+	raw, loaded := s.oauthCodeStore.LoadAndDelete(code)
+	if !loaded {
+		s.writeError(w, "invalid or expired code", http.StatusUnauthorized)
+		return
+	}
+
+	entry := raw.(oauthCodeEntry)
+	if now.After(entry.expiresAt) {
+		s.writeError(w, "code expired", http.StatusUnauthorized)
+		return
+	}
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"access_token":  entry.pair.AccessToken,
+		"refresh_token": entry.pair.RefreshToken,
+	})
 }
 
 func (s *Server) handleListOAuthProviders(w http.ResponseWriter, r *http.Request) {

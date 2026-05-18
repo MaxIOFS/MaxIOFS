@@ -639,7 +639,6 @@ func (m *Manager) claimQueueItem(ctx context.Context, itemID int64) (bool, error
 	return rows > 0, nil
 }
 
-
 func (m *Manager) resetClaimedQueueItems(ctx context.Context) error {
 	query := `
 		UPDATE replication_queue
@@ -730,6 +729,10 @@ func (m *Manager) processScheduledRules(ctx context.Context, lastSync map[string
 				"interval": scheduleInterval,
 			}).Info("Triggering scheduled sync")
 
+			// Record start time before spawning so only this goroutine ever writes
+			// to lastSync, eliminating the data race with the worker goroutine.
+			lastSync[ruleID] = now
+
 			// Trigger sync in a goroutine to not block the scheduler
 			go func(rID string) {
 				count, err := m.SyncRule(ctx, rID)
@@ -744,9 +747,6 @@ func (m *Manager) processScheduledRules(ctx context.Context, lastSync map[string
 					"rule_id": rID,
 					"objects": count,
 				}).Info("Scheduled sync completed")
-
-				// Update last sync time
-				lastSync[rID] = time.Now()
 			}(ruleID)
 
 			activeRuleIDs[ruleID] = true
@@ -770,7 +770,9 @@ func (m *Manager) cleanup(ctx context.Context) {
 		WHERE (status = 'completed' OR status = 'failed')
 		AND completed_at < ?
 	`
-	m.db.ExecContext(ctx, query, cutoff)
+	if _, err := m.db.ExecContext(ctx, query, cutoff); err != nil {
+		logrus.WithError(err).Warn("Failed to cleanup old replication queue items")
+	}
 }
 
 // SyncBucket synchronizes all objects in a bucket according to a replication rule

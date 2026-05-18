@@ -97,6 +97,7 @@ type Server struct {
 	buildDate               string          // Build date
 	serverCtx               context.Context // lifecycle context, set in Start()
 	clusterBgOnce           sync.Once       // ensures cluster background services start exactly once
+	oauthCodeStore          sync.Map        // one-time OAuth exchange codes, keyed by random hex, TTL 60s
 }
 
 // New creates a new MaxIOFS server

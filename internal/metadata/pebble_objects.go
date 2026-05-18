@@ -742,6 +742,10 @@ func (s *PebbleStore) DeleteObjectVersion(ctx context.Context, bucket, key, vers
 
 // PutObjectTags replaces all tags on an object, updating the tag index atomically.
 func (s *PebbleStore) PutObjectTags(ctx context.Context, bucket, key string, tags map[string]string) error {
+	mu := s.getBucketMutationMutex(bucket)
+	mu.Lock()
+	defer mu.Unlock()
+
 	objKey := objectKey(bucket, key)
 	data, err := s.pebbleGet(objKey)
 	if err == pebble.ErrNotFound {

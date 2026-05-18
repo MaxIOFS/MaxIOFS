@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -222,6 +223,7 @@ type DeletionLogSyncManager struct {
 	clusterManager *Manager
 	proxyClient    *ProxyClient
 	stopChan       chan struct{}
+	stopOnce       sync.Once
 	log            *logrus.Entry
 }
 
@@ -379,5 +381,5 @@ func (m *DeletionLogSyncManager) syncToNode(ctx context.Context, entries []*Dele
 
 // Stop stops the deletion log sync manager
 func (m *DeletionLogSyncManager) Stop() {
-	close(m.stopChan)
+	m.stopOnce.Do(func() { close(m.stopChan) })
 }

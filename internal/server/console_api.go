@@ -577,6 +577,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/auth/oauth/{id}/login", s.handleOAuthLogin).Methods("GET", "OPTIONS")
 	router.HandleFunc("/auth/oauth/start", s.handleOAuthStart).Methods("POST", "OPTIONS")
 	router.HandleFunc("/auth/oauth/callback", s.handleOAuthCallback).Methods("GET", "OPTIONS")
+	router.HandleFunc("/auth/oauth/exchange-code", s.handleOAuthExchangeCode).Methods("GET", "OPTIONS")
 	router.HandleFunc("/auth/oauth/providers", s.handleListOAuthProviders).Methods("GET", "OPTIONS")
 
 	// Health check
