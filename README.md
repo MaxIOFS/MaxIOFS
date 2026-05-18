@@ -147,7 +147,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 <summary><strong>Security</strong></summary>
 
 - AES-256-GCM authenticated encryption at rest (64 KB chunks, tamper detection)
-- 169-file internal security audit — 28 vulnerabilities found and fixed in v1.0.0-rc1
+- Multiple internal security audits — all identified vulnerabilities fixed
 - SSRF protection on all outbound HTTP (webhooks, log targets, replication endpoints)
 - Auth cookies: `Secure` + `SameSite=Strict`
 - OAuth2 CSRF state validation
@@ -251,13 +251,13 @@ aws --profile maxiofs --endpoint-url http://localhost:8080 s3 ls s3://my-bucket/
 
 **Debian / Ubuntu**
 ```bash
-sudo dpkg -i maxiofs_1.4.0_amd64.deb
+sudo dpkg -i maxiofs_1.4.1_amd64.deb
 sudo systemctl enable --now maxiofs
 ```
 
 **RHEL / Rocky / Alma / Fedora**
 ```bash
-sudo rpm -i maxiofs-1.4.0-1.x86_64.rpm
+sudo rpm -i maxiofs-1.4.1-1.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 
@@ -331,7 +331,8 @@ cd web/frontend && npm run test        # 95+ frontend tests
 
 | Version | Highlights |
 |---------|-----------|
-| **v1.4.0** *(stable)* | Role capabilities system (11 capabilities, per-role defaults, per-user overrides, S3 + console enforcement); multipart metadata security fix (request headers leaked into object user metadata); Object Lock retention/legal-hold now honor versionId; versioning metrics consistency; CopyObject tag directives; presigned URL improvements; S3 Select JSON Lines fix; multipart pagination; inventory fixes; lifecycle delete-marker cleanup; 50+ bug fixes |
+| **v1.4.1** *(stable)* | Security: OAuth tokens no longer embedded in redirect URL (RFC 6819 one-time code exchange); deactivated users now blocked immediately on JWT validation. Multilingual UI — 9 languages (EN/ES/FR/DE/IT/PT/ZH/JA/RU), on-demand loading. Event-driven cluster config sync — immediate fan-out on all mutations. BadgerDB fully removed. Quota enforcement fixed for versioned buckets. 9 bugs fixed from full code audit |
+| **v1.4.0** | Role capabilities system (11 capabilities, per-role defaults, per-user overrides, S3 + console enforcement); multipart metadata security fix (request headers leaked into object user metadata); Object Lock retention/legal-hold now honor versionId; versioning metrics consistency; CopyObject tag directives; presigned URL improvements; S3 Select JSON Lines fix; multipart pagination; inventory fixes; lifecycle delete-marker cleanup; 50+ bug fixes |
 | **v1.3.0** | HA cluster: write quorum, read fallback with ordered retry, anti-entropy scrubber, dead-node redistribution, storage-pressure health state, stale-node reconciler, inter-node S3 proxy with HMAC auth; cluster join/sync/TLS fixes, session fixes, Object Lock improvements, 40+ bug fixes |
 | **v1.2.0** | Pebble v2 metadata engine (auto-migration, configurable cache, Veeam B&R tuning), S3 Select, RestoreObject, OwnershipControls, BucketNotifications webhook delivery, BucketLogging, BucketInventory S3 API, version browser UI, Docker multi-arch, **critical fix**: metadata written since last compaction was silently lost on shutdown, 30+ additional bug fixes |
 | **v1.1.0** | AWS S3-style Actions toolbar, object detail view, object rename & tags, folder ZIP download, SigV2 fix, bucket policy Condition enforcement, PublicAccessBlock enforcement, DeleteBucket Object Lock bypass fix, encryption applied globally, 3 data races fixed |
