@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
-	badger "github.com/dgraph-io/badger/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -187,102 +185,3 @@ func TestPebbleStoreDeleteBucketIfEmptyRejectsLateObjectWrite(t *testing.T) {
 	}))
 }
 
-// ==================== Migration test ====================
-
-// TestMigrateFromBadger verifies that the migration copies all keys from
-// a BadgerDB directory to Pebble and that the data is accessible via PebbleStore.
-func TestMigrateFromBadger(t *testing.T) {
-	// Use os.MkdirTemp instead of t.TempDir() because Pebble/BadgerDB may hold
-	// OS-level file handles briefly after Close() on Windows, causing the
-	// automatic TempDir cleanup to fail with "directory not empty".
-	dataDir, err := os.MkdirTemp("", "TestMigrateFromBadger*")
-	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(dataDir) }) //nolint:errcheck
-	logger := logrus.New()
-	logger.SetLevel(logrus.WarnLevel)
-
-	// ── Step 1: create a BadgerDB with known data ──────────────────────────────
-	badgerPath := fmt.Sprintf("%s/metadata", dataDir)
-	badgerOpts := badger.DefaultOptions(badgerPath).
-		WithLogger(newBadgerLogger(logger)).
-		WithSyncWrites(false)
-
-	bdb, err := badger.Open(badgerOpts)
-	require.NoError(t, err, "open BadgerDB for seed")
-
-	// Seed a bucket and an object
-	seedBucket := &BucketMetadata{
-		Name:      "migrated-bucket",
-		TenantID:  "t1",
-		OwnerID:   "u1",
-		OwnerType: "user",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-	seedObject := &ObjectMetadata{
-		Bucket:       "t1/migrated-bucket",
-		Key:          "file.txt",
-		Size:         999,
-		ETag:         "deadbeef",
-		ContentType:  "text/plain",
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-		LastModified: time.Now(),
-	}
-
-	badgerStore := &BadgerStore{db: bdb, logger: logger}
-	ctx := context.Background()
-	require.NoError(t, badgerStore.CreateBucket(ctx, seedBucket))
-	require.NoError(t, badgerStore.PutObject(ctx, seedObject))
-
-	// Close BadgerDB — migration opens it read-only
-	require.NoError(t, bdb.Close())
-
-	// ── Step 2: run migration ──────────────────────────────────────────────────
-	require.NoError(t, MigrateFromBadgerIfNeeded(dataDir, logger))
-
-	// After migration, metadata/ should be Pebble (KEYREGISTRY is gone)
-	_, err = os.Stat(fmt.Sprintf("%s/metadata/KEYREGISTRY", dataDir))
-	assert.True(t, os.IsNotExist(err), "KEYREGISTRY should not exist after migration")
-
-	// metadata_badger_backup_* should exist
-	entries, err := os.ReadDir(dataDir)
-	require.NoError(t, err)
-	var foundBackup bool
-	for _, e := range entries {
-		if e.IsDir() && len(e.Name()) > len("metadata_badger_backup") && e.Name()[:len("metadata_badger_backup")] == "metadata_badger_backup" {
-			foundBackup = true
-		}
-	}
-	assert.True(t, foundBackup, "backup directory should exist")
-
-	// ── Step 3: open PebbleStore and verify data ───────────────────────────────
-	pstore, err := NewPebbleStore(PebbleOptions{DataDir: dataDir, Logger: logger})
-	require.NoError(t, err)
-	// Register close before the dataDir cleanup so files are released first.
-	t.Cleanup(func() { _ = pstore.Close() })
-
-	// Check bucket
-	bkt, err := pstore.GetBucket(ctx, "t1", "migrated-bucket")
-	require.NoError(t, err, "bucket should be accessible after migration")
-	assert.Equal(t, "migrated-bucket", bkt.Name)
-
-	// Check object
-	obj, err := pstore.GetObject(ctx, "t1/migrated-bucket", "file.txt")
-	require.NoError(t, err, "object should be accessible after migration")
-	assert.Equal(t, int64(999), obj.Size)
-	assert.Equal(t, "deadbeef", obj.ETag)
-
-	// ── Step 4: second startup should not re-migrate ──────────────────────────
-	require.NoError(t, MigrateFromBadgerIfNeeded(dataDir, logger), "second call should be no-op")
-}
-
-// TestMigrateIdempotent verifies that when no BadgerDB is present, migration is a no-op.
-func TestMigrateIdempotent(t *testing.T) {
-	dataDir := t.TempDir()
-	logger := logrus.New()
-	logger.SetLevel(logrus.WarnLevel)
-
-	// No KEYREGISTRY exists; should return nil immediately
-	require.NoError(t, MigrateFromBadgerIfNeeded(dataDir, logger))
-}

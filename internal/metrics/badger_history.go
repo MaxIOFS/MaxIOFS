@@ -12,8 +12,8 @@ import (
 )
 
 // BadgerHistoryStore manages historical metrics storage.
-// Despite its name it now works with any metadata.RawKVStore implementation
-// (both BadgerStore and PebbleStore).
+// Despite the legacy type name, it uses metadata.RawKVStore backed by Pebble;
+// BadgerDB is no longer part of the codebase.
 type BadgerHistoryStore struct {
 	kvStore       metadata.RawKVStore
 	retentionDays int
@@ -367,9 +367,9 @@ func (b *BadgerHistoryStore) GetStats() (map[string]interface{}, error) {
 	}
 
 	return map[string]interface{}{
-		"snapshot_count":   totalSnapshots,
-		"aggregate_count":  totalAggregates,
-		"oldest_snapshot":  oldestSnapshot,
-		"newest_snapshot":  newestSnapshot,
+		"snapshot_count":  totalSnapshots,
+		"aggregate_count": totalAggregates,
+		"oldest_snapshot": oldestSnapshot,
+		"newest_snapshot": newestSnapshot,
 	}, nil
 }

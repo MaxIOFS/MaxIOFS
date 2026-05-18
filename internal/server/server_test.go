@@ -197,11 +197,11 @@ func TestServerSetVersion(t *testing.T) {
 // TestServerStartAndShutdown removed - server lifecycle is tested implicitly by shared server in TestMain
 // The shared server proves that New(), initialization, and resource management work correctly
 
-// TestServerHealthEndpoints removed - requires HTTP server binding which is flaky on Windows with BadgerDB resource contention
+// TestServerHealthEndpoints removed - requires HTTP server binding which is flaky on Windows in this test setup.
 
 // TestServerMultipleStartStop removed - server lifecycle is tested implicitly by shared server in TestMain
 
-// TestServerConcurrentRequests removed - requires HTTP server binding which is flaky on Windows with BadgerDB resource contention
+// TestServerConcurrentRequests removed - requires HTTP server binding which is flaky on Windows in this test setup.
 
 // ============================================================================
 // COMPREHENSIVE SERVER LIFECYCLE TESTS

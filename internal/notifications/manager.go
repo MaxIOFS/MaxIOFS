@@ -39,8 +39,8 @@ type Manager struct {
 }
 
 // NewManager creates a new notification manager.
-// The store parameter must implement metadata.RawKVStore (both BadgerStore and
-// PebbleStore satisfy this interface).
+// The store parameter must implement metadata.RawKVStore; PebbleStore satisfies
+// this interface.
 func NewManager(store metadata.RawKVStore) *Manager {
 	// Use a custom dialer that blocks SSRF by refusing connections to
 	// loopback, link-local, and private (RFC-1918/RFC-4193) addresses.

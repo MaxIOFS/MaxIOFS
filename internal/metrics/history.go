@@ -21,7 +21,7 @@ type MetricSnapshot struct {
 }
 
 // HistoryStoreInterface defines the interface for metrics history storage
-// This allows for different implementations (SQLite, BadgerDB, etc.)
+// This allows for different implementations such as SQLite or metadata RawKV.
 type HistoryStoreInterface interface {
 	SaveSnapshot(metricType string, data map[string]interface{}) error
 	GetSnapshots(metricType string, start, end time.Time) ([]MetricSnapshot, error)

@@ -107,11 +107,6 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create storage backend: %w", err)
 	}
 
-	// Migrate BadgerDB → Pebble v2 if an existing BadgerDB installation is detected
-	if err := metadata.MigrateFromBadgerIfNeeded(cfg.DataDir, logrus.StandardLogger()); err != nil {
-		return nil, fmt.Errorf("metadata migration failed: %w", err)
-	}
-
 	// Migrate Pebble v1 → Pebble v2 if the on-disk format is from an older release
 	if err := metadata.MigrateFromPebbleV1IfNeeded(cfg.DataDir, logrus.StandardLogger()); err != nil {
 		return nil, fmt.Errorf("pebble v1→v2 migration failed: %w", err)
@@ -658,7 +653,7 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 // startStatsReconciler periodically recalculates object count and total size for
-// every bucket by scanning BadgerDB directly. This corrects any counters that may
+// every bucket by scanning the metadata store. This corrects any counters that may
 // have diverged due to missed updates, restarts, or other unexpected conditions.
 func (s *Server) startStatsReconciler(ctx context.Context, interval time.Duration) {
 	// Initial delay so the server is fully ready before the first run.

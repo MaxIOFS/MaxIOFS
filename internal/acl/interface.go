@@ -27,7 +27,7 @@ type Manager interface {
 }
 
 // NewManager creates a new ACL manager backed by any RawKVStore.
-// Both PebbleStore and BadgerStore satisfy this interface.
+// PebbleStore satisfies this interface.
 func NewManager(store metadata.RawKVStore) Manager {
 	return &aclManager{kvStore: store}
 }

@@ -59,7 +59,7 @@ func TestDeleteBucket_WithObjects(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Put metadata in BadgerDB
+	// Put metadata in the active metadata store.
 	objMeta := &metadata.ObjectMetadata{
 		Bucket:       bucketPath,
 		Key:          objectKey,
@@ -178,7 +178,7 @@ func TestForceDeleteBucket_DeletesAllObjects(t *testing.T) {
 		})
 		require.NoError(t, err, "Should create physical file: "+objectKey)
 
-		// Put metadata in BadgerDB
+		// Put metadata in the active metadata store.
 		objMeta := &metadata.ObjectMetadata{
 			Bucket:       bucketPath,
 			Key:          objectKey,

@@ -3109,7 +3109,7 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 
 	bucketMetrics := make(map[string]interface{})
 
-	// Use cached bucket metrics from BadgerDB (O(1) per bucket instead of O(n) objects)
+	// Use cached bucket metrics from the metadata store (O(1) per bucket instead of O(n) objects)
 	for _, b := range filteredBuckets {
 		// Use the pre-computed ObjectCount and TotalSize from bucket metadata
 		// These are maintained incrementally by UpdateBucketMetrics

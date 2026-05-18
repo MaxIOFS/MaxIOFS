@@ -38,10 +38,10 @@ func setupObjectIntegrationTest(t *testing.T) (Manager, bucket.Manager, func()) 
 		t.Fatalf("Failed to create storage backend: %v", err)
 	}
 
-	// Initialize BadgerDB metadata store
+	// Initialize Pebble metadata store.
 	dbPath := filepath.Join(tempDir, "metadata")
-	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: dbPath,
-		Logger:  logrus.StandardLogger(),})
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{DataDir: dbPath,
+		Logger: logrus.StandardLogger()})
 	if err != nil {
 		os.RemoveAll(tempDir)
 		t.Fatalf("Failed to create metadata store: %v", err)
@@ -686,8 +686,8 @@ func TestObjectManagerPersistence(t *testing.T) {
 			Root: tempDir,
 		})
 		dbPath := filepath.Join(tempDir, "metadata")
-		metadataStore, _ := metadata.NewPebbleStore(metadata.PebbleOptions{			DataDir: dbPath,
-			Logger:  logrus.StandardLogger(),})
+		metadataStore, _ := metadata.NewPebbleStore(metadata.PebbleOptions{DataDir: dbPath,
+			Logger: logrus.StandardLogger()})
 
 		bm := bucket.NewManager(storageBackend, metadataStore)
 		cfg := config.StorageConfig{Backend: "filesystem", Root: tempDir}
@@ -727,7 +727,7 @@ func TestObjectManagerPersistence(t *testing.T) {
 		metadataStore.Close()
 	}
 
-	// Give BadgerDB time to flush
+	// Give the metadata store time to flush.
 	time.Sleep(100 * time.Millisecond)
 
 	// Second session - verify persistence
@@ -736,8 +736,8 @@ func TestObjectManagerPersistence(t *testing.T) {
 			Root: tempDir,
 		})
 		dbPath := filepath.Join(tempDir, "metadata")
-		metadataStore, _ := metadata.NewPebbleStore(metadata.PebbleOptions{			DataDir: dbPath,
-			Logger:  logrus.StandardLogger(),})
+		metadataStore, _ := metadata.NewPebbleStore(metadata.PebbleOptions{DataDir: dbPath,
+			Logger: logrus.StandardLogger()})
 		defer metadataStore.Close()
 
 		cfg := config.StorageConfig{Backend: "filesystem", Root: tempDir}

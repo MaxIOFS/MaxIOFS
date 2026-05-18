@@ -1,7 +1,7 @@
 # MaxIOFS - Development Roadmap
 
 **Version**: 1.4.0
-**Last Updated**: May 3, 2026
+**Last Updated**: May 18, 2026
 **Status**: Stable
 
 > Completed work is in [CHANGELOG.md](CHANGELOG.md). This file tracks only pending work.
@@ -303,19 +303,20 @@ The i18n system uses `react-i18next` with 20 namespaces. Currently supports Engl
 
 ---
 
-### 🗑️ Technical Debt — BadgerDB Removal
+### Technical Debt — legacy metadata backend removal
 
 #### D1. Delete BadgerDB files from `internal/metadata/`
-- Delete: `badger.go`, `badger_objects.go`, `badger_rawkv.go`, `badger_multipart.go`, `badger_test.go`, `badger_comprehensive_test.go`
-- Edit `store_consistency_test.go`: remove the BadgerStore variant from the `setupStoreVariants` loop.
-- Edit `pebble_test.go`: remove `TestMigrateFromBadger`, `TestMigrateIdempotent`, and the `badger "github.com/dgraph-io/badger/v4"` import.
-- Edit `server.go`: remove the call to `MigrateFromBadgerIfNeeded` and the stale BadgerDB comment at line ~661.
-- Note: **do NOT touch** `internal/metrics/badger_history.go` — it does not import BadgerDB; it uses `metadata.RawKVStore` (Pebble).
-- [ ] Open
+- Delete: `badger.go`, `badger_objects.go`, `badger_rawkv.go`, `badger_multipart.go`, `badger_test.go`, `badger_comprehensive_test.go`, `migration.go`, `migration_recovery_test.go`
+- Created `internal/metadata/keys.go` with all shared key-builder functions, `ErrNotFound`, `extractObjectKeyFromKey`, `matchesFilter`, `matchesTags`, `hasPrefix` — moved into a neutral shared file so Pebble code continues to compile without the removed legacy backend.
+- Edit `store_consistency_test.go`: removed the BadgerStore variant from the `setupStoreVariants` loop.
+- Edit `pebble_test.go`: removed legacy backend migration tests and the removed backend import.
+- Edit `server.go`: removed the call to `MigrateFromBadgerIfNeeded`.
+- Note: `internal/metrics/badger_history.go` still has a legacy filename/type name, but it does not import the removed backend; it uses `metadata.RawKVStore` backed by Pebble.
+- [x] Done
 
 #### D2. Remove `github.com/dgraph-io/badger/v4` from `go.mod`
-- After D1, run `go mod tidy` to drop the direct dependency and its transitives (ristretto, etc.).
-- [ ] Open
+- Ran `go mod tidy` — `github.com/dgraph-io/badger/v4` and its transitive dependencies (ristretto, etc.) are no longer present in `go.mod` or `go.sum`.
+- [x] Done
 
 ---
 

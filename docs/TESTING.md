@@ -210,16 +210,13 @@ npx vitest run --coverage
 | `store_test.go` | Log target persistence |
 | `syslog_test.go` | Syslog target output |
 
-### `internal/metadata/` — 10 test files
+### `internal/metadata/` — 7 test files
 
 | File | Description |
 |------|-------------|
-| `badger_comprehensive_test.go` | BadgerDB operations (kept for migration testing) |
-| `badger_test.go` | BadgerDB core CRUD (kept for migration testing) |
-| `migration_recovery_test.go` | Migration recovery and backup handling |
 | `multipart_comprehensive_test.go` | Multipart upload metadata tracking |
 | `objects_test.go` | Object metadata storage and retrieval |
-| `pebble_test.go` | Pebble store: object CRUD, migration from BadgerDB |
+| `pebble_test.go` | Pebble store: object CRUD and bucket deletion race coverage |
 | `search_objects_test.go` | Object search by prefix, delimiter, pagination |
 | `store_consistency_test.go` | Metadata consistency and counter reconciliation |
 | `tags_comprehensive_test.go` | Object and bucket tag operations |
@@ -584,7 +581,7 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Cluster | 28 | Sync, replication, routing, HA, migration, health |
 | Object | 19 | CRUD, versioning, locking, retention, multipart |
 | Auth | 11 | Users, keys, JWT, S3 sig, TOTP, rate limiting |
-| Metadata | 10 | Pebble store, BadgerDB migration, search, tags, versioning, multipart |
+| Metadata | 7 | Pebble store, search, tags, versioning, multipart |
 | Metrics | 6 | Prometheus, history, system, performance |
 | Server | 7 | Routes, console API, IDP endpoints, search |
 | IDP | 5 | LDAP, OAuth, crypto, storage |

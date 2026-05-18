@@ -34,10 +34,10 @@ func setupIntegrationTest(t *testing.T) (Manager, func()) {
 		t.Fatalf("Failed to create storage backend: %v", err)
 	}
 
-	// Initialize BadgerDB metadata store
+	// Initialize Pebble metadata store.
 	dbPath := filepath.Join(tempDir, "metadata")
-	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: dbPath,
-		Logger:  logrus.StandardLogger(),})
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{DataDir: dbPath,
+		Logger: logrus.StandardLogger()})
 	if err != nil {
 		os.RemoveAll(tempDir)
 		t.Fatalf("Failed to create metadata store: %v", err)
@@ -425,7 +425,7 @@ func TestBucketManagerConcurrency(t *testing.T) {
 	close(errors)
 	errorCount := 0
 	for err := range errors {
-		// BadgerDB transaction conflicts are expected under high concurrency
+		// Concurrent metadata updates may conflict under high concurrency.
 		// In production, these would be retried by the application
 		if strings.Contains(err.Error(), "Transaction Conflict") {
 			errorCount++
@@ -466,8 +466,8 @@ func TestBucketManagerPersistence(t *testing.T) {
 	{
 		storageBackend, _ := storage.NewFilesystemBackend(storage.Config{Root: tempDir})
 		dbPath := filepath.Join(tempDir, "metadata")
-		metadataStore, _ := metadata.NewPebbleStore(metadata.PebbleOptions{			DataDir: dbPath,
-			Logger:  logrus.StandardLogger(),})
+		metadataStore, _ := metadata.NewPebbleStore(metadata.PebbleOptions{DataDir: dbPath,
+			Logger: logrus.StandardLogger()})
 
 		bm := NewManager(storageBackend, metadataStore)
 
@@ -492,15 +492,15 @@ func TestBucketManagerPersistence(t *testing.T) {
 		metadataStore.Close()
 	}
 
-	// Give BadgerDB time to flush
+	// Give the metadata store time to flush.
 	time.Sleep(100 * time.Millisecond)
 
 	// Second session - verify persistence
 	{
 		storageBackend, _ := storage.NewFilesystemBackend(storage.Config{Root: tempDir})
 		dbPath := filepath.Join(tempDir, "metadata")
-		metadataStore, _ := metadata.NewPebbleStore(metadata.PebbleOptions{			DataDir: dbPath,
-			Logger:  logrus.StandardLogger(),})
+		metadataStore, _ := metadata.NewPebbleStore(metadata.PebbleOptions{DataDir: dbPath,
+			Logger: logrus.StandardLogger()})
 		defer metadataStore.Close()
 
 		bm := NewManager(storageBackend, metadataStore)

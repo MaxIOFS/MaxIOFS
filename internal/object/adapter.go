@@ -209,7 +209,7 @@ func toMetadataMultipartUpload(mu *MultipartUpload) *metadata.MultipartUploadMet
 		Metadata:     mu.Metadata,
 	}
 
-	// Note: Parts are stored separately in BadgerDB, not in the upload metadata
+	// Note: parts are stored separately in the metadata store, not in the upload metadata.
 	return metaMU
 }
 

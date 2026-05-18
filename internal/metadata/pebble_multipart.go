@@ -16,7 +16,7 @@ import (
 // Pebble does not support per-key TTL natively. Expiry of stale uploads is
 // handled by runMultipartCleanup, a goroutine that scans the multipart index
 // hourly and removes entries older than 7 days — matching the behaviour
-// BadgerDB provided via its WithTTL entry option.
+// Older metadata engines provided this at the entry level.
 
 // CreateMultipartUpload initiates a new multipart upload.
 func (s *PebbleStore) CreateMultipartUpload(ctx context.Context, upload *MultipartUploadMetadata) error {
@@ -362,7 +362,7 @@ func (s *PebbleStore) ListParts(ctx context.Context, uploadID string) ([]*PartMe
 // ==================== TTL Cleanup Goroutine ====================
 
 // runMultipartCleanup removes stale multipart uploads (> 7 days old) every hour.
-// This replaces the BadgerDB per-entry TTL that Pebble does not support natively.
+// This provides multipart expiry for Pebble, which does not support per-entry TTL.
 func (s *PebbleStore) runMultipartCleanup() {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()

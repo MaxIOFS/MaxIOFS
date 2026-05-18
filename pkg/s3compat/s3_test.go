@@ -110,7 +110,7 @@ func setupCompleteS3Environment(t *testing.T) *s3TestEnv {
 	})
 	require.NoError(t, err, "Failed to create storage backend")
 
-	// Initialize BadgerDB metadata store
+	// Initialize Pebble metadata store.
 	dbPath := filepath.Join(tempDir, "metadata")
 	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{DataDir: dbPath,
 		Logger: logrus.StandardLogger()})

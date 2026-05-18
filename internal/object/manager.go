@@ -316,7 +316,7 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 		return nil, nil, err
 	}
 
-	// Load object metadata from BadgerDB first to determine if versioning is enabled
+	// Load object metadata first to determine if versioning is enabled.
 	var metaObj *metadata.ObjectMetadata
 	var requestedVersionID string
 	var err error
@@ -335,7 +335,7 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 		// Get latest version metadata
 		metaObj, err = om.metadataStore.GetObject(ctx, bucket, key)
 		if err != nil && err != metadata.ErrObjectNotFound {
-			logrus.WithError(err).Debug("Failed to load object metadata from BadgerDB")
+			logrus.WithError(err).Debug("Failed to load object metadata")
 		}
 		// If metadata exists and has VersionID, use it
 		if metaObj != nil && metaObj.VersionID != "" {
@@ -374,7 +374,7 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 			return nil, nil, ErrObjectNotFound
 		}
 	} else {
-		// If metadata doesn't exist in BadgerDB, use storage metadata
+		// If metadata doesn't exist in the metadata store, use storage metadata.
 		// Check if file is encrypted
 		var size int64
 		var etag string
@@ -650,17 +650,17 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		// Store version (this also updates the main object if IsLatest=true)
 		metaObj := toMetadataObject(object)
 		if err := om.metadataStore.PutObjectVersion(ctx, metaObj, version); err != nil {
-			logrus.WithError(err).Warn("Failed to save object version to BadgerDB")
+			logrus.WithError(err).Warn("Failed to save object version metadata")
 		}
 	} else {
 		// No versioning - use regular PutObject
 		metaObj := toMetadataObject(object)
 		if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
-			logrus.WithError(err).Warn("Failed to save object metadata to BadgerDB")
+			logrus.WithError(err).Warn("Failed to save object metadata")
 		}
 	}
 
-	// Create implicit parent folders in BadgerDB
+	// Create implicit parent folders in the metadata store.
 	// This ensures folders are listable even when created implicitly by S3 clients
 	om.ensureImplicitFolders(ctx, bucket, key)
 
@@ -844,7 +844,7 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 		}
 	}
 
-	// Delete version metadata from BadgerDB
+	// Delete version metadata from the metadata store.
 	if err := om.metadataStore.DeleteObjectVersion(ctx, bucket, key, versionID); err != nil {
 		return fmt.Errorf("failed to delete version metadata: %w", err)
 	}
@@ -1448,7 +1448,7 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 		return fmt.Errorf("failed to update storage metadata: %w", err)
 	}
 
-	// Load current object metadata from BadgerDB
+	// Load current object metadata from the metadata store.
 	object, err := om.GetObjectMetadata(ctx, bucket, key)
 	if err != nil {
 		return fmt.Errorf("failed to get object metadata: %w", err)
@@ -1467,7 +1467,7 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 		object.ContentType = contentType
 	}
 
-	// Save updated metadata to BadgerDB
+	// Save updated metadata to the metadata store.
 	metaObj := toMetadataObject(object)
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
@@ -1525,7 +1525,7 @@ func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key str
 	// Update retention
 	obj.Retention = config
 
-	// Save updated metadata to BadgerDB
+	// Save updated metadata to the metadata store.
 	metaObj := toMetadataObject(obj)
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
@@ -1567,7 +1567,7 @@ func (om *objectManager) SetObjectLegalHold(ctx context.Context, bucket, key str
 	// Update legal hold
 	obj.LegalHold = config
 
-	// Save updated metadata to BadgerDB
+	// Save updated metadata to the metadata store.
 	metaObj := toMetadataObject(obj)
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
@@ -1676,7 +1676,7 @@ func (om *objectManager) SetObjectTagging(ctx context.Context, bucket, key strin
 	// Update tags
 	obj.Tags = tags
 
-	// Save updated metadata to BadgerDB
+	// Save updated metadata to the metadata store.
 	metaObj := toMetadataObject(obj)
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
@@ -1690,7 +1690,7 @@ func (om *objectManager) DeleteObjectTagging(ctx context.Context, bucket, key st
 	// Clear tags
 	obj.Tags = &TagSet{Tags: []Tag{}}
 
-	// Save updated metadata to BadgerDB
+	// Save updated metadata to the metadata store.
 	metaObj := toMetadataObject(obj)
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
@@ -1844,7 +1844,7 @@ func (om *objectManager) CreateMultipartUpload(ctx context.Context, bucket, key 
 		Parts:        []Part{},
 	}
 
-	// Save multipart upload metadata to BadgerDB
+	// Save multipart upload metadata to the metadata store.
 	metaMU := toMetadataMultipartUpload(multipart)
 	if err := om.metadataStore.CreateMultipartUpload(ctx, metaMU); err != nil {
 		return nil, fmt.Errorf("failed to save multipart upload: %w", err)
@@ -1895,7 +1895,7 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 		LastModified: time.Unix(lastModified, 0),
 	}
 
-	// Store part metadata in BadgerDB
+	// Store part metadata in the metadata store.
 	if err := om.metadataStore.PutPart(ctx, partMeta); err != nil {
 		_ = om.storage.Delete(ctx, partPath)
 		if err == metadata.ErrUploadNotFound {
@@ -1922,7 +1922,7 @@ func (om *objectManager) ListParts(ctx context.Context, uploadID string) ([]Part
 		return nil, err
 	}
 
-	// List parts from BadgerDB
+	// List parts from the metadata store.
 	metaParts, err := om.metadataStore.ListParts(ctx, uploadID)
 	if err != nil {
 		if err == metadata.ErrUploadNotFound {
@@ -2152,7 +2152,7 @@ func (om *objectManager) AbortMultipartUpload(ctx context.Context, uploadID stri
 }
 
 func (om *objectManager) ListMultipartUploads(ctx context.Context, bucket string) ([]MultipartUpload, error) {
-	// List multipart uploads from BadgerDB (with prefix matching on bucket)
+	// List multipart uploads from the metadata store with prefix matching on bucket.
 	metaUploads, err := om.metadataStore.ListMultipartUploads(ctx, bucket, "", 1000)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list multipart uploads: %w", err)
@@ -2237,14 +2237,14 @@ func (om *objectManager) getVersionedObjectPath(bucket, key, versionID string) s
 }
 
 // Removed: getObjectMetadataPath, saveObjectMetadata, loadObjectMetadata
-// These functions are now replaced with BadgerDB operations via metadataStore
+// These functions are now backed by metadataStore operations.
 
-// loadBucketMetadata loads bucket metadata from BadgerDB to check Object Lock configuration
+// loadBucketMetadata loads bucket metadata to check Object Lock configuration.
 func (om *objectManager) loadBucketMetadata(ctx context.Context, bucketName string) (*metadata.BucketMetadata, error) {
 	// Parse bucket path to extract tenantID and bucket name
 	tenantID, actualBucketName := om.parseBucketPath(bucketName)
 
-	// Get bucket metadata from BadgerDB
+	// Get bucket metadata from the metadata store.
 	bucketMeta, err := om.metadataStore.GetBucket(ctx, tenantID, actualBucketName)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -2303,7 +2303,7 @@ func (om *objectManager) getMultipartPartPath(uploadID string, partNumber int) s
 }
 
 // Removed: getMultipartUploadPath, saveMultipartUpload, loadMultipartUpload, updatePartsList
-// These functions are now replaced with BadgerDB operations via metadataStore
+// These functions are now backed by metadataStore operations.
 
 // combineMultipartParts combines all parts into the final object
 func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID string, parts []Part, finalPath string) error {
@@ -2375,7 +2375,7 @@ func (om *objectManager) abortMultipartUpload(ctx context.Context, uploadID stri
 		return nil
 	}
 
-	// Get parts list from BadgerDB before deleting
+	// Get parts list from the metadata store before deleting.
 	metaParts, err := om.metadataStore.ListParts(ctx, uploadID)
 	if err != nil {
 		if returnError && err != metadata.ErrUploadNotFound {
@@ -2390,7 +2390,7 @@ func (om *objectManager) abortMultipartUpload(ctx context.Context, uploadID stri
 		om.storage.Delete(ctx, partPath) // Ignore errors
 	}
 
-	// Delete multipart upload metadata from BadgerDB
+	// Delete multipart upload metadata from the metadata store.
 	err = om.metadataStore.AbortMultipartUpload(ctx, uploadID)
 	if err != nil && err != metadata.ErrUploadNotFound && returnError {
 		return fmt.Errorf("failed to delete multipart upload metadata: %w", err)
@@ -2399,12 +2399,12 @@ func (om *objectManager) abortMultipartUpload(ctx context.Context, uploadID stri
 	return nil
 }
 
-// ensureImplicitFolders creates folder objects in BadgerDB for all parent directories
+// ensureImplicitFolders creates folder objects in the metadata store for all parent directories.
 // of the given key. This is necessary because S3 clients often upload files to nested
 // paths without explicitly creating parent folders first.
 // For example, uploading "folder1/folder2/file.txt" should create:
-// - "folder1/" (folder object in BadgerDB)
-// - "folder1/folder2/" (folder object in BadgerDB)
+// - "folder1/" (folder object in metadata)
+// - "folder1/folder2/" (folder object in metadata)
 // - "folder1/folder2/file.txt" (actual file object)
 func (om *objectManager) ensureImplicitFolders(ctx context.Context, bucket, key string) {
 	// Skip if key ends with / (it's already a folder)
@@ -2437,7 +2437,7 @@ func (om *objectManager) ensureImplicitFolders(ctx context.Context, bucket, key 
 		currentPath += parts[i]
 		folderKey := currentPath + "/"
 
-		// Check if folder object already exists in BadgerDB
+		// Check if folder object already exists in the metadata store.
 		_, err := om.metadataStore.GetObject(ctx, bucket, folderKey)
 		if err == nil {
 			// Folder already exists, skip
@@ -2445,7 +2445,7 @@ func (om *objectManager) ensureImplicitFolders(ctx context.Context, bucket, key 
 			continue
 		}
 
-		// Create folder object in BadgerDB
+		// Create folder object in the metadata store.
 		now := time.Now()
 		folderMetadata := make(map[string]string)
 		folderMetadata["x-maxiofs-implicit-folder"] = "true" // Mark as implicit
@@ -2465,12 +2465,12 @@ func (om *objectManager) ensureImplicitFolders(ctx context.Context, bucket, key 
 			logrus.WithError(err).WithFields(logrus.Fields{
 				"bucket":     bucket,
 				"folder_key": folderKey,
-			}).Debug("Failed to create implicit folder object in BadgerDB")
+			}).Debug("Failed to create implicit folder object in metadata store")
 		} else {
 			logrus.WithFields(logrus.Fields{
 				"bucket":     bucket,
 				"folder_key": folderKey,
-			}).Debug("Created implicit folder object in BadgerDB")
+			}).Debug("Created implicit folder object in metadata store")
 		}
 	}
 }

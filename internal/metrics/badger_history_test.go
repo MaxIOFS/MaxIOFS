@@ -146,7 +146,7 @@ func TestBadgerHistoryStore_GetLatestSnapshot_UpdatesWithNewData(t *testing.T) {
 	err = store.SaveSnapshot("test", data1)
 	require.NoError(t, err)
 
-	time.Sleep(1100 * time.Millisecond) // BadgerDB uses Unix seconds as key
+	time.Sleep(1100 * time.Millisecond) // Snapshot keys use Unix seconds.
 
 	// Save second snapshot (should become latest)
 	data2 := map[string]interface{}{"value": 20.0}
@@ -248,7 +248,7 @@ func TestBadgerHistoryStore_GetStats(t *testing.T) {
 		err = store.SaveSnapshot("system", data)
 		require.NoError(t, err)
 		if i < 2 {
-			time.Sleep(1100 * time.Millisecond) // BadgerDB uses Unix seconds as key
+			time.Sleep(1100 * time.Millisecond) // Snapshot keys use Unix seconds.
 		}
 	}
 
@@ -300,7 +300,7 @@ func TestBadgerHistoryStore_GetSnapshotsIntelligent(t *testing.T) {
 		data := map[string]interface{}{"value": float64(i * 10)}
 		err = store.SaveSnapshot("system", data)
 		require.NoError(t, err)
-		time.Sleep(1100 * time.Millisecond) // BadgerDB uses Unix seconds as key
+		time.Sleep(1100 * time.Millisecond) // Snapshot keys use Unix seconds.
 	}
 
 	// Get snapshots intelligently (recent data, should use raw snapshots)
@@ -332,7 +332,7 @@ func TestBadgerHistoryStore_Close(t *testing.T) {
 	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
-	// Close should not error (it's a no-op for BadgerDB)
+	// Close should not error; this store does not own the underlying Pebble instance.
 	err = store.Close()
 	assert.NoError(t, err)
 
@@ -400,7 +400,7 @@ func TestBadgerHistoryStore_ConcurrentWrites(t *testing.T) {
 	store, err := NewBadgerHistoryStore(pebbleStore, 7)
 	require.NoError(t, err)
 
-	// Write snapshots with delay (BadgerDB keys use Unix seconds, concurrent writes overwrite)
+	// Write snapshots with delay because keys use Unix seconds and same-second writes overwrite.
 	for i := 0; i < 5; i++ {
 		data := map[string]interface{}{
 			"worker": i,
@@ -454,7 +454,7 @@ func TestBadgerHistoryStore_LargeDataset(t *testing.T) {
 	require.NoError(t, err)
 
 	// Save 10 snapshots with delays (reduced from 50 to keep test time reasonable)
-	// BadgerDB uses Unix seconds as key, so we need >1 second between snapshots
+	// Snapshot keys use Unix seconds, so we need >1 second between snapshots.
 	for i := 0; i < 10; i++ {
 		data := map[string]interface{}{
 			"iteration": i,
@@ -535,7 +535,7 @@ func TestBadgerHistoryStore_TimestampOrdering(t *testing.T) {
 		err = store.SaveSnapshot("ordered", data)
 		require.NoError(t, err)
 		timestamps = append(timestamps, time.Now())
-		time.Sleep(1100 * time.Millisecond) // BadgerDB uses Unix seconds as key
+		time.Sleep(1100 * time.Millisecond) // Snapshot keys use Unix seconds.
 	}
 
 	// Get snapshots

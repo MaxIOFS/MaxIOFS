@@ -84,7 +84,7 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 		Encryption: nil, // Will be set by server config, not per-bucket
 	}
 
-	// Store in BadgerDB
+	// Store bucket metadata in the active metadata store.
 	metaBucket := toMetadataBucket(bucket)
 
 	if err := bm.metadataStore.CreateBucket(ctx, metaBucket); err != nil {
@@ -166,7 +166,7 @@ func (bm *badgerBucketManager) UpdateBucket(ctx context.Context, tenantID, name 
 		return fmt.Errorf("tenant ID mismatch")
 	}
 
-	// Update in BadgerDB
+	// Update bucket metadata in the active metadata store.
 	metaBucket := toMetadataBucket(bucket)
 	if err := bm.metadataStore.UpdateBucket(ctx, metaBucket); err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -267,7 +267,7 @@ func (bm *badgerBucketManager) ForceDeleteBucket(ctx context.Context, tenantID, 
 			continue
 		}
 
-		// Delete object metadata from BadgerDB
+		// Delete object metadata from the active metadata store.
 		if err := bm.metadataStore.DeleteObject(ctx, bucketPath, objectKey); err != nil {
 			if err != metadata.ErrObjectNotFound {
 				logrus.WithError(err).WithFields(logrus.Fields{
@@ -297,7 +297,7 @@ func (bm *badgerBucketManager) ForceDeleteBucket(ctx context.Context, tenantID, 
 	}).Info("Deleted all objects from bucket")
 
 	// Now delete the bucket itself using the standard method (which will succeed since it's now empty)
-	// Delete from BadgerDB
+	// Delete bucket metadata from the active metadata store.
 	if err := bm.metadataStore.DeleteBucket(ctx, tenantID, name); err != nil {
 		if err == metadata.ErrBucketNotFound {
 			return ErrBucketNotFound
@@ -344,7 +344,7 @@ func (bm *badgerBucketManager) ForceDeleteBucket(ctx context.Context, tenantID, 
 
 // ListBuckets lists all buckets for a tenant
 func (bm *badgerBucketManager) ListBuckets(ctx context.Context, tenantID string) ([]Bucket, error) {
-	// Get from BadgerDB
+	// Get bucket metadata from the active metadata store.
 	metaBuckets, err := bm.metadataStore.ListBuckets(ctx, tenantID)
 	if err != nil {
 		return nil, err

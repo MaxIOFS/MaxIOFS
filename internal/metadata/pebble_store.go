@@ -17,7 +17,7 @@ import (
 )
 
 // PebbleStore implements the Store interface using Pebble (CockroachDB's LSM engine).
-// Unlike BadgerDB, Pebble's WAL survives crashes without corrupting the MANIFEST.
+// Pebble's WAL is used for crash-safe metadata persistence.
 type PebbleStore struct {
 	db               *pebble.DB
 	ready            atomic.Bool
@@ -93,7 +93,7 @@ func NewPebbleStore(opts PebbleOptions) (*PebbleStore, error) {
 	}
 	store.ready.Store(true)
 
-	// Start TTL cleanup goroutine for multipart uploads (replaces BadgerDB TTL)
+	// Start TTL cleanup goroutine for multipart uploads.
 	go store.runMultipartCleanup()
 
 	opts.Logger.WithField("path", dbPath).Info("Pebble metadata store initialized")
@@ -566,8 +566,7 @@ func (s *PebbleStore) Backup(ctx context.Context, path string) error {
 }
 
 // ==================== Raw Key-Value Operations ====================
-// These match BadgerStore.GetRaw/PutRaw/DeleteRaw for compatibility with any
-// code that needs direct key-value access (e.g. cluster sync using the badger store).
+// These methods provide direct key-value access for subsystems such as cluster sync.
 
 var ErrPebbleNotFound = ErrNotFound // alias so callers need not change
 

@@ -196,7 +196,7 @@ func NewManagerWithDataDir(cfg config.MetricsConfig, dataDir string) Manager {
 	return NewManagerWithStore(cfg, dataDir, nil)
 }
 
-// NewManagerWithStore creates a new metrics manager with BadgerDB backing
+// NewManagerWithStore creates a new metrics manager with metadata-store backing.
 func NewManagerWithStore(cfg config.MetricsConfig, dataDir string, metadataStore interface{}) Manager {
 	// Convert config.MetricsConfig to our internal MetricsConfig
 	metricsConfig := MetricsConfig{
@@ -231,7 +231,7 @@ func NewManagerWithStore(cfg config.MetricsConfig, dataDir string, metadataStore
 		dataDir:           dataDir,
 	}
 
-	// Initialize BadgerDB history store if metadata store is provided
+	// Initialize metadata-backed history store if metadata store is provided.
 	logrus.WithFields(logrus.Fields{
 		"metadataStore_nil":  metadataStore == nil,
 		"metadataStore_type": fmt.Sprintf("%T", metadataStore),
@@ -239,15 +239,15 @@ func NewManagerWithStore(cfg config.MetricsConfig, dataDir string, metadataStore
 	}).Info("Initializing metrics history store")
 
 	if metadataStore != nil {
-		// Use BadgerDB history store - cast to metadata.Store
+		// Use RawKV-backed history store through the metadata store.
 		badgerHistory, err := NewBadgerHistoryStore(metadataStore, 365)
 		if err != nil {
-			logrus.WithError(err).Warn("Failed to initialize BadgerDB metrics history store")
+			logrus.WithError(err).Warn("Failed to initialize metadata-backed metrics history store")
 		} else {
 			manager.historyStore = badgerHistory
-			logrus.Info("Metrics history store using BadgerDB")
+			logrus.Info("Metrics history store using metadata RawKV backend")
 
-			// Restore persisted counters from BadgerDB
+			// Restore persisted counters from the metadata store.
 			if err := manager.restorePersistedCounters(); err != nil {
 				logrus.WithError(err).Warn("Failed to restore persisted counters, starting fresh")
 			}
@@ -259,7 +259,7 @@ func NewManagerWithStore(cfg config.MetricsConfig, dataDir string, metadataStore
 			logrus.WithError(err).Warn("Failed to initialize SQLite metrics history store")
 		} else {
 			manager.historyStore = historyStore
-			logrus.Warn("Metrics history store using SQLite (deprecated, switch to BadgerDB)")
+			logrus.Warn("Metrics history store using SQLite (deprecated, switch to metadata RawKV backend)")
 		}
 	}
 

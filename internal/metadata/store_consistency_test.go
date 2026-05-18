@@ -28,18 +28,6 @@ func setupStoreVariants(t *testing.T) map[string]Store {
 	t.Cleanup(func() { _ = pebbleStore.Close() })
 	stores["pebble"] = pebbleStore
 
-	badgerDir, err := os.MkdirTemp("", "metadata-badger-consistency-*")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(badgerDir) })
-
-	badgerStore, err := NewBadgerStore(BadgerOptions{
-		DataDir: badgerDir,
-		Logger:  logrus.New(),
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = badgerStore.Close() })
-	stores["badger"] = badgerStore
-
 	return stores
 }
 

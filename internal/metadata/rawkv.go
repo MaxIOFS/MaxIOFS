@@ -3,12 +3,11 @@ package metadata
 import "context"
 
 // RawKVStore provides low-level key-value access to the underlying storage engine.
-// It is implemented by both BadgerStore and PebbleStore, allowing higher-level
-// subsystems (metrics, notifications) to operate independently of which engine
-// is in use.
+// It is implemented by PebbleStore, allowing higher-level subsystems (metrics,
+// notifications) to avoid depending on the concrete metadata engine.
 //
-// Method names intentionally match the pre-existing BadgerStore methods so that
-// no rename is needed in that implementation.
+// Method names preserve the historical RawKV API shape even though BadgerDB is
+// no longer part of the codebase.
 type RawKVStore interface {
 	// GetRaw retrieves a value by exact key. Returns ErrNotFound if absent.
 	GetRaw(ctx context.Context, key string) ([]byte, error)

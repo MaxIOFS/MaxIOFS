@@ -91,7 +91,7 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 		"object_count": len(deleteRequest.Objects),
 	}).Debug("Batch delete request received")
 
-	// Process deletions sequentially to avoid BadgerDB transaction conflicts
+	// Process deletions sequentially to avoid concurrent metadata update conflicts.
 	// This is more reliable than parallel processing with retries, especially under high load
 	result := DeleteObjectsResult{
 		Deleted: []DeletedObject{},

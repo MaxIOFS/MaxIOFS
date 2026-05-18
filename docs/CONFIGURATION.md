@@ -304,15 +304,15 @@ These internal settings are fixed at compile time and cannot be changed via conf
 
 ### Upgrade path for existing deployments
 
-Starting from **v1.2.0**, the metadata engine uses **Pebble v2** (upgraded from Pebble v1 in this release — incompatible on-disk formats). The server handles migration automatically:
+Starting from **v1.2.0**, the metadata engine uses **Pebble v2** (upgraded from Pebble v1 in that release; the on-disk formats are incompatible). Current releases keep the Pebble v1 -> Pebble v2 upgrade path, but the old BadgerDB backend and its direct migration code have been removed.
 
 | Previous version | On-disk format | What happens on first start |
 |-----------------|---------------|-----------------------------|
-| Pre-v1.0.0-beta | BadgerDB | All data migrated to Pebble v2. Original data backed up as `metadata_badger_backup_{timestamp}/`. |
-| v1.0.0-beta | Pebble v1 | All data migrated to Pebble v2. Original data backed up as `metadata_pebblev1_backup_{timestamp}/`. |
+| Pre-v1.0.0-beta | BadgerDB | Direct upgrade is no longer supported. Upgrade first through a release that still contains the BadgerDB -> Pebble migration, then upgrade to the current release. |
+| v1.0.0-beta | Pebble v1 | Data is migrated to Pebble v2. Original data is backed up as `metadata_pebblev1_backup_{timestamp}/`. |
 | v1.2.0+ | Pebble v2 | No migration needed. Sentinel file `metadata/PEBBLE_FORMAT_V2` skips the check immediately. |
 
-Migration is **automatic and transparent** — no manual steps required. The backup directories can be deleted after you verify the server is working correctly on the new version.
+Pebble v1 -> Pebble v2 migration is **automatic and transparent** — no manual steps required. The backup directories can be deleted after you verify the server is working correctly on the new version.
 
 > **Important**: Migration runs before the server opens the store. If the server is killed mid-migration, the next start detects the incomplete state and either retries or recovers automatically.
 
