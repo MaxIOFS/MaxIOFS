@@ -279,8 +279,13 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 	}
 
 	now := time.Now()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for cluster global config defaults: %w", err)
+	}
+	defer tx.Rollback()
 	for key, config := range defaults {
-		_, err := db.ExecContext(ctx, `
+		_, err := tx.ExecContext(ctx, `
 			INSERT INTO cluster_global_config (key, value, description, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT(key) DO NOTHING
@@ -290,7 +295,7 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 func createClusterIDPProviderSyncTable(ctx context.Context, db *sql.DB) error {

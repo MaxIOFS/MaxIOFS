@@ -460,15 +460,24 @@ func (m *Manager) insertDefaults() error {
 
 	now := time.Now().Unix()
 
+	tx, err := m.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for default settings: %w", err)
+	}
+	defer tx.Rollback()
+
 	for _, setting := range defaults {
-		query := `
+		_, err := tx.Exec(`
 		INSERT OR IGNORE INTO system_settings (key, value, type, category, description, editable, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`
-		_, err := m.db.Exec(query, setting.Key, setting.Value, setting.Type, setting.Category, setting.Description, setting.Editable, now, now)
+		`, setting.Key, setting.Value, setting.Type, setting.Category, setting.Description, setting.Editable, now, now)
 		if err != nil {
 			return fmt.Errorf("failed to insert default setting %s: %w", setting.Key, err)
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit default settings: %w", err)
 	}
 
 	m.logger.Info("System settings initialized with defaults")
@@ -776,10 +785,15 @@ func (m *Manager) removeDeprecated() error {
 		"storage.compression_level",
 		"email.use_tls", // replaced by email.tls_mode
 	}
+	tx, err := m.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
 	for _, key := range deprecated {
-		if _, err := m.db.Exec(`DELETE FROM system_settings WHERE key = ?`, key); err != nil {
+		if _, err := tx.Exec(`DELETE FROM system_settings WHERE key = ?`, key); err != nil {
 			return fmt.Errorf("failed to remove deprecated setting %s: %w", key, err)
 		}
 	}
-	return nil
+	return tx.Commit()
 }
