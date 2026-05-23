@@ -16,6 +16,7 @@ type RateLimitAttempt struct {
 type LoginRateLimiter struct {
 	attempts map[string]*RateLimitAttempt
 	mu       sync.RWMutex
+	stopCh   chan struct{}
 
 	// Configuration
 	maxAttempts   int
@@ -30,9 +31,10 @@ func NewLoginRateLimiter(maxAttempts, windowSeconds int) *LoginRateLimiter {
 		attempts:      make(map[string]*RateLimitAttempt),
 		maxAttempts:   maxAttempts,
 		windowSeconds: windowSeconds,
+		stopCh:        make(chan struct{}),
 	}
 
-	// Start cleanup goroutine to remove old entries
+	// BUG-01: goroutine is now stoppable via Stop()
 	go limiter.cleanupLoop()
 
 	return limiter
@@ -118,6 +120,37 @@ func (l *LoginRateLimiter) ResetIP(ip string) {
 	delete(l.attempts, ip)
 }
 
+// CheckAndRecord atomically checks whether a login attempt from ip is allowed
+// AND records it in the same write-lock acquisition, eliminating the TOCTOU
+// window that exists when AllowLogin and RecordFailedAttempt are called separately.
+// Returns true if the attempt is allowed (counter incremented), false if blocked.
+func (l *LoginRateLimiter) CheckAndRecord(ip string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := time.Now()
+	attempt, exists := l.attempts[ip]
+
+	if !exists || now.Sub(attempt.FirstTry) > time.Duration(l.windowSeconds)*time.Second {
+		// No prior attempts or window expired — allow and record as first attempt.
+		l.attempts[ip] = &RateLimitAttempt{
+			Count:    1,
+			FirstTry: now,
+			LastTry:  now,
+		}
+		return true
+	}
+
+	// Within the window — check limit before incrementing.
+	if attempt.Count >= l.maxAttempts {
+		return false
+	}
+
+	attempt.Count++
+	attempt.LastTry = now
+	return true
+}
+
 // GetAttempts returns the current attempt count for an IP
 func (l *LoginRateLimiter) GetAttempts(ip string) int {
 	l.mu.RLock()
@@ -136,14 +169,25 @@ func (l *LoginRateLimiter) GetAttempts(ip string) int {
 	return attempt.Count
 }
 
-// cleanupLoop periodically removes expired entries
+// cleanupLoop periodically removes expired entries until Stop() is called.
 func (l *LoginRateLimiter) cleanupLoop() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		l.cleanup()
+	for {
+		select {
+		case <-ticker.C:
+			l.cleanup()
+		case <-l.stopCh:
+			return
+		}
 	}
+}
+
+// Stop signals the background cleanup goroutine to exit. Call this when
+// the limiter is no longer needed (e.g., during server shutdown).
+func (l *LoginRateLimiter) Stop() {
+	close(l.stopCh)
 }
 
 // cleanup removes expired entries from the map

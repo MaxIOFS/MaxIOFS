@@ -399,7 +399,10 @@ func (s *SQLiteStore) DecrementTenantBucketCount(tenantID string) error {
 	return tx.Commit()
 }
 
-// IncrementTenantStorage increments the current storage usage for a tenant
+// IncrementTenantStorage atomically increments the current storage usage for a tenant.
+// RACE-01: The UPDATE enforces the quota in a single statement so concurrent calls
+// cannot both pass the check before either one commits the increment.
+// If the increment would exceed max_storage_bytes, ErrStorageQuotaExceeded is returned.
 func (s *SQLiteStore) IncrementTenantStorage(tenantID string, bytes int64) error {
 	if bytes <= 0 {
 		return nil
@@ -411,14 +414,35 @@ func (s *SQLiteStore) IncrementTenantStorage(tenantID string, bytes int64) error
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`
+	// Atomic increment with quota enforcement:
+	// Only update if max_storage_bytes is 0 (unlimited) OR the new total <= max.
+	res, err := tx.Exec(`
 		UPDATE tenants
 		SET current_storage_bytes = current_storage_bytes + ?, updated_at = ?
 		WHERE id = ?
-	`, bytes, time.Now().Unix(), tenantID)
+		AND (max_storage_bytes = 0 OR current_storage_bytes + ? <= max_storage_bytes)
+	`, bytes, time.Now().Unix(), tenantID, bytes)
 
 	if err != nil {
 		return fmt.Errorf("failed to increment storage: %w", err)
+	}
+
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		// Either the tenant doesn't exist or the quota would be exceeded.
+		// Distinguish the two cases so we can return the right error.
+		var maxStorage int64
+		qErr := tx.QueryRow(`SELECT max_storage_bytes FROM tenants WHERE id = ?`, tenantID).
+			Scan(&maxStorage)
+		if qErr != nil {
+			// Tenant not found — nothing to update, treat as no-op.
+			return nil
+		}
+		if maxStorage == 0 {
+			// Unlimited quota but still 0 rows — tenant must have been deleted concurrently.
+			return nil
+		}
+		return ErrStorageQuotaExceeded
 	}
 
 	return tx.Commit()

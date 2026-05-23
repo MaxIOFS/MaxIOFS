@@ -91,7 +91,7 @@ func (h *HAObjectManager) PutObject(ctx context.Context, bucket, key string, dat
 	if isHAReplica(ctx) || isHARollback(ctx) {
 		return obj, nil
 	}
-	if err := h.fanoutPut(ctx, bucket, key); err != nil {
+	if err := h.fanoutPut(ctx, bucket, key, obj.VersionID); err != nil {
 		h.rollbackLocalPut(ctx, bucket, key, "PutObject")
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func (h *HAObjectManager) CompleteMultipartUpload(ctx context.Context, uploadID 
 	if isHAReplica(ctx) || isHARollback(ctx) {
 		return obj, nil
 	}
-	if err := h.fanoutPut(ctx, obj.Bucket, obj.Key); err != nil {
+	if err := h.fanoutPut(ctx, obj.Bucket, obj.Key, obj.VersionID); err != nil {
 		h.rollbackLocalPut(ctx, obj.Bucket, obj.Key, "CompleteMultipartUpload")
 		return nil, err
 	}
@@ -215,10 +215,14 @@ func (h *HAObjectManager) replicaTargets(ctx context.Context) ([]*Node, int, boo
 }
 
 // fanoutPut synchronously replicates the just-written object to replica nodes.
+// versionID must be the ID of the version that was just written locally so the
+// re-read is pinned to that exact version — avoiding RACE-04 where a concurrent
+// PutObject between the local write and the re-read causes the wrong (newer)
+// version to be replicated.
 // Returns ErrClusterDegraded when fewer than `needed` replicas confirm.
 // Returns nil when replication is inactive (factor=1, cluster disabled, or
 // factor=2 which needs zero replica confirmations).
-func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key string) error {
+func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID string) error {
 	targets, needed, ok := h.replicaTargets(ctx)
 	if !ok {
 		return nil
@@ -229,7 +233,17 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key string) err
 
 	for _, node := range targets {
 		go func(n *Node) {
-			obj, reader, readErr := h.Manager.GetObject(ctx, bucket, key)
+			// RACE-04: pin the re-read to the version that was just written.
+			// Without versionID, a concurrent PutObject could have created a newer
+			// version by now, and we would replicate the wrong data.
+			var obj *object.Object
+			var reader io.ReadCloser
+			var readErr error
+			if versionID != "" {
+				obj, reader, readErr = h.Manager.GetObject(ctx, bucket, key, versionID)
+			} else {
+				obj, reader, readErr = h.Manager.GetObject(ctx, bucket, key)
+			}
 			if readErr != nil {
 				ch <- fanoutResult{n.ID, fmt.Errorf("re-read for fanout: %w", readErr)}
 				return

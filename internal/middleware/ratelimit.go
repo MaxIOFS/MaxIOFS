@@ -50,15 +50,17 @@ type TokenBucket struct {
 type InMemoryRateLimitStore struct {
 	buckets map[string]*TokenBucket
 	mu      sync.RWMutex
+	stopCh  chan struct{}
 }
 
 // NewInMemoryRateLimitStore creates a new in-memory rate limit store
 func NewInMemoryRateLimitStore() *InMemoryRateLimitStore {
 	store := &InMemoryRateLimitStore{
 		buckets: make(map[string]*TokenBucket),
+		stopCh:  make(chan struct{}),
 	}
 
-	// Start cleanup routine
+	// BUG-01: goroutine is now stoppable via Stop()
 	go store.cleanupRoutine()
 
 	return store
@@ -110,14 +112,24 @@ func (s *InMemoryRateLimitStore) Cleanup() error {
 	return nil
 }
 
-// cleanupRoutine runs periodic cleanup
+// cleanupRoutine runs periodic cleanup until Stop() is called.
 func (s *InMemoryRateLimitStore) cleanupRoutine() {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		s.Cleanup()
+	for {
+		select {
+		case <-ticker.C:
+			s.Cleanup()
+		case <-s.stopCh:
+			return
+		}
 	}
+}
+
+// Stop signals the background cleanup goroutine to exit.
+func (s *InMemoryRateLimitStore) Stop() {
+	close(s.stopCh)
 }
 
 // allow checks if a token is available and consumes it

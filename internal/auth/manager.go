@@ -2,10 +2,13 @@ package auth
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
@@ -22,6 +25,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 // Manager defines the interface for authentication and authorization
@@ -285,15 +289,23 @@ func NewManager(cfg config.AuthConfig, dataDir string) Manager {
 	// Resolve JWT secret: explicit config > persisted DB value > auto-generated (save to DB)
 	manager.resolveJWTSecret()
 
+	// SEC-03: Warn that RBAC is in stub mode.
+	logrus.Warn("⚠️  SEC-03: RBAC permission system is in stub mode — only 'admin' role enforced. Fine-grained permissions are not active.")
+
 	// Create default admin user if not exists (without access keys)
 	_, err = store.GetUserByUsername("admin")
 	if err != nil {
-		// Admin doesn't exist, create it
+		// SEC-08: Generate a random initial password instead of the hardcoded "admin".
+		initialPassword, pwErr := generateRandomPassword()
+		if pwErr != nil {
+			logrus.WithError(pwErr).Fatal("Failed to generate random admin password")
+		}
+
 		now := time.Now().Unix()
 		adminUser := &User{
 			ID:          "admin",
 			Username:    "admin",
-			Password:    "admin", // Will be hashed by SQLiteStore.CreateUser
+			Password:    initialPassword, // Will be hashed by SQLiteStore.CreateUser
 			DisplayName: "Administrator",
 			Email:       "admin@maxiofs.local",
 			Status:      UserStatusActive,
@@ -305,7 +317,8 @@ func NewManager(cfg config.AuthConfig, dataDir string) Manager {
 		if err := store.CreateUser(adminUser); err != nil {
 			logrus.WithError(err).Error("Failed to create default admin user")
 		} else {
-			logrus.Info("✅ Created default admin user (username: admin, password: admin)")
+			logrus.Infof("✅ Created default admin user — username: admin — initial password: %s", initialPassword)
+			logrus.Warn("⚠️  Change the admin password immediately via the web console or API")
 			logrus.Warn("⚠️  Please create S3 access keys through the web console - no default keys are created for security")
 		}
 	}
@@ -402,14 +415,14 @@ func (am *authManager) ValidateCredentials(ctx context.Context, accessKey, secre
 		}, nil
 	}
 
-	// Get access key from database
-	key, err := am.store.GetAccessKey(accessKey)
+	// Get access key from database (SEC-04: GetAccessKey decrypts the stored secret)
+	key, err := am.GetAccessKey(ctx, accessKey)
 	if err != nil {
 		return nil, ErrInvalidCredentials
 	}
 
-	// Validate secret key
-	if key.SecretAccessKey != secretKey {
+	// Validate secret key using constant-time comparison to prevent timing attacks (SEC-01)
+	if subtle.ConstantTimeCompare([]byte(key.SecretAccessKey), []byte(secretKey)) != 1 {
 		return nil, ErrInvalidCredentials
 	}
 
@@ -454,6 +467,13 @@ func (am *authManager) ValidateConsoleCredentials(ctx context.Context, username,
 		return nil, ErrInvalidCredentials
 	}
 
+	// Check user status BEFORE password verification to prevent account enumeration (SEC-02).
+	// Always return ErrInvalidCredentials regardless of the reason so that callers cannot
+	// distinguish between "wrong password" and "account disabled".
+	if user.Status != UserStatusActive {
+		return nil, ErrInvalidCredentials
+	}
+
 	// Reject external users from password-based login
 	if user.AuthProvider != "" && user.AuthProvider != "local" {
 		if strings.HasPrefix(user.AuthProvider, "oauth:") {
@@ -489,15 +509,21 @@ func (am *authManager) ValidateConsoleCredentials(ctx context.Context, username,
 		}
 	}
 
-	// Check user status
-	if user.Status != UserStatusActive {
-		return nil, ErrUserInactive
-	}
-
 	return user, nil
 }
 
-// hashPasswordSHA256 creates a SHA256 hash (legacy - for migration only)
+// generateRandomPassword generates a cryptographically random URL-safe password
+// of 22 characters (16 bytes of entropy). Used for SEC-08: first-run admin password.
+func generateRandomPassword() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// hashPasswordSHA256 creates a SHA256 hash (legacy - for migration only).
+// SEC-07: Do NOT use for new passwords — use bcrypt via SQLiteStore.CreateUser instead.
 func hashPasswordSHA256(password string) string {
 	h := sha256.New()
 	h.Write([]byte(password))
@@ -772,15 +798,20 @@ func (am *authManager) ValidateS3SignatureV2(ctx context.Context, r *http.Reques
 	return user, nil
 }
 
-// CheckPermission checks if user has permission for action on resource
+// CheckPermission checks if user has permission for action on resource.
+// SEC-03: RBAC is a stub. Only the "admin" role is enforced. Fine-grained
+// per-role permissions are not yet implemented.
 func (am *authManager) CheckPermission(ctx context.Context, user *User, action, resource string) error {
-	// TODO: Implement in Fase 1.4 - Authentication Manager
-	// For now, allow all operations for admin users
 	for _, role := range user.Roles {
 		if role == "admin" {
 			return nil
 		}
 	}
+	logrus.WithFields(logrus.Fields{
+		"username": user.Username,
+		"action":   action,
+		"resource": resource,
+	}).Debug("RBAC stub: access denied for non-admin user")
 	return ErrAccessDenied
 }
 
@@ -1047,25 +1078,48 @@ func (am *authManager) GenerateAccessKey(ctx context.Context, userID string) (*A
 		return nil, err
 	}
 
-	// Create access key
-	accessKey := &AccessKey{
+	// SEC-04: encrypt the secret before storing in the database.
+	encryptedSecret, encErr := am.encryptSecret(secretAccessKey)
+	if encErr != nil {
+		return nil, fmt.Errorf("failed to encrypt secret access key: %w", encErr)
+	}
+
+	// Create access key with ENCRYPTED secret for storage.
+	storeKey := &AccessKey{
 		AccessKeyID:     accessKeyID,
-		SecretAccessKey: secretAccessKey,
+		SecretAccessKey: encryptedSecret,
 		UserID:          userID,
 		Status:          AccessKeyStatusActive,
 		CreatedAt:       time.Now().Unix(),
 	}
 
 	// Store in database
-	if err := am.store.CreateAccessKey(accessKey); err != nil {
+	if err := am.store.CreateAccessKey(storeKey); err != nil {
 		return nil, err
 	}
 
-	return accessKey, nil
+	// Return the plaintext secret to the caller (shown only once at creation).
+	return &AccessKey{
+		AccessKeyID:     accessKeyID,
+		SecretAccessKey: secretAccessKey,
+		UserID:          userID,
+		Status:          AccessKeyStatusActive,
+		CreatedAt:       storeKey.CreatedAt,
+	}, nil
 }
 
 func (am *authManager) GetAccessKey(ctx context.Context, accessKeyID string) (*AccessKey, error) {
-	return am.store.GetAccessKey(accessKeyID)
+	key, err := am.store.GetAccessKey(accessKeyID)
+	if err != nil {
+		return nil, err
+	}
+	// SEC-04: decrypt the stored secret before returning.
+	plaintext, decErr := am.decryptSecret(key.SecretAccessKey)
+	if decErr != nil {
+		return nil, fmt.Errorf("failed to decrypt access key secret: %w", decErr)
+	}
+	key.SecretAccessKey = plaintext
+	return key, nil
 }
 
 func (am *authManager) RevokeAccessKey(ctx context.Context, accessKey string) error {
@@ -1414,6 +1468,64 @@ func (am *authManager) generateSecretAccessKey() (string, error) {
 
 	// Use standard base64 encoding (compatible with AWS format)
 	return base64.StdEncoding.EncodeToString(bytes), nil
+}
+
+// deriveStorageKey derives a 32-byte AES-256 key from the JWT secret for
+// encrypting S3 secret access keys at rest. Uses PBKDF2-SHA256 (SEC-04).
+func (am *authManager) deriveStorageKey() []byte {
+	am.jwtSecretMu.RLock()
+	jwtSec := am.config.JWTSecret
+	am.jwtSecretMu.RUnlock()
+	return pbkdf2.Key([]byte(jwtSec), []byte("maxiofs-key-enc-v1"), 310000, 32, sha256.New)
+}
+
+// encryptSecret encrypts a plaintext S3 secret for storage.
+// Storage format: "enc:" + base64url(nonce || AES-256-GCM ciphertext+tag).
+func (am *authManager) encryptSecret(plaintext string) (string, error) {
+	block, err := aes.NewCipher(am.deriveStorageKey())
+	if err != nil {
+		return "", fmt.Errorf("encryptSecret: cipher init: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("encryptSecret: gcm init: %w", err)
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", fmt.Errorf("encryptSecret: nonce: %w", err)
+	}
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return "enc:" + base64.RawURLEncoding.EncodeToString(ciphertext), nil
+}
+
+// decryptSecret decrypts a value produced by encryptSecret.
+// Returns the stored value unchanged when it lacks the "enc:" prefix so that
+// existing plaintext keys continue to work (backward compatibility, SEC-04).
+func (am *authManager) decryptSecret(stored string) (string, error) {
+	if !strings.HasPrefix(stored, "enc:") {
+		return stored, nil // legacy plaintext key — unchanged
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(stored[4:])
+	if err != nil {
+		return "", fmt.Errorf("decryptSecret: base64 decode: %w", err)
+	}
+	block, err := aes.NewCipher(am.deriveStorageKey())
+	if err != nil {
+		return "", fmt.Errorf("decryptSecret: cipher init: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("decryptSecret: gcm init: %w", err)
+	}
+	nonceSize := gcm.NonceSize()
+	if len(raw) < nonceSize {
+		return "", fmt.Errorf("decryptSecret: ciphertext too short")
+	}
+	plaintext, err := gcm.Open(nil, raw[:nonceSize], raw[nonceSize:], nil)
+	if err != nil {
+		return "", fmt.Errorf("decryptSecret: authentication failed — key may be corrupted")
+	}
+	return string(plaintext), nil
 }
 
 // parseBasicToken parses and verifies a JWT token with HMAC-SHA256 signature
@@ -1934,7 +2046,9 @@ func (am *authManager) CheckRateLimit(ip string) bool {
 			am.rateLimiter.UpdateMaxAttempts(max)
 		}
 	}
-	return am.rateLimiter.AllowLogin(ip)
+	// RACE-05: use CheckAndRecord to atomically check + increment under a single
+	// write lock, eliminating the TOCTOU window between AllowLogin and RecordFailedAttempt.
+	return am.rateLimiter.CheckAndRecord(ip)
 }
 
 // IsAccountLocked checks if an account is currently locked
@@ -2072,9 +2186,9 @@ func (am *authManager) RecordFailedLogin(ctx context.Context, userID, ip string)
 	}).Debug("RecordFailedLogin called")
 
 	// Record in rate limiter
-	if ip != "" {
-		am.rateLimiter.RecordFailedAttempt(ip)
-	}
+	// CheckAndRecord (called via CheckRateLimit) already pre-incremented the
+	// counter atomically at the start of the request (RACE-05 fix).
+	// Calling RecordFailedAttempt here would double-count the attempt.
 
 	// Increment failed attempts in database
 	err := am.store.IncrementFailedLoginAttempts(userID)

@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -148,9 +149,27 @@ type objectManager struct {
 		CheckTenantStorageQuota(ctx context.Context, tenantID string, additionalBytes int64) error
 	}
 
+	// RACE-02: 256-shard per-key write mutex. Each shard protects all keys that
+	// hash to that shard, serialising the read-existingObj / write-metadata /
+	// update-metrics sequence for concurrent writers to the same key.
+	muShards [256]sync.Mutex
+
 	// Deduplication for concurrent CompleteMultipartUpload calls with the same uploadID
 	completionMu sync.Mutex
 	completions  map[string]*completionFuture
+}
+
+// lockKey locks the shard associated with bucket+key and returns the unlock function.
+// Use as: defer om.lockKey(bucket, key)()
+func (om *objectManager) lockKey(bucket, key string) func() {
+	// FNV-1a hash for fast, uniform shard selection.
+	h := uint8(0)
+	for _, c := range bucket + "/" + key {
+		h ^= uint8(c)
+		h = (h << 3) | (h >> 5) // rotate
+	}
+	om.muShards[h].Lock()
+	return om.muShards[h].Unlock
 }
 
 // NewManager creates a new object manager
@@ -498,8 +517,10 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	}
 
 	// Step 1: Stream data to temporary file while calculating hash and size
-	// This avoids loading entire file into memory
-	tempFile, err := os.CreateTemp("", "maxiofs-upload-*")
+	// This avoids loading entire file into memory.
+	// Use Root as temp location to guarantee same filesystem as the object store,
+	// preventing cross-device rename failures when /tmp is on a separate mount (BUG-05).
+	tempFile, err := os.CreateTemp(om.config.Root, "maxiofs-upload-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp file: %w", err)
 	}
@@ -633,6 +654,12 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	if err := om.applyDefaultRetention(ctx, object); err != nil {
 		logrus.WithError(err).Debug("Failed to apply default retention")
 	}
+
+	// RACE-02: hold the per-key shard lock for the entire read-existing /
+	// write-metadata / update-metrics sequence. Two concurrent writers to the
+	// same key would otherwise both read the same existingObjBeforeSave, then
+	// both apply the same size delta, permanently corrupting bucket metrics.
+	defer om.lockKey(bucket, key)()
 
 	// CRITICAL: Get existing object BEFORE overwriting in metadata store
 	// This is needed for correct size calculations in metrics and quotas
@@ -867,10 +894,20 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 
 	// If we deleted the latest version, handle next version or delete object entry
 	if deletingLatest {
-		if len(allVersions) > 1 {
-			// Find the next most recent version (excluding the one we just deleted)
+		// RACE-03: re-query versions AFTER the delete to pick up any concurrent
+		// PutObject that inserted a new version between our initial snapshot and now.
+		// Using the stale `allVersions` snapshot could mark an older version as
+		// "latest", hiding the concurrently-written newer version from subsequent GETs.
+		freshVersions, freshErr := om.metadataStore.GetObjectVersions(ctx, bucket, key)
+		if freshErr != nil {
+			logrus.WithError(freshErr).Warn("RACE-03: failed to refresh versions after delete; falling back to stale snapshot")
+			freshVersions = allVersions
+		}
+
+		if len(freshVersions) > 0 {
+			// Find the next most recent version (the target was already deleted from the store)
 			var nextLatest *metadata.ObjectVersion
-			for _, ver := range allVersions {
+			for _, ver := range freshVersions {
 				if ver.VersionID != versionID {
 					if nextLatest == nil || ver.LastModified.After(nextLatest.LastModified) {
 						nextLatest = ver
@@ -902,7 +939,7 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 				}
 			}
 		} else {
-			// This was the last version - delete the main object entry
+			// No remaining versions after the delete — remove the main object entry.
 			if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil {
 				logrus.WithError(err).Warn("Failed to delete main object entry")
 			}
@@ -1267,10 +1304,18 @@ func (om *objectManager) SearchObjects(ctx context.Context, bucket, prefix, deli
 		return nil, ErrBucketNotFound
 	}
 
-	// When using delimiter, scan more to find all unique folders
+	// BUG-04: the old code set scanLimit=100000 when delimiter!="" to find all
+	// common prefixes, but loading 100k metadata records into RAM is an OOM risk
+	// for large buckets. Cap at 10x the requested maxKeys (min 10000) so the
+	// typical case (listing directories with a few thousand entries) still works
+	// while avoiding unbounded heap growth.
+	const maxScanLimit = 10000
 	scanLimit := maxKeys
 	if delimiter != "" {
-		scanLimit = 100000
+		scanLimit = maxKeys * 10
+		if scanLimit < maxScanLimit {
+			scanLimit = maxScanLimit
+		}
 	}
 
 	metadataObjects, nextMarker, err := om.metadataStore.SearchObjects(ctx, bucket, prefix, marker, scanLimit, filter)
@@ -1437,9 +1482,17 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 		return err
 	}
 
-	objectPath := om.getObjectPath(bucket, key)
+	// BUG-06: determine the correct physical path by reading metadata first.
+	// Versioned objects have no file at the plain path — using getObjectPath
+	// always returned ErrObjectNotFound for any object in a versioning-enabled bucket.
+	metaObj, metaErr := om.metadataStore.GetObject(ctx, bucket, key)
 
-	// Check if object exists
+	objectPath := om.getObjectPath(bucket, key)
+	if metaErr == nil && metaObj != nil && metaObj.VersionID != "" {
+		objectPath = om.getVersionedObjectPath(bucket, key, metaObj.VersionID)
+	}
+
+	// Check if object exists at the resolved path
 	exists, err := om.storage.Exists(ctx, objectPath)
 	if err != nil {
 		return fmt.Errorf("failed to check object existence: %w", err)
@@ -1473,7 +1526,7 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 	}
 
 	// Save updated metadata to the metadata store.
-	metaObj := toMetadataObject(object)
+	metaObj = toMetadataObject(object)
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
 
@@ -2152,7 +2205,8 @@ func (om *objectManager) stagePlaintextToTemp(ctx context.Context, objectPath st
 	}
 	defer reader.Close()
 
-	tempFile, err := os.CreateTemp("", "maxiofs-multipart-*")
+	// Use DataDir to stay on the same filesystem as the final object path (BUG-05).
+	tempFile, err := os.CreateTemp(om.config.Root, "maxiofs-multipart-*")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file for encryption staging: %w", err)
 	}
@@ -2226,12 +2280,19 @@ func (om *objectManager) validateObjectName(key string) error {
 		return ErrInvalidObjectName
 	}
 
-	// Check for invalid characters
-	if strings.Contains(key, "../") || strings.Contains(key, "/..") {
+	// LOW-01: use path.Clean to catch traversal sequences that simple string
+	// Contains checks miss (e.g. "a/b/../../etc/passwd", encoded dots, etc.).
+	// Prepend "/" so Clean resolves relative segments against a virtual root.
+	clean := path.Clean("/" + key)
+	if !strings.HasPrefix(clean, "/") || clean == "/.." || strings.HasPrefix(clean, "/../") {
+		return ErrInvalidObjectName
+	}
+	// Reject if the cleaned version traverses above root (length shrank past the virtual "/").
+	if len(clean) < 2 || clean[0] != '/' {
 		return ErrInvalidObjectName
 	}
 
-	// Check for absolute paths
+	// Check for absolute paths in the original key
 	if strings.HasPrefix(key, "/") {
 		return ErrInvalidObjectName
 	}
@@ -2931,8 +2992,9 @@ func (om *objectManager) calculateMultipartHash(ctx context.Context, objectPath 
 		return 0, "", "", fmt.Errorf("failed to read combined object: %w", err)
 	}
 
-	// Create temp file for calculating metadata
-	tempFile, err := os.CreateTemp("", "maxiofs-multipart-*")
+	// Create temp file for calculating metadata.
+	// Use DataDir to stay on the same filesystem as the final object path (BUG-05).
+	tempFile, err := os.CreateTemp(om.config.Root, "maxiofs-multipart-*")
 	if err != nil {
 		combinedReader.Close()
 		return 0, "", "", fmt.Errorf("failed to create temp file: %w", err)

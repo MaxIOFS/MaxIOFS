@@ -86,6 +86,34 @@ func (p *ProxyClient) getHTTPClient() *http.Client {
 	return p.httpClient
 }
 
+// internalClusterHeaders is the set of X-MaxIOFS-* headers that are meaningful
+// only between cluster peers. External clients must never be allowed to inject
+// them. Call StripInternalClusterHeaders on any incoming external request before
+// using it in cluster routing logic. (SEC-05)
+var internalClusterHeaders = []string{
+	"X-MaxIOFS-Proxied",
+	"X-MaxIOFS-Proxy-Node",
+	"X-MaxIOFS-Node-ID",
+	"X-MaxIOFS-Node-Hmac",
+	"X-MaxIOFS-Timestamp",
+	"X-MaxIOFS-Nonce",
+	"X-MaxIOFS-Signature",
+	"X-MaxIOFS-Forwarded-User",
+	"X-MaxIOFS-Forwarded-Tenant",
+	"X-MaxIOFS-Forwarded-Roles",
+}
+
+// StripInternalClusterHeaders removes all X-MaxIOFS-* cluster-internal headers
+// from an incoming HTTP request. Call this for every request that arrives from
+// an external client before any cluster routing logic examines the headers.
+// This prevents external clients from spoofing loop-prevention or identity
+// headers (SEC-05).
+func StripInternalClusterHeaders(r *http.Request) {
+	for _, h := range internalClusterHeaders {
+		r.Header.Del(h)
+	}
+}
+
 // ProxyRequest proxies an HTTP request to a remote node.
 // If the incoming request already carries the X-MaxIOFS-Proxied header, the call is rejected
 // to prevent infinite proxy loops (A→B→A→...).
@@ -106,16 +134,13 @@ func (p *ProxyClient) ProxyRequest(ctx context.Context, node *Node, originalReq 
 		"method":      originalReq.Method,
 	}).Debug("Proxying request to remote node")
 
-	// Buffer the original request body so it can be read by the proxy request
-	// (originalReq.Body is single-read; if already consumed upstream, it would be empty)
+	// BUG-03: pass originalReq.Body directly to the outgoing request rather than
+	// buffering it with io.ReadAll. Buffering a 10 GB PUT would allocate 10 GB on
+	// the heap. The body has not been read by any upstream handler at this point.
 	var bodyReader io.Reader
 	if originalReq.Body != nil {
-		bodyBytes, err := io.ReadAll(originalReq.Body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read request body: %w", err)
-		}
-		originalReq.Body.Close()
-		bodyReader = bytes.NewReader(bodyBytes)
+		defer originalReq.Body.Close()
+		bodyReader = originalReq.Body
 	}
 
 	// Create new request to remote node
@@ -442,15 +467,11 @@ func (p *ProxyClient) ProxyToNodeAPIURL(ctx context.Context, node *Node, origina
 		"method":      originalReq.Method,
 	}).Debug("Proxying S3 request to remote node S3 API")
 
-	// Buffer request body
+	// BUG-03: pass originalReq.Body directly — avoids allocating entire body in RAM.
 	var bodyReader io.Reader
 	if originalReq.Body != nil {
-		bodyBytes, err := io.ReadAll(originalReq.Body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read request body: %w", err)
-		}
-		originalReq.Body.Close()
-		bodyReader = bytes.NewReader(bodyBytes)
+		defer originalReq.Body.Close()
+		bodyReader = originalReq.Body
 	}
 
 	proxyReq, err := http.NewRequestWithContext(ctx, originalReq.Method, targetURL, bodyReader)

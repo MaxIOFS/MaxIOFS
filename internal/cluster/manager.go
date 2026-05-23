@@ -704,6 +704,8 @@ func (m *Manager) SelectReadNodes(ctx context.Context, bucket string) ([]*Node, 
 // client.
 func (m *Manager) ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *Node) error {
 	client := NewProxyClient(m.GetTLSConfig())
+	// SEC-05: strip internal cluster headers so external clients cannot spoof them.
+	StripInternalClusterHeaders(r)
 	resp, err := client.ProxyRequest(ctx, node, r)
 	if err != nil {
 		return err
@@ -723,6 +725,8 @@ func (m *Manager) ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.
 // committed to the wire and we cannot retry.
 func (m *Manager) TryProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *Node) (served bool, err error) {
 	client := NewProxyClient(m.GetTLSConfig())
+	// SEC-05: strip internal cluster headers so external clients cannot spoof them.
+	StripInternalClusterHeaders(r)
 	resp, err := client.ProxyRequest(ctx, node, r)
 	if err != nil {
 		m.markNodeUnavailable(ctx, node.ID, "read proxy transport error")

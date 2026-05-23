@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"golang.org/x/crypto/pbkdf2"
 )
 
 // EncryptionConfig holds encryption configuration
@@ -364,14 +366,15 @@ func (e *aesGCMEncryptor) GenerateKey() ([]byte, error) {
 	return key, nil
 }
 
-// DeriveKey derives a key from password using SHA-256
+// DeriveKey derives a 256-bit AES key from password and salt using PBKDF2-SHA256.
+// SEC-06: 310,000 iterations (OWASP 2023 minimum for PBKDF2-SHA256).
+// The caller is responsible for providing a unique, random salt per usage context.
 func (e *aesGCMEncryptor) DeriveKey(password, salt []byte) []byte {
-	// Simple key derivation using SHA-256
-	// In production, you'd want to use PBKDF2, scrypt, or Argon2
-	hash := sha256.New()
-	hash.Write(password)
-	hash.Write(salt)
-	return hash.Sum(nil)
+	iterations := e.config.KeyDerivationRounds
+	if iterations < 310000 {
+		iterations = 310000 // enforce minimum regardless of config
+	}
+	return pbkdf2.Key(password, salt, iterations, 32, sha256.New)
 }
 
 // inMemoryKeyManager implements KeyManager using in-memory storage

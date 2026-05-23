@@ -38,9 +38,6 @@ func (w *Worker) Start(ctx context.Context, interval time.Duration) {
 
 	logrus.WithField("interval", interval).Info("Lifecycle worker started")
 
-	// Run immediately on start
-	go w.processLifecyclePolicies(ctx)
-
 	go func() {
 		for {
 			select {
