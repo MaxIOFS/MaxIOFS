@@ -21,13 +21,16 @@ func ConsoleHeaders() func(http.Handler) http.Handler {
 			h.Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 			h.Set("Pragma", "no-cache")
 			h.Set("X-Accel-Expires", "0")
+			// NEW-02: HSTS on the console endpoint (S3Headers already sets it for the API)
+			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 			h.Set("X-Frame-Options", "SAMEORIGIN")
 			h.Set("X-Content-Type-Options", "nosniff")
 			h.Set("X-Xss-Protection", "1; mode=block")
 			h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 			h.Set("Content-Security-Policy",
 				"default-src 'self'; "+
-					"script-src 'self' 'unsafe-inline' 'unsafe-eval'; "+
+					// NEW-01: 'unsafe-eval' removed — Vite/React production builds never use eval()
+					"script-src 'self' 'unsafe-inline'; "+
 					"style-src 'self' 'unsafe-inline'; "+
 					"img-src 'self' data: blob:; "+
 					"font-src 'self' data:; "+

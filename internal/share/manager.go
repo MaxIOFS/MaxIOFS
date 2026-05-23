@@ -66,8 +66,14 @@ func (m *ShareManager) CreateShare(ctx context.Context, bucketName, objectKey, t
 		expiresAt = &expiry
 	}
 
+	// Generate unique share ID
+	shareID, err := generateID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate share ID: %w", err)
+	}
+
 	share := &Share{
-		ID:          generateID(),
+		ID:          shareID,
 		BucketName:  bucketName,
 		ObjectKey:   objectKey,
 		TenantID:    tenantID,
@@ -149,8 +155,11 @@ func generateShareToken() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-func generateID() string {
+// NEW-03: return error so a rand.Read failure is not silently swallowed.
+func generateID() (string, error) {
 	bytes := make([]byte, 16)
-	rand.Read(bytes)
-	return hex.EncodeToString(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
 }

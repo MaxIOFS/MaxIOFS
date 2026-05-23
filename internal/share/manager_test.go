@@ -316,11 +316,13 @@ func TestGenerateShareToken(t *testing.T) {
 }
 
 func TestGenerateID(t *testing.T) {
-	id1 := generateID()
+	id1, err := generateID()
+	require.NoError(t, err)
 	assert.NotEmpty(t, id1)
 	assert.Len(t, id1, 32) // 16 bytes = 32 hex chars
 
-	id2 := generateID()
+	id2, err := generateID()
+	require.NoError(t, err)
 	assert.NotEmpty(t, id2)
 	assert.NotEqual(t, id1, id2)
 }

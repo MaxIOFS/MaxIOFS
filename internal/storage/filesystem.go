@@ -24,7 +24,9 @@ type FilesystemBackend struct {
 // NewFilesystemBackend creates a new filesystem storage backend
 func NewFilesystemBackend(config Config) (*FilesystemBackend, error) {
 	// Ensure root path exists
-	if err := os.MkdirAll(config.Root, 0755); err != nil {
+	// NEW-04: use 0750 so only the process owner/group can read object data,
+	// preventing other local OS users from bypassing S3 access controls.
+	if err := os.MkdirAll(config.Root, 0750); err != nil {
 		return nil, NewErrorWithCause("CreateRootDir", "Failed to create root directory", err)
 	}
 
@@ -80,7 +82,7 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 		}
 
 		// Now create the directory
-		if err := os.MkdirAll(fullPath, 0755); err != nil {
+		if err := os.MkdirAll(fullPath, 0750); err != nil {
 			return NewErrorWithCause("CreateDirectory", "Failed to create directory marker", err)
 		}
 
@@ -105,7 +107,7 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(fullPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return NewErrorWithCause("CreateDirectory", "Failed to create directory", err)
 	}
 
@@ -503,7 +505,7 @@ func (fs *FilesystemBackend) prepareMetadataTemp(path string, metadata map[strin
 
 	// Create directory for metadata file
 	dir := filepath.Dir(metadataPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return "", NewErrorWithCause("CreateMetadataDirectory", "Failed to create metadata directory", err)
 	}
 

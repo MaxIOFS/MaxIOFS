@@ -699,6 +699,12 @@ func (am *authManager) ValidateRefreshToken(ctx context.Context, token string) (
 		return nil, err
 	}
 
+	// NEW-05: reject refresh tokens for deactivated/suspended users so that
+	// disabling an account immediately prevents session renewal.
+	if user.Status != UserStatusActive {
+		return nil, ErrInvalidToken
+	}
+
 	return user, nil
 }
 
