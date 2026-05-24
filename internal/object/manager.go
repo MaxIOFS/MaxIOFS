@@ -14,7 +14,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -2280,21 +2279,17 @@ func (om *objectManager) validateObjectName(key string) error {
 		return ErrInvalidObjectName
 	}
 
-	// LOW-01: use path.Clean to catch traversal sequences that simple string
-	// Contains checks miss (e.g. "a/b/../../etc/passwd", encoded dots, etc.).
-	// Prepend "/" so Clean resolves relative segments against a virtual root.
-	clean := path.Clean("/" + key)
-	if !strings.HasPrefix(clean, "/") || clean == "/.." || strings.HasPrefix(clean, "/../") {
-		return ErrInvalidObjectName
-	}
-	// Reject if the cleaned version traverses above root (length shrank past the virtual "/").
-	if len(clean) < 2 || clean[0] != '/' {
+	// Reject absolute paths
+	if strings.HasPrefix(key, "/") {
 		return ErrInvalidObjectName
 	}
 
-	// Check for absolute paths in the original key
-	if strings.HasPrefix(key, "/") {
-		return ErrInvalidObjectName
+	// LOW-01: reject any path segment that is ".." to prevent directory traversal.
+	// path.Clean is NOT used here because it resolves traversal instead of detecting it.
+	for _, segment := range strings.Split(key, "/") {
+		if segment == ".." {
+			return ErrInvalidObjectName
+		}
 	}
 
 	// Check maximum length (1024 characters for S3)

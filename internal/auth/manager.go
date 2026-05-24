@@ -295,17 +295,11 @@ func NewManager(cfg config.AuthConfig, dataDir string) Manager {
 	// Create default admin user if not exists (without access keys)
 	_, err = store.GetUserByUsername("admin")
 	if err != nil {
-		// SEC-08: Generate a random initial password instead of the hardcoded "admin".
-		initialPassword, pwErr := generateRandomPassword()
-		if pwErr != nil {
-			logrus.WithError(pwErr).Fatal("Failed to generate random admin password")
-		}
-
 		now := time.Now().Unix()
 		adminUser := &User{
 			ID:          "admin",
 			Username:    "admin",
-			Password:    initialPassword, // Will be hashed by SQLiteStore.CreateUser
+			Password:    "admin",
 			DisplayName: "Administrator",
 			Email:       "admin@maxiofs.local",
 			Status:      UserStatusActive,
@@ -317,9 +311,8 @@ func NewManager(cfg config.AuthConfig, dataDir string) Manager {
 		if err := store.CreateUser(adminUser); err != nil {
 			logrus.WithError(err).Error("Failed to create default admin user")
 		} else {
-			logrus.Infof("✅ Created default admin user — username: admin — initial password: %s", initialPassword)
+			logrus.Info("✅ Created default admin user — username: admin / password: admin")
 			logrus.Warn("⚠️  Change the admin password immediately via the web console or API")
-			logrus.Warn("⚠️  Please create S3 access keys through the web console - no default keys are created for security")
 		}
 	}
 
@@ -510,16 +503,6 @@ func (am *authManager) ValidateConsoleCredentials(ctx context.Context, username,
 	}
 
 	return user, nil
-}
-
-// generateRandomPassword generates a cryptographically random URL-safe password
-// of 22 characters (16 bytes of entropy). Used for SEC-08: first-run admin password.
-func generateRandomPassword() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // hashPasswordSHA256 creates a SHA256 hash (legacy - for migration only).
@@ -750,6 +733,13 @@ func (am *authManager) ValidateS3SignatureV4(ctx context.Context, r *http.Reques
 		return nil, ErrInvalidCredentials
 	}
 
+	// SEC-04: decrypt the stored secret before HMAC verification.
+	plainSecret, decErr := am.decryptSecret(accessKey.SecretAccessKey)
+	if decErr != nil {
+		return nil, fmt.Errorf("failed to decrypt access key secret: %w", decErr)
+	}
+	accessKey.SecretAccessKey = plainSecret
+
 	// Get user associated with this key
 	user, err := am.store.GetUserByID(accessKey.UserID)
 	if err != nil {
@@ -786,6 +776,13 @@ func (am *authManager) ValidateS3SignatureV2(ctx context.Context, r *http.Reques
 	if err != nil {
 		return nil, ErrInvalidCredentials
 	}
+
+	// SEC-04: decrypt the stored secret before HMAC verification.
+	plainSecret, decErr := am.decryptSecret(accessKey.SecretAccessKey)
+	if decErr != nil {
+		return nil, fmt.Errorf("failed to decrypt access key secret: %w", decErr)
+	}
+	accessKey.SecretAccessKey = plainSecret
 
 	// Get user associated with this key
 	user, err := am.store.GetUserByID(accessKey.UserID)
